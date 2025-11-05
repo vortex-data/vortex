@@ -12,16 +12,12 @@ use crate::{SequenceArray, SequenceVTable};
 impl IsSortedKernel for SequenceVTable {
     fn is_sorted(&self, array: &SequenceArray) -> VortexResult<Option<bool>> {
         let m = array.multiplier();
-        match_each_native_ptype!(m.ptype(), |P| {
-            Ok(Some(m.as_primitive::<P>() >= zero::<P>()))
-        })
+        match_each_native_ptype!(m.ptype(), |P| { Ok(Some(m.cast::<P>() >= zero::<P>())) })
     }
 
     fn is_strict_sorted(&self, array: &SequenceArray) -> VortexResult<Option<bool>> {
         let m = array.multiplier();
-        match_each_native_ptype!(m.ptype(), |P| {
-            Ok(Some(m.as_primitive::<P>() > zero::<P>()))
-        })
+        match_each_native_ptype!(m.ptype(), |P| { Ok(Some(m.cast::<P>() > zero::<P>())) })
     }
 }
 

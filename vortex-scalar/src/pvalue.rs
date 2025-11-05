@@ -5,7 +5,7 @@ use core::fmt::Display;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 
-use num_traits::NumCast;
+use num_traits::{NumCast, ToPrimitive};
 use paste::paste;
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType, ToBytes};
@@ -122,19 +122,7 @@ macro_rules! as_primitive {
         paste! {
             #[doc = "Access PValue as `" $T "`, returning `None` if conversion is unsuccessful"]
             pub fn [<as_ $T>](self) -> Option<$T> {
-                match self {
-                    PValue::U8(v) => <$T as NumCast>::from(v),
-                    PValue::U16(v) => <$T as NumCast>::from(v),
-                    PValue::U32(v) => <$T as NumCast>::from(v),
-                    PValue::U64(v) => <$T as NumCast>::from(v),
-                    PValue::I8(v) => <$T as NumCast>::from(v),
-                    PValue::I16(v) => <$T as NumCast>::from(v),
-                    PValue::I32(v) => <$T as NumCast>::from(v),
-                    PValue::I64(v) => <$T as NumCast>::from(v),
-                    PValue::F16(v) => <$T as NumCast>::from(v),
-                    PValue::F32(v) => <$T as NumCast>::from(v),
-                    PValue::F64(v) => <$T as NumCast>::from(v),
-                }
+                <$T>::try_from(self).ok()
             }
         }
     };
@@ -152,7 +140,7 @@ impl PValue {
             PType::I16 => PValue::I16(0),
             PType::I32 => PValue::I32(0),
             PType::I64 => PValue::I64(0),
-            PType::F16 => PValue::F16(f16::from_f32(0.0)),
+            PType::F16 => PValue::F16(f16::ZERO),
             PType::F32 => PValue::F32(0.0),
             PType::F64 => PValue::F64(0.0),
         }
@@ -184,15 +172,15 @@ impl PValue {
     ///
     /// Panics if the conversion is not supported or would overflow.
     #[inline]
-    pub fn as_primitive<T: NativePType>(&self) -> T {
-        self.as_primitive_opt::<T>().vortex_expect("as_primitive")
+    pub fn cast<T: NativePType>(&self) -> T {
+        self.cast_opt::<T>().vortex_expect("as_primitive")
     }
 
     /// Converts this value to a specific native primitive type.
     ///
     /// Returns `None` if the conversion is not supported or would overflow.
     #[inline]
-    pub fn as_primitive_opt<T: NativePType>(&self) -> Option<T> {
+    pub fn cast_opt<T: NativePType>(&self) -> Option<T> {
         match *self {
             PValue::U8(u) => T::from_u8(u),
             PValue::U16(u) => T::from_u16(u),
@@ -297,16 +285,17 @@ macro_rules! int_pvalue {
 
             fn try_from(value: PValue) -> Result<Self, Self::Error> {
                 match value {
-                    PValue::U8(v) => <$T as NumCast>::from(v),
-                    PValue::U16(v) => <$T as NumCast>::from(v),
-                    PValue::U32(v) => <$T as NumCast>::from(v),
-                    PValue::U64(v) => <$T as NumCast>::from(v),
-                    PValue::I8(v) => <$T as NumCast>::from(v),
-                    PValue::I16(v) => <$T as NumCast>::from(v),
-                    PValue::I32(v) => <$T as NumCast>::from(v),
-                    PValue::I64(v) => <$T as NumCast>::from(v),
+                    PValue::U8(_)
+                    | PValue::U16(_)
+                    | PValue::U32(_)
+                    | PValue::U64(_)
+                    | PValue::I8(_)
+                    | PValue::I16(_)
+                    | PValue::I32(_)
+                    | PValue::I64(_) => Some(value),
                     _ => None,
                 }
+                .and_then(|v| PValue::cast_opt(&v))
                 .ok_or_else(|| {
                     vortex_err!("Cannot read primitive value {:?} as {}", value, PType::$PT)
                 })
@@ -321,20 +310,7 @@ macro_rules! float_pvalue {
             type Error = VortexError;
 
             fn try_from(value: PValue) -> Result<Self, Self::Error> {
-                match value {
-                    PValue::U8(u) => <Self as NumCast>::from(u),
-                    PValue::U16(u) => <Self as NumCast>::from(u),
-                    PValue::U32(u) => <Self as NumCast>::from(u),
-                    PValue::U64(u) => <Self as NumCast>::from(u),
-                    PValue::I8(i) => <Self as NumCast>::from(i),
-                    PValue::I16(i) => <Self as NumCast>::from(i),
-                    PValue::I32(i) => <Self as NumCast>::from(i),
-                    PValue::I64(i) => <Self as NumCast>::from(i),
-                    PValue::F16(f) => <Self as NumCast>::from(f),
-                    PValue::F32(f) => <Self as NumCast>::from(f),
-                    PValue::F64(f) => <Self as NumCast>::from(f),
-                }
-                .ok_or_else(|| {
+                value.cast_opt().ok_or_else(|| {
                     vortex_err!("Cannot read primitive value {:?} as {}", value, PType::$PT)
                 })
             }
@@ -342,11 +318,21 @@ macro_rules! float_pvalue {
     };
 }
 
+impl TryFrom<PValue> for usize {
+    type Error = VortexError;
+
+    fn try_from(value: PValue) -> Result<Self, Self::Error> {
+        value
+            .cast_opt::<u64>()
+            .and_then(|v| v.to_usize())
+            .ok_or_else(|| vortex_err!("Cannot read primitive value {:?} as usize", value))
+    }
+}
+
 int_pvalue!(u8, U8);
 int_pvalue!(u16, U16);
 int_pvalue!(u32, U32);
 int_pvalue!(u64, U64);
-int_pvalue!(usize, U64);
 int_pvalue!(i8, I8);
 int_pvalue!(i16, I16);
 int_pvalue!(i32, I32);
@@ -532,8 +518,9 @@ mod test {
     use std::cmp::Ordering;
     use std::collections::HashSet;
 
+    use num_traits::FromPrimitive;
     use vortex_dtype::half::f16;
-    use vortex_dtype::{FromPrimitiveOrF16, NativePType, PType, ToBytes};
+    use vortex_dtype::{FromPrimitiveOrF16, PType, ToBytes};
 
     use crate::PValue;
     use crate::pvalue::CoercePValue;
@@ -915,10 +902,9 @@ mod test {
 
     #[test]
     fn test_f16_nans_equal() {
-        let nan = f16::NAN;
-        let nan2 = f16::from_le_bytes([154, 253]);
-        assert!(nan2.is_nan());
-        let nan3 = f16::from_f16(nan2).unwrap();
-        assert_eq!(nan2.to_bits(), nan3.to_bits(),);
+        let nan1 = f16::from_le_bytes([154, 253]);
+        assert!(nan1.is_nan());
+        let nan3 = f16::from_f16(nan1).unwrap();
+        assert_eq!(nan1.to_bits(), nan3.to_bits(),);
     }
 }

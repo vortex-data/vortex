@@ -24,15 +24,15 @@ impl OperatorVTable<SequenceVTable> for SequenceVTable {
         let selection = ctx.bind_selection(array.len(), selection)?;
 
         Ok(match_each_native_ptype!(array.ptype(), |T| {
-            if array.multiplier().as_primitive::<T>() == <T as One>::one() {
+            if array.multiplier().cast::<T>() == <T as One>::one() {
                 Box::new(SequenceKernel::<T> {
-                    base: array.base().as_primitive::<T>(),
+                    base: array.base().cast::<T>(),
                     selection,
                 })
             } else {
                 Box::new(MultiplierSequenceKernel::<T> {
-                    base: array.base().as_primitive::<T>(),
-                    multiplier: array.multiplier().as_primitive::<T>(),
+                    base: array.base().cast::<T>(),
+                    multiplier: array.multiplier().cast::<T>(),
                     selection,
                 })
             }

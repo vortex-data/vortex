@@ -118,8 +118,8 @@ impl SequenceArray {
             let len_t = <P>::from_usize(length - 1)
                 .ok_or_else(|| vortex_err!("cannot convert length {} into {}", length, ptype))?;
 
-            let base = base.as_primitive::<P>();
-            let multiplier = multiplier.as_primitive::<P>();
+            let base = base.cast::<P>();
+            let multiplier = multiplier.cast::<P>();
 
             let last = len_t
                 .checked_mul(multiplier)
@@ -133,8 +133,8 @@ impl SequenceArray {
         assert!(idx < self.length, "index_value({idx}): index out of bounds");
 
         match_each_native_ptype!(self.ptype(), |P| {
-            let base = self.base.as_primitive::<P>();
-            let multiplier = self.multiplier.as_primitive::<P>();
+            let base = self.base.cast::<P>();
+            let multiplier = self.multiplier.cast::<P>();
             let value = base + (multiplier * <P>::from_usize(idx).vortex_expect("must fit"));
 
             PValue::from(value)
@@ -206,8 +206,8 @@ impl ArrayVTable<SequenceVTable> for SequenceVTable {
 impl CanonicalVTable<SequenceVTable> for SequenceVTable {
     fn canonicalize(array: &SequenceArray) -> Canonical {
         let prim = match_each_native_ptype!(array.ptype(), |P| {
-            let base = array.base().as_primitive::<P>();
-            let multiplier = array.multiplier().as_primitive::<P>();
+            let base = array.base().cast::<P>();
+            let multiplier = array.multiplier().cast::<P>();
             let values = BufferMut::from_iter(
                 (0..array.len())
                     .map(|i| base + <P>::from_usize(i).vortex_expect("must fit") * multiplier),

@@ -16,8 +16,8 @@ impl FilterKernel for SequenceVTable {
     fn filter(&self, array: &SequenceArray, selection_mask: &Mask) -> VortexResult<ArrayRef> {
         let validity = Validity::from(array.dtype().nullability());
         match_each_native_ptype!(array.ptype(), |P| {
-            let mul = array.multiplier().as_primitive::<P>();
-            let base = array.base().as_primitive::<P>();
+            let mul = array.multiplier().cast::<P>();
+            let base = array.base().cast::<P>();
             Ok(filter_impl(mul, base, selection_mask, validity))
         })
     }

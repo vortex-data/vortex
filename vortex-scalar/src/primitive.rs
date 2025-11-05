@@ -115,7 +115,7 @@ impl<'a> PrimitiveScalar<'a> {
             T::PTYPE
         );
 
-        self.pvalue.map(|pv| pv.as_primitive::<T>())
+        self.pvalue.map(|pv| pv.cast::<T>())
     }
 
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
@@ -126,7 +126,7 @@ impl<'a> PrimitiveScalar<'a> {
         Ok(match_each_native_ptype!(ptype, |Q| {
             Scalar::primitive(
                 pvalue
-                    .as_primitive_opt::<Q>()
+                    .cast_opt::<Q>()
                     .ok_or_else(|| vortex_err!("Cannot cast {} to {}", self.ptype, dtype))?,
                 dtype.nullability(),
             )
