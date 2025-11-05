@@ -300,7 +300,8 @@ impl MaskMut {
 }
 
 impl Mask {
-    /// Attempts to convert an immutable mask into a mutable one.
+    /// Attempts to convert an immutable mask into a mutable one, returning an error of `Self` if
+    /// the underlying [`BitBuffer`](crate::BitBuffer) data if there are any other references.
     pub fn try_into_mut(self) -> Result<MaskMut, Self> {
         match self {
             Mask::AllTrue(len) => Ok(MaskMut::new_true(len)),
@@ -313,6 +314,29 @@ impl Mask {
                 let mut_buffer = bit_buffer.try_into_mut().map_err(Mask::from_buffer)?;
 
                 Ok(MaskMut(Inner::Builder(mut_buffer)))
+            }
+        }
+    }
+
+    /// Convert an immutable mask into a mutable one, cloning the underlying
+    /// [`BitBuffer`](crate::BitBuffer) data if there are any other references.
+    pub fn into_mut(self) -> MaskMut {
+        match self {
+            Mask::AllTrue(len) => MaskMut::new_true(len),
+            Mask::AllFalse(len) => MaskMut::new_false(len),
+            Mask::Values(values) => {
+                let bit_buffer_mut = match Arc::try_unwrap(values) {
+                    Ok(mask_values) => {
+                        let bit_buffer = mask_values.into_buffer();
+                        bit_buffer.into_mut()
+                    }
+                    Err(arc_mask_values) => {
+                        let bit_buffer = arc_mask_values.bit_buffer();
+                        BitBufferMut::copy_from(bit_buffer)
+                    }
+                };
+
+                MaskMut(Inner::Builder(bit_buffer_mut))
             }
         }
     }
