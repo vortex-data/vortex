@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::Buffer;
+use std::sync::Arc;
+
+use vortex_buffer::ByteBuffer;
 use vortex_compute::filter::Filter;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_vector::Vector;
-use vortex_vector::binaryview::{BinaryVector, BinaryView, BinaryViewTypeUpcast, StringVector};
+use vortex_vector::binaryview::{BinaryVector, BinaryViewTypeUpcast, StringVector};
 
 use crate::ArrayRef;
 use crate::arrays::{VarBinViewArray, VarBinViewVTable};
@@ -24,7 +26,8 @@ impl OperatorVTable<VarBinViewVTable> for VarBinViewVTable {
         let dtype = array.dtype().clone();
 
         let views = array.views().clone();
-        let buffers = array.buffers().clone();
+        let buffers: Vec<ByteBuffer> = array.buffers().iter().cloned().collect();
+        let buffers = Arc::new(buffers.into_boxed_slice());
 
         Ok(kernel(move || {
             let selection = mask.execute()?;
@@ -32,7 +35,6 @@ impl OperatorVTable<VarBinViewVTable> for VarBinViewVTable {
 
             // We only filter the views buffer
             let views = views.filter(&selection);
-            let views = Buffer::<BinaryView>::from_byte_buffer(views.into_byte_buffer());
 
             match dtype {
                 // SAFETY: the incoming array has the same validation as the vector

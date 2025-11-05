@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use itertools::Itertools as _;
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::binary_view::BinaryView;
 use vortex_array::arrays::{ConstantArray, PrimitiveArray, VarBinViewArray};
 use vortex_array::compute::filter;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
@@ -26,6 +25,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
+use vortex_vector::binaryview::BinaryView;
 
 use crate::serde::{ZstdFrameMetadata, ZstdMetadata};
 

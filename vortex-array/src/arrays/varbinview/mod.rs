@@ -7,8 +7,6 @@ pub use array::VarBinViewArray;
 mod accessor;
 pub(crate) mod compact;
 
-pub mod binary_view;
-
 mod compute;
 
 mod vtable;

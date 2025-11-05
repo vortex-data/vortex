@@ -7,8 +7,8 @@ use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
+use vortex_vector::binaryview::BinaryView;
 
-use crate::arrays::binary_view::BinaryView;
 use crate::arrays::{VarBinViewArray, VarBinViewVTable};
 use crate::compute::{TakeKernel, TakeKernelAdapter};
 use crate::vtable::ValidityHelper;

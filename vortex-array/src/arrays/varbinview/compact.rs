@@ -93,7 +93,7 @@ impl VarBinViewArray {
             }
             let view = view.as_view();
 
-            utilizations[view.buffer_index() as usize].add(view.offset(), view.size)
+            utilizations[view.buffer_index as usize].add(view.offset, view.size)
         }
 
         utilizations

@@ -117,7 +117,7 @@ impl<V: BinaryViewType> BatchKernel for VarBinKernel<V> {
             Ok(Vector::from(unsafe {
                 BinaryViewVector::<V>::new_unchecked(
                     views,
-                    Arc::new([self.bytes.clone()]),
+                    Arc::new(Box::new([self.bytes.clone()])),
                     validity,
                 )
             }))

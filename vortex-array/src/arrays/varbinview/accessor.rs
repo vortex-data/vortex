@@ -29,8 +29,7 @@ impl ArrayAccessor<[u8]> for VarBinViewArray {
                         Some(view.as_inlined().value())
                     } else {
                         Some(
-                            &bytes[view.as_view().buffer_index() as usize]
-                                [view.as_view().as_range()],
+                            &bytes[view.as_view().buffer_index as usize][view.as_view().as_range()],
                         )
                     }
                 });
@@ -48,7 +47,7 @@ impl ArrayAccessor<[u8]> for VarBinViewArray {
                                 Some(view.as_inlined().value())
                             } else {
                                 Some(
-                                    &bytes[view.as_view().buffer_index() as usize]
+                                    &bytes[view.as_view().buffer_index as usize]
                                         [view.as_view().as_range()],
                                 )
                             }
