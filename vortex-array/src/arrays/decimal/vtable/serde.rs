@@ -4,9 +4,9 @@
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 #[cfg(test)]
 use vortex_dtype::DecimalDType;
-use vortex_dtype::{DType, NativeDecimalType};
+use vortex_dtype::{DType, NativeDecimalType, match_each_decimal_value_type};
 use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
-use vortex_scalar::{DecimalType, match_each_decimal_value_type};
+use vortex_scalar::DecimalType;
 
 use super::{DecimalArray, DecimalEncoding};
 use crate::ProstMetadata;

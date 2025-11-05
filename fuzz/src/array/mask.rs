@@ -11,10 +11,9 @@ use vortex_array::arrays::{
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, Canonical, IntoArray, ToCanonical};
-use vortex_dtype::ExtDType;
+use vortex_dtype::{ExtDType, match_each_decimal_value_type};
 use vortex_error::{VortexResult, VortexUnwrap};
 use vortex_mask::{AllOr, Mask};
-use vortex_scalar::match_each_decimal_value_type;
 
 /// Apply mask on the canonical form of the array to get a consistent baseline.
 /// This implementation manually applies the mask to each canonical type

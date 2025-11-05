@@ -8,10 +8,12 @@ use std::fmt;
 use std::hash::Hash;
 
 use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub};
-use vortex_dtype::{DType, DecimalDType, NativeDecimalType, Nullability, ToI256, i256};
+use vortex_dtype::{
+    DType, DecimalDType, NativeDecimalType, Nullability, ToI256, i256, match_each_decimal_value,
+};
 use vortex_error::{VortexError, VortexExpect, vortex_err};
 
-use crate::{DecimalScalar, InnerScalarValue, Scalar, ScalarValue, match_each_decimal_value};
+use crate::{DecimalScalar, InnerScalarValue, Scalar, ScalarValue};
 
 impl Scalar {
     /// Creates a new decimal scalar with the given value, precision, scale, and nullability.

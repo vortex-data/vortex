@@ -2,10 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_dtype::{DType, NativeDecimalType};
+use vortex_dtype::{DType, NativeDecimalType, match_each_decimal_value_type};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::{DecimalValue, Scalar, ScalarValue, match_each_decimal_value_type};
+use vortex_scalar::{DecimalValue, Scalar, ScalarValue};
 
 use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};

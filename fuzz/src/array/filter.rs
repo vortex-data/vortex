@@ -6,9 +6,8 @@ use vortex_array::arrays::{BoolArray, DecimalArray, PrimitiveArray, StructArray,
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::{BitBuffer, Buffer};
-use vortex_dtype::{DType, match_each_native_ptype};
+use vortex_dtype::{DType, match_each_decimal_value_type, match_each_native_ptype};
 use vortex_error::VortexResult;
-use vortex_scalar::match_each_decimal_value_type;
 
 use crate::array::take_canonical_array_non_nullable_indices;
 
