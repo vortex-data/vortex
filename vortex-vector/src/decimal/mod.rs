@@ -21,7 +21,7 @@
 //!
 //! // Create a decimal vector with precision=9, scale=2 (e.g., up to 9999999.99).
 //! let ps = PrecisionScale::<i32>::new(9, 2);
-//! let mut vec = DVectorMut::<i32>::with_capacity(&decimal_dtype, 5);
+//! let mut vec = DVectorMut::<i32>::with_capacity(ps, 5);
 //! assert_eq!(vec.len(), 0);
 //! assert!(vec.capacity() >= 5);
 //!
@@ -40,8 +40,7 @@
 //! use vortex_mask::MaskMut;
 //! let elements = BufferMut::from_iter([100_i32, 200, 300]);  // 1.00, 2.00, 3.00.
 //! let validity = MaskMut::new_true(3);
-//! let ps = PrecisionScale::<i32>::try_from(&decimal_dtype).unwrap();
-//! let decimal_vec = DVectorMut::new(ps, elements, validity);
+//! let decimal_vec = DVectorMut::<i32>::new(ps, elements, validity);
 //! assert_eq!(decimal_vec.len(), 3);
 //! ```
 //!
