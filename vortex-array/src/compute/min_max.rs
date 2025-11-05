@@ -111,8 +111,8 @@ impl ComputeFnVTable for MinMax {
             StructFields::new(
                 ["min", "max"].into(),
                 vec![
-                    array.dtype().as_nonnullable().clone(),
-                    array.dtype().as_nonnullable().clone(),
+                    array.dtype().as_nonnullable(),
+                    array.dtype().as_nonnullable(),
                 ],
             ),
             Nullability::Nullable,
