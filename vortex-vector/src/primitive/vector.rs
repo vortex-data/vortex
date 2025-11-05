@@ -75,10 +75,7 @@ impl VectorOps for PrimitiveVector {
         match_each_pvector!(self, |v| { v.validity() })
     }
 
-    fn try_into_mut(self) -> Result<PrimitiveVectorMut, Self>
-    where
-        Self: Sized,
-    {
+    fn try_into_mut(self) -> Result<PrimitiveVectorMut, Self> {
         match_each_pvector!(self, |v| {
             v.try_into_mut()
                 .map(PrimitiveVectorMut::from)

@@ -44,10 +44,7 @@ impl VectorOps for NullVector {
         &self.validity
     }
 
-    fn try_into_mut(self) -> Result<NullVectorMut, Self>
-    where
-        Self: Sized,
-    {
+    fn try_into_mut(self) -> Result<NullVectorMut, Self> {
         Ok(NullVectorMut::new(self.len))
     }
 }

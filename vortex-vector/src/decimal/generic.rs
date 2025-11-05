@@ -155,10 +155,7 @@ impl<D: NativeDecimalType> VectorOps for DVector<D> {
         &self.validity
     }
 
-    fn try_into_mut(self) -> Result<DVectorMut<D>, Self>
-    where
-        Self: Sized,
-    {
+    fn try_into_mut(self) -> Result<DVectorMut<D>, Self> {
         let elements = match self.elements.try_into_mut() {
             Ok(elements) => elements,
             Err(elements) => {

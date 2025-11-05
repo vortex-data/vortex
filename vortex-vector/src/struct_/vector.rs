@@ -131,10 +131,7 @@ impl VectorOps for StructVector {
         &self.validity
     }
 
-    fn try_into_mut(self) -> Result<StructVectorMut, Self>
-    where
-        Self: Sized,
-    {
+    fn try_into_mut(self) -> Result<StructVectorMut, Self> {
         let len = self.len;
 
         let fields = match Arc::try_unwrap(self.fields) {
