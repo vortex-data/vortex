@@ -995,7 +995,7 @@ mod tests {
         // Test f16 to f64 conversion
         assert!(f64::from_f16(f16_val).is_some());
 
-        // Test f16 to integer conversion (should fail)
+        // Test PValue::F16(f16) to integer conversion (should fail)
         assert!(i32::try_from(PValue::from(f16_val)).is_err());
         assert!(u32::try_from(PValue::from(f16_val)).is_err());
     }
