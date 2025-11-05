@@ -304,7 +304,7 @@ where
             let end_offset = start_offset.saturating_add(view.size as usize);
 
             let buf = buffers.get(buf_index).ok_or_else(||
-                vortex_err!("view at index {idx} references invalid buffer: {buf_index} out of bounds for VarBinViewArray with {} buffers",
+                vortex_err!("view at index {idx} references invalid buffer: {buf_index} out of bounds for BinaryViewVector with {} buffers",
                         buffers.len()))?;
 
             vortex_ensure!(
@@ -329,7 +329,7 @@ where
             // Validate the full string
             vortex_ensure!(
                 validator(bytes),
-                "view at index {idx}: outlined bytes fails utf-8 validation"
+                "view at index {idx}: outlined bytes failed utf-8 validation"
             );
         }
     }

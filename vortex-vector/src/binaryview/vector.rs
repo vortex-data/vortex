@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use vortex_buffer::{Buffer, ByteBuffer};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 
 use crate::VectorOps;
@@ -81,6 +81,13 @@ impl<T: BinaryViewType> BinaryViewVector<T> {
         buffers: Arc<Box<[ByteBuffer]>>,
         validity: Mask,
     ) -> VortexResult<Self> {
+        vortex_ensure!(
+            views.len() == validity.len(),
+            "views buffer length {} != validity length {}",
+            views.len(),
+            validity.len()
+        );
+
         validate_views(
             &views,
             &*buffers,
@@ -203,8 +210,73 @@ impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::binaryview::StringVectorMut;
+    use std::sync::Arc;
+
+    use vortex_buffer::{ByteBuffer, buffer};
+    use vortex_mask::Mask;
+
+    use crate::binaryview::view::BinaryView;
+    use crate::binaryview::{StringVector, StringVectorMut};
     use crate::{VectorMutOps, VectorOps};
+
+    #[test]
+    #[should_panic(expected = "views buffer length 1 != validity length 100")]
+    fn test_try_new_mismatch_validity_len() {
+        StringVector::try_new(
+            buffer![BinaryView::new_inlined(b"inlined")],
+            Arc::new(Box::new([])),
+            Mask::new_true(100),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "view at index 0 references invalid buffer: 100 out of bounds for BinaryViewVector with 0 buffers"
+    )]
+    fn test_try_new_invalid_buffer_offset() {
+        StringVector::try_new(
+            buffer![BinaryView::make_view(b"bad buffer ptr", 100, 0)],
+            Arc::new(Box::new([])),
+            Mask::new_true(1),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "start offset 4294967295 out of bounds for buffer 0 with size 19")]
+    fn test_try_new_invalid_length() {
+        StringVector::try_new(
+            buffer![BinaryView::make_view(b"bad buffer ptr", 0, u32::MAX)],
+            Arc::new(Box::new([ByteBuffer::copy_from(b"a very short buffer")])),
+            Mask::new_true(1),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "view at index 0: inlined bytes failed utf-8 validation")]
+    fn test_try_new_invalid_utf8_inlined() {
+        StringVector::try_new(
+            buffer![BinaryView::new_inlined(b"\x80")],
+            Arc::new(Box::new([])),
+            Mask::new_true(1),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "view at index 0: outlined bytes failed utf-8 validation")]
+    fn test_try_new_invalid_utf8_outlined() {
+        // 0xFF is never valid in UTF-8
+        let sequence = b"\xff".repeat(13);
+        StringVector::try_new(
+            buffer![BinaryView::make_view(&sequence, 0, 0)],
+            Arc::new(Box::new([ByteBuffer::copy_from(sequence)])),
+            Mask::new_true(1),
+        )
+        .unwrap();
+    }
 
     #[test]
     fn test_try_into_mut() {
