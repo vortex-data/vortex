@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::{Buffer, BufferMut};
+use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{Mask, MaskIter};
-use vortex_scalar::match_each_decimal_value_type;
 
 use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{FilterKernel, FilterKernelAdapter};

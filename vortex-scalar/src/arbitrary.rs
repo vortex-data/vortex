@@ -12,11 +12,9 @@ use std::sync::Arc;
 use arbitrary::{Result, Unstructured};
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
-use vortex_dtype::{DType, DecimalDType, NativeDecimalType, PType};
+use vortex_dtype::{DType, DecimalDType, NativeDecimalType, PType, match_each_decimal_value_type};
 
-use crate::{
-    DecimalValue, InnerScalarValue, PValue, Scalar, ScalarValue, match_each_decimal_value_type,
-};
+use crate::{DecimalValue, InnerScalarValue, PValue, Scalar, ScalarValue};
 
 /// Generate an arbitrary scalar value of the given data type.
 pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {

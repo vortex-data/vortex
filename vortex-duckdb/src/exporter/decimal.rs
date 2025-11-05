@@ -6,10 +6,10 @@ use std::marker::PhantomData;
 use num_traits::ToPrimitive;
 use vortex::arrays::DecimalArray;
 use vortex::buffer::Buffer;
-use vortex::dtype::{BigCast, DecimalDType, NativeDecimalType};
+use vortex::dtype::{BigCast, DecimalDType, NativeDecimalType, match_each_decimal_value_type};
 use vortex::error::{VortexExpect, VortexResult, vortex_bail};
 use vortex::mask::Mask;
-use vortex::scalar::{DecimalType, match_each_decimal_value_type};
+use vortex::scalar::DecimalType;
 
 use crate::duckdb::{Vector, VectorBuffer};
 use crate::exporter::ColumnExporter;

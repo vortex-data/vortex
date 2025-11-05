@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
+use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexResult;
-use vortex_scalar::match_each_decimal_value_type;
 
 use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
