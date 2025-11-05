@@ -41,9 +41,8 @@ impl Display for DisplayTreeExpr<'_> {
 struct ExpressionDebug<'a>(&'a Expression);
 impl Display for ExpressionDebug<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}(", self.0.id())?;
-        self.0.fmt_instance_data(f)?;
-        write!(f, ")")
+        write!(f, "{} ", self.0.id().as_ref())?;
+        self.0.vtable().as_dyn().fmt_data(self.0.data().as_ref(), f)
     }
 }
 

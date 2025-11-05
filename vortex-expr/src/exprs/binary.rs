@@ -50,12 +50,16 @@ impl VTable for Binary {
         }
     }
 
-    fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "(")?;
         expr.lhs().fmt(f)?;
         write!(f, " {} ", expr.operator())?;
         expr.rhs().fmt(f)?;
         write!(f, ")")
+    }
+
+    fn fmt_data(&self, instance: &Self::Instance, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", instance)
     }
 
     fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {

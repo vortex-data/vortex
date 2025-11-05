@@ -57,8 +57,8 @@ impl VTable for Like {
         }
     }
 
-    fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
-        expr.child(0).fmt_compact(f)?;
+    fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+        expr.child(0).fmt_sql(f)?;
         if expr.data().negated {
             write!(f, " not")?;
         }
@@ -67,7 +67,7 @@ impl VTable for Like {
         } else {
             write!(f, " like ")?;
         }
-        expr.child(1).fmt_compact(f)
+        expr.child(1).fmt_sql(f)
     }
 
     fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {

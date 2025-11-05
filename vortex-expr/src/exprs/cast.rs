@@ -59,9 +59,9 @@ impl VTable for Cast {
         }
     }
 
-    fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "cast(")?;
-        expr.children()[0].fmt_compact(f)?;
+        expr.children()[0].fmt_sql(f)?;
         write!(f, " as {}", expr.data())?;
         write!(f, ")")
     }

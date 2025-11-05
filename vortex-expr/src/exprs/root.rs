@@ -46,7 +46,7 @@ impl VTable for Root {
         )
     }
 
-    fn fmt_compact(&self, _expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, _expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "$")
     }
 

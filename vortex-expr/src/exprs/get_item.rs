@@ -53,8 +53,8 @@ impl VTable for GetItem {
         }
     }
 
-    fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
-        expr.children()[0].fmt_compact(f)?;
+    fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+        expr.children()[0].fmt_sql(f)?;
         write!(f, ".{}", expr.data())
     }
 

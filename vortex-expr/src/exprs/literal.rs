@@ -55,7 +55,7 @@ impl VTable for Literal {
         unreachable!()
     }
 
-    fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", expr.data())
     }
 

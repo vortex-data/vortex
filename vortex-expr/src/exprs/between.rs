@@ -52,7 +52,7 @@ impl VTable for Between {
         }
     }
 
-    fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         let options = expr.data();
         let lower_op = if options.lower_strict.is_strict() {
             "<"

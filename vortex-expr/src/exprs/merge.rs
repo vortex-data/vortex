@@ -37,10 +37,10 @@ impl VTable for Merge {
         ChildName::from(Arc::from(format!("{}", child_idx)))
     }
 
-    fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "merge(")?;
         for (i, child) in expr.children().iter().enumerate() {
-            child.fmt_compact(f)?;
+            child.fmt_sql(f)?;
             if i + 1 < expr.children().len() {
                 write!(f, ", ")?;
             }

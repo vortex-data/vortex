@@ -91,6 +91,11 @@ impl Expression {
         self.vtable.as_dyn().id()
     }
 
+    /// Returns the expression's vtable.
+    pub fn vtable(&self) -> &ExprVTable {
+        &self.vtable
+    }
+
     /// Returns the opaque data of the expression.
     pub fn data(&self) -> &Arc<dyn Any + Send + Sync> {
         &self.data
@@ -185,15 +190,16 @@ impl Expression {
     }
 
     /// Format the expression as a compact string.
-    pub fn fmt_compact(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.vtable.as_dyn().fmt_compact(self, f)
+    ///
+    /// Since this is a recursive formatter, it is exposed on the public Expression type.
+    /// See fmt_data that is only implemented on the vtable trait.
+    pub fn fmt_sql(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.vtable.as_dyn().fmt_sql(self, f)
     }
 
-    /// Format the instance data of the expression as a debug string.
-    pub fn fmt_instance_data(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.vtable
-            .as_dyn()
-            .fmt_instance_data(self.data().as_ref(), f)
+    /// Format the instance data of the expression as a string for rendering..
+    pub fn fmt_data(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.vtable.as_dyn().fmt_data(self.data().as_ref(), f)
     }
 
     /// Display the expression as a formatted tree structure.
@@ -253,9 +259,10 @@ impl Expression {
     }
 }
 
+/// The default display implementation for expressions uses the 'SQL'-style format.
 impl Display for Expression {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.fmt_compact(f)
+        self.fmt_sql(f)
     }
 }
 

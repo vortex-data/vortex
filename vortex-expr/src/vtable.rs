@@ -54,12 +54,18 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// Returns the name of the nth child of the expr.
     fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName;
 
-    /// Format this expression in nice human-readable format
+    /// Format this expression in nice human-readable SQL-style format
     ///
-    /// Specifically, this format is designed to be readable by humans, at the
-    /// expense of details. Use `Display` or `Debug` for more detailed
-    /// representation.
-    fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> fmt::Result;
+    /// The implementation should recursively format child expressions by calling
+    /// `expr.child(i).fmt_sql(f)`.
+    fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> fmt::Result;
+
+    /// Format only the instance data for this expression.
+    ///
+    /// Defaults to a debug representation of the instance data.
+    fn fmt_data(&self, instance: &Self::Instance, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", instance)
+    }
 
     /// Compute the return [`DType`] of the expression if evaluated in the given scope.
     fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType>;
@@ -177,8 +183,8 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Arc<dyn Any + Send + Sync>>>;
     fn child_name(&self, instance: &dyn Any, child_idx: usize) -> ChildName;
     fn validate(&self, expression: &Expression) -> VortexResult<()>;
-    fn fmt_compact(&self, expression: &Expression, f: &mut Formatter<'_>) -> fmt::Result;
-    fn fmt_instance_data(&self, instance: &dyn Any, f: &mut Formatter<'_>) -> fmt::Result;
+    fn fmt_sql(&self, expression: &Expression, f: &mut Formatter<'_>) -> fmt::Result;
+    fn fmt_data(&self, instance: &dyn Any, f: &mut Formatter<'_>) -> fmt::Result;
     fn return_dtype(&self, expression: &Expression, scope: &DType) -> VortexResult<DType>;
     fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef>;
 
@@ -236,12 +242,12 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         V::validate(&self.0, &expr)
     }
 
-    fn fmt_compact(&self, expression: &Expression, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt_sql(&self, expression: &Expression, f: &mut Formatter<'_>) -> fmt::Result {
         let expr = ExprInstance::new(expression);
-        V::fmt_compact(&self.0, &expr, f)
+        V::fmt_sql(&self.0, &expr, f)
     }
 
-    fn fmt_instance_data(&self, instance: &dyn Any, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt_data(&self, instance: &dyn Any, f: &mut Formatter<'_>) -> fmt::Result {
         let instance = instance
             .downcast_ref::<V::Instance>()
             .vortex_expect("Failed to downcast expression instance to expected type");

@@ -77,7 +77,7 @@ impl VTable for Pack {
         }
     }
 
-    fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "pack(")?;
         for (i, (name, child)) in expr
             .data()
@@ -87,7 +87,7 @@ impl VTable for Pack {
             .enumerate()
         {
             write!(f, "{}: ", name)?;
-            child.fmt_compact(f)?;
+            child.fmt_sql(f)?;
             if i + 1 < expr.data().names.len() {
                 write!(f, ", ")?;
             }

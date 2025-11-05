@@ -104,7 +104,7 @@ fn maybe_match(lhs: &Expression, rhs: &Expression) -> Option<Expression> {
             lower_strict,
             upper_strict,
         },
-        [target.clone(), lower, upper],
+        [target.clone(), lower_e.rhs().clone(), upper_e.rhs().clone()],
     ))
 }
 

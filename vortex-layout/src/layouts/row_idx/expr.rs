@@ -6,9 +6,7 @@ use std::fmt::Formatter;
 use vortex_array::ArrayRef;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexResult};
-use vortex_expr::{
-    ChildName, ExprId, ExprInstance, Expression, VTable, VTableExt,
-};
+use vortex_expr::{ChildName, ExprId, ExprInstance, Expression, VTable, VTableExt};
 
 pub struct RowIdx;
 
@@ -33,7 +31,7 @@ impl VTable for RowIdx {
         unreachable!()
     }
 
-    fn fmt_compact(&self, _expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, _expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "#row_idx")
     }
 

@@ -42,11 +42,11 @@ impl VTable for ListContains {
         }
     }
 
-    fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "contains(")?;
-        expr.child(0).fmt_compact(f)?;
+        expr.child(0).fmt_sql(f)?;
         write!(f, ", ")?;
-        expr.child(1).fmt_compact(f)?;
+        expr.child(1).fmt_sql(f)?;
         write!(f, ")")
     }
 

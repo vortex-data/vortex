@@ -64,20 +64,13 @@ impl VTable for Select {
     }
 
     fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
-        match expr.data() {
-            FieldSelection::Include(fields) | FieldSelection::Exclude(fields) => {
-                let unique_fields = FieldNames::from_iter(
-                    fields
-                        .iter()
-                        .cloned()
-                        .collect::<std::collections::HashSet<_>>(),
-                );
-                if unique_fields.len() != fields.len() {
-                    vortex_bail!("Field names in select must be unique, got: {:?}", fields);
-                }
-                Ok(())
-            }
+        if expr.children().len() != 1 {
+            vortex_bail!(
+                "Select expression requires exactly 1 child, got {}",
+                expr.children().len()
+            );
         }
+        Ok(())
     }
 
     fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName {
@@ -87,7 +80,7 @@ impl VTable for Select {
         }
     }
 
-    fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         match expr.data() {
             FieldSelection::Include(fields) => {
                 write!(f, "select({{{}}})", DisplayFieldNames(fields))

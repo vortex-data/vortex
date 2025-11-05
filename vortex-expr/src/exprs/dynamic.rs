@@ -45,8 +45,8 @@ impl VTable for DynamicComparison {
         }
     }
 
-    fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
-        expr.lhs().fmt_compact(f)?;
+    fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+        expr.lhs().fmt_sql(f)?;
         write!(f, " {} dynamic(", expr.data())?;
         match expr.scalar() {
             None => write!(f, "<none>")?,
