@@ -20,10 +20,14 @@ pub mod primitive;
 pub mod struct_;
 
 mod ops;
+mod scalar;
+mod scalar_ops;
 mod vector;
 mod vector_mut;
 
 pub use ops::{VectorMutOps, VectorOps};
+pub use scalar::Scalar;
+pub use scalar_ops::ScalarOps;
 pub use vector::Vector;
 pub use vector_mut::VectorMut;
 

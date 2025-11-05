@@ -12,16 +12,16 @@ use vortex_dtype::{NativeDecimalType, NativePType};
 
 use crate::binaryview::{BinaryViewType, BinaryViewVector, BinaryViewVectorMut};
 use crate::bool::{BoolVector, BoolVectorMut};
-use crate::decimal::{DVector, DVectorMut, DecimalVector, DecimalVectorMut};
+use crate::decimal::{DScalar, DVector, DVectorMut, DecimalVector, DecimalVectorMut};
 use crate::fixed_size_list::{FixedSizeListVector, FixedSizeListVectorMut};
 use crate::listview::{ListViewVector, ListViewVectorMut};
 use crate::null::{NullVector, NullVectorMut};
-use crate::primitive::{PVector, PVectorMut, PrimitiveVector, PrimitiveVectorMut};
-use crate::struct_::{StructVector, StructVectorMut};
+use crate::primitive::{PScalar, PVector, PVectorMut, PrimitiveVector, PrimitiveVectorMut};
+use crate::struct_::{StructScalar, StructVector, StructVectorMut};
 use crate::*;
 
 /// A private trait for sealing implementations of other traits.
-pub trait Sealed {}
+pub(crate) trait Sealed {}
 
 impl Sealed for Vector {}
 impl Sealed for VectorMut {}
@@ -53,3 +53,8 @@ impl Sealed for ListViewVectorMut {}
 
 impl Sealed for StructVector {}
 impl Sealed for StructVectorMut {}
+
+impl Sealed for Scalar {}
+impl Sealed for DScalar {}
+impl Sealed for PScalar {}
+impl Sealed for StructScalar {}

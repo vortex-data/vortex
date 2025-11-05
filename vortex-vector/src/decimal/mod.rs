@@ -153,6 +153,9 @@ pub use vector::DecimalVector;
 mod vector_mut;
 pub use vector_mut::DecimalVectorMut;
 
+mod scalar;
+pub use scalar::DScalar;
+
 mod macros;
 
 use vortex_dtype::NativeDecimalType;

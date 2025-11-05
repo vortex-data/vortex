@@ -95,6 +95,9 @@ pub use vector::StructVector;
 mod vector_mut;
 pub use vector_mut::StructVectorMut;
 
+mod scalar;
+pub use scalar::StructScalar;
+
 use crate::{Vector, VectorMut};
 
 impl From<StructVector> for Vector {
