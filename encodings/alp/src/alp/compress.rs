@@ -129,11 +129,12 @@ where
 /// # Returns
 ///
 /// A `PrimitiveArray` containing the decompressed floating-point values with all patches applied.
-pub fn decompress(array: &ALPArray) -> PrimitiveArray {
-    if let Some(patches) = array.patches()
+pub fn decompress(array: ALPArray) -> PrimitiveArray {
+    let patches = array.patches().cloned();
+    if let Some(patches) = patches
         && let Some(chunk_offsets) = patches.chunk_offsets()
     {
-        return decompress_chunked(array, patches, &chunk_offsets.as_ref().to_primitive());
+        return decompress_chunked(array, &patches, &chunk_offsets.as_ref().to_primitive());
     }
 
     decompress_unchunked(array)
@@ -154,31 +155,36 @@ pub fn decompress(array: &ALPArray) -> PrimitiveArray {
 /// A `PrimitiveArray` containing the decompressed values with all patches applied.
 #[allow(clippy::cognitive_complexity)]
 pub fn decompress_chunked(
-    array: &ALPArray,
+    array: ALPArray,
     patches: &Patches,
     patches_chunk_offsets: &PrimitiveArray,
 ) -> PrimitiveArray {
-    let alp_encoded = array.encoded().to_primitive();
-    let validity = alp_encoded.validity().clone();
+    let encoded = array.encoded().to_primitive();
+    let validity = encoded.validity().clone();
 
     let patches_indices = patches.indices().as_ref().to_primitive();
     let patches_values = patches.values().as_ref().to_primitive();
+    let ptype = array.dtype().as_ptype();
+    let array_len = array.len();
+    let exponents = array.exponents();
+    let patches_offset = patches.offset();
 
-    match_each_alp_float_ptype!(array.dtype().as_ptype(), |T| {
+    // We need to drop ALPArray here in case converting encoded buffer into primitive didn't create a copy. In that case
+    // both alp_encoded and array will hold a reference to the buffer we want to mutate.
+    drop(array);
+
+    match_each_alp_float_ptype!(ptype, |T| {
+        let patches_values = patches_values.as_slice::<T>();
+        let mut alp_buffer = encoded.into_buffer_mut();
         match_each_unsigned_integer_ptype!(patches_chunk_offsets.ptype(), |C| {
+            let patches_chunk_offsets = patches_chunk_offsets.as_slice::<C>();
             match_each_unsigned_integer_ptype!(patches_indices.ptype(), |I| {
                 let patches_indices = patches_indices.as_slice::<I>();
-                let patches_values = patches_values.as_slice::<T>();
-                let patches_chunk_offsets = patches_chunk_offsets.as_slice::<C>();
-
-                let mut alp_buffer = alp_encoded.into_buffer_mut();
-                let array_len = array.len();
-                let patches_offset = patches.offset();
 
                 for (chunk_idx, chunk_start) in (0..array_len).step_by(1024).enumerate() {
                     let chunk_end = (chunk_start + 1024).min(array_len);
                     let chunk_slice = &mut alp_buffer.as_mut_slice()[chunk_start..chunk_end];
-                    <T>::decode_slice_inplace(chunk_slice, array.exponents());
+                    <T>::decode_slice_inplace(chunk_slice, exponents);
 
                     let decoded_chunk: &mut [T] = unsafe { transmute(chunk_slice) };
                     PrimitiveArray::patch_chunk(
@@ -201,19 +207,26 @@ pub fn decompress_chunked(
 /// Decompresses an ALP-encoded array without chunk offsets.
 ///
 /// This function decodes the complete array at once and then applies any patches after.
-fn decompress_unchunked(array: &ALPArray) -> PrimitiveArray {
+fn decompress_unchunked(array: ALPArray) -> PrimitiveArray {
+    let patches = array.patches().cloned();
     let encoded = array.encoded().to_primitive();
     let validity = encoded.validity().clone();
+    let exponents = array.exponents();
+    let ptype = array.dtype().as_ptype();
 
-    let decoded = match_each_alp_float_ptype!(array.dtype().as_ptype(), |T| {
+    // We need to drop ALPArray here in case converting encoded buffer into primitive didn't create a copy. In that case
+    // both alp_encoded and array will hold a reference to the buffer we want to mutate.
+    drop(array);
+
+    let decoded = match_each_alp_float_ptype!(ptype, |T| {
         PrimitiveArray::new::<T>(
-            <T>::decode_buffer(encoded.into_buffer_mut(), array.exponents()),
+            <T>::decode_buffer(encoded.into_buffer_mut(), exponents),
             validity,
         )
     });
 
-    if let Some(patches) = array.patches() {
-        decoded.patch(patches)
+    if let Some(patches) = patches {
+        decoded.patch(&patches)
     } else {
         decoded
     }
@@ -240,7 +253,7 @@ mod tests {
         assert_arrays_eq!(encoded.encoded(), expected_encoded);
         assert_eq!(encoded.exponents(), Exponents { e: 9, f: 6 });
 
-        let decoded = decompress(&encoded);
+        let decoded = decompress(encoded);
         assert_arrays_eq!(decoded, array);
     }
 
@@ -253,7 +266,7 @@ mod tests {
         assert_arrays_eq!(encoded.encoded(), expected_encoded);
         assert_eq!(encoded.exponents(), Exponents { e: 9, f: 6 });
 
-        let decoded = decompress(&encoded);
+        let decoded = decompress(encoded);
         let expected = PrimitiveArray::from_option_iter(vec![None, Some(1.234f32), None]);
         assert_arrays_eq!(decoded, expected);
     }
@@ -269,7 +282,7 @@ mod tests {
         assert_arrays_eq!(encoded.encoded(), expected_encoded);
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
-        let decoded = decompress(&encoded);
+        let decoded = decompress(encoded);
         let expected_decoded = PrimitiveArray::new(values, Validity::NonNullable);
         assert_arrays_eq!(decoded, expected_decoded);
     }
@@ -286,7 +299,7 @@ mod tests {
         assert_arrays_eq!(encoded.encoded(), expected_encoded);
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
-        let decoded = decompress(&encoded);
+        let decoded = decompress(encoded);
         assert_arrays_eq!(decoded, array);
     }
 
@@ -305,9 +318,9 @@ mod tests {
 
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
-        assert_arrays_eq!(&encoded, array);
+        assert_arrays_eq!(encoded, array);
 
-        let _decoded = decompress(&encoded);
+        let _decoded = decompress(encoded);
     }
 
     #[test]
@@ -513,7 +526,7 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
 
         assert!(encoded.patches().is_none());
-        let decoded = decompress(&encoded);
+        let decoded = decompress(encoded);
         assert_eq!(array.as_slice::<f32>(), decoded.as_slice::<f32>());
     }
 
@@ -524,7 +537,7 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
 
         assert!(encoded.patches().is_none());
-        let decoded = decompress(&encoded);
+        let decoded = decompress(encoded);
         assert_eq!(array.as_slice::<f64>(), decoded.as_slice::<f64>());
     }
 
@@ -541,7 +554,7 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
 
         assert!(encoded.patches().is_some());
-        let decoded = decompress(&encoded);
+        let decoded = decompress(encoded);
         assert_eq!(values.as_slice(), decoded.as_slice::<f32>());
     }
 
@@ -562,7 +575,7 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
 
         assert!(encoded.patches().is_some());
-        let decoded = decompress(&encoded);
+        let decoded = decompress(encoded);
 
         for idx in 0..size {
             let decoded_val = decoded.as_slice::<f64>()[idx];
@@ -589,7 +602,7 @@ mod tests {
 
         let array = PrimitiveArray::from_option_iter(values);
         let encoded = alp_encode(&array, None).unwrap();
-        let decoded = decompress(&encoded);
+        let decoded = decompress(encoded);
 
         assert_arrays_eq!(decoded, array);
     }
@@ -609,7 +622,7 @@ mod tests {
 
         let array = PrimitiveArray::new(Buffer::from(values), validity);
         let encoded = alp_encode(&array, None).unwrap();
-        let decoded = decompress(&encoded);
+        let decoded = decompress(encoded);
 
         assert_arrays_eq!(decoded, array);
     }
