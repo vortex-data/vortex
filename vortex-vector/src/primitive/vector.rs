@@ -49,17 +49,17 @@ impl PrimitiveVector {
     /// Returns the [`PType`] of this [`PrimitiveVector`].
     pub fn ptype(&self) -> PType {
         match self {
-            PrimitiveVector::U8(_) => PType::U8,
-            PrimitiveVector::U16(_) => PType::U16,
-            PrimitiveVector::U32(_) => PType::U32,
-            PrimitiveVector::U64(_) => PType::U64,
-            PrimitiveVector::I8(_) => PType::I8,
-            PrimitiveVector::I16(_) => PType::I16,
-            PrimitiveVector::I32(_) => PType::I32,
-            PrimitiveVector::I64(_) => PType::I64,
-            PrimitiveVector::F16(_) => PType::F16,
-            PrimitiveVector::F32(_) => PType::F32,
-            PrimitiveVector::F64(_) => PType::F64,
+            Self::U8(_) => PType::U8,
+            Self::U16(_) => PType::U16,
+            Self::U32(_) => PType::U32,
+            Self::U64(_) => PType::U64,
+            Self::I8(_) => PType::I8,
+            Self::I16(_) => PType::I16,
+            Self::I32(_) => PType::I32,
+            Self::I64(_) => PType::I64,
+            Self::F16(_) => PType::F16,
+            Self::F32(_) => PType::F32,
+            Self::F64(_) => PType::F64,
         }
     }
 }
@@ -79,7 +79,7 @@ impl VectorOps for PrimitiveVector {
         match_each_pvector!(self, |v| {
             v.try_into_mut()
                 .map(PrimitiveVectorMut::from)
-                .map_err(PrimitiveVector::from)
+                .map_err(Self::from)
         })
     }
 }
@@ -88,47 +88,47 @@ impl PTypeUpcast for PrimitiveVector {
     type Input<T: NativePType> = PVector<T>;
 
     fn from_u8(input: Self::Input<u8>) -> Self {
-        PrimitiveVector::U8(input)
+        Self::U8(input)
     }
 
     fn from_u16(input: Self::Input<u16>) -> Self {
-        PrimitiveVector::U16(input)
+        Self::U16(input)
     }
 
     fn from_u32(input: Self::Input<u32>) -> Self {
-        PrimitiveVector::U32(input)
+        Self::U32(input)
     }
 
     fn from_u64(input: Self::Input<u64>) -> Self {
-        PrimitiveVector::U64(input)
+        Self::U64(input)
     }
 
     fn from_i8(input: Self::Input<i8>) -> Self {
-        PrimitiveVector::I8(input)
+        Self::I8(input)
     }
 
     fn from_i16(input: Self::Input<i16>) -> Self {
-        PrimitiveVector::I16(input)
+        Self::I16(input)
     }
 
     fn from_i32(input: Self::Input<i32>) -> Self {
-        PrimitiveVector::I32(input)
+        Self::I32(input)
     }
 
     fn from_i64(input: Self::Input<i64>) -> Self {
-        PrimitiveVector::I64(input)
+        Self::I64(input)
     }
 
     fn from_f16(input: Self::Input<f16>) -> Self {
-        PrimitiveVector::F16(input)
+        Self::F16(input)
     }
 
     fn from_f32(input: Self::Input<f32>) -> Self {
-        PrimitiveVector::F32(input)
+        Self::F32(input)
     }
 
     fn from_f64(input: Self::Input<f64>) -> Self {
-        PrimitiveVector::F64(input)
+        Self::F64(input)
     }
 }
 
@@ -136,77 +136,77 @@ impl PTypeDowncast for PrimitiveVector {
     type Output<T: NativePType> = PVector<T>;
 
     fn into_u8(self) -> Self::Output<u8> {
-        if let PrimitiveVector::U8(v) = self {
+        if let Self::U8(v) = self {
             return v;
         }
         vortex_panic!("Expected PrimitiveVector::U8, got {self:?}");
     }
 
     fn into_u16(self) -> Self::Output<u16> {
-        if let PrimitiveVector::U16(v) = self {
+        if let Self::U16(v) = self {
             return v;
         }
         vortex_panic!("Expected PrimitiveVector::U16, got {self:?}");
     }
 
     fn into_u32(self) -> Self::Output<u32> {
-        if let PrimitiveVector::U32(v) = self {
+        if let Self::U32(v) = self {
             return v;
         }
         vortex_panic!("Expected PrimitiveVector::U32, got {self:?}");
     }
 
     fn into_u64(self) -> Self::Output<u64> {
-        if let PrimitiveVector::U64(v) = self {
+        if let Self::U64(v) = self {
             return v;
         }
         vortex_panic!("Expected PrimitiveVector::U64, got {self:?}");
     }
 
     fn into_i8(self) -> Self::Output<i8> {
-        if let PrimitiveVector::I8(v) = self {
+        if let Self::I8(v) = self {
             return v;
         }
         vortex_panic!("Expected PrimitiveVector::I8, got {self:?}");
     }
 
     fn into_i16(self) -> Self::Output<i16> {
-        if let PrimitiveVector::I16(v) = self {
+        if let Self::I16(v) = self {
             return v;
         }
         vortex_panic!("Expected PrimitiveVector::I16, got {self:?}");
     }
 
     fn into_i32(self) -> Self::Output<i32> {
-        if let PrimitiveVector::I32(v) = self {
+        if let Self::I32(v) = self {
             return v;
         }
         vortex_panic!("Expected PrimitiveVector::I32, got {self:?}");
     }
 
     fn into_i64(self) -> Self::Output<i64> {
-        if let PrimitiveVector::I64(v) = self {
+        if let Self::I64(v) = self {
             return v;
         }
         vortex_panic!("Expected PrimitiveVector::I64, got {self:?}");
     }
 
     fn into_f16(self) -> Self::Output<f16> {
-        if let PrimitiveVector::F16(v) = self {
+        if let Self::F16(v) = self {
             return v;
         }
         vortex_panic!("Expected PrimitiveVector::F16, got {self:?}");
     }
 
     fn into_f32(self) -> Self::Output<f32> {
-        if let PrimitiveVector::F32(v) = self {
+        if let Self::F32(v) = self {
             return v;
         }
         vortex_panic!("Expected PrimitiveVector::F32, got {self:?}");
     }
 
     fn into_f64(self) -> Self::Output<f64> {
-        if let PrimitiveVector::F64(v) = self {
+        if let Self::F64(v) = self {
             return v;
         }
         vortex_panic!("Expected PrimitiveVector::F64, got {self:?}");

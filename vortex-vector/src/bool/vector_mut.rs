@@ -115,7 +115,7 @@ impl VectorMutOps for BoolVectorMut {
     }
 
     fn split_off(&mut self, at: usize) -> Self {
-        BoolVectorMut {
+        Self {
             bits: self.bits.split_off(at),
             validity: self.validity.split_off(at),
         }
