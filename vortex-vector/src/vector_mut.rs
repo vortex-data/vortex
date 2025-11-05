@@ -70,19 +70,19 @@ impl VectorMut {
             DType::Primitive(ptype, _) => {
                 PrimitiveVectorMut::with_capacity(*ptype, capacity).into()
             }
+            DType::Decimal(decimal_dtype, _) => {
+                DecimalVectorMut::with_capacity(decimal_dtype, capacity).into()
+            }
+            DType::Utf8(..) => StringVectorMut::with_capacity(capacity).into(),
+            DType::Binary(..) => BinaryVectorMut::with_capacity(capacity).into(),
+            DType::List(..) => ListViewVectorMut::with_capacity(dtype, capacity).into(),
             DType::FixedSizeList(elem_dtype, list_size, _) => {
                 FixedSizeListVectorMut::with_capacity(elem_dtype, *list_size, capacity).into()
             }
             DType::Struct(struct_fields, _) => {
                 StructVectorMut::with_capacity(struct_fields, capacity).into()
             }
-            DType::Decimal(decimal_dtype, _) => {
-                DecimalVectorMut::with_capacity(decimal_dtype, capacity).into()
-            }
-            DType::Utf8(..) => StringVectorMut::with_capacity(capacity).into(),
-            DType::Binary(..) => BinaryVectorMut::with_capacity(capacity).into(),
             DType::Extension(ext) => VectorMut::with_capacity(ext.storage_dtype(), capacity),
-            DType::List(..) => ListViewVectorMut::with_capacity(dtype, capacity).into(),
         }
     }
 }
