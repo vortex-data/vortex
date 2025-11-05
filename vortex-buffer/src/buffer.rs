@@ -9,7 +9,7 @@ use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::ops::{Deref, RangeBounds};
 
-use bytes::{Buf, Bytes};
+use bytes::{Buf, Bytes, BytesMut};
 use vortex_error::{VortexExpect, vortex_panic};
 
 use crate::debug::TruncatedDebug;
@@ -399,12 +399,6 @@ impl<T> Buffer<T> {
         }
     }
 
-    /// Convert self into `BufferMut<T>`, copying if there are multiple strong references.
-    pub fn into_mut(self) -> BufferMut<T> {
-        self.try_into_mut()
-            .unwrap_or_else(|buffer| BufferMut::<T>::copy_from(&buffer))
-    }
-
     /// Try to convert self into `BufferMut<T>` if there is only a single strong reference.
     pub fn try_into_mut(self) -> Result<BufferMut<T>, Self> {
         self.bytes
@@ -421,6 +415,18 @@ impl<T> Buffer<T> {
                 alignment: self.alignment,
                 _marker: Default::default(),
             })
+    }
+
+    /// Convert self into `BufferMut<T>`, cloning the data if there are multiple strong references.
+    pub fn into_mut(self) -> BufferMut<T> {
+        let new_bytes = self.bytes.try_into_mut().unwrap_or_else(BytesMut::from);
+
+        BufferMut {
+            bytes: new_bytes,
+            length: self.length,
+            alignment: self.alignment,
+            _marker: Default::default(),
+        }
     }
 
     /// Returns whether a `Buffer<T>` is aligned to the given alignment.
