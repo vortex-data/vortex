@@ -5,12 +5,10 @@ use std::cmp::Ordering;
 use std::fmt;
 
 use num_traits::ToPrimitive as NumToPrimitive;
-use vortex_dtype::{DType, DecimalDType, PType};
+use vortex_dtype::{DType, DecimalDType, PType, match_each_decimal_value};
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err, vortex_panic};
 
-use crate::{
-    DecimalValue, InnerScalarValue, NumericOperator, Scalar, ScalarValue, match_each_decimal_value,
-};
+use crate::{DecimalValue, InnerScalarValue, NumericOperator, Scalar, ScalarValue};
 
 /// A scalar value representing a decimal number with fixed precision and scale.
 #[derive(Debug, Clone, Copy, Hash)]

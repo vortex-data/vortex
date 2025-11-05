@@ -3,8 +3,9 @@
 
 use std::ops::Not;
 
+use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_scalar::{Scalar, match_each_decimal_value_type};
+use vortex_scalar::Scalar;
 
 use crate::arrays::DecimalVTable;
 use crate::arrays::decimal::DecimalArray;

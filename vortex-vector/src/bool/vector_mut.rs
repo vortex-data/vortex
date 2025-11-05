@@ -73,6 +73,12 @@ impl BoolVectorMut {
     pub fn into_parts(self) -> (BitBufferMut, MaskMut) {
         (self.bits, self.validity)
     }
+
+    /// Append n values to the vector.
+    pub fn append_values(&mut self, value: bool, n: usize) {
+        self.bits.append_n(value, n);
+        self.validity.append_n(true, n);
+    }
 }
 
 impl VectorMutOps for BoolVectorMut {

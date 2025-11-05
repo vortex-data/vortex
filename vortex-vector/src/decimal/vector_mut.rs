@@ -4,7 +4,8 @@
 //! Definition and implementation of [`DecimalVectorMut`].
 
 use vortex_dtype::{
-    DecimalDType, DecimalType, DecimalTypeDowncast, DecimalTypeUpcast, NativeDecimalType, i256,
+    DecimalDType, DecimalType, DecimalTypeDowncast, DecimalTypeUpcast, NativeDecimalType,
+    PrecisionScale, i256, match_each_decimal_value_type,
 };
 use vortex_error::vortex_panic;
 use vortex_mask::MaskMut;
@@ -32,26 +33,11 @@ pub enum DecimalVectorMut {
 impl DecimalVectorMut {
     /// Create a new mutable decimal vector with the given primitive type and capacity.
     pub fn with_capacity(decimal_dtype: &DecimalDType, capacity: usize) -> Self {
-        let decimal_kind = DecimalType::smallest_decimal_value_type(decimal_dtype);
-
-        match decimal_kind {
-            DecimalType::I8 => Self::D8(DVectorMut::<i8>::with_capacity(decimal_dtype, capacity)),
-            DecimalType::I16 => {
-                Self::D16(DVectorMut::<i16>::with_capacity(decimal_dtype, capacity))
-            }
-            DecimalType::I32 => {
-                Self::D32(DVectorMut::<i32>::with_capacity(decimal_dtype, capacity))
-            }
-            DecimalType::I64 => {
-                Self::D64(DVectorMut::<i64>::with_capacity(decimal_dtype, capacity))
-            }
-            DecimalType::I128 => {
-                Self::D128(DVectorMut::<i128>::with_capacity(decimal_dtype, capacity))
-            }
-            DecimalType::I256 => {
-                Self::D256(DVectorMut::<i256>::with_capacity(decimal_dtype, capacity))
-            }
-        }
+        let decimal_type = DecimalType::smallest_decimal_value_type(decimal_dtype);
+        match_each_decimal_value_type!(decimal_type, |D| {
+            let ps = PrecisionScale::<D>::new(decimal_dtype.precision(), decimal_dtype.scale());
+            DVectorMut::<D>::with_capacity(ps, capacity).into()
+        })
     }
 }
 

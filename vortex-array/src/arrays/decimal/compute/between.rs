@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BitBuffer;
-use vortex_dtype::{NativeDecimalType, Nullability};
+use vortex_dtype::{NativeDecimalType, Nullability, match_each_decimal_value_type};
 use vortex_error::{VortexResult, vortex_bail};
-use vortex_scalar::{Scalar, match_each_decimal_value_type};
+use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, DecimalArray, DecimalVTable};
 use crate::compute::{BetweenKernel, BetweenKernelAdapter, BetweenOptions, StrictComparison};

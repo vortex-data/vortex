@@ -9,7 +9,7 @@ mod array;
 mod canonical;
 mod encode;
 mod operations;
-mod pipeline;
+mod operator;
 mod serde;
 mod validity;
 mod visitor;
