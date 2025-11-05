@@ -217,7 +217,7 @@ impl Scalar {
                 Self::primitive_value(PValue::zero(pt), pt, nullability)
             }
             DType::Decimal(dt, nullability) => {
-                Self::decimal(DecimalValue::from(0), dt, nullability)
+                Self::decimal(DecimalValue::from(0i8), dt, nullability)
             }
             DType::Utf8(nullability) => Self::utf8("", nullability),
             DType::Binary(nullability) => Self::binary(Buffer::empty(), nullability),
@@ -272,7 +272,7 @@ impl Scalar {
                 Self::primitive_value(PValue::zero(pt), pt, nullability)
             }
             DType::Decimal(dt, nullability) => {
-                Self::decimal(DecimalValue::from(0), dt, nullability)
+                Self::decimal(DecimalValue::from(0i8), dt, nullability)
             }
             DType::Utf8(nullability) => Self::utf8("", nullability),
             DType::Binary(nullability) => Self::binary(Buffer::empty(), nullability),
