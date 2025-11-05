@@ -20,10 +20,15 @@ use crate::{BitPackedArray, BitPackedVTable};
 
 impl FilterKernel for BitPackedVTable {
     fn filter(&self, array: &BitPackedArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        let primitive = match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |I| {
-            filter_primitive::<I>(array, mask)
-        });
-        Ok(primitive?.into_array())
+        // Since the fastlanes crate only supports unsigned integers, and since we know that all
+        // numbers are going to be non-negative, we can safely "cast" to unsigned.
+        let ptype = array.ptype().to_unsigned();
+
+        match_each_unsigned_integer_ptype!(ptype, |U| {
+            // Note that the `filter_primitive` function will reinterpret cast the array back to the
+            // correct `PType`, even if it was changed in `to_unsigned` above.
+            Ok(filter_primitive::<U>(array, mask)?.into_array())
+        })
     }
 }
 
