@@ -18,6 +18,8 @@ mod conversion;
 mod patch;
 mod top_value;
 
+pub use patch::patch_chunk;
+
 /// A primitive array that stores [native types][vortex_dtype::NativePType] in a contiguous buffer
 /// of memory, along with an optional validity child.
 ///

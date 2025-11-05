@@ -131,21 +131,18 @@ impl VectorOps for StructVector {
         &self.validity
     }
 
-    fn try_into_mut(self) -> Result<StructVectorMut, Self>
-    where
-        Self: Sized,
-    {
+    fn try_into_mut(self) -> Result<StructVectorMut, Self> {
         let len = self.len;
 
         let fields = match Arc::try_unwrap(self.fields) {
             Ok(fields) => fields,
-            Err(fields) => return Err(StructVector { fields, ..self }),
+            Err(fields) => return Err(Self { fields, ..self }),
         };
 
         let validity = match self.validity.try_into_mut() {
             Ok(validity) => validity,
             Err(validity) => {
-                return Err(StructVector {
+                return Err(Self {
                     fields: Arc::new(fields),
                     validity,
                     len,
@@ -174,7 +171,7 @@ impl VectorOps for StructVector {
                     all_fields.push(immutable_field);
                     all_fields.extend(fields_iter);
 
-                    return Err(StructVector {
+                    return Err(Self {
                         fields: Arc::new(all_fields.into_boxed_slice()),
                         len: self.len,
                         validity: validity.freeze(),

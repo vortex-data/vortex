@@ -124,7 +124,7 @@ impl<T: NativePType> VectorOps for PVector<T> {
         let elements = match self.elements.try_into_mut() {
             Ok(elements) => elements,
             Err(elements) => {
-                return Err(PVector {
+                return Err(Self {
                     elements,
                     validity: self.validity,
                 });
@@ -136,7 +136,7 @@ impl<T: NativePType> VectorOps for PVector<T> {
                 elements,
                 validity: validity_mut,
             }),
-            Err(validity) => Err(PVector {
+            Err(validity) => Err(Self {
                 elements: elements.freeze(),
                 validity,
             }),

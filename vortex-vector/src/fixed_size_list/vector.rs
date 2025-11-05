@@ -149,10 +149,7 @@ impl VectorOps for FixedSizeListVector {
         &self.validity
     }
 
-    fn try_into_mut(self) -> Result<FixedSizeListVectorMut, Self>
-    where
-        Self: Sized,
-    {
+    fn try_into_mut(self) -> Result<FixedSizeListVectorMut, Self> {
         let len = self.len;
         let list_size = self.list_size;
 

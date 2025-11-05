@@ -9,7 +9,7 @@ use vortex_mask::{Mask, MaskMut};
 use crate::{Vector, VectorMut, private};
 
 /// Common operations for immutable vectors (all the variants of [`Vector`]).
-pub trait VectorOps: private::Sealed + Into<Vector> {
+pub trait VectorOps: private::Sealed + Into<Vector> + Sized {
     /// The mutable equivalent of this immutable vector.
     type Mutable: VectorMutOps<Immutable = Self>;
 
@@ -38,13 +38,11 @@ pub trait VectorOps: private::Sealed + Into<Vector> {
     /// # Errors
     ///
     /// If `self` is not unique, this will fail and return `self` back to the caller.
-    fn try_into_mut(self) -> Result<Self::Mutable, Self>
-    where
-        Self: Sized;
+    fn try_into_mut(self) -> Result<Self::Mutable, Self>;
 }
 
 /// Common operations for mutable vectors (all the variants of [`VectorMut`]).
-pub trait VectorMutOps: private::Sealed + Into<VectorMut> {
+pub trait VectorMutOps: private::Sealed + Into<VectorMut> + Sized {
     /// The immutable equivalent of this mutable vector.
     type Immutable: VectorOps<Mutable = Self>;
 

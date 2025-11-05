@@ -119,7 +119,7 @@ impl<T: NativePType> VectorMutOps for PVectorMut<T> {
     }
 
     fn split_off(&mut self, at: usize) -> Self {
-        PVectorMut {
+        Self {
             elements: self.elements.split_off(at),
             validity: self.validity.split_off(at),
         }

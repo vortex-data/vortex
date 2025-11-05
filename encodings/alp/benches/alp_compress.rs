@@ -6,11 +6,11 @@
 use divan::Bencher;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng as _};
-use vortex_alp::{ALPFloat, ALPRDFloat, RDEncoder, alp_encode};
+use vortex_alp::{ALPFloat, ALPRDFloat, RDEncoder, alp_encode, decompress};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::warm_up_vtables;
 use vortex_array::validity::Validity;
-use vortex_buffer::buffer;
+use vortex_buffer::{Buffer, buffer};
 use vortex_dtype::NativePType;
 
 fn main() {
@@ -84,10 +84,15 @@ fn decompress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64
         Validity::NonNullable
     };
     let values = values.freeze();
-    let array = alp_encode(&PrimitiveArray::new(values, validity), None).unwrap();
     bencher
-        .with_inputs(|| array.clone())
-        .bench_values(|array| array.to_canonical());
+        .with_inputs(|| {
+            alp_encode(
+                &PrimitiveArray::new(Buffer::copy_from(&values), validity.clone()),
+                None,
+            )
+            .unwrap()
+        })
+        .bench_values(decompress);
 }
 
 #[divan::bench(types = [f32, f64], args = [10_000, 100_000])]
