@@ -69,6 +69,8 @@ macro_rules! match_each_pvector {
 ///
 /// See [`match_each_pvector`] for similar usage.
 ///
+/// [`PrimitiveVector`]: crate::primitive::PrimitiveVector
+///
 /// # Panics
 ///
 /// Panics if the vector passed in to the macro is a float vector variant.
@@ -154,6 +156,8 @@ macro_rules! match_each_pvector_mut {
 /// `I64`).
 ///
 /// See [`match_each_pvector_mut`] for similar usage.
+///
+/// [`PrimitiveVectorMut`]: crate::primitive::PrimitiveVectorMut
 ///
 /// # Panics
 ///

@@ -31,3 +31,6 @@ impl From<ListViewVectorMut> for VectorMut {
         Self::List(v)
     }
 }
+
+#[cfg(test)]
+mod tests;
