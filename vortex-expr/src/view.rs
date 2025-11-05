@@ -21,11 +21,13 @@ impl<'a, V: VTable> ExpressionView<'a, V> {
     /// # Panics
     ///
     /// Panics if the expression cannot be downcast to the specified vtable type.
+    #[inline]
     pub fn new(expression: &'a Expression) -> Self {
         Self::try_new(expression).vortex_expect("Failed to downcast expression")
     }
 
     /// Attempts to wrap up the given expression as an [`ExpressionView`] of the specified vtable type.
+    #[inline]
     pub fn try_new(expression: &'a Expression) -> VortexResult<Self> {
         expression.vtable().as_opt::<V>().ok_or_else(|| {
             vortex_err!(

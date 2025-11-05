@@ -65,14 +65,23 @@ impl VTable for GetItem {
     }
 
     fn return_dtype(&self, expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
-        let input = expr.children()[0].return_dtype(scope)?;
-        input
+        let struct_dtype = expr.children()[0].return_dtype(scope)?;
+        let field_dtype = struct_dtype
             .as_struct_fields_opt()
             .and_then(|st| st.field(expr.data()))
-            .map(|f| f.union_nullability(input.nullability()))
             .ok_or_else(|| {
                 vortex_err!("Couldn't find the {} field in the input scope", expr.data())
-            })
+            })?;
+
+        // Match here to avoid cloning the dtype if nullability doesn't need to change
+        if matches!(
+            (struct_dtype.nullability(), field_dtype.nullability()),
+            (Nullability::Nullable, Nullability::NonNullable)
+        ) {
+            return Ok(field_dtype.with_nullability(Nullability::Nullable));
+        }
+
+        Ok(field_dtype)
     }
 
     fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {

@@ -195,10 +195,12 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
 pub struct VTableAdapter<V>(V);
 
 impl<V: VTable> DynExprVTable for VTableAdapter<V> {
+    #[inline(always)]
     fn as_any(&self) -> &dyn Any {
         self
     }
 
+    #[inline(always)]
     fn id(&self) -> ExprId {
         V::id(&self.0)
     }
