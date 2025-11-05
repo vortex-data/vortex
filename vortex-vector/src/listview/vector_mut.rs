@@ -176,13 +176,21 @@ impl ListViewVectorMut {
 
     /// Creates a new [`ListViewVectorMut`] with the specified capacity.
     pub fn with_capacity(element_dtype: &DType, capacity: usize) -> Self {
-        unsafe {
-            Self::new_unchecked(
-                Box::new(VectorMut::with_capacity(element_dtype, 0)),
-                PrimitiveVectorMut::with_capacity(PType::U64, capacity),
-                PrimitiveVectorMut::with_capacity(PType::U32, capacity),
-                MaskMut::with_capacity(capacity),
-            )
+        // We arbitrarily choose 2 times the number of list scalars for the capacity of the elements
+        // since we cannot know this ahead of time.
+        let elements = Box::new(VectorMut::with_capacity(element_dtype, capacity * 2));
+
+        let offsets = PrimitiveVectorMut::with_capacity(PType::U32, capacity);
+        let sizes = PrimitiveVectorMut::with_capacity(PType::U32, capacity);
+
+        let validity = MaskMut::with_capacity(capacity);
+
+        Self {
+            elements,
+            offsets,
+            sizes,
+            validity,
+            len: 0,
         }
     }
 

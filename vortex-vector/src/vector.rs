@@ -9,6 +9,7 @@
 use std::fmt::Debug;
 use std::ops::RangeBounds;
 
+use vortex_dtype::DType;
 use vortex_error::vortex_panic;
 
 use crate::binaryview::{BinaryVector, StringVector};
@@ -19,7 +20,7 @@ use crate::listview::ListViewVector;
 use crate::null::NullVector;
 use crate::primitive::PrimitiveVector;
 use crate::struct_::StructVector;
-use crate::{Scalar, VectorMut, VectorOps, match_each_vector};
+use crate::{Scalar, VectorMut, VectorMutOps, VectorOps, match_each_vector};
 
 /// An enum over all kinds of immutable vectors, which represent fully decompressed (canonical)
 /// array data.
@@ -97,6 +98,13 @@ impl VectorOps for Vector {
 }
 
 impl Vector {
+    /// Returns an empty `Vector` according to the given `DType`.
+    pub fn empty(dtype: &DType) -> Self {
+        // We _could_ manually implement this for `Vector` instead of doing this via `VectorMut` and
+        // `freeze`, but it's probably not worth it.
+        VectorMut::with_capacity(dtype, 0).freeze()
+    }
+
     /// Returns a reference to the inner [`NullVector`] if `self` is of that variant.
     pub fn as_null(&self) -> &NullVector {
         if let Vector::Null(v) = self {
