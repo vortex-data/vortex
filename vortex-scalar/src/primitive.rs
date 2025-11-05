@@ -546,7 +546,7 @@ impl<'a> PrimitiveScalar<'a> {
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]
 mod tests {
-    use num_traits::CheckedSub;
+    use num_traits::{CheckedSub, FromPrimitive};
     use rstest::rstest;
     use vortex_dtype::{DType, Nullability, PType};
 
@@ -996,8 +996,8 @@ mod tests {
         assert!(f64::from_f16(f16_val).is_some());
 
         // Test f16 to integer conversion (should fail)
-        assert!(i32::from_f16(f16_val).is_none());
-        assert!(u32::from_f16(f16_val).is_none());
+        assert!(i32::try_from(PValue::from(f16_val)).is_err());
+        assert!(u32::try_from(PValue::from(f16_val)).is_err());
     }
 
     #[test]
