@@ -8,11 +8,12 @@ use bytes::Bytes;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::{Bound, Python};
-use vortex::ArrayRegistry;
+use vortex::ArraySessionExt;
 use vortex_ipc::messages::{DecoderMessage, MessageDecoder, PollRead};
 
 use crate::arrays::PyArrayRef;
 use crate::install_module;
+use crate::SESSION;
 use crate::serde::context::PyArrayContext;
 use crate::serde::parts::PyArrayParts;
 
@@ -48,7 +49,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///     The decoded Vortex array
 #[pyfunction]
 fn decode_ipc_array(array_bytes: Vec<u8>, dtype_bytes: Vec<u8>) -> PyResult<PyArrayRef> {
-    let registry = ArrayRegistry::canonical_only();
+    let registry = SESSION.arrays().registry().clone();
     let mut decoder = MessageDecoder::new(registry);
 
     let mut dtype_buf = Bytes::from(dtype_bytes);
@@ -102,7 +103,7 @@ fn decode_ipc_array_buffers<'py>(
 ) -> PyResult<PyArrayRef> {
     use pyo3::buffer::PyBuffer;
 
-    let registry = ArrayRegistry::canonical_only();
+    let registry = SESSION.arrays().registry().clone();
     let mut decoder = MessageDecoder::new(registry);
 
     // Concatenate dtype buffers
