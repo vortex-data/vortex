@@ -26,8 +26,8 @@ impl TakeKernel for SequenceVTable {
         Ok(match_each_integer_ptype!(indices.ptype(), |T| {
             let indices = indices.as_slice::<T>();
             match_each_native_ptype!(array.ptype(), |S| {
-                let mul = array.multiplier().as_primitive::<S>();
-                let base = array.base().as_primitive::<S>();
+                let mul = array.multiplier().cast::<S>();
+                let base = array.base().cast::<S>();
                 take(mul, base, indices, mask, result_nullability)
             })
         }))

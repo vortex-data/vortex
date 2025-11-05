@@ -148,7 +148,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
 
         let primitive_scalar = PrimitiveScalar::try_from(scalar)?;
         match primitive_scalar.pvalue() {
-            Some(pv) => self.append_value(pv.as_primitive::<T>()),
+            Some(pv) => self.append_value(pv.cast::<T>()),
             None => self.append_null(),
         }
 

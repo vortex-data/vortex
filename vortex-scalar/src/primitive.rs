@@ -6,9 +6,11 @@ use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::{Add, Sub};
 
-use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, FromPrimitive};
+use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub};
 use vortex_dtype::half::f16;
-use vortex_dtype::{DType, NativePType, Nullability, PType, match_each_native_ptype};
+use vortex_dtype::{
+    DType, FromPrimitiveOrF16, NativePType, Nullability, PType, match_each_native_ptype,
+};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
 
 use crate::pvalue::{CoercePValue, PValue};
@@ -104,7 +106,7 @@ impl<'a> PrimitiveScalar<'a> {
     /// # Panics
     ///
     /// Panics if the primitive type of this scalar does not match the requested type.
-    pub fn typed_value<T: NativePType + TryFrom<PValue, Error = VortexError>>(&self) -> Option<T> {
+    pub fn typed_value<T: NativePType>(&self) -> Option<T> {
         assert_eq!(
             self.ptype,
             T::PTYPE,
@@ -113,7 +115,7 @@ impl<'a> PrimitiveScalar<'a> {
             T::PTYPE
         );
 
-        self.pvalue.map(|pv| pv.as_primitive::<T>())
+        self.pvalue.map(|pv| pv.cast::<T>())
     }
 
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
@@ -124,7 +126,7 @@ impl<'a> PrimitiveScalar<'a> {
         Ok(match_each_native_ptype!(ptype, |Q| {
             Scalar::primitive(
                 pvalue
-                    .as_primitive_opt::<Q>()
+                    .cast_opt::<Q>()
                     .ok_or_else(|| vortex_err!("Cannot cast {} to {}", self.ptype, dtype))?,
                 dtype.nullability(),
             )
@@ -212,52 +214,6 @@ impl<'a> PrimitiveScalar<'a> {
         } else {
             Some(None)
         }
-    }
-}
-
-/// A trait for types that can be created from primitive values, including f16.
-///
-/// This extends the `FromPrimitive` trait to also support conversion from f16 values.
-pub trait FromPrimitiveOrF16: FromPrimitive {
-    /// Converts an f16 value to this type, returning None if the conversion fails.
-    fn from_f16(v: f16) -> Option<Self>;
-}
-
-macro_rules! from_primitive_or_f16_for_non_floating_point {
-    ($T:ty) => {
-        impl FromPrimitiveOrF16 for $T {
-            fn from_f16(_: f16) -> Option<Self> {
-                None
-            }
-        }
-    };
-}
-
-from_primitive_or_f16_for_non_floating_point!(usize);
-from_primitive_or_f16_for_non_floating_point!(u8);
-from_primitive_or_f16_for_non_floating_point!(u16);
-from_primitive_or_f16_for_non_floating_point!(u32);
-from_primitive_or_f16_for_non_floating_point!(u64);
-from_primitive_or_f16_for_non_floating_point!(i8);
-from_primitive_or_f16_for_non_floating_point!(i16);
-from_primitive_or_f16_for_non_floating_point!(i32);
-from_primitive_or_f16_for_non_floating_point!(i64);
-
-impl FromPrimitiveOrF16 for f16 {
-    fn from_f16(v: f16) -> Option<Self> {
-        Some(v)
-    }
-}
-
-impl FromPrimitiveOrF16 for f32 {
-    fn from_f16(v: f16) -> Option<Self> {
-        Some(v.to_f32())
-    }
-}
-
-impl FromPrimitiveOrF16 for f64 {
-    fn from_f16(v: f16) -> Option<Self> {
-        Some(v.to_f64())
     }
 }
 
@@ -588,11 +544,11 @@ impl<'a> PrimitiveScalar<'a> {
 }
 
 #[cfg(test)]
-#[allow(clippy::cast_possible_truncation)]
 mod tests {
     use num_traits::CheckedSub;
     use rstest::rstest;
     use vortex_dtype::{DType, Nullability, PType};
+    use vortex_error::VortexExpect;
 
     use crate::{InnerScalarValue, PValue, PrimitiveScalar, ScalarValue};
 
@@ -618,7 +574,6 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "PrimitiveScalar subtract: overflow or underflow")]
-    #[allow(clippy::assertions_on_constants)]
     fn test_integer_subtract_overflow() {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let p_scalar1 = PrimitiveScalar::try_new(
@@ -754,9 +709,9 @@ mod tests {
         #[case] should_succeed: bool,
     ) {
         let source_pvalue = match source_type {
-            PType::I8 => PValue::I8(source_value as i8),
-            PType::U8 => PValue::U8(source_value as u8),
-            PType::U16 => PValue::U16(source_value as u16),
+            PType::I8 => PValue::I8(i8::try_from(source_value).vortex_expect("cannot cast")),
+            PType::U8 => PValue::U8(u8::try_from(source_value).vortex_expect("cannot cast")),
+            PType::U16 => PValue::U16(u16::try_from(source_value).vortex_expect("cannot cast")),
             PType::I32 => PValue::I32(source_value),
             _ => unreachable!("Test case uses unexpected source type"),
         };
@@ -1039,9 +994,9 @@ mod tests {
         // Test f16 to f64 conversion
         assert!(f64::from_f16(f16_val).is_some());
 
-        // Test f16 to integer conversion (should fail)
-        assert!(i32::from_f16(f16_val).is_none());
-        assert!(u32::from_f16(f16_val).is_none());
+        // Test PValue::F16(f16) to integer conversion (should fail)
+        assert!(i32::try_from(PValue::from(f16_val)).is_err());
+        assert!(u32::try_from(PValue::from(f16_val)).is_err());
     }
 
     #[test]
