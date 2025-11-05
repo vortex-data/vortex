@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use arrow_schema::{DataType, Schema};
+use datafusion_common::ScalarValue;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_functions::core::getfield::GetFieldFunc;
 use datafusion_physical_expr::{PhysicalExpr, PhysicalExprRef, ScalarFunctionExpr};
@@ -24,26 +25,42 @@ use vortex::scalar::Scalar;
 
 use crate::convert::{FromDataFusion, TryFromDataFusion};
 
+fn is_lit_true(e: &PhysicalExprRef) -> bool {
+    e.as_any()
+        .downcast_ref::<df_expr::Literal>()
+        .is_some_and(|l| matches!(l.value(), ScalarValue::Boolean(Some(true))))
+}
+
 /// Tries to convert the expressions into a vortex conjunction. Will return Ok(None) iff the input conjunction is empty.
 pub(crate) fn make_vortex_predicate(
     predicate: &[Arc<dyn PhysicalExpr>],
 ) -> VortexResult<Option<Expression>> {
     let exprs = predicate
         .iter()
-        .filter_map(|e| {
-            if is_dynamic_physical_expr(e) {
-                snapshot_physical_expr(e.clone()).ok().and_then(|e| {
-                    match Expression::try_from_df(e.as_ref()) {
-                        Ok(e) => Some(Ok(e)),
-                        Err(_) => {
-                            // If we fail to convert the expression to Vortex, its safe
-                            // to drop it as we don't declare it as pushed down
-                            None
-                        }
-                    }
-                })
+        .filter_map(|expr| {
+            // Handle dynamic expressions by snapshotting them first
+            let expr_to_convert = if is_dynamic_physical_expr(expr) {
+                // If snapshot fails, filter out this expression
+                let snapshot = snapshot_physical_expr(expr.clone()).ok()?;
+
+                // Filter out literal true expressions (they don't add constraints)
+                if is_lit_true(&snapshot) {
+                    return None;
+                }
+
+                snapshot
             } else {
-                Some(Expression::try_from_df(e.as_ref()))
+                expr.clone()
+            };
+
+            // Try to convert to Vortex expression
+            match Expression::try_from_df(expr_to_convert.as_ref()) {
+                Ok(vortex_expr) => Some(Ok(vortex_expr)),
+                Err(_) => {
+                    // If we fail to convert the expression to Vortex, it's safe
+                    // to drop it as we don't declare it as pushed down
+                    None
+                }
             }
         })
         .collect::<VortexResult<Vec<_>>>()?;
