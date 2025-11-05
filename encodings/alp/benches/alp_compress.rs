@@ -92,7 +92,7 @@ fn decompress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64
             )
             .unwrap()
         })
-        .bench_values(|array| decompress(array));
+        .bench_values(decompress);
 }
 
 #[divan::bench(types = [f32, f64], args = [10_000, 100_000])]
