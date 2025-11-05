@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
+use std::mem::transmute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
@@ -169,18 +170,18 @@ pub fn decompress_chunked(
                 let patches_values = patches_values.as_slice::<T>();
                 let patches_chunk_offsets = patches_chunk_offsets.as_slice::<C>();
 
-                let alp_buffer = alp_encoded.into_buffer();
+                let mut alp_buffer = alp_encoded.into_buffer_mut();
                 let array_len = array.len();
-                let mut decoded_values = BufferMut::<T>::with_capacity(array_len);
                 let patches_offset = patches.offset();
 
                 for (chunk_idx, chunk_start) in (0..array_len).step_by(1024).enumerate() {
                     let chunk_end = (chunk_start + 1024).min(array_len);
-                    let chunk_slice = &alp_buffer.as_slice()[chunk_start..chunk_end];
-                    <T>::decode_into_buffer(chunk_slice, array.exponents(), &mut decoded_values);
+                    let chunk_slice = &mut alp_buffer.as_mut_slice()[chunk_start..chunk_end];
+                    <T>::decode_slice_inplace(chunk_slice, array.exponents());
 
+                    let decoded_chunk: &mut [T] = unsafe { transmute(chunk_slice) };
                     PrimitiveArray::patch_chunk(
-                        &mut decoded_values,
+                        decoded_chunk,
                         patches_indices,
                         patches_values,
                         patches_offset,
@@ -189,7 +190,8 @@ pub fn decompress_chunked(
                     );
                 }
 
-                PrimitiveArray::new::<T>(decoded_values, validity)
+                let decoded_buffer: BufferMut<T> = unsafe { transmute(alp_buffer) };
+                PrimitiveArray::new::<T>(decoded_buffer.freeze(), validity)
             })
         })
     })
