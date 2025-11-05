@@ -154,11 +154,7 @@ impl StructReader {
                     // expression by replacing any `$.a` with `$`.
                     return Partitioned::Single(
                         partitioned.partition_names[0].clone(),
-                        replace(
-                            expr.clone(),
-                            &col(partitioned.partition_names[0].clone()),
-                            root(),
-                        ),
+                        replace(expr, &col(partitioned.partition_names[0].clone()), root()),
                     );
                 }
 

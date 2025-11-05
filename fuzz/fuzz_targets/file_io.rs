@@ -42,7 +42,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         let filtered = filter(&array_data, &mask).vortex_unwrap();
         projection_expr
             .clone()
-            .unwrap_or_else(|| root())
+            .unwrap_or_else(root)
             .evaluate(&Scope::new(filtered))
             .vortex_unwrap()
     };
@@ -69,7 +69,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         .vortex_unwrap()
         .scan()
         .vortex_unwrap()
-        .with_projection(projection_expr.unwrap_or_else(|| root()))
+        .with_projection(projection_expr.unwrap_or_else(root))
         .with_some_filter(filter_expr)
         .into_array_iter(&*RUNTIME)
         .vortex_unwrap()
