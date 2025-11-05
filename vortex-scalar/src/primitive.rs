@@ -544,11 +544,11 @@ impl<'a> PrimitiveScalar<'a> {
 }
 
 #[cfg(test)]
-#[allow(clippy::cast_possible_truncation)]
 mod tests {
-    use num_traits::{CheckedSub, FromPrimitive};
+    use num_traits::CheckedSub;
     use rstest::rstest;
     use vortex_dtype::{DType, Nullability, PType};
+    use vortex_error::VortexExpect;
 
     use crate::{InnerScalarValue, PValue, PrimitiveScalar, ScalarValue};
 
@@ -574,7 +574,6 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "PrimitiveScalar subtract: overflow or underflow")]
-    #[allow(clippy::assertions_on_constants)]
     fn test_integer_subtract_overflow() {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let p_scalar1 = PrimitiveScalar::try_new(
@@ -710,9 +709,9 @@ mod tests {
         #[case] should_succeed: bool,
     ) {
         let source_pvalue = match source_type {
-            PType::I8 => PValue::I8(source_value as i8),
-            PType::U8 => PValue::U8(source_value as u8),
-            PType::U16 => PValue::U16(source_value as u16),
+            PType::I8 => PValue::I8(i8::try_from(source_value).vortex_expect("cannot cast")),
+            PType::U8 => PValue::U8(u8::try_from(source_value).vortex_expect("cannot cast")),
+            PType::U16 => PValue::U16(u16::try_from(source_value).vortex_expect("cannot cast")),
             PType::I32 => PValue::I32(source_value),
             _ => unreachable!("Test case uses unexpected source type"),
         };
