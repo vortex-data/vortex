@@ -8,7 +8,7 @@ use num_traits::ToPrimitive;
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_compute::filter::Filter;
 use vortex_dtype::{DType, PTypeDowncastExt, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_vector::Vector;
 use vortex_vector::binaryview::{
     BinaryType, BinaryView, BinaryViewType, BinaryViewVector, StringType,
@@ -113,11 +113,20 @@ impl<V: BinaryViewType> BatchKernel for VarBinKernel<V> {
 
             let views = views.freeze().filter(&selection);
 
-            Ok(Vector::from(BinaryViewVector::<V>::new(
-                views,
-                Arc::new([self.bytes.clone()]),
-                validity,
-            )))
+            vortex_ensure!(
+                validity.len() == views.len(),
+                "mismatched validity and views length"
+            );
+
+            // SAFETY: views were constructed in the loop above to point at valid data from
+            //  the buffer. Validity was checked immediately above to be of the appropriate length.
+            Ok(Vector::from(unsafe {
+                BinaryViewVector::<V>::new_unchecked(
+                    views,
+                    Arc::new([self.bytes.clone()]),
+                    validity,
+                )
+            }))
         })
     }
 }
