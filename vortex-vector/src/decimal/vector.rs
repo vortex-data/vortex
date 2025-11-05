@@ -42,7 +42,7 @@ impl VectorOps for DecimalVector {
     }
 
     fn scalar_at(&self, index: usize) -> Scalar {
-        match_each_dvector!(self, |v| { v.scalar_at(index).into() })
+        match_each_dvector!(self, |v| { v.scalar_at(index) })
     }
 
     fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self {

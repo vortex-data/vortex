@@ -31,8 +31,8 @@ impl ScalarOps for StructScalar {
     }
 }
 
-impl Into<Scalar> for StructScalar {
-    fn into(self) -> Scalar {
-        Scalar::Struct(self)
+impl From<StructScalar> for Scalar {
+    fn from(val: StructScalar) -> Self {
+        Scalar::Struct(val)
     }
 }

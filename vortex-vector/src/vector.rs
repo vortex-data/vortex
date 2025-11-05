@@ -78,7 +78,7 @@ impl VectorOps for Vector {
     }
 
     fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self {
-        match_each_vector!(self, |v| { Vector::from(v.slice(range.clone())) })
+        match_each_vector!(self, |v| { Vector::from(v.slice(range)) })
     }
 
     fn try_into_mut(self) -> Result<VectorMut, Self> {

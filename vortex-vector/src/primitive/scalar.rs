@@ -54,9 +54,9 @@ impl ScalarOps for PrimitiveScalar {
     }
 }
 
-impl Into<Scalar> for PrimitiveScalar {
-    fn into(self) -> Scalar {
-        Scalar::Primitive(self)
+impl From<PrimitiveScalar> for Scalar {
+    fn from(val: PrimitiveScalar) -> Self {
+        Scalar::Primitive(val)
     }
 }
 

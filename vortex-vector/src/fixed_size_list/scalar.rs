@@ -35,8 +35,8 @@ impl ScalarOps for FixedSizeListScalar {
     }
 }
 
-impl Into<Scalar> for FixedSizeListScalar {
-    fn into(self) -> Scalar {
-        Scalar::FixedSizeList(self)
+impl From<FixedSizeListScalar> for Scalar {
+    fn from(val: FixedSizeListScalar) -> Self {
+        Scalar::FixedSizeList(val)
     }
 }

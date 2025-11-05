@@ -213,7 +213,7 @@ impl VectorOps for ListViewVector {
 
     fn scalar_at(&self, index: usize) -> Scalar {
         assert!(index < self.len());
-        ListViewScalar::new(self.slice(index..index + 1).into()).into()
+        ListViewScalar::new(self.slice(index..index + 1)).into()
     }
 
     fn slice(&self, _range: impl RangeBounds<usize> + Clone + Debug) -> Self {

@@ -88,11 +88,7 @@ impl VectorOps for BoolVector {
         debug_assert!(index < self.len());
 
         let is_valid = self.validity.value(index);
-        let value = if is_valid {
-            Some(self.bits.value(index))
-        } else {
-            None
-        };
+        let value = is_valid.then(|| self.bits.value(index));
 
         Scalar::Bool(value.into())
     }

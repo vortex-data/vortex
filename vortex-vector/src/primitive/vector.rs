@@ -83,7 +83,7 @@ impl VectorOps for PrimitiveVector {
     }
 
     fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self {
-        match_each_pvector!(self, |v| { v.slice(range.clone()).into() })
+        match_each_pvector!(self, |v| { v.slice(range).into() })
     }
 
     fn try_into_mut(self) -> Result<PrimitiveVectorMut, Self> {

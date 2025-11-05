@@ -16,7 +16,7 @@ impl<T: BinaryViewType> From<Option<T::Scalar>> for BinaryViewScalar<T> {
 }
 
 impl<T: BinaryViewType> BinaryViewScalar<T> {
-    /// Returns the scalar value as [`T::Scalar`], or `None` if the scalar is null.
+    /// Returns the scalar value as [`BinaryViewType::Scalar`], or `None` if the scalar is null.
     pub fn value(&self) -> Option<&T::Scalar> {
         self.0.as_ref()
     }
@@ -49,8 +49,8 @@ impl BinaryViewTypeUpcast for Scalar {
     }
 }
 
-impl<T: BinaryViewType> Into<Scalar> for BinaryViewScalar<T> {
-    fn into(self) -> Scalar {
-        T::upcast(self)
+impl<T: BinaryViewType> From<BinaryViewScalar<T>> for Scalar {
+    fn from(val: BinaryViewScalar<T>) -> Self {
+        T::upcast(val)
     }
 }

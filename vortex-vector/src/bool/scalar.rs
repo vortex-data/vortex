@@ -28,8 +28,8 @@ impl ScalarOps for BoolScalar {
     }
 }
 
-impl Into<Scalar> for BoolScalar {
-    fn into(self) -> Scalar {
-        Scalar::Bool(self)
+impl From<BoolScalar> for Scalar {
+    fn from(val: BoolScalar) -> Self {
+        Scalar::Bool(val)
     }
 }

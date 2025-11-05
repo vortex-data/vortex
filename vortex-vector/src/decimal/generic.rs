@@ -162,11 +162,7 @@ impl<D: NativeDecimalType> VectorOps for DVector<D> {
         debug_assert!(index < self.len());
 
         let is_valid = self.validity.value(index);
-        let value = if is_valid {
-            Some(self.elements[index])
-        } else {
-            None
-        };
+        let value = is_valid.then(|| self.elements[index]);
 
         // SAFETY: We have already checked the validity on construction of the vector
         Scalar::Decimal(unsafe { DScalar::<D>::new_unchecked(self.ps, value) }.into())

@@ -17,8 +17,8 @@ impl ScalarOps for NullScalar {
     }
 }
 
-impl Into<Scalar> for NullScalar {
-    fn into(self) -> Scalar {
-        Scalar::Null(self)
+impl From<NullScalar> for Scalar {
+    fn from(val: NullScalar) -> Self {
+        Scalar::Null(val)
     }
 }

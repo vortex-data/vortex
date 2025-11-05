@@ -47,9 +47,9 @@ impl ScalarOps for DecimalScalar {
     }
 }
 
-impl Into<Scalar> for DecimalScalar {
-    fn into(self) -> Scalar {
-        Scalar::Decimal(self)
+impl From<DecimalScalar> for Scalar {
+    fn from(val: DecimalScalar) -> Self {
+        Scalar::Decimal(val)
     }
 }
 

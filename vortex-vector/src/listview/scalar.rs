@@ -31,8 +31,8 @@ impl ScalarOps for ListViewScalar {
     }
 }
 
-impl Into<Scalar> for ListViewScalar {
-    fn into(self) -> Scalar {
-        Scalar::List(self)
+impl From<ListViewScalar> for Scalar {
+    fn from(val: ListViewScalar) -> Self {
+        Scalar::List(val)
     }
 }
