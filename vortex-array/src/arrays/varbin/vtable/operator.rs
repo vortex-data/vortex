@@ -5,10 +5,10 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use num_traits::ToPrimitive;
-use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
-use vortex_compute::filter::Filter;
-use vortex_dtype::{DType, PTypeDowncastExt, match_each_integer_ptype};
+use vortex_buffer::{Buffer, ByteBuffer};
+use vortex_dtype::{DType, IntegerPType, PTypeDowncastExt, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_mask::Mask;
 use vortex_vector::Vector;
 use vortex_vector::binaryview::{
     BinaryType, BinaryView, BinaryViewType, BinaryViewVector, StringType,
@@ -95,23 +95,17 @@ impl<V: BinaryViewType> BatchKernel for VarBinKernel<V> {
                 })
                 .collect();
 
-            let mut views = BufferMut::with_capacity(lens.len());
-
-            for (offset, len) in std::iter::zip(offsets, lens) {
-                let offset = offset.to_u32().vortex_expect("offset must fit in u32");
-                let bytes = &self.bytes[offset as usize..(offset + len) as usize];
-                let view = if len as usize <= BinaryView::MAX_INLINED_SIZE {
-                    BinaryView::new_inlined(bytes)
-                } else {
-                    BinaryView::make_view(bytes, 0, offset)
-                };
-                views.push(view);
-            }
-
             let selection = self.selection.execute()?;
-            let validity = self.validity.execute()?;
 
-            let views = views.freeze().filter(&selection);
+            let views = match selection {
+                Mask::AllFalse(_) => Buffer::empty(),
+                Mask::AllTrue(_) => make_views::<T>(offsets.as_ref(), lens, &self.bytes),
+                Mask::Values(values) => {
+                    make_views_filtered::<T>(offsets.as_ref(), lens, values.indices(), &self.bytes)
+                }
+            };
+
+            let validity = self.validity.execute()?;
 
             vortex_ensure!(
                 validity.len() == views.len(),
@@ -129,6 +123,50 @@ impl<V: BinaryViewType> BatchKernel for VarBinKernel<V> {
             }))
         })
     }
+}
+
+// Returns a set of views
+fn make_views<OffsetType: IntegerPType>(
+    offsets: &[OffsetType],
+    lens: Buffer<u32>,
+    bytes: &[u8],
+) -> Buffer<BinaryView> {
+    std::iter::zip(offsets, lens)
+        .map(|(offset, len)| {
+            let offset = offset.to_u32().vortex_expect("offset must fit in u32");
+            let bytes = &bytes[offset as usize..(offset + len) as usize];
+            if len as usize <= BinaryView::MAX_INLINED_SIZE {
+                BinaryView::new_inlined(bytes)
+            } else {
+                BinaryView::make_view(bytes, 0, offset)
+            }
+        })
+        .collect()
+}
+
+/// Only make views for values at the given `indices`
+fn make_views_filtered<OffsetType: IntegerPType>(
+    offsets: &[OffsetType],
+    lens: Buffer<u32>,
+    indices: &[usize],
+    bytes: &[u8],
+) -> Buffer<BinaryView> {
+    indices
+        .iter()
+        .copied()
+        .map(|index| {
+            let offset = offsets[index]
+                .to_u32()
+                .vortex_expect("offset must fit in u32");
+            let len = lens[index];
+            let bytes = &bytes[offset as usize..(offset + len) as usize];
+            if len as usize <= BinaryView::MAX_INLINED_SIZE {
+                BinaryView::new_inlined(bytes)
+            } else {
+                BinaryView::make_view(bytes, 0, offset)
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
