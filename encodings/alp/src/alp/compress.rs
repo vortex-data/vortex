@@ -4,7 +4,7 @@
 use std::mem::transmute;
 
 use itertools::Itertools;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::{PrimitiveArray, patch_chunk};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
@@ -187,7 +187,7 @@ pub fn decompress_chunked(
                     <T>::decode_slice_inplace(chunk_slice, exponents);
 
                     let decoded_chunk: &mut [T] = unsafe { transmute(chunk_slice) };
-                    PrimitiveArray::patch_chunk(
+                    patch_chunk(
                         decoded_chunk,
                         patches_indices,
                         patches_values,
