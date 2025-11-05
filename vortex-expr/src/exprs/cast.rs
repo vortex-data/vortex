@@ -5,15 +5,14 @@ use std::fmt::Formatter;
 use std::ops::Deref;
 
 use prost::Message;
-use vortex_array::compute::cast as compute_cast;
 use vortex_array::ArrayRef;
+use vortex_array::compute::cast as compute_cast;
 use vortex_dtype::{DType, FieldPath};
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 
 use crate::expression::Expression;
-use crate::ExpressionView;
-use crate::{ChildName, ExprId, StatsCatalog, VTable, VTableExt};
+use crate::{ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt};
 
 /// A cast expression that converts values to a target data type.
 pub struct Cast;
@@ -68,6 +67,10 @@ impl VTable for Cast {
         write!(f, ")")
     }
 
+    fn fmt_data(&self, instance: &Self::Instance, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", instance)
+    }
+
     fn return_dtype(&self, expr: &ExpressionView<Self>, _scope: &DType) -> VortexResult<DType> {
         Ok(expr.data().clone())
     }
@@ -83,32 +86,32 @@ impl VTable for Cast {
         })
     }
 
-    fn max(
+    fn stat_max(
         &self,
         expr: &ExpressionView<Self>,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
-        expr.children()[0].max(catalog)
+        expr.children()[0].stat_max(catalog)
     }
 
-    fn min(
+    fn stat_min(
         &self,
         expr: &ExpressionView<Self>,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
-        expr.children()[0].min(catalog)
+        expr.children()[0].stat_min(catalog)
     }
 
-    fn nan_count(
+    fn stat_nan_count(
         &self,
         expr: &ExpressionView<Self>,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
-        expr.children()[0].nan_count(catalog)
+        expr.children()[0].stat_nan_count(catalog)
     }
 
-    fn field_path(&self, expr: &ExpressionView<Self>) -> Option<FieldPath> {
-        expr.children()[0].field_path()
+    fn stat_field_path(&self, expr: &ExpressionView<Self>) -> Option<FieldPath> {
+        expr.children()[0].stat_field_path()
     }
 }
 
@@ -128,15 +131,15 @@ pub fn cast(child: Expression, target: DType) -> Expression {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::StructArray;
     use vortex_array::IntoArray;
+    use vortex_array::arrays::StructArray;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
     use super::cast;
     use crate::exprs::get_item::get_item;
     use crate::exprs::root::root;
-    use crate::{test_harness, Expression, Scope};
+    use crate::{Expression, Scope, test_harness};
 
     #[test]
     fn dtype() {

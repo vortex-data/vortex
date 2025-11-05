@@ -6,13 +6,12 @@ use std::fmt::Formatter;
 use prost::Message;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::{Array, ArrayRef, IntoArray};
-use vortex_dtype::{match_each_float_ptype, DType};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_dtype::{DType, match_each_float_ptype};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 
-use crate::ExpressionView;
-use crate::{ChildName, ExprId, Expression, StatsCatalog, VTable, VTableExt};
+use crate::{ChildName, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt};
 
 /// Expression that represents a literal scalar value.
 pub struct Literal;
@@ -73,7 +72,7 @@ impl VTable for Literal {
         Ok(ConstantArray::new(expr.data().clone(), scope.len()).into_array())
     }
 
-    fn max(
+    fn stat_max(
         &self,
         expr: &ExpressionView<Self>,
         _catalog: &mut dyn StatsCatalog,
@@ -81,7 +80,7 @@ impl VTable for Literal {
         Some(lit(expr.data().clone()))
     }
 
-    fn min(
+    fn stat_min(
         &self,
         expr: &ExpressionView<Self>,
         _catalog: &mut dyn StatsCatalog,
@@ -89,7 +88,7 @@ impl VTable for Literal {
         Some(lit(expr.data().clone()))
     }
 
-    fn nan_count(
+    fn stat_nan_count(
         &self,
         expr: &ExpressionView<Self>,
         _catalog: &mut dyn StatsCatalog,

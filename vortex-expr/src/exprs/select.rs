@@ -7,14 +7,13 @@ use itertools::Itertools;
 use prost::Message;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{DType, FieldNames};
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr::select_opts::Opts;
 use vortex_proto::expr::{FieldNames as ProtoFieldNames, SelectOpts};
 
 use crate::expression::Expression;
 use crate::field::DisplayFieldNames;
-use crate::ExpressionView;
-use crate::{ChildName, ExprId, VTable, VTableExt};
+use crate::{ChildName, ExprId, ExpressionView, VTable, VTableExt};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FieldSelection {
@@ -91,6 +90,20 @@ impl VTable for Select {
                 write!(f, "{{~ {}}}", DisplayFieldNames(fields))
             }
         }
+    }
+
+    fn fmt_data(&self, instance: &Self::Instance, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let names = match instance {
+            FieldSelection::Include(names) => {
+                write!(f, "include=")?;
+                names
+            }
+            FieldSelection::Exclude(names) => {
+                write!(f, "exclude=")?;
+                names
+            }
+        };
+        write!(f, "{{{}}}", DisplayFieldNames(names))
     }
 
     fn return_dtype(&self, expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
@@ -253,7 +266,7 @@ mod tests {
     use super::{select, select_exclude};
     use crate::exprs::root::root;
     use crate::exprs::select::Select;
-    use crate::{test_harness, Scope};
+    use crate::{Scope, test_harness};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[

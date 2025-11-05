@@ -3,13 +3,12 @@
 
 use std::fmt::Formatter;
 
-use vortex_array::compute::invert;
 use vortex_array::ArrayRef;
+use vortex_array::compute::invert;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
-use crate::ExpressionView;
-use crate::{ChildName, ExprId, Expression, VTable, VTableExt};
+use crate::{ChildName, ExprId, Expression, ExpressionView, VTable, VTableExt};
 
 /// Expression that logically inverts boolean values.
 pub struct Not;
@@ -83,14 +82,14 @@ pub fn not(operand: Expression) -> Expression {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::BoolArray;
     use vortex_array::ToCanonical;
+    use vortex_array::arrays::BoolArray;
     use vortex_dtype::{DType, Nullability};
 
     use super::not;
     use crate::exprs::get_item::{col, get_item};
     use crate::exprs::root::root;
-    use crate::{test_harness, Scope};
+    use crate::{Scope, test_harness};
 
     #[test]
     fn invert_booleans() {

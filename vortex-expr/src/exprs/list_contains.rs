@@ -3,15 +3,14 @@
 
 use std::fmt::Formatter;
 
-use vortex_array::compute::list_contains as compute_list_contains;
 use vortex_array::ArrayRef;
+use vortex_array::compute::list_contains as compute_list_contains;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::exprs::binary::{and, gt, lt, or};
-use crate::exprs::literal::{lit, Literal};
-use crate::ExpressionView;
-use crate::{ChildName, ExprId, Expression, StatsCatalog, VTable, VTableExt};
+use crate::exprs::literal::{Literal, lit};
+use crate::{ChildName, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt};
 
 pub struct ListContains;
 
@@ -89,8 +88,8 @@ impl VTable for ListContains {
     ) -> Option<Expression> {
         // falsification(contains([1,2,5], x)) =>
         //   falsification(x != 1) and falsification(x != 2) and falsification(x != 5)
-        let min = expr.list().min(catalog)?;
-        let max = expr.list().max(catalog)?;
+        let min = expr.list().stat_min(catalog)?;
+        let max = expr.list().stat_max(catalog)?;
         // If the list is constant when we can compare each element to the value
         if min == max {
             let list_ = min
@@ -101,8 +100,8 @@ impl VTable for ListContains {
                 // contains([], x) is always false.
                 return Some(lit(true));
             }
-            let value_max = expr.needle().max(catalog)?;
-            let value_min = expr.needle().min(catalog)?;
+            let value_max = expr.needle().stat_max(catalog)?;
+            let value_min = expr.needle().stat_min(catalog)?;
 
             return list_
                 .iter()

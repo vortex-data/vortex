@@ -7,15 +7,14 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{compare, Operator};
+use vortex_array::compute::{Operator, compare};
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::traversal::{NodeExt, NodeVisitor, TraversalOrder};
-use crate::ExpressionView;
-use crate::{ChildName, ExprId, Expression, StatsCatalog, VTable, VTableExt};
+use crate::{ChildName, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt};
 
 /// A dynamic comparison expression can be used to capture a comparison to a value that can change
 /// during the execution of a query, such as when a compute engine pushes down an ORDER BY + LIMIT
@@ -101,7 +100,7 @@ impl VTable for DynamicComparison {
                     rhs: expr.data().rhs.clone(),
                     default: !expr.data().default,
                 },
-                vec![expr.lhs().max(catalog)?],
+                vec![expr.lhs().stat_max(catalog)?],
             )),
             Operator::Gte => Some(DynamicComparison.new_expr(
                 DynamicComparisonExpr {
@@ -109,7 +108,7 @@ impl VTable for DynamicComparison {
                     rhs: expr.data().rhs.clone(),
                     default: !expr.data().default,
                 },
-                vec![expr.lhs().max(catalog)?],
+                vec![expr.lhs().stat_max(catalog)?],
             )),
             Operator::Lt => Some(DynamicComparison.new_expr(
                 DynamicComparisonExpr {
@@ -117,7 +116,7 @@ impl VTable for DynamicComparison {
                     rhs: expr.data().rhs.clone(),
                     default: !expr.data().default,
                 },
-                vec![expr.lhs().min(catalog)?],
+                vec![expr.lhs().stat_min(catalog)?],
             )),
             Operator::Lte => Some(DynamicComparison.new_expr(
                 DynamicComparisonExpr {
@@ -125,7 +124,7 @@ impl VTable for DynamicComparison {
                     rhs: expr.data().rhs.clone(),
                     default: !expr.data().default,
                 },
-                vec![expr.lhs().min(catalog)?],
+                vec![expr.lhs().stat_min(catalog)?],
             )),
             _ => None,
         }

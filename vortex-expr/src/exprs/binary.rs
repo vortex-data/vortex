@@ -5,16 +5,15 @@ use std::fmt::Formatter;
 
 use prost::Message;
 use vortex_array::compute::{add, and_kleene, compare, div, mul, or_kleene, sub};
-use vortex_array::{compute, ArrayRef};
+use vortex_array::{ArrayRef, compute};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 
 use crate::expression::Expression;
 use crate::exprs::literal::lit;
 use crate::exprs::operators::Operator;
-use crate::ExpressionView;
-use crate::{ChildName, ExprId, StatsCatalog, VTable, VTableExt};
+use crate::{ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt};
 
 pub struct Binary;
 
@@ -128,9 +127,9 @@ impl VTable for Binary {
             catalog: &mut dyn StatsCatalog,
         ) -> Expression {
             let nan_predicate = lhs
-                .nan_count(catalog)
+                .stat_nan_count(catalog)
                 .into_iter()
-                .chain(rhs.nan_count(catalog))
+                .chain(rhs.stat_nan_count(catalog))
                 .map(|nans| eq(nans, lit(0u64)))
                 .reduce(and);
 
@@ -143,11 +142,11 @@ impl VTable for Binary {
 
         match expr.operator() {
             Operator::Eq => {
-                let min_lhs = expr.lhs().min(catalog);
-                let max_lhs = expr.lhs().max(catalog);
+                let min_lhs = expr.lhs().stat_min(catalog);
+                let max_lhs = expr.lhs().stat_max(catalog);
 
-                let min_rhs = expr.rhs().min(catalog);
-                let max_rhs = expr.rhs().max(catalog);
+                let min_rhs = expr.rhs().stat_min(catalog);
+                let max_rhs = expr.rhs().stat_max(catalog);
 
                 let left = min_lhs.zip(max_rhs).map(|(a, b)| gt(a, b));
                 let right = min_rhs.zip(max_lhs).map(|(a, b)| gt(a, b));
@@ -163,11 +162,11 @@ impl VTable for Binary {
                 ))
             }
             Operator::NotEq => {
-                let min_lhs = expr.lhs().min(catalog)?;
-                let max_lhs = expr.lhs().max(catalog)?;
+                let min_lhs = expr.lhs().stat_min(catalog)?;
+                let max_lhs = expr.lhs().stat_max(catalog)?;
 
-                let min_rhs = expr.rhs().min(catalog)?;
-                let max_rhs = expr.rhs().max(catalog)?;
+                let min_rhs = expr.rhs().stat_min(catalog)?;
+                let max_rhs = expr.rhs().stat_max(catalog)?;
 
                 let min_max_check = and(eq(min_lhs, max_rhs), eq(max_lhs, min_rhs));
 
@@ -179,7 +178,8 @@ impl VTable for Binary {
                 ))
             }
             Operator::Gt => {
-                let min_max_check = lt_eq(expr.lhs().max(catalog)?, expr.rhs().min(catalog)?);
+                let min_max_check =
+                    lt_eq(expr.lhs().stat_max(catalog)?, expr.rhs().stat_min(catalog)?);
 
                 Some(with_nan_predicate(
                     expr.lhs(),
@@ -190,7 +190,8 @@ impl VTable for Binary {
             }
             Operator::Gte => {
                 // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
-                let min_max_check = lt(expr.lhs().max(catalog)?, expr.rhs().min(catalog)?);
+                let min_max_check =
+                    lt(expr.lhs().stat_max(catalog)?, expr.rhs().stat_min(catalog)?);
 
                 Some(with_nan_predicate(
                     expr.lhs(),
@@ -201,7 +202,8 @@ impl VTable for Binary {
             }
             Operator::Lt => {
                 // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
-                let min_max_check = gt_eq(expr.lhs().min(catalog)?, expr.rhs().max(catalog)?);
+                let min_max_check =
+                    gt_eq(expr.lhs().stat_min(catalog)?, expr.rhs().stat_max(catalog)?);
 
                 Some(with_nan_predicate(
                     expr.lhs(),
@@ -212,7 +214,8 @@ impl VTable for Binary {
             }
             Operator::Lte => {
                 // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
-                let min_max_check = gt(expr.lhs().min(catalog)?, expr.rhs().max(catalog)?);
+                let min_max_check =
+                    gt(expr.lhs().stat_min(catalog)?, expr.rhs().stat_max(catalog)?);
 
                 Some(with_nan_predicate(
                     expr.lhs(),
@@ -507,7 +510,7 @@ mod tests {
     use super::{and, and_collect, and_collect_right, eq, gt, gt_eq, lt, lt_eq, not_eq, or};
     use crate::exprs::get_item::col;
     use crate::exprs::literal::lit;
-    use crate::{test_harness, Expression};
+    use crate::{Expression, test_harness};
 
     #[test]
     fn and_collect_left_assoc() {

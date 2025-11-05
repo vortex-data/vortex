@@ -4,14 +4,13 @@
 use std::fmt::Formatter;
 
 use prost::Message;
-use vortex_array::compute::{like as like_compute, LikeOptions};
 use vortex_array::ArrayRef;
+use vortex_array::compute::{LikeOptions, like as like_compute};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 
-use crate::ExpressionView;
-use crate::{ChildName, ExprId, Expression, VTable, VTableExt};
+use crate::{ChildName, ExprId, Expression, ExpressionView, VTable, VTableExt};
 
 /// Expression that performs SQL LIKE pattern matching.
 pub struct Like;
@@ -140,16 +139,16 @@ pub fn not_ilike(child: Expression, pattern: Expression) -> Expression {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::BoolArray;
     use vortex_array::ToCanonical;
+    use vortex_array::arrays::BoolArray;
     use vortex_dtype::{DType, Nullability};
 
+    use crate::Scope;
     use crate::exprs::get_item::get_item;
     use crate::exprs::like::{like, not_ilike};
     use crate::exprs::literal::lit;
     use crate::exprs::not::not;
     use crate::exprs::root::root;
-    use crate::Scope;
 
     #[test]
     fn invert_booleans() {

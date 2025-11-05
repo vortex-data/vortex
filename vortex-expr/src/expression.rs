@@ -11,8 +11,7 @@ use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::ExpressionView;
-use crate::{display, ChildName, ExprId, ExprVTable, StatsCatalog, VTable};
+use crate::{ChildName, ExprId, ExprVTable, ExpressionView, StatsCatalog, VTable, display};
 
 /// A node in a Vortex expression tree.
 ///
@@ -164,31 +163,33 @@ impl Expression {
 
     /// An expression for the upper non-null bound of this expression, if available.
     ///
-    /// This function returns None if there is no upper bound or it is difficult to compute.
+    /// This function returns None if there is no upper bound, or it is difficult to compute.
     ///
     /// The returned expression evaluates to null if the maximum value is unknown. In that case, you
     /// _must not_ assume the array is empty _nor_ may you assume the array only contains non-null
     /// values.
-    pub fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
-        self.vtable.as_dyn().max(self, catalog)
+    pub fn stat_max(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
+        self.vtable.as_dyn().stat_max(self, catalog)
     }
 
     /// An expression for the lower non-null bound of this expression, if available.
     ///
-    /// See [AnalysisExpr::max] for important details.
-    pub fn min(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
-        self.vtable.as_dyn().min(self, catalog)
+    /// See [`Expression::stat_max`] for important details.
+    pub fn stat_min(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
+        self.vtable.as_dyn().stat_min(self, catalog)
     }
 
     /// An expression for the NaN count for a column, if available.
     ///
     /// This method returns `None` if the NaNCount stat is unknown.
-    pub fn nan_count(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
-        self.vtable.as_dyn().nan_count(self, catalog)
+    pub fn stat_nan_count(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
+        self.vtable.as_dyn().stat_nan_count(self, catalog)
     }
 
-    pub fn field_path(&self) -> Option<FieldPath> {
-        self.vtable.as_dyn().field_path(self)
+    // TODO(ngates): I'm not sure what this is really for? We need to clean up stats compute for
+    //  expressions.
+    pub fn stat_field_path(&self) -> Option<FieldPath> {
+        self.vtable.as_dyn().stat_field_path(self)
     }
 
     /// Format the expression as a compact string.

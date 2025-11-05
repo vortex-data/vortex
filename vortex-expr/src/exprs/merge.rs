@@ -10,11 +10,10 @@ use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray as _, ToCanonical};
 use vortex_dtype::{DType, FieldNames, Nullability, StructFields};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::ExpressionView;
-use crate::{ChildName, ExprId, Expression, VTable, VTableExt};
+use crate::{ChildName, ExprId, Expression, ExpressionView, VTable, VTableExt};
 
 /// Merge zero or more expressions that ALL return structs.
 ///
@@ -193,11 +192,11 @@ mod tests {
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
-    use vortex_error::{vortex_bail, VortexResult};
+    use vortex_error::{VortexResult, vortex_bail};
 
     use super::merge;
     use crate::exprs::get_item::get_item;
-    use crate::exprs::merge::{merge_opts, DuplicateHandling};
+    use crate::exprs::merge::{DuplicateHandling, merge_opts};
     use crate::exprs::root::root;
     use crate::{Expression, Scope};
 

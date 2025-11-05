@@ -46,15 +46,15 @@ public final class Expressions {
                 expr.getChildrenList().stream().map(Expressions::deserialize).collect(Collectors.toList());
 
         switch (expr.getId()) {
-            case "binary":
+            case "vortex.binary":
                 return Binary.parse(metadata, children);
-            case "get_item":
+            case "vortex.get_item":
                 return GetItem.parse(metadata, children);
-            case "root":
+            case "vortex.root":
                 return Root.parse(metadata, children);
-            case "literal":
+            case "vortex.literal":
                 return Literal.parse(metadata, children);
-            case "not":
+            case "vortex.not":
                 return Not.parse(metadata, children);
             default:
                 return new Unknown(expr.getId(), children, expr.getMetadata().toByteArray());

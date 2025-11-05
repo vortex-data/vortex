@@ -8,13 +8,12 @@ use vortex_array::arrays::{BoolArray, ConstantArray};
 use vortex_array::stats::Stat;
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::exprs::binary::eq;
 use crate::exprs::literal::lit;
-use crate::ExpressionView;
-use crate::{ChildName, ExprId, Expression, StatsCatalog, VTable, VTableExt};
+use crate::{ChildName, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt};
 
 /// Expression that checks for null values.
 pub struct IsNull;
@@ -75,7 +74,7 @@ impl VTable for IsNull {
         expr: &ExpressionView<Self>,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
-        let field_path = expr.children()[0].field_path()?;
+        let field_path = expr.children()[0].stat_field_path()?;
         let null_count_expr = catalog.stats_ref(&field_path, Stat::NullCount)?;
         Some(eq(null_count_expr, lit(0u64)))
     }
@@ -95,9 +94,9 @@ pub fn is_null(child: Expression) -> Expression {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::IntoArray;
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::stats::Stat;
-    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Field, FieldPath, FieldPathSet, Nullability};
     use vortex_scalar::Scalar;
@@ -109,7 +108,7 @@ mod tests {
     use crate::exprs::literal::lit;
     use crate::exprs::root::root;
     use crate::pruning::checked_pruning_expr;
-    use crate::{test_harness, HashSet, Scope};
+    use crate::{HashSet, Scope, test_harness};
 
     #[test]
     fn dtype() {

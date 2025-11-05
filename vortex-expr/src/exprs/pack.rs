@@ -10,11 +10,10 @@ use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 
-use crate::ExpressionView;
-use crate::{ChildName, ExprId, Expression, VTable, VTableExt};
+use crate::{ChildName, ExprId, Expression, ExpressionView, VTable, VTableExt};
 
 /// Pack zero or more expressions into a structure with named fields.
 pub struct Pack;
@@ -182,9 +181,9 @@ mod tests {
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
-    use vortex_error::{vortex_bail, VortexResult};
+    use vortex_error::{VortexResult, vortex_bail};
 
-    use super::{pack, Pack, PackOptions};
+    use super::{Pack, PackOptions, pack};
     use crate::exprs::get_item::col;
     use crate::{Scope, VTableExt};
 

@@ -9,12 +9,11 @@ use vortex_array::compute::mask;
 use vortex_array::stats::Stat;
 use vortex_array::{ArrayRef, ToCanonical};
 use vortex_dtype::{DType, FieldName, FieldPath, Nullability};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 
 use crate::exprs::root::root;
-use crate::ExpressionView;
-use crate::{ChildName, ExprId, Expression, StatsCatalog, VTable, VTableExt};
+use crate::{ChildName, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt};
 
 pub struct GetItem;
 
@@ -86,7 +85,7 @@ impl VTable for GetItem {
         }
     }
 
-    fn max(
+    fn stat_max(
         &self,
         expr: &ExpressionView<Self>,
         catalog: &mut dyn StatsCatalog,
@@ -94,7 +93,7 @@ impl VTable for GetItem {
         catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), Stat::Max)
     }
 
-    fn min(
+    fn stat_min(
         &self,
         expr: &ExpressionView<Self>,
         catalog: &mut dyn StatsCatalog,
@@ -102,7 +101,7 @@ impl VTable for GetItem {
         catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), Stat::Min)
     }
 
-    fn nan_count(
+    fn stat_nan_count(
         &self,
         expr: &ExpressionView<Self>,
         catalog: &mut dyn StatsCatalog,
@@ -110,9 +109,9 @@ impl VTable for GetItem {
         catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), Stat::NaNCount)
     }
 
-    fn field_path(&self, expr: &ExpressionView<Self>) -> Option<FieldPath> {
+    fn stat_field_path(&self, expr: &ExpressionView<Self>) -> Option<FieldPath> {
         expr.children()[0]
-            .field_path()
+            .stat_field_path()
             .map(|fp| fp.push(expr.data().clone()))
     }
 }
@@ -152,8 +151,8 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use super::get_item;
-    use crate::exprs::root::root;
     use crate::Scope;
+    use crate::exprs::root::root;
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[

@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::{Expression, VTable};
 use std::any::type_name;
 use std::ops::Deref;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
+
+use crate::{Expression, VTable};
 
 /// A view over an [`Expression`] with an associated vtable, allowing typed access to the
 /// expression's instance data.

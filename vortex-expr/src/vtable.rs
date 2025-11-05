@@ -10,11 +10,10 @@ use std::sync::Arc;
 use arcref::ArcRef;
 use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldPath};
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::expression::Expression;
-use crate::ExpressionView;
-use crate::{ExprId, StatsCatalog};
+use crate::{ExprId, ExpressionView, StatsCatalog};
 
 /// The vtable trait for a Vortex expression.
 ///
@@ -77,24 +76,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// Evaluate the expression in the given scope.
     fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef>;
 
-    /// An expression over zone-statistics which implies all records in the zone evaluate to false.
-    ///
-    /// Given an expression, `e`, if `e.stat_falsification(..)` evaluates to true, it is guaranteed
-    /// that `e` evaluates to false on all records in the zone. However, the inverse is not
-    /// necessarily true: even if the falsification evaluates to false, `e` need not evaluate to
-    /// true on all records.
-    ///
-    /// The [`StatsCatalog`] can be used to constrain or rename stats used in the final expr.
-    ///
-    /// # Examples
-    ///
-    /// - An expression over one variable: `x > 0` is false for all records in a zone if the maximum
-    ///   value of the column `x` in that zone is less than or equal to zero: `max(x) <= 0`.
-    /// - An expression over two variables: `x > y` becomes `max(x) <= min(y)`.
-    /// - A conjunctive expression: `x > y AND z < x` becomes `max(x) <= min(y) OR min(z) >= max(x).
-    ///
-    /// Some expressions, in theory, have falsifications but this function does not support them
-    /// such as `x < (y < z)` or `x LIKE "needle%"`.
+    /// See [`crate::Expression::stat_falsification`].
     fn stat_falsification(
         &self,
         _expr: &ExpressionView<Self>,
@@ -103,14 +85,8 @@ pub trait VTable: 'static + Sized + Send + Sync {
         None
     }
 
-    /// An expression for the upper non-null bound of this expression, if available.
-    ///
-    /// This function returns None if there is no upper bound or it is difficult to compute.
-    ///
-    /// The returned expression evaluates to null if the maximum value is unknown. In that case, you
-    /// _must not_ assume the array is empty _nor_ may you assume the array only contains non-null
-    /// values.
-    fn max(
+    /// See [`crate::Expression::stat_max`].
+    fn stat_max(
         &self,
         _expr: &ExpressionView<Self>,
         _catalog: &mut dyn StatsCatalog,
@@ -118,10 +94,8 @@ pub trait VTable: 'static + Sized + Send + Sync {
         None
     }
 
-    /// An expression for the lower non-null bound of this expression, if available.
-    ///
-    /// See [AnalysisExpr::max] for important details.
-    fn min(
+    /// See [`crate::Expression::stat_min`].
+    fn stat_min(
         &self,
         _expr: &ExpressionView<Self>,
         _catalog: &mut dyn StatsCatalog,
@@ -129,10 +103,8 @@ pub trait VTable: 'static + Sized + Send + Sync {
         None
     }
 
-    /// An expression for the NaN count for a column, if available.
-    ///
-    /// This method returns `None` if the NaNCount stat is unknown.
-    fn nan_count(
+    /// See [`crate::Expression::stat_nan_count`].
+    fn stat_nan_count(
         &self,
         _expr: &ExpressionView<Self>,
         _catalog: &mut dyn StatsCatalog,
@@ -140,7 +112,8 @@ pub trait VTable: 'static + Sized + Send + Sync {
         None
     }
 
-    fn field_path(&self, _expr: &ExpressionView<Self>) -> Option<FieldPath> {
+    /// See [`crate::Expression::stat_field_path`].
+    fn stat_field_path(&self, _expr: &ExpressionView<Self>) -> Option<FieldPath> {
         None
     }
 }
@@ -197,14 +170,22 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
         expression: &Expression,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression>;
-    fn max(&self, expression: &Expression, catalog: &mut dyn StatsCatalog) -> Option<Expression>;
-    fn min(&self, expression: &Expression, catalog: &mut dyn StatsCatalog) -> Option<Expression>;
-    fn nan_count(
+    fn stat_max(
         &self,
         expression: &Expression,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression>;
-    fn field_path(&self, expression: &Expression) -> Option<FieldPath>;
+    fn stat_min(
+        &self,
+        expression: &Expression,
+        catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression>;
+    fn stat_nan_count(
+        &self,
+        expression: &Expression,
+        catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression>;
+    fn stat_field_path(&self, expression: &Expression) -> Option<FieldPath>;
 
     fn dyn_eq(&self, instance: &dyn Any, other: &dyn Any) -> bool;
     fn dyn_hash(&self, instance: &dyn Any, state: &mut dyn Hasher);
@@ -277,28 +258,36 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         V::stat_falsification(&self.0, &expr, catalog)
     }
 
-    fn max(&self, expression: &Expression, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
-        let expr = ExpressionView::new(expression);
-        V::max(&self.0, &expr, catalog)
-    }
-
-    fn min(&self, expression: &Expression, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
-        let expr = ExpressionView::new(expression);
-        V::min(&self.0, &expr, catalog)
-    }
-
-    fn nan_count(
+    fn stat_max(
         &self,
         expression: &Expression,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
         let expr = ExpressionView::new(expression);
-        V::nan_count(&self.0, &expr, catalog)
+        V::stat_max(&self.0, &expr, catalog)
     }
 
-    fn field_path(&self, expression: &Expression) -> Option<FieldPath> {
+    fn stat_min(
+        &self,
+        expression: &Expression,
+        catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression> {
         let expr = ExpressionView::new(expression);
-        V::field_path(&self.0, &expr)
+        V::stat_min(&self.0, &expr, catalog)
+    }
+
+    fn stat_nan_count(
+        &self,
+        expression: &Expression,
+        catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression> {
+        let expr = ExpressionView::new(expression);
+        V::stat_nan_count(&self.0, &expr, catalog)
+    }
+
+    fn stat_field_path(&self, expression: &Expression) -> Option<FieldPath> {
+        let expr = ExpressionView::new(expression);
+        V::stat_field_path(&self.0, &expr)
     }
 
     fn dyn_eq(&self, instance: &dyn Any, other: &dyn Any) -> bool {
@@ -415,7 +404,7 @@ mod tests {
     use crate::exprs::pack::pack;
     use crate::exprs::root::root;
     use crate::exprs::select::{select, select_exclude};
-    use crate::proto::{deserialize_expr_proto, ExprSerializeProtoExt};
+    use crate::proto::{ExprSerializeProtoExt, deserialize_expr_proto};
     use crate::session::{ExprRegistry, ExprSession};
 
     #[fixture]

@@ -3,14 +3,13 @@
 
 use std::fmt::Formatter;
 
-use vortex_array::stats::Stat;
 use vortex_array::ArrayRef;
+use vortex_array::stats::Stat;
 use vortex_dtype::{DType, FieldPath};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::expression::Expression;
-use crate::ExpressionView;
-use crate::{ChildName, ExprId, StatsCatalog, VTable, VTableExt};
+use crate::{ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt};
 
 /// An expression that returns the full scope of the expression evaluation.
 // TODO(ngates): rename to "Scope"
@@ -52,10 +51,6 @@ impl VTable for Root {
         write!(f, "$")
     }
 
-    fn fmt_data(&self, _instance: &Self::Instance, _f: &mut Formatter<'_>) -> std::fmt::Result {
-        Ok(()) // No data
-    }
-
     fn return_dtype(&self, _expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
         Ok(scope.clone())
     }
@@ -64,31 +59,31 @@ impl VTable for Root {
         Ok(scope.clone())
     }
 
-    fn max(
+    fn stat_max(
         &self,
         expr: &ExpressionView<Root>,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
-        catalog.stats_ref(&self.field_path(expr)?, Stat::Max)
+        catalog.stats_ref(&self.stat_field_path(expr)?, Stat::Max)
     }
 
-    fn min(
+    fn stat_min(
         &self,
         expr: &ExpressionView<Root>,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
-        catalog.stats_ref(&self.field_path(expr)?, Stat::Min)
+        catalog.stats_ref(&self.stat_field_path(expr)?, Stat::Min)
     }
 
-    fn nan_count(
+    fn stat_nan_count(
         &self,
         expr: &ExpressionView<Root>,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
-        catalog.stats_ref(&self.field_path(expr)?, Stat::NaNCount)
+        catalog.stats_ref(&self.stat_field_path(expr)?, Stat::NaNCount)
     }
 
-    fn field_path(&self, _expr: &ExpressionView<Root>) -> Option<FieldPath> {
+    fn stat_field_path(&self, _expr: &ExpressionView<Root>) -> Option<FieldPath> {
         Some(FieldPath::root())
     }
 }

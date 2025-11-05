@@ -4,18 +4,17 @@
 use std::fmt::Formatter;
 
 use prost::Message;
-use vortex_array::compute::{between as between_compute, BetweenOptions};
 use vortex_array::ArrayRef;
+use vortex_array::compute::{BetweenOptions, between as between_compute};
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 
 use crate::expression::Expression;
 use crate::exprs::binary::Binary;
 use crate::exprs::operators::Operator;
-use crate::ExpressionView;
-use crate::{ChildName, ExprId, StatsCatalog, VTable, VTableExt};
+use crate::{ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt};
 
 /// An optimized scalar expression to compute whether values fall between two bounds.
 ///

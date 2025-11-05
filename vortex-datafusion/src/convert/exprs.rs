@@ -422,15 +422,14 @@ mod tests {
         let like_expr = df_expr::LikeExpr::new(negated, case_insensitive, expr, pattern);
 
         let result = Expression::try_from_df(&like_expr).unwrap();
-
-        insta::allow_duplicates! {
-            assert_snapshot!(result.display_tree().to_string(), @r#"
-            vortex.like LikeOptions { negated: false, case_insensitive: false }
-            ├── child: vortex.get_item "text_col"
-            │   └── input: vortex.root
-            └── pattern: vortex.literal "test%"
-            "#);
-        }
+        let like_expr = result.as_::<Like>();
+        assert_eq!(
+            like_expr.data(),
+            &LikeOptions {
+                negated,
+                case_insensitive
+            }
+        );
     }
 
     #[rstest]
