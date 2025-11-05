@@ -103,4 +103,11 @@ impl VectorOps for BoolVector {
             }),
         }
     }
+
+    fn into_mut(self) -> BoolVectorMut {
+        BoolVectorMut {
+            bits: self.bits.into_mut(),
+            validity: self.validity.into_mut(),
+        }
+    }
 }

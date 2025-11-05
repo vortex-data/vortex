@@ -59,6 +59,10 @@ impl VectorOps for DecimalVector {
                 .map_err(Self::from)
         })
     }
+
+    fn into_mut(self) -> DecimalVectorMut {
+        match_each_dvector!(self, |v| { DecimalVectorMut::from(v.into_mut()) })
+    }
 }
 
 impl DecimalTypeDowncast for DecimalVector {
