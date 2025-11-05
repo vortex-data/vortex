@@ -10,14 +10,12 @@ use std::ops::AddAssign;
 use std::panic::RefUnwindSafe;
 
 use num_traits::bounds::UpperBounded;
-use num_traits::{
-    AsPrimitive, Bounded, FromPrimitive, Num, NumCast, PrimInt, ToPrimitive, Unsigned,
-};
+use num_traits::{AsPrimitive, Bounded, Num, NumCast, PrimInt, ToPrimitive, Unsigned};
 use vortex_error::{VortexError, VortexResult, vortex_err};
 
-use crate::DType;
 use crate::half::f16;
 use crate::nullability::Nullability::NonNullable;
+use crate::{DType, FromPrimitiveOrF16};
 
 /// Physical type enum, represents the in-memory physical layout but might represent a different logical type.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Hash, prost::Enumeration)]
@@ -96,7 +94,7 @@ pub trait NativePType:
     + RefUnwindSafe
     + Num
     + NumCast
-    + FromPrimitive
+    + FromPrimitiveOrF16
     + ToBytes
     + TryFromBytes
     + private::Sealed

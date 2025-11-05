@@ -5,7 +5,7 @@ use num_traits::PrimInt;
 use vortex_dtype::Nullability::Nullable;
 use vortex_dtype::{DType, DecimalDType, NativePType, i256, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_scalar::{DecimalScalar, DecimalValue, FromPrimitiveOrF16, Scalar};
+use vortex_scalar::{DecimalScalar, DecimalValue, Scalar};
 
 use crate::arrays::{ChunkedArray, ChunkedVTable};
 use crate::compute::{SumKernel, SumKernelAdapter, sum};
@@ -39,9 +39,7 @@ impl SumKernel for ChunkedVTable {
 
 register_kernel!(SumKernelAdapter(ChunkedVTable).lift());
 
-fn sum_int<T: NativePType + PrimInt + FromPrimitiveOrF16>(
-    chunks: &[ArrayRef],
-) -> VortexResult<Option<T>> {
+fn sum_int<T: NativePType + PrimInt>(chunks: &[ArrayRef]) -> VortexResult<Option<T>> {
     let mut result: T = T::zero();
     for chunk in chunks {
         let chunk_sum = sum(chunk)?;

@@ -6,9 +6,11 @@ use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::{Add, Sub};
 
-use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, FromPrimitive};
+use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub};
 use vortex_dtype::half::f16;
-use vortex_dtype::{DType, NativePType, Nullability, PType, match_each_native_ptype};
+use vortex_dtype::{
+    DType, FromPrimitiveOrF16, NativePType, Nullability, PType, match_each_native_ptype,
+};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
 
 use crate::pvalue::{CoercePValue, PValue};
@@ -104,7 +106,7 @@ impl<'a> PrimitiveScalar<'a> {
     /// # Panics
     ///
     /// Panics if the primitive type of this scalar does not match the requested type.
-    pub fn typed_value<T: NativePType + TryFrom<PValue, Error = VortexError>>(&self) -> Option<T> {
+    pub fn typed_value<T: NativePType>(&self) -> Option<T> {
         assert_eq!(
             self.ptype,
             T::PTYPE,
@@ -212,52 +214,6 @@ impl<'a> PrimitiveScalar<'a> {
         } else {
             Some(None)
         }
-    }
-}
-
-/// A trait for types that can be created from primitive values, including f16.
-///
-/// This extends the `FromPrimitive` trait to also support conversion from f16 values.
-pub trait FromPrimitiveOrF16: FromPrimitive {
-    /// Converts an f16 value to this type, returning None if the conversion fails.
-    fn from_f16(v: f16) -> Option<Self>;
-}
-
-macro_rules! from_primitive_or_f16_for_non_floating_point {
-    ($T:ty) => {
-        impl FromPrimitiveOrF16 for $T {
-            fn from_f16(_: f16) -> Option<Self> {
-                None
-            }
-        }
-    };
-}
-
-from_primitive_or_f16_for_non_floating_point!(usize);
-from_primitive_or_f16_for_non_floating_point!(u8);
-from_primitive_or_f16_for_non_floating_point!(u16);
-from_primitive_or_f16_for_non_floating_point!(u32);
-from_primitive_or_f16_for_non_floating_point!(u64);
-from_primitive_or_f16_for_non_floating_point!(i8);
-from_primitive_or_f16_for_non_floating_point!(i16);
-from_primitive_or_f16_for_non_floating_point!(i32);
-from_primitive_or_f16_for_non_floating_point!(i64);
-
-impl FromPrimitiveOrF16 for f16 {
-    fn from_f16(v: f16) -> Option<Self> {
-        Some(v)
-    }
-}
-
-impl FromPrimitiveOrF16 for f32 {
-    fn from_f16(v: f16) -> Option<Self> {
-        Some(v.to_f32())
-    }
-}
-
-impl FromPrimitiveOrF16 for f64 {
-    fn from_f16(v: f16) -> Option<Self> {
-        Some(v.to_f64())
     }
 }
 

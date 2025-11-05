@@ -4,9 +4,7 @@
 use num_traits::{CheckedMul, ToPrimitive};
 use vortex_dtype::{DType, DecimalDType, NativePType, Nullability, i256, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex_scalar::{
-    DecimalScalar, DecimalValue, FromPrimitiveOrF16, PrimitiveScalar, Scalar, ScalarValue,
-};
+use vortex_scalar::{DecimalScalar, DecimalValue, PrimitiveScalar, Scalar, ScalarValue};
 
 use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::compute::{SumKernel, SumKernelAdapter};
@@ -84,7 +82,7 @@ fn sum_integral<T>(
     array_len: usize,
 ) -> VortexResult<Option<T>>
 where
-    T: FromPrimitiveOrF16 + NativePType + CheckedMul,
+    T: NativePType + CheckedMul,
     Scalar: From<Option<T>>,
 {
     let v = primitive_scalar.as_::<T>();

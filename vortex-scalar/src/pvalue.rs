@@ -202,7 +202,7 @@ impl PValue {
             PValue::I16(i) => T::from_i16(i),
             PValue::I32(i) => T::from_i32(i),
             PValue::I64(i) => T::from_i64(i),
-            PValue::F16(f) => <T as NumCast>::from(f),
+            PValue::F16(f) => T::from_f16(f),
             PValue::F32(f) => T::from_f32(f),
             PValue::F64(f) => T::from_f64(f),
         }
@@ -533,7 +533,7 @@ mod test {
     use std::collections::HashSet;
 
     use vortex_dtype::half::f16;
-    use vortex_dtype::{PType, ToBytes};
+    use vortex_dtype::{FromPrimitiveOrF16, NativePType, PType, ToBytes};
 
     use crate::PValue;
     use crate::pvalue::CoercePValue;
@@ -911,5 +911,14 @@ mod test {
             f64::coerce(PValue::U64(0x3ff0000000000000)).unwrap(),
             1.0f64 // 0x3ff0000000000000 is 1.0 in f64
         );
+    }
+
+    #[test]
+    fn test_f16_nans_equal() {
+        let nan = f16::NAN;
+        let nan2 = f16::from_le_bytes([154, 253]);
+        assert!(nan2.is_nan());
+        let nan3 = f16::from_f16(nan2).unwrap();
+        assert_eq!(nan2.to_bits(), nan3.to_bits(),);
     }
 }

@@ -14,7 +14,6 @@ use vortex_dtype::{
     match_each_unsigned_integer_ptype,
 };
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_scalar::FromPrimitiveOrF16;
 
 use crate::unpack_iter::{UnpackStrategy, UnpackedChunks};
 use crate::{BitPackedArray, BitPackedVTable, FoRArray, bitpack_compress};
@@ -102,9 +101,7 @@ pub fn decompress(array: &FoRArray) -> PrimitiveArray {
     })
 }
 
-fn fused_decompress<
-    T: PhysicalPType<Physical = T> + UnsignedPType + FoR + FromPrimitiveOrF16 + WrappingAdd,
->(
+fn fused_decompress<T: PhysicalPType<Physical = T> + UnsignedPType + FoR + WrappingAdd>(
     for_: &FoRArray,
     bp: &BitPackedArray,
 ) -> PrimitiveArray {
