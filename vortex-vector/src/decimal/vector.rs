@@ -3,7 +3,7 @@
 
 //! Definition and implementation of [`DecimalVector`].
 
-use vortex_dtype::{DecimalTypeDowncast, DecimalTypeUpcast, NativeDecimalType, i256};
+use vortex_dtype::{DecimalType, DecimalTypeDowncast, DecimalTypeUpcast, NativeDecimalType, i256};
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
@@ -25,6 +25,20 @@ pub enum DecimalVector {
     D128(DVector<i128>),
     /// A decimal vector with 256-bit integer representation.
     D256(DVector<i256>),
+}
+
+impl DecimalVector {
+    /// Returns the [`DecimalType`] of the decimal vector.
+    pub fn decimal_type(&self) -> DecimalType {
+        match self {
+            Self::D8(_) => DecimalType::I8,
+            Self::D16(_) => DecimalType::I16,
+            Self::D32(_) => DecimalType::I32,
+            Self::D64(_) => DecimalType::I64,
+            Self::D128(_) => DecimalType::I128,
+            Self::D256(_) => DecimalType::I256,
+        }
+    }
 }
 
 impl VectorOps for DecimalVector {
