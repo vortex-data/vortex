@@ -195,7 +195,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_table_ordered_by() -> anyhow::Result<()> {
-        let dir = TempDir::new().unwrap();
+        let dir = TempDir::new()?;
 
         let factory: VortexFormatFactory = VortexFormatFactory::new();
         let mut session_state_builder = SessionStateBuilder::new().with_default_features();
@@ -238,6 +238,8 @@ mod tests {
         let (state, plan) = df.clone().into_parts();
         let physical_plan = state.create_physical_plan(&plan).await?;
 
+        dbg!(physical_plan.as_ref());
+
         insta::assert_snapshot!(DisplayableExecutionPlan::new(physical_plan.as_ref())
                 .tree_render().to_string(), @r"
         ┌───────────────────────────┐
@@ -249,8 +251,9 @@ mod tests {
         ┌─────────────┴─────────────┐
         │       DataSourceExec      │
         │    --------------------   │
-        │          files: 3         │
+        │         files: 14         │
         │       format: vortex      │
+        │      predicate: true      │
         └───────────────────────────┘
         ");
 

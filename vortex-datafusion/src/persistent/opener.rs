@@ -40,13 +40,9 @@ pub(crate) struct VortexOpener {
     pub object_store: Arc<dyn ObjectStore>,
     /// Projection by index of the file's columns
     pub projection: Option<Arc<[usize]>>,
-    /// Filter expression optimized for pushdown into Vortex scan operations.
-    /// This may be a subset of file_pruning_predicate containing only expressions
-    /// that Vortex can efficiently evaluate.
-    pub filter: Option<PhysicalExprRef>,
     /// Filter expression used by DataFusion's FilePruner to eliminate files based on
     /// statistics and partition values without opening them.
-    pub file_pruning_predicate: Option<PhysicalExprRef>,
+    pub predicate: Option<PhysicalExprRef>,
     pub expr_adapter_factory: Option<Arc<dyn PhysicalExprAdapterFactory>>,
     pub schema_adapter_factory: Arc<dyn SchemaAdapterFactory>,
     /// Hive-style partitioning columns
@@ -149,8 +145,7 @@ impl FileOpener for VortexOpener {
         let session = self.session.clone();
         let object_store = self.object_store.clone();
         let projection = self.projection.clone();
-        let mut filter = self.filter.clone();
-        let file_pruning_predicate = self.file_pruning_predicate.clone();
+        let mut predicate = self.predicate.clone();
         let expr_adapter_factory = self.expr_adapter_factory.clone();
         let partition_fields = self.partition_fields.clone();
         let file_cache = self.file_cache.clone();
@@ -178,7 +173,8 @@ impl FileOpener for VortexOpener {
             // opening them based on:
             // - Partition column values (e.g., date=2024-01-01)
             // - File-level statistics (min/max values per column)
-            let mut file_pruner = file_pruning_predicate
+            let mut file_pruner = predicate
+                .clone()
                 .map(|predicate| {
                     // Only create pruner if we have dynamic expressions or file statistics
                     // to work with. Static predicates without stats won't benefit from pruning.
@@ -225,15 +221,16 @@ impl FileOpener for VortexOpener {
 
                 // The adapter rewrites the expression to the local file schema, allowing
                 // for schema evolution and divergence between the table's schema and individual files.
-                filter = filter
-                    .map(|filter| {
+                predicate = predicate
+                    .clone()
+                    .map(|expr| {
                         let logical_file_schema =
                             compute_logical_file_schema(&physical_file_schema, &logical_schema);
 
                         let expr = expr_adapter_factory
                             .create(logical_file_schema, physical_file_schema.clone())
                             .with_partition_values(partition_values)
-                            .rewrite(filter)?;
+                            .rewrite(expr)?;
 
                         // Expression might now reference columns that don't exist in the file, so we can give it
                         // another simplification pass.
@@ -294,11 +291,15 @@ impl FileOpener for VortexOpener {
                 );
             }
 
-            let filter = filter
+            let filter = predicate
                 .and_then(|f| {
                     let exprs = split_conjunction(&f)
                         .into_iter()
-                        .filter(|expr| can_be_pushed_down(expr, &predicate_file_schema))
+                        .cloned()
+                        .filter(|expr| {
+                            is_dynamic_physical_expr(expr)
+                                || can_be_pushed_down(expr, &predicate_file_schema)
+                        })
                         .collect::<Vec<_>>();
 
                     make_vortex_predicate(&exprs).transpose()
@@ -521,8 +522,7 @@ mod tests {
             session: SESSION.clone(),
             object_store: object_store.clone(),
             projection: Some([0].into()),
-            filter: Some(filter),
-            file_pruning_predicate: None,
+            predicate: Some(filter),
             expr_adapter_factory: expr_adapter_factory.clone(),
             schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
             partition_fields: vec![Arc::new(Field::new("part", DataType::Int32, false))],
@@ -602,8 +602,7 @@ mod tests {
             session: SESSION.clone(),
             object_store: object_store.clone(),
             projection: Some([0].into()),
-            filter: Some(filter),
-            file_pruning_predicate: None,
+            predicate: Some(filter),
             expr_adapter_factory: expr_adapter_factory.clone(),
             schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
             partition_fields: vec![],
@@ -710,11 +709,10 @@ mod tests {
             session: SESSION.clone(),
             object_store: object_store.clone(),
             projection: None,
-            filter: Some(logical2physical(
+            predicate: Some(logical2physical(
                 &col("my_struct").is_not_null(),
                 &table_schema,
             )),
-            file_pruning_predicate: None,
             expr_adapter_factory: Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _),
             schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
             partition_fields: vec![],

@@ -6,8 +6,10 @@ use std::sync::Arc;
 use arrow_schema::{DataType, Schema};
 use datafusion_expr::Operator as DFOperator;
 use datafusion_functions::core::getfield::GetFieldFunc;
-use datafusion_physical_expr::{PhysicalExpr, ScalarFunctionExpr};
-use datafusion_physical_expr_common::physical_expr::{PhysicalExprRef, is_dynamic_physical_expr};
+use datafusion_physical_expr::{PhysicalExpr, PhysicalExprRef, ScalarFunctionExpr};
+use datafusion_physical_expr_common::physical_expr::{
+    is_dynamic_physical_expr, snapshot_physical_expr,
+};
 use datafusion_physical_plan::expressions as df_expr;
 use itertools::Itertools;
 use vortex::compute::LikeOptions;
@@ -24,11 +26,25 @@ use crate::convert::{FromDataFusion, TryFromDataFusion};
 
 /// Tries to convert the expressions into a vortex conjunction. Will return Ok(None) iff the input conjunction is empty.
 pub(crate) fn make_vortex_predicate(
-    predicate: &[&Arc<dyn PhysicalExpr>],
+    predicate: &[Arc<dyn PhysicalExpr>],
 ) -> VortexResult<Option<Expression>> {
     let exprs = predicate
         .iter()
-        .map(|e| Expression::try_from_df(e.as_ref()))
+        .filter_map(|e| {
+            if is_dynamic_physical_expr(e) {
+                let e = snapshot_physical_expr(e.clone()).expect("do");
+                match Expression::try_from_df(e.as_ref()) {
+                    Ok(e) => Some(Ok(e)),
+                    Err(_) => {
+                        // If we fail to convert the expression to Vortex, its safe
+                        // to drop it as we don't declare it as pushed down
+                        None
+                    }
+                }
+            } else {
+                Some(Expression::try_from_df(e.as_ref()))
+            }
+        })
         .collect::<VortexResult<Vec<_>>>()?;
 
     Ok(exprs.into_iter().reduce(and))
@@ -323,7 +339,7 @@ mod tests {
     #[test]
     fn test_make_vortex_predicate_single() {
         let col_expr = Arc::new(df_expr::Column::new("test", 0)) as Arc<dyn PhysicalExpr>;
-        let result = make_vortex_predicate(&[&col_expr]).unwrap();
+        let result = make_vortex_predicate(&[col_expr]).unwrap();
         assert!(result.is_some());
     }
 
@@ -331,7 +347,7 @@ mod tests {
     fn test_make_vortex_predicate_multiple() {
         let col1 = Arc::new(df_expr::Column::new("col1", 0)) as Arc<dyn PhysicalExpr>;
         let col2 = Arc::new(df_expr::Column::new("col2", 1)) as Arc<dyn PhysicalExpr>;
-        let result = make_vortex_predicate(&[&col1, &col2]).unwrap();
+        let result = make_vortex_predicate(&[col1, col2]).unwrap();
         assert!(result.is_some());
         // Result should be an AND expression combining the two columns
     }

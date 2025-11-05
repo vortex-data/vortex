@@ -17,9 +17,7 @@ use datafusion_physical_expr_adapter::{
     DefaultPhysicalExprAdapterFactory, PhysicalExprAdapterFactory,
 };
 use datafusion_physical_expr_common::physical_expr::fmt_sql;
-use datafusion_physical_plan::filter_pushdown::{
-    FilterPushdownPropagation, PushedDown, PushedDownPredicate,
-};
+use datafusion_physical_plan::filter_pushdown::{FilterPushdownPropagation, PushedDown};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::{DisplayFormatType, PhysicalExpr};
 use object_store::ObjectStore;
@@ -45,10 +43,7 @@ pub struct VortexSource {
     pub(crate) file_cache: VortexFileCache,
     /// Combined predicate expression containing all filters from DataFusion query planning.
     /// Used with FilePruner to skip files based on statistics and partition values.
-    pub(crate) full_predicate: Option<PhysicalExprRef>,
-    /// Subset of predicates that can be pushed down into Vortex scan operations.
-    /// These are expressions that Vortex can efficiently evaluate during scanning.
-    pub(crate) vortex_predicate: Option<PhysicalExprRef>,
+    pub(crate) predicate: Option<PhysicalExprRef>,
     pub(crate) batch_size: Option<usize>,
     pub(crate) projected_statistics: Option<Statistics>,
     /// This is the file schema the table expects, which is the table's schema without partition columns, and **not** the file's physical schema.
@@ -67,8 +62,7 @@ impl VortexSource {
         Self {
             session,
             file_cache,
-            full_predicate: None,
-            vortex_predicate: None,
+            predicate: None,
             batch_size: None,
             projected_statistics: None,
             arrow_file_schema: None,
@@ -140,8 +134,8 @@ impl FileSource for VortexSource {
             session: self.session.clone(),
             object_store,
             projection,
-            filter: self.vortex_predicate.clone(),
-            file_pruning_predicate: self.full_predicate.clone(),
+
+            predicate: self.predicate.clone(),
             expr_adapter_factory,
             schema_adapter_factory,
             partition_fields: base_config.table_partition_cols.clone(),
@@ -184,7 +178,7 @@ impl FileSource for VortexSource {
     }
 
     fn filter(&self) -> Option<Arc<dyn PhysicalExpr>> {
-        self.vortex_predicate.clone()
+        self.predicate.clone()
     }
 
     fn metrics(&self) -> &ExecutionPlanMetricsSet {
@@ -197,7 +191,7 @@ impl FileSource for VortexSource {
             .clone()
             .vortex_expect("projected_statistics must be set");
 
-        if self.vortex_predicate.is_some() {
+        if self.predicate.is_some() {
             Ok(statistics.to_inexact())
         } else {
             Ok(statistics)
@@ -211,13 +205,13 @@ impl FileSource for VortexSource {
     fn fmt_extra(&self, t: DisplayFormatType, f: &mut Formatter) -> std::fmt::Result {
         match t {
             DisplayFormatType::Default | DisplayFormatType::Verbose => {
-                if let Some(ref predicate) = self.vortex_predicate {
+                if let Some(ref predicate) = self.predicate {
                     write!(f, ", predicate: {predicate}")?;
                 }
             }
             // Use TreeRender style key=value formatting to display the predicate
             DisplayFormatType::TreeRender => {
-                if let Some(ref predicate) = self.vortex_predicate {
+                if let Some(ref predicate) = self.predicate {
                     writeln!(f, "predicate={}", fmt_sql(predicate.as_ref()))?;
                 };
             }
@@ -244,57 +238,29 @@ impl FileSource for VortexSource {
 
         let mut source = self.clone();
 
-        // Combine new filters with existing predicate for file pruning.
-        // This full predicate is used by FilePruner to eliminate files.
-        source.full_predicate = match source.full_predicate {
+        let supported = filters
+            .iter()
+            .map(|expr| {
+                if can_be_pushed_down(expr, schema) {
+                    PushedDown::Yes
+                } else {
+                    PushedDown::No
+                }
+            })
+            .collect::<Vec<_>>();
+
+        // Combine new filters with existing predicate
+        source.predicate = match source.predicate {
             Some(predicate) => Some(conjunction(
                 std::iter::once(predicate).chain(filters.clone()),
             )),
             None => Some(conjunction(filters.clone())),
         };
 
-        let supported_filters = filters
-            .into_iter()
-            .map(|expr| {
-                if can_be_pushed_down(&expr, schema) {
-                    PushedDownPredicate::supported(expr)
-                } else {
-                    PushedDownPredicate::unsupported(expr)
-                }
-            })
-            .collect::<Vec<_>>();
-
-        if supported_filters
-            .iter()
-            .all(|p| matches!(p.discriminant, PushedDown::No))
-        {
-            return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
-                vec![PushedDown::No; supported_filters.len()],
-            )
-            .with_updated_node(Arc::new(source) as _));
-        }
-
-        let supported = supported_filters
-            .iter()
-            .filter_map(|p| match p.discriminant {
-                PushedDown::Yes => Some(&p.predicate),
-                PushedDown::No => None,
-            })
-            .cloned();
-
-        let predicate = match source.vortex_predicate {
-            Some(predicate) => conjunction(std::iter::once(predicate).chain(supported)),
-            None => conjunction(supported),
-        };
-
-        tracing::debug!(%predicate, "Saving predicate");
-
-        source.vortex_predicate = Some(predicate);
-
-        Ok(FilterPushdownPropagation::with_parent_pushdown_result(
-            supported_filters.iter().map(|f| f.discriminant).collect(),
+        Ok(
+            FilterPushdownPropagation::with_parent_pushdown_result(supported)
+                .with_updated_node(Arc::new(source) as _),
         )
-        .with_updated_node(Arc::new(source) as _))
     }
 
     fn with_schema_adapter_factory(
