@@ -87,7 +87,7 @@ pub enum Action {
     ScalarAt(Vec<usize>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ExpectedValue {
     Array(ArrayRef),
     Search(SearchResult),

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::compute::{CastKernel, CastKernelAdapter};
+use vortex_array::vtable::ValiditySliceHelper;
 use vortex_array::{ArrayRef, IntoArray, register_kernel};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -16,10 +17,21 @@ impl CastKernel for PcoVTable {
         // PCO supports: F16, F32, F64, I16, I32, I64, U16, U32, U64
         if array.dtype().eq_ignore_nullability(dtype) {
             // Create a new validity with the target nullability
-            let new_validity = array
-                .unsliced_validity
-                .clone()
-                .cast_nullability(dtype.nullability(), array.len())?;
+            let new_validity = if !dtype.is_nullable() {
+                // If we are casting to non-nullable we only need to check the sliced validity
+                // for validity, since the unsliced validity might contain unused nulls.
+                // We don't do this if the target is nullable since it requires expand the validity
+                // array.
+                array
+                    .sliced_validity()
+                    .clone()
+                    .cast_nullability(dtype.nullability(), array.len())?
+            } else {
+                array
+                    .unsliced_validity
+                    .clone()
+                    .cast_nullability(dtype.nullability(), array.len())?
+            };
 
             return Ok(Some(
                 PcoArray::new(
