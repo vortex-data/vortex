@@ -110,7 +110,10 @@ impl ComputeFnVTable for MinMax {
         Ok(DType::Struct(
             StructFields::new(
                 ["min", "max"].into(),
-                vec![array.dtype().clone(), array.dtype().clone()],
+                vec![
+                    array.dtype().as_nonnullable().clone(),
+                    array.dtype().as_nonnullable().clone(),
+                ],
             ),
             Nullability::Nullable,
         ))
