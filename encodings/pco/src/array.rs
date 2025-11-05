@@ -427,3 +427,43 @@ impl OperationsVTable<PcoVTable> for PcoVTable {
         array._slice(index, index + 1).decompress().scalar_at(0)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::validity::Validity;
+    use vortex_array::{IntoArray, ToCanonical, assert_arrays_eq};
+    use vortex_buffer::Buffer;
+
+    use crate::PcoArray;
+
+    #[test]
+    fn test_slice_nullable() {
+        // Create a nullable array with some nulls
+        let values = PrimitiveArray::new(
+            Buffer::copy_from(vec![10u32, 20, 30, 40, 50, 60]),
+            Validity::from_iter([false, true, true, true, true, false]),
+        );
+        let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
+        let decoded = pco.to_primitive();
+        assert_arrays_eq!(
+            decoded,
+            PrimitiveArray::from_option_iter([
+                None,
+                Some(20u32),
+                Some(30),
+                Some(40),
+                Some(50),
+                None
+            ])
+        );
+
+        // Slice to get only the non-null values in the middle
+        let sliced = pco.slice(1..5);
+        let expected =
+            PrimitiveArray::from_option_iter([Some(20u32), Some(30), Some(40), Some(50)])
+                .into_array();
+        assert_arrays_eq!(sliced, expected);
+        assert_arrays_eq!(sliced.to_canonical().into_array(), expected);
+    }
+}
