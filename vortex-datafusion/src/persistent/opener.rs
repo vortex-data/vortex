@@ -295,11 +295,11 @@ impl FileOpener for VortexOpener {
                 .and_then(|f| {
                     let exprs = split_conjunction(&f)
                         .into_iter()
-                        .cloned()
                         .filter(|expr| {
                             is_dynamic_physical_expr(expr)
                                 || can_be_pushed_down(expr, &predicate_file_schema)
                         })
+                        .cloned()
                         .collect::<Vec<_>>();
 
                     make_vortex_predicate(&exprs).transpose()

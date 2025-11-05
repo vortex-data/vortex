@@ -32,15 +32,16 @@ pub(crate) fn make_vortex_predicate(
         .iter()
         .filter_map(|e| {
             if is_dynamic_physical_expr(e) {
-                let e = snapshot_physical_expr(e.clone()).expect("do");
-                match Expression::try_from_df(e.as_ref()) {
-                    Ok(e) => Some(Ok(e)),
-                    Err(_) => {
-                        // If we fail to convert the expression to Vortex, its safe
-                        // to drop it as we don't declare it as pushed down
-                        None
+                snapshot_physical_expr(e.clone()).ok().and_then(|e| {
+                    match Expression::try_from_df(e.as_ref()) {
+                        Ok(e) => Some(Ok(e)),
+                        Err(_) => {
+                            // If we fail to convert the expression to Vortex, its safe
+                            // to drop it as we don't declare it as pushed down
+                            None
+                        }
                     }
-                }
+                })
             } else {
                 Some(Expression::try_from_df(e.as_ref()))
             }
