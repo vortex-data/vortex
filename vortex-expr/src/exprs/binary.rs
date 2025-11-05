@@ -5,15 +5,16 @@ use std::fmt::Formatter;
 
 use prost::Message;
 use vortex_array::compute::{add, and_kleene, compare, div, mul, or_kleene, sub};
-use vortex_array::{ArrayRef, compute};
+use vortex_array::{compute, ArrayRef};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_proto::expr as pb;
 
 use crate::expression::Expression;
 use crate::exprs::literal::lit;
 use crate::exprs::operators::Operator;
-use crate::{ChildName, ExprId, ExprInstance, StatsCatalog, VTable, VTableExt};
+use crate::ExpressionView;
+use crate::{ChildName, ExprId, StatsCatalog, VTable, VTableExt};
 
 pub struct Binary;
 
@@ -38,7 +39,7 @@ impl VTable for Binary {
         Ok(Some(Operator::try_from(opts.op)?))
     }
 
-    fn validate(&self, _expr: &ExprInstance<Self>) -> VortexResult<()> {
+    fn validate(&self, _expr: &ExpressionView<Self>) -> VortexResult<()> {
         // TODO(ngates): check the dtypes.
         Ok(())
     }
@@ -51,7 +52,7 @@ impl VTable for Binary {
         }
     }
 
-    fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "(")?;
         expr.lhs().fmt_sql(f)?;
         write!(f, " {} ", expr.operator())?;
@@ -63,7 +64,7 @@ impl VTable for Binary {
         write!(f, "{}", *instance)
     }
 
-    fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
         let lhs = expr.lhs().return_dtype(scope)?;
         let rhs = expr.rhs().return_dtype(scope)?;
 
@@ -81,7 +82,7 @@ impl VTable for Binary {
         Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
     }
 
-    fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         let lhs = expr.lhs().evaluate(scope)?;
         let rhs = expr.rhs().evaluate(scope)?;
 
@@ -103,7 +104,7 @@ impl VTable for Binary {
 
     fn stat_falsification(
         &self,
-        expr: &ExprInstance<Self>,
+        expr: &ExpressionView<Self>,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
         // Wrap another predicate with an optional NaNCount check, if the stat is available.
@@ -235,7 +236,7 @@ impl VTable for Binary {
     }
 }
 
-impl ExprInstance<'_, Binary> {
+impl ExpressionView<'_, Binary> {
     pub fn lhs(&self) -> &Expression {
         &self.children()[0]
     }
@@ -506,7 +507,7 @@ mod tests {
     use super::{and, and_collect, and_collect_right, eq, gt, gt_eq, lt, lt_eq, not_eq, or};
     use crate::exprs::get_item::col;
     use crate::exprs::literal::lit;
-    use crate::{Expression, test_harness};
+    use crate::{test_harness, Expression};
 
     #[test]
     fn and_collect_left_assoc() {

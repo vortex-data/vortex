@@ -10,9 +10,10 @@ use std::sync::Arc;
 use arcref::ArcRef;
 use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldPath};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
-use crate::expression::{ExprInstance, Expression};
+use crate::expression::Expression;
+use crate::ExpressionView;
 use crate::{ExprId, StatsCatalog};
 
 /// The vtable trait for a Vortex expression.
@@ -51,7 +52,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
     }
 
     /// Validate the metadata and children for the expression.
-    fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()>;
+    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()>;
 
     /// Returns the name of the nth child of the expr.
     fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName;
@@ -60,7 +61,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
     ///
     /// The implementation should recursively format child expressions by calling
     /// `expr.child(i).fmt_sql(f)`.
-    fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> fmt::Result;
+    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> fmt::Result;
 
     /// Format only the instance data for this expression.
     ///
@@ -71,10 +72,10 @@ pub trait VTable: 'static + Sized + Send + Sync {
     }
 
     /// Compute the return [`DType`] of the expression if evaluated in the given scope.
-    fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType>;
+    fn return_dtype(&self, expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType>;
 
     /// Evaluate the expression in the given scope.
-    fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef>;
+    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef>;
 
     /// An expression over zone-statistics which implies all records in the zone evaluate to false.
     ///
@@ -96,7 +97,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// such as `x < (y < z)` or `x LIKE "needle%"`.
     fn stat_falsification(
         &self,
-        _expr: &ExprInstance<Self>,
+        _expr: &ExpressionView<Self>,
         _catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
         None
@@ -111,7 +112,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// values.
     fn max(
         &self,
-        _expr: &ExprInstance<Self>,
+        _expr: &ExpressionView<Self>,
         _catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
         None
@@ -122,7 +123,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// See [AnalysisExpr::max] for important details.
     fn min(
         &self,
-        _expr: &ExprInstance<Self>,
+        _expr: &ExpressionView<Self>,
         _catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
         None
@@ -133,13 +134,13 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// This method returns `None` if the NaNCount stat is unknown.
     fn nan_count(
         &self,
-        _expr: &ExprInstance<Self>,
+        _expr: &ExpressionView<Self>,
         _catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
         None
     }
 
-    fn field_path(&self, _expr: &ExprInstance<Self>) -> Option<FieldPath> {
+    fn field_path(&self, _expr: &ExpressionView<Self>) -> Option<FieldPath> {
         None
     }
 }
@@ -241,12 +242,12 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
     }
 
     fn validate(&self, expression: &Expression) -> VortexResult<()> {
-        let expr = ExprInstance::new(expression);
+        let expr = ExpressionView::new(expression);
         V::validate(&self.0, &expr)
     }
 
     fn fmt_sql(&self, expression: &Expression, f: &mut Formatter<'_>) -> fmt::Result {
-        let expr = ExprInstance::new(expression);
+        let expr = ExpressionView::new(expression);
         V::fmt_sql(&self.0, &expr, f)
     }
 
@@ -258,12 +259,12 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
     }
 
     fn return_dtype(&self, expression: &Expression, scope: &DType) -> VortexResult<DType> {
-        let expr = ExprInstance::new(expression);
+        let expr = ExpressionView::new(expression);
         V::return_dtype(&self.0, &expr, scope)
     }
 
     fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        let expr = ExprInstance::new(expression);
+        let expr = ExpressionView::new(expression);
         V::evaluate(&self.0, &expr, scope)
     }
 
@@ -272,17 +273,17 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         expression: &Expression,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
-        let expr = ExprInstance::new(expression);
+        let expr = ExpressionView::new(expression);
         V::stat_falsification(&self.0, &expr, catalog)
     }
 
     fn max(&self, expression: &Expression, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
-        let expr = ExprInstance::new(expression);
+        let expr = ExpressionView::new(expression);
         V::max(&self.0, &expr, catalog)
     }
 
     fn min(&self, expression: &Expression, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
-        let expr = ExprInstance::new(expression);
+        let expr = ExpressionView::new(expression);
         V::min(&self.0, &expr, catalog)
     }
 
@@ -291,12 +292,12 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         expression: &Expression,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
-        let expr = ExprInstance::new(expression);
+        let expr = ExpressionView::new(expression);
         V::nan_count(&self.0, &expr, catalog)
     }
 
     fn field_path(&self, expression: &Expression) -> Option<FieldPath> {
-        let expr = ExprInstance::new(expression);
+        let expr = ExpressionView::new(expression);
         V::field_path(&self.0, &expr)
     }
 
@@ -414,7 +415,7 @@ mod tests {
     use crate::exprs::pack::pack;
     use crate::exprs::root::root;
     use crate::exprs::select::{select, select_exclude};
-    use crate::proto::{ExprSerializeProtoExt, deserialize_expr_proto};
+    use crate::proto::{deserialize_expr_proto, ExprSerializeProtoExt};
     use crate::session::{ExprRegistry, ExprSession};
 
     #[fixture]

@@ -14,6 +14,9 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use arcref::ArcRef;
+use vortex_dtype::{DType, FieldName};
+use vortex_error::VortexUnwrap;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::traversal::{NodeExt, ReferenceCollector};
 
@@ -33,6 +36,7 @@ mod scope_vars;
 pub mod session;
 pub mod transform;
 pub mod traversal;
+mod view;
 mod vtable;
 
 pub use analysis::*;
@@ -40,9 +44,7 @@ pub use expression::*;
 pub use exprs::*;
 pub use scope::*;
 pub use scope_vars::*;
-use vortex_dtype::{DType, FieldName};
-use vortex_error::VortexUnwrap;
-use vortex_utils::aliases::hash_set::HashSet;
+pub use view::*;
 pub use vtable::*;
 
 pub type ExprId = ArcRef<str>;

@@ -8,12 +8,13 @@ use vortex_array::arrays::{BoolArray, ConstantArray};
 use vortex_array::stats::Stat;
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
 
 use crate::exprs::binary::eq;
 use crate::exprs::literal::lit;
-use crate::{ChildName, ExprId, ExprInstance, Expression, StatsCatalog, VTable, VTableExt};
+use crate::ExpressionView;
+use crate::{ChildName, ExprId, Expression, StatsCatalog, VTable, VTableExt};
 
 /// Expression that checks for null values.
 pub struct IsNull;
@@ -33,7 +34,7 @@ impl VTable for IsNull {
         Ok(Some(()))
     }
 
-    fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
+    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()> {
         if expr.children().len() != 1 {
             vortex_bail!(
                 "IsNull expression expects exactly one child, got {}",
@@ -50,17 +51,17 @@ impl VTable for IsNull {
         }
     }
 
-    fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "is_null(")?;
         expr.child(0).fmt_sql(f)?;
         write!(f, ")")
     }
 
-    fn return_dtype(&self, _expr: &ExprInstance<Self>, _scope: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, _expr: &ExpressionView<Self>, _scope: &DType) -> VortexResult<DType> {
         Ok(DType::Bool(Nullability::NonNullable))
     }
 
-    fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         let array = expr.child(0).evaluate(scope)?;
         match array.validity_mask() {
             Mask::AllTrue(len) => Ok(ConstantArray::new(false, len).into_array()),
@@ -71,7 +72,7 @@ impl VTable for IsNull {
 
     fn stat_falsification(
         &self,
-        expr: &ExprInstance<Self>,
+        expr: &ExpressionView<Self>,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
         let field_path = expr.children()[0].field_path()?;
@@ -94,9 +95,9 @@ pub fn is_null(child: Expression) -> Expression {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::IntoArray;
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::stats::Stat;
+    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Field, FieldPath, FieldPathSet, Nullability};
     use vortex_scalar::Scalar;
@@ -108,7 +109,7 @@ mod tests {
     use crate::exprs::literal::lit;
     use crate::exprs::root::root;
     use crate::pruning::checked_pruning_expr;
-    use crate::{HashSet, Scope, test_harness};
+    use crate::{test_harness, HashSet, Scope};
 
     #[test]
     fn dtype() {

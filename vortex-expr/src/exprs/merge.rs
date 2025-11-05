@@ -10,10 +10,11 @@ use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray as _, ToCanonical};
 use vortex_dtype::{DType, FieldNames, Nullability, StructFields};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::{ChildName, ExprId, ExprInstance, Expression, VTable, VTableExt};
+use crate::ExpressionView;
+use crate::{ChildName, ExprId, Expression, VTable, VTableExt};
 
 /// Merge zero or more expressions that ALL return structs.
 ///
@@ -48,7 +49,7 @@ impl VTable for Merge {
         Ok(Some(instance))
     }
 
-    fn validate(&self, _expr: &ExprInstance<Self>) -> VortexResult<()> {
+    fn validate(&self, _expr: &ExpressionView<Self>) -> VortexResult<()> {
         Ok(())
     }
 
@@ -56,7 +57,7 @@ impl VTable for Merge {
         ChildName::from(Arc::from(format!("{}", child_idx)))
     }
 
-    fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "merge(")?;
         for (i, child) in expr.children().iter().enumerate() {
             child.fmt_sql(f)?;
@@ -67,7 +68,7 @@ impl VTable for Merge {
         write!(f, ")")
     }
 
-    fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
         let mut field_names = Vec::new();
         let mut arrays = Vec::new();
         let mut merge_nullability = Nullability::NonNullable;
@@ -108,7 +109,7 @@ impl VTable for Merge {
         ))
     }
 
-    fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         // Collect fields in order of appearance. Later fields overwrite earlier fields.
         let mut field_names = Vec::new();
         let mut arrays = Vec::new();
@@ -192,11 +193,11 @@ mod tests {
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
-    use vortex_error::{VortexResult, vortex_bail};
+    use vortex_error::{vortex_bail, VortexResult};
 
     use super::merge;
     use crate::exprs::get_item::get_item;
-    use crate::exprs::merge::{DuplicateHandling, merge_opts};
+    use crate::exprs::merge::{merge_opts, DuplicateHandling};
     use crate::exprs::root::root;
     use crate::{Expression, Scope};
 

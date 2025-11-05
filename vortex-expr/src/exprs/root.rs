@@ -3,13 +3,14 @@
 
 use std::fmt::Formatter;
 
-use vortex_array::ArrayRef;
 use vortex_array::stats::Stat;
+use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldPath};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::expression::Expression;
-use crate::{ChildName, ExprId, ExprInstance, StatsCatalog, VTable, VTableExt};
+use crate::ExpressionView;
+use crate::{ChildName, ExprId, StatsCatalog, VTable, VTableExt};
 
 /// An expression that returns the full scope of the expression evaluation.
 // TODO(ngates): rename to "Scope"
@@ -30,7 +31,7 @@ impl VTable for Root {
         Ok(Some(()))
     }
 
-    fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
+    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()> {
         if !expr.children().is_empty() {
             vortex_bail!(
                 "Root expression does not have children, got {}",
@@ -47,7 +48,7 @@ impl VTable for Root {
         )
     }
 
-    fn fmt_sql(&self, _expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, _expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "$")
     }
 
@@ -55,31 +56,39 @@ impl VTable for Root {
         Ok(()) // No data
     }
 
-    fn return_dtype(&self, _expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, _expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
         Ok(scope.clone())
     }
 
-    fn evaluate(&self, _expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(&self, _expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         Ok(scope.clone())
     }
 
-    fn max(&self, expr: &ExprInstance<Root>, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
+    fn max(
+        &self,
+        expr: &ExpressionView<Root>,
+        catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression> {
         catalog.stats_ref(&self.field_path(expr)?, Stat::Max)
     }
 
-    fn min(&self, expr: &ExprInstance<Root>, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
+    fn min(
+        &self,
+        expr: &ExpressionView<Root>,
+        catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression> {
         catalog.stats_ref(&self.field_path(expr)?, Stat::Min)
     }
 
     fn nan_count(
         &self,
-        expr: &ExprInstance<Root>,
+        expr: &ExpressionView<Root>,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
         catalog.stats_ref(&self.field_path(expr)?, Stat::NaNCount)
     }
 
-    fn field_path(&self, _expr: &ExprInstance<Root>) -> Option<FieldPath> {
+    fn field_path(&self, _expr: &ExpressionView<Root>) -> Option<FieldPath> {
         Some(FieldPath::root())
     }
 }

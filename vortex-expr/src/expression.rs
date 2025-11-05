@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::{Any, type_name};
+use std::any::Any;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
-use std::ops::Deref;
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldPath};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{VortexExpect, VortexResult};
 
-use crate::{ChildName, ExprId, ExprVTable, StatsCatalog, VTable, display};
+use crate::ExpressionView;
+use crate::{display, ChildName, ExprId, ExprVTable, StatsCatalog, VTable};
 
 /// A node in a Vortex expression tree.
 ///
@@ -79,13 +79,13 @@ impl Expression {
     /// # Panics
     ///
     /// Panics if the expression's encoding or metadata cannot be cast to the specified vtable.
-    pub fn as_<V: VTable>(&self) -> ExprInstance<'_, V> {
-        ExprInstance::try_new(self).vortex_expect("Failed to downcast expression {} to {}")
+    pub fn as_<V: VTable>(&self) -> ExpressionView<'_, V> {
+        ExpressionView::try_new(self).vortex_expect("Failed to downcast expression {} to {}")
     }
 
     /// Returns a typed view of this expression for the given vtable, if the types match.
-    pub fn as_opt<V: VTable>(&self) -> Option<ExprInstance<'_, V>> {
-        ExprInstance::try_new(self).ok()
+    pub fn as_opt<V: VTable>(&self) -> Option<ExpressionView<'_, V>> {
+        ExpressionView::try_new(self).ok()
     }
 
     /// Returns the expression ID.
@@ -285,55 +285,5 @@ impl Hash for Expression {
         self.vtable.as_dyn().id().hash(state);
         self.vtable.as_dyn().dyn_hash(self.data.as_ref(), state);
         self.children.hash(state);
-    }
-}
-
-/// A typed expr over an instance of a Vortex expression for a specific vtable.
-pub struct ExprInstance<'a, V: VTable> {
-    expression: &'a Expression,
-    data: &'a V::Instance,
-}
-
-impl<'a, V: VTable> ExprInstance<'a, V> {
-    pub fn new(expression: &'a Expression) -> Self {
-        Self::try_new(expression).vortex_expect("Failed to downcast expression")
-    }
-
-    pub fn try_new(expression: &'a Expression) -> VortexResult<Self> {
-        expression.vtable.as_opt::<V>().ok_or_else(|| {
-            vortex_err!(
-                "Failed to downcast {} to {}",
-                expression.vtable.id(),
-                type_name::<V>()
-            )
-        })?;
-
-        let data = expression
-            .data
-            .downcast_ref::<V::Instance>()
-            .ok_or_else(|| {
-                vortex_err!(
-                    "Failed to downcast expression instance data to expected type {}",
-                    type_name::<V::Instance>()
-                )
-            })?;
-
-        Ok(Self { expression, data })
-    }
-}
-
-impl<'a, V: VTable> ExprInstance<'a, V> {
-    /// Returns the instance data for this expression.
-    #[inline(always)]
-    pub fn data(&self) -> &'a V::Instance {
-        self.data
-    }
-}
-
-impl<'a, V: VTable> Deref for ExprInstance<'a, V> {
-    type Target = Expression;
-
-    fn deref(&self) -> &Self::Target {
-        self.expression
     }
 }

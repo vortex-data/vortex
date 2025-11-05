@@ -7,13 +7,14 @@ use itertools::Itertools;
 use prost::Message;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{DType, FieldNames};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_proto::expr::select_opts::Opts;
 use vortex_proto::expr::{FieldNames as ProtoFieldNames, SelectOpts};
 
 use crate::expression::Expression;
 use crate::field::DisplayFieldNames;
-use crate::{ChildName, ExprId, ExprInstance, VTable, VTableExt};
+use crate::ExpressionView;
+use crate::{ChildName, ExprId, VTable, VTableExt};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FieldSelection {
@@ -63,7 +64,7 @@ impl VTable for Select {
         Ok(Some(field_selection))
     }
 
-    fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
+    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()> {
         if expr.children().len() != 1 {
             vortex_bail!(
                 "Select expression requires exactly 1 child, got {}",
@@ -80,7 +81,7 @@ impl VTable for Select {
         }
     }
 
-    fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         expr.child().fmt_sql(f)?;
         match expr.data() {
             FieldSelection::Include(fields) => {
@@ -92,7 +93,7 @@ impl VTable for Select {
         }
     }
 
-    fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
         let child_dtype = expr.child().return_dtype(scope)?;
         let child_struct_dtype = child_dtype
             .as_struct_fields_opt()
@@ -112,7 +113,7 @@ impl VTable for Select {
         Ok(DType::Struct(projected, child_dtype.nullability()))
     }
 
-    fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         let batch = expr.child().evaluate(scope)?.to_struct();
         Ok(match expr.data() {
             FieldSelection::Include(f) => batch.project(f.as_ref()),
@@ -157,7 +158,7 @@ pub fn select_exclude(fields: impl Into<FieldNames>, child: Expression) -> Expre
         .vortex_expect("Failed to create Select expression")
 }
 
-impl ExprInstance<'_, Select> {
+impl ExpressionView<'_, Select> {
     pub fn child(&self) -> &Expression {
         &self.children()[0]
     }
@@ -252,7 +253,7 @@ mod tests {
     use super::{select, select_exclude};
     use crate::exprs::root::root;
     use crate::exprs::select::Select;
-    use crate::{Scope, test_harness};
+    use crate::{test_harness, Scope};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[

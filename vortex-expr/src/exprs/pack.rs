@@ -10,10 +10,11 @@ use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_proto::expr as pb;
 
-use crate::{ChildName, ExprId, ExprInstance, Expression, VTable, VTableExt};
+use crate::ExpressionView;
+use crate::{ChildName, ExprId, Expression, VTable, VTableExt};
 
 /// Pack zero or more expressions into a structure with named fields.
 pub struct Pack;
@@ -54,7 +55,7 @@ impl VTable for Pack {
         }))
     }
 
-    fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
+    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()> {
         let instance = expr.data();
         if expr.children().len() != instance.names.len() {
             vortex_bail!(
@@ -77,7 +78,7 @@ impl VTable for Pack {
         }
     }
 
-    fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "pack(")?;
         for (i, (name, child)) in expr
             .data()
@@ -95,7 +96,7 @@ impl VTable for Pack {
         write!(f, "){}", expr.data().nullability)
     }
 
-    fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
         let value_dtypes = expr
             .children()
             .iter()
@@ -107,7 +108,7 @@ impl VTable for Pack {
         ))
     }
 
-    fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         let len = scope.len();
         let value_arrays = expr
             .children()
@@ -130,7 +131,7 @@ impl VTable for Pack {
     }
 }
 
-impl ExprInstance<'_, Pack> {
+impl ExpressionView<'_, Pack> {
     pub fn field(&self, field_name: &FieldName) -> VortexResult<Expression> {
         let idx = self
             .data()
@@ -181,9 +182,9 @@ mod tests {
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
-    use vortex_error::{VortexResult, vortex_bail};
+    use vortex_error::{vortex_bail, VortexResult};
 
-    use super::{Pack, PackOptions, pack};
+    use super::{pack, Pack, PackOptions};
     use crate::exprs::get_item::col;
     use crate::{Scope, VTableExt};
 

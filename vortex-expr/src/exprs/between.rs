@@ -4,17 +4,18 @@
 use std::fmt::Formatter;
 
 use prost::Message;
+use vortex_array::compute::{between as between_compute, BetweenOptions};
 use vortex_array::ArrayRef;
-use vortex_array::compute::{BetweenOptions, between as between_compute};
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_proto::expr as pb;
 
 use crate::expression::Expression;
 use crate::exprs::binary::Binary;
 use crate::exprs::operators::Operator;
-use crate::{ChildName, ExprId, ExprInstance, StatsCatalog, VTable, VTableExt};
+use crate::ExpressionView;
+use crate::{ChildName, ExprId, StatsCatalog, VTable, VTableExt};
 
 /// An optimized scalar expression to compute whether values fall between two bounds.
 ///
@@ -62,7 +63,7 @@ impl VTable for Between {
         }))
     }
 
-    fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
+    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()> {
         if expr.children().len() != 3 {
             vortex_bail!(
                 "Between expression requires exactly 3 children, got {}",
@@ -81,7 +82,7 @@ impl VTable for Between {
         }
     }
 
-    fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         let options = expr.data();
         let lower_op = if options.lower_strict.is_strict() {
             "<"
@@ -104,7 +105,7 @@ impl VTable for Between {
         )
     }
 
-    fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
         let arr_dt = expr.child().return_dtype(scope)?;
         let lower_dt = expr.lower().return_dtype(scope)?;
         let upper_dt = expr.upper().return_dtype(scope)?;
@@ -129,7 +130,7 @@ impl VTable for Between {
         ))
     }
 
-    fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         let arr = expr.child().evaluate(scope)?;
         let lower = expr.lower().evaluate(scope)?;
         let upper = expr.upper().evaluate(scope)?;
@@ -138,14 +139,14 @@ impl VTable for Between {
 
     fn stat_falsification(
         &self,
-        expr: &ExprInstance<Self>,
+        expr: &ExpressionView<Self>,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
         expr.to_binary_expr().stat_falsification(catalog)
     }
 }
 
-impl ExprInstance<'_, Between> {
+impl ExpressionView<'_, Between> {
     pub fn child(&self) -> &Expression {
         &self.children()[0]
     }

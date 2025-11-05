@@ -5,8 +5,9 @@ use std::fmt::Formatter;
 
 use vortex_array::ArrayRef;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail};
-use vortex_expr::{ChildName, ExprId, ExprInstance, Expression, VTable, VTableExt};
+use vortex_error::{vortex_bail, VortexResult};
+use vortex_expr::view::ExpressionView;
+use vortex_expr::{ChildName, ExprId, Expression, VTable, VTableExt};
 
 pub struct RowIdx;
 
@@ -17,7 +18,7 @@ impl VTable for RowIdx {
         ExprId::from("vortex.row_idx")
     }
 
-    fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
+    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()> {
         if !expr.children().is_empty() {
             vortex_bail!(
                 "RowIdx expression does not have children, got {}",
@@ -31,15 +32,15 @@ impl VTable for RowIdx {
         unreachable!()
     }
 
-    fn fmt_sql(&self, _expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, _expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "#row_idx")
     }
 
-    fn return_dtype(&self, _expr: &ExprInstance<Self>, _scope: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, _expr: &ExpressionView<Self>, _scope: &DType) -> VortexResult<DType> {
         Ok(DType::Primitive(PType::U64, Nullability::NonNullable))
     }
 
-    fn evaluate(&self, _expr: &ExprInstance<Self>, _scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(&self, _expr: &ExpressionView<Self>, _scope: &ArrayRef) -> VortexResult<ArrayRef> {
         vortex_bail!(
             "RowIdxExpr should not be evaluated directly, use it in the context of a Vortex scan and it will be substituted for a row index array"
         );

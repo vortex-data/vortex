@@ -4,13 +4,14 @@
 use std::fmt::Formatter;
 
 use prost::Message;
+use vortex_array::compute::{like as like_compute, LikeOptions};
 use vortex_array::ArrayRef;
-use vortex_array::compute::{LikeOptions, like as like_compute};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_proto::expr as pb;
 
-use crate::{ChildName, ExprId, ExprInstance, Expression, VTable, VTableExt};
+use crate::ExpressionView;
+use crate::{ChildName, ExprId, Expression, VTable, VTableExt};
 
 /// Expression that performs SQL LIKE pattern matching.
 pub struct Like;
@@ -40,7 +41,7 @@ impl VTable for Like {
         }))
     }
 
-    fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
+    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()> {
         if expr.children().len() != 2 {
             vortex_bail!(
                 "Like expression requires exactly 2 children, got {}",
@@ -58,7 +59,7 @@ impl VTable for Like {
         }
     }
 
-    fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         expr.child(0).fmt_sql(f)?;
         if expr.data().negated {
             write!(f, " not")?;
@@ -71,7 +72,7 @@ impl VTable for Like {
         expr.child(1).fmt_sql(f)
     }
 
-    fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
         let input = expr.children()[0].return_dtype(scope)?;
         let pattern = expr.children()[1].return_dtype(scope)?;
 
@@ -90,7 +91,7 @@ impl VTable for Like {
         ))
     }
 
-    fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         let child = expr.child(0).evaluate(scope)?;
         let pattern = expr.child(1).evaluate(scope)?;
         like_compute(&child, &pattern, *expr.data())
@@ -139,16 +140,16 @@ pub fn not_ilike(child: Expression, pattern: Expression) -> Expression {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::ToCanonical;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::Scope;
     use crate::exprs::get_item::get_item;
     use crate::exprs::like::{like, not_ilike};
     use crate::exprs::literal::lit;
     use crate::exprs::not::not;
     use crate::exprs::root::root;
+    use crate::Scope;
 
     #[test]
     fn invert_booleans() {

@@ -5,14 +5,15 @@ use std::fmt::Formatter;
 use std::ops::Deref;
 
 use prost::Message;
-use vortex_array::ArrayRef;
 use vortex_array::compute::cast as compute_cast;
+use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldPath};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_proto::expr as pb;
 
 use crate::expression::Expression;
-use crate::{ChildName, ExprId, ExprInstance, StatsCatalog, VTable, VTableExt};
+use crate::ExpressionView;
+use crate::{ChildName, ExprId, StatsCatalog, VTable, VTableExt};
 
 /// A cast expression that converts values to a target data type.
 pub struct Cast;
@@ -43,7 +44,7 @@ impl VTable for Cast {
         ))
     }
 
-    fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
+    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()> {
         if expr.children().len() != 1 {
             vortex_bail!(
                 "Cast expression requires exactly 1 child, got {}",
@@ -60,18 +61,18 @@ impl VTable for Cast {
         }
     }
 
-    fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "cast(")?;
         expr.children()[0].fmt_sql(f)?;
         write!(f, " as {}", expr.data())?;
         write!(f, ")")
     }
 
-    fn return_dtype(&self, expr: &ExprInstance<Self>, _scope: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, expr: &ExpressionView<Self>, _scope: &DType) -> VortexResult<DType> {
         Ok(expr.data().clone())
     }
 
-    fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         let array = expr.children()[0].evaluate(scope)?;
         compute_cast(&array, expr.data()).map_err(|e| {
             e.with_context(format!(
@@ -82,23 +83,31 @@ impl VTable for Cast {
         })
     }
 
-    fn max(&self, expr: &ExprInstance<Self>, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
+    fn max(
+        &self,
+        expr: &ExpressionView<Self>,
+        catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression> {
         expr.children()[0].max(catalog)
     }
 
-    fn min(&self, expr: &ExprInstance<Self>, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
+    fn min(
+        &self,
+        expr: &ExpressionView<Self>,
+        catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression> {
         expr.children()[0].min(catalog)
     }
 
     fn nan_count(
         &self,
-        expr: &ExprInstance<Self>,
+        expr: &ExpressionView<Self>,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
         expr.children()[0].nan_count(catalog)
     }
 
-    fn field_path(&self, expr: &ExprInstance<Self>) -> Option<FieldPath> {
+    fn field_path(&self, expr: &ExpressionView<Self>) -> Option<FieldPath> {
         expr.children()[0].field_path()
     }
 }
@@ -119,15 +128,15 @@ pub fn cast(child: Expression, target: DType) -> Expression {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::IntoArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
     use super::cast;
     use crate::exprs::get_item::get_item;
     use crate::exprs::root::root;
-    use crate::{Expression, Scope, test_harness};
+    use crate::{test_harness, Expression, Scope};
 
     #[test]
     fn dtype() {

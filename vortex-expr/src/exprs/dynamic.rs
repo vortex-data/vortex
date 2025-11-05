@@ -7,14 +7,15 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{Operator, compare};
+use vortex_array::compute::{compare, Operator};
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::traversal::{NodeExt, NodeVisitor, TraversalOrder};
-use crate::{ChildName, ExprId, ExprInstance, Expression, StatsCatalog, VTable, VTableExt};
+use crate::ExpressionView;
+use crate::{ChildName, ExprId, Expression, StatsCatalog, VTable, VTableExt};
 
 /// A dynamic comparison expression can be used to capture a comparison to a value that can change
 /// during the execution of a query, such as when a compute engine pushes down an ORDER BY + LIMIT
@@ -28,7 +29,7 @@ impl VTable for DynamicComparison {
         ExprId::new_ref("vortex.dynamic")
     }
 
-    fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
+    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()> {
         if expr.children().len() != 1 {
             vortex_bail!(
                 "DynamicComparison expression requires exactly one child, got {}",
@@ -45,7 +46,7 @@ impl VTable for DynamicComparison {
         }
     }
 
-    fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         expr.lhs().fmt_sql(f)?;
         write!(f, " {} dynamic(", expr.data())?;
         match expr.scalar() {
@@ -55,7 +56,7 @@ impl VTable for DynamicComparison {
         write!(f, ")")
     }
 
-    fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
         let lhs = expr.lhs().return_dtype(scope)?;
         if !expr.data().rhs.dtype.eq_ignore_nullability(&lhs) {
             vortex_bail!(
@@ -69,7 +70,7 @@ impl VTable for DynamicComparison {
         ))
     }
 
-    fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         if let Some(value) = expr.scalar() {
             let lhs = expr.lhs().evaluate(scope)?;
             let rhs = ConstantArray::new(value, scope.len());
@@ -90,7 +91,7 @@ impl VTable for DynamicComparison {
 
     fn stat_falsification(
         &self,
-        expr: &ExprInstance<DynamicComparison>,
+        expr: &ExpressionView<DynamicComparison>,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
         match expr.data().operator {
@@ -212,7 +213,7 @@ impl Debug for Rhs {
     }
 }
 
-impl ExprInstance<'_, DynamicComparison> {
+impl ExpressionView<'_, DynamicComparison> {
     pub fn lhs(&self) -> &Expression {
         &self.children()[0]
     }

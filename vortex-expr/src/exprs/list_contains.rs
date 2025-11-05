@@ -3,14 +3,15 @@
 
 use std::fmt::Formatter;
 
-use vortex_array::ArrayRef;
 use vortex_array::compute::list_contains as compute_list_contains;
+use vortex_array::ArrayRef;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 
 use crate::exprs::binary::{and, gt, lt, or};
-use crate::exprs::literal::{Literal, lit};
-use crate::{ChildName, ExprId, ExprInstance, Expression, StatsCatalog, VTable, VTableExt};
+use crate::exprs::literal::{lit, Literal};
+use crate::ExpressionView;
+use crate::{ChildName, ExprId, Expression, StatsCatalog, VTable, VTableExt};
 
 pub struct ListContains;
 
@@ -29,7 +30,7 @@ impl VTable for ListContains {
         Ok(Some(()))
     }
 
-    fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
+    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()> {
         if expr.children().len() != 2 {
             vortex_bail!(
                 "ListContains expression requires exactly 2 children, got {}",
@@ -50,7 +51,7 @@ impl VTable for ListContains {
         }
     }
 
-    fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "contains(")?;
         expr.child(0).fmt_sql(f)?;
         write!(f, ", ")?;
@@ -58,7 +59,7 @@ impl VTable for ListContains {
         write!(f, ")")
     }
 
-    fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
         let list_dtype = expr.child(0).return_dtype(scope)?;
         let value_dtype = expr.child(1).return_dtype(scope)?;
 
@@ -75,7 +76,7 @@ impl VTable for ListContains {
         Ok(DType::Bool(nullability))
     }
 
-    fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         let list_array = expr.child(0).evaluate(scope)?;
         let value_array = expr.child(1).evaluate(scope)?;
         compute_list_contains(list_array.as_ref(), value_array.as_ref())
@@ -83,7 +84,7 @@ impl VTable for ListContains {
 
     fn stat_falsification(
         &self,
-        expr: &ExprInstance<Self>,
+        expr: &ExpressionView<Self>,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
         // falsification(contains([1,2,5], x)) =>
@@ -130,7 +131,7 @@ pub fn list_contains(list: Expression, value: Expression) -> Expression {
     ListContains.new_expr((), [list, value])
 }
 
-impl ExprInstance<'_, ListContains> {
+impl ExpressionView<'_, ListContains> {
     pub fn list(&self) -> &Expression {
         &self.children()[0]
     }

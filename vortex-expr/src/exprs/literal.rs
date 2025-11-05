@@ -6,12 +6,13 @@ use std::fmt::Formatter;
 use prost::Message;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::{Array, ArrayRef, IntoArray};
-use vortex_dtype::{DType, match_each_float_ptype};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::{match_each_float_ptype, DType};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 
-use crate::{ChildName, ExprId, ExprInstance, Expression, StatsCatalog, VTable, VTableExt};
+use crate::ExpressionView;
+use crate::{ChildName, ExprId, Expression, StatsCatalog, VTable, VTableExt};
 
 /// Expression that represents a literal scalar value.
 pub struct Literal;
@@ -42,7 +43,7 @@ impl VTable for Literal {
         ))
     }
 
-    fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
+    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()> {
         if !expr.children().is_empty() {
             vortex_bail!(
                 "Literal expression does not have children, got: {:?}",
@@ -56,7 +57,7 @@ impl VTable for Literal {
         unreachable!()
     }
 
-    fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", expr.data())
     }
 
@@ -64,17 +65,17 @@ impl VTable for Literal {
         write!(f, "{}", instance)
     }
 
-    fn return_dtype(&self, expr: &ExprInstance<Self>, _scope: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, expr: &ExpressionView<Self>, _scope: &DType) -> VortexResult<DType> {
         Ok(expr.data().dtype().clone())
     }
 
-    fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         Ok(ConstantArray::new(expr.data().clone(), scope.len()).into_array())
     }
 
     fn max(
         &self,
-        expr: &ExprInstance<Self>,
+        expr: &ExpressionView<Self>,
         _catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
         Some(lit(expr.data().clone()))
@@ -82,7 +83,7 @@ impl VTable for Literal {
 
     fn min(
         &self,
-        expr: &ExprInstance<Self>,
+        expr: &ExpressionView<Self>,
         _catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
         Some(lit(expr.data().clone()))
@@ -90,7 +91,7 @@ impl VTable for Literal {
 
     fn nan_count(
         &self,
-        expr: &ExprInstance<Self>,
+        expr: &ExpressionView<Self>,
         _catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
         // The NaNCount for a non-float literal is not defined.

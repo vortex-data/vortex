@@ -3,12 +3,13 @@
 
 use std::fmt::Formatter;
 
-use vortex_array::ArrayRef;
 use vortex_array::compute::invert;
+use vortex_array::ArrayRef;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 
-use crate::{ChildName, ExprId, ExprInstance, Expression, VTable, VTableExt};
+use crate::ExpressionView;
+use crate::{ChildName, ExprId, Expression, VTable, VTableExt};
 
 /// Expression that logically inverts boolean values.
 pub struct Not;
@@ -28,7 +29,7 @@ impl VTable for Not {
         Ok(Some(()))
     }
 
-    fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
+    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()> {
         if expr.children().len() != 1 {
             vortex_bail!(
                 "Not expression expects exactly one child, got {}",
@@ -45,13 +46,13 @@ impl VTable for Not {
         }
     }
 
-    fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "not(")?;
         expr.child(0).fmt_sql(f)?;
         write!(f, ")")
     }
 
-    fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
         let child_dtype = expr.child(0).return_dtype(scope)?;
         if !matches!(child_dtype, DType::Bool(_)) {
             vortex_bail!(
@@ -62,7 +63,7 @@ impl VTable for Not {
         Ok(child_dtype)
     }
 
-    fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         let child_result = expr.child(0).evaluate(scope)?;
         invert(&child_result)
     }
@@ -82,14 +83,14 @@ pub fn not(operand: Expression) -> Expression {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::ToCanonical;
     use vortex_dtype::{DType, Nullability};
 
     use super::not;
     use crate::exprs::get_item::{col, get_item};
     use crate::exprs::root::root;
-    use crate::{Scope, test_harness};
+    use crate::{test_harness, Scope};
 
     #[test]
     fn invert_booleans() {
