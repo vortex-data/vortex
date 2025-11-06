@@ -264,6 +264,11 @@ impl Patches {
     }
 
     #[inline]
+    pub fn offset_within_chunk(&self) -> Option<usize> {
+        self.offset_within_chunk
+    }
+
+    #[inline]
     pub fn indices_ptype(&self) -> PType {
         PType::try_from(self.indices.dtype()).vortex_expect("primitive indices")
     }
