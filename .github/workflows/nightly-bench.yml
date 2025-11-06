@@ -62,13 +62,6 @@ jobs:
             "targets": "datafusion:parquet,duckdb:parquet,duckdb:vortex",
             "scale_factor": "--scale-factor 100.0"
           },
-          {
-            "id": "tpch-nvme",
-            "subcommand": "tpch",
-            "name": "TPC-H on NVME",
-            "targets": "duckdb:parquet,duckdb:vortex",
-            "scale_factor": "--scale-factor 1000"
-          },
         ]
     strategy:
       # A single run not should kill the others
