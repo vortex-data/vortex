@@ -160,7 +160,6 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use super::get_item;
-    use crate::Scope;
     use crate::exprs::root::root;
 
     fn test_array() -> StructArray {
@@ -175,7 +174,7 @@ mod tests {
     fn get_item_by_name() {
         let st = test_array();
         let get_item = get_item("a", root());
-        let item = get_item.evaluate(&Scope::new(st.to_array())).unwrap();
+        let item = get_item.evaluate(&st.to_array()).unwrap();
         assert_eq!(item.dtype(), &DType::from(I32))
     }
 
@@ -183,7 +182,7 @@ mod tests {
     fn get_item_by_name_none() {
         let st = test_array();
         let get_item = get_item("c", root());
-        assert!(get_item.evaluate(&Scope::new(st.to_array())).is_err());
+        assert!(get_item.evaluate(&st.to_array()).is_err());
     }
 
     #[test]
@@ -198,7 +197,7 @@ mod tests {
         .to_array();
 
         let get_item = get_item("a", root());
-        let item = get_item.evaluate(&Scope::new(st)).unwrap();
+        let item = get_item.evaluate(&st).unwrap();
         assert_eq!(
             item.scalar_at(0),
             Scalar::null(DType::Primitive(I32, Nullability::Nullable))

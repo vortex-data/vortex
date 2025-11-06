@@ -158,7 +158,7 @@ mod tests {
     use crate::exprs::literal::lit;
     use crate::exprs::root::root;
     use crate::pruning::checked_pruning_expr;
-    use crate::{Arc, HashSet, Scope};
+    use crate::{Arc, HashSet};
 
     fn test_array() -> ArrayRef {
         ListArray::try_new(
@@ -175,7 +175,7 @@ mod tests {
         let arr = test_array();
 
         let expr = list_contains(root(), lit(1));
-        let item = expr.evaluate(&Scope::new(arr)).unwrap();
+        let item = expr.evaluate(&arr).unwrap();
 
         assert_eq!(item.scalar_at(0), Scalar::bool(true, Nullability::Nullable));
         assert_eq!(
@@ -189,7 +189,7 @@ mod tests {
         let arr = test_array();
 
         let expr = list_contains(root(), lit(2));
-        let item = expr.evaluate(&Scope::new(arr)).unwrap();
+        let item = expr.evaluate(&arr).unwrap();
 
         assert_eq!(item.scalar_at(0), Scalar::bool(true, Nullability::Nullable));
         assert_eq!(item.scalar_at(1), Scalar::bool(true, Nullability::Nullable));
@@ -200,7 +200,7 @@ mod tests {
         let arr = test_array();
 
         let expr = list_contains(root(), lit(4));
-        let item = expr.evaluate(&Scope::new(arr)).unwrap();
+        let item = expr.evaluate(&arr).unwrap();
 
         assert_eq!(
             item.scalar_at(0),
@@ -223,7 +223,7 @@ mod tests {
         .into_array();
 
         let expr = list_contains(root(), lit(2));
-        let item = expr.evaluate(&Scope::new(arr)).unwrap();
+        let item = expr.evaluate(&arr).unwrap();
 
         assert_eq!(item.scalar_at(0), Scalar::bool(true, Nullability::Nullable));
         assert_eq!(
@@ -243,7 +243,7 @@ mod tests {
         .into_array();
 
         let expr = list_contains(root(), lit(2));
-        let item = expr.evaluate(&Scope::new(arr)).unwrap();
+        let item = expr.evaluate(&arr).unwrap();
 
         assert_eq!(item.scalar_at(0), Scalar::bool(true, Nullability::Nullable));
         assert!(!item.is_valid(1));

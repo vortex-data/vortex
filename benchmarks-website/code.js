@@ -679,7 +679,7 @@ window.initAndRender = (function () {
   const initializer = {
     async loadData() {
       const [dataResponse, commitsResponse] = await Promise.all([
-        this.fetchGzippedData(
+        this.fetchAndParseGzippedJsonl(
           "https://vortex-benchmark-results-database.s3.amazonaws.com/data.json.gz"
         ),
         fetch(
@@ -687,30 +687,65 @@ window.initAndRender = (function () {
         ).then((r) => r.text()),
       ]);
 
-      // Return raw text data for worker processing
+      // Return parsed data for worker processing
+      // dataResponse is now an array of parsed objects instead of a string
       return {
         benchmarkData: dataResponse,
         commitsData: commitsResponse
       };
     },
 
-    async fetchGzippedData(url) {
+    async fetchAndParseGzippedJsonl(url) {
       const response = await fetch(url);
       const decompressedStream = response.body.pipeThrough(
         new DecompressionStream("gzip")
       );
       const reader = decompressedStream.getReader();
       const decoder = new TextDecoder();
-      let result = "";
+
+      let buffer = '';
+      const lines = [];
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
-        result += decoder.decode(value, { stream: true });
+
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+
+          // Process complete lines
+          const parts = buffer.split('\n');
+          // Keep the last part (incomplete line) in the buffer
+          buffer = parts.pop();
+
+          // Parse and collect complete lines
+          for (const line of parts) {
+            const trimmed = line.trim();
+            if (trimmed.length > 0) {
+              try {
+                lines.push(JSON.parse(trimmed));
+              } catch (e) {
+                console.warn('Failed to parse JSONL line:', trimmed, e);
+              }
+            }
+          }
+        }
+
+        if (done) {
+          // Process any remaining buffer
+          buffer += decoder.decode();
+          const trimmed = buffer.trim();
+          if (trimmed.length > 0) {
+            try {
+              lines.push(JSON.parse(trimmed));
+            } catch (e) {
+              console.warn('Failed to parse final JSONL line:', trimmed, e);
+            }
+          }
+          break;
+        }
       }
 
-      result += decoder.decode();
-      return result;
+      return lines;
     },
 
     parseJsonl(jsonl) {
@@ -754,7 +789,7 @@ window.initAndRender = (function () {
       ];
 
       elementIds.forEach((id) => {
-        const camelCaseId = id.replace(/-(.)/g, (match, char) =>
+        const camelCaseId = id.replace(/-(.)/g, (_match, char) =>
           char.toUpperCase()
         );
         domElements[camelCaseId] = document.getElementById(id);

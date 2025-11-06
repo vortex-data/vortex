@@ -39,7 +39,7 @@ impl Handle {
     /// Returns a handle to the current runtime, if such a reasonable choice exists.
     ///
     /// For example, if called from within a Tokio context this will return a
-    /// [`crate::runtime::tokio::TokioRuntime`] handle.
+    /// `TokioRuntime` handle.
     pub fn find() -> Option<Self> {
         #[cfg(feature = "tokio")]
         {

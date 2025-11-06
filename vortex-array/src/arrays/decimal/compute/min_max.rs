@@ -3,10 +3,10 @@
 
 use itertools::Itertools;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{DecimalDType, NativeDecimalType};
+use vortex_dtype::{DecimalDType, NativeDecimalType, match_each_decimal_value_type};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::{DecimalValue, Scalar, match_each_decimal_value_type};
+use vortex_scalar::{DecimalValue, Scalar};
 
 use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};

@@ -77,6 +77,15 @@ impl<T> PVectorMut<T> {
     pub fn into_parts(self) -> (BufferMut<T>, MaskMut) {
         (self.elements, self.validity)
     }
+
+    /// Append n values to the vector.
+    pub fn append_values(&mut self, value: T, n: usize)
+    where
+        T: Copy,
+    {
+        self.elements.push_n(value, n);
+        self.validity.append_n(true, n);
+    }
 }
 
 impl<T: NativePType> VectorMutOps for PVectorMut<T> {
@@ -119,7 +128,7 @@ impl<T: NativePType> VectorMutOps for PVectorMut<T> {
     }
 
     fn split_off(&mut self, at: usize) -> Self {
-        PVectorMut {
+        Self {
             elements: self.elements.split_off(at),
             validity: self.validity.split_off(at),
         }

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::{IntegerPType, NativePType, match_each_integer_ptype, match_each_native_ptype};
+use vortex_dtype::{
+    IntegerPType, NativePType, UnsignedPType, match_each_integer_ptype, match_each_native_ptype,
+};
 
 use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
@@ -52,6 +54,45 @@ impl PrimitiveArray {
             own_values[idx.as_() - patch_indices_offset] = *value;
         }
         Self::new(own_values, patched_validity)
+    }
+}
+
+/// Patches a chunk of decoded values.
+///
+/// # Arguments
+///
+/// * `decoded_values` - Mutable slice of decoded values to be patched
+/// * `patches_indices` - Indices indicating which positions to patch
+/// * `patches_values` - Values to apply at the patched indices
+/// * `patches_offset` - Offset to subtract from patch indices
+/// * `chunk_offsets_slice` - Slice containing offsets for each chunk
+/// * `chunk_idx` - Index of the chunk to patch
+#[inline]
+pub fn patch_chunk<T, I, C>(
+    decoded_values: &mut [T],
+    patches_indices: &[I],
+    patches_values: &[T],
+    patches_offset: usize,
+    chunk_offsets_slice: &[C],
+    chunk_idx: usize,
+) where
+    T: NativePType,
+    I: UnsignedPType,
+    C: UnsignedPType,
+{
+    let patches_start_idx = chunk_offsets_slice[chunk_idx].as_();
+    let patches_end_idx = if chunk_idx + 1 < chunk_offsets_slice.len() {
+        chunk_offsets_slice[chunk_idx + 1].as_()
+    } else {
+        patches_indices.len()
+    };
+
+    let chunk_start = chunk_idx * 1024;
+    for patches_idx in patches_start_idx..patches_end_idx {
+        let patched_value = patches_values[patches_idx];
+        let absolute_index: usize = patches_indices[patches_idx].as_() - patches_offset;
+        let chunk_relative_index = absolute_index - chunk_start;
+        decoded_values[chunk_relative_index] = patched_value;
     }
 }
 

@@ -189,7 +189,7 @@ impl VectorMutOps for FixedSizeListVectorMut {
         self.elements.reserve(additional * self.list_size as usize);
     }
 
-    fn extend_from_vector(&mut self, other: &Self::Immutable) {
+    fn extend_from_vector(&mut self, other: &FixedSizeListVector) {
         match_vector_pair!(
             self.elements.as_mut(),
             other.elements.as_ref(),
@@ -211,7 +211,7 @@ impl VectorMutOps for FixedSizeListVectorMut {
         debug_assert_eq!(self.len, self.validity.len());
     }
 
-    fn freeze(self) -> Self::Immutable {
+    fn freeze(self) -> FixedSizeListVector {
         FixedSizeListVector {
             elements: Arc::new(self.elements.freeze()),
             list_size: self.list_size,

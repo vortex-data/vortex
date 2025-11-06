@@ -13,7 +13,7 @@ use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::{BitBuffer, BufferMut};
 use vortex_dtype::NativePType;
 use vortex_error::VortexResult;
-use vortex_expr::{Scope, lit, lt, root};
+use vortex_expr::{lit, lt, root};
 use vortex_fastlanes::FoRArray;
 use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
 use vortex_mask::Mask;
@@ -68,7 +68,7 @@ pub fn eval<T: NativePType + Into<Scalar>>(bencher: Bencher, fraction_kept: f64)
         .bench_local_values(|(mask, array)| {
             // We run the filter first, then compare.
             let array = filter(array.as_ref(), &mask).unwrap();
-            expr.evaluate(&Scope::new(array)).unwrap().to_canonical()
+            expr.evaluate(&array).unwrap().to_canonical()
         });
 }
 

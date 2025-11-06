@@ -70,10 +70,7 @@ impl VectorOps for Vector {
         match_each_vector!(self, |v| { v.validity() })
     }
 
-    fn try_into_mut(self) -> Result<VectorMut, Self>
-    where
-        Self: Sized,
-    {
+    fn try_into_mut(self) -> Result<VectorMut, Self> {
         match_each_vector!(self, |v| {
             v.try_into_mut().map(VectorMut::from).map_err(Vector::from)
         })

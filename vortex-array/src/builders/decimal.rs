@@ -4,14 +4,15 @@
 use std::any::Any;
 
 use vortex_buffer::BufferMut;
-use vortex_dtype::{BigCast, DType, DecimalDType, NativeDecimalType, Nullability};
+use vortex_dtype::{
+    BigCast, DType, DecimalDType, NativeDecimalType, Nullability, match_each_decimal_value,
+    match_each_decimal_value_type,
+};
 use vortex_error::{
     VortexExpect, VortexResult, VortexUnwrap, vortex_ensure, vortex_err, vortex_panic,
 };
 use vortex_mask::Mask;
-use vortex_scalar::{
-    DecimalValue, Scalar, i256, match_each_decimal_value, match_each_decimal_value_type,
-};
+use vortex_scalar::{DecimalValue, Scalar, i256};
 
 use crate::arrays::DecimalArray;
 use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyBitBufferBuilder};

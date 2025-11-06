@@ -8,6 +8,7 @@ use crate::{EncodingId, EncodingRef, vtable};
 mod array;
 mod canonical;
 mod operations;
+mod operator;
 mod serde;
 mod validity;
 mod visitor;

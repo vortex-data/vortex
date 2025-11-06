@@ -262,9 +262,9 @@ impl ExpressionView<'_, Binary> {
 /// # use vortex_array::{Array, IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
-/// # use vortex_expr::{eq, root, lit, Scope};
+/// # use vortex_expr::{eq, root, lit};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = eq(root(), lit(3)).evaluate(&Scope::new(xs.to_array())).unwrap();
+/// let result = eq(root(), lit(3)).evaluate(&xs.to_array()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().bit_buffer(),
@@ -286,9 +286,9 @@ pub fn eq(lhs: Expression, rhs: Expression) -> Expression {
 /// # use vortex_array::{IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
-/// # use vortex_expr::{root, lit, not_eq, Scope};
+/// # use vortex_expr::{root, lit, not_eq};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = not_eq(root(), lit(3)).evaluate(&Scope::new(xs.to_array())).unwrap();
+/// let result = not_eq(root(), lit(3)).evaluate(&xs.to_array()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().bit_buffer(),
@@ -310,9 +310,9 @@ pub fn not_eq(lhs: Expression, rhs: Expression) -> Expression {
 /// # use vortex_array::{IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
-/// # use vortex_expr::{gt_eq, root, lit, Scope};
+/// # use vortex_expr::{gt_eq, root, lit};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = gt_eq(root(), lit(3)).evaluate(&Scope::new(xs.to_array())).unwrap();
+/// let result = gt_eq(root(), lit(3)).evaluate(&xs.to_array()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().bit_buffer(),
@@ -334,9 +334,9 @@ pub fn gt_eq(lhs: Expression, rhs: Expression) -> Expression {
 /// # use vortex_array::{IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
-/// # use vortex_expr::{gt, root, lit, Scope};
+/// # use vortex_expr::{gt, root, lit};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = gt(root(), lit(2)).evaluate(&Scope::new(xs.to_array())).unwrap();
+/// let result = gt(root(), lit(2)).evaluate(&xs.to_array()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().bit_buffer(),
@@ -358,9 +358,9 @@ pub fn gt(lhs: Expression, rhs: Expression) -> Expression {
 /// # use vortex_array::{IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
-/// # use vortex_expr::{root, lit, lt_eq, Scope};
+/// # use vortex_expr::{root, lit, lt_eq};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = lt_eq(root(), lit(2)).evaluate(&Scope::new(xs.to_array())).unwrap();
+/// let result = lt_eq(root(), lit(2)).evaluate(&xs.to_array()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().bit_buffer(),
@@ -382,9 +382,9 @@ pub fn lt_eq(lhs: Expression, rhs: Expression) -> Expression {
 /// # use vortex_array::{IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
-/// # use vortex_expr::{root, lit, lt, Scope};
+/// # use vortex_expr::{root, lit, lt};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = lt(root(), lit(3)).evaluate(&Scope::new(xs.to_array())).unwrap();
+/// let result = lt(root(), lit(3)).evaluate(&xs.to_array()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().bit_buffer(),
@@ -404,9 +404,9 @@ pub fn lt(lhs: Expression, rhs: Expression) -> Expression {
 /// ```
 /// # use vortex_array::arrays::BoolArray;
 /// # use vortex_array::{IntoArray, ToCanonical};
-/// # use vortex_expr::{root, lit, or, Scope};
+/// # use vortex_expr::{root, lit, or};
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
-/// let result = or(root(), lit(false)).evaluate(&Scope::new(xs.to_array())).unwrap();
+/// let result = or(root(), lit(false)).evaluate(&xs.to_array()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().bit_buffer(),
@@ -438,9 +438,9 @@ where
 /// ```
 /// # use vortex_array::arrays::BoolArray;
 /// # use vortex_array::{IntoArray, ToCanonical};
-/// # use vortex_expr::{and, root, lit, Scope};
+/// # use vortex_expr::{and, root, lit};
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
-/// let result = and(root(), lit(true)).evaluate(&Scope::new(xs.to_array())).unwrap();
+/// let result = and(root(), lit(true)).evaluate(&xs.to_array()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().bit_buffer(),
@@ -483,10 +483,10 @@ where
 /// # use vortex_array::IntoArray;
 /// # use vortex_array::arrow::IntoArrowArray as _;
 /// # use vortex_buffer::buffer;
-/// # use vortex_expr::{Scope, checked_add, lit, root};
+/// # use vortex_expr::{checked_add, lit, root};
 /// let xs = buffer![1, 2, 3].into_array();
 /// let result = checked_add(root(), lit(5))
-///     .evaluate(&Scope::new(xs.to_array()))
+///     .evaluate(&xs.to_array())
 ///     .unwrap();
 ///
 /// assert_eq!(

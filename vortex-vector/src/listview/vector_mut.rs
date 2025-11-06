@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use vortex_dtype::DType;
+use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::MaskMut;
 
@@ -175,10 +175,15 @@ impl ListViewVectorMut {
     }
 
     /// Creates a new [`ListViewVectorMut`] with the specified capacity.
-    ///
-    /// TODO figure out how to set offsets and sizes type?
-    pub fn with_capacity(_element_dtype: &DType, _capacity: usize) -> Self {
-        todo!("ListViewVectorMut::with_capacity")
+    pub fn with_capacity(element_dtype: &DType, capacity: usize) -> Self {
+        unsafe {
+            Self::new_unchecked(
+                Box::new(VectorMut::with_capacity(element_dtype, 0)),
+                PrimitiveVectorMut::with_capacity(PType::U64, capacity),
+                PrimitiveVectorMut::with_capacity(PType::U32, capacity),
+                MaskMut::with_capacity(capacity),
+            )
+        }
     }
 
     /// Decomposes the [`ListViewVectorMut`] into its constituent parts (child elements, offsets,

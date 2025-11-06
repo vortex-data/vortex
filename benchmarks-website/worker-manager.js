@@ -89,16 +89,18 @@ export const workerManager = {
   // Fallback data processing on main thread
   async processDataFallback(benchmarkData, commitsData, keptGroups, onProgress) {
     if (onProgress) onProgress(10, 'Parsing benchmark data...');
-    
-    // Parse JSONL data
-    const parsedBenchmarkData = this.parseJsonl(benchmarkData);
-    
+
+    // benchmarkData is now already parsed as an array
+    const parsedBenchmarkData = Array.isArray(benchmarkData)
+      ? benchmarkData
+      : this.parseJsonl(benchmarkData);
+
     if (onProgress) onProgress(30, 'Parsing commit data...');
-    
+
     const parsedCommitsData = this.parseJsonl(commitsData);
-    
+
     if (onProgress) onProgress(50, 'Processing and grouping data...');
-    
+
     // Convert commits array to object
     const commits = {};
     parsedCommitsData.forEach((commit) => {
@@ -113,7 +115,7 @@ export const workerManager = {
     );
 
     if (onProgress) onProgress(100, 'Data processing complete!');
-    
+
     return result;
   },
 

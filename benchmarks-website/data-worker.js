@@ -323,7 +323,10 @@ self.addEventListener('message', async function(e) {
           message: `${getRandomMessage(PARSING_MESSAGES)} Benchmark data...`
         });
 
-        const benchmarkData = parseJsonl(data.benchmarkData);
+        // benchmarkData might already be parsed as an array
+        const benchmarkData = Array.isArray(data.benchmarkData)
+          ? data.benchmarkData
+          : parseJsonl(data.benchmarkData);
 
         self.postMessage({
           type: 'progress',

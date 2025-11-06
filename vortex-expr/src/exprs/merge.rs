@@ -195,10 +195,10 @@ mod tests {
     use vortex_error::{VortexResult, vortex_bail};
 
     use super::merge;
+    use crate::Expression;
     use crate::exprs::get_item::get_item;
     use crate::exprs::merge::{DuplicateHandling, merge_opts};
     use crate::exprs::root::root;
-    use crate::{Expression, Scope};
 
     fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();
@@ -256,7 +256,7 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = expr.evaluate(&Scope::new(test_array)).unwrap();
+        let actual_array = expr.evaluate(&test_array).unwrap();
 
         assert_eq!(
             actual_array.as_struct_typed().names(),
@@ -338,7 +338,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        expr.evaluate(&Scope::new(test_array)).unwrap();
+        expr.evaluate(&test_array).unwrap();
     }
 
     #[test]
@@ -348,7 +348,7 @@ mod tests {
         let test_array = StructArray::from_fields(&[("a", buffer![0, 1, 2].into_array())])
             .unwrap()
             .into_array();
-        let actual_array = expr.evaluate(&Scope::new(test_array.clone())).unwrap();
+        let actual_array = expr.evaluate(&test_array.clone()).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
         assert_eq!(actual_array.as_struct_typed().nfields(), 0);
     }
@@ -391,10 +391,7 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = expr
-            .evaluate(&Scope::new(test_array.clone()))
-            .unwrap()
-            .to_struct();
+        let actual_array = expr.evaluate(&test_array.clone()).unwrap().to_struct();
 
         assert_eq!(
             actual_array
@@ -435,10 +432,7 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = expr
-            .evaluate(&Scope::new(test_array.clone()))
-            .unwrap()
-            .to_struct();
+        let actual_array = expr.evaluate(&test_array.clone()).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["a", "c", "b", "d"]);
     }

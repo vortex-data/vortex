@@ -17,7 +17,7 @@ use vortex_array::{ArrayRef, IntoArray, MaskFuture};
 use vortex_dtype::{DType, FieldMask, FieldName, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::transform::{PartitionedExpr, partition, replace};
-use vortex_expr::{ExactExpr, Expression, Scope, is_root, root};
+use vortex_expr::{ExactExpr, Expression, is_root, root};
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_sequence::SequenceArray;
@@ -233,9 +233,7 @@ fn row_idx_mask_future(
     let expr = expr.clone();
     MaskFuture::new(mask.len(), async move {
         let array = idx_array(row_offset, &row_range).into_array();
-        let result_mask = expr
-            .evaluate(&Scope::new(array))?
-            .try_to_mask_fill_null_false()?;
+        let result_mask = expr.evaluate(&array)?.try_to_mask_fill_null_false()?;
         Ok(result_mask.bitand(&mask.await?))
     })
 }
@@ -251,7 +249,7 @@ fn row_idx_array_future(
     async move {
         let array = idx_array(row_offset, &row_range).into_array();
         let array = filter(&array, &mask.await?)?;
-        expr.evaluate(&Scope::new(array))
+        expr.evaluate(&array)
     }
     .boxed()
 }
