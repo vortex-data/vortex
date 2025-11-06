@@ -196,6 +196,16 @@ impl PValue {
         }
     }
 
+    /// Returns true if the value of float type and is NaN.
+    pub fn is_nan(&self) -> bool {
+        match self {
+            PValue::F16(f) => f.is_nan(),
+            PValue::F32(f) => f.is_nan(),
+            PValue::F64(f) => f.is_nan(),
+            _ => false,
+        }
+    }
+
     /// Reinterprets the bits of this value as a different primitive type.
     ///
     /// This performs a bitwise cast between types of the same width.
