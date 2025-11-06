@@ -14,7 +14,7 @@ use crate::clickbench::Flavor;
 
 pub mod configs;
 pub mod data_downloads;
-pub mod file;
+
 pub mod metadata;
 pub mod registration;
 pub mod struct_list_of_ints;

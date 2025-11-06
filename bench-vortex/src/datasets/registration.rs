@@ -17,6 +17,8 @@ use datafusion::datasource::listing::{
 };
 use datafusion::prelude::SessionContext;
 use glob::Pattern;
+use lance::datafusion::LanceTableProvider;
+use lance::dataset::Dataset;
 use tracing::info;
 use url::Url;
 use vortex_datafusion::VortexFormat;
@@ -101,9 +103,6 @@ pub async fn register_lance_table(
     table_name: &str,
     lance_path: &Url,
 ) -> Result<()> {
-    use lance::datafusion::LanceTableProvider;
-    use lance::dataset::Dataset;
-
     let dataset = Dataset::open(lance_path.as_str()).await?;
     let provider = LanceTableProvider::new(
         Arc::new(dataset),

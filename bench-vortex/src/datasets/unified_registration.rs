@@ -6,7 +6,10 @@
 //! This module provides helpers to register tables using the
 //! DatasetMetadata trait, reducing duplication across benchmarks.
 
+use std::sync::Arc;
+
 use anyhow::Result;
+use datafusion::datasource::MemTable;
 use datafusion::prelude::SessionContext;
 use glob::Pattern;
 use url::Url;
@@ -84,11 +87,6 @@ pub async fn register_dataset_tables(
 
                 // Collect all batches into memory
                 let batches = df.collect().await?;
-
-                // Create a memory table from the batches
-                use std::sync::Arc;
-
-                use datafusion::datasource::MemTable;
 
                 let provider = MemTable::try_new(schema, vec![batches])?;
 

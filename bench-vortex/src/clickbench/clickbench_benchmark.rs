@@ -10,6 +10,8 @@ use url::Url;
 
 use crate::benchmark_trait::Benchmark;
 use crate::clickbench::*;
+use crate::datasets::configs::ClickBenchDataset;
+use crate::datasets::unified_registration::register_dataset_tables;
 use crate::engines::EngineCtx;
 use crate::helpers::urls::benchmark_data_url;
 use crate::{BenchmarkDataset, CompactionStrategy, Format, IdempotentPath, Target};
@@ -133,9 +135,6 @@ impl Benchmark for ClickBenchBenchmark {
     async fn register_tables(&self, engine_ctx: &EngineCtx, format: Format) -> Result<()> {
         match engine_ctx {
             EngineCtx::DataFusion(ctx) => {
-                use crate::datasets::configs::ClickBenchDataset;
-                use crate::datasets::unified_registration::register_dataset_tables;
-
                 let dataset = ClickBenchDataset {
                     flavor: self.flavor,
                 };
