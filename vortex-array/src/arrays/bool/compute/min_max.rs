@@ -3,6 +3,8 @@
 
 use std::ops::BitAnd;
 
+use Nullability::NonNullable;
+use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -30,15 +32,15 @@ impl MinMaxKernel for BoolVTable {
         let Some(slice) = true_slices.next() else {
             // all false
             return Ok(Some(MinMaxResult {
-                min: Scalar::bool(false, array.dtype().nullability()),
-                max: Scalar::bool(false, array.dtype().nullability()),
+                min: Scalar::bool(false, NonNullable),
+                max: Scalar::bool(false, NonNullable),
             }));
         };
         if slice.0 == 0 && slice.1 == array.len() {
             // all true
             return Ok(Some(MinMaxResult {
-                min: Scalar::bool(true, array.dtype().nullability()),
-                max: Scalar::bool(true, array.dtype().nullability()),
+                min: Scalar::bool(true, NonNullable),
+                max: Scalar::bool(true, NonNullable),
             }));
         };
 
@@ -53,16 +55,16 @@ impl MinMaxKernel for BoolVTable {
                 let Some(_) = false_slices.next() else {
                     // In this case we don't have any false values which means we are all true and null
                     return Ok(Some(MinMaxResult {
-                        min: Scalar::bool(true, array.dtype().nullability()),
-                        max: Scalar::bool(true, array.dtype().nullability()),
+                        min: Scalar::bool(true, NonNullable),
+                        max: Scalar::bool(true, NonNullable),
                     }));
                 };
             }
         }
 
         Ok(Some(MinMaxResult {
-            min: Scalar::bool(false, array.dtype().nullability()),
-            max: Scalar::bool(true, array.dtype().nullability()),
+            min: Scalar::bool(false, NonNullable),
+            max: Scalar::bool(true, NonNullable),
         }))
     }
 }
@@ -71,7 +73,8 @@ register_kernel!(MinMaxKernelAdapter(BoolVTable).lift());
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Nullability};
+    use Nullability::NonNullable;
+    use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
     use crate::arrays::BoolArray;
@@ -79,21 +82,20 @@ mod tests {
 
     #[test]
     fn test_min_max_nulls() {
-        let dtype = DType::Bool(Nullability::Nullable);
         assert_eq!(
             min_max(BoolArray::from_iter(vec![Some(true), Some(true), None, None]).as_ref())
                 .unwrap(),
             Some(MinMaxResult {
-                min: Scalar::new(dtype.clone(), true.into()),
-                max: Scalar::new(dtype.clone(), true.into()),
+                min: Scalar::bool(true, NonNullable),
+                max: Scalar::bool(true, NonNullable),
             })
         );
 
         assert_eq!(
             min_max(BoolArray::from_iter(vec![None, Some(true), Some(true)]).as_ref()).unwrap(),
             Some(MinMaxResult {
-                min: Scalar::new(dtype.clone(), true.into()),
-                max: Scalar::new(dtype.clone(), true.into()),
+                min: Scalar::bool(true, NonNullable),
+                max: Scalar::bool(true, NonNullable),
             })
         );
 
@@ -101,8 +103,8 @@ mod tests {
             min_max(BoolArray::from_iter(vec![None, Some(true), Some(true), None]).as_ref())
                 .unwrap(),
             Some(MinMaxResult {
-                min: Scalar::new(dtype.clone(), true.into()),
-                max: Scalar::new(dtype.clone(), true.into()),
+                min: Scalar::bool(true, NonNullable),
+                max: Scalar::bool(true, NonNullable),
             })
         );
 
@@ -110,8 +112,8 @@ mod tests {
             min_max(BoolArray::from_iter(vec![Some(false), Some(false), None, None]).as_ref())
                 .unwrap(),
             Some(MinMaxResult {
-                min: Scalar::new(dtype.clone(), false.into()),
-                max: Scalar::new(dtype, false.into()),
+                min: Scalar::bool(false, NonNullable),
+                max: Scalar::bool(false, NonNullable),
             })
         );
     }

@@ -4,11 +4,13 @@
 use std::sync::Arc;
 
 use vortex_buffer::{BitBuffer, Buffer, buffer};
-use vortex_dtype::{DType, DecimalType, Nullability, match_each_native_ptype};
+use vortex_dtype::{
+    DType, DecimalType, Nullability, match_each_decimal_value, match_each_decimal_value_type,
+    match_each_native_ptype,
+};
 use vortex_error::VortexExpect;
 use vortex_scalar::{
-    BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, Scalar, StructScalar,
-    Utf8Scalar, match_each_decimal_value, match_each_decimal_value_type,
+    BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, Scalar, StructScalar, Utf8Scalar,
 };
 
 use crate::arrays::binary_view::BinaryView;

@@ -12,7 +12,7 @@ use vortex_array::serde::ArrayParts;
 use vortex_array::{Array, ArrayRef, MaskFuture};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
-use vortex_expr::{Expression, Scope, is_root};
+use vortex_expr::{Expression, is_root};
 use vortex_mask::Mask;
 
 use crate::LayoutReader;
@@ -137,13 +137,11 @@ impl LayoutReader for FlatReader {
                 // TODO(joe): fixme casting null to false is *VERY* unsound, if the expression in the filter
                 // can inspect nulls (e.g. `is_null`).
                 // you will need to call the array evaluation instead of the mask evaluation.
-                let array_mask = expr
-                    .evaluate(&Scope::new(array))?
-                    .try_to_mask_fill_null_false()?;
+                let array_mask = expr.evaluate(&array)?.try_to_mask_fill_null_false()?;
                 mask.intersect_by_rank(&array_mask)
             } else {
                 // Evaluate all rows, avoiding the more expensive rank intersection.
-                array = expr.evaluate(&Scope::new(array))?;
+                array = expr.evaluate(&array)?;
                 let array_mask = array.try_to_mask_fill_null_false()?;
                 mask.bitand(&array_mask)
             };
@@ -192,7 +190,7 @@ impl LayoutReader for FlatReader {
 
             // Evaluate the projection expression.
             if !is_root(&expr) {
-                array = expr.evaluate(&Scope::new(array))?;
+                array = expr.evaluate(&array)?;
             }
 
             Ok(array)

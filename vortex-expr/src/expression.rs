@@ -79,12 +79,12 @@ impl Expression {
     ///
     /// Panics if the expression's encoding or metadata cannot be cast to the specified vtable.
     pub fn as_<V: VTable>(&self) -> ExpressionView<'_, V> {
-        ExpressionView::try_new(self).vortex_expect("Failed to downcast expression {} to {}")
+        ExpressionView::maybe_new(self).vortex_expect("Failed to downcast expression {} to {}")
     }
 
     /// Returns a typed view of this expression for the given vtable, if the types match.
     pub fn as_opt<V: VTable>(&self) -> Option<ExpressionView<'_, V>> {
-        ExpressionView::try_new(self).ok()
+        ExpressionView::maybe_new(self)
     }
 
     /// Returns the expression ID.

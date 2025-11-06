@@ -3,6 +3,7 @@
 
 use vortex_array::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
 use vortex_array::register_kernel;
+use vortex_dtype::Nullability::NonNullable;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
@@ -19,8 +20,8 @@ impl MinMaxKernel for SequenceVTable {
             (last, base)
         };
         Ok(Some(MinMaxResult {
-            min: Scalar::new(array.dtype().clone(), min.into()),
-            max: Scalar::new(array.dtype().clone(), max.into()),
+            min: Scalar::primitive_value(min, array.ptype(), NonNullable),
+            max: Scalar::primitive_value(max, array.ptype(), NonNullable),
         }))
     }
 }

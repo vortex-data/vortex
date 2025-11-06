@@ -9,9 +9,9 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, Canonical, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, Nullability, match_each_native_ptype};
+use vortex_dtype::{DType, Nullability, match_each_decimal_value_type, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
-use vortex_scalar::{Scalar, match_each_decimal_value_type};
+use vortex_scalar::Scalar;
 
 /// Apply fill_null on the canonical form of the array to get a consistent baseline.
 /// This implementation manually fills null values for each canonical type

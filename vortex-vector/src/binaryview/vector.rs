@@ -160,10 +160,7 @@ impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
         &self.validity
     }
 
-    fn try_into_mut(self) -> Result<BinaryViewVectorMut<T>, Self>
-    where
-        Self: Sized,
-    {
+    fn try_into_mut(self) -> Result<BinaryViewVectorMut<T>, Self> {
         let views_mut = match self.views.try_into_mut() {
             Ok(views_mut) => views_mut,
             Err(views) => {

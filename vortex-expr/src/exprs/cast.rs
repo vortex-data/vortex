@@ -140,7 +140,7 @@ mod tests {
     use super::cast;
     use crate::exprs::get_item::get_item;
     use crate::exprs::root::root;
-    use crate::{Expression, Scope, test_harness};
+    use crate::{Expression, test_harness};
 
     #[test]
     fn dtype() {
@@ -172,7 +172,7 @@ mod tests {
             get_item("a", root()),
             DType::Primitive(PType::I64, Nullability::NonNullable),
         );
-        let result = expr.evaluate(&Scope::new(test_array)).unwrap();
+        let result = expr.evaluate(&test_array).unwrap();
 
         assert_eq!(
             result.dtype(),

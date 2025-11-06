@@ -12,8 +12,8 @@ use vortex_array::validity::Validity;
 use vortex_array::{IntoArray, MaskFuture};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexError, VortexResult};
+use vortex_expr::Expression;
 use vortex_expr::transform::PartitionedExpr;
-use vortex_expr::{Expression, Scope};
 
 use crate::ArrayFuture;
 
@@ -83,7 +83,7 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
 
             let root_mask = self
                 .root
-                .evaluate(&Scope::new(root_scope))?
+                .evaluate(&root_scope)?
                 .try_to_mask_fill_null_false()?;
             let mask = mask.bitand(&root_mask);
 
@@ -117,7 +117,7 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
             )?
             .into_array();
 
-            self.root.evaluate(&Scope::new(root_scope))
+            self.root.evaluate(&root_scope)
         }))
     }
 }

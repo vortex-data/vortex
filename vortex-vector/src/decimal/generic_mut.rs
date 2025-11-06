@@ -4,7 +4,7 @@
 //! Definition and implementation of [`DVectorMut<D>`].
 
 use vortex_buffer::BufferMut;
-use vortex_dtype::{DecimalDType, NativeDecimalType, PrecisionScale};
+use vortex_dtype::{NativeDecimalType, PrecisionScale};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::MaskMut;
 
@@ -112,10 +112,9 @@ impl<D: NativeDecimalType> DVectorMut<D> {
     }
 
     /// Create a new mutable primitive vector with the given capacity.
-    pub fn with_capacity(decimal_dtype: &DecimalDType, capacity: usize) -> Self {
+    pub fn with_capacity(ps: PrecisionScale<D>, capacity: usize) -> Self {
         Self {
-            ps: PrecisionScale::try_from(decimal_dtype)
-                .vortex_expect("TODO(someone): This definitely should not be fallible"),
+            ps,
             elements: BufferMut::with_capacity(capacity),
             validity: MaskMut::with_capacity(capacity),
         }
@@ -169,12 +168,21 @@ impl<D: NativeDecimalType> DVectorMut<D> {
     ///
     /// Returns an error if the value is out of bounds for the vector's precision/scale.
     pub fn try_push(&mut self, value: D) -> VortexResult<()> {
+        self.try_append_n(value, 1)
+    }
+
+    /// Appends n elements to the vector, all set to the given value.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the value is out of bounds for the vector's precision/scale.
+    pub fn try_append_n(&mut self, value: D, n: usize) -> VortexResult<()> {
         if !self.ps.is_valid(value) {
-            vortex_bail!("Value {:?} is out of bounds for {}", value, self.ps,);
+            vortex_bail!("Value {:?} is out of bounds for {}", value, self.ps);
         }
 
-        self.elements.push(value);
-        self.validity.append_n(true, 1);
+        self.elements.push_n(value, n);
+        self.validity.append_n(true, n);
         Ok(())
     }
 }
@@ -239,30 +247,28 @@ impl<D: NativeDecimalType> VectorMutOps for DVectorMut<D> {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DecimalDType;
-
     use super::*;
 
     #[test]
     fn test_construction_and_validation() {
         // Test with_capacity for different decimal types.
-        let decimal_dtype_i32 = DecimalDType::new(9, 2);
-        let vec_i32 = DVectorMut::<i32>::with_capacity(&decimal_dtype_i32, 10);
+        let ps_i32 = PrecisionScale::<i32>::new(9, 2);
+        let vec_i32 = DVectorMut::<i32>::with_capacity(ps_i32, 10);
         assert_eq!(vec_i32.len(), 0);
         assert!(vec_i32.capacity() >= 10);
 
-        let decimal_dtype_i64 = DecimalDType::new(18, 4);
-        let vec_i64 = DVectorMut::<i64>::with_capacity(&decimal_dtype_i64, 5);
+        let ps_i64 = PrecisionScale::<i64>::new(18, 4);
+        let vec_i64 = DVectorMut::<i64>::with_capacity(ps_i64, 5);
         assert_eq!(vec_i64.len(), 0);
         assert!(vec_i64.capacity() >= 5);
 
-        let decimal_dtype_i128 = DecimalDType::new(38, 10);
-        let vec_i128 = DVectorMut::<i128>::with_capacity(&decimal_dtype_i128, 3);
+        let ps_i128 = PrecisionScale::<i128>::new(38, 10);
+        let vec_i128 = DVectorMut::<i128>::with_capacity(ps_i128, 3);
         assert_eq!(vec_i128.len(), 0);
         assert!(vec_i128.capacity() >= 3);
 
         // Test try_new with valid data.
-        let ps = PrecisionScale::<i32>::try_from(&decimal_dtype_i32).unwrap();
+        let ps = ps_i32;
         let elements = BufferMut::from_iter([100_i32, 200, 300]);
         let validity = MaskMut::new_true(3);
         let vec = DVectorMut::try_new(ps, elements, validity).unwrap();
@@ -293,8 +299,8 @@ mod tests {
 
     #[test]
     fn test_push_append_and_access() {
-        let decimal_dtype = DecimalDType::new(9, 2);
-        let mut vec = DVectorMut::<i32>::with_capacity(&decimal_dtype, 10);
+        let ps = PrecisionScale::<i32>::new(9, 2);
+        let mut vec = DVectorMut::<i32>::with_capacity(ps, 10);
 
         // Test try_push with valid values.
         vec.try_push(12345).unwrap(); // 123.45.
@@ -329,15 +335,15 @@ mod tests {
 
     #[test]
     fn test_vector_mut_ops_comprehensive() {
-        let decimal_dtype = DecimalDType::new(10, 3);
-        let mut vec1 = DVectorMut::<i64>::with_capacity(&decimal_dtype, 10);
+        let ps = PrecisionScale::<i64>::new(10, 3);
+        let mut vec1 = DVectorMut::<i64>::with_capacity(ps, 10);
         vec1.try_push(1000000).unwrap(); // 1000.000.
         vec1.try_push(2000000).unwrap(); // 2000.000.
         vec1.try_push(3000000).unwrap(); // 3000.000.
         vec1.try_push(4000000).unwrap(); // 4000.000.
 
         // Test extend_from_vector.
-        let mut vec2 = DVectorMut::<i64>::with_capacity(&decimal_dtype, 10);
+        let mut vec2 = DVectorMut::<i64>::with_capacity(ps, 10);
         vec2.try_push(5000000).unwrap(); // 5000.000.
         vec2.try_push(6000000).unwrap(); // 6000.000.
         let frozen_vec2 = vec2.freeze();
@@ -379,8 +385,8 @@ mod tests {
 
     #[test]
     fn test_freeze_and_immutable_vector() {
-        let decimal_dtype = DecimalDType::new(15, 5);
-        let mut vec_mut = DVectorMut::<i64>::with_capacity(&decimal_dtype, 5);
+        let ps = PrecisionScale::<i64>::new(15, 5);
+        let mut vec_mut = DVectorMut::<i64>::with_capacity(ps, 5);
 
         // Add some values and nulls.
         vec_mut.try_push(1234567890).unwrap(); // 12345.67890.
@@ -416,8 +422,8 @@ mod tests {
             Err(_) => {
                 // If conversion fails (buffer is shared), create a new mutable vector.
                 // This is expected in some cases when the buffer cannot be made mutable.
-                let decimal_dtype = DecimalDType::new(15, 5);
-                let mut new_vec = DVectorMut::<i64>::with_capacity(&decimal_dtype, 6);
+                let ps = PrecisionScale::<i64>::new(15, 5);
+                let mut new_vec = DVectorMut::<i64>::with_capacity(ps, 6);
                 new_vec.try_push(1234567890).unwrap();
                 new_vec.try_push(9876543210).unwrap();
                 new_vec.append_nulls(1);
@@ -440,23 +446,23 @@ mod tests {
     #[test]
     fn test_precision_scale_combinations() {
         // Test Decimal(9, 2) - common currency format.
-        let decimal_9_2 = DecimalDType::new(9, 2);
-        let mut vec_9_2 = DVectorMut::<i32>::with_capacity(&decimal_9_2, 5);
+        let ps_9_2 = PrecisionScale::<i32>::new(9, 2);
+        let mut vec_9_2 = DVectorMut::<i32>::with_capacity(ps_9_2, 5);
         vec_9_2.try_push(999999999).unwrap(); // Max: 9999999.99 stored as 999999999.
         assert!(vec_9_2.try_push(1000000000).is_err()); // 10000000.00 stored as 1000000000 exceeds precision.
         assert!(vec_9_2.try_push(-999999999).is_ok()); // Negative within bounds.
         assert_eq!(vec_9_2.len(), 2);
 
         // Test Decimal(38, 10) - high precision scientific.
-        let decimal_38_10 = DecimalDType::new(38, 10);
-        let mut vec_38_10 = DVectorMut::<i128>::with_capacity(&decimal_38_10, 3);
+        let ps_38_10 = PrecisionScale::<i128>::new(38, 10);
+        let mut vec_38_10 = DVectorMut::<i128>::with_capacity(ps_38_10, 3);
         let large_value = 10_i128.pow(28) - 1; // 10^28 - 1, well within 38 digits.
         vec_38_10.try_push(large_value).unwrap();
         assert_eq!(vec_38_10.len(), 1);
 
         // Test Decimal(4, 0) - integer-only decimals that fit in i16.
-        let decimal_4_0 = DecimalDType::new(4, 0);
-        let mut vec_4_0 = DVectorMut::<i16>::with_capacity(&decimal_4_0, 5);
+        let ps_4_0 = PrecisionScale::<i16>::new(4, 0);
+        let mut vec_4_0 = DVectorMut::<i16>::with_capacity(ps_4_0, 5);
         vec_4_0.try_push(9999).unwrap(); // Max: 9999.
         assert!(vec_4_0.try_push(10000).is_err()); // Exceeds 4 digits.
         vec_4_0.try_push(-9999).unwrap(); // Negative within bounds.
@@ -464,14 +470,14 @@ mod tests {
 
         // Test with different underlying types.
         // i8 with small precision/scale (max precision for i8 is 2).
-        let decimal_2_1 = DecimalDType::new(2, 1);
-        let mut vec_i8 = DVectorMut::<i8>::with_capacity(&decimal_2_1, 3);
+        let ps_2_1 = PrecisionScale::<i8>::new(2, 1);
+        let mut vec_i8 = DVectorMut::<i8>::with_capacity(ps_2_1, 3);
         vec_i8.try_push(99).unwrap(); // 9.9.
         assert!(vec_i8.try_push(100).is_err()); // 10.0 exceeds precision.
 
         // i16 with moderate precision/scale (max precision for i16 is 4).
-        let decimal_4_2 = DecimalDType::new(4, 2);
-        let mut vec_i16 = DVectorMut::<i16>::with_capacity(&decimal_4_2, 3);
+        let ps_4_2 = PrecisionScale::<i16>::new(4, 2);
+        let mut vec_i16 = DVectorMut::<i16>::with_capacity(ps_4_2, 3);
         vec_i16.try_push(999).unwrap(); // 9.99.
         vec_i16.try_push(9999).unwrap(); // 99.99.
         assert_eq!(vec_i16.len(), 2);
@@ -479,10 +485,10 @@ mod tests {
 
     #[test]
     fn test_empty_and_edge_cases() {
-        let decimal_dtype = DecimalDType::new(9, 2);
+        let ps = PrecisionScale::<i32>::new(9, 2);
 
         // Test empty vector creation and operations.
-        let empty_vec = DVectorMut::<i32>::with_capacity(&decimal_dtype, 0);
+        let empty_vec = DVectorMut::<i32>::with_capacity(ps, 0);
         assert_eq!(empty_vec.len(), 0);
         // Capacity might be rounded up from the requested value.
         let _ = empty_vec.capacity(); // Just verify it doesn't panic.
@@ -492,7 +498,7 @@ mod tests {
         assert_eq!(frozen_empty.len(), 0);
 
         // Test single element vector.
-        let mut single = DVectorMut::<i32>::with_capacity(&decimal_dtype, 1);
+        let mut single = DVectorMut::<i32>::with_capacity(ps, 1);
         single.try_push(42).unwrap();
         assert_eq!(single.len(), 1);
         assert_eq!(single.get(0), Some(&42));
@@ -504,7 +510,7 @@ mod tests {
         assert_eq!(split_single.len(), 0); // Split gets nothing.
 
         // Test all-null vector.
-        let mut all_nulls = DVectorMut::<i32>::with_capacity(&decimal_dtype, 5);
+        let mut all_nulls = DVectorMut::<i32>::with_capacity(ps, 5);
         all_nulls.append_nulls(5);
         assert_eq!(all_nulls.len(), 5);
         for i in 0..5 {
@@ -519,7 +525,7 @@ mod tests {
         }
 
         // Test maximum capacity scenario - create large vector.
-        let mut large = DVectorMut::<i32>::with_capacity(&decimal_dtype, 1000);
+        let mut large = DVectorMut::<i32>::with_capacity(ps, 1000);
         for _ in 0..1000 {
             large.try_push(999).unwrap();
         }
@@ -529,8 +535,7 @@ mod tests {
 
     #[test]
     fn test_nulls_with_validity_mask() {
-        let decimal_dtype = DecimalDType::new(8, 3);
-        let ps = PrecisionScale::<i32>::try_from(&decimal_dtype).unwrap();
+        let ps = PrecisionScale::<i32>::new(8, 3);
 
         // Create vector with specific null pattern using validity mask.
         let elements = BufferMut::from_iter([1000_i32, 0, 2000, 0, 3000]); // 0s will be null.

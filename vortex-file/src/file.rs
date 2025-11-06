@@ -14,8 +14,8 @@ use vortex_array::ArrayRef;
 use vortex_array::stats::StatsSet;
 use vortex_dtype::{DType, Field, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::VortexResult;
+use vortex_expr::Expression;
 use vortex_expr::pruning::checked_pruning_expr;
-use vortex_expr::{Expression, Scope};
 use vortex_layout::LayoutReader;
 use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;
@@ -151,10 +151,8 @@ impl VortexFile {
             return Ok(false);
         };
 
-        let scope = Scope::new(file_stats);
-
         Ok(predicate
-            .evaluate(&scope)?
+            .evaluate(&file_stats)?
             .as_constant()
             .is_some_and(|result| result.as_bool().value() == Some(true)))
     }

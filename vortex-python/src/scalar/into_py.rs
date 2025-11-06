@@ -8,11 +8,9 @@ use pyo3::types::{PyBytes, PyDict, PyList, PyString};
 use pyo3::{Bound, IntoPyObject, PyAny, PyErr, PyResult, Python};
 use vortex::buffer::{BufferString, ByteBuffer};
 use vortex::dtype::half::f16;
-use vortex::dtype::{DType, PType};
+use vortex::dtype::{DType, PType, match_each_decimal_value};
 use vortex::error::{VortexExpect, vortex_err};
-use vortex::scalar::{
-    DecimalValue, ListScalar, Scalar, StructScalar, i256, match_each_decimal_value,
-};
+use vortex::scalar::{DecimalValue, ListScalar, Scalar, StructScalar, i256};
 
 use crate::PyVortex;
 

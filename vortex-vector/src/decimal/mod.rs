@@ -15,13 +15,13 @@
 //! ## Creating and building decimal vectors
 //!
 //! ```
-//! use vortex_dtype::{DecimalDType, PrecisionScale};
+//! use vortex_dtype::{PrecisionScale};
 //! use vortex_vector::decimal::{DVectorMut};
 //! use vortex_vector::VectorMutOps;
 //!
 //! // Create a decimal vector with precision=9, scale=2 (e.g., up to 9999999.99).
-//! let decimal_dtype = DecimalDType::new(9, 2);
-//! let mut vec = DVectorMut::<i32>::with_capacity(&decimal_dtype, 5);
+//! let ps = PrecisionScale::<i32>::new(9, 2);
+//! let mut vec = DVectorMut::<i32>::with_capacity(ps, 5);
 //! assert_eq!(vec.len(), 0);
 //! assert!(vec.capacity() >= 5);
 //!
@@ -40,8 +40,7 @@
 //! use vortex_mask::MaskMut;
 //! let elements = BufferMut::from_iter([100_i32, 200, 300]);  // 1.00, 2.00, 3.00.
 //! let validity = MaskMut::new_true(3);
-//! let ps = PrecisionScale::<i32>::try_from(&decimal_dtype).unwrap();
-//! let decimal_vec = DVectorMut::new(ps, elements, validity);
+//! let decimal_vec = DVectorMut::<i32>::new(ps, elements, validity);
 //! assert_eq!(decimal_vec.len(), 3);
 //! ```
 //!
@@ -49,14 +48,13 @@
 //!
 //! ```
 //! use vortex_buffer::BufferMut;
-//! use vortex_dtype::{DecimalDType, PrecisionScale};
+//! use vortex_dtype::{PrecisionScale};
 //! use vortex_mask::MaskMut;
 //! use vortex_vector::decimal::DVectorMut;
 //! use vortex_vector::VectorMutOps;
 //!
 //! // Create a decimal vector with nulls.
-//! let decimal_dtype = DecimalDType::new(5, 2);  // Up to 999.99.
-//! let ps = PrecisionScale::<i32>::try_from(&decimal_dtype).unwrap();
+//! let ps = PrecisionScale::<i32>::new(5, 2); // Up to 999.99.
 //!
 //! // Create with some null values (validity mask: true = not null, false = null).
 //! let elements = BufferMut::from_iter([1000_i32, 0, 2500, 0]);  // 10.00, null, 25.00, null.
@@ -80,17 +78,17 @@
 //! ## Extending and manipulating vectors
 //!
 //! ```
-//! use vortex_dtype::DecimalDType;
+//! use vortex_dtype::{PrecisionScale};
 //! use vortex_vector::decimal::DVectorMut;
 //! use vortex_vector::VectorMutOps;
 //!
 //! // Create two decimal vectors with scale=3 (3 decimal places).
-//! let decimal_dtype = DecimalDType::new(10, 3);
-//! let mut vec1 = DVectorMut::<i64>::with_capacity(&decimal_dtype, 10);
+//! let ps = PrecisionScale::<i64>::new(10, 3);
+//! let mut vec1 = DVectorMut::<i64>::with_capacity(ps, 10);
 //! vec1.try_push(1234567).unwrap();  // 1234.567.
 //! vec1.try_push(2345678).unwrap();  // 2345.678.
 //!
-//! let mut vec2 = DVectorMut::<i64>::with_capacity(&decimal_dtype, 10);
+//! let mut vec2 = DVectorMut::<i64>::with_capacity(ps, 10);
 //! vec2.try_push(3456789).unwrap();  // 3456.789.
 //! vec2.try_push(4567890).unwrap();  // 4567.890.
 //!
@@ -116,13 +114,13 @@
 //! ## Converting between mutable and immutable
 //!
 //! ```
-//! use vortex_dtype::DecimalDType;
+//! use vortex_dtype::{PrecisionScale};
 //! use vortex_vector::decimal::DVectorMut;
 //! use vortex_vector::{VectorMutOps, VectorOps};
 //!
 //! // Create a mutable decimal vector.
-//! let decimal_dtype = DecimalDType::new(18, 6);  // High precision with 6 decimal places.
-//! let mut vec_mut = DVectorMut::<i128>::with_capacity(&decimal_dtype, 3);
+//! let ps = PrecisionScale::<i128>::new(18, 6);  // High precision with 6 decimal places.
+//! let mut vec_mut = DVectorMut::<i128>::with_capacity(ps, 3);
 //! vec_mut.try_push(1000000).unwrap();    // 1.000000.
 //! vec_mut.try_push(2500000).unwrap();    // 2.500000.
 //! vec_mut.try_push(3333333).unwrap();    // 3.333333.
