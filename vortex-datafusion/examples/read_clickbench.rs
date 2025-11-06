@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![allow(clippy::expect_used, clippy::use_debug)]
+
 use std::sync::Arc;
 
 use datafusion::datasource::provider::DefaultTableFactory;
