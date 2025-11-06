@@ -250,13 +250,14 @@ impl FileSource for VortexSource {
             .collect::<Vec<_>>();
 
         // We keep expressions we can push down dynamic expression that will be evaluated on a best-effort basis.
-        let filters = filters
-            .into_iter()
+        let saved_filters = filters
+            .iter()
             .filter(|expr| can_be_pushed_down(expr, schema) || is_dynamic_physical_expr(expr))
+            .cloned()
             .collect::<Vec<_>>();
 
         // If we don't push down any filter, we don't need to update the plan's node.
-        if filters.is_empty() {
+        if saved_filters.is_empty() {
             return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
                 vec![PushedDown::No; filters.len()],
             ));
@@ -264,8 +265,8 @@ impl FileSource for VortexSource {
 
         // Combine new filters with existing predicate. We keep the whole original expression
         source.predicate = match source.predicate {
-            Some(predicate) => Some(conjunction(std::iter::once(predicate).chain(filters))),
-            None => Some(conjunction(filters)),
+            Some(predicate) => Some(conjunction(std::iter::once(predicate).chain(saved_filters))),
+            None => Some(conjunction(saved_filters)),
         };
 
         Ok(
