@@ -161,7 +161,23 @@ pub struct TimingMeasurement {
     pub name: String,
     pub target: Target,
     pub storage: String,
-    pub time: Duration,
+    pub runs: Vec<Duration>,
+}
+
+impl TimingMeasurement {
+    pub fn mean_time(&self) -> Duration {
+        let len = self.runs.len();
+        if len == 0 {
+            vortex_panic!("cannot have no runs");
+        }
+
+        let total_nanos: u128 = self.runs.iter().map(|d| d.as_nanos()).sum();
+        let mean_nanos = total_nanos / len as u128;
+        Duration::new(
+            u64::try_from(mean_nanos / 1_000_000_000).vortex_unwrap(),
+            u32::try_from(mean_nanos % 1_000_000_000).vortex_unwrap(),
+        )
+    }
 }
 
 impl ToTable for TimingMeasurement {
@@ -171,7 +187,7 @@ impl ToTable for TimingMeasurement {
             name: self.name.clone(),
             target: self.target,
             unit: Cow::from("μs"),
-            value: MeasurementValue::Int(self.time.as_micros()),
+            value: MeasurementValue::Int(self.mean_time().as_micros()),
         }
     }
 }
@@ -182,7 +198,7 @@ impl ToJson for TimingMeasurement {
             name: self.name.clone(),
             storage: Some(self.storage.clone()),
             unit: Some(Cow::from("ns")),
-            value: MeasurementValue::Int(self.time.as_nanos()),
+            value: MeasurementValue::Int(self.mean_time().as_nanos()),
             bytes: None,
             time: None,
             commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
