@@ -54,7 +54,7 @@ impl From<DecimalScalar> for Scalar {
 }
 
 /// Represents a decimal scalar value with a specific native decimal type.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DScalar<D> {
     ps: PrecisionScale<D>,
     value: Option<D>,

@@ -10,8 +10,8 @@ use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::MaskMut;
 
 use super::ListViewVector;
-use crate::ops::VectorMutOps;
 use crate::primitive::{PrimitiveVector, PrimitiveVectorMut};
+use crate::vector_ops::VectorMutOps;
 use crate::{VectorMut, VectorOps, match_each_integer_pvector, match_each_integer_pvector_mut};
 
 /// A mutable vector of variable-width lists.

@@ -96,6 +96,7 @@ mod vector_mut;
 pub use vector_mut::StructVectorMut;
 
 mod scalar;
+
 pub use scalar::StructScalar;
 
 use crate::{Vector, VectorMut};

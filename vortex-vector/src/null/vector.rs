@@ -53,7 +53,7 @@ impl VectorOps for NullVector {
     }
 
     fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self {
-        let len = crate::ops::range_bounds_to_len(range, self.len());
+        let len = crate::vector_ops::range_bounds_to_len(range, self.len());
         Self::new(len)
     }
 

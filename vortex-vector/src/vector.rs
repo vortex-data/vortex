@@ -177,6 +177,14 @@ impl Vector {
         vortex_panic!("Expected PrimitiveVector, got {self:?}");
     }
 
+    /// Consumes `self` and returns the inner [`DecimalVector`] if `self` is of that variant.
+    pub fn into_decimal(self) -> DecimalVector {
+        if let Vector::Decimal(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected DecimalVector, got {self:?}");
+    }
+
     /// Consumes `self` and returns the inner [`StringVector`] if `self` is of that variant.
     #[allow(clippy::same_name_method)] // Same as VarBinTypeDowncast
     pub fn into_string(self) -> StringVector {

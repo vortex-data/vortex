@@ -1,35 +1,38 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Deref;
+
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PTypeUpcast};
 
-use crate::{Scalar, ScalarOps, VectorMut};
+use crate::primitive::{PVectorMut, PrimitiveVectorMut};
+use crate::{Scalar, ScalarOps, VectorMut, VectorMutOps};
 
 /// Represents a primitive scalar value.
 pub enum PrimitiveScalar {
     /// 8-bit signed integer scalar
-    I8(Option<i8>),
+    I8(PScalar<i8>),
     /// 16-bit signed integer scalar
-    I16(Option<i16>),
+    I16(PScalar<i16>),
     /// 32-bit signed integer scalar
-    I32(Option<i32>),
+    I32(PScalar<i32>),
     /// 64-bit signed integer scalar
-    I64(Option<i64>),
+    I64(PScalar<i64>),
     /// 8-bit unsigned integer scalar
-    U8(Option<u8>),
+    U8(PScalar<u8>),
     /// 16-bit unsigned integer scalar
-    U16(Option<u16>),
+    U16(PScalar<u16>),
     /// 32-bit unsigned integer scalar
-    U32(Option<u32>),
+    U32(PScalar<u32>),
     /// 64-bit unsigned integer scalar
-    U64(Option<u64>),
+    U64(PScalar<u64>),
     /// 16-bit floating point scalar
-    F16(Option<f16>),
+    F16(PScalar<f16>),
     /// 32-bit floating point scalar
-    F32(Option<f32>),
+    F32(PScalar<f32>),
     /// 64-bit floating point scalar
-    F64(Option<f64>),
+    F64(PScalar<f64>),
 }
 
 impl ScalarOps for PrimitiveScalar {
@@ -60,14 +63,46 @@ impl From<PrimitiveScalar> for Scalar {
     }
 }
 
-impl<T: NativePType> From<Option<T>> for PrimitiveScalar {
-    fn from(value: Option<T>) -> Self {
+/// Represents a primitive scalar value with a specific native primitive type.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct PScalar<T>(Option<T>);
+
+impl<T: NativePType> PScalar<T> {
+    /// Creates a new primitive scalar with the given value.
+    pub fn new(value: Option<T>) -> Self {
+        Self(value)
+    }
+}
+
+impl<T: NativePType> From<PScalar<T>> for PrimitiveScalar {
+    fn from(value: PScalar<T>) -> Self {
         T::upcast(value)
     }
 }
 
+impl<T: NativePType> ScalarOps for PScalar<T> {
+    fn is_valid(&self) -> bool {
+        self.0.is_some()
+    }
+
+    fn repeat(&self, n: usize) -> VectorMut {
+        let mut vec = PVectorMut::<T>::with_capacity(n);
+        match self.0 {
+            None => vec.append_nulls(n),
+            Some(v) => vec.append_values(v, n),
+        }
+        PrimitiveVectorMut::from(vec).into()
+    }
+}
+
+impl<T: NativePType> From<PScalar<T>> for Scalar {
+    fn from(value: PScalar<T>) -> Self {
+        Scalar::Primitive(T::upcast(value))
+    }
+}
+
 impl PTypeUpcast for PrimitiveScalar {
-    type Input<T: NativePType> = Option<T>;
+    type Input<T: NativePType> = PScalar<T>;
 
     fn from_u8(input: Self::Input<u8>) -> Self {
         PrimitiveScalar::U8(input)
@@ -111,5 +146,13 @@ impl PTypeUpcast for PrimitiveScalar {
 
     fn from_f64(input: Self::Input<f64>) -> Self {
         PrimitiveScalar::F64(input)
+    }
+}
+
+impl<T: NativePType> Deref for PScalar<T> {
+    type Target = Option<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }

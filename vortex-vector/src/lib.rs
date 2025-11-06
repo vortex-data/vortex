@@ -19,17 +19,19 @@ pub mod null;
 pub mod primitive;
 pub mod struct_;
 
-mod ops;
+mod datum;
 mod scalar;
 mod scalar_ops;
 mod vector;
 mod vector_mut;
+mod vector_ops;
 
-pub use ops::{VectorMutOps, VectorOps};
+pub use datum::Datum;
 pub use scalar::Scalar;
 pub use scalar_ops::ScalarOps;
 pub use vector::Vector;
 pub use vector_mut::VectorMut;
+pub use vector_ops::{VectorMutOps, VectorOps};
 
 mod macros;
 mod private;

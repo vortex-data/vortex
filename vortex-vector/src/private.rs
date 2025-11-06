@@ -18,9 +18,11 @@ use crate::decimal::{
 use crate::fixed_size_list::{FixedSizeListScalar, FixedSizeListVector, FixedSizeListVectorMut};
 use crate::listview::{ListViewScalar, ListViewVector, ListViewVectorMut};
 use crate::null::{NullScalar, NullVector, NullVectorMut};
-use crate::primitive::{PVector, PVectorMut, PrimitiveScalar, PrimitiveVector, PrimitiveVectorMut};
+use crate::primitive::{
+    PScalar, PVector, PVectorMut, PrimitiveScalar, PrimitiveVector, PrimitiveVectorMut,
+};
 use crate::struct_::{StructScalar, StructVector, StructVectorMut};
-use crate::{Scalar, Vector, VectorMut};
+use crate::{Datum, Scalar, Vector, VectorMut};
 
 /// A private trait for sealing implementations of other traits.
 pub trait Sealed {}
@@ -62,7 +64,10 @@ impl Sealed for BoolScalar {}
 impl Sealed for DecimalScalar {}
 impl<D: NativeDecimalType> Sealed for DScalar<D> {}
 impl Sealed for PrimitiveScalar {}
+impl<T: NativePType> Sealed for PScalar<T> {}
 impl<T: BinaryViewType> Sealed for BinaryViewScalar<T> {}
 impl Sealed for ListViewScalar {}
 impl Sealed for FixedSizeListScalar {}
 impl Sealed for StructScalar {}
+
+impl Sealed for Datum {}

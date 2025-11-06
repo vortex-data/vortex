@@ -11,8 +11,8 @@ use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 
 use super::{ListViewScalar, ListViewVectorMut};
-use crate::ops::{VectorMutOps, VectorOps};
 use crate::primitive::PrimitiveVector;
+use crate::vector_ops::{VectorMutOps, VectorOps};
 use crate::{Scalar, Vector, match_each_integer_pvector};
 
 /// A vector of variable-width lists.

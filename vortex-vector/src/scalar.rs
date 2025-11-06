@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::vortex_panic;
+
 use crate::binaryview::{BinaryScalar, StringScalar};
 use crate::bool::BoolScalar;
 use crate::decimal::DecimalScalar;
@@ -40,5 +42,79 @@ impl ScalarOps for Scalar {
 
     fn repeat(&self, n: usize) -> VectorMut {
         match_each_scalar!(self, |v| { v.repeat(n) })
+    }
+}
+
+impl Scalar {
+    /// Converts the `Scalar` into a `NullScalar`.
+    pub fn into_null(self) -> NullScalar {
+        if let Scalar::Null(scalar) = self {
+            return scalar;
+        }
+        vortex_panic!("Cannot convert non-null Scalar into NullScalar");
+    }
+
+    /// Converts the `Scalar` into a `BoolScalar`.
+    pub fn into_bool(self) -> BoolScalar {
+        if let Scalar::Bool(scalar) = self {
+            return scalar;
+        }
+        vortex_panic!("Cannot convert non-bool Scalar into BoolScalar");
+    }
+
+    /// Converts the `Scalar` into a `DecimalScalar`.
+    pub fn into_decimal(self) -> DecimalScalar {
+        if let Scalar::Decimal(scalar) = self {
+            return scalar;
+        }
+        vortex_panic!("Cannot convert non-decimal Scalar into DecimalScalar");
+    }
+
+    /// Converts the `Scalar` into a `PrimitiveScalar`.
+    pub fn into_primitive(self) -> PrimitiveScalar {
+        if let Scalar::Primitive(scalar) = self {
+            return scalar;
+        }
+        vortex_panic!("Cannot convert non-primitive Scalar into PrimitiveScalar");
+    }
+
+    /// Converts the `Scalar` into a `StringScalar`.
+    pub fn into_string(self) -> StringScalar {
+        if let Scalar::String(scalar) = self {
+            return scalar;
+        }
+        vortex_panic!("Cannot convert non-string Scalar into StringScalar");
+    }
+
+    /// Converts the `Scalar` into a `BinaryScalar`.
+    pub fn into_binary(self) -> BinaryScalar {
+        if let Scalar::Binary(scalar) = self {
+            return scalar;
+        }
+        vortex_panic!("Cannot convert non-binary Scalar into BinaryScalar");
+    }
+
+    /// Converts the `Scalar` into a `ListViewScalar`.
+    pub fn into_list(self) -> ListViewScalar {
+        if let Scalar::List(scalar) = self {
+            return scalar;
+        }
+        vortex_panic!("Cannot convert non-list Scalar into ListViewScalar");
+    }
+
+    /// Converts the `Scalar` into a `FixedSizeListScalar`.
+    pub fn into_fixed_size_list(self) -> FixedSizeListScalar {
+        if let Scalar::FixedSizeList(scalar) = self {
+            return scalar;
+        }
+        vortex_panic!("Cannot convert non-fixed-size-list Scalar into FixedSizeListScalar");
+    }
+
+    /// Converts the `Scalar` into a `StructScalar`.
+    pub fn into_struct(self) -> StructScalar {
+        if let Scalar::Struct(scalar) = self {
+            return scalar;
+        }
+        vortex_panic!("Cannot convert non-struct Scalar into StructScalar");
     }
 }

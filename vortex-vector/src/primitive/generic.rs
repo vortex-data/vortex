@@ -11,7 +11,7 @@ use vortex_dtype::NativePType;
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 
-use crate::primitive::{PVectorMut, PrimitiveScalar};
+use crate::primitive::{PScalar, PVectorMut};
 use crate::{Scalar, VectorOps};
 
 /// An immutable vector of generic primitive values.
@@ -124,7 +124,7 @@ impl<T: NativePType> VectorOps for PVector<T> {
 
     fn scalar_at(&self, index: usize) -> Scalar {
         assert!(index < self.len(), "Index out of bounds in `PVector`");
-        PrimitiveScalar::from(self.validity.value(index).then(|| self.elements[index])).into()
+        PScalar::<T>::new(self.validity.value(index).then(|| self.elements[index])).into()
     }
 
     fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self {
