@@ -11,7 +11,6 @@ use datafusion::execution::SessionStateBuilder;
 use datafusion::execution::cache::cache_manager::CacheManagerConfig;
 use datafusion::execution::cache::cache_unit::{DefaultFileStatisticsCache, DefaultListFilesCache};
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
-use datafusion::physical_plan::collect;
 use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion_common::GetExt;
 use datafusion_physical_plan::ExecutionPlan;
@@ -135,11 +134,10 @@ pub async fn execute_query(
     ctx: &SessionContext,
     query: &str,
 ) -> anyhow::Result<(Vec<RecordBatch>, Arc<dyn ExecutionPlan>)> {
-    let plan = ctx.sql(query).await?;
-    let (state, plan) = plan.into_parts();
-    let physical_plan = state.create_physical_plan(&plan).await?;
+    let df = ctx.sql(query).await?;
+    let physical_plan = df.clone().create_physical_plan().await?;
+    let result = df.collect().await?;
 
-    let result = collect(physical_plan.clone(), state.task_ctx()).await?;
     Ok((result, physical_plan))
 }
 
