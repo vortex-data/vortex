@@ -12,10 +12,9 @@ use vortex::ArraySessionExt;
 use vortex_ipc::messages::{DecoderMessage, MessageDecoder, PollRead};
 
 use crate::arrays::PyArrayRef;
-use crate::install_module;
-use crate::SESSION;
 use crate::serde::context::PyArrayContext;
 use crate::serde::parts::PyArrayParts;
+use crate::{SESSION, install_module};
 
 /// Register serde functions and classes.
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
