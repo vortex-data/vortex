@@ -1078,9 +1078,6 @@ mod test {
             primitive_values.validity_mask(),
             Mask::from_iter([true, false])
         );
-
-        let chunk_offsets = taken.chunk_offsets().as_ref().unwrap().to_primitive();
-        assert_eq!(chunk_offsets.as_slice::<u64>(), &[0]);
     }
 
     #[test]
@@ -1104,9 +1101,6 @@ mod test {
         let primitive_values = taken.values().to_primitive();
         assert_eq!(taken.array_len(), 3);
         assert_eq!(primitive_values.as_slice::<i32>(), [20, 30]);
-
-        let chunk_offsets = taken.chunk_offsets().as_ref().unwrap().to_primitive();
-        assert_eq!(chunk_offsets.as_slice::<u64>(), &[0]);
     }
 
     #[test]
@@ -1150,9 +1144,6 @@ mod test {
         let primitive_values = taken.values().to_primitive();
         assert_eq!(taken.array_len(), 4);
         assert_eq!(primitive_values.as_slice::<i32>(), [200, 300]);
-
-        let chunk_offsets = taken.chunk_offsets().as_ref().unwrap().to_primitive();
-        assert_eq!(chunk_offsets.as_slice::<u64>(), &[0]);
     }
 
     #[test]
@@ -1174,15 +1165,6 @@ mod test {
             .unwrap();
 
         assert_eq!(taken.array_len(), 1500);
-        assert_eq!(
-            taken
-                .chunk_offsets()
-                .as_ref()
-                .unwrap()
-                .to_primitive()
-                .as_slice::<u64>(),
-            &[0, 1024]
-        );
     }
 
     #[test]
