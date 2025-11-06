@@ -3,10 +3,10 @@
 
 use itertools::Itertools;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::{PValue, Scalar, ScalarValue};
+use vortex_scalar::{PValue, Scalar};
 
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
@@ -29,7 +29,7 @@ where
     PValue: From<T>,
 {
     Ok(match array.validity_mask() {
-        Mask::AllTrue(_) => compute_min_max(array.as_slice::<T>().iter(), array.dtype()),
+        Mask::AllTrue(_) => compute_min_max(array.as_slice::<T>().iter()),
         Mask::AllFalse(_) => None,
         Mask::Values(v) => compute_min_max(
             array
@@ -37,12 +37,11 @@ where
                 .iter()
                 .zip(v.bit_buffer().iter())
                 .filter_map(|(v, m)| m.then_some(v)),
-            array.dtype(),
         ),
     })
 }
 
-fn compute_min_max<'a, T>(iter: impl Iterator<Item = &'a T>, dtype: &DType) -> Option<MinMaxResult>
+fn compute_min_max<'a, T>(iter: impl Iterator<Item = &'a T>) -> Option<MinMaxResult>
 where
     T: NativePType,
     PValue: From<T>,
