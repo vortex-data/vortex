@@ -9,7 +9,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::{Bound, Python};
 use vortex::ArraySessionExt;
-use vortex_ipc::messages::{DecoderMessage, MessageDecoder, PollRead};
+use vortex::ipc::messages::{DecoderMessage, MessageDecoder, PollRead};
 
 use crate::arrays::PyArrayRef;
 use crate::serde::context::PyArrayContext;

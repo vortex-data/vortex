@@ -9248,7 +9248,6 @@ dependencies = [
  "tokio",
  "url",
  "vortex",
- "vortex-ipc",
 ]
 
 [[package]]

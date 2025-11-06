@@ -20,8 +20,8 @@ use vortex::arrow::IntoArrowArray;
 use vortex::compute::{Operator, compare, take};
 use vortex::dtype::{DType, Nullability, PType, match_each_integer_ptype};
 use vortex::error::VortexError;
+use vortex::ipc::messages::{EncoderMessage, MessageEncoder};
 use vortex::{Array, ArrayRef, ToCanonical};
-use vortex_ipc::messages::{EncoderMessage, MessageEncoder};
 
 use crate::arrays::native::PyNativeArray;
 use crate::arrays::py::{PyPythonArray, PythonArray};
