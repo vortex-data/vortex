@@ -310,8 +310,8 @@ impl TpcHBenchmark {
             let write_csv =
                 format!("COPY {query_name}_result TO '{csv_actual}' (HEADER, DELIMITER '|');",);
 
-            duckdb_ctx.execute_query(&create_table)?;
-            duckdb_ctx.execute_query(&write_csv)?;
+            duckdb_ctx.execute_query_internal(&create_table)?;
+            duckdb_ctx.execute_query_internal(&write_csv)?;
 
             let csv_expected = Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join(format!("tpch/results/duckdb/{query_name}.csv"));

@@ -14,13 +14,13 @@ use vortex_datafusion::metrics::VortexMetricsFinder;
 
 use crate::benchmark_trait::Benchmark;
 use crate::display::DisplayFormat;
-use crate::engines::{EngineCtx, benchmark_datafusion_query};
+use crate::engines::EngineCtx;
 use crate::measurements::{MemoryMeasurement, QueryMeasurement};
 use crate::memory::BenchmarkMemoryTracker;
 use crate::metrics::{MetricsSetExt, export_plan_spans};
 use crate::query_bench::{filter_queries, print_memory_usage, print_results};
 use crate::utils::{new_tokio_runtime, url_scheme_to_storage};
-use crate::{Engine, Format, Target, df, vortex_panic};
+use crate::{Format, Target, df, vortex_panic};
 
 /// Mode for EXPLAIN queries
 #[derive(Debug, Clone, Copy)]
@@ -173,83 +173,71 @@ fn execute_queries<B: Benchmark>(
             tracker.start_query();
         }
 
-        let row_count = match engine_ctx {
-            EngineCtx::DataFusion(ctx) => {
-                let (runs, (row_count, execution_plan)) = runtime.block_on(async {
-                    benchmark_datafusion_query(iterations, || async {
-                        let (batches, plan) =
-                            ctx.execute_query(query_string).await.unwrap_or_else(|err| {
-                                vortex_panic!("query: {query_idx} failed with: {err}")
-                            });
-                        let row_count: usize = batches.iter().map(|batch| batch.num_rows()).sum();
-                        (row_count, plan)
-                    })
-                    .await
+        // Execute query using unified QueryEngine interface
+        let mut runs = Vec::with_capacity(iterations);
+        let mut row_count = None;
+        let mut last_execution_plan = None;
+
+        for _ in 0..iterations {
+            // Reset caches before each iteration (no-op for DataFusion, reopens for DuckDB)
+            engine_ctx.as_query_engine_mut().reset_caches()?;
+
+            // Execute query
+            let metrics = runtime
+                .block_on(engine_ctx.as_query_engine_mut().execute_query(query_string))
+                .unwrap_or_else(|err| {
+                    vortex_panic!("query: {query_idx} failed with: {err}")
                 });
 
-                ctx.execution_plans
-                    .push((query_idx, execution_plan.clone()));
+            runs.push(metrics.duration);
 
-                if ctx.emit_plan {
-                    df::write_execution_plan(
-                        query_idx,
-                        format,
-                        benchmark.dataset_name(),
-                        execution_plan.as_ref(),
-                    );
-                }
+            // Validate row count consistency across iterations
+            row_count.inspect(|rc| {
+                assert_eq!(
+                    *rc, metrics.row_count,
+                    "Row count mismatch between iterations for query {}: previous => {} rows vs. current => {} rows",
+                    query_idx, *rc, metrics.row_count
+                )
+            });
+            row_count = Some(metrics.row_count);
 
-                ctx.metrics.push((
+            // Capture execution plan from last iteration (DataFusion only)
+            if metrics.execution_plan.is_some() {
+                last_execution_plan = metrics.execution_plan;
+            }
+        }
+
+        let row_count = row_count.vortex_expect("cannot have zero runs");
+        let engine_type = engine_ctx.as_query_engine().engine_type();
+
+        // Handle DataFusion-specific post-processing
+        if let Some(execution_plan) = last_execution_plan {
+            engine_ctx
+                .as_query_engine_mut()
+                .add_execution_data(
                     query_idx,
+                    execution_plan.clone(),
                     format,
                     VortexMetricsFinder::find_all(execution_plan.as_ref()),
-                ));
+                );
 
-                query_measurements.push(QueryMeasurement {
+            if engine_ctx.as_query_engine().should_emit_plan() {
+                df::write_execution_plan(
                     query_idx,
-                    target: Target::new(Engine::DataFusion, format),
-                    benchmark_dataset: benchmark.dataset(),
-                    storage: url_scheme_to_storage(benchmark.data_url())?,
-                    runs,
-                });
-
-                row_count
+                    format,
+                    benchmark.dataset_name(),
+                    execution_plan.as_ref(),
+                );
             }
-            EngineCtx::DuckDB(ctx) => {
-                let mut runs = Vec::with_capacity(iterations);
-                let mut row_count = None;
+        }
 
-                for _ in 0..iterations {
-                    // Ensure we reopen the database to clear caches between runs.
-                    ctx.reopen()?;
-
-                    let (duration, current_row_count) =
-                        ctx.execute_query(query_string).unwrap_or_else(|err| {
-                            vortex_panic!("query: {query_idx} failed with: {err}")
-                        });
-
-                    runs.push(duration);
-                    row_count.inspect(|rc| {
-                        assert_eq!(
-                            *rc, current_row_count,
-                            "Row count mismatch between iterations for query {}: previous => {} rows vs. current => {} rows",
-                            query_idx, *rc, current_row_count
-                        )
-                    });
-                    row_count = Some(current_row_count);
-                }
-
-                query_measurements.push(QueryMeasurement {
-                    query_idx,
-                    target: Target::new(Engine::DuckDB, format),
-                    benchmark_dataset: benchmark.dataset(),
-                    storage: url_scheme_to_storage(benchmark.data_url())?,
-                    runs,
-                });
-
-                row_count.vortex_expect("cannot have zero runs")
-            }
-        };
+        query_measurements.push(QueryMeasurement {
+            query_idx,
+            target: Target::new(engine_type, format),
+            benchmark_dataset: benchmark.dataset(),
+            storage: url_scheme_to_storage(benchmark.data_url())?,
+            runs,
+        });
 
         // Validate row count if expected counts are provided
         if let Some(expected_counts) = expected_row_counts
@@ -259,7 +247,7 @@ fn execute_queries<B: Benchmark>(
                 row_count,
                 expected_counts[query_idx],
                 "Row count mismatch for query {query_idx} - {}:{format}",
-                engine_ctx.to_engine()
+                engine_type
             );
         }
 
@@ -269,7 +257,7 @@ fn execute_queries<B: Benchmark>(
         {
             memory_measurements.push(MemoryMeasurement {
                 query_idx,
-                target: Target::new(engine_ctx.to_engine(), format),
+                target: Target::new(engine_type, format),
                 benchmark_dataset: benchmark.dataset(),
                 storage: url_scheme_to_storage(benchmark.data_url())?,
                 physical_memory_delta: memory_result.physical_memory_delta,

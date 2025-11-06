@@ -5,14 +5,17 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
+use async_trait::async_trait;
+use datafusion::prelude::SessionContext;
 use log::trace;
 use url::Url;
 use vortex::error::VortexExpect;
 use vortex_duckdb::duckdb::{Config, Connection, Database};
 use vortex_duckdb::register_extension_options;
 
+use crate::engines::{QueryEngine, QueryMetrics};
 use crate::statpopgen::StatPopGenBenchmark;
-use crate::{BenchmarkDataset, Format, IdempotentPath};
+use crate::{BenchmarkDataset, Engine, Format, IdempotentPath};
 
 #[derive(Debug, Clone)]
 enum DuckDBObject {
@@ -30,12 +33,24 @@ impl DuckDBObject {
 }
 
 /// DuckDB context for benchmarks.
+///
+/// # Safety
+/// While this type implements Send + Sync, DuckDB connections are NOT thread-safe.
+/// The Send + Sync implementations are provided to allow usage with async runtimes
+/// (via block_on), but the connection must only be accessed from a single thread at a time.
+/// The benchmark driver ensures this by never sharing DuckDBCtx across threads.
 pub struct DuckDBCtx {
     pub db: Database,
     pub connection: Connection,
     pub db_path: Option<PathBuf>,
     pub threads: Option<usize>,
 }
+
+// SAFETY: DuckDB connections are not thread-safe, but we only access them from a single
+// thread in the benchmark driver. The Send + Sync impls allow using DuckDBCtx with
+// tokio's block_on, which requires Send, but we never actually send it to another thread.
+unsafe impl Send for DuckDBCtx {}
+unsafe impl Sync for DuckDBCtx {}
 
 impl DuckDBCtx {
     pub fn new(
@@ -145,7 +160,10 @@ impl DuckDBCtx {
     }
 
     /// Execute DuckDB queries for benchmarks using the internal connection
-    pub fn execute_query(&self, query: &str) -> Result<(Duration, usize)> {
+    ///
+    /// This is the internal method used by the QueryEngine trait implementation.
+    /// Prefer using the trait method instead.
+    pub fn execute_query_internal(&self, query: &str) -> Result<(Duration, usize)> {
         trace!("execute duckdb query: {query}");
         let time_instant = Instant::now();
         let result = self.connection.query(query)?;
@@ -193,7 +211,7 @@ impl DuckDBCtx {
         // Generate and execute table registration commands
         let commands = self.generate_table_commands(&effective_url, extension, dataset, object);
         trace!("Executing table registration commands: {commands}");
-        self.execute_query(&commands)?;
+        self.execute_query_internal(&commands)?;
 
         Ok(())
     }
@@ -288,5 +306,37 @@ impl DuckDBCtx {
                 )
             }
         }
+    }
+}
+
+#[async_trait]
+impl QueryEngine for DuckDBCtx {
+    async fn execute_query(&mut self, query: &str) -> Result<QueryMetrics> {
+        trace!("execute duckdb query: {query}");
+        let start = Instant::now();
+        let result = self.connection.query(query)?;
+        let duration = start.elapsed();
+        trace!("query completed in {:.3}s", duration.as_secs_f64());
+
+        let row_count =
+            usize::try_from(result.row_count()).vortex_expect("row count overflow");
+
+        Ok(QueryMetrics {
+            duration,
+            row_count,
+            execution_plan: None,
+        })
+    }
+
+    fn reset_caches(&mut self) -> Result<()> {
+        self.reopen()
+    }
+
+    fn engine_type(&self) -> Engine {
+        Engine::DuckDB
+    }
+
+    fn as_datafusion_session(&self) -> Option<&SessionContext> {
+        None
     }
 }

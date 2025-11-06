@@ -4,8 +4,11 @@
 use std::fs;
 use std::process::Command;
 use std::sync::{Arc, LazyLock};
+use std::time::Instant;
 
+use anyhow::Result;
 use arrow_array::RecordBatch;
+use async_trait::async_trait;
 use datafusion::datasource::provider::DefaultTableFactory;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::execution::cache::cache_manager::CacheManagerConfig;
@@ -24,6 +27,8 @@ use url::Url;
 use vortex_datafusion::VortexFormatFactory;
 
 pub use crate::Format;
+use crate::engines::{QueryEngine, QueryMetrics};
+use crate::Engine;
 
 pub struct DataFusionCtx {
     pub execution_plans: Vec<(usize, Arc<dyn ExecutionPlan>)>,
@@ -90,7 +95,7 @@ pub fn get_session_context(disable_datafusion_cache: bool) -> SessionContext {
 pub fn make_object_store(
     df: &SessionContext,
     source: &Url,
-) -> anyhow::Result<Arc<dyn ObjectStore>> {
+) -> Result<Arc<dyn ObjectStore>> {
     match source.scheme() {
         "s3" => {
             let bucket_name = &source[url::Position::BeforeHost..url::Position::AfterHost];
@@ -123,10 +128,14 @@ pub fn make_object_store(
 }
 
 impl DataFusionCtx {
-    pub async fn execute_query(
+    /// Execute a query and return batches and execution plan
+    ///
+    /// This is the internal method used by the QueryEngine trait implementation.
+    /// Prefer using the trait method instead.
+    pub async fn execute_query_internal(
         &self,
         query: &str,
-    ) -> anyhow::Result<(Vec<RecordBatch>, Arc<dyn ExecutionPlan>)> {
+    ) -> Result<(Vec<RecordBatch>, Arc<dyn ExecutionPlan>)> {
         execute_query(&self.session, query).await
     }
 }
@@ -134,7 +143,7 @@ impl DataFusionCtx {
 pub async fn execute_query(
     ctx: &SessionContext,
     query: &str,
-) -> anyhow::Result<(Vec<RecordBatch>, Arc<dyn ExecutionPlan>)> {
+) -> Result<(Vec<RecordBatch>, Arc<dyn ExecutionPlan>)> {
     let plan = ctx.sql(query).await?;
     let (state, plan) = plan.into_parts();
     let physical_plan = state.create_physical_plan(&plan).await?;
@@ -170,4 +179,52 @@ pub fn write_execution_plan(
         ),
     )
     .expect("Unable to write file");
+}
+
+#[async_trait]
+impl QueryEngine for DataFusionCtx {
+    async fn execute_query(&mut self, query: &str) -> Result<QueryMetrics> {
+        let start = Instant::now();
+        let (batches, execution_plan) = execute_query(&self.session, query).await?;
+        let duration = start.elapsed();
+
+        let row_count: usize = batches.iter().map(|batch| batch.num_rows()).sum();
+
+        Ok(QueryMetrics {
+            duration,
+            row_count,
+            execution_plan: Some(execution_plan),
+        })
+    }
+
+    fn engine_type(&self) -> Engine {
+        Engine::DataFusion
+    }
+
+    fn should_emit_plan(&self) -> bool {
+        self.emit_plan
+    }
+
+    fn execution_plans(&self) -> &[(usize, Arc<dyn ExecutionPlan>)] {
+        &self.execution_plans
+    }
+
+    fn metrics(&self) -> &[(usize, Format, Vec<datafusion_physical_plan::metrics::MetricsSet>)] {
+        &self.metrics
+    }
+
+    fn add_execution_data(
+        &mut self,
+        query_idx: usize,
+        plan: Arc<dyn ExecutionPlan>,
+        format: Format,
+        metrics: Vec<datafusion_physical_plan::metrics::MetricsSet>,
+    ) {
+        self.execution_plans.push((query_idx, plan));
+        self.metrics.push((query_idx, format, metrics));
+    }
+
+    fn as_datafusion_session(&self) -> Option<&SessionContext> {
+        Some(&self.session)
+    }
 }

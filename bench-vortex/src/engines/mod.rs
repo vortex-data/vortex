@@ -3,6 +3,7 @@
 
 pub mod ddb;
 pub mod df;
+pub mod query_engine;
 
 use std::future::Future;
 use std::time::Duration;
@@ -11,6 +12,7 @@ use datafusion::prelude::SessionContext;
 use vortex::error::VortexExpect;
 
 pub use crate::Format;
+pub use query_engine::{QueryEngine, QueryMetrics};
 use crate::{BenchmarkDataset, Engine, vortex_panic};
 
 pub enum EngineCtx {
@@ -48,6 +50,22 @@ impl EngineCtx {
             EngineCtx::DataFusion(_) => Engine::DataFusion,
         }
     }
+
+    /// Get a mutable reference to the underlying engine as a QueryEngine trait object
+    pub fn as_query_engine_mut(&mut self) -> &mut dyn QueryEngine {
+        match self {
+            EngineCtx::DataFusion(ctx) => ctx as &mut dyn QueryEngine,
+            EngineCtx::DuckDB(ctx) => ctx as &mut dyn QueryEngine,
+        }
+    }
+
+    /// Get a reference to the underlying engine as a QueryEngine trait object
+    pub fn as_query_engine(&self) -> &dyn QueryEngine {
+        match self {
+            EngineCtx::DataFusion(ctx) => ctx as &dyn QueryEngine,
+            EngineCtx::DuckDB(ctx) => ctx as &dyn QueryEngine,
+        }
+    }
 }
 
 pub fn benchmark_duckdb_query(
@@ -61,7 +79,7 @@ pub fn benchmark_duckdb_query(
 
     for _ in 0..iterations {
         let (duration, current_row_count) = duckdb_ctx
-            .execute_query(query_string)
+            .execute_query_internal(query_string)
             .unwrap_or_else(|err| vortex_panic!("query: {query_idx} failed with: {err}"));
 
         runs.push(duration);
