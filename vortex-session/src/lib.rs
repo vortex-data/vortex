@@ -10,7 +10,7 @@ use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
 use dashmap::{DashMap, Entry};
-use vortex_error::{VortexExpect, vortex_err, vortex_panic};
+use vortex_error::{VortexExpect, vortex_panic};
 
 /// A Vortex session encapsulates the set of extensible arrays, layouts, compute functions, dtypes,
 /// etc. that are available for use in a given context.
@@ -77,10 +77,9 @@ impl SessionExt for VortexSession {
         Ref(self
             .0
             .get(&TypeId::of::<V>())
-            .ok_or_else(|| {
-                vortex_err!("Session has not been initialized with {}", type_name::<V>())
+            .unwrap_or_else(|| {
+                vortex_panic!("Session has not been initialized with {}", type_name::<V>())
             })
-            .vortex_expect("Unitialized session variable")?
             .map(|v| {
                 (**v)
                     .as_any()
@@ -96,10 +95,9 @@ impl SessionExt for VortexSession {
         RefMut(
             self.0
                 .get_mut(&TypeId::of::<V>())
-                .ok_or_else(|| {
-                    vortex_err!("Session has not been initialized with {}", type_name::<V>())
+                .unwrap_or_else(|| {
+                    vortex_panic!("Session has not been initialized with {}", type_name::<V>())
                 })
-                .vortex_expect("Unitialized session variable")?
                 .map(|v| {
                     (**v)
                         .as_any_mut()
