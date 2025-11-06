@@ -16,7 +16,7 @@ use vortex_dtype::{
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::unpack_iter::{UnpackStrategy, UnpackedChunks};
-use crate::{BitPackedArray, BitPackedVTable, FoRArray, bitpack_compress};
+use crate::{BitPackedArray, BitPackedVTable, FoRArray, bitpack_decompress};
 
 impl FoRArray {
     pub fn encode(array: PrimitiveArray) -> VortexResult<FoRArray> {
@@ -134,7 +134,7 @@ fn fused_decompress<T: PhysicalPType<Physical = T> + UnsignedPType + FoR + Wrapp
     }
 
     if let Some(patches) = bp.patches() {
-        bitpack_compress::apply_patches_fn(&mut uninit_range, patches, |v| v.wrapping_add(&ref_));
+        bitpack_decompress::apply_patches_fn(&mut uninit_range, patches, |v| v.wrapping_add(&ref_));
     };
 
     unsafe {

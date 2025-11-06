@@ -8,7 +8,7 @@ use vortex_array::vtable::{OperationsVTable, ValidityHelper};
 use vortex_array::{ArrayRef, IntoArray};
 use vortex_scalar::Scalar;
 
-use crate::{BitPackedArray, BitPackedVTable, bitpack_compress};
+use crate::{BitPackedArray, BitPackedVTable, bitpack_decompress};
 
 impl OperationsVTable<BitPackedVTable> for BitPackedVTable {
     fn slice(array: &BitPackedArray, range: Range<usize>) -> ArrayRef {
@@ -43,7 +43,7 @@ impl OperationsVTable<BitPackedVTable> for BitPackedVTable {
         {
             patch
         } else {
-            bitpack_compress::unpack_single(array, index)
+            bitpack_decompress::unpack_single(array, index)
         }
     }
 }

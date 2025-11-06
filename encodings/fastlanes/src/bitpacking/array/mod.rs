@@ -12,6 +12,7 @@ use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
 
 pub mod bitpack_compress;
+pub mod bitpack_decompress;
 pub mod unpack_iter;
 
 use crate::bitpack_compress::bitpack_encode;

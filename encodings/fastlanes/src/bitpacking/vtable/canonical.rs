@@ -7,7 +7,7 @@ use vortex_array::vtable::CanonicalVTable;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 
-use crate::bitpack_compress::{unpack, unpack_into};
+use crate::bitpack_decompress::{unpack, unpack_into};
 use crate::{BitPackedArray, BitPackedVTable};
 
 impl CanonicalVTable<BitPackedVTable> for BitPackedVTable {
