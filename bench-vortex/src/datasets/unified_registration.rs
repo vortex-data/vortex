@@ -48,9 +48,35 @@ pub async fn register_dataset_tables(
 
         match format {
             Format::Arrow => {
-                // For Arrow format, we need special in-memory handling
-                // This would need to be implemented based on the existing register_arrow function
-                todo!("Arrow format registration needs special handling")
+                // For Arrow format, load Parquet files into memory as RecordBatches
+                // This gives us pure in-memory query performance
+
+                // Arrow format requires local filesystem (no glob support in object store)
+                if format_url.scheme() != "file" {
+                    anyhow::bail!("Arrow format only supports local filesystem");
+                }
+
+                // Read parquet files and convert to in-memory table
+                let glob_pattern = glob.as_ref()
+                    .map(|g| g.as_str())
+                    .unwrap_or("*.parquet");
+
+                let path = format_url.path().to_string() + glob_pattern;
+                let df = session.read_parquet(&path, Default::default()).await?;
+
+                // Get schema before consuming df
+                let schema = df.schema().inner().clone();
+
+                // Collect all batches into memory
+                let batches = df.collect().await?;
+
+                // Create a memory table from the batches
+                use datafusion::datasource::MemTable;
+                use std::sync::Arc;
+
+                let provider = MemTable::try_new(schema, vec![batches])?;
+
+                session.register_table(&table_info.name, Arc::new(provider))?;
             }
             #[cfg(feature = "lance")]
             Format::Lance => {

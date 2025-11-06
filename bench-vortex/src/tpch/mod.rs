@@ -3,16 +3,6 @@
 
 use std::fs;
 use std::path::Path;
-use std::sync::Arc;
-
-use anyhow::bail;
-use arrow_schema::Schema;
-use datafusion::datasource::MemTable;
-use datafusion::prelude::SessionContext;
-use glob::Pattern;
-use url::Url;
-
-use crate::{Format};
 
 pub mod dbgen;
 pub mod schema;
@@ -33,77 +23,6 @@ pub const EXPECTED_ROW_COUNTS_SF10: [usize; TPC_H_ROW_COUNT_ARRAY_LENGTH] = [
     0, 4, 100, 10, 5, 5, 1, 4, 2, 175, 20, 0, 2, 46, 1, 1, 27840, 1, 100, 1, 1804, 100, 7,
 ];
 
-pub async fn register_arrow(
-    session: &SessionContext,
-    name: &str,
-    file_url: &Url,
-    glob: Option<Pattern>,
-) -> anyhow::Result<()> {
-    // Load Parquet file into memory as Arrow RecordBatch
-    // This gives us pure in-memory query performance
-
-    // Must load file from local filesystem into arrow, due to lacking of glob support in object store.
-    assert_eq!(file_url.scheme(), "file");
-
-    let url =
-        file_url.path().to_string() + glob.map(|g| g.to_string()).unwrap_or_default().as_str();
-    let df = session.read_parquet(&url, Default::default()).await?;
-
-    // Collect all data into memory
-    let record_batches = df.collect().await?;
-
-    // Get the schema from the actual data
-    let schema = if !record_batches.is_empty() {
-        record_batches[0].schema()
-    } else {
-        bail!("No data found in parquet file: {}", url)
-    };
-
-    let mem_table = MemTable::try_new(schema, vec![record_batches])?;
-    session.register_table(name, Arc::new(mem_table))?;
-
-    Ok(())
-}
-
-pub async fn register_parquet(
-    session: &SessionContext,
-    name: &str,
-    file: &Url,
-    glob: Option<Pattern>,
-    schema: Option<Schema>,
-) -> anyhow::Result<()> {
-    use crate::datasets::registration::{create_file_format, register_listing_table};
-
-    let file_format = create_file_format(Format::Parquet)?;
-    register_listing_table(session, name, file, glob, schema, file_format).await
-}
-
-pub async fn register_vortex_file(
-    session: &SessionContext,
-    table_name: &str,
-    file: &Url,
-    glob: Option<Pattern>,
-    schema: Option<Schema>,
-    format: Format,
-) -> anyhow::Result<()> {
-    use crate::datasets::registration::{create_file_format, register_listing_table};
-
-    let file_format = create_file_format(format)?;
-    register_listing_table(session, table_name, file, glob, schema, file_format).await
-}
-
-pub async fn register_vortex_compact_file(
-    session: &SessionContext,
-    table_name: &str,
-    file: &Url,
-    glob: Option<Pattern>,
-    schema: Option<Schema>,
-) -> anyhow::Result<()> {
-    use crate::datasets::registration::{create_file_format, register_listing_table};
-
-    let file_format = create_file_format(Format::VortexCompact)?;
-    register_listing_table(session, table_name, file, glob, schema, file_format).await
-}
 
 pub fn tpch_queries() -> impl Iterator<Item = (usize, String)> {
     (1..=22).map(|q| (q, tpch_query(q)))

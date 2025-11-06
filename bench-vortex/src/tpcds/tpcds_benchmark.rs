@@ -10,9 +10,10 @@ use url::Url;
 
 use crate::benchmark_trait::Benchmark;
 use crate::engines::EngineCtx;
+use crate::helpers::urls::benchmark_data_url;
 use crate::tpcds::duckdb::generate_tpcds;
 use crate::tpcds::tpcds_queries;
-use crate::{BenchmarkDataset, Format, IdempotentPath, Target};
+use crate::{BenchmarkDataset, Format, Target};
 
 /// TPC-DS benchmark implementation
 pub struct TpcDsBenchmark {
@@ -29,25 +30,7 @@ impl TpcDsBenchmark {
     }
 
     fn create_data_url(remote_data_dir: &Option<String>, scale_factor: &str) -> Result<Url> {
-        match remote_data_dir {
-            None => {
-                let data_dir = "tpcds".to_data_path();
-                let data_dir_with_sf = data_dir.join(scale_factor);
-                Url::from_directory_path(&data_dir_with_sf).map_err(|_| {
-                    anyhow!(
-                        "Failed to create URL from directory path: {:?}",
-                        &data_dir_with_sf
-                    )
-                })
-            }
-            Some(remote_data_dir) => {
-                let mut url = Url::parse(remote_data_dir)?;
-                if !url.path().ends_with('/') {
-                    url.set_path(&format!("{}/", url.path()));
-                }
-                Ok(url)
-            }
-        }
+        benchmark_data_url("tpcds", Some(scale_factor), remote_data_dir)
     }
 }
 
@@ -151,51 +134,13 @@ impl TpcDsBenchmark {
         base_dir: &Url,
         format: Format,
     ) -> Result<()> {
-        use crate::tpch::{
-            register_arrow, register_parquet, register_vortex_compact_file, register_vortex_file,
+        use crate::datasets::configs::TpcDsDataset;
+        use crate::datasets::unified_registration::register_dataset_tables;
+
+        let dataset = TpcDsDataset {
+            scale_factor: self.scale_factor.clone(),
         };
 
-        let dataset = self.dataset();
-        let files = dataset
-            .tables()
-            .iter()
-            .map(|f| (*f, None))
-            .collect::<Vec<_>>();
-
-        // For TPC-DS, files are stored in a subdirectory named after the format
-        let format_dir = base_dir.join(&format!("{}/", format.name()))?;
-
-        for (name, schema) in files {
-            let format = if format == Format::Arrow {
-                Format::Parquet
-            } else {
-                format
-            };
-
-            let path = format_dir.join(&format!("{name}.{}", format.ext()))?;
-
-            match format {
-                Format::Arrow => register_arrow(session, name, &path, None).await?,
-                Format::Parquet => {
-                    register_parquet(session, name, &path, None, schema).await?
-                }
-                Format::OnDiskVortex => {
-                    register_vortex_file(session, name, &path, None, schema, format).await?
-                }
-                Format::VortexCompact => {
-                    register_vortex_compact_file(session, name, &path, None, schema).await?
-                }
-                Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
-                Format::Csv => todo!(),
-                #[cfg(feature = "lance")]
-                Format::Lance => {
-                    use crate::datasets::registration;
-                    let lance_path = format_dir.join(&format!("{name}.lance/"))?;
-                    registration::register_lance_table(session, name, &lance_path).await?
-                }
-            }
-        }
-
-        Ok(())
+        register_dataset_tables(session, &dataset, base_dir, format).await
     }
 }

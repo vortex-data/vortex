@@ -9,23 +9,18 @@ use std::{env, fs};
 use anyhow::{Result, anyhow};
 use datafusion::prelude::SessionContext;
 use ddb::DuckDBCtx;
-use glob::Pattern;
-use log::{info, warn};
 use similar::{ChangeTag, TextDiff};
 use tokio::runtime::Runtime;
 use url::Url;
-#[cfg(feature = "lance")]
-use crate::utils;
 
 use crate::benchmark_trait::Benchmark;
 use crate::engines::{EngineCtx, ddb};
-use crate::tpch::schema::{CUSTOMER, LINEITEM, NATION, ORDERS, PART, PARTSUPP, REGION, SUPPLIER};
+use crate::helpers::urls::{benchmark_data_url, url_to_path};
 use crate::tpch::tpchgen::TpchGenOptions;
 use crate::tpch::{
-    EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, register_arrow, register_parquet,
-    register_vortex_compact_file, register_vortex_file, tpch_queries, tpchgen,
+    EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, tpch_queries, tpchgen,
 };
-use crate::{BenchmarkDataset, Format, IdempotentPath, Target};
+use crate::{BenchmarkDataset, Format, Target};
 
 /// TPCH benchmark implementation
 pub struct TpcHBenchmark {
@@ -42,34 +37,7 @@ impl TpcHBenchmark {
     }
 
     fn create_data_url(remote_data_dir: &Option<String>, scale_factor: &str) -> Result<Url> {
-        match remote_data_dir {
-            None => {
-                let data_dir = "tpch".to_data_path();
-                let data_dir_with_sf = data_dir.join(scale_factor);
-                Url::from_directory_path(&data_dir_with_sf).map_err(|_| {
-                    anyhow!(
-                        "Failed to create URL from directory path: {:?}",
-                        &data_dir_with_sf
-                    )
-                })
-            }
-            Some(remote_data_dir) => {
-                if !remote_data_dir.ends_with("/") {
-                    warn!(
-                        "Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev-eu/parquet/"
-                    );
-                }
-                info!(
-                    concat!(
-                        "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
-                        "If it does not, you should kill this command, locally generate the files (by running without\n",
-                        "--use-remote-data-dir) and upload data/tpch/{}/ to some remote location.",
-                    ),
-                    remote_data_dir, scale_factor,
-                );
-                Ok(Url::parse(remote_data_dir)?)
-            }
-        }
+        benchmark_data_url("tpch", Some(scale_factor), remote_data_dir)
     }
 }
 
@@ -81,15 +49,12 @@ impl Benchmark for TpcHBenchmark {
     fn generate_data(&self, target: &Target) -> Result<()> {
         match self.data_url.scheme() {
             "file" => {
-                let base_data_dir = self
-                    .data_url
-                    .to_file_path()
-                    .map_err(|_| anyhow!("Invalid file URL: {}", self.data_url))?;
+                let base_data_dir = url_to_path(&self.data_url)?;
 
                 match target.format() {
                     #[cfg(feature = "lance")]
                     Format::Lance => {
-                        // For Lance: first generate Parquet, then convert
+                        // For Lance: first generate Parquet, then convert using our converter
                         let options =
                             TpchGenOptions::new(self.scale_factor.clone(), &base_data_dir)
                                 .with_format(Format::Parquet)
@@ -100,10 +65,18 @@ impl Benchmark for TpcHBenchmark {
                             // Generate Parquet
                             tpchgen::generate_tpch_tables(options).await?;
 
-                            // Convert to Lance
+                            // Use our format converter infrastructure
                             let parquet_dir = base_data_dir.join("parquet");
                             let lance_dir = base_data_dir.join("lance");
-                            convert_all_tpch_to_lance(&parquet_dir, &lance_dir).await
+
+                            use crate::conversion::{ConversionOptions, convert_format};
+                            convert_format(
+                                &parquet_dir,
+                                &lance_dir,
+                                Format::Parquet,
+                                Format::Lance,
+                                ConversionOptions::default(),
+                            ).await
                         })?;
                     }
                     Format::Arrow => {
@@ -192,58 +165,21 @@ impl Benchmark for TpcHBenchmark {
 }
 
 impl TpcHBenchmark {
-    /// Register TPCH tables with DataFusion session - extracted from load_datasets
+    /// Register TPCH tables with DataFusion session using unified registration
     async fn register_tpch_tables(
         &self,
         session: &SessionContext,
         base_dir: &Url,
         format: Format,
     ) -> Result<()> {
-        let files = vec![
-            ("customer", Some(CUSTOMER.clone())),
-            ("lineitem", Some(LINEITEM.clone())),
-            ("nation", Some(NATION.clone())),
-            ("orders", Some(ORDERS.clone())),
-            ("part", Some(PART.clone())),
-            ("partsupp", Some(PARTSUPP.clone())),
-            ("region", Some(REGION.clone())),
-            ("supplier", Some(SUPPLIER.clone())),
-        ];
+        use crate::datasets::configs::TpcHDataset;
+        use crate::datasets::unified_registration::register_dataset_tables;
 
-        for (name, schema) in files {
-            let file_format = if format == Format::Arrow {
-                // Arrow format loads Parquet files into memory
-                Format::Parquet
-            } else {
-                format
-            };
+        let dataset = TpcHDataset {
+            scale_factor: self.scale_factor.clone(),
+        };
 
-            let path = base_dir.join(&(file_format.name().to_string() + "/"))?;
-            let glob = Some(Pattern::new(&format!("{name}_*.{}", file_format.ext()))?);
-
-            match format {
-                Format::Arrow => register_arrow(session, name, &path, glob).await?,
-                Format::Parquet => {
-                    register_parquet(session, name, &path, glob, schema).await?
-                }
-                Format::OnDiskVortex => {
-                    register_vortex_file(session, name, &path, glob, schema, format).await?
-                }
-                Format::VortexCompact => {
-                    register_vortex_compact_file(session, name, &path, glob, schema).await?
-                }
-                Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
-                Format::Csv => todo!("csv unsupported for tpch benchmark"),
-                #[cfg(feature = "lance")]
-                Format::Lance => {
-                    use crate::datasets::registration;
-                    let lance_path = path.join(&format!("{name}.lance/"))?;
-                    registration::register_lance_table(session, name, &lance_path).await?
-                }
-            }
-        }
-
-        Ok(())
+        register_dataset_tables(session, &dataset, base_dir, format).await
     }
 
     /// Verify DuckDB TPCH results against reference data
@@ -336,26 +272,3 @@ impl TpcHBenchmark {
     }
 }
 
-/// Convert TPCH Parquet tables to Lance format.
-#[cfg(feature = "lance")]
-pub async fn convert_all_tpch_to_lance(parquet_dir: &Path, lance_dir: &Path) -> Result<()> {
-    let tables = [
-        "customer", "lineitem", "nation", "orders", "part", "partsupp", "region", "supplier",
-    ];
-
-    // Convert each table to its own Lance dataset
-    for table in &tables {
-        // Use table_ prefix to avoid matching similar names (e.g., part vs partsupp)
-        let file_prefix = format!("{}_", table);
-        utils::convert_parquet_to_lance(
-            parquet_dir,
-            lance_dir,
-            table,              // Dataset name is the table name
-            Some(&file_prefix), // File prefix with underscore (e.g., customer_0.parquet)
-            true,               // Convert Utf8View to Utf8 for Lance compatibility
-        )
-        .await?;
-    }
-
-    Ok(())
-}
