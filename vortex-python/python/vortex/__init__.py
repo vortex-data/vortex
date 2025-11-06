@@ -70,7 +70,12 @@ from ._lib.scalar import (  # pyright: ignore[reportMissingModuleSource]
     scalar,
 )
 from ._lib.serde import ArrayContext, ArrayParts  # pyright: ignore[reportMissingModuleSource]
-from .arrays import Array, PyArray, array
+from .arrays import (
+    Array,
+    PyArray,
+    _unpickle_array,  # pyright: ignore[reportPrivateUsage]
+    array,
+)
 from .file import VortexFile, open
 from .scan import RepeatedScan
 
@@ -155,6 +160,8 @@ __all__ = [
     # Serde
     "ArrayContext",
     "ArrayParts",
+    # Pickle
+    "_unpickle_array",
     # File
     "VortexFile",
     "open",

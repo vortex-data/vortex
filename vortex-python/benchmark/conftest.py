@@ -4,6 +4,7 @@
 import hashlib
 import math
 import os
+from typing import cast
 
 import pyarrow as pa
 import pytest
@@ -34,3 +35,9 @@ def vxf(tmpdir_factory: pytest.TempPathFactory, request: pytest.FixtureRequest) 
         a = vx.array(pa.table(columns))  # pyright: ignore[reportCallIssue, reportUnknownArgumentType, reportArgumentType]
         vx.io.write(a, str(fname))
     return vx.open(str(fname))
+
+
+@pytest.fixture(scope="session", params=[10_000, 2_000_000], ids=["small", "large"])
+def array_fixture(request: pytest.FixtureRequest) -> vx.Array:
+    size = cast(int, request.param)
+    return vx.array(pa.table({"x": list(range(size))}))
