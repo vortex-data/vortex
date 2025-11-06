@@ -293,7 +293,7 @@ impl<T> Buffer<T> {
             );
         }
         if end > len {
-            vortex_panic!("range end out of bounds: {:?} <= {:?}", end, len);
+            vortex_panic!("range end out of bounds: {:?} > {:?}", end, len);
         }
 
         if end == begin {
