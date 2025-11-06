@@ -235,8 +235,8 @@ mod tests {
         let df = session
             .sql("SELECT * FROM my_tbl_vx ORDER BY c1 ASC limit 3")
             .await?;
-        let (state, plan) = df.clone().into_parts();
-        let physical_plan = state.create_physical_plan(&plan).await?;
+
+        let physical_plan = df.clone().create_physical_plan().await?;
 
         insta::assert_snapshot!(DisplayableExecutionPlan::new(physical_plan.as_ref())
                 .tree_render().to_string(), @r"

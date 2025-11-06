@@ -16,7 +16,7 @@ use datafusion_physical_expr::{PhysicalExprRef, conjunction};
 use datafusion_physical_expr_adapter::{
     DefaultPhysicalExprAdapterFactory, PhysicalExprAdapterFactory,
 };
-use datafusion_physical_expr_common::physical_expr::fmt_sql;
+use datafusion_physical_expr_common::physical_expr::{fmt_sql, is_dynamic_physical_expr};
 use datafusion_physical_plan::filter_pushdown::{FilterPushdownPropagation, PushedDown};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::{DisplayFormatType, PhysicalExpr};
@@ -249,12 +249,23 @@ impl FileSource for VortexSource {
             })
             .collect::<Vec<_>>();
 
-        // Combine new filters with existing predicate
+        // We keep expressions we can push down dynamic expression that will be evaluated on a best-effort basis.
+        let filters = filters
+            .into_iter()
+            .filter(|expr| can_be_pushed_down(expr, schema) || is_dynamic_physical_expr(expr))
+            .collect();
+
+        // If we don't push down any filter, we don't need to update the plan's node.
+        if filters.is_empty() {
+            return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
+                vec![PushedDown::No; filters.len()],
+            ));
+        }
+
+        // Combine new filters with existing predicate. We keep the whole original expression
         source.predicate = match source.predicate {
-            Some(predicate) => Some(conjunction(
-                std::iter::once(predicate).chain(filters.clone()),
-            )),
-            None => Some(conjunction(filters.clone())),
+            Some(predicate) => Some(conjunction(std::iter::once(predicate).chain(filters))),
+            None => Some(conjunction(filters)),
         };
 
         Ok(
