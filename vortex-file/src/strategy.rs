@@ -252,9 +252,24 @@ impl WriteStrategyBuilder {
             CompressingStrategy::new_btrblocks(buffered, true)
         };
 
-        // 4. prior to compression, coalesce up to a minimum size
-        let coalescing = RepartitionStrategy::new(
+        // 2.1. | 3.1. | 4.1. compress stats tables and dict values.
+        let compress_then_flat = if let Some(ref compressor) = self.compressor {
+            CompressingStrategy::new_opaque(FlatLayoutStrategy::default(), compressor.clone())
+        } else {
+            CompressingStrategy::new_btrblocks(FlatLayoutStrategy::default(), false)
+        };
+
+        // 4. apply dict encoding or fallback
+        let dict = DictStrategy::new(
+            compressing.clone(),
+            compress_then_flat.clone(),
             compressing,
+            Default::default(),
+        );
+
+        // 3. prior to dict encoding, coalesce up to a minimum size
+        let coalescing = RepartitionStrategy::new(
+            dict,
             RepartitionWriterOptions {
                 // Write stream partitions roughly become segments. Because Vortex never reads less
                 // than one segment, the size of segments and, therefore, partitions, must be small
@@ -269,24 +284,9 @@ impl WriteStrategyBuilder {
             },
         );
 
-        // 2.1. | 3.1. compress stats tables and dict values.
-        let compress_then_flat = if let Some(ref compressor) = self.compressor {
-            CompressingStrategy::new_opaque(flat, compressor.clone())
-        } else {
-            CompressingStrategy::new_btrblocks(flat, false)
-        };
-
-        // 3. apply dict encoding or fallback
-        let dict = DictStrategy::new(
-            coalescing.clone(),
-            compress_then_flat.clone(),
-            coalescing,
-            Default::default(),
-        );
-
         // 2. calculate stats for each row group
         let stats = ZonedStrategy::new(
-            dict,
+            coalescing,
             compress_then_flat.clone(),
             ZonedLayoutOptions {
                 block_size: self.row_block_size,
