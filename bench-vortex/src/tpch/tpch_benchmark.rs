@@ -14,6 +14,8 @@ use tokio::runtime::Runtime;
 use url::Url;
 
 use crate::benchmark_trait::Benchmark;
+use crate::datasets::configs::TpcHDataset;
+use crate::datasets::unified_registration::register_dataset_tables;
 use crate::engines::{EngineCtx, ddb};
 use crate::helpers::urls::{benchmark_data_url, url_to_path};
 use crate::tpch::tpchgen::TpchGenOptions;
@@ -27,15 +29,11 @@ pub struct TpcHBenchmark {
 }
 
 impl TpcHBenchmark {
-    pub fn new(scale_factor: String, use_remote_data_dir: Option<String>) -> Result<Self> {
+    pub fn new(scale_factor: String, remote_data_dir: Option<String>) -> Result<Self> {
         Ok(Self {
             scale_factor: scale_factor.clone(),
-            data_url: Self::create_data_url(&use_remote_data_dir, &scale_factor)?,
+            data_url: benchmark_data_url("tpch", Some(&scale_factor), &remote_data_dir)?,
         })
-    }
-
-    fn create_data_url(remote_data_dir: &Option<String>, scale_factor: &str) -> Result<Url> {
-        benchmark_data_url("tpch", Some(scale_factor), remote_data_dir)
     }
 }
 
@@ -171,9 +169,6 @@ impl TpcHBenchmark {
         base_dir: &Url,
         format: Format,
     ) -> Result<()> {
-        use crate::datasets::configs::TpcHDataset;
-        use crate::datasets::unified_registration::register_dataset_tables;
-
         let dataset = TpcHDataset {
             scale_factor: self.scale_factor.clone(),
         };

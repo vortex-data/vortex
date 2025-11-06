@@ -73,7 +73,7 @@ fn load_queries_from_directory(dir: &Path) -> Result<Vec<(usize, String)>> {
     let mut queries = Vec::new();
     let mut entries: Vec<_> = fs::read_dir(dir)?
         .filter_map(Result::ok)
-        .filter(|entry| entry.path().extension().map_or(false, |ext| ext == "sql"))
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "sql"))
         .collect();
 
     // Sort by filename to ensure consistent ordering
@@ -237,7 +237,7 @@ mod tests {
             (3, "SELECT 3".to_string()),
         ];
 
-        let filtered = filter_queries(queries.clone(), &[1, 3]);
+        let filtered = filter_queries(queries, &[1, 3]);
         assert_eq!(filtered.len(), 2);
         assert_eq!(filtered[0].0, 1);
         assert_eq!(filtered[1].0, 3);

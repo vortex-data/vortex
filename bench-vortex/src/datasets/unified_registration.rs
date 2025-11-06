@@ -38,9 +38,16 @@ pub async fn register_dataset_tables(
     for table_info in dataset.tables() {
         // Create glob pattern from table info
         let pattern = if table_info.file_pattern.contains('*') {
-            table_info.file_pattern.clone()
+            // Pattern already has wildcard - append extension if needed
+            if table_info.file_pattern.contains('.') {
+                // Already has an extension
+                table_info.file_pattern.clone()
+            } else {
+                // Add the format extension
+                format!("{}.{}", table_info.file_pattern, file_format.ext())
+            }
         } else {
-            // If no wildcard, assume it's a prefix
+            // No wildcard, assume it's a prefix
             format!("{}*.{}", table_info.file_pattern, file_format.ext())
         };
 
@@ -57,7 +64,17 @@ pub async fn register_dataset_tables(
                 }
 
                 // Read parquet files and convert to in-memory table
-                let glob_pattern = glob.as_ref().map(|g| g.as_str()).unwrap_or("*.parquet");
+                // Arrow always reads from Parquet files
+                let arrow_pattern = if table_info.file_pattern.contains('*') {
+                    if table_info.file_pattern.contains('.') {
+                        table_info.file_pattern.clone()
+                    } else {
+                        format!("{}.{}", table_info.file_pattern, Format::Parquet.ext())
+                    }
+                } else {
+                    format!("{}*.{}", table_info.file_pattern, Format::Parquet.ext())
+                };
+                let glob_pattern = arrow_pattern.as_str();
 
                 let path = format_url.path().to_string() + glob_pattern;
                 let df = session.read_parquet(&path, Default::default()).await?;
@@ -114,4 +131,119 @@ pub fn dataset_url(base_url: &Url, dataset: &dyn DatasetMetadata) -> Result<Url>
     };
 
     Ok(base_url.join(&format!("{}/", path))?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::datasets::configs::TpcHDataset;
+
+    /// Helper function that mimics the pattern building logic
+    fn build_pattern(file_pattern: &str, format: Format) -> String {
+        let file_format = if format == Format::Arrow {
+            Format::Parquet // Arrow loads Parquet files
+        } else {
+            format
+        };
+
+        if file_pattern.contains('*') {
+            // Pattern already has wildcard - append extension if needed
+            if file_pattern.contains('.') {
+                // Already has an extension
+                file_pattern.to_string()
+            } else {
+                // Add the format extension
+                format!("{}.{}", file_pattern, file_format.ext())
+            }
+        } else {
+            // No wildcard, assume it's a prefix
+            format!("{}*.{}", file_pattern, file_format.ext())
+        }
+    }
+
+    #[test]
+    fn test_file_pattern_building() {
+        // Test various pattern formats
+        assert_eq!(
+            build_pattern("customer_*", Format::Parquet),
+            "customer_*.parquet"
+        );
+        assert_eq!(
+            build_pattern("customer_*", Format::OnDiskVortex),
+            "customer_*.vortex"
+        );
+        assert_eq!(build_pattern("*", Format::Parquet), "*.parquet");
+        assert_eq!(build_pattern("*", Format::OnDiskVortex), "*.vortex");
+
+        // Test that existing extensions are preserved
+        assert_eq!(
+            build_pattern("*.parquet", Format::OnDiskVortex),
+            "*.parquet"
+        );
+
+        // Test patterns without wildcards
+        assert_eq!(
+            build_pattern("customer", Format::Parquet),
+            "customer*.parquet"
+        );
+        assert_eq!(
+            build_pattern("customer", Format::OnDiskVortex),
+            "customer*.vortex"
+        );
+
+        // Test Arrow format (should use Parquet extension)
+        assert_eq!(
+            build_pattern("customer_*", Format::Arrow),
+            "customer_*.parquet"
+        );
+        assert_eq!(build_pattern("*", Format::Arrow), "*.parquet");
+    }
+
+    #[test]
+    fn test_tpch_patterns() {
+        let dataset = TpcHDataset {
+            scale_factor: "1.0".to_string(),
+        };
+
+        let tables = dataset.tables();
+        assert!(!tables.is_empty());
+
+        // Check that TPC-H patterns work with different formats
+        for table_info in tables {
+            // Should generate correct patterns for different formats
+            let parquet_pattern = build_pattern(&table_info.file_pattern, Format::Parquet);
+            let vortex_pattern = build_pattern(&table_info.file_pattern, Format::OnDiskVortex);
+
+            // Patterns should have the right extensions
+            assert!(parquet_pattern.ends_with(".parquet"));
+            assert!(vortex_pattern.ends_with(".vortex"));
+
+            // Patterns should contain the table name
+            assert!(parquet_pattern.contains(&table_info.name));
+            assert!(vortex_pattern.contains(&table_info.name));
+        }
+    }
+
+    #[test]
+    fn test_wildcard_patterns() {
+        // Test FineWeb/GhArchive style patterns
+        let patterns = vec!["*", "*.parquet", "events_*", "fineweb_*"];
+
+        for pattern in patterns {
+            let parquet_result = build_pattern(pattern, Format::Parquet);
+            let vortex_result = build_pattern(pattern, Format::OnDiskVortex);
+
+            // If pattern already has extension, it should be preserved
+            if pattern.contains(".parquet") {
+                assert_eq!(parquet_result, pattern);
+                assert_eq!(vortex_result, pattern); // Preserved even for different format
+            } else if pattern == "*" {
+                assert_eq!(parquet_result, "*.parquet");
+                assert_eq!(vortex_result, "*.vortex");
+            } else if pattern.contains('*') {
+                assert!(parquet_result.ends_with(".parquet"));
+                assert!(vortex_result.ends_with(".vortex"));
+            }
+        }
+    }
 }

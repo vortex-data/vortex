@@ -9,7 +9,8 @@
 use std::fmt;
 
 use super::metadata::{DatasetMetadata, TableInfo};
-use crate::clickbench::Flavor;
+use crate::clickbench::{Flavor, HITS_SCHEMA};
+use crate::tpch::schema::{CUSTOMER, LINEITEM, NATION, ORDERS, PART, PARTSUPP, REGION, SUPPLIER};
 
 /// TPC-H dataset configuration
 #[derive(Debug, Clone)]
@@ -27,12 +28,16 @@ impl DatasetMetadata for TpcHDataset {
     }
 
     fn tables(&self) -> Vec<TableInfo> {
-        [
-            "customer", "lineitem", "nation", "orders", "part", "partsupp", "region", "supplier",
+        vec![
+            TableInfo::new("customer", "customer_*").with_schema(CUSTOMER.clone()),
+            TableInfo::new("lineitem", "lineitem_*").with_schema(LINEITEM.clone()),
+            TableInfo::new("nation", "nation_*").with_schema(NATION.clone()),
+            TableInfo::new("orders", "orders_*").with_schema(ORDERS.clone()),
+            TableInfo::new("part", "part_*").with_schema(PART.clone()),
+            TableInfo::new("partsupp", "partsupp_*").with_schema(PARTSUPP.clone()),
+            TableInfo::new("region", "region_*").with_schema(REGION.clone()),
+            TableInfo::new("supplier", "supplier_*").with_schema(SUPPLIER.clone()),
         ]
-        .iter()
-        .map(|&name| TableInfo::new(name, format!("{}*.parquet", name)))
-        .collect()
     }
 }
 
@@ -85,7 +90,7 @@ impl DatasetMetadata for TpcDsDataset {
             "web_returns",
         ]
         .iter()
-        .map(|&name| TableInfo::new(name, format!("{}*.parquet", name)))
+        .map(|&name| TableInfo::new(name, name.to_string()))
         .collect()
     }
 }
@@ -113,7 +118,7 @@ impl DatasetMetadata for ClickBenchDataset {
 
     fn tables(&self) -> Vec<TableInfo> {
         // ClickBench has a single table without a prefix
-        vec![TableInfo::new("hits", "*")]
+        vec![TableInfo::new("hits", "*").with_schema(HITS_SCHEMA.clone())]
     }
 }
 
@@ -142,11 +147,7 @@ impl DatasetMetadata for PublicBiDataset {
     }
 
     fn tables(&self) -> Vec<TableInfo> {
-        // Public BI tables vary by dataset
-        vec![TableInfo::new(
-            &self.name,
-            format!("{}*.parquet", self.name),
-        )]
+        vec![TableInfo::new(&self.name, self.name.to_string())]
     }
 }
 
@@ -172,7 +173,7 @@ impl DatasetMetadata for StatPopGenDataset {
     }
 
     fn tables(&self) -> Vec<TableInfo> {
-        vec![TableInfo::new("statpopgen", "*.parquet")]
+        vec![TableInfo::new("statpopgen", "*")]
     }
 }
 
@@ -192,7 +193,8 @@ impl DatasetMetadata for FineWebDataset {
     }
 
     fn tables(&self) -> Vec<TableInfo> {
-        vec![TableInfo::new("fineweb", "*.parquet")]
+        // FineWeb uses wildcard pattern without extension
+        vec![TableInfo::new("fineweb", "*")]
     }
 }
 
@@ -212,7 +214,8 @@ impl DatasetMetadata for GhArchiveDataset {
     }
 
     fn tables(&self) -> Vec<TableInfo> {
-        vec![TableInfo::new("events", "*.parquet")]
+        // GhArchive uses wildcard pattern without extension
+        vec![TableInfo::new("events", "*")]
     }
 }
 

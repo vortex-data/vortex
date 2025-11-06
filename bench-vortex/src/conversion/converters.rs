@@ -13,8 +13,9 @@ use tokio::fs::OpenOptions;
 use tracing::info;
 use vortex::file::WriteOptionsSessionExt;
 
-use crate::conversion::CompactionStrategy as ConversionCompactionStrategy;
-use crate::conversion::{ConversionOptions, FormatConverter};
+use crate::conversion::{
+    CompactionStrategy as ConversionCompactionStrategy, ConversionOptions, FormatConverter,
+};
 use crate::conversions::parquet_to_vortex;
 use crate::{CompactionStrategy, Format, SESSION};
 
@@ -197,10 +198,11 @@ impl ParquetToLanceConverter {
         source_path: &Path,
         target_path: &Path,
     ) -> Result<()> {
-        use crate::datasets::registration::{create_file_format, register_listing_table};
         use datafusion::prelude::SessionContext;
         use lance::dataset::{WriteMode, WriteOptions, WriteStrategyBuilder};
         use url::Url;
+
+        use crate::datasets::registration::{create_file_format, register_listing_table};
 
         let lance_path = target_path.join(format!("{}.lance", table_name));
 

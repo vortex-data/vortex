@@ -9,6 +9,8 @@ use log::info;
 use url::Url;
 
 use crate::benchmark_trait::Benchmark;
+use crate::datasets::configs::TpcDsDataset;
+use crate::datasets::unified_registration::register_dataset_tables;
 use crate::engines::EngineCtx;
 use crate::helpers::urls::benchmark_data_url;
 use crate::tpcds::duckdb::generate_tpcds;
@@ -22,15 +24,11 @@ pub struct TpcDsBenchmark {
 }
 
 impl TpcDsBenchmark {
-    pub fn new(scale_factor: String, use_remote_data_dir: Option<String>) -> Result<Self> {
+    pub fn new(scale_factor: String, remote_data_dir: Option<String>) -> Result<Self> {
         Ok(Self {
             scale_factor: scale_factor.clone(),
-            data_url: Self::create_data_url(&use_remote_data_dir, &scale_factor)?,
+            data_url: benchmark_data_url("tpcds", Some(&scale_factor), &remote_data_dir)?,
         })
-    }
-
-    fn create_data_url(remote_data_dir: &Option<String>, scale_factor: &str) -> Result<Url> {
-        benchmark_data_url("tpcds", Some(scale_factor), remote_data_dir)
     }
 }
 
@@ -134,9 +132,6 @@ impl TpcDsBenchmark {
         base_dir: &Url,
         format: Format,
     ) -> Result<()> {
-        use crate::datasets::configs::TpcDsDataset;
-        use crate::datasets::unified_registration::register_dataset_tables;
-
         let dataset = TpcDsDataset {
             scale_factor: self.scale_factor.clone(),
         };

@@ -9,8 +9,8 @@ use serde::Serialize;
 use url::Url;
 use vortex::ArrayRef;
 
-use crate::clickbench::Flavor;
 use crate::Format;
+use crate::clickbench::Flavor;
 
 pub mod configs;
 pub mod data_downloads;
@@ -121,5 +121,4 @@ impl BenchmarkDataset {
     pub fn format_path(&self, format: Format, base_url: &Url) -> Result<Url> {
         Ok(base_url.join(&format!("{format}/"))?)
     }
-
 }
