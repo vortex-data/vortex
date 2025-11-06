@@ -11,7 +11,7 @@ use futures::stream::BoxStream;
 use futures::{FutureExt, StreamExt};
 use tracing::Instrument;
 use vortex_buffer::ByteBufferMut;
-use vortex_error::{VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult, vortex_ensure};
 
 use crate::file::IoRequest;
 use crate::file::read::{CoalesceWindow, IntoReadSource, ReadSource, ReadSourceRef};
@@ -141,6 +141,15 @@ impl ReadSource for ObjectStoreIoSource {
                             while let Some(bytes) = byte_stream.next().await {
                                 buffer.extend_from_slice(&bytes?);
                             }
+
+                            vortex_ensure!(
+                                buffer.len() == len,
+                                "Object store stream returned {} bytes but expected {} bytes (range: {:?})",
+                                buffer.len(),
+                                len,
+                                range
+                            );
+
                             buffer
                         }
                     };
