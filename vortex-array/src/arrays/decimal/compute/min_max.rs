@@ -44,18 +44,19 @@ fn compute_min_max<'a, T>(iter: impl Iterator<Item = &'a T>, dtype: &DType) -> O
 where
     T: Into<DecimalValue> + NativeDecimalType + Ord + Copy + 'a,
 {
+    let non_nullable_dtype = dtype.as_nonnullable();
     match iter.minmax_by(|a, b| a.cmp(b)) {
         itertools::MinMaxResult::NoElements => None,
         itertools::MinMaxResult::OneElement(&x) => {
-            let scalar = Scalar::new(dtype.clone(), ScalarValue::from(x.into()));
+            let scalar = Scalar::new(non_nullable_dtype, ScalarValue::from(x.into()));
             Some(MinMaxResult {
                 min: scalar.clone(),
                 max: scalar,
             })
         }
         itertools::MinMaxResult::MinMax(&min, &max) => Some(MinMaxResult {
-            min: Scalar::new(dtype.clone(), ScalarValue::from(min.into())),
-            max: Scalar::new(dtype.clone(), ScalarValue::from(max.into())),
+            min: Scalar::new(non_nullable_dtype.clone(), ScalarValue::from(min.into())),
+            max: Scalar::new(non_nullable_dtype, ScalarValue::from(max.into())),
         }),
     }
 }
@@ -80,13 +81,14 @@ mod tests {
 
         let min_max = min_max(decimal.as_ref()).unwrap();
 
+        let non_nullable_dtype = decimal.dtype().as_nonnullable();
         let expected = MinMaxResult {
             min: Scalar::new(
-                decimal.dtype().clone(),
+                non_nullable_dtype.clone(),
                 ScalarValue::from(DecimalValue::from(100i32)),
             ),
             max: Scalar::new(
-                decimal.dtype().clone(),
+                non_nullable_dtype,
                 ScalarValue::from(DecimalValue::from(200i32)),
             ),
         };

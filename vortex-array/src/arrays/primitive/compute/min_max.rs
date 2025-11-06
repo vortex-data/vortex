@@ -2,10 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
+use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::{PValue, Scalar, ScalarValue};
 
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
@@ -24,7 +25,8 @@ register_kernel!(MinMaxKernelAdapter(PrimitiveVTable).lift());
 #[inline]
 fn compute_min_max_with_validity<T>(array: &PrimitiveArray) -> VortexResult<Option<MinMaxResult>>
 where
-    T: Into<ScalarValue> + NativePType,
+    T: NativePType,
+    PValue: From<T>,
 {
     Ok(match array.validity_mask() {
         Mask::AllTrue(_) => compute_min_max(array.as_slice::<T>().iter(), array.dtype()),
@@ -42,7 +44,8 @@ where
 
 fn compute_min_max<'a, T>(iter: impl Iterator<Item = &'a T>, dtype: &DType) -> Option<MinMaxResult>
 where
-    T: Into<ScalarValue> + NativePType,
+    T: NativePType,
+    PValue: From<T>,
 {
     // `total_compare` function provides a total ordering (even for NaN values).
     // However, we exclude NaNs from min max as they're not useful for any purpose where min/max would be used
@@ -52,15 +55,15 @@ where
     {
         itertools::MinMaxResult::NoElements => None,
         itertools::MinMaxResult::OneElement(&x) => {
-            let scalar = Scalar::new(dtype.clone(), x.into());
+            let scalar = Scalar::primitive(x, NonNullable);
             Some(MinMaxResult {
                 min: scalar.clone(),
                 max: scalar,
             })
         }
         itertools::MinMaxResult::MinMax(&min, &max) => Some(MinMaxResult {
-            min: Scalar::new(dtype.clone(), min.into()),
-            max: Scalar::new(dtype.clone(), max.into()),
+            min: Scalar::primitive(min, NonNullable),
+            max: Scalar::primitive(max, NonNullable),
         }),
     }
 }

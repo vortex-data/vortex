@@ -136,13 +136,8 @@ fn min_max_impl(
         return Ok(None);
     }
 
-    if let Some(array) = array.as_opt::<ConstantVTable>()
-        && !array.scalar().is_null()
-    {
-        return Ok(Some(MinMaxResult {
-            min: array.scalar().clone(),
-            max: array.scalar().clone(),
-        }));
+    if let Some(array) = array.as_opt::<ConstantVTable>() {
+        return ConstantVTable.min_max(array);
     }
 
     let min = array
@@ -155,7 +150,11 @@ fn min_max_impl(
         .and_then(Precision::as_exact);
 
     if let Some((min, max)) = min.zip(max) {
-        return Ok(Some(MinMaxResult { min, max }));
+        let non_nullable_dtype = array.dtype().as_nonnullable();
+        return Ok(Some(MinMaxResult {
+            min: min.cast(&non_nullable_dtype)?,
+            max: max.cast(&non_nullable_dtype)?,
+        }));
     }
 
     let args = InvocationArgs {
@@ -202,10 +201,11 @@ impl<V: VTable + MinMaxKernel> Kernel for MinMaxKernelAdapter<V> {
         let Some(array) = inputs.array.as_opt::<V>() else {
             return Ok(None);
         };
+        let non_nullable_dtype = array.dtype().as_nonnullable();
         let dtype = DType::Struct(
             StructFields::new(
                 ["min", "max"].into(),
-                vec![array.dtype().clone(), array.dtype().clone()],
+                vec![non_nullable_dtype.clone(), non_nullable_dtype],
             ),
             Nullability::Nullable,
         );
