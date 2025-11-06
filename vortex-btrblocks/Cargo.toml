@@ -41,6 +41,7 @@ vortex-zigzag = { workspace = true }
 [dev-dependencies]
 divan = { workspace = true }
 env_logger = "0.11"
+rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["test-harness"] }
 
 [features]
