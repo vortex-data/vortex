@@ -36,12 +36,14 @@ use std::hash::Hash;
 use vortex_array::arrays::{
     ExtensionArray, FixedSizeListArray, ListArray, StructArray, TemporalArray, list_from_list_view,
 };
+use vortex_array::validity::Validity;
 use vortex_array::vtable::{VTable, ValidityHelper};
 use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexResult, VortexUnwrap};
 
+use crate::bool::BoolCompressor;
 use crate::decimal::compress_decimal;
 pub use crate::float::dictionary::dictionary_encode as float_dictionary_encode;
 pub use crate::float::{FloatCompressor, FloatStats};
@@ -50,6 +52,7 @@ pub use crate::integer::{IntCompressor, IntegerStats};
 pub use crate::string::{StringCompressor, StringStats};
 pub use crate::temporal::compress_temporal;
 
+mod bool;
 mod decimal;
 mod float;
 mod integer;
@@ -370,7 +373,9 @@ impl BtrBlocksCompressor {
         match array {
             Canonical::Null(null_array) => Ok(null_array.into_array()),
             // TODO(aduffy): Sparse, other bool compressors.
-            Canonical::Bool(bool_array) => Ok(bool_array.into_array()),
+            Canonical::Bool(bool_array) => {
+                BoolCompressor::compress(&bool_array, false, MAX_CASCADE, &[])
+            }
             Canonical::Primitive(primitive) => {
                 if primitive.ptype().is_int() {
                     if self.exclude_int_dict_encoding {
@@ -394,7 +399,7 @@ impl BtrBlocksCompressor {
                     struct_array.names().clone(),
                     fields,
                     struct_array.len(),
-                    struct_array.validity().clone(),
+                    Self::compress_validity(struct_array.validity().clone(), MAX_CASCADE)?,
                 )?
                 .into_array())
             }
@@ -424,7 +429,7 @@ impl BtrBlocksCompressor {
                 Ok(ListArray::try_new(
                     compressed_elems,
                     compressed_offsets,
-                    list_array.validity().clone(),
+                    Self::compress_validity(list_array.validity().clone(), MAX_CASCADE)?,
                 )?
                 .into_array())
             }
@@ -434,7 +439,7 @@ impl BtrBlocksCompressor {
                 Ok(FixedSizeListArray::try_new(
                     compressed_elems,
                     fsl_array.list_size(),
-                    fsl_array.validity().clone(),
+                    Self::compress_validity(fsl_array.validity().clone(), MAX_CASCADE)?,
                     fsl_array.len(),
                 )?
                 .into_array())
@@ -467,5 +472,13 @@ impl BtrBlocksCompressor {
                 )
             }
         }
+    }
+
+    /// Compress a validity buffer as a boolean array.
+    pub fn compress_validity(validity: Validity, allowed_cascade: usize) -> VortexResult<Validity> {
+        let Validity::Array(array) = validity else {
+            return Ok(validity);
+        };
+        BoolCompressor::compress(&array.to_bool(), false, allowed_cascade, &[]).map(Validity::Array)
     }
 }

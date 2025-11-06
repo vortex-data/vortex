@@ -13,10 +13,10 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
-use vortex_fastlanes::FoRArray;
 use vortex_fastlanes::bitpack_compress::{
     bit_width_histogram, bitpack_encode, find_best_bit_width,
 };
+use vortex_fastlanes::{BitPackedArray, FoRArray};
 use vortex_runend::RunEndArray;
 use vortex_runend::compress::runend_encode;
 use vortex_scalar::Scalar;
@@ -28,7 +28,7 @@ use crate::integer::dictionary::dictionary_encode;
 use crate::patches::compress_patches;
 use crate::rle::RLEScheme;
 use crate::{
-    Compressor, CompressorStats, GenerateStatsOptions, Scheme,
+    BtrBlocksCompressor, Compressor, CompressorStats, GenerateStatsOptions, Scheme,
     estimate_compression_ratio_with_sampling,
 };
 
@@ -418,7 +418,7 @@ impl Scheme for BitPackingScheme {
         &self,
         stats: &IntegerStats,
         _is_sample: bool,
-        _allowed_cascading: usize,
+        allowed_cascading: usize,
         _excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
         let histogram = bit_width_histogram(stats.source())?;
@@ -427,10 +427,26 @@ impl Scheme for BitPackingScheme {
         if bw as usize == stats.source().ptype().bit_width() {
             return Ok(stats.source().clone().into_array());
         }
-        let mut packed = bitpack_encode(stats.source(), bw, Some(&histogram))?;
-
+        let packed = bitpack_encode(stats.source(), bw, Some(&histogram))?;
+        let validity = if allowed_cascading > 0 {
+            BtrBlocksCompressor::compress_validity(
+                packed.validity().clone(),
+                allowed_cascading - 1,
+            )?
+        } else {
+            packed.validity().clone()
+        };
         let patches = packed.patches().map(compress_patches).transpose()?;
-        packed.replace_patches(patches);
+
+        let packed = BitPackedArray::try_new(
+            packed.packed().clone(),
+            packed.ptype(),
+            validity,
+            patches,
+            packed.bit_width(),
+            packed.len(),
+            packed.offset(),
+        )?;
 
         Ok(packed.into_array())
     }

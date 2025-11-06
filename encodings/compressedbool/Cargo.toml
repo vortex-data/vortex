@@ -1,0 +1,31 @@
+[package]
+name = "vortex-compressedbool"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+include.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+num-traits = { workspace = true }
+prost = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-dtype = { workspace = true }
+vortex-error = { workspace = true }
+vortex-mask = { workspace = true }
+vortex-scalar = { workspace = true }
+
+[dev-dependencies]
+itertools = { workspace = true }
+rstest = { workspace = true }
+vortex-array = { workspace = true, features = ["test-harness"] }

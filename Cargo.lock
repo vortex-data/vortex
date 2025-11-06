@@ -8602,6 +8602,7 @@ dependencies = [
  "vortex-alp",
  "vortex-array",
  "vortex-buffer",
+ "vortex-compressedbool",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-dict",
@@ -8642,6 +8643,22 @@ version = "0.1.0"
 dependencies = [
  "itertools 0.14.0",
  "num-traits",
+ "rstest",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-dtype",
+ "vortex-error",
+ "vortex-mask",
+ "vortex-scalar",
+]
+
+[[package]]
+name = "vortex-compressedbool"
+version = "0.1.0"
+dependencies = [
+ "itertools 0.14.0",
+ "num-traits",
+ "prost 0.14.1",
  "rstest",
  "vortex-array",
  "vortex-buffer",
@@ -8949,6 +8966,7 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-bytebool",
+ "vortex-compressedbool",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-dict",

@@ -109,6 +109,7 @@ pub use strategy::*;
 use vortex_alp::{ALPEncoding, ALPRDEncoding};
 use vortex_array::{ArraySessionExt, EncodingRef};
 use vortex_bytebool::ByteBoolEncoding;
+use vortex_compressedbool::CompressedBoolEncoding;
 use vortex_datetime_parts::DateTimePartsEncoding;
 use vortex_decimal_byte_parts::DecimalBytePartsEncoding;
 use vortex_dict::DictEncoding;
@@ -178,5 +179,6 @@ pub fn register_default_encodings(session: &VortexSession) {
         EncodingRef::new_ref(ZigZagEncoding.as_ref()),
         #[cfg(feature = "zstd")]
         EncodingRef::new_ref(vortex_zstd::ZstdEncoding.as_ref()),
+        EncodingRef::new_ref(CompressedBoolEncoding.as_ref()),
     ]);
 }
