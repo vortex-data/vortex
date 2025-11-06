@@ -14,12 +14,15 @@ use crate::clickbench::Flavor;
 use crate::realnest::gharchive;
 use crate::{Format, clickbench, fineweb, statpopgen};
 
+pub mod configs;
 pub mod data_downloads;
 pub mod file;
+pub mod metadata;
 pub mod registration;
 pub mod struct_list_of_ints;
 pub mod taxi_data;
 pub mod tpch_l_comment;
+pub mod unified_registration;
 
 #[async_trait]
 pub trait Dataset {
