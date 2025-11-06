@@ -12,7 +12,7 @@ use datafusion::prelude::SessionContext;
 use glob::Pattern;
 use url::Url;
 
-use crate::{BenchmarkDataset, datasets};
+use crate::{Format};
 
 pub mod dbgen;
 pub mod schema;
@@ -71,9 +71,11 @@ pub async fn register_parquet(
     file: &Url,
     glob: Option<Pattern>,
     schema: Option<Schema>,
-    dataset: &BenchmarkDataset,
 ) -> anyhow::Result<()> {
-    datasets::file::register_parquet_files(session, name, file, glob, schema, dataset).await
+    use crate::datasets::registration::{create_file_format, register_listing_table};
+
+    let file_format = create_file_format(Format::Parquet)?;
+    register_listing_table(session, name, file, glob, schema, file_format).await
 }
 
 pub async fn register_vortex_file(
@@ -82,9 +84,12 @@ pub async fn register_vortex_file(
     file: &Url,
     glob: Option<Pattern>,
     schema: Option<Schema>,
-    dataset: &BenchmarkDataset,
+    format: Format,
 ) -> anyhow::Result<()> {
-    datasets::file::register_vortex_files(session, table_name, file, glob, schema, dataset).await
+    use crate::datasets::registration::{create_file_format, register_listing_table};
+
+    let file_format = create_file_format(format)?;
+    register_listing_table(session, table_name, file, glob, schema, file_format).await
 }
 
 pub async fn register_vortex_compact_file(
@@ -93,10 +98,11 @@ pub async fn register_vortex_compact_file(
     file: &Url,
     glob: Option<Pattern>,
     schema: Option<Schema>,
-    dataset: &BenchmarkDataset,
 ) -> anyhow::Result<()> {
-    datasets::file::register_vortex_compact_files(session, table_name, file, glob, schema, dataset)
-        .await
+    use crate::datasets::registration::{create_file_format, register_listing_table};
+
+    let file_format = create_file_format(Format::VortexCompact)?;
+    register_listing_table(session, table_name, file, glob, schema, file_format).await
 }
 
 pub fn tpch_queries() -> impl Iterator<Item = (usize, String)> {

@@ -177,19 +177,22 @@ impl TpcDsBenchmark {
             match format {
                 Format::Arrow => register_arrow(session, name, &path, None).await?,
                 Format::Parquet => {
-                    register_parquet(session, name, &path, None, schema, &dataset).await?
+                    register_parquet(session, name, &path, None, schema).await?
                 }
                 Format::OnDiskVortex => {
-                    register_vortex_file(session, name, &path, None, schema, &dataset).await?
+                    register_vortex_file(session, name, &path, None, schema, format).await?
                 }
                 Format::VortexCompact => {
-                    register_vortex_compact_file(session, name, &path, None, schema, &dataset)
-                        .await?
+                    register_vortex_compact_file(session, name, &path, None, schema).await?
                 }
                 Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
                 Format::Csv => todo!(),
                 #[cfg(feature = "lance")]
-                Format::Lance => unimplemented!(),
+                Format::Lance => {
+                    use crate::datasets::registration;
+                    let lance_path = format_dir.join(&format!("{name}.lance/"))?;
+                    registration::register_lance_table(session, name, &lance_path).await?
+                }
             }
         }
 

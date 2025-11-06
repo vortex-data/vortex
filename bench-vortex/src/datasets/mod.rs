@@ -11,13 +11,12 @@ use url::Url;
 use vortex::ArrayRef;
 
 use crate::clickbench::Flavor;
-#[cfg(feature = "lance")]
-use crate::file::register_lance_files;
 use crate::realnest::gharchive;
 use crate::{Format, clickbench, fineweb, statpopgen};
 
 pub mod data_downloads;
 pub mod file;
+pub mod registration;
 pub mod struct_list_of_ints;
 pub mod taxi_data;
 pub mod tpch_l_comment;
@@ -128,32 +127,40 @@ impl BenchmarkDataset {
         base_url: &Url,
         format: Format,
     ) -> Result<()> {
+        use self::registration::{create_file_format, register_listing_table};
+
         match (self, format) {
             (BenchmarkDataset::TpcH { .. }, _) | (BenchmarkDataset::TpcDS { .. }, _) => {
-                // TPC-H tables are handled separately
+                // TPC-H and TPC-DS tables are handled separately by their benchmark implementations
             }
             (BenchmarkDataset::ClickBench { .. }, Format::Parquet) => {
-                clickbench::register_parquet_files(
+                let file_format = create_file_format(Format::Parquet)?;
+                register_listing_table(
                     session,
                     "hits",
                     base_url,
-                    &clickbench::HITS_SCHEMA,
                     Some(glob::Pattern::new("*.parquet")?),
-                )?;
+                    Some(clickbench::HITS_SCHEMA.clone()),
+                    file_format,
+                )
+                .await?;
             }
             (BenchmarkDataset::ClickBench { .. }, Format::OnDiskVortex | Format::VortexCompact) => {
-                clickbench::register_vortex_files(
-                    session.clone(),
+                let file_format = create_file_format(format)?;
+                register_listing_table(
+                    session,
                     "hits",
                     base_url,
-                    Some(clickbench::HITS_SCHEMA.clone()),
                     Some(glob::Pattern::new("*.vortex")?),
+                    Some(clickbench::HITS_SCHEMA.clone()),
+                    file_format,
                 )
                 .await?;
             }
             #[cfg(feature = "lance")]
-            (cb @ BenchmarkDataset::ClickBench { .. }, Format::Lance) => {
-                register_lance_files(session, "hits", base_url, cb).await?;
+            (BenchmarkDataset::ClickBench { .. }, Format::Lance) => {
+                let lance_path = base_url.join(&format!("{}/hits.lance/", Format::Lance.name()))?;
+                registration::register_lance_table(session, "hits", &lance_path).await?;
             }
             (BenchmarkDataset::ClickBench { .. }, _) => {
                 anyhow::bail!("Unsupported format for ClickBench: {}", format);
@@ -161,11 +168,8 @@ impl BenchmarkDataset {
             (BenchmarkDataset::PublicBi { .. }, _) => {
                 anyhow::bail!("public bi unsupported for now")
             }
-            (BenchmarkDataset::StatPopGen { .. }, Format::Parquet) => {
-                statpopgen::register_table(session, base_url, Format::Parquet).await?
-            }
-            (BenchmarkDataset::StatPopGen { .. }, Format::OnDiskVortex) => {
-                statpopgen::register_table(session, base_url, Format::OnDiskVortex).await?
+            (BenchmarkDataset::StatPopGen { .. }, Format::Parquet | Format::OnDiskVortex) => {
+                statpopgen::register_table(session, base_url, format).await?
             }
             (BenchmarkDataset::StatPopGen { .. }, format) => {
                 anyhow::bail!("StatPopGen in {format} unsupported in DataFusion")

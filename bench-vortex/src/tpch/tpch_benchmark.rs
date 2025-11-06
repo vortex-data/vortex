@@ -15,7 +15,7 @@ use similar::{ChangeTag, TextDiff};
 use tokio::runtime::Runtime;
 use url::Url;
 #[cfg(feature = "lance")]
-use {crate::file::register_lance_files, crate::utils};
+use crate::utils;
 
 use crate::benchmark_trait::Benchmark;
 use crate::engines::{EngineCtx, ddb};
@@ -224,28 +224,21 @@ impl TpcHBenchmark {
             match format {
                 Format::Arrow => register_arrow(session, name, &path, glob).await?,
                 Format::Parquet => {
-                    register_parquet(session, name, &path, glob, schema, &self.dataset()).await?
+                    register_parquet(session, name, &path, glob, schema).await?
                 }
                 Format::OnDiskVortex => {
-                    register_vortex_file(session, name, &path, glob, schema, &self.dataset())
-                        .await?
+                    register_vortex_file(session, name, &path, glob, schema, format).await?
                 }
                 Format::VortexCompact => {
-                    register_vortex_compact_file(
-                        session,
-                        name,
-                        &path,
-                        glob,
-                        schema,
-                        &self.dataset(),
-                    )
-                    .await?
+                    register_vortex_compact_file(session, name, &path, glob, schema).await?
                 }
                 Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
                 Format::Csv => todo!("csv unsupported for tpch benchmark"),
                 #[cfg(feature = "lance")]
                 Format::Lance => {
-                    register_lance_files(session, name, &path, &self.dataset()).await?
+                    use crate::datasets::registration;
+                    let lance_path = path.join(&format!("{name}.lance/"))?;
+                    registration::register_lance_table(session, name, &lance_path).await?
                 }
             }
         }
