@@ -81,11 +81,11 @@ mod tests {
             .execute()
             .unwrap()
             .into_string();
-        assert_eq!(strings_vec.get(0), Some("inlined"));
-        assert_eq!(strings_vec.get(1), None);
-        assert_eq!(strings_vec.get(2), Some("large string 1"));
-        assert_eq!(strings_vec.get(3), Some("large string 2"));
-        assert_eq!(strings_vec.get(4), Some("large string 3"));
+        assert_eq!(strings_vec.get_ref(0), Some("inlined"));
+        assert_eq!(strings_vec.get_ref(1), None);
+        assert_eq!(strings_vec.get_ref(2), Some("large string 1"));
+        assert_eq!(strings_vec.get_ref(3), Some("large string 2"));
+        assert_eq!(strings_vec.get_ref(4), Some("large string 3"));
     }
 
     #[rstest]
@@ -98,8 +98,8 @@ mod tests {
             .unwrap()
             .into_string();
 
-        assert_eq!(strings_vec.get(0), None);
-        assert_eq!(strings_vec.get(1), Some("large string 2"));
-        assert_eq!(strings_vec.get(2), Some("large string 3"));
+        assert_eq!(strings_vec.get_ref(0), None);
+        assert_eq!(strings_vec.get_ref(1), Some("large string 2"));
+        assert_eq!(strings_vec.get_ref(2), Some("large string 3"));
     }
 }
