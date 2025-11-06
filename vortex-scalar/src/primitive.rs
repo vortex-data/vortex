@@ -133,6 +133,11 @@ impl<'a> PrimitiveScalar<'a> {
         }))
     }
 
+    /// Returns true if the scalar is nan.
+    pub fn is_nan(&self) -> bool {
+        self.pvalue.as_ref().is_some_and(|p| p.is_nan())
+    }
+
     /// Attempts to extract the primitive value as the given type.
     ///
     /// # Errors

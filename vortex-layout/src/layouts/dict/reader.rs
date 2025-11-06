@@ -12,7 +12,7 @@ use vortex_array::{ArrayRef, MaskFuture};
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexError, VortexExpect, VortexResult};
-use vortex_expr::{Expression, Scope, root};
+use vortex_expr::{Expression, root};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
@@ -87,7 +87,7 @@ impl DictReader {
             .entry(expr.clone())
             .or_insert_with(|| {
                 self.values_array()
-                    .map(move |array| expr.evaluate(&Scope::new(array?)).map_err(Arc::new))
+                    .map(move |array| expr.evaluate(&array?).map_err(Arc::new))
                     .boxed()
                     .shared()
             })
@@ -192,7 +192,7 @@ impl LayoutReader for DictReader {
 
             // Validate that codes are valid for the values
             let array = DictArray::try_new(codes, values)?.to_array();
-            expr.evaluate(&Scope::new(array))
+            expr.evaluate(&array)
         }
         .boxed())
     }

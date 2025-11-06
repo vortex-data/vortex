@@ -31,6 +31,18 @@ pub enum DecimalVectorMut {
 }
 
 impl DecimalVectorMut {
+    /// Returns the [`DecimalType`] of the decimal vector.
+    pub fn decimal_type(&self) -> DecimalType {
+        match self {
+            Self::D8(_) => DecimalType::I8,
+            Self::D16(_) => DecimalType::I16,
+            Self::D32(_) => DecimalType::I32,
+            Self::D64(_) => DecimalType::I64,
+            Self::D128(_) => DecimalType::I128,
+            Self::D256(_) => DecimalType::I256,
+        }
+    }
+
     /// Create a new mutable decimal vector with the given primitive type and capacity.
     pub fn with_capacity(decimal_dtype: &DecimalDType, capacity: usize) -> Self {
         let decimal_type = DecimalType::smallest_decimal_value_type(decimal_dtype);

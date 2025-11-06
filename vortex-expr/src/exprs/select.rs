@@ -266,7 +266,7 @@ mod tests {
     use super::{select, select_exclude};
     use crate::exprs::root::root;
     use crate::exprs::select::Select;
-    use crate::{Scope, test_harness};
+    use crate::test_harness;
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
@@ -280,10 +280,7 @@ mod tests {
     pub fn include_columns() {
         let st = test_array();
         let select = select(vec![FieldName::from("a")], root());
-        let selected = select
-            .evaluate(&Scope::new(st.to_array()))
-            .unwrap()
-            .to_struct();
+        let selected = select.evaluate(&st.to_array()).unwrap().to_struct();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["a"]);
     }
@@ -292,10 +289,7 @@ mod tests {
     pub fn exclude_columns() {
         let st = test_array();
         let select = select_exclude(vec![FieldName::from("a")], root());
-        let selected = select
-            .evaluate(&Scope::new(st.to_array()))
-            .unwrap()
-            .to_struct();
+        let selected = select.evaluate(&st.to_array()).unwrap().to_struct();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["b"]);
     }

@@ -31,8 +31,6 @@ mod field;
 pub mod forms;
 pub mod proto;
 pub mod pruning;
-mod scope;
-mod scope_vars;
 pub mod session;
 pub mod transform;
 pub mod traversal;
@@ -42,8 +40,6 @@ mod vtable;
 pub use analysis::*;
 pub use expression::*;
 pub use exprs::*;
-pub use scope::*;
-pub use scope_vars::*;
 pub use view::*;
 pub use vtable::*;
 

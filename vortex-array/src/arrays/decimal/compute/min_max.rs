@@ -2,10 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_dtype::{DType, NativeDecimalType, match_each_decimal_value_type};
+use vortex_dtype::Nullability::NonNullable;
+use vortex_dtype::{DecimalDType, NativeDecimalType, match_each_decimal_value_type};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::{DecimalValue, Scalar, ScalarValue};
+use vortex_scalar::{DecimalValue, Scalar};
 
 use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
@@ -27,7 +28,7 @@ where
     D: Into<DecimalValue> + NativeDecimalType,
 {
     Ok(match array.validity_mask() {
-        Mask::AllTrue(_) => compute_min_max(array.buffer::<D>().iter(), array.dtype()),
+        Mask::AllTrue(_) => compute_min_max(array.buffer::<D>().iter(), array.decimal_dtype()),
         Mask::AllFalse(_) => None,
         Mask::Values(v) => compute_min_max(
             array
@@ -35,27 +36,30 @@ where
                 .iter()
                 .zip(v.bit_buffer().iter())
                 .filter_map(|(v, m)| m.then_some(v)),
-            array.dtype(),
+            array.decimal_dtype(),
         ),
     })
 }
 
-fn compute_min_max<'a, T>(iter: impl Iterator<Item = &'a T>, dtype: &DType) -> Option<MinMaxResult>
+fn compute_min_max<'a, T>(
+    iter: impl Iterator<Item = &'a T>,
+    decimal_dtype: DecimalDType,
+) -> Option<MinMaxResult>
 where
     T: Into<DecimalValue> + NativeDecimalType + Ord + Copy + 'a,
 {
     match iter.minmax_by(|a, b| a.cmp(b)) {
         itertools::MinMaxResult::NoElements => None,
         itertools::MinMaxResult::OneElement(&x) => {
-            let scalar = Scalar::new(dtype.clone(), ScalarValue::from(x.into()));
+            let scalar = Scalar::decimal(x.into(), decimal_dtype, NonNullable);
             Some(MinMaxResult {
                 min: scalar.clone(),
                 max: scalar,
             })
         }
         itertools::MinMaxResult::MinMax(&min, &max) => Some(MinMaxResult {
-            min: Scalar::new(dtype.clone(), ScalarValue::from(min.into())),
-            max: Scalar::new(dtype.clone(), ScalarValue::from(max.into())),
+            min: Scalar::decimal(min.into(), decimal_dtype, NonNullable),
+            max: Scalar::decimal(max.into(), decimal_dtype, NonNullable),
         }),
     }
 }
@@ -80,13 +84,14 @@ mod tests {
 
         let min_max = min_max(decimal.as_ref()).unwrap();
 
+        let non_nullable_dtype = decimal.dtype().as_nonnullable();
         let expected = MinMaxResult {
             min: Scalar::new(
-                decimal.dtype().clone(),
+                non_nullable_dtype.clone(),
                 ScalarValue::from(DecimalValue::from(100i32)),
             ),
             max: Scalar::new(
-                decimal.dtype().clone(),
+                non_nullable_dtype,
                 ScalarValue::from(DecimalValue::from(200i32)),
             ),
         };
