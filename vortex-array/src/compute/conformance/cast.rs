@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexExpect as _, VortexUnwrap};
+use vortex_error::{VortexExpect as _, VortexUnwrap, vortex_panic};
 use vortex_scalar::Scalar;
 
 use crate::Array;
@@ -120,10 +120,12 @@ fn test_cast_to_non_nullable(array: &dyn Array) {
         }
         cast(array, &array.dtype().as_nonnullable())
             .err()
-            .vortex_expect(&format!(
-                "arrays with nulls should error when casting to non-nullable {}",
-                array,
-            ));
+            .unwrap_or_else(|| {
+                vortex_panic!(
+                    "arrays with nulls should error when casting to non-nullable {}",
+                    array,
+                )
+            });
     }
 }
 
@@ -190,14 +192,16 @@ fn test_cast_to_primitive(array: &dyn Array, target_ptype: PType, test_round_tri
             &DType::Primitive(target_ptype, array.dtype().nullability()),
         )
         .err()
-        .vortex_expect(&format!(
-            "Cast must fail because some values are out of bounds. {} {:?} {:?} {} {}",
-            target_ptype,
-            min,
-            max,
-            array,
-            array.display_values(),
-        ));
+        .unwrap_or_else(|| {
+            vortex_panic!(
+                "Cast must fail because some values are out of bounds. {} {:?} {:?} {} {}",
+                target_ptype,
+                min,
+                max,
+                array,
+                array.display_values(),
+            )
+        });
         return;
     }
 
@@ -206,11 +210,13 @@ fn test_cast_to_primitive(array: &dyn Array, target_ptype: PType, test_round_tri
         array,
         &DType::Primitive(target_ptype, array.dtype().nullability()),
     )
-    .vortex_expect(&format!(
-        "Cast must succeed because all values are within bounds. {} {}",
-        target_ptype,
-        array.display_values(),
-    ));
+    .unwrap_or_else(|e| {
+        vortex_panic!(
+            "Cast must succeed because all values are within bounds. {} {}: {e}",
+            target_ptype,
+            array.display_values(),
+        )
+    });
     assert_eq!(array.validity_mask(), casted.validity_mask());
     for i in 0..array.len().min(10) {
         let original = array.scalar_at(i);

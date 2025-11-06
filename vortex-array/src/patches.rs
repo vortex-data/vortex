@@ -85,7 +85,11 @@ impl PatchesMetadata {
     #[inline]
     pub fn chunk_offsets_dtype(&self) -> Option<DType> {
         self.chunk_offsets_ptype
-            .map(|t| PType::try_from(t).vortex_expect(&format!("invalid i32 value {t} for PType")))
+            .map(|t| {
+                PType::try_from(t)
+                    .map_err(|e| vortex_err!("invalid i32 value {t} for PType: {}", e))
+                    .vortex_expect("invalid i32 value for PType")
+            })
             .map(|ptype| DType::Primitive(ptype, NonNullable))
     }
 

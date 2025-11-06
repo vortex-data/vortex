@@ -77,10 +77,9 @@ impl SessionExt for VortexSession {
         Ref(self
             .0
             .get(&TypeId::of::<V>())
-            .vortex_expect(&format!(
-                "Session has not been initialized with {}",
-                type_name::<V>()
-            ))
+            .unwrap_or_else(|| {
+                vortex_panic!("Session has not been initialized with {}", type_name::<V>())
+            })
             .map(|v| {
                 (**v)
                     .as_any()
@@ -96,10 +95,9 @@ impl SessionExt for VortexSession {
         RefMut(
             self.0
                 .get_mut(&TypeId::of::<V>())
-                .vortex_expect(&format!(
-                    "Session has not been initialized with {}",
-                    type_name::<V>()
-                ))
+                .unwrap_or_else(|| {
+                    vortex_panic!("Session has not been initialized with {}", type_name::<V>())
+                })
                 .map(|v| {
                     (**v)
                         .as_any_mut()

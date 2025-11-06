@@ -8,7 +8,7 @@ use std::ptr;
 
 use cpp::duckdb_vx_table_filter;
 use num_traits::AsPrimitive;
-use vortex::error::VortexExpect;
+use vortex::error::vortex_panic;
 
 use crate::cpp::idx_t;
 use crate::duckdb::{Expression, Value, ValueRef};
@@ -47,7 +47,7 @@ impl<'a> IntoIterator for &'a TableFilterSet {
     fn into_iter(self) -> Self::IntoIter {
         Box::new((0..self.len()).map(move |i| {
             self.get(i)
-                .vortex_expect(format!("inside filter set bounds {i}").as_str())
+                .unwrap_or_else(|| vortex_panic!("inside filter set bounds {i}"))
         }))
     }
 }
