@@ -8781,6 +8781,7 @@ dependencies = [
  "vortex-mask",
  "vortex-scalar",
  "vortex-utils",
+ "vortex-vector",
 ]
 
 [[package]]
@@ -8842,6 +8843,7 @@ dependencies = [
  "url",
  "vortex",
  "vortex-utils",
+ "vortex-vector",
  "walkdir",
  "zip",
 ]
@@ -9011,6 +9013,7 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-scalar",
+ "vortex-vector",
 ]
 
 [[package]]
@@ -9365,6 +9368,7 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-scalar",
+ "vortex-vector",
 ]
 
 [[package]]
@@ -9438,6 +9442,7 @@ dependencies = [
  "vortex-mask",
  "vortex-scalar",
  "vortex-sparse",
+ "vortex-vector",
  "zstd",
 ]
 

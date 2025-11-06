@@ -8,8 +8,8 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{
     VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_err, vortex_panic,
 };
+use vortex_vector::binaryview::BinaryView;
 
-use crate::arrays::binary_view::BinaryView;
 use crate::builders::{ArrayBuilder, VarBinViewBuilder};
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
@@ -210,7 +210,7 @@ impl VarBinViewArray {
 
             if view.is_inlined() {
                 // Validate the inline bytestring
-                let bytes = &unsafe { view.inlined }.data[..view.len() as usize];
+                let bytes = &view.as_inlined().data[..view.len() as usize];
                 vortex_ensure!(
                     validator(bytes),
                     "view at index {idx}: inlined bytes failed utf-8 validation"
@@ -281,7 +281,7 @@ impl VarBinViewArray {
         // Expect this to be the common case: strings > 12 bytes.
         if !view.is_inlined() {
             let view_ref = view.as_view();
-            self.buffer(view_ref.buffer_index() as usize)
+            self.buffer(view_ref.buffer_index as usize)
                 .slice(view_ref.as_range())
         } else {
             // Return access to the range of bytes around it.

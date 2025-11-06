@@ -8,6 +8,7 @@ use crate::{EncodingId, EncodingRef, vtable};
 mod array;
 mod canonical;
 mod operations;
+mod operator;
 mod serde;
 mod validity;
 mod visitor;
@@ -24,7 +25,7 @@ impl VTable for VarBinVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type OperatorVTable = NotSupported;
+    type OperatorVTable = Self;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {

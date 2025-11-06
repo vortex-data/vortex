@@ -6,7 +6,6 @@ use std::mem;
 use std::sync::Arc;
 
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::binary_view::BinaryView;
 use vortex_array::arrays::{PrimitiveArray, VarBinVTable, VarBinViewArray, VarBinViewVTable};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray};
@@ -14,6 +13,7 @@ use vortex_buffer::{BitBufferMut, BufferMut, ByteBufferMut};
 use vortex_dtype::{DType, UnsignedPType};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_panic};
 use vortex_utils::aliases::hash_map::{DefaultHashBuilder, HashTable, HashTableEntry, RandomState};
+use vortex_vector::binaryview::BinaryView;
 
 use super::DictConstraints;
 use crate::builders::DictEncoder;

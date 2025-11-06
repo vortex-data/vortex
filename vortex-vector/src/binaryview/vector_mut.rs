@@ -234,7 +234,7 @@ impl<T: BinaryViewType> VectorMutOps for BinaryViewVectorMut<T> {
         unsafe {
             BinaryViewVector::new_unchecked(
                 self.views.freeze(),
-                Arc::new(self.buffers.into()),
+                Arc::new(self.buffers.into_boxed_slice()),
                 self.validity.freeze(),
             )
         }

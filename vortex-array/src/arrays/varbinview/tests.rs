@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_scalar::Scalar;
+use vortex_vector::binaryview::BinaryView;
 
 use crate::arrays::VarBinViewArray;
-use crate::arrays::binary_view::BinaryView;
 use crate::{Array, ToCanonical};
 
 #[test]
