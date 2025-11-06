@@ -15,7 +15,7 @@ mod tests;
 
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
-use std::ops::RangeBounds;
+use std::ops::{Bound, RangeBounds};
 use std::sync::{Arc, OnceLock};
 
 use itertools::Itertools;
@@ -394,14 +394,14 @@ impl Mask {
     /// Slice the mask.
     pub fn slice(&self, range: impl RangeBounds<usize>) -> Self {
         let start = match range.start_bound() {
-            std::ops::Bound::Included(&s) => s,
-            std::ops::Bound::Excluded(&s) => s + 1,
-            std::ops::Bound::Unbounded => 0,
+            Bound::Included(&s) => s,
+            Bound::Excluded(&s) => s + 1,
+            Bound::Unbounded => 0,
         };
         let end = match range.end_bound() {
-            std::ops::Bound::Included(&e) => e + 1,
-            std::ops::Bound::Excluded(&e) => e,
-            std::ops::Bound::Unbounded => self.len(),
+            Bound::Included(&e) => e + 1,
+            Bound::Excluded(&e) => e,
+            Bound::Unbounded => self.len(),
         };
 
         assert!(start <= end);

@@ -159,7 +159,7 @@ impl<D: NativeDecimalType> VectorOps for DVector<D> {
     }
 
     fn scalar_at(&self, index: usize) -> Scalar {
-        debug_assert!(index < self.len());
+        assert!(index < self.len());
 
         let is_valid = self.validity.value(index);
         let value = is_valid.then(|| self.elements[index]);
