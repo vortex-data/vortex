@@ -30,6 +30,7 @@ pub mod display;
 pub mod downloadable_dataset;
 pub mod engines;
 pub mod fineweb;
+pub mod helpers;
 pub mod measurements;
 pub mod memory;
 pub mod metrics;
