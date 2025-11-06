@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use num_traits::AsPrimitive;
 use vortex_dtype::{DType, NativePType, match_each_integer_ptype, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_err};
 
 use crate::arrays::{ListVTable, PrimitiveVTable};
 use crate::compute::{min_max, sub_scalar};
@@ -191,13 +191,13 @@ impl ListArray {
 
                 vortex_ensure!(
                     max_offset
-                        <= P::try_from(elements.len()).vortex_expect(&format!(
-                            "Offsets type {} must be able to fit elements length {}",
-                            <P as NativePType>::PTYPE,
-                            elements.len()
-                        )),
-                    "Max offset {max_offset} is beyond the length of the elements array {}",
-                    elements.len()
+                        <= P::try_from(elements.len())
+                            .map_err(|e| vortex_err!(
+                                "Offsets type {} must be able to fit elements length {}",
+                                <P as NativePType>::PTYPE,
+                                elements.len()
+                            ))
+                            .vortex_expect("Offsets type must fit elements length")
                 );
             })
         } else {
