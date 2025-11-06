@@ -27,18 +27,15 @@ impl ClickBenchBenchmark {
     pub fn new(
         flavor: Flavor,
         queries_file: Option<String>,
-        use_remote_data_dir: Option<String>,
+        remote_data_dir: Option<String>,
     ) -> Result<Self> {
-        let url = Self::create_data_url(&use_remote_data_dir, flavor)?;
+        let data_url =
+            benchmark_data_url("clickbench", Some(&flavor.to_string()), &remote_data_dir)?;
         Ok(Self {
             flavor,
             queries_file,
-            data_url: url,
+            data_url,
         })
-    }
-
-    fn create_data_url(remote_data_dir: &Option<String>, flavor: Flavor) -> Result<Url> {
-        benchmark_data_url("clickbench", Some(&flavor.to_string()), remote_data_dir)
     }
 }
 

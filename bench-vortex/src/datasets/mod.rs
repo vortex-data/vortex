@@ -111,7 +111,9 @@ impl BenchmarkDataset {
                 "customer", "lineitem", "nation", "orders", "part", "partsupp", "region",
                 "supplier",
             ],
-            BenchmarkDataset::ClickBench { .. } | BenchmarkDataset::PublicBi { .. } => todo!(),
+            BenchmarkDataset::ClickBench { .. } | BenchmarkDataset::PublicBi { .. } => {
+                unimplemented!()
+            }
             BenchmarkDataset::StatPopGen { .. } => &["statpopgen"],
             BenchmarkDataset::Fineweb => &["fineweb"],
             BenchmarkDataset::GhArchive => &["events"],

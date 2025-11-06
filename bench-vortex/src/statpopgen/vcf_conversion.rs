@@ -24,12 +24,12 @@ pub fn builder_from_info(info: &Map<Info>) -> InfoArrayBuilder {
         (Number::Count(1), Type::Integer) => InfoArrayBuilder::Integer(Default::default()),
         (Number::Count(1), Type::Float) => InfoArrayBuilder::Float(Default::default()),
         (Number::Count(0), Type::Flag) => InfoArrayBuilder::Flag(Default::default()),
-        (Number::Count(1), Type::Character) => todo!(),
+        (Number::Count(1), Type::Character) => unimplemented!(),
         (Number::Count(1), Type::String) => InfoArrayBuilder::String(Default::default()),
         (_, Type::Integer) => InfoArrayBuilder::ListInteger(Default::default()),
         (_, Type::Float) => InfoArrayBuilder::ListFloat(Default::default()),
-        (_, Type::Flag) => todo!(),
-        (_, Type::Character) => todo!(),
+        (_, Type::Flag) => unimplemented!(),
+        (_, Type::Character) => unimplemented!(),
         (_, Type::String) => InfoArrayBuilder::ListString(Default::default()),
     }
 }
@@ -43,12 +43,12 @@ pub fn data_type_from_info(info: &Map<Info>) -> DataType {
         (Number::Count(1), Type::Integer) => Int32,
         (Number::Count(1), Type::Float) => Float32,
         (Number::Count(0), Type::Flag) => Boolean,
-        (Number::Count(1), Type::Character) => todo!(),
+        (Number::Count(1), Type::Character) => unimplemented!(),
         (Number::Count(1), Type::String) => Utf8,
         (_, Type::Integer) => list(Int32),
         (_, Type::Float) => list(Float32),
-        (_, Type::Flag) => todo!(),
-        (_, Type::Character) => todo!(),
+        (_, Type::Flag) => unimplemented!(),
+        (_, Type::Character) => unimplemented!(),
         (_, Type::String) => list(Utf8),
     }
 }

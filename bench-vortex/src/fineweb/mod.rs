@@ -2,20 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::path::PathBuf;
-use std::sync::Arc;
 
-use datafusion::datasource::file_format::parquet::ParquetFormat;
-use datafusion::datasource::listing::{
-    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
-};
-use datafusion::prelude::SessionContext;
 use futures::StreamExt;
 use log::info;
 use parquet::arrow::async_writer::AsyncFileWriter;
 use url::Url;
 use vortex::compressor::CompactCompressor;
 use vortex::file::{WriteOptionsSessionExt, WriteStrategyBuilder};
-use vortex_datafusion::VortexFormat;
 
 use crate::benchmark_trait::Benchmark;
 use crate::conversions::parquet_to_vortex;
@@ -182,9 +175,14 @@ impl Benchmark for Fineweb {
     }
 
     async fn register_tables(&self, engine_ctx: &EngineCtx, format: Format) -> anyhow::Result<()> {
+        use crate::datasets::configs::FineWebDataset;
+        use crate::datasets::unified_registration::register_dataset_tables;
+
+        let dataset = FineWebDataset;
+
         match engine_ctx {
             EngineCtx::DataFusion(ctx) => {
-                register_table(&ctx.session, &self.data_url, format).await
+                register_dataset_tables(&ctx.session, &dataset, &self.data_url, format).await
             }
             EngineCtx::DuckDB(ctx) => ctx.register_tables(&self.data_url, format, &self.dataset()),
         }
@@ -205,30 +203,4 @@ impl Benchmark for Fineweb {
     fn data_url(&self) -> &Url {
         &self.data_url
     }
-}
-
-pub async fn register_table(
-    session: &SessionContext,
-    base_url: &Url,
-    format: Format,
-) -> anyhow::Result<()> {
-    let table_path = base_url.join(&format!("{}/", format))?;
-    info!("registering table for FINEWEB: {table_path}");
-    let table_url = ListingTableUrl::try_new(table_path, None)?;
-    let config = ListingTableConfig::new(table_url)
-        .with_listing_options(
-            ListingOptions::new(match format {
-                Format::Parquet => Arc::from(ParquetFormat::new()),
-                Format::OnDiskVortex | Format::VortexCompact => {
-                    Arc::from(VortexFormat::new(SESSION.clone()))
-                }
-                _ => anyhow::bail!("unsupported format for `fineweb` bench: {}", format),
-            })
-            .with_session_config_options(session.state().config()),
-        )
-        .infer_schema(&session.state())
-        .await?;
-    let listing_table = Arc::new(ListingTable::try_new(config)?);
-    session.register_table("fineweb", listing_table)?;
-    Ok(())
 }

@@ -7,20 +7,13 @@
 
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::Arc;
 
-use datafusion::datasource::file_format::parquet::ParquetFormat;
-use datafusion::datasource::listing::{
-    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
-};
-use datafusion::prelude::SessionContext;
 use futures::StreamExt;
 use log::info;
 use parquet::arrow::async_writer::AsyncFileWriter;
 use url::Url;
 use vortex::compressor::CompactCompressor;
 use vortex::file::{WriteOptionsSessionExt, WriteStrategyBuilder};
-use vortex_datafusion::VortexFormat;
 
 use crate::benchmark_trait::Benchmark;
 use crate::conversions::parquet_to_vortex;
@@ -205,9 +198,14 @@ impl Benchmark for GithubArchive {
     }
 
     async fn register_tables(&self, engine_ctx: &EngineCtx, format: Format) -> anyhow::Result<()> {
+        use crate::datasets::configs::GhArchiveDataset;
+        use crate::datasets::unified_registration::register_dataset_tables;
+
+        let dataset = GhArchiveDataset;
+
         match engine_ctx {
             EngineCtx::DataFusion(ctx) => {
-                register_table(&ctx.session, &self.data_url, format).await
+                register_dataset_tables(&ctx.session, &dataset, &self.data_url, format).await
             }
             EngineCtx::DuckDB(ctx) => ctx.register_tables(&self.data_url, format, &self.dataset()),
         }
@@ -232,31 +230,4 @@ impl Benchmark for GithubArchive {
     fn expected_row_counts(&self) -> Option<&[usize]> {
         Some(&[1, 2, 100, 10, 82468])
     }
-}
-
-pub async fn register_table(
-    session: &SessionContext,
-    base_url: &Url,
-    format: Format,
-) -> anyhow::Result<()> {
-    let table_path = base_url.join(&format!("{}/", format))?;
-    info!("registering table for GHARCHIVE: {table_path}");
-    let table_url = ListingTableUrl::try_new(table_path, None)?;
-    let config = ListingTableConfig::new(table_url)
-        .with_listing_options(
-            ListingOptions::new(match format {
-                Format::Parquet => Arc::from(ParquetFormat::new()),
-                Format::OnDiskVortex | Format::VortexCompact => {
-                    Arc::from(VortexFormat::new(SESSION.clone()))
-                }
-                _ => anyhow::bail!("unsupported format for `gharchive` bench: {}", format),
-            })
-            .with_session_config_options(session.state().config()),
-        )
-        .infer_schema(&session.state())
-        .await?;
-    let listing_table = Arc::new(ListingTable::try_new(config)?);
-    session.register_table("events", listing_table)?;
-    info!("finished registering table for GHARCHIVE: {base_url}");
-    Ok(())
 }

@@ -43,7 +43,7 @@ pub mod tpcds;
 pub mod tpch;
 pub mod utils;
 
-pub use datasets::{BenchmarkDataset, file};
+pub use datasets::BenchmarkDataset;
 pub use engines::df;
 use vortex::VortexSessionDefault;
 pub use vortex::error::vortex_panic;

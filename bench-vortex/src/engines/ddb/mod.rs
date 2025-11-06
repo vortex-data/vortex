@@ -69,7 +69,7 @@ impl DuckDBCtx {
             BenchmarkDataset::TpcDS { scale_factor } => {
                 format!("tpcds/{scale_factor}/{}", format.name()).to_data_path()
             }
-            BenchmarkDataset::PublicBi { .. } => todo!(),
+            BenchmarkDataset::PublicBi { .. } => unimplemented!(),
             BenchmarkDataset::StatPopGen { n_rows } => {
                 format!("statpopgen/{n_rows}/{}", format.name()).to_data_path()
             }
@@ -283,7 +283,7 @@ impl DuckDBCtx {
                 }
                 commands
             }
-            BenchmarkDataset::PublicBi { .. } => todo!(),
+            BenchmarkDataset::PublicBi { .. } => unimplemented!(),
             BenchmarkDataset::StatPopGen { .. } => {
                 let path = format!("{base_dir}{}.{extension}", StatPopGenBenchmark::FILE_NAME);
                 format!(

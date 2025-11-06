@@ -3,21 +3,16 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use anyhow::Result;
-use datafusion::datasource::file_format::parquet::ParquetFormat;
-use datafusion::datasource::listing::{
-    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
-};
-use datafusion::prelude::SessionContext;
 use tracing::info;
 use url::Url;
-use vortex_datafusion::VortexFormat;
 
 use crate::benchmark_trait::Benchmark;
+use crate::datasets::configs::StatPopGenDataset;
+use crate::datasets::unified_registration::register_dataset_tables;
 use crate::engines::EngineCtx;
-use crate::{BenchmarkDataset, Format, SESSION, Target};
+use crate::{BenchmarkDataset, Format, Target};
 
 /// Statistical population genetics benchmark implementation.
 ///
@@ -124,58 +119,6 @@ impl StatPopGenBenchmark {
     }
 }
 
-/// Registers a table with DataFusion for the specified format.
-///
-/// Creates and configures a ListingTable that points to the dataset file in the
-/// specified format, then registers it with the DataFusion session context.
-///
-/// # Arguments
-/// * `session` - The DataFusion session context to register the table with
-/// * `base_url` - Base URL for the dataset location
-/// * `format` - The data format (Parquet, Vortex, etc.) to register
-///
-/// # Errors
-/// Returns an error if table registration fails or if the format is unsupported.
-pub async fn register_table(
-    session: &SessionContext,
-    base_url: &Url,
-    format: Format,
-) -> Result<()> {
-    let table_path = base_url.join(&format!("{}/output4.{}", format.ext(), format.ext()))?;
-    let table_url = ListingTableUrl::try_new(table_path, None)?;
-    let config = ListingTableConfig::new(table_url)
-        .with_listing_options(
-            ListingOptions::new(match format {
-                Format::Csv => {
-                    return Err(anyhow::anyhow!(
-                        "CSV format is not supported for statpopgen benchmark"
-                    ));
-                }
-                Format::Arrow => {
-                    return Err(anyhow::anyhow!(
-                        "Arrow format is not supported for statpopgen benchmark"
-                    ));
-                }
-                Format::Parquet => Arc::from(ParquetFormat::new()),
-                Format::OnDiskVortex => Arc::from(VortexFormat::new(SESSION.clone())),
-                Format::VortexCompact => Arc::from(VortexFormat::new(SESSION.clone())),
-                Format::OnDiskDuckDB => {
-                    return Err(anyhow::anyhow!(
-                        "DuckDB format should not be registered through DataFusion"
-                    ));
-                }
-                #[cfg(feature = "lance")]
-                Format::Lance => unimplemented!(),
-            })
-            .with_session_config_options(session.state().config()),
-        )
-        .infer_schema(&session.state())
-        .await?;
-    let listing_table = Arc::new(ListingTable::try_new(config)?);
-    session.register_table("statpopgen", listing_table)?;
-    Ok(())
-}
-
 impl Benchmark for StatPopGenBenchmark {
     fn queries(&self) -> Result<Vec<(usize, String)>> {
         let queries_file = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -223,17 +166,15 @@ impl Benchmark for StatPopGenBenchmark {
 
     #[allow(async_fn_in_trait)]
     async fn register_tables(&self, engine_ctx: &EngineCtx, format: Format) -> Result<()> {
+        let dataset = StatPopGenDataset {
+            n_rows: self.n_rows,
+        };
+
         match engine_ctx {
             EngineCtx::DataFusion(ctx) => {
-                // Use the specialized statpopgen register_table function
-                let table_url = self.data_url.join(&(self.n_rows.to_string() + "/"))?;
-                register_table(&ctx.session, &table_url, format).await
+                register_dataset_tables(&ctx.session, &dataset, &self.data_url, format).await
             }
-            EngineCtx::DuckDB(ctx) => ctx.register_tables(
-                &self.data_url.join(&(self.n_rows.to_string() + "/"))?,
-                format,
-                &self.dataset(),
-            ),
+            EngineCtx::DuckDB(ctx) => ctx.register_tables(&self.data_url, format, &self.dataset()),
         }
     }
 

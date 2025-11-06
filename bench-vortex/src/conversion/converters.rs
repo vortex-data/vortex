@@ -199,7 +199,7 @@ impl ParquetToLanceConverter {
         target_path: &Path,
     ) -> Result<()> {
         use datafusion::prelude::SessionContext;
-        use lance::dataset::{WriteMode, WriteOptions, WriteStrategyBuilder};
+        use lance::dataset::WriteMode;
         use url::Url;
 
         use crate::datasets::registration::{create_file_format, register_listing_table};
@@ -248,7 +248,8 @@ impl ParquetToLanceConverter {
             ..Default::default()
         };
 
-        lance::dataset::write(batch_stream, lance_path.to_str().unwrap(), write_options).await?;
+        lance::dataset::Dataset::write(batch_stream, lance_path.to_str().unwrap(), write_options)
+            .await?;
 
         Ok(())
     }

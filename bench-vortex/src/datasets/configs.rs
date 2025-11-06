@@ -157,32 +157,6 @@ impl fmt::Display for PublicBiDataset {
     }
 }
 
-/// StatPopGen dataset configuration
-#[derive(Debug, Clone)]
-pub struct StatPopGenDataset {
-    pub n_rows: u64,
-}
-
-impl DatasetMetadata for StatPopGenDataset {
-    fn name(&self) -> &str {
-        "statpopgen"
-    }
-
-    fn variant(&self) -> String {
-        format!("{}", self.n_rows)
-    }
-
-    fn tables(&self) -> Vec<TableInfo> {
-        vec![TableInfo::new("statpopgen", "*")]
-    }
-}
-
-impl fmt::Display for StatPopGenDataset {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "statpopgen(n_rows={})", self.n_rows)
-    }
-}
-
 /// FineWeb dataset configuration
 #[derive(Debug, Clone)]
 pub struct FineWebDataset;
@@ -222,5 +196,32 @@ impl DatasetMetadata for GhArchiveDataset {
 impl fmt::Display for GhArchiveDataset {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "gharchive")
+    }
+}
+
+/// StatPopGen dataset configuration
+#[derive(Debug, Clone)]
+pub struct StatPopGenDataset {
+    pub n_rows: u64,
+}
+
+impl DatasetMetadata for StatPopGenDataset {
+    fn name(&self) -> &str {
+        "statpopgen"
+    }
+
+    fn variant(&self) -> String {
+        self.n_rows.to_string()
+    }
+
+    fn tables(&self) -> Vec<TableInfo> {
+        // StatPopGen uses a specific file pattern
+        vec![TableInfo::new("statpopgen", "output4")]
+    }
+}
+
+impl fmt::Display for StatPopGenDataset {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "statpopgen(n_rows={})", self.n_rows)
     }
 }
