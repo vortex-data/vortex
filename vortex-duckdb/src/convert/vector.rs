@@ -4,34 +4,22 @@
 /// Copied of duckdb-rs (https://github.com/duckdb/duckdb-rs/blob/main/crates/duckdb/src/vtab/arrow.rs)
 use std::sync::Arc;
 
-use arrow_array::builder::GenericBinaryBuilder;
-use arrow_array::types::{
-    Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type, UInt8Type, UInt16Type,
-    UInt32Type, UInt64Type,
-};
-use arrow_array::{
-    Array, BooleanArray, Date32Array, Decimal128Array, FixedSizeListArray, GenericListViewArray,
-    PrimitiveArray, StringArray, Time64MicrosecondArray, Time64NanosecondArray,
-    TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
-    TimestampSecondArray,
-};
-use arrow_buffer::buffer::BooleanBuffer;
-use arrow_schema::Field;
 use num_traits::AsPrimitive;
-use vortex::ArrayRef;
-use vortex::arrays::StructArray;
+use vortex::arrays::{PrimitiveArray, StructArray, TemporalArray};
 use vortex::arrow::FromArrowArray;
-use vortex::buffer::BufferMut;
+use vortex::buffer::{Buffer, BufferMut};
+use vortex::dtype::datetime::TimeUnit;
 use vortex::dtype::{DType, DecimalDType, FieldNames, Nullability};
 use vortex::error::{VortexExpect, VortexResult, vortex_err};
 use vortex::scalar::DecimalType;
 use vortex::validity::Validity;
+use vortex::{ArrayRef, IntoArray};
 
 use crate::convert::dtype::FromLogicalType;
 use crate::cpp::{
     DUCKDB_TYPE, duckdb_date, duckdb_list_entry, duckdb_string_t, duckdb_string_t_data,
     duckdb_string_t_length, duckdb_time, duckdb_time_ns, duckdb_timestamp, duckdb_timestamp_ms,
-    duckdb_timestamp_s,
+    duckdb_timestamp_ns, duckdb_timestamp_s,
 };
 use crate::duckdb::{DataChunk, Vector};
 use crate::exporter::precision_to_duckdb_storage_size;
@@ -62,75 +50,71 @@ impl<'a> DuckString<'a> {
     }
 }
 
-// FIXME: flat vectors don't have all of thsese types. I think they only
-/// Converts flat vector to an arrow array
-pub fn flat_vector_to_arrow_array(
-    vector: &mut Vector,
-    len: usize,
-) -> Result<Arc<dyn Array>, Box<dyn std::error::Error>> {
+/// Converts flat vector to a vortex array
+pub fn flat_vector_to_arrow_array(vector: &mut Vector, len: usize) -> VortexResult<ArrayRef> {
     let type_id = vector.logical_type().as_type_id();
     match type_id {
         DUCKDB_TYPE::DUCKDB_TYPE_INTEGER => {
             let data = vector.as_slice_with_len::<i32>(len);
 
-            Ok(Arc::new(
-                PrimitiveArray::<Int32Type>::from_iter_values_with_nulls(
-                    data.iter().copied(),
-                    vector.validity_ref(data.len()).to_null_buffer(),
-                ),
-            ))
+            Ok(PrimitiveArray::new(
+                Buffer::<i32>::copy_from(data),
+                vector.validity_ref(data.len()).to_validity(),
+            )
+            .into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP => {
             let data = vector.as_slice_with_len::<duckdb_timestamp>(len);
             let micros = data.iter().map(|duckdb_timestamp { micros }| *micros);
-            let structs = TimestampMicrosecondArray::from_iter_values_with_nulls(
-                micros,
-                vector.validity_ref(data.len()).to_null_buffer(),
-            );
-
-            Ok(Arc::new(structs))
+            let arr = PrimitiveArray::new(
+                Buffer::from_trusted_len_iter(micros),
+                vector.validity_ref(data.len()).to_validity(),
+            )
+            .into_array();
+            Ok(TemporalArray::new_timestamp(arr, TimeUnit::Microseconds, None).into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S => {
             let data = vector.as_slice_with_len::<duckdb_timestamp_s>(len);
             let seconds = data.iter().map(|duckdb_timestamp_s { seconds }| *seconds);
-            let structs = TimestampSecondArray::from_iter_values_with_nulls(
-                seconds,
-                vector.validity_ref(data.len()).to_null_buffer(),
-            );
-
-            Ok(Arc::new(structs))
+            let arr = PrimitiveArray::new(
+                Buffer::from_trusted_len_iter(seconds),
+                vector.validity_ref(data.len()).to_validity(),
+            )
+            .into_array();
+            Ok(TemporalArray::new_timestamp(arr, TimeUnit::Seconds, None).into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS => {
             let data = vector.as_slice_with_len::<duckdb_timestamp_ms>(len);
             let millis = data.iter().map(|duckdb_timestamp_ms { millis }| *millis);
-            let structs = TimestampMillisecondArray::from_iter_values_with_nulls(
-                millis,
-                vector.validity_ref(data.len()).to_null_buffer(),
-            );
-
-            Ok(Arc::new(structs))
+            let arr = PrimitiveArray::new(
+                Buffer::from_trusted_len_iter(millis),
+                vector.validity_ref(data.len()).to_validity(),
+            )
+            .into_array();
+            Ok(TemporalArray::new_timestamp(arr, TimeUnit::Milliseconds, None).into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS => {
-            let data = vector.as_slice_with_len::<duckdb_timestamp>(len);
-            let nanos = data
-                .iter()
-                .map(|duckdb_timestamp { micros }| *micros * 1000);
-            let structs = TimestampNanosecondArray::from_iter_values_with_nulls(
-                nanos,
-                vector.validity_ref(data.len()).to_null_buffer(),
-            );
-
-            Ok(Arc::new(structs))
+            let data = vector.as_slice_with_len::<duckdb_timestamp_ns>(len);
+            let nanos = data.iter().map(|duckdb_timestamp_ns { nanos }| *nanos);
+            let arr = PrimitiveArray::new(
+                Buffer::from_trusted_len_iter(nanos),
+                vector.validity_ref(data.len()).to_validity(),
+            )
+            .into_array();
+            Ok(TemporalArray::new_timestamp(arr, TimeUnit::Nanoseconds, None).into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ => {
             let data = vector.as_slice_with_len::<duckdb_timestamp>(len);
-            let structs = TimestampMicrosecondArray::from_iter_values_with_nulls(
-                data.iter().map(|duckdb_timestamp { micros }| *micros),
-                vector.validity_ref(data.len()).to_null_buffer(),
+            let micros = data.iter().map(|duckdb_timestamp { micros }| *micros);
+            let arr = PrimitiveArray::new(
+                Buffer::from_trusted_len_iter(micros),
+                vector.validity_ref(data.len()).to_validity(),
             )
-            .with_timezone("UTC");
-
-            Ok(Arc::new(structs))
+            .into_array();
+            Ok(
+                TemporalArray::new_timestamp(arr, TimeUnit::Nanoseconds, Some("UTC".to_string()))
+                    .into_array(),
+            )
         }
         DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR => {
             let data = vector.as_slice_with_len::<duckdb_string_t>(len);
