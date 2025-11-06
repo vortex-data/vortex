@@ -41,3 +41,42 @@ where
 
     fastest_result
 }
+
+/// Run a benchmark for a specified time limit, collecting all run durations.
+///
+/// At least one run is always guaranteed, even if it exceeds the time limit.
+pub fn run_timed_with_setup<I, O, S, R, F>(
+    runtime: &Runtime,
+    time_limit_secs: u64,
+    mut setup: S,
+    mut routine: R,
+) -> Vec<Duration>
+where
+    S: FnMut() -> I,
+    R: FnMut(I) -> F,
+    F: Future<Output = O>,
+{
+    let time_limit = Duration::from_secs(time_limit_secs);
+    let overall_start = Instant::now();
+    let mut runs = Vec::new();
+
+    // Looping like this ensures at least one run happens.
+    loop {
+        let state = black_box(setup());
+        let elapsed = runtime.block_on(async {
+            let start = Instant::now();
+            let output = routine(state).await;
+            let elapsed = start.elapsed();
+            drop(black_box(output));
+            elapsed
+        });
+        runs.push(elapsed);
+
+        // Check if we should continue.
+        if overall_start.elapsed() >= time_limit {
+            break;
+        }
+    }
+
+    runs
+}
