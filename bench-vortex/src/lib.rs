@@ -23,6 +23,7 @@ pub mod benchmark_driver;
 pub mod benchmark_trait;
 pub mod clickbench;
 pub mod compress;
+pub mod conversion;
 pub mod conversions;
 pub mod datasets;
 pub mod display;
