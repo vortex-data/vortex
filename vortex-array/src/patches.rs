@@ -730,16 +730,7 @@ impl Patches {
 
         let new_indices = new_indices.into_array();
         let new_array_len = take_indices.len();
-        let num_chunks = new_array_len.div_ceil(PATCH_CHUNK_SIZE);
         let values_validity = take_indices_validity.take(&new_indices)?;
-
-        // Indices are rewritten during take such that they are strictly
-        // monotonically increasing, starting from 0. Therefore, we know
-        // that there's 1024 entries per chunk, except for the last.
-        let mut chunk_offsets_buf = BufferMut::<u64>::with_capacity(num_chunks);
-        for chunk_idx in 0..num_chunks {
-            chunk_offsets_buf.push((chunk_idx * PATCH_CHUNK_SIZE) as u64);
-        }
 
         Ok(Some(Self {
             array_len: new_array_len,
@@ -749,7 +740,7 @@ impl Patches {
                 self.values(),
                 &PrimitiveArray::new(values_indices, values_validity).into_array(),
             )?,
-            chunk_offsets: Some(chunk_offsets_buf.into_array()),
+            chunk_offsets: None,
             offset_within_chunk: Some(0), // Reset when creating new Patches.
         }))
     }
