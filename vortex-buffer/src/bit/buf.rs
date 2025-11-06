@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::{BitAnd, BitOr, BitXor, Not, Range};
+use std::ops::{BitAnd, BitOr, BitXor, Not, RangeBounds};
 
 use crate::bit::ops::{bitwise_binary_op, bitwise_unary_op};
 use crate::bit::{
@@ -194,16 +194,24 @@ impl BitBuffer {
     /// for `len` bits.
     ///
     /// Panics if the slice would extend beyond the end of the buffer.
-    pub fn slice(&self, range: Range<usize>) -> Self {
-        assert!(
-            range.len() <= self.len,
-            "slice from {} to {} exceeds len {}",
-            range.start,
-            range.end,
-            range.len()
-        );
+    pub fn slice(&self, range: impl RangeBounds<usize>) -> Self {
+        let start = match range.start_bound() {
+            std::ops::Bound::Included(&s) => s,
+            std::ops::Bound::Excluded(&s) => s + 1,
+            std::ops::Bound::Unbounded => 0,
+        };
+        let end = match range.end_bound() {
+            std::ops::Bound::Included(&e) => e + 1,
+            std::ops::Bound::Excluded(&e) => e,
+            std::ops::Bound::Unbounded => self.len,
+        };
 
-        Self::new_with_offset(self.buffer.clone(), range.len(), self.offset + range.start)
+        assert!(start <= end);
+        assert!(start <= self.len);
+        assert!(end <= self.len);
+        let len = end - start;
+
+        Self::new_with_offset(self.buffer.clone(), len, self.offset + start)
     }
 
     /// Slice any full bytes from the buffer, leaving the offset < 8.

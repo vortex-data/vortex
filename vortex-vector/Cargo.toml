@@ -25,4 +25,5 @@ vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 
+paste = { workspace = true }
 static_assertions = { workspace = true }

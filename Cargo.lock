@@ -9401,6 +9401,7 @@ dependencies = [
 name = "vortex-vector"
 version = "0.1.0"
 dependencies = [
+ "paste",
  "static_assertions",
  "vortex-buffer",
  "vortex-dtype",

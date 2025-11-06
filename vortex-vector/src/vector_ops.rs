@@ -4,9 +4,12 @@
 //! Definition and implementation of [`VectorOps`] and [`VectorMutOps`] for [`Vector`] and
 //! [`VectorMut`], respectively.
 
+use std::fmt::Debug;
+use std::ops::RangeBounds;
+
 use vortex_mask::{Mask, MaskMut};
 
-use crate::{Vector, VectorMut, private};
+use crate::{Scalar, Vector, VectorMut, private};
 
 /// Common operations for immutable vectors (all the variants of [`Vector`]).
 pub trait VectorOps: private::Sealed + Into<Vector> + Sized {
@@ -28,6 +31,16 @@ pub trait VectorOps: private::Sealed + Into<Vector> + Sized {
     /// [`Mask`] of [`AllTrue(len)`](Mask::AllTrue). It is on the caller to ensure that they do not
     /// add nullable data to a vector they want to keep as non-nullable.
     fn validity(&self) -> &Mask;
+
+    /// Return the scalar at the given index.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds.
+    fn scalar_at(&self, index: usize) -> Scalar;
+
+    /// Slice the vector from `start` to `end` (exclusive).
+    fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self;
 
     /// Tries to convert `self` into a mutable vector (implementing [`VectorMutOps`]).
     ///
@@ -115,4 +128,30 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> + Sized {
     ///
     /// [`split_off()`]: Self::split_off
     fn unsplit(&mut self, other: Self);
+}
+
+/// Converts a range bounds into a length, given the total length of the vector.
+pub(crate) fn range_bounds_to_len(bounds: impl RangeBounds<usize> + Debug, len: usize) -> usize {
+    use std::ops::Bound;
+
+    let start = match bounds.start_bound() {
+        Bound::Included(&s) => s,
+        Bound::Excluded(&s) => s + 1,
+        Bound::Unbounded => 0,
+    };
+
+    let end = match bounds.end_bound() {
+        Bound::Included(&e) => e + 1,
+        Bound::Excluded(&e) => e,
+        Bound::Unbounded => len,
+    };
+
+    assert!(
+        start <= end && end <= len,
+        "Range {:?} out of bounds for length {}",
+        bounds,
+        len
+    );
+
+    end - start
 }

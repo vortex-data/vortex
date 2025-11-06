@@ -125,7 +125,7 @@ impl<T: BinaryViewType> BinaryViewVectorMut<T> {
     /// let strings = strings.freeze();
     ///
     /// assert_eq!(
-    ///     [strings.get(0), strings.get(1), strings.get(2), strings.get(3)],
+    ///     [strings.get_ref(0), strings.get_ref(1), strings.get_ref(2), strings.get_ref(3)],
     ///     [Some("inlined"), Some("inlined"), None, Some("large not inlined")],
     /// );
     /// ```
@@ -148,6 +148,35 @@ impl<T: BinaryViewType> BinaryViewVectorMut<T> {
         }
 
         self.validity.append_n(true, n);
+    }
+
+    /// Append a repeated sequence of binary data to a vector, from an owned buffer.
+    ///
+    /// The buffer will be used directly if possible, avoiding a copy.
+    pub fn append_owned_values(&mut self, value: T::Scalar, n: usize) {
+        let buffer: ByteBuffer = value.into();
+
+        if buffer.len() <= BinaryView::MAX_INLINED_SIZE {
+            self.views
+                .push_n(BinaryView::new_inlined(buffer.as_ref()), n);
+        } else {
+            self.flush_open_buffer();
+
+            let buffer_index = u32::try_from(self.buffers.len())
+                .vortex_expect("buffer count exceeds u32::MAX")
+                + 1;
+            self.views
+                .push_n(BinaryView::make_view(buffer.as_ref(), buffer_index, 0), n);
+            self.buffers.push(buffer);
+        }
+
+        self.validity.append_n(true, n);
+    }
+
+    fn flush_open_buffer(&mut self) {
+        if let Some(open) = self.open_buffer.take() {
+            self.buffers.push(open.freeze());
+        }
     }
 }
 
@@ -173,9 +202,7 @@ impl<T: BinaryViewType> VectorMutOps for BinaryViewVectorMut<T> {
 
     fn extend_from_vector(&mut self, other: &BinaryViewVector<T>) {
         // Close any existing views into a new buffer
-        if let Some(open) = self.open_buffer.take() {
-            self.buffers.push(open.freeze());
-        }
+        self.flush_open_buffer();
 
         let offset =
             u32::try_from(self.buffers.len()).vortex_expect("buffer count exceeds u32::MAX");
@@ -202,9 +229,7 @@ impl<T: BinaryViewType> VectorMutOps for BinaryViewVectorMut<T> {
 
     fn freeze(mut self) -> BinaryViewVector<T> {
         // Freeze all components, close any in-progress views
-        if let Some(open) = self.open_buffer.take() {
-            self.buffers.push(open.freeze());
-        }
+        self.flush_open_buffer();
 
         unsafe {
             BinaryViewVector::new_unchecked(
@@ -254,12 +279,12 @@ mod tests {
         );
 
         let strings = strings_mut.freeze();
-        assert_eq!(strings.get(0), Some("inlined1"));
-        assert_eq!(strings.get(1), Some("long string 1"));
-        assert_eq!(strings.get(2), Some("inlined2"));
-        assert_eq!(strings.get(3), Some("long string 2"));
-        assert_eq!(strings.get(4), Some("inlined3"));
-        assert_eq!(strings.get(5), Some("long string 3"));
+        assert_eq!(strings.get_ref(0), Some("inlined1"));
+        assert_eq!(strings.get_ref(1), Some("long string 1"));
+        assert_eq!(strings.get_ref(2), Some("inlined2"));
+        assert_eq!(strings.get_ref(3), Some("long string 2"));
+        assert_eq!(strings.get_ref(4), Some("inlined3"));
+        assert_eq!(strings.get_ref(5), Some("long string 3"));
     }
 
     #[test]
@@ -300,26 +325,26 @@ mod tests {
         let strings_finished = strings_mut.freeze();
         assert!(strings_finished.validity().all_true());
 
-        assert_eq!(strings_finished.get(0).unwrap(), "inlined0");
-        assert_eq!(strings_finished.get(1).unwrap(), "inlined1");
+        assert_eq!(strings_finished.get_ref(0).unwrap(), "inlined0");
+        assert_eq!(strings_finished.get_ref(1).unwrap(), "inlined1");
         assert_eq!(
-            strings_finished.get(2).unwrap(),
+            strings_finished.get_ref(2).unwrap(),
             "a really very quite long string 4"
         );
         assert_eq!(
-            strings_finished.get(3).unwrap(),
+            strings_finished.get_ref(3).unwrap(),
             "a really very quite long string 3"
         );
         assert_eq!(
-            strings_finished.get(4).unwrap(),
+            strings_finished.get_ref(4).unwrap(),
             "a really very quite long string 2",
         );
         assert_eq!(
-            strings_finished.get(5).unwrap(),
+            strings_finished.get_ref(5).unwrap(),
             "a really very quite long string 1"
         );
         assert_eq!(
-            strings_finished.get(6).unwrap(),
+            strings_finished.get_ref(6).unwrap(),
             "a really very quite long string 4"
         );
 
@@ -360,12 +385,12 @@ mod tests {
         strings_mut.extend_from_vector(&strings);
         let strings_finished = strings_mut.freeze();
 
-        assert_eq!(strings_finished.get(0), None);
-        assert_eq!(strings_finished.get(1), None);
-        assert_eq!(strings_finished.get(2), Some("nonnull1"));
-        assert_eq!(strings_finished.get(3), Some("nonnull2"));
-        assert_eq!(strings_finished.get(4), Some("extend1"));
-        assert_eq!(strings_finished.get(5), None);
-        assert_eq!(strings_finished.get(6), Some("extend2"));
+        assert_eq!(strings_finished.get_ref(0), None);
+        assert_eq!(strings_finished.get_ref(1), None);
+        assert_eq!(strings_finished.get_ref(2), Some("nonnull1"));
+        assert_eq!(strings_finished.get_ref(3), Some("nonnull2"));
+        assert_eq!(strings_finished.get_ref(4), Some("extend1"));
+        assert_eq!(strings_finished.get_ref(5), None);
+        assert_eq!(strings_finished.get_ref(6), Some("extend2"));
     }
 }
