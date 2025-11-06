@@ -9,12 +9,17 @@ use std::sync::Arc;
 use anyhow::Result;
 use async_trait::async_trait;
 use tokio::fs;
+use tokio::fs::OpenOptions;
 use tracing::info;
+use vortex::file::WriteOptionsSessionExt;
 
+use crate::conversion::CompactionStrategy as ConversionCompactionStrategy;
 use crate::conversion::{ConversionOptions, FormatConverter};
-use crate::{CompactionStrategy, Format};
+use crate::conversions::parquet_to_vortex;
+use crate::{CompactionStrategy, Format, SESSION};
 
 /// Converter from Parquet to Vortex format
+#[derive(Clone)]
 pub struct ParquetToVortexConverter {
     source_format: Format,
     target_format: Format,
@@ -36,11 +41,8 @@ impl ParquetToVortexConverter {
         &self,
         source_file: &Path,
         target_dir: &Path,
-        compaction: crate::conversion::CompactionStrategy,
+        compaction: ConversionCompactionStrategy,
     ) -> Result<()> {
-        use tokio::fs::OpenOptions;
-        use vortex::file::WriteOptionsSessionExt;
-
         // Generate output filename
         let filename = source_file
             .file_stem()
@@ -55,10 +57,14 @@ impl ParquetToVortexConverter {
             return Ok(());
         }
 
-        info!("Converting {} to {}", source_file.display(), output_file.display());
+        info!(
+            "Converting {} to {}",
+            source_file.display(),
+            output_file.display()
+        );
 
         // Read Parquet file into Vortex arrays
-        use crate::conversions::parquet_to_vortex;
+
         let array_stream = parquet_to_vortex(source_file.to_path_buf())?;
 
         // Open output file
@@ -70,9 +76,9 @@ impl ParquetToVortexConverter {
             .await?;
 
         // Apply compaction strategy
-        use crate::SESSION;
+
         let strategy = match (self.target_format, compaction) {
-            (Format::VortexCompact, _) | (_, crate::conversion::CompactionStrategy::Compact) => {
+            (Format::VortexCompact, _) | (_, ConversionCompactionStrategy::Compact) => {
                 CompactionStrategy::Compact
             }
             _ => CompactionStrategy::Default,
@@ -100,18 +106,21 @@ impl FormatConverter for ParquetToVortexConverter {
 
         // Find all Parquet files in source directory
         let pattern = source_path.join("*.parquet");
-        let pattern_str = pattern.to_str()
+        let pattern_str = pattern
+            .to_str()
             .ok_or_else(|| anyhow::anyhow!("Invalid path"))?;
 
-        let files: Vec<_> = glob::glob(pattern_str)?
-            .filter_map(Result::ok)
-            .collect();
+        let files: Vec<_> = glob::glob(pattern_str)?.filter_map(Result::ok).collect();
 
         if files.is_empty() {
             anyhow::bail!("No Parquet files found in {}", source_path.display());
         }
 
-        info!("Converting {} Parquet files to {}", files.len(), self.target_format);
+        info!(
+            "Converting {} Parquet files to {}",
+            files.len(),
+            self.target_format
+        );
 
         // Convert files with optional parallelism
         let parallelism = options.parallelism.unwrap_or(1);
@@ -129,7 +138,9 @@ impl FormatConverter for ParquetToVortexConverter {
 
                 let handle = tokio::spawn(async move {
                     let _permit = permit; // Hold permit until done
-                    converter.convert_single_file(&file, &target_dir, compaction).await
+                    converter
+                        .convert_single_file(&file, &target_dir, compaction)
+                        .await
                 });
                 handles.push(handle);
             }
@@ -141,7 +152,8 @@ impl FormatConverter for ParquetToVortexConverter {
         } else {
             // Sequential conversion
             for file in files {
-                self.convert_single_file(&file, target_path, options.compaction).await?;
+                self.convert_single_file(&file, target_path, options.compaction)
+                    .await?;
             }
         }
 
@@ -169,15 +181,6 @@ impl FormatConverter for ParquetToVortexConverter {
     }
 }
 
-impl Clone for ParquetToVortexConverter {
-    fn clone(&self) -> Self {
-        Self {
-            source_format: self.source_format,
-            target_format: self.target_format,
-        }
-    }
-}
-
 #[cfg(feature = "lance")]
 /// Converter from Parquet to Lance format
 pub struct ParquetToLanceConverter;
@@ -194,6 +197,7 @@ impl ParquetToLanceConverter {
         source_path: &Path,
         target_path: &Path,
     ) -> Result<()> {
+        use crate::datasets::registration::{create_file_format, register_listing_table};
         use datafusion::prelude::SessionContext;
         use lance::dataset::{WriteMode, WriteOptions, WriteStrategyBuilder};
         use url::Url;
@@ -212,11 +216,11 @@ impl ParquetToLanceConverter {
         let ctx = SessionContext::new();
 
         // Register the Parquet files as a table
-        let file_url = Url::from_directory_path(source_path)
-            .map_err(|_| anyhow::anyhow!("Invalid path"))?;
+        let file_url =
+            Url::from_directory_path(source_path).map_err(|_| anyhow::anyhow!("Invalid path"))?;
 
         // Use the registration helper to register Parquet files
-        use crate::datasets::registration::{create_file_format, register_listing_table};
+
         let format = create_file_format(Format::Parquet)?;
 
         register_listing_table(
@@ -226,7 +230,8 @@ impl ParquetToLanceConverter {
             Some(glob::Pattern::new(&format!("{}_*.parquet", table_name))?),
             None,
             format,
-        ).await?;
+        )
+        .await?;
 
         // Read the table and convert Utf8View to Utf8 if needed
         let df = ctx.table(table_name).await?;
@@ -241,11 +246,7 @@ impl ParquetToLanceConverter {
             ..Default::default()
         };
 
-        lance::dataset::write(
-            batch_stream,
-            lance_path.to_str().unwrap(),
-            write_options,
-        ).await?;
+        lance::dataset::write(batch_stream, lance_path.to_str().unwrap(), write_options).await?;
 
         Ok(())
     }
@@ -263,14 +264,17 @@ impl FormatConverter for ParquetToLanceConverter {
         // Lance conversion is typically done per-table
         // We need to infer table names from the file patterns
 
+        use std::collections::HashSet;
+
         fs::create_dir_all(target_path).await?;
 
         // Find all unique table names from Parquet files
         let pattern = source_path.join("*.parquet");
-        let pattern_str = pattern.to_str()
+        let pattern_str = pattern
+            .to_str()
             .ok_or_else(|| anyhow::anyhow!("Invalid path"))?;
 
-        let mut table_names = std::collections::HashSet::new();
+        let mut table_names = HashSet::new();
         for entry in glob::glob(pattern_str)? {
             if let Ok(path) = entry {
                 if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
@@ -291,7 +295,8 @@ impl FormatConverter for ParquetToLanceConverter {
         info!("Converting {} tables to Lance format", table_names.len());
 
         for table_name in table_names {
-            self.convert_table(&table_name, source_path, target_path).await?;
+            self.convert_table(&table_name, source_path, target_path)
+                .await?;
         }
 
         Ok(())

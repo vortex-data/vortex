@@ -33,19 +33,20 @@ pub fn benchmark_data_url(
     match remote_url {
         None => {
             // Local file path
-            let mut data_path = benchmark_name.to_data_path();
+            let data_path = if benchmark_name == "clickbench" && variant.is_some() {
+                // Special case: ClickBench uses clickbench_single or clickbench_partitioned
+                format!("{}_{}", benchmark_name, variant.unwrap()).to_data_path()
+            } else {
+                // Standard case: use subdirectories for variants
+                let mut path = benchmark_name.to_data_path();
+                if let Some(v) = variant {
+                    path = path.join(v);
+                }
+                path
+            };
 
-            // Add variant subdirectory if specified
-            if let Some(v) = variant {
-                data_path = data_path.join(v);
-            }
-
-            Url::from_directory_path(&data_path).map_err(|_| {
-                anyhow!(
-                    "Failed to create URL from directory path: {:?}",
-                    &data_path
-                )
-            })
+            Url::from_directory_path(&data_path)
+                .map_err(|_| anyhow!("Failed to create URL from directory path: {:?}", &data_path))
         }
         Some(remote) => {
             // Remote URL

@@ -17,9 +17,7 @@ use crate::benchmark_trait::Benchmark;
 use crate::engines::{EngineCtx, ddb};
 use crate::helpers::urls::{benchmark_data_url, url_to_path};
 use crate::tpch::tpchgen::TpchGenOptions;
-use crate::tpch::{
-    EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, tpch_queries, tpchgen,
-};
+use crate::tpch::{EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, tpch_queries, tpchgen};
 use crate::{BenchmarkDataset, Format, Target};
 
 /// TPCH benchmark implementation
@@ -76,7 +74,8 @@ impl Benchmark for TpcHBenchmark {
                                 Format::Parquet,
                                 Format::Lance,
                                 ConversionOptions::default(),
-                            ).await
+                            )
+                            .await
                         })?;
                     }
                     Format::Arrow => {
@@ -271,4 +270,3 @@ impl TpcHBenchmark {
         Ok(())
     }
 }
-

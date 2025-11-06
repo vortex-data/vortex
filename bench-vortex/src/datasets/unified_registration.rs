@@ -11,9 +11,9 @@ use datafusion::prelude::SessionContext;
 use glob::Pattern;
 use url::Url;
 
-use crate::Format;
 use super::metadata::DatasetMetadata;
 use super::registration::{create_file_format, register_listing_table};
+use crate::Format;
 
 /// Register all tables for a dataset using metadata
 ///
@@ -27,7 +27,7 @@ pub async fn register_dataset_tables(
 ) -> Result<()> {
     // Special case for Arrow format (in-memory)
     let file_format = if format == Format::Arrow {
-        Format::Parquet  // Arrow loads Parquet files into memory
+        Format::Parquet // Arrow loads Parquet files into memory
     } else {
         format
     };
@@ -57,9 +57,7 @@ pub async fn register_dataset_tables(
                 }
 
                 // Read parquet files and convert to in-memory table
-                let glob_pattern = glob.as_ref()
-                    .map(|g| g.as_str())
-                    .unwrap_or("*.parquet");
+                let glob_pattern = glob.as_ref().map(|g| g.as_str()).unwrap_or("*.parquet");
 
                 let path = format_url.path().to_string() + glob_pattern;
                 let df = session.read_parquet(&path, Default::default()).await?;
@@ -71,8 +69,9 @@ pub async fn register_dataset_tables(
                 let batches = df.collect().await?;
 
                 // Create a memory table from the batches
-                use datafusion::datasource::MemTable;
                 use std::sync::Arc;
+
+                use datafusion::datasource::MemTable;
 
                 let provider = MemTable::try_new(schema, vec![batches])?;
 

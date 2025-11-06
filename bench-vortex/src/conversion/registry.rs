@@ -5,8 +5,9 @@
 
 use std::sync::Arc;
 
-use crate::conversion::{FormatConverter, converters};
 use crate::Format;
+use crate::conversion::converters::ParquetToVortexConverter;
+use crate::conversion::{FormatConverter, converters};
 
 /// Registry of available format converters
 ///
@@ -25,10 +26,10 @@ impl ConverterRegistry {
         };
 
         // Register Parquet to Vortex converters
-        registry.register(Arc::new(converters::ParquetToVortexConverter::new(
+        registry.register(Arc::new(ParquetToVortexConverter::new(
             Format::OnDiskVortex,
         )));
-        registry.register(Arc::new(converters::ParquetToVortexConverter::new(
+        registry.register(Arc::new(ParquetToVortexConverter::new(
             Format::VortexCompact,
         )));
 
@@ -37,8 +38,12 @@ impl ConverterRegistry {
         registry.register(Arc::new(converters::ParquetToLanceConverter::new()));
 
         // Register identity converters for formats that don't need conversion
-        registry.register(Arc::new(converters::IdentityConverter::new(Format::Parquet)));
-        registry.register(Arc::new(converters::IdentityConverter::new(Format::OnDiskDuckDB)));
+        registry.register(Arc::new(converters::IdentityConverter::new(
+            Format::Parquet,
+        )));
+        registry.register(Arc::new(converters::IdentityConverter::new(
+            Format::OnDiskDuckDB,
+        )));
 
         registry
     }
@@ -64,7 +69,14 @@ impl ConverterRegistry {
     pub fn list_converters(&self) -> Vec<String> {
         self.converters
             .iter()
-            .map(|c| format!("{}: {} -> {}", c.name(), c.source_format(), c.target_format()))
+            .map(|c| {
+                format!(
+                    "{}: {} -> {}",
+                    c.name(),
+                    c.source_format(),
+                    c.target_format()
+                )
+            })
             .collect()
     }
 

@@ -9,10 +9,10 @@ use std::future::Future;
 use std::time::Duration;
 
 use datafusion::prelude::SessionContext;
+pub use query_engine::{QueryEngine, QueryMetrics};
 use vortex::error::VortexExpect;
 
 pub use crate::Format;
-pub use query_engine::{QueryEngine, QueryMetrics};
 use crate::{BenchmarkDataset, Engine, vortex_panic};
 
 pub enum EngineCtx {

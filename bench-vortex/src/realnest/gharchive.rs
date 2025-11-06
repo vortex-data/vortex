@@ -205,15 +205,11 @@ impl Benchmark for GithubArchive {
     }
 
     async fn register_tables(&self, engine_ctx: &EngineCtx, format: Format) -> anyhow::Result<()> {
-        let dataset = self.dataset();
-
         match engine_ctx {
             EngineCtx::DataFusion(ctx) => {
-                dataset
-                    .register_tables(&ctx.session, &self.data_url, format)
-                    .await
+                register_table(&ctx.session, &self.data_url, format).await
             }
-            EngineCtx::DuckDB(ctx) => ctx.register_tables(&self.data_url, format, &dataset),
+            EngineCtx::DuckDB(ctx) => ctx.register_tables(&self.data_url, format, &self.dataset()),
         }
     }
 

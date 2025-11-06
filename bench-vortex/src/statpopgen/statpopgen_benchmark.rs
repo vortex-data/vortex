@@ -223,18 +223,16 @@ impl Benchmark for StatPopGenBenchmark {
 
     #[allow(async_fn_in_trait)]
     async fn register_tables(&self, engine_ctx: &EngineCtx, format: Format) -> Result<()> {
-        let dataset = self.dataset();
-
         match engine_ctx {
             EngineCtx::DataFusion(ctx) => {
-                dataset
-                    .register_tables(&ctx.session, &self.data_url, format)
-                    .await
+                // Use the specialized statpopgen register_table function
+                let table_url = self.data_url.join(&(self.n_rows.to_string() + "/"))?;
+                register_table(&ctx.session, &table_url, format).await
             }
             EngineCtx::DuckDB(ctx) => ctx.register_tables(
                 &self.data_url.join(&(self.n_rows.to_string() + "/"))?,
                 format,
-                &dataset,
+                &self.dataset(),
             ),
         }
     }

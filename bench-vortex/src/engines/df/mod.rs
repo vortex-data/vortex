@@ -26,9 +26,9 @@ use object_store::local::LocalFileSystem;
 use url::Url;
 use vortex_datafusion::VortexFormatFactory;
 
+use crate::Engine;
 pub use crate::Format;
 use crate::engines::{QueryEngine, QueryMetrics};
-use crate::Engine;
 
 pub struct DataFusionCtx {
     pub execution_plans: Vec<(usize, Arc<dyn ExecutionPlan>)>,
@@ -92,10 +92,7 @@ pub fn get_session_context(disable_datafusion_cache: bool) -> SessionContext {
     SessionContext::new_with_state(session_state_builder.build())
 }
 
-pub fn make_object_store(
-    df: &SessionContext,
-    source: &Url,
-) -> Result<Arc<dyn ObjectStore>> {
+pub fn make_object_store(df: &SessionContext, source: &Url) -> Result<Arc<dyn ObjectStore>> {
     match source.scheme() {
         "s3" => {
             let bucket_name = &source[url::Position::BeforeHost..url::Position::AfterHost];
@@ -209,7 +206,13 @@ impl QueryEngine for DataFusionCtx {
         &self.execution_plans
     }
 
-    fn metrics(&self) -> &[(usize, Format, Vec<datafusion_physical_plan::metrics::MetricsSet>)] {
+    fn metrics(
+        &self,
+    ) -> &[(
+        usize,
+        Format,
+        Vec<datafusion_physical_plan::metrics::MetricsSet>,
+    )] {
         &self.metrics
     }
 

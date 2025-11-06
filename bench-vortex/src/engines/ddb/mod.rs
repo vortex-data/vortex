@@ -318,8 +318,7 @@ impl QueryEngine for DuckDBCtx {
         let duration = start.elapsed();
         trace!("query completed in {:.3}s", duration.as_secs_f64());
 
-        let row_count =
-            usize::try_from(result.row_count()).vortex_expect("row count overflow");
+        let row_count = usize::try_from(result.row_count()).vortex_expect("row count overflow");
 
         Ok(QueryMetrics {
             duration,

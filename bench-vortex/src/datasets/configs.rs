@@ -8,8 +8,8 @@
 
 use std::fmt;
 
-use crate::clickbench::Flavor;
 use super::metadata::{DatasetMetadata, TableInfo};
+use crate::clickbench::Flavor;
 
 /// TPC-H dataset configuration
 #[derive(Debug, Clone)]
@@ -27,10 +27,12 @@ impl DatasetMetadata for TpcHDataset {
     }
 
     fn tables(&self) -> Vec<TableInfo> {
-        ["customer", "lineitem", "nation", "orders", "part", "partsupp", "region", "supplier"]
-            .iter()
-            .map(|&name| TableInfo::new(name, format!("{}*.parquet", name)))
-            .collect()
+        [
+            "customer", "lineitem", "nation", "orders", "part", "partsupp", "region", "supplier",
+        ]
+        .iter()
+        .map(|&name| TableInfo::new(name, format!("{}*.parquet", name)))
+        .collect()
     }
 }
 
@@ -110,8 +112,8 @@ impl DatasetMetadata for ClickBenchDataset {
     }
 
     fn tables(&self) -> Vec<TableInfo> {
-        // ClickBench has a single table with schema
-        vec![TableInfo::new("hits", "*.parquet")]
+        // ClickBench has a single table without a prefix
+        vec![TableInfo::new("hits", "*")]
     }
 }
 
@@ -141,7 +143,10 @@ impl DatasetMetadata for PublicBiDataset {
 
     fn tables(&self) -> Vec<TableInfo> {
         // Public BI tables vary by dataset
-        vec![TableInfo::new(&self.name, format!("{}*.parquet", self.name))]
+        vec![TableInfo::new(
+            &self.name,
+            format!("{}*.parquet", self.name),
+        )]
     }
 }
 

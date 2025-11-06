@@ -23,7 +23,6 @@ pub const EXPECTED_ROW_COUNTS_SF10: [usize; TPC_H_ROW_COUNT_ARRAY_LENGTH] = [
     0, 4, 100, 10, 5, 5, 1, 4, 2, 175, 20, 0, 2, 46, 1, 1, 27840, 1, 100, 1, 1804, 100, 7,
 ];
 
-
 pub fn tpch_queries() -> impl Iterator<Item = (usize, String)> {
     (1..=22).map(|q| (q, tpch_query(q)))
 }

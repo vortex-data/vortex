@@ -185,9 +185,7 @@ fn execute_queries<B: Benchmark>(
             // Execute query
             let metrics = runtime
                 .block_on(engine_ctx.as_query_engine_mut().execute_query(query_string))
-                .unwrap_or_else(|err| {
-                    vortex_panic!("query: {query_idx} failed with: {err}")
-                });
+                .unwrap_or_else(|err| vortex_panic!("query: {query_idx} failed with: {err}"));
 
             runs.push(metrics.duration);
 
@@ -212,14 +210,12 @@ fn execute_queries<B: Benchmark>(
 
         // Handle DataFusion-specific post-processing
         if let Some(execution_plan) = last_execution_plan {
-            engine_ctx
-                .as_query_engine_mut()
-                .add_execution_data(
-                    query_idx,
-                    execution_plan.clone(),
-                    format,
-                    VortexMetricsFinder::find_all(execution_plan.as_ref()),
-                );
+            engine_ctx.as_query_engine_mut().add_execution_data(
+                query_idx,
+                execution_plan.clone(),
+                format,
+                VortexMetricsFinder::find_all(execution_plan.as_ref()),
+            );
 
             if engine_ctx.as_query_engine().should_emit_plan() {
                 df::write_execution_plan(
@@ -244,8 +240,7 @@ fn execute_queries<B: Benchmark>(
             && query_idx < expected_counts.len()
         {
             assert_eq!(
-                row_count,
-                expected_counts[query_idx],
+                row_count, expected_counts[query_idx],
                 "Row count mismatch for query {query_idx} - {}:{format}",
                 engine_type
             );

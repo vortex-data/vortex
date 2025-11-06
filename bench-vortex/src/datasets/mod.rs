@@ -5,14 +5,12 @@ use std::fmt::Display;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use datafusion::prelude::SessionContext;
 use serde::Serialize;
 use url::Url;
 use vortex::ArrayRef;
 
 use crate::clickbench::Flavor;
-use crate::realnest::gharchive;
-use crate::{Format, clickbench, fineweb, statpopgen};
+use crate::Format;
 
 pub mod configs;
 pub mod data_downloads;
@@ -124,67 +122,4 @@ impl BenchmarkDataset {
         Ok(base_url.join(&format!("{format}/"))?)
     }
 
-    pub async fn register_tables(
-        &self,
-        session: &SessionContext,
-        base_url: &Url,
-        format: Format,
-    ) -> Result<()> {
-        use self::registration::{create_file_format, register_listing_table};
-
-        match (self, format) {
-            (BenchmarkDataset::TpcH { .. }, _) | (BenchmarkDataset::TpcDS { .. }, _) => {
-                // TPC-H and TPC-DS tables are handled separately by their benchmark implementations
-            }
-            (BenchmarkDataset::ClickBench { .. }, Format::Parquet) => {
-                let file_format = create_file_format(Format::Parquet)?;
-                register_listing_table(
-                    session,
-                    "hits",
-                    base_url,
-                    Some(glob::Pattern::new("*.parquet")?),
-                    Some(clickbench::HITS_SCHEMA.clone()),
-                    file_format,
-                )
-                .await?;
-            }
-            (BenchmarkDataset::ClickBench { .. }, Format::OnDiskVortex | Format::VortexCompact) => {
-                let file_format = create_file_format(format)?;
-                register_listing_table(
-                    session,
-                    "hits",
-                    base_url,
-                    Some(glob::Pattern::new("*.vortex")?),
-                    Some(clickbench::HITS_SCHEMA.clone()),
-                    file_format,
-                )
-                .await?;
-            }
-            #[cfg(feature = "lance")]
-            (BenchmarkDataset::ClickBench { .. }, Format::Lance) => {
-                let lance_path = base_url.join(&format!("{}/hits.lance/", Format::Lance.name()))?;
-                registration::register_lance_table(session, "hits", &lance_path).await?;
-            }
-            (BenchmarkDataset::ClickBench { .. }, _) => {
-                anyhow::bail!("Unsupported format for ClickBench: {}", format);
-            }
-            (BenchmarkDataset::PublicBi { .. }, _) => {
-                anyhow::bail!("public bi unsupported for now")
-            }
-            (BenchmarkDataset::StatPopGen { .. }, Format::Parquet | Format::OnDiskVortex) => {
-                statpopgen::register_table(session, base_url, format).await?
-            }
-            (BenchmarkDataset::StatPopGen { .. }, format) => {
-                anyhow::bail!("StatPopGen in {format} unsupported in DataFusion")
-            }
-            (BenchmarkDataset::Fineweb, format) => {
-                fineweb::register_table(session, base_url, format).await?
-            }
-            (BenchmarkDataset::GhArchive, format) => {
-                gharchive::register_table(session, base_url, format).await?
-            }
-        }
-
-        Ok(())
-    }
 }
