@@ -253,7 +253,7 @@ impl FileSource for VortexSource {
         let filters = filters
             .into_iter()
             .filter(|expr| can_be_pushed_down(expr, schema) || is_dynamic_physical_expr(expr))
-            .collect();
+            .collect::<Vec<_>>();
 
         // If we don't push down any filter, we don't need to update the plan's node.
         if filters.is_empty() {
