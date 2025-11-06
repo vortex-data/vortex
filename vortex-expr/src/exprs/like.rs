@@ -143,7 +143,6 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::Scope;
     use crate::exprs::get_item::get_item;
     use crate::exprs::like::{like, not_ilike};
     use crate::exprs::literal::lit;
@@ -156,7 +155,7 @@ mod tests {
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         assert_eq!(
             not_expr
-                .evaluate(&Scope::new(bools.to_array()))
+                .evaluate(&bools.to_array())
                 .unwrap()
                 .to_bool()
                 .bit_buffer()

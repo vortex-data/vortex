@@ -12,7 +12,7 @@ use vortex_array::{Array, Canonical, IntoArray, ToCanonical};
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::{DType, StructFields};
 use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
-use vortex_expr::{Scope, lit, root};
+use vortex_expr::{lit, root};
 use vortex_file::{OpenOptionsSessionExt, WriteOptionsSessionExt, WriteStrategyBuilder};
 use vortex_fuzz::{CompressorStrategy, FuzzFileAction, RUNTIME, SESSION};
 use vortex_layout::layouts::compact::CompactCompressor;
@@ -36,14 +36,14 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         let bool_mask = filter_expr
             .clone()
             .unwrap_or_else(|| lit(true))
-            .evaluate(&Scope::new(array_data.clone()))
+            .evaluate(&array_data)
             .vortex_unwrap();
         let mask = bool_mask.to_bool().to_mask_fill_null_false();
         let filtered = filter(&array_data, &mask).vortex_unwrap();
         projection_expr
             .clone()
             .unwrap_or_else(root)
-            .evaluate(&Scope::new(filtered))
+            .evaluate(&filtered)
             .vortex_unwrap()
     };
 

@@ -89,7 +89,7 @@ mod tests {
     use super::not;
     use crate::exprs::get_item::{col, get_item};
     use crate::exprs::root::root;
-    use crate::{Scope, test_harness};
+    use crate::test_harness;
 
     #[test]
     fn invert_booleans() {
@@ -97,7 +97,7 @@ mod tests {
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         assert_eq!(
             not_expr
-                .evaluate(&Scope::new(bools.to_array()))
+                .evaluate(&bools.to_array())
                 .unwrap()
                 .to_bool()
                 .bit_buffer()

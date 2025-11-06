@@ -184,8 +184,8 @@ mod tests {
     use vortex_error::{VortexResult, vortex_bail};
 
     use super::{Pack, PackOptions, pack};
+    use crate::VTableExt;
     use crate::exprs::get_item::col;
-    use crate::{Scope, VTableExt};
 
     fn test_array() -> ArrayRef {
         StructArray::from_fields(&[
@@ -221,7 +221,7 @@ mod tests {
         );
 
         let test_array = test_array();
-        let actual_array = expr.evaluate(&Scope::new(test_array.clone())).unwrap();
+        let actual_array = expr.evaluate(&test_array.clone()).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
         assert_eq!(actual_array.to_struct().struct_fields().nfields(), 0);
     }
@@ -236,10 +236,7 @@ mod tests {
             [col("a"), col("b"), col("a")],
         );
 
-        let actual_array = expr
-            .evaluate(&Scope::new(test_array()))
-            .unwrap()
-            .to_struct();
+        let actual_array = expr.evaluate(&test_array()).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
         assert_eq!(actual_array.validity(), &Validity::NonNullable);
@@ -284,10 +281,7 @@ mod tests {
             ],
         );
 
-        let actual_array = expr
-            .evaluate(&Scope::new(test_array()))
-            .unwrap()
-            .to_struct();
+        let actual_array = expr.evaluate(&test_array()).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
 
@@ -327,10 +321,7 @@ mod tests {
             [col("a"), col("b"), col("a")],
         );
 
-        let actual_array = expr
-            .evaluate(&Scope::new(test_array()))
-            .unwrap()
-            .to_struct();
+        let actual_array = expr.evaluate(&test_array()).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
         assert_eq!(actual_array.validity(), &Validity::AllValid);

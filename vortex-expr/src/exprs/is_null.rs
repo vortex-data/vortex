@@ -109,7 +109,7 @@ mod tests {
     use crate::exprs::literal::lit;
     use crate::exprs::root::root;
     use crate::pruning::checked_pruning_expr;
-    use crate::{HashSet, Scope, test_harness};
+    use crate::{HashSet, test_harness};
 
     #[test]
     fn dtype() {
@@ -133,9 +133,7 @@ mod tests {
                 .into_array();
         let expected = [false, true, false, true, false];
 
-        let result = is_null(root())
-            .evaluate(&Scope::new(test_array.clone()))
-            .unwrap();
+        let result = is_null(root()).evaluate(&test_array.clone()).unwrap();
 
         assert_eq!(result.len(), test_array.len());
         assert_eq!(result.dtype(), &DType::Bool(Nullability::NonNullable));
@@ -152,9 +150,7 @@ mod tests {
     fn evaluate_all_false() {
         let test_array = buffer![1, 2, 3, 4, 5].into_array();
 
-        let result = is_null(root())
-            .evaluate(&Scope::new(test_array.clone()))
-            .unwrap();
+        let result = is_null(root()).evaluate(&test_array.clone()).unwrap();
 
         assert_eq!(result.len(), test_array.len());
         assert_eq!(
@@ -169,9 +165,7 @@ mod tests {
             PrimitiveArray::from_option_iter(vec![None::<i32>, None, None, None, None])
                 .into_array();
 
-        let result = is_null(root())
-            .evaluate(&Scope::new(test_array.clone()))
-            .unwrap();
+        let result = is_null(root()).evaluate(&test_array.clone()).unwrap();
 
         assert_eq!(result.len(), test_array.len());
         assert_eq!(
@@ -192,7 +186,7 @@ mod tests {
         let expected = [false, true, false, true, false];
 
         let result = is_null(get_item("a", root()))
-            .evaluate(&Scope::new(test_array.clone()))
+            .evaluate(&test_array.clone())
             .unwrap();
 
         assert_eq!(result.len(), test_array.len());
