@@ -18,7 +18,7 @@ use vortex::io::runtime::{BlockingRuntime, Task};
 use vortex::io::session::RuntimeSessionExt;
 use vortex::stream::ArrayStreamAdapter;
 
-use crate::convert::{data_chunk_to_arrow, from_duckdb_table};
+use crate::convert::{data_chunk_to_vortex, from_duckdb_table};
 use crate::duckdb::{CopyFunction, DataChunk, LogicalType};
 use crate::{RUNTIME, SESSION};
 
@@ -74,7 +74,7 @@ impl CopyFunction for VortexCopyFunction {
         _init_local: &mut Self::LocalState,
         chunk: &mut DataChunk,
     ) -> VortexResult<()> {
-        let chunk = data_chunk_to_arrow(bind_data.fields.names(), chunk);
+        let chunk = data_chunk_to_vortex(bind_data.fields.names(), chunk);
         RUNTIME.block_on(async {
             init_global
                 .sink

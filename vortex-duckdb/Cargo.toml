@@ -21,9 +21,6 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
 anyhow = { workspace = true }
-arrow-array = { workspace = true }
-arrow-buffer = { workspace = true }
-arrow-schema = { workspace = true }
 async-compat = { workspace = true }
 async-fs = { workspace = true }
 bitvec = { workspace = true }
