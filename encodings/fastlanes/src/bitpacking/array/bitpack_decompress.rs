@@ -65,15 +65,18 @@ pub(crate) fn unpack_into<T: BitPacked>(
         uninit_range.append_mask(array.validity_mask());
     }
 
+    // SAFETY: `decode_into` will initialize all values in this range.
+    let uninit_slice = unsafe { uninit_range.slice_uninit_mut(0, array.len()) };
+
     let mut bit_packed_iter = array.unpacked_chunks();
-    bit_packed_iter.decode_into(&mut uninit_range);
+    bit_packed_iter.decode_into(uninit_slice);
 
     if let Some(patches) = array.patches() {
         apply_patches(&mut uninit_range, patches);
     };
 
     // SAFETY: We have set a correct validity mask via `append_mask` with `array.len()` values and
-    // initialized the same number of values needed via calls to `copy_from_slice`.
+    // initialized the same number of values needed via `decode_into`.
     unsafe {
         uninit_range.finish();
     }
