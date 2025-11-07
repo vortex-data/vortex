@@ -80,3 +80,12 @@ message SelectOpts {
     FieldNames exclude = 2;
   }
 }
+
+enum DuplicateHandling {
+  DUPLICATE_HANDLING_ERROR = 0;
+  DUPLICATE_HANDLING_RIGHT_MOST = 1;
+}
+
+message MergeOpts {
+  DuplicateHandling duplicate_handling = 1;
+}

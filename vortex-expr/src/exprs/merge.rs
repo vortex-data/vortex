@@ -8,10 +8,11 @@ use itertools::Itertools as _;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{
-    Array, ArrayRef, DeserializeMetadata, EmptyMetadata, IntoArray as _, ToCanonical,
+    Array, ArrayRef, DeserializeMetadata, IntoArray as _, ProstMetadata, ToCanonical,
 };
 use vortex_dtype::{DType, FieldNames, Nullability, StructFields};
 use vortex_error::{VortexResult, vortex_bail};
+use vortex_proto::expr::MergeOpts;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::display::{DisplayAs, DisplayFormat};
@@ -48,6 +49,24 @@ pub enum DuplicateHandling {
     Error,
 }
 
+impl From<vortex_proto::expr::DuplicateHandling> for DuplicateHandling {
+    fn from(value: vortex_proto::expr::DuplicateHandling) -> Self {
+        match value {
+            vortex_proto::expr::DuplicateHandling::Error => Self::Error,
+            vortex_proto::expr::DuplicateHandling::RightMost => Self::RightMost,
+        }
+    }
+}
+
+impl From<DuplicateHandling> for vortex_proto::expr::DuplicateHandling {
+    fn from(value: DuplicateHandling) -> Self {
+        match value {
+            DuplicateHandling::Error => Self::Error,
+            DuplicateHandling::RightMost => Self::RightMost,
+        }
+    }
+}
+
 impl Display for DuplicateHandling {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -62,7 +81,7 @@ pub struct MergeExprEncoding;
 impl VTable for MergeVTable {
     type Expr = MergeExpr;
     type Encoding = MergeExprEncoding;
-    type Metadata = EmptyMetadata;
+    type Metadata = ProstMetadata<MergeOpts>;
 
     fn id(_encoding: &Self::Encoding) -> ExprId {
         ExprId::new_ref("merge")
@@ -72,8 +91,11 @@ impl VTable for MergeVTable {
         ExprEncodingRef::new_ref(MergeExprEncoding.as_ref())
     }
 
-    fn metadata(_expr: &Self::Expr) -> Option<Self::Metadata> {
-        Some(EmptyMetadata)
+    fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {
+        let proto = vortex_proto::expr::DuplicateHandling::from(expr.duplicate_handling());
+        Some(ProstMetadata(MergeOpts {
+            duplicate_handling: proto.into(),
+        }))
     }
 
     fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
@@ -89,7 +111,7 @@ impl VTable for MergeVTable {
 
     fn build(
         _encoding: &Self::Encoding,
-        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         children: Vec<ExprRef>,
     ) -> VortexResult<Self::Expr> {
         if children.is_empty() {
@@ -98,9 +120,10 @@ impl VTable for MergeVTable {
                 children
             );
         }
+        let proto = vortex_proto::expr::DuplicateHandling::try_from(metadata.duplicate_handling)?;
         Ok(MergeExpr {
             values: children,
-            duplicate_handling: DuplicateHandling::default(),
+            duplicate_handling: proto.into(),
         })
     }
 
@@ -265,7 +288,11 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::{VortexResult, vortex_bail};
 
-    use crate::{DuplicateHandling, MergeExpr, Scope, get_item, merge, root};
+    use crate::proto::{ExprSerializeProtoExt, deserialize_expr_proto};
+    use crate::{
+        DuplicateHandling, ExprRegistry, ExprRegistryExt as _, MergeExpr, Scope, get_item, merge,
+        merge_opts, root,
+    };
 
     fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();
@@ -517,5 +544,21 @@ mod tests {
 
         let expr2 = MergeExpr::new(vec![get_item("a", root())]);
         assert_eq!(expr2.to_string(), "merge[error]($.a)");
+    }
+
+    #[test]
+    pub fn test_serde() {
+        let expected = merge([get_item("struct1", root()), get_item("struct2", root())]);
+        let proto = expected.serialize_proto().unwrap();
+        let actual = deserialize_expr_proto(&proto, &ExprRegistry::default()).unwrap();
+        assert_eq!(&expected, &actual);
+
+        let expected = merge_opts(
+            [get_item("struct1", root()), get_item("struct2", root())],
+            DuplicateHandling::Error,
+        );
+        let proto = expected.serialize_proto().unwrap();
+        let actual = deserialize_expr_proto(&proto, &ExprRegistry::default()).unwrap();
+        assert_eq!(&expected, &actual);
     }
 }
