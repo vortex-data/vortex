@@ -40,3 +40,10 @@ comparison = []
 filter = []
 logical = []
 mask = []
+
+[dev-dependencies]
+divan = { workspace = true }
+
+[[bench]]
+name = "filter_buffer_mut"
+harness = false

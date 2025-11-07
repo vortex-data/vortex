@@ -6,6 +6,7 @@
 mod bitbuffer;
 mod bool;
 mod buffer;
+mod buffer_mut;
 mod mask;
 
 use vortex_mask::Mask;
