@@ -213,4 +213,12 @@ impl<D: NativeDecimalType> VectorOps for DVector<D> {
             }),
         }
     }
+
+    fn into_mut(self) -> DVectorMut<D> {
+        DVectorMut {
+            ps: self.ps,
+            elements: self.elements.into_mut(),
+            validity: self.validity.into_mut(),
+        }
+    }
 }

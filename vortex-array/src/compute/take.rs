@@ -80,7 +80,7 @@ impl ComputeFnVTable for Take {
         // We know that constant array don't need stats propagation, so we can avoid the overhead of
         // computing derived stats and merging them in.
         if !taken_array.is_constant() {
-            propagate_take_stats(array, &taken_array)?;
+            propagate_take_stats(array, &taken_array, indices)?;
         }
 
         Ok(taken_array.into())
@@ -111,12 +111,18 @@ impl ComputeFnVTable for Take {
     }
 }
 
-fn propagate_take_stats(source: &dyn Array, target: &dyn Array) -> VortexResult<()> {
+fn propagate_take_stats(
+    source: &dyn Array,
+    target: &dyn Array,
+    indices: &dyn Array,
+) -> VortexResult<()> {
     target.statistics().with_mut_typed_stats_set(|mut st| {
-        let is_constant = source.statistics().get_as::<bool>(Stat::IsConstant);
-        if is_constant == Some(Precision::Exact(true)) {
-            // Any combination of elements from a constant array is still const
-            st.set(Stat::IsConstant, Precision::exact(true));
+        if indices.all_valid() {
+            let is_constant = source.statistics().get_as::<bool>(Stat::IsConstant);
+            if is_constant == Some(Precision::Exact(true)) {
+                // Any combination of elements from a constant array is still const
+                st.set(Stat::IsConstant, Precision::exact(true));
+            }
         }
         let inexact_min_max = [Stat::Min, Stat::Max]
             .into_iter()

@@ -197,4 +197,25 @@ impl VectorOps for StructVector {
             validity,
         })
     }
+
+    fn into_mut(self) -> StructVectorMut {
+        let len = self.len;
+        let validity = self.validity.into_mut();
+
+        // If someone else has a strong reference to the `Arc`, clone the underlying data (which is
+        // just a **different** reference count increment).
+        let fields = Arc::try_unwrap(self.fields).unwrap_or_else(|arc| (*arc).clone());
+
+        let mutable_fields: Box<[_]> = fields
+            .into_vec()
+            .into_iter()
+            .map(|field| field.into_mut())
+            .collect();
+
+        StructVectorMut {
+            fields: mutable_fields,
+            len,
+            validity,
+        }
+    }
 }

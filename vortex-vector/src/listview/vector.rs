@@ -285,6 +285,25 @@ impl VectorOps for ListViewVector {
             }),
         }
     }
+
+    fn into_mut(self) -> ListViewVectorMut {
+        let len = self.len;
+        let validity = self.validity.into_mut();
+        let offsets = self.offsets.into_mut();
+        let sizes = self.sizes.into_mut();
+
+        // If someone else has a strong reference to the `Arc`, clone the underlying data (which is
+        // just a **different** reference count increment).
+        let elements = Arc::try_unwrap(self.elements).unwrap_or_else(|arc| (*arc).clone());
+
+        ListViewVectorMut {
+            offsets,
+            sizes,
+            elements: Box::new(elements.into_mut()),
+            validity,
+            len,
+        }
+    }
 }
 
 // TODO(connor): It would be better to separate everything inside the macros into its own function,

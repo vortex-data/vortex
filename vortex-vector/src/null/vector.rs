@@ -60,4 +60,8 @@ impl VectorOps for NullVector {
     fn try_into_mut(self) -> Result<NullVectorMut, Self> {
         Ok(NullVectorMut::new(self.len))
     }
+
+    fn into_mut(self) -> NullVectorMut {
+        NullVectorMut::new(self.len)
+    }
 }

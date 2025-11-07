@@ -254,6 +254,21 @@ impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
             ))
         }
     }
+
+    fn into_mut(self) -> BinaryViewVectorMut<T> {
+        let views_mut = self.views.into_mut();
+        let validity_mut = self.validity.into_mut();
+
+        // If someone else has a strong reference to the `Arc`, clone the underlying data (which is
+        // just a **different** reference count increment).
+        let buffers_mut = Arc::try_unwrap(self.buffers)
+            .unwrap_or_else(|arc| (*arc).clone())
+            .into_vec();
+
+        // SAFETY: The BinaryViewVector maintains the exact same invariants as the immutable
+        // version, so all invariants are still upheld.
+        unsafe { BinaryViewVectorMut::new_unchecked(views_mut, validity_mut, buffers_mut) }
+    }
 }
 
 #[cfg(test)]

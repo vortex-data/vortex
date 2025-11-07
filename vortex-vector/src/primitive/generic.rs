@@ -156,4 +156,11 @@ impl<T: NativePType> VectorOps for PVector<T> {
             }),
         }
     }
+
+    fn into_mut(self) -> PVectorMut<T> {
+        let elements = self.elements.into_mut();
+        let validity = self.validity.into_mut();
+
+        PVectorMut { elements, validity }
+    }
 }

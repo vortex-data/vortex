@@ -93,6 +93,10 @@ impl VectorOps for PrimitiveVector {
                 .map_err(Self::from)
         })
     }
+
+    fn into_mut(self) -> PrimitiveVectorMut {
+        match_each_pvector!(self, |v| { v.into_mut().into() })
+    }
 }
 
 impl PTypeUpcast for PrimitiveVector {

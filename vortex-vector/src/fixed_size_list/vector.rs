@@ -204,6 +204,23 @@ impl VectorOps for FixedSizeListVector {
             }),
         }
     }
+
+    fn into_mut(self) -> FixedSizeListVectorMut {
+        let len = self.len;
+        let list_size = self.list_size;
+        let validity = self.validity.into_mut();
+
+        // If someone else has a strong reference to the `Arc`, clone the underlying data (which is
+        // just a **different** reference count increment).
+        let elements = Arc::try_unwrap(self.elements).unwrap_or_else(|arc| (*arc).clone());
+
+        FixedSizeListVectorMut {
+            elements: Box::new(elements.into_mut()),
+            list_size,
+            validity,
+            len,
+        }
+    }
 }
 
 #[cfg(test)]

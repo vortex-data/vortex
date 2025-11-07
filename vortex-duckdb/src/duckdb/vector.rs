@@ -4,12 +4,12 @@
 use std::ffi::{CStr, CString, c_void};
 use std::ptr;
 
-use arrow_buffer;
-use arrow_buffer::Buffer;
 use bitvec::macros::internal::funty::Fundamental;
 use bitvec::slice::BitSlice;
 use bitvec::view::BitView;
+use vortex::buffer::{BitBuffer, Buffer};
 use vortex::error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
+use vortex::validity::Validity;
 
 use crate::cpp::{duckdb_vx_error, idx_t};
 use crate::duckdb::vector_buffer::VectorBuffer;
@@ -302,42 +302,45 @@ impl ValidityRef<'_> {
         (validity_entry & (1u64 << idx_in_entry)) != 0
     }
 
-    /// Creates a NullBuffer directly from the DuckDB validity mask for optimal performance.
-    ///
-    /// Returns None if all values are valid (no null buffer needed).
-    pub fn to_null_buffer(&self) -> Option<arrow_buffer::NullBuffer> {
+    /// Creates a Validity directly from the DuckDB validity mask for optimal performance.
+    pub fn to_validity(&self) -> Validity {
         let Some(validity) = self.validity else {
-            // All values are valid - no null buffer needed
-            return None;
+            // All values are valid
+            return Validity::AllValid;
         };
 
-        // Create copy of the buffer from the DuckDB validity mask.
-        let buffer = Buffer::from_iter(validity.iter().cloned());
-
-        let boolean_buffer = arrow_buffer::BooleanBuffer::new(buffer, 0, self.len);
-        Some(arrow_buffer::NullBuffer::new(boolean_buffer))
+        Validity::from(BitBuffer::new(
+            Buffer::<u64>::copy_from(validity).into_byte_buffer(),
+            self.len,
+        ))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use vortex::mask::Mask;
+
     use super::*;
     use crate::cpp::DUCKDB_TYPE;
 
     #[test]
-    fn test_create_null_buffer_all_valid() {
+    fn test_create_validity_all_valid() {
         // Test case where all values are valid - should return None
         let len = 10;
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
         let vector = Vector::with_capacity(logical_type, len);
 
         let validity = vector.validity_ref(len);
-        let null_buffer = validity.to_null_buffer();
-        assert!(null_buffer.is_none(), "Expected None for all-valid vector");
+        let validity = validity.to_validity();
+        assert_eq!(
+            validity,
+            Validity::AllValid,
+            "Expected None for all-valid vector"
+        );
     }
 
     #[test]
-    fn test_create_null_buffer_with_nulls() {
+    fn test_create_validity_with_nulls() {
         // Test case with some null values
         let len = 10;
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
@@ -351,30 +354,18 @@ mod tests {
         validity_slice.set(7, false); // null at position 7
 
         let validity = vector.validity_ref(len);
-        let null_buffer = validity.to_null_buffer();
-        assert!(
-            null_buffer.is_some(),
-            "Expected Some(NullBuffer) for vector with nulls"
-        );
-
-        let null_buffer = null_buffer.unwrap();
-        assert_eq!(null_buffer.len(), len);
+        let validity = validity.to_validity();
+        assert_eq!(validity.maybe_len(), Some(len));
 
         // Check that the right positions are null
-        assert!(null_buffer.is_valid(0));
-        assert!(null_buffer.is_null(1));
-        assert!(null_buffer.is_valid(2));
-        assert!(null_buffer.is_null(3));
-        assert!(null_buffer.is_valid(4));
-        assert!(null_buffer.is_valid(5));
-        assert!(null_buffer.is_valid(6));
-        assert!(null_buffer.is_null(7));
-        assert!(null_buffer.is_valid(8));
-        assert!(null_buffer.is_valid(9));
+        assert_eq!(
+            validity.to_mask(len),
+            Mask::from_indices(len, vec![0, 2, 4, 5, 6, 8, 9])
+        );
     }
 
     #[test]
-    fn test_create_null_buffer_single_element() {
+    fn test_create_validity_single_element() {
         // Test with a single element that is null
         let len = 1;
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
@@ -385,16 +376,12 @@ mod tests {
         validity_slice.set(0, false); // null at position 0
 
         let validity = vector.validity_ref(len);
-        let null_buffer = validity.to_null_buffer();
-        assert!(null_buffer.is_some());
-
-        let null_buffer = null_buffer.unwrap();
-        assert_eq!(null_buffer.len(), 1);
-        assert!(null_buffer.is_null(0));
+        let validity = validity.to_validity();
+        assert!(validity.is_null(0));
     }
 
     #[test]
-    fn test_create_null_buffer_single_element_valid() {
+    fn test_create_validity_single_element_valid() {
         // Test with a single valid element
         let len = 1;
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
@@ -405,29 +392,25 @@ mod tests {
         let _validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
 
         let validity = vector.validity_ref(len);
-        let null_buffer = validity.to_null_buffer();
-        assert!(null_buffer.is_some());
-
-        let null_buffer = null_buffer.unwrap();
-        assert_eq!(null_buffer.len(), 1);
-        assert!(null_buffer.is_valid(0));
+        let validity = validity.to_validity();
+        assert!(validity.is_valid(0));
     }
 
     #[test]
-    fn test_create_null_buffer_empty() {
+    fn test_create_validity_empty() {
         // Test with zero length
         let len = 0;
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
         let vector = Vector::with_capacity(logical_type, len);
 
         let validity = vector.validity_ref(len);
-        let null_buffer = validity.to_null_buffer();
+        let validity = validity.to_validity();
         // Even with zero length, if validity mask doesn't exist, should return None
-        assert!(null_buffer.is_none());
+        assert_eq!(validity, Validity::AllValid);
     }
 
     #[test]
-    fn test_create_null_buffer_all_nulls() {
+    fn test_create_validity_all_nulls() {
         // Test case where all values are null
         let len = 10;
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
@@ -441,16 +424,9 @@ mod tests {
         }
 
         let validity = vector.validity_ref(len);
-        let null_buffer = validity.to_null_buffer();
-        assert!(null_buffer.is_some());
-
-        let null_buffer = null_buffer.unwrap();
-        assert_eq!(null_buffer.len(), len);
-
+        let validity = validity.to_validity();
         // Check that all positions are null
-        for i in 0..len {
-            assert!(null_buffer.is_null(i), "Element {i} should be null");
-        }
+        assert_eq!(validity, Validity::AllInvalid);
     }
 
     #[test]

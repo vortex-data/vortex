@@ -86,6 +86,10 @@ impl VectorOps for Vector {
             v.try_into_mut().map(VectorMut::from).map_err(Vector::from)
         })
     }
+
+    fn into_mut(self) -> VectorMut {
+        match_each_vector!(self, |v| { VectorMut::from(v.into_mut()) })
+    }
 }
 
 impl Vector {

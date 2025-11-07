@@ -1,37 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-/// Copied of duckdb-rs (https://github.com/duckdb/duckdb-rs/blob/main/crates/duckdb/src/vtab/arrow.rs)
 use std::sync::Arc;
 
-use arrow_array::builder::GenericBinaryBuilder;
-use arrow_array::types::{
-    Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type, UInt8Type, UInt16Type,
-    UInt32Type, UInt64Type,
-};
-use arrow_array::{
-    Array, BooleanArray, Date32Array, Decimal128Array, FixedSizeListArray, GenericListViewArray,
-    PrimitiveArray, StringArray, Time64MicrosecondArray, Time64NanosecondArray,
-    TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
-    TimestampSecondArray,
-};
-use arrow_buffer::buffer::BooleanBuffer;
-use arrow_schema::Field;
 use num_traits::AsPrimitive;
-use vortex::ArrayRef;
-use vortex::arrays::StructArray;
-use vortex::arrow::FromArrowArray;
-use vortex::buffer::BufferMut;
-use vortex::dtype::{DType, DecimalDType, FieldNames, Nullability};
-use vortex::error::{VortexExpect, VortexResult, vortex_err};
+use vortex::arrays::{
+    BoolArray, DecimalArray, FixedSizeListArray, ListViewArray, PrimitiveArray, StructArray,
+    TemporalArray,
+};
+use vortex::buffer::{BitBuffer, Buffer, BufferMut};
+use vortex::builders::{ArrayBuilder, VarBinViewBuilder};
+use vortex::dtype::datetime::TimeUnit;
+use vortex::dtype::{DType, DecimalDType, FieldNames, NativePType, Nullability};
+use vortex::error::{VortexExpect, VortexResult, vortex_bail};
 use vortex::scalar::DecimalType;
 use vortex::validity::Validity;
+use vortex::{ArrayRef, IntoArray};
 
-use crate::convert::dtype::FromLogicalType;
 use crate::cpp::{
     DUCKDB_TYPE, duckdb_date, duckdb_list_entry, duckdb_string_t, duckdb_string_t_data,
     duckdb_string_t_length, duckdb_time, duckdb_time_ns, duckdb_timestamp, duckdb_timestamp_ms,
-    duckdb_timestamp_s,
+    duckdb_timestamp_ns, duckdb_timestamp_s,
 };
 use crate::duckdb::{DataChunk, Vector};
 use crate::exporter::precision_to_duckdb_storage_size;
@@ -47,11 +36,6 @@ impl<'a> DuckString<'a> {
 }
 
 impl<'a> DuckString<'a> {
-    /// convert duckdb_string_t to a copy on write string
-    pub fn as_str(&mut self) -> std::borrow::Cow<'a, str> {
-        String::from_utf8_lossy(self.as_bytes())
-    }
-
     /// convert duckdb_string_t to a byte slice
     pub fn as_bytes(&mut self) -> &'a [u8] {
         unsafe {
@@ -62,293 +46,160 @@ impl<'a> DuckString<'a> {
     }
 }
 
-// FIXME: flat vectors don't have all of thsese types. I think they only
-/// Converts flat vector to an arrow array
-pub fn flat_vector_to_arrow_array(
+fn vector_as_slice<T: NativePType>(vector: &mut Vector, len: usize) -> ArrayRef {
+    let data = vector.as_slice_with_len::<T>(len);
+
+    PrimitiveArray::new(
+        Buffer::copy_from(data),
+        vector.validity_ref(data.len()).to_validity(),
+    )
+    .into_array()
+}
+
+fn vector_mapped<T, P: NativePType, F: Fn(&T) -> P>(
     vector: &mut Vector,
     len: usize,
-) -> Result<Arc<dyn Array>, Box<dyn std::error::Error>> {
+    from_duckdb_type: F,
+) -> ArrayRef {
+    let data = vector.as_slice_with_len::<T>(len);
+    let micros = data.iter().map(from_duckdb_type);
+    PrimitiveArray::new(
+        Buffer::from_trusted_len_iter(micros),
+        vector.validity_ref(data.len()).to_validity(),
+    )
+    .into_array()
+}
+
+fn vector_as_string_blob(vector: &mut Vector, len: usize, dtype: DType) -> ArrayRef {
+    let data = vector.as_slice_with_len::<duckdb_string_t>(len);
+    let validity = vector.validity_ref(len);
+
+    let mut builder = VarBinViewBuilder::with_capacity(dtype, len);
+
+    for (i, s) in data.iter().enumerate() {
+        if validity.is_valid(i) {
+            let mut ptr = *s;
+            builder.append_value(DuckString::new(&mut ptr).as_bytes())
+        } else {
+            builder.append_null()
+        }
+    }
+
+    builder.finish()
+}
+
+/// Converts flat vector to a vortex array
+pub fn flat_vector_to_vortex(vector: &mut Vector, len: usize) -> VortexResult<ArrayRef> {
     let type_id = vector.logical_type().as_type_id();
     match type_id {
-        DUCKDB_TYPE::DUCKDB_TYPE_INTEGER => {
-            let data = vector.as_slice_with_len::<i32>(len);
-
-            Ok(Arc::new(
-                PrimitiveArray::<Int32Type>::from_iter_values_with_nulls(
-                    data.iter().copied(),
-                    vector.validity_ref(data.len()).to_null_buffer(),
-                ),
-            ))
-        }
         DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP => {
-            let data = vector.as_slice_with_len::<duckdb_timestamp>(len);
-            let micros = data.iter().map(|duckdb_timestamp { micros }| *micros);
-            let structs = TimestampMicrosecondArray::from_iter_values_with_nulls(
-                micros,
-                vector.validity_ref(data.len()).to_null_buffer(),
-            );
-
-            Ok(Arc::new(structs))
+            let arr = vector_mapped(vector, len, |duckdb_timestamp { micros }| *micros);
+            Ok(TemporalArray::new_timestamp(arr, TimeUnit::Microseconds, None).into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S => {
-            let data = vector.as_slice_with_len::<duckdb_timestamp_s>(len);
-            let seconds = data.iter().map(|duckdb_timestamp_s { seconds }| *seconds);
-            let structs = TimestampSecondArray::from_iter_values_with_nulls(
-                seconds,
-                vector.validity_ref(data.len()).to_null_buffer(),
-            );
-
-            Ok(Arc::new(structs))
+            let arr = vector_mapped(vector, len, |duckdb_timestamp_s { seconds }| *seconds);
+            Ok(TemporalArray::new_timestamp(arr, TimeUnit::Seconds, None).into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS => {
-            let data = vector.as_slice_with_len::<duckdb_timestamp_ms>(len);
-            let millis = data.iter().map(|duckdb_timestamp_ms { millis }| *millis);
-            let structs = TimestampMillisecondArray::from_iter_values_with_nulls(
-                millis,
-                vector.validity_ref(data.len()).to_null_buffer(),
-            );
-
-            Ok(Arc::new(structs))
+            let arr = vector_mapped(vector, len, |duckdb_timestamp_ms { millis }| *millis);
+            Ok(TemporalArray::new_timestamp(arr, TimeUnit::Milliseconds, None).into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS => {
-            let data = vector.as_slice_with_len::<duckdb_timestamp>(len);
-            let nanos = data
-                .iter()
-                .map(|duckdb_timestamp { micros }| *micros * 1000);
-            let structs = TimestampNanosecondArray::from_iter_values_with_nulls(
-                nanos,
-                vector.validity_ref(data.len()).to_null_buffer(),
-            );
-
-            Ok(Arc::new(structs))
+            let arr = vector_mapped(vector, len, |duckdb_timestamp_ns { nanos }| *nanos);
+            Ok(TemporalArray::new_timestamp(arr, TimeUnit::Nanoseconds, None).into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ => {
-            let data = vector.as_slice_with_len::<duckdb_timestamp>(len);
-            let structs = TimestampMicrosecondArray::from_iter_values_with_nulls(
-                data.iter().map(|duckdb_timestamp { micros }| *micros),
-                vector.validity_ref(data.len()).to_null_buffer(),
+            let arr = vector_mapped(vector, len, |duckdb_timestamp { micros }| *micros);
+            Ok(
+                TemporalArray::new_timestamp(arr, TimeUnit::Microseconds, Some("UTC".to_string()))
+                    .into_array(),
             )
-            .with_timezone("UTC");
-
-            Ok(Arc::new(structs))
         }
-        DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR => {
-            let data = vector.as_slice_with_len::<duckdb_string_t>(len);
-            let validity = vector.validity_ref(len);
-
-            let duck_strings = data.iter().enumerate().map(|(i, s)| {
-                validity.is_valid(i).then(|| {
-                    let mut ptr = *s;
-                    DuckString::new(&mut ptr).as_str().to_string()
-                })
-            });
-
-            let values = duck_strings.collect::<Vec<_>>();
-
-            Ok(Arc::new(StringArray::from(values)))
+        DUCKDB_TYPE::DUCKDB_TYPE_DATE => {
+            let arr = vector_mapped(vector, len, |duckdb_date { days }| *days);
+            Ok(TemporalArray::new_date(arr, TimeUnit::Days).into_array())
         }
+        DUCKDB_TYPE::DUCKDB_TYPE_TIME => {
+            let arr = vector_mapped(vector, len, |duckdb_time { micros }| *micros);
+            Ok(TemporalArray::new_time(arr, TimeUnit::Microseconds).into_array())
+        }
+        DUCKDB_TYPE::DUCKDB_TYPE_TIME_NS => {
+            let arr = vector_mapped(vector, len, |duckdb_time_ns { nanos }| *nanos);
+            Ok(TemporalArray::new_time(arr, TimeUnit::Nanoseconds).into_array())
+        }
+        DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR => Ok(vector_as_string_blob(
+            vector,
+            len,
+            DType::Utf8(Nullability::Nullable),
+        )),
+        DUCKDB_TYPE::DUCKDB_TYPE_BLOB => Ok(vector_as_string_blob(
+            vector,
+            len,
+            DType::Binary(Nullability::Nullable),
+        )),
         DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN => {
             let data = vector.as_slice_with_len::<bool>(len);
 
-            Ok(Arc::new(BooleanArray::new(
-                BooleanBuffer::from_iter(data.iter().copied()),
-                vector.validity_ref(data.len()).to_null_buffer(),
-            )))
+            Ok(BoolArray::from_bit_buffer(
+                BitBuffer::from(data),
+                vector.validity_ref(data.len()).to_validity(),
+            )
+            .into_array())
         }
-        DUCKDB_TYPE::DUCKDB_TYPE_FLOAT => {
-            let data = vector.as_slice_with_len::<f32>(len);
-
-            Ok(Arc::new(
-                PrimitiveArray::<Float32Type>::from_iter_values_with_nulls(
-                    data.iter().copied(),
-                    vector.validity_ref(data.len()).to_null_buffer(),
-                ),
-            ))
-        }
-        DUCKDB_TYPE::DUCKDB_TYPE_DOUBLE => {
-            let data = vector.as_slice_with_len::<f64>(len);
-
-            Ok(Arc::new(
-                PrimitiveArray::<Float64Type>::from_iter_values_with_nulls(
-                    data.iter().copied(),
-                    vector.validity_ref(data.len()).to_null_buffer(),
-                ),
-            ))
-        }
-        DUCKDB_TYPE::DUCKDB_TYPE_DATE => {
-            let data = vector.as_slice_with_len::<duckdb_date>(len);
-
-            Ok(Arc::new(Date32Array::from_iter_values_with_nulls(
-                data.iter().map(|duckdb_date { days }| *days),
-                vector.validity_ref(data.len()).to_null_buffer(),
-            )))
-        }
-        DUCKDB_TYPE::DUCKDB_TYPE_TIME => {
-            let data = vector.as_slice_with_len::<duckdb_time>(len);
-
-            Ok(Arc::new(
-                Time64MicrosecondArray::from_iter_values_with_nulls(
-                    data.iter().map(|duckdb_time { micros }| *micros),
-                    vector.validity_ref(data.len()).to_null_buffer(),
-                ),
-            ))
-        }
-        DUCKDB_TYPE::DUCKDB_TYPE_TIME_NS => {
-            let data = vector.as_slice_with_len::<duckdb_time_ns>(len);
-
-            Ok(Arc::new(
-                Time64NanosecondArray::from_iter_values_with_nulls(
-                    data.iter().map(|duckdb_time_ns { nanos }| *nanos),
-                    vector.validity_ref(data.len()).to_null_buffer(),
-                ),
-            ))
-        }
-        DUCKDB_TYPE::DUCKDB_TYPE_SMALLINT => {
-            let data = vector.as_slice_with_len::<i16>(len);
-
-            Ok(Arc::new(
-                PrimitiveArray::<Int16Type>::from_iter_values_with_nulls(
-                    data.iter().copied(),
-                    vector.validity_ref(data.len()).to_null_buffer(),
-                ),
-            ))
-        }
-        DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT => {
-            let data = vector.as_slice_with_len::<u16>(len);
-
-            Ok(Arc::new(
-                PrimitiveArray::<UInt16Type>::from_iter_values_with_nulls(
-                    data.iter().copied(),
-                    vector.validity_ref(data.len()).to_null_buffer(),
-                ),
-            ))
-        }
-        DUCKDB_TYPE::DUCKDB_TYPE_BLOB => {
-            let mut data = vector.as_slice_with_len::<duckdb_string_t>(len).to_vec();
-            let validity = vector.validity_ref(len);
-
-            let duck_strings = data
-                .iter_mut()
-                .enumerate()
-                .map(|(i, ptr)| validity.is_valid(i).then(|| DuckString::new(ptr)));
-
-            let mut builder = GenericBinaryBuilder::<i32>::new();
-            for s in duck_strings {
-                if let Some(mut s) = s {
-                    builder.append_value(s.as_bytes());
-                } else {
-                    builder.append_null();
-                }
-            }
-
-            Ok(Arc::new(builder.finish()))
-        }
-        DUCKDB_TYPE::DUCKDB_TYPE_TINYINT => {
-            let data = vector.as_slice_with_len::<i8>(len);
-
-            Ok(Arc::new(
-                PrimitiveArray::<Int8Type>::from_iter_values_with_nulls(
-                    data.iter().copied(),
-                    vector.validity_ref(data.len()).to_null_buffer(),
-                ),
-            ))
-        }
-        DUCKDB_TYPE::DUCKDB_TYPE_BIGINT => {
-            let data = vector.as_slice_with_len::<i64>(len);
-            Ok(Arc::new(
-                PrimitiveArray::<Int64Type>::from_iter_values_with_nulls(
-                    data.iter().copied(),
-                    vector.validity_ref(data.len()).to_null_buffer(),
-                ),
-            ))
-        }
-        DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT => {
-            let data = vector.as_slice_with_len::<u64>(len);
-
-            Ok(Arc::new(
-                PrimitiveArray::<UInt64Type>::from_iter_values_with_nulls(
-                    data.iter().copied(),
-                    vector.validity_ref(data.len()).to_null_buffer(),
-                ),
-            ))
-        }
-        DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT => {
-            let data = vector.as_slice_with_len::<u8>(len);
-
-            Ok(Arc::new(
-                PrimitiveArray::<UInt8Type>::from_iter_values_with_nulls(
-                    data.iter().copied(),
-                    vector.validity_ref(data.len()).to_null_buffer(),
-                ),
-            ))
-        }
-        DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER => {
-            let data = vector.as_slice_with_len::<u32>(len);
-
-            Ok(Arc::new(
-                PrimitiveArray::<UInt32Type>::from_iter_values_with_nulls(
-                    data.iter().copied(),
-                    vector.validity_ref(data.len()).to_null_buffer(),
-                ),
-            ))
-        }
+        DUCKDB_TYPE::DUCKDB_TYPE_TINYINT => Ok(vector_as_slice::<i8>(vector, len)),
+        DUCKDB_TYPE::DUCKDB_TYPE_SMALLINT => Ok(vector_as_slice::<i16>(vector, len)),
+        DUCKDB_TYPE::DUCKDB_TYPE_INTEGER => Ok(vector_as_slice::<i32>(vector, len)),
+        DUCKDB_TYPE::DUCKDB_TYPE_BIGINT => Ok(vector_as_slice::<i64>(vector, len)),
+        DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT => Ok(vector_as_slice::<u8>(vector, len)),
+        DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT => Ok(vector_as_slice::<u16>(vector, len)),
+        DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER => Ok(vector_as_slice::<u32>(vector, len)),
+        DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT => Ok(vector_as_slice::<u64>(vector, len)),
+        DUCKDB_TYPE::DUCKDB_TYPE_FLOAT => Ok(vector_as_slice::<f32>(vector, len)),
+        DUCKDB_TYPE::DUCKDB_TYPE_DOUBLE => Ok(vector_as_slice::<f64>(vector, len)),
         DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL => {
             let logical_type = vector.logical_type();
             let (precision, scale) = logical_type.as_decimal();
             let decimal_dtype = DecimalDType::try_new(precision, scale.try_into()?)?;
+            let validity = vector.validity_ref(len).to_validity();
 
             // https://duckdb.org/docs/stable/sql/data_types/numeric.html#fixed-point-decimals
-            let decimal_values: Vec<i128> = match precision_to_duckdb_storage_size(&decimal_dtype)?
-            {
+            match precision_to_duckdb_storage_size(&decimal_dtype)? {
                 DecimalType::I16 => {
                     let data = vector.as_slice_with_len::<i16>(len);
-                    data.iter().map(|&v| v as i128).collect()
+                    DecimalArray::try_new(Buffer::copy_from(data), decimal_dtype, validity)
                 }
                 DecimalType::I32 => {
                     let data = vector.as_slice_with_len::<i32>(len);
-                    data.iter().map(|&v| v as i128).collect()
+                    DecimalArray::try_new(Buffer::copy_from(data), decimal_dtype, validity)
                 }
                 DecimalType::I64 => {
                     let data = vector.as_slice_with_len::<i64>(len);
-                    data.iter().map(|&v| v as i128).collect()
+                    DecimalArray::try_new(Buffer::copy_from(data), decimal_dtype, validity)
                 }
                 DecimalType::I128 => {
                     let data = vector.as_slice_with_len::<i128>(len);
-                    data.to_vec()
+                    DecimalArray::try_new(Buffer::copy_from(data), decimal_dtype, validity)
                 }
-                _ => return Err(format!("Unsupported decimal precision: {precision}").into()),
-            };
-
-            let decimal_array = Decimal128Array::from_iter_values_with_nulls(
-                decimal_values.into_iter(),
-                vector.validity_ref(len).to_null_buffer(),
-            )
-            .with_precision_and_scale(precision, scale as i8)?;
-
-            Ok(Arc::new(decimal_array))
+                _ => vortex_bail!("Unsupported decimal precision: {precision}"),
+            }
+            .map(|a| a.into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_ARRAY => {
             let array_elem_size = vector.logical_type().array_type_array_size();
-            let array_child_type = vector.logical_type().array_child_type();
-            let data_arrow = flat_vector_to_arrow_array(
+            let child_data = flat_vector_to_vortex(
                 &mut vector.array_vector_get_child(),
                 len * array_elem_size as usize,
             )?;
-            Ok(Arc::new(FixedSizeListArray::try_new(
-                Arc::new(Field::new(
-                    "element",
-                    DType::from_logical_type(array_child_type, Nullability::Nullable)?
-                        .to_arrow_dtype()?,
-                    true,
-                )),
-                array_elem_size as i32,
-                data_arrow,
-                vector.validity_ref(len).to_null_buffer(),
-            )?))
+
+            FixedSizeListArray::try_new(
+                child_data,
+                array_elem_size,
+                vector.validity_ref(len).to_validity(),
+                len,
+            )
+            .map(|a| a.into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_LIST => {
-            let array_child_type = vector.logical_type().list_child_type();
-
             let mut offsets = BufferMut::with_capacity(len);
             let mut lengths = BufferMut::with_capacity(len);
             for duckdb_list_entry { offset, length } in
@@ -365,64 +216,44 @@ pub fn flat_vector_to_arrow_array(
             }
             let offsets = offsets.freeze();
             let lengths = lengths.freeze();
-            let arrow_child = flat_vector_to_arrow_array(
+            let child_data = flat_vector_to_vortex(
                 &mut vector.list_vector_get_child(),
                 usize::try_from(offsets[len - 1] + lengths[len - 1])
                     .vortex_expect("last offset and length sum must fit in usize "),
             )?;
 
-            Ok(Arc::new(GenericListViewArray::try_new(
-                Arc::new(Field::new(
-                    "element",
-                    DType::from_logical_type(array_child_type, Nullability::Nullable)?
-                        .to_arrow_dtype()?,
-                    true,
-                )),
-                offsets.into_arrow_scalar_buffer(),
-                lengths.into_arrow_scalar_buffer(),
-                arrow_child,
-                vector.validity_ref(len).to_null_buffer(),
-            )?))
+            ListViewArray::try_new(
+                child_data,
+                offsets.into_array(),
+                lengths.into_array(),
+                vector.validity_ref(len).to_validity(),
+            )
+            .map(|a| a.into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_STRUCT => {
-            let children = (0..vector.logical_type().struct_type_child_count())
-                .map(|idx| {
-                    flat_vector_to_arrow_array(&mut vector.struct_vector_get_child(idx), len)
-                })
+            let logical_type = vector.logical_type();
+            let children = (0..logical_type.struct_type_child_count())
+                .map(|idx| flat_vector_to_vortex(&mut vector.struct_vector_get_child(idx), len))
                 .collect::<Result<Vec<_>, _>>()?;
-            if children.is_empty() {
-                Ok(Arc::new(arrow_array::StructArray::new_empty_fields(
-                    len,
-                    vector.validity_ref(len).to_null_buffer(),
-                )))
-            } else {
-                Ok(Arc::new(arrow_array::StructArray::try_new(
-                    DType::from_logical_type(vector.logical_type(), Nullability::NonNullable)?
-                        .to_arrow_schema()?
-                        .fields,
-                    children,
-                    vector.validity_ref(len).to_null_buffer(),
-                )?))
-            }
+            let names = (0..logical_type.struct_type_child_count())
+                .map(|idx| logical_type.struct_child_name(idx))
+                .collect();
+
+            StructArray::try_new(names, children, len, vector.validity_ref(len).to_validity())
+                .map(|a| a.into_array())
         }
         _ => todo!("missing impl for {type_id:?}"),
     }
 }
 
-pub fn data_chunk_to_arrow(field_names: &FieldNames, chunk: &DataChunk) -> VortexResult<ArrayRef> {
+pub fn data_chunk_to_vortex(field_names: &FieldNames, chunk: &DataChunk) -> VortexResult<ArrayRef> {
     let len = chunk.len();
 
     let columns = (0..chunk.column_count())
         .map(|i| {
             let mut vector = chunk.get_vector(i);
             vector.flatten(len);
-            flat_vector_to_arrow_array(&mut vector, len.as_())
-                .map(|array_data| {
-                    let chunk_len: usize = chunk.len().as_();
-                    assert_eq!(array_data.len(), chunk_len);
-                    ArrayRef::from_arrow(array_data.as_ref(), true)
-                })
-                .map_err(|e| vortex_err!("duckdb to arrow conversion failure {e}"))
+            flat_vector_to_vortex(&mut vector, len.as_())
         })
         .collect::<VortexResult<Arc<_>>>()?;
     StructArray::try_new(
@@ -438,12 +269,10 @@ pub fn data_chunk_to_arrow(field_names: &FieldNames, chunk: &DataChunk) -> Vorte
 mod tests {
     use std::ffi::CString;
 
-    use arrow_array::cast::AsArray;
-    use arrow_array::{
-        BooleanArray, Int32Array, TimestampMicrosecondArray, TimestampMillisecondArray,
-        TimestampSecondArray,
-    };
+    use vortex::ToCanonical;
+    use vortex::arrays::PrimitiveVTable;
     use vortex::error::VortexUnwrap;
+    use vortex::mask::Mask;
 
     use super::*;
     use crate::cpp::DUCKDB_TYPE;
@@ -464,13 +293,10 @@ mod tests {
         }
 
         // Test conversion
-        let result = flat_vector_to_arrow_array(&mut vector, len).unwrap();
-        let arrow_array = result.as_any().downcast_ref::<Int32Array>().unwrap();
+        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let vortex_array = result.as_::<PrimitiveVTable>().as_slice::<i32>();
 
-        assert_eq!(arrow_array.len(), len);
-        for (i, &expected) in values.iter().enumerate() {
-            assert_eq!(arrow_array.value(i), expected);
-        }
+        assert_eq!(vortex_array, values);
     }
 
     #[test]
@@ -488,16 +314,12 @@ mod tests {
         }
 
         // Test conversion
-        let result = flat_vector_to_arrow_array(&mut vector, len).unwrap();
-        let arrow_array = result
-            .as_any()
-            .downcast_ref::<TimestampMicrosecondArray>()
-            .unwrap();
+        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let vortex_array = TemporalArray::try_from(result).unwrap();
+        let vortex_values = vortex_array.temporal_values().to_primitive();
+        let values_slice = vortex_values.as_slice::<i64>();
 
-        assert_eq!(arrow_array.len(), len);
-        for (i, &expected) in values.iter().enumerate() {
-            assert_eq!(arrow_array.value(i), expected);
-        }
+        assert_eq!(values_slice, values);
     }
 
     #[test]
@@ -515,16 +337,12 @@ mod tests {
         }
 
         // Test conversion
-        let result = flat_vector_to_arrow_array(&mut vector, len).unwrap();
-        let arrow_array = result
-            .as_any()
-            .downcast_ref::<TimestampSecondArray>()
-            .unwrap();
+        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let vortex_array = TemporalArray::try_from(result).unwrap();
+        let vortex_values = vortex_array.temporal_values().to_primitive();
+        let values_slice = vortex_values.as_slice::<i64>();
 
-        assert_eq!(arrow_array.len(), len);
-        for (i, &expected) in values.iter().enumerate() {
-            assert_eq!(arrow_array.value(i), expected);
-        }
+        assert_eq!(values_slice, values);
     }
 
     #[test]
@@ -542,16 +360,12 @@ mod tests {
         }
 
         // Test conversion
-        let result = flat_vector_to_arrow_array(&mut vector, len).unwrap();
-        let arrow_array = result
-            .as_any()
-            .downcast_ref::<TimestampMillisecondArray>()
-            .unwrap();
+        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let vortex_array = TemporalArray::try_from(result).unwrap();
+        let vortex_values = vortex_array.temporal_values().to_primitive();
+        let values_slice = vortex_values.as_slice::<i64>();
 
-        assert_eq!(arrow_array.len(), len);
-        for (i, &expected) in values.iter().enumerate() {
-            assert_eq!(arrow_array.value(i), expected);
-        }
+        assert_eq!(values_slice, values);
     }
 
     #[test]
@@ -574,18 +388,16 @@ mod tests {
         validity_slice.set(1, false);
 
         // Test conversion
-        let result = flat_vector_to_arrow_array(&mut vector, len).unwrap();
-        let arrow_array = result
-            .as_any()
-            .downcast_ref::<TimestampMicrosecondArray>()
-            .unwrap();
+        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let vortex_array = TemporalArray::try_from(result).unwrap();
+        let vortex_values = vortex_array.temporal_values().to_primitive();
+        let values_slice = vortex_values.as_slice::<i64>();
 
-        assert_eq!(arrow_array.len(), len);
-        assert!(arrow_array.is_valid(0));
-        assert!(arrow_array.is_null(1));
-        assert!(arrow_array.is_valid(2));
-        assert_eq!(arrow_array.value(0), values[0]);
-        assert_eq!(arrow_array.value(2), values[2]);
+        assert_eq!(values_slice, values);
+        assert_eq!(
+            vortex_values.validity_mask(),
+            Mask::from_indices(3, vec![0, 2])
+        );
     }
 
     #[test]
@@ -610,16 +422,12 @@ mod tests {
         }
 
         // Test conversion
-        let result = flat_vector_to_arrow_array(&mut vector, len).unwrap();
-        let arrow_array = result
-            .as_any()
-            .downcast_ref::<TimestampMicrosecondArray>()
-            .unwrap();
+        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let vortex_array = TemporalArray::try_from(result).unwrap();
+        let vortex_values = vortex_array.temporal_values().to_primitive();
+        let values_slice = vortex_values.as_slice::<i64>();
 
-        assert_eq!(arrow_array.len(), len);
-        for (i, &expected) in values.iter().enumerate() {
-            assert_eq!(arrow_array.value(i), expected);
-        }
+        assert_eq!(values_slice, values);
     }
 
     #[test]
@@ -637,14 +445,12 @@ mod tests {
         }
 
         // Test conversion
-        let result = flat_vector_to_arrow_array(&mut vector, len).unwrap();
-        let arrow_array = result
-            .as_any()
-            .downcast_ref::<TimestampMicrosecondArray>()
-            .unwrap();
+        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let vortex_array = TemporalArray::try_from(result).unwrap();
+        let vortex_values = vortex_array.temporal_values().to_primitive();
+        let values_slice = vortex_values.as_slice::<i64>();
 
-        assert_eq!(arrow_array.len(), 1);
-        assert_eq!(arrow_array.value(0), values[0]);
+        assert_eq!(values_slice, values);
     }
 
     #[test]
@@ -662,13 +468,11 @@ mod tests {
         }
 
         // Test conversion
-        let result = flat_vector_to_arrow_array(&mut vector, len).unwrap();
-        let arrow_array = result.as_any().downcast_ref::<BooleanArray>().unwrap();
+        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let vortex_array = result.to_bool();
 
-        assert_eq!(arrow_array.len(), len);
-        for (i, &expected) in values.iter().enumerate() {
-            assert_eq!(arrow_array.value(i), expected);
-        }
+        assert_eq!(vortex_array.len(), len);
+        assert_eq!(vortex_array.bit_buffer().iter().collect::<Vec<_>>(), values);
     }
 
     #[test]
@@ -691,15 +495,15 @@ mod tests {
         validity_slice.set(1, false);
 
         // Test conversion
-        let result = flat_vector_to_arrow_array(&mut vector, len).unwrap();
-        let arrow_array = result.as_any().downcast_ref::<Int32Array>().unwrap();
+        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let vortex_array = result.to_primitive();
+        let vortex_slice = vortex_array.as_slice::<i32>();
 
-        assert_eq!(arrow_array.len(), len);
-        assert!(arrow_array.is_valid(0));
-        assert!(arrow_array.is_null(1));
-        assert!(arrow_array.is_valid(2));
-        assert_eq!(arrow_array.value(0), 1);
-        assert_eq!(arrow_array.value(2), 3);
+        assert_eq!(vortex_slice, values);
+        assert_eq!(
+            vortex_array.validity_mask(),
+            Mask::from_indices(3, vec![0, 2])
+        );
     }
 
     #[test]
@@ -725,13 +529,16 @@ mod tests {
         }
 
         // Test conversion
-        let result = flat_vector_to_arrow_array(&mut vector, len).unwrap();
-        let arrow_array = result.as_list_view::<i64>();
+        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let vortex_array = result.to_listview();
 
-        assert_eq!(arrow_array.len(), len);
+        assert_eq!(vortex_array.len(), len);
         assert_eq!(
-            arrow_array.value(0).as_primitive::<Int32Type>(),
-            &Int32Array::from_iter([1, 2, 3, 4])
+            vortex_array
+                .list_elements_at(0)
+                .to_primitive()
+                .as_slice::<i32>(),
+            &[1, 2, 3, 4]
         );
     }
 
@@ -753,13 +560,16 @@ mod tests {
         }
 
         // Test conversion
-        let result = flat_vector_to_arrow_array(&mut vector, len).unwrap();
-        let arrow_array = result.as_fixed_size_list();
+        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let vortex_array = result.to_fixed_size_list();
 
-        assert_eq!(arrow_array.len(), len);
+        assert_eq!(vortex_array.len(), len);
         assert_eq!(
-            arrow_array.value(0).as_primitive::<Int32Type>(),
-            &Int32Array::from_iter([1, 2, 3, 4])
+            vortex_array
+                .fixed_size_list_elements_at(0)
+                .to_primitive()
+                .as_slice::<i32>(),
+            &[1, 2, 3, 4]
         );
     }
 
@@ -770,11 +580,11 @@ mod tests {
         let mut vector = Vector::with_capacity(logical_type, len);
 
         // Test conversion
-        let result = flat_vector_to_arrow_array(&mut vector, len).unwrap();
-        let arrow_array = result.as_struct();
+        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let vortex_array = result.to_struct();
 
-        assert_eq!(arrow_array.len(), len);
-        assert_eq!(arrow_array.fields().len(), 0);
+        assert_eq!(vortex_array.len(), len);
+        assert_eq!(vortex_array.fields().len(), 0);
     }
 
     #[test]
@@ -805,18 +615,18 @@ mod tests {
         }
 
         // Test conversion
-        let result = flat_vector_to_arrow_array(&mut vector, len).unwrap();
-        let arrow_array = result.as_struct();
+        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let vortex_array = result.to_struct();
 
-        assert_eq!(arrow_array.len(), len);
-        assert_eq!(arrow_array.fields().len(), 2);
+        assert_eq!(vortex_array.len(), len);
+        assert_eq!(vortex_array.fields().len(), 2);
         assert_eq!(
-            arrow_array.column(0).as_primitive::<Int32Type>(),
-            &Int32Array::from_iter([1, 2, 3, 4])
+            vortex_array.fields()[0].to_primitive().as_slice::<i32>(),
+            &[1, 2, 3, 4]
         );
         assert_eq!(
-            arrow_array.column(1).as_primitive::<Int32Type>(),
-            &Int32Array::from_iter([5, 6, 7, 8])
+            vortex_array.fields()[1].to_primitive().as_slice::<i32>(),
+            &[5, 6, 7, 8]
         );
     }
 }
