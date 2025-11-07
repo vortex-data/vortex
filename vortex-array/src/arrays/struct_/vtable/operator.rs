@@ -41,9 +41,8 @@ impl OperatorVTable<StructVTable> for StructVTable {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use vortex_dtype::{FieldNames, PTypeDowncast};
+    use vortex_mask::Mask;
     use vortex_vector::VectorOps;
 
     use crate::IntoArray;
@@ -98,12 +97,10 @@ mod tests {
         .unwrap();
 
         // Create a selection mask that selects indices 0, 2, 4 (alternating pattern).
-        let selection = BoolArray::from_iter([true, false, true, false, true, false]).into_array();
+        let selection = Mask::from_iter([true, false, true, false, true, false]);
 
         // Execute with selection mask.
-        let result = struct_array
-            .execute_with_selection(Some(&Arc::new(selection)))
-            .unwrap();
+        let result = struct_array.execute_with_selection(&selection).unwrap();
 
         // Verify the result has the filtered length.
         assert_eq!(result.len(), 3);
@@ -152,12 +149,10 @@ mod tests {
         .unwrap();
 
         // Create a selection mask that selects indices 0, 1, 2, 4, 5.
-        let selection = BoolArray::from_iter([true, true, true, false, true, true]).into_array();
+        let selection = Mask::from_iter([true, true, true, false, true, true]);
 
         // Execute with selection mask.
-        let result = struct_array
-            .execute_with_selection(Some(&Arc::new(selection)))
-            .unwrap();
+        let result = struct_array.execute_with_selection(&selection).unwrap();
 
         assert_eq!(result.len(), 5);
 

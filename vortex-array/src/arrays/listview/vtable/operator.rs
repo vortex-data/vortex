@@ -43,8 +43,6 @@ impl OperatorVTable<ListViewVTable> for ListViewVTable {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use vortex_dtype::PTypeDowncast;
     use vortex_mask::Mask;
     use vortex_vector::VectorOps;
@@ -53,7 +51,7 @@ mod tests {
     use crate::arrays::listview::tests::common::{
         create_basic_listview, create_nullable_listview, create_overlapping_listview,
     };
-    use crate::arrays::{BoolArray, ListViewArray, PrimitiveArray};
+    use crate::arrays::{ListViewArray, PrimitiveArray};
     use crate::validity::Validity;
 
     #[test]
@@ -99,12 +97,10 @@ mod tests {
         let listview = ListViewArray::new(elements, offsets, sizes, Validity::AllValid);
 
         // Create selection mask: [true, false, true, false, true, false].
-        let selection = BoolArray::from_iter([true, false, true, false, true, false]).into_array();
+        let selection = Mask::from_iter([true, false, true, false, true, false]);
 
         // Execute with selection.
-        let result = listview
-            .execute_with_selection(Some(&Arc::new(selection)))
-            .unwrap();
+        let result = listview.execute_with_selection(&selection).unwrap();
 
         // Verify filtered length (3 lists selected).
         assert_eq!(result.len(), 3);
@@ -133,12 +129,10 @@ mod tests {
         let listview = create_nullable_listview();
 
         // Create selection mask: [true, true, false].
-        let selection = BoolArray::from_iter([true, true, false]).into_array();
+        let selection = Mask::from_iter([true, true, false]);
 
         // Execute with selection.
-        let result = listview
-            .execute_with_selection(Some(&Arc::new(selection)))
-            .unwrap();
+        let result = listview.execute_with_selection(&selection).unwrap();
 
         // Verify filtered length (2 lists selected, including the null).
         assert_eq!(result.len(), 2);
@@ -168,12 +162,10 @@ mod tests {
         let listview = create_overlapping_listview();
 
         // Create selection mask: [true, false, true, true, false].
-        let selection = BoolArray::from_iter([true, false, true, true, false]).into_array();
+        let selection = Mask::from_iter([true, false, true, true, false]);
 
         // Execute with selection.
-        let result = listview
-            .execute_with_selection(Some(&Arc::new(selection)))
-            .unwrap();
+        let result = listview.execute_with_selection(&selection).unwrap();
 
         // Verify filtered length (3 lists selected).
         assert_eq!(result.len(), 3);

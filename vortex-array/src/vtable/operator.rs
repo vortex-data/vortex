@@ -2,9 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::{VortexResult, vortex_bail};
+use vortex_mask::Mask;
+use vortex_vector::Vector;
 
 use crate::ArrayRef;
-use crate::execution::{BatchKernelRef, BindCtx};
+use crate::array::IntoArray;
+use crate::execution::{BatchKernelRef, BindCtx, ExecutionCtx};
 use crate::operator::OperatorRef;
 use crate::vtable::{NotSupported, VTable};
 
@@ -18,6 +21,30 @@ pub trait OperatorVTable<V: VTable> {
     /// Returns `None` if the array cannot be converted to an operator.
     fn to_operator(_array: &V::Array) -> VortexResult<Option<OperatorRef>> {
         Ok(None)
+    }
+
+    /// Takes the array by ownership, returning a canonical [`Vector`] containing the rows
+    /// indicated by the given selection [`Mask`].
+    ///
+    /// The returned vector must be the appropriate one for the array's logical type (they are
+    /// one-to-one with Vortex `DType`s), and should respect the output nullability of the array.
+    ///
+    /// Debug builds will panic if the returned vector is of the wrong type, wrong length, or
+    /// incorrectly contains null values.
+    ///
+    /// Implementations should recursively call [`crate::ArrayOperator::execute_batch`] on child
+    /// arrays as needed.
+    // NOTE(ngates): in the future, we will add pipeline_execute to process chunks of 1k rows at
+    //  a time.
+    // TODO(ngates): we should fix array vtables such that we can take the array by ownership. This
+    //  allows for more efficient in-place compute, as well as avoids allocating additional memory
+    //  if the array's own memory can be reused by some reasonable allocator.
+    fn execute_batch(
+        array: &V::Array,
+        selection: &Mask,
+        _ctx: &mut dyn ExecutionCtx,
+    ) -> VortexResult<Vector> {
+        Self::bind(array, Some(&selection.clone().into_array()), &mut ())?.execute()
     }
 
     /// Bind the array for execution in batch mode.

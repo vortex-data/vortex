@@ -128,6 +128,11 @@ impl FixedSizeListVector {
         (self.elements, self.list_size, self.validity)
     }
 
+    /// Returns the element size of every list in the vector.
+    pub fn element_size(&self) -> u32 {
+        self.list_size
+    }
+
     /// Returns the child vector of elements, which represents the contiguous fixed-size lists of
     /// the `FixedSizeListVector`.
     pub fn elements(&self) -> &Arc<Vector> {

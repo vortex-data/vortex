@@ -147,10 +147,10 @@ mod tests {
     use vortex_dtype::{FieldNames, Nullability, PTypeDowncast};
     use vortex_vector::VectorOps;
 
+    use crate::IntoArray;
     use crate::arrays::{BoolArray, PrimitiveArray, StructArray};
     use crate::compute::arrays::get_item::GetItemArray;
     use crate::validity::Validity;
-    use crate::{ArrayOperator, IntoArray};
 
     #[test]
     fn test_get_item_basic() {
@@ -233,9 +233,9 @@ mod tests {
             .into_array();
 
         // Apply selection mask [1 0 1 0 1 0] => select indices 0, 2, 4
-        let selection = bitbuffer![1 0 1 0 1 0].into_array();
+        let selection = bitbuffer![1 0 1 0 1 0].into();
         let result = get_item
-            .execute_with_selection(Some(&selection))
+            .execute_with_selection(&selection)
             .unwrap()
             .into_primitive()
             .into_i32();

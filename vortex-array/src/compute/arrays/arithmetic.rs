@@ -347,7 +347,7 @@ mod tests {
 
     use crate::arrays::PrimitiveArray;
     use crate::compute::arrays::arithmetic::{ArithmeticArray, ArithmeticOperator};
-    use crate::{ArrayOperator, ArrayRef, IntoArray};
+    use crate::{ArrayRef, IntoArray};
 
     fn add(lhs: ArrayRef, rhs: ArrayRef) -> ArrayRef {
         ArithmeticArray::new(lhs, rhs, ArithmeticOperator::Add).into_array()
@@ -418,10 +418,8 @@ mod tests {
         let lhs = PrimitiveArray::from_iter([1u32, 2, 3]).into_array();
         let rhs = PrimitiveArray::from_iter([10u32, 20, 30]).into_array();
 
-        let selection = bitbuffer![1 0 1].into_array();
-
         let result = add(lhs, rhs)
-            .execute_with_selection(Some(&selection))
+            .execute_with_selection(&bitbuffer![1 0 1].into())
             .unwrap()
             .into_primitive()
             .downcast::<u32>();
