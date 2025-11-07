@@ -29,7 +29,7 @@ pub fn sparse_high_null_fill() -> ArrayRef {
 }
 
 pub fn sparse_high_non_null_fill() -> ArrayRef {
-    PrimitiveArray::new(buffer![22; 20], Validity::NonNullable)
+    PrimitiveArray::from_iter([22; 20])
         .patch(&Patches::new(
             20,
             0,
@@ -41,7 +41,7 @@ pub fn sparse_high_non_null_fill() -> ArrayRef {
 }
 
 pub fn sparse_low() -> ArrayRef {
-    PrimitiveArray::new(buffer![60; 20], Validity::NonNullable)
+    PrimitiveArray::from_iter([60; 20])
         .patch(&Patches::new(
             20,
             0,
@@ -53,7 +53,7 @@ pub fn sparse_low() -> ArrayRef {
 }
 
 pub fn sparse_low_high() -> ArrayRef {
-    PrimitiveArray::new(buffer![30; 20], Validity::NonNullable)
+    PrimitiveArray::from_iter([30; 20])
         .patch(&Patches::new(
             20,
             0,
@@ -65,7 +65,7 @@ pub fn sparse_low_high() -> ArrayRef {
 }
 
 pub fn sparse_edge_patch_high() -> ArrayRef {
-    PrimitiveArray::new(buffer![33; 20], Validity::NonNullable)
+    PrimitiveArray::from_iter([33; 20])
         .patch(&Patches::new(
             20,
             0,
@@ -77,7 +77,7 @@ pub fn sparse_edge_patch_high() -> ArrayRef {
 }
 
 pub fn sparse_edge_patch_low() -> ArrayRef {
-    PrimitiveArray::new(buffer![22; 20], Validity::NonNullable)
+    PrimitiveArray::from_iter([22; 20])
         .patch(&Patches::new(
             20,
             0,

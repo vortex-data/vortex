@@ -28,10 +28,10 @@ fn test_search_sorted_primitive(
 
 #[test]
 fn test_mask_primitive_array() {
+    test_mask_conformance(PrimitiveArray::from_iter([0, 1, 2, 3, 4]).as_ref());
     test_mask_conformance(
-        PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).as_ref(),
+        PrimitiveArray::from_option_iter([Some(0), Some(1), Some(2), Some(3), Some(4)]).as_ref(),
     );
-    test_mask_conformance(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).as_ref());
     test_mask_conformance(
         PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllInvalid).as_ref(),
     );
@@ -47,18 +47,14 @@ fn test_mask_primitive_array() {
 #[test]
 fn test_filter_primitive_array() {
     // Test various sizes
-    test_filter_conformance(PrimitiveArray::new(buffer![42i32], Validity::NonNullable).as_ref());
-    test_filter_conformance(PrimitiveArray::new(buffer![0, 1], Validity::NonNullable).as_ref());
-    test_filter_conformance(
-        PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).as_ref(),
-    );
-    test_filter_conformance(
-        PrimitiveArray::new(buffer![0, 1, 2, 3, 4, 5, 6, 7], Validity::NonNullable).as_ref(),
-    );
+    test_filter_conformance(PrimitiveArray::from_iter([42i32]).as_ref());
+    test_filter_conformance(PrimitiveArray::from_iter([0, 1]).as_ref());
+    test_filter_conformance(PrimitiveArray::from_iter([0, 1, 2, 3, 4]).as_ref());
+    test_filter_conformance(PrimitiveArray::from_iter([0, 1, 2, 3, 4, 5, 6, 7]).as_ref());
 
     // Test with validity
     test_filter_conformance(
-        PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).as_ref(),
+        PrimitiveArray::from_option_iter([Some(0), Some(1), Some(2), Some(3), Some(4)]).as_ref(),
     );
     test_filter_conformance(
         PrimitiveArray::new(

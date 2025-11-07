@@ -361,7 +361,7 @@ mod tests {
         let patches = Patches::new(
             arr.len(),
             0,
-            PrimitiveArray::new(buffer![0u32], Validity::NonNullable).into_array(),
+            PrimitiveArray::from_iter([0u32]).into_array(),
             BoolArray::from(BitBuffer::new_unset(1)).into_array(),
             None,
         );

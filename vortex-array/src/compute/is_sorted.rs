@@ -301,9 +301,11 @@ mod tests {
     #[test]
     fn test_is_sorted() {
         assert!(
-            is_sorted(PrimitiveArray::new(buffer!(0, 1, 2, 3), Validity::AllValid).as_ref())
-                .unwrap()
-                .unwrap()
+            is_sorted(
+                PrimitiveArray::from_option_iter([Some(0), Some(1), Some(2), Some(3)]).as_ref()
+            )
+            .unwrap()
+            .unwrap()
         );
         assert!(
             is_sorted(
@@ -329,9 +331,11 @@ mod tests {
         );
 
         assert!(
-            !is_sorted(PrimitiveArray::new(buffer!(0, 1, 3, 2), Validity::AllValid).as_ref())
-                .unwrap()
-                .unwrap()
+            !is_sorted(
+                PrimitiveArray::from_option_iter([Some(0), Some(1), Some(3), Some(2)]).as_ref()
+            )
+            .unwrap()
+            .unwrap()
         );
         assert!(
             !is_sorted(
@@ -349,9 +353,11 @@ mod tests {
     #[test]
     fn test_is_strict_sorted() {
         assert!(
-            is_strict_sorted(PrimitiveArray::new(buffer!(0, 1, 2, 3), Validity::AllValid).as_ref())
-                .unwrap()
-                .unwrap()
+            is_strict_sorted(
+                PrimitiveArray::from_option_iter([Some(0), Some(1), Some(2), Some(3)]).as_ref()
+            )
+            .unwrap()
+            .unwrap()
         );
         assert!(
             is_strict_sorted(

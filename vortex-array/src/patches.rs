@@ -1037,15 +1037,12 @@ mod test {
             20,
             0,
             buffer![2u64, 9, 15].into_array(),
-            PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
+            PrimitiveArray::from_option_iter([Some(33_i32), Some(44), Some(55)]).into_array(),
             None,
         );
 
         let taken = patches
-            .take(
-                &PrimitiveArray::new(buffer![9, 0], Validity::from_iter(vec![true, false]))
-                    .into_array(),
-            )
+            .take(&PrimitiveArray::from_option_iter([Some(9), None]).into_array())
             .unwrap()
             .unwrap();
         let primitive_values = taken.values().to_primitive();
@@ -1070,10 +1067,7 @@ mod test {
         );
 
         let taken = patches
-            .take_search(
-                PrimitiveArray::new(buffer![9, 0], Validity::from_iter([true, false])),
-                true,
-            )
+            .take_search(PrimitiveArray::from_option_iter([Some(9), None]), true)
             .unwrap()
             .unwrap();
 
@@ -1101,7 +1095,7 @@ mod test {
 
         let taken = patches
             .take_search(
-                PrimitiveArray::new(buffer![500, 1200, 999], Validity::AllValid),
+                PrimitiveArray::from_option_iter([Some(500), Some(1200), Some(999)]),
                 true,
             )
             .unwrap()
@@ -1124,7 +1118,7 @@ mod test {
 
         let taken = patches
             .take_search(
-                PrimitiveArray::new(buffer![3, 4, 5], Validity::AllValid),
+                PrimitiveArray::from_option_iter([Some(3), Some(4), Some(5)]),
                 true,
             )
             .unwrap();
@@ -1144,7 +1138,7 @@ mod test {
 
         let taken = patches
             .take_search(
-                PrimitiveArray::new(buffer![10, 15, 20, 99], Validity::AllValid),
+                PrimitiveArray::from_option_iter([Some(10), Some(15), Some(20), Some(99)]),
                 true,
             )
             .unwrap()

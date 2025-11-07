@@ -140,11 +140,11 @@ mod test {
     }
 
     #[rstest]
-    #[case(PrimitiveArray::new(buffer![42i32], Validity::NonNullable))]
-    #[case(PrimitiveArray::new(buffer![0, 1], Validity::NonNullable))]
-    #[case(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable))]
-    #[case(PrimitiveArray::new(buffer![0, 1, 2, 3, 4, 5, 6, 7], Validity::NonNullable))]
-    #[case(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid))]
+    #[case(PrimitiveArray::from_iter([42i32]))]
+    #[case(PrimitiveArray::from_iter([0, 1]))]
+    #[case(PrimitiveArray::from_iter([0, 1, 2, 3, 4]))]
+    #[case(PrimitiveArray::from_iter([0, 1, 2, 3, 4, 5, 6, 7]))]
+    #[case(PrimitiveArray::from_option_iter([Some(0), Some(1), Some(2), Some(3), Some(4)]))]
     #[case(PrimitiveArray::new(
         buffer![0, 1, 2, 3, 4, 5],
         Validity::Array(BoolArray::from_iter([true, false, true, false, true, true]).into_array()),

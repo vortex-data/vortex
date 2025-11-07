@@ -219,7 +219,7 @@ impl<V: VTable + MinMaxKernel> Kernel for MinMaxKernelAdapter<V> {
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::{BitBuffer, buffer};
+    use vortex_buffer::BitBuffer;
 
     use crate::arrays::{BoolArray, NullArray, PrimitiveArray};
     use crate::compute::{MinMaxResult, min_max};
@@ -227,7 +227,7 @@ mod tests {
 
     #[test]
     fn test_prim_max() {
-        let p = PrimitiveArray::new(buffer![1, 2, 3], Validity::NonNullable);
+        let p = PrimitiveArray::from_iter([1, 2, 3]);
         assert_eq!(
             min_max(p.as_ref()).unwrap(),
             Some(MinMaxResult {

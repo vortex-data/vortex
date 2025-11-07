@@ -13,7 +13,7 @@ use crate::{Array, IntoArray, ToCanonical};
 
 #[test]
 fn test_project() {
-    let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::NonNullable);
+    let xs = PrimitiveArray::from_iter([0i64, 1, 2, 3, 4]);
     let ys = VarBinArray::from_vec(
         vec!["a", "b", "c", "d", "e"],
         DType::Utf8(Nullability::NonNullable),
@@ -50,8 +50,8 @@ fn test_project() {
 
 #[test]
 fn test_remove_column() {
-    let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::NonNullable);
-    let ys = PrimitiveArray::new(buffer![4u64, 5, 6, 7, 8], Validity::NonNullable);
+    let xs = PrimitiveArray::from_iter([0i64, 1, 2, 3, 4]);
+    let ys = PrimitiveArray::from_iter([4u64, 5, 6, 7, 8]);
 
     let mut struct_a = StructArray::try_new(
         FieldNames::from(["xs", "ys"]),

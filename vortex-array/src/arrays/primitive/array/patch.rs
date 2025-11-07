@@ -105,15 +105,12 @@ pub fn patch_chunk<T, I, C>(
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::buffer;
-
     use super::*;
     use crate::ToCanonical;
-    use crate::validity::Validity;
 
     #[test]
     fn patch_sliced() {
-        let input = PrimitiveArray::new(buffer![2u32; 10], Validity::AllValid);
+        let input = PrimitiveArray::from_option_iter([Some(2u32); 10]);
         let sliced = input.slice(2..8);
         assert_eq!(sliced.to_primitive().as_slice::<u32>(), &[2u32; 6]);
     }

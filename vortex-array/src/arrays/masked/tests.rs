@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use rstest::rstest;
+use vortex_buffer::buffer;
 use vortex_dtype::{DType, Nullability};
 
 use super::*;
@@ -26,8 +27,7 @@ fn test_dtype_nullability(#[case] validity: Validity, #[case] expected: Nullabil
 fn test_dtype_nullability_with_nullable_child() {
     // Child can have nullable dtype but no actual nulls.
     // MaskedArray dtype should be determined by validity, not child's dtype.
-    let child =
-        PrimitiveArray::new(vortex_buffer::buffer![1i32, 2, 3], Validity::AllValid).into_array();
+    let child = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::AllValid).into_array();
 
     // Child has nullable dtype.
     assert!(child.dtype().is_nullable());

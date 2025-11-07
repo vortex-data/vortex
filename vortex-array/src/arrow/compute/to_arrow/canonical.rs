@@ -714,7 +714,7 @@ mod tests {
 
     #[test]
     fn struct_nullable_non_null_to_arrow() {
-        let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::AllValid);
+        let xs = PrimitiveArray::from_option_iter([Some(0i64), Some(1), Some(2), Some(3), Some(4)]);
 
         let struct_a = StructArray::try_new(
             FieldNames::from(["xs"]),
@@ -751,7 +751,7 @@ mod tests {
 
     #[test]
     fn struct_to_arrow_with_schema_mismatch() {
-        let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::AllValid);
+        let xs = PrimitiveArray::from_option_iter([Some(0i64), Some(1), Some(2), Some(3), Some(4)]);
 
         let struct_a = StructArray::try_new(
             FieldNames::from(["xs"]),
@@ -881,9 +881,9 @@ mod tests {
     #[test]
     fn test_to_arrow_list_i32() {
         // Create a ListViewArray with i32 elements: [[1, 2, 3], [4, 5]]
-        let elements = PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5], Validity::NonNullable);
-        let offsets = PrimitiveArray::new(buffer![0i32, 3], Validity::NonNullable);
-        let sizes = PrimitiveArray::new(buffer![3i32, 2], Validity::NonNullable);
+        let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
+        let offsets = PrimitiveArray::from_iter([0i32, 3]);
+        let sizes = PrimitiveArray::from_iter([3i32, 2]);
 
         let list_array = unsafe {
             ListViewArray::new_unchecked(
@@ -938,9 +938,9 @@ mod tests {
     #[test]
     fn test_to_arrow_list_i64() {
         // Create a ListViewArray with i64 offsets: [[10, 20], [30]]
-        let elements = PrimitiveArray::new(buffer![10i64, 20, 30], Validity::NonNullable);
-        let offsets = PrimitiveArray::new(buffer![0i64, 2], Validity::NonNullable);
-        let sizes = PrimitiveArray::new(buffer![2i64, 1], Validity::NonNullable);
+        let elements = PrimitiveArray::from_iter([10i64, 20, 30]);
+        let offsets = PrimitiveArray::from_iter([0i64, 2]);
+        let sizes = PrimitiveArray::from_iter([2i64, 1]);
 
         let list_array = unsafe {
             ListViewArray::new_unchecked(
@@ -974,9 +974,9 @@ mod tests {
     #[test]
     fn test_to_arrow_listview_i32() {
         // Create a ListViewArray with overlapping views: [[1, 2], [2, 3], [3, 4]]
-        let elements = PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable);
-        let offsets = PrimitiveArray::new(buffer![0i32, 1, 2], Validity::NonNullable);
-        let sizes = PrimitiveArray::new(buffer![2i32, 2, 2], Validity::NonNullable);
+        let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4]);
+        let offsets = PrimitiveArray::from_iter([0i32, 1, 2]);
+        let sizes = PrimitiveArray::from_iter([2i32, 2, 2]);
 
         let list_array = ListViewArray::new(
             elements.into_array(),
@@ -1025,9 +1025,9 @@ mod tests {
     #[test]
     fn test_to_arrow_listview_i64() {
         // Create a ListViewArray with nullable elements: [[100], null, [200, 300]]
-        let elements = PrimitiveArray::new(buffer![100i64, 200, 300], Validity::NonNullable);
-        let offsets = PrimitiveArray::new(buffer![0i64, 0, 1], Validity::NonNullable);
-        let sizes = PrimitiveArray::new(buffer![1i64, 0, 2], Validity::NonNullable);
+        let elements = PrimitiveArray::from_iter([100i64, 200, 300]);
+        let offsets = PrimitiveArray::from_iter([0i64, 0, 1]);
+        let sizes = PrimitiveArray::from_iter([1i64, 0, 2]);
         let validity = Validity::from_iter([true, false, true]);
 
         let list_array = unsafe {
