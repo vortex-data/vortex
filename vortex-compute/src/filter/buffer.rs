@@ -12,17 +12,44 @@ const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 impl<T: Copy> Filter for &Buffer<T> {
     type Output = Buffer<T>;
 
-    fn filter(self, mask: &Mask) -> Buffer<T> {
-        assert_eq!(mask.len(), self.len());
-        match mask {
+    fn filter(self, selection_mask: &Mask) -> Buffer<T> {
+        assert_eq!(
+            selection_mask.len(),
+            self.len(),
+            "Selection mask length must equal the buffer length"
+        );
+
+        match selection_mask {
             Mask::AllTrue(_) => self.clone(),
             Mask::AllFalse(_) => Buffer::empty(),
             Mask::Values(v) => match v.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
                 MaskIter::Indices(indices) => filter_indices(self.as_slice(), indices),
                 MaskIter::Slices(slices) => {
-                    filter_slices(self.as_slice(), mask.true_count(), slices)
+                    filter_slices(self.as_slice(), selection_mask.true_count(), slices)
                 }
             },
+        }
+    }
+}
+
+impl<T: Copy> Filter for Buffer<T> {
+    type Output = Self;
+
+    fn filter(self, selection_mask: &Mask) -> Self {
+        assert_eq!(
+            selection_mask.len(),
+            self.len(),
+            "Selection mask length must equal the buffer length"
+        );
+
+        // If we have exclusive access, we can perform the filter in place.
+        match self.try_into_mut() {
+            Ok(mut buffer_mut) => {
+                (&mut buffer_mut).filter(selection_mask);
+                buffer_mut.freeze()
+            }
+            // Otherwise, allocate a new buffer and fill it in (delegate to the `&Buffer` impl).
+            Err(buffer) => (&buffer).filter(selection_mask),
         }
     }
 }

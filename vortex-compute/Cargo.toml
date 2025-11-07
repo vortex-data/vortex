@@ -34,3 +34,10 @@ num-traits = { workspace = true }
 [features]
 default = ["arrow"]
 arrow = ["dep:arrow-array", "dep:arrow-buffer", "dep:arrow-schema"]
+
+[dev-dependencies]
+divan = { workspace = true }
+
+[[bench]]
+name = "filter_buffer_mut"
+harness = false
