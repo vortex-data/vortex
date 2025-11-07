@@ -62,6 +62,15 @@ impl<T: NativePType> PVectorMut<T> {
             self.validity.append_n(false, 1);
         }
     }
+
+    /// Append `n` of the same `value` to the vector.
+    pub fn append_values(&mut self, value: T, n: usize)
+    where
+        T: Copy,
+    {
+        self.elements.push_n(value, n);
+        self.validity.append_n(true, n);
+    }
 }
 
 impl<T: NativePType> AsRef<[T]> for PVectorMut<T> {

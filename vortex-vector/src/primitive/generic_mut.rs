@@ -78,13 +78,15 @@ impl<T> PVectorMut<T> {
         (self.elements, self.validity)
     }
 
-    /// Append n values to the vector.
-    pub fn append_values(&mut self, value: T, n: usize)
-    where
-        T: Copy,
-    {
-        self.elements.push_n(value, n);
-        self.validity.append_n(true, n);
+    /// Decomposes a mutable reference to the primitive vector into mutable references to it's
+    /// constituent parts (buffer and validity).
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the [`BufferMut`] has the same length as the [`MaskMut`] once drop
+    /// the exclusive references.
+    pub unsafe fn mut_parts(&mut self) -> (&mut BufferMut<T>, &mut MaskMut) {
+        (&mut self.elements, &mut self.validity)
     }
 }
 
