@@ -31,7 +31,17 @@ pub enum DecimalVector {
 }
 
 impl DecimalVector {
-    /// Returns the [`DecimalType`] of the decimal vector.
+    /// Returns the precision of the decimal vector.
+    pub fn precision(&self) -> u8 {
+        match_each_dvector!(self, |v| { v.precision() })
+    }
+
+    /// Returns the scale of the decimal vector.
+    pub fn scale(&self) -> i8 {
+        match_each_dvector!(self, |v| { v.scale() })
+    }
+
+    /// Returns the physical [`DecimalType`] of the decimal vector.
     pub fn decimal_type(&self) -> DecimalType {
         match self {
             Self::D8(_) => DecimalType::I8,

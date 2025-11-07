@@ -63,9 +63,9 @@ mod tests {
     use vortex_dtype::PTypeDowncast;
     use vortex_vector::VectorOps;
 
+    use crate::IntoArray;
     use crate::arrays::{BoolArray, MaskedArray, PrimitiveArray};
     use crate::validity::Validity;
-    use crate::{ArrayOperator, IntoArray};
 
     #[test]
     fn test_masked_pushdown() {

@@ -3,11 +3,11 @@
 
 use std::sync::Arc;
 
-use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
-use vortex_vector::Vector;
+use vortex_error::{VortexResult, vortex_panic};
+use vortex_mask::Mask;
+use vortex_vector::{Vector, VectorOps, vector_matches_dtype};
 
-use crate::execution::{BatchKernelRef, BindCtx};
+use crate::execution::{BatchKernelRef, BindCtx, DummyExecutionCtx, ExecutionCtx};
 use crate::vtable::{OperatorVTable, VTable};
 use crate::{Array, ArrayAdapter, ArrayRef};
 
@@ -16,13 +16,13 @@ use crate::{Array, ArrayAdapter, ArrayRef};
 /// Note: the public functions such as "execute" should move onto the main `Array` trait when
 /// operators is stabilized. The other functions should remain on a `pub(crate)` trait.
 pub trait ArrayOperator: 'static + Send + Sync {
-    /// Execute the array producing a canonical vector.
-    fn execute(&self) -> VortexResult<Vector> {
-        self.execute_with_selection(None)
-    }
-
-    /// Execute the array with a selection mask, producing a canonical vector.
-    fn execute_with_selection(&self, selection: Option<&ArrayRef>) -> VortexResult<Vector>;
+    /// Execute the array's batch kernel with the given selection mask.
+    ///
+    /// # Panics
+    ///
+    /// If the mask length does not match the array length.
+    /// If the array's implementation returns an invalid vector (wrong length, wrong type, etc).
+    fn execute_batch(&self, selection: &Mask, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector>;
 
     /// Optimize the array by running the optimization rules.
     fn reduce_children(&self) -> VortexResult<Option<ArrayRef>>;
@@ -39,8 +39,8 @@ pub trait ArrayOperator: 'static + Send + Sync {
 }
 
 impl ArrayOperator for Arc<dyn Array> {
-    fn execute_with_selection(&self, selection: Option<&ArrayRef>) -> VortexResult<Vector> {
-        self.as_ref().execute_with_selection(selection)
+    fn execute_batch(&self, selection: &Mask, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+        self.as_ref().execute_batch(selection, ctx)
     }
 
     fn reduce_children(&self) -> VortexResult<Option<ArrayRef>> {
@@ -61,23 +61,31 @@ impl ArrayOperator for Arc<dyn Array> {
 }
 
 impl<V: VTable> ArrayOperator for ArrayAdapter<V> {
-    fn execute_with_selection(&self, selection: Option<&ArrayRef>) -> VortexResult<Vector> {
-        if let Some(selection) = selection.as_ref() {
-            if !matches!(selection.dtype(), DType::Bool(_)) {
-                vortex_bail!(
-                    "Selection array must be of boolean type, got {}",
-                    selection.dtype()
-                );
-            }
-            if selection.len() != self.len() {
-                vortex_bail!(
-                    "Selection array length {} does not match array length {}",
-                    selection.len(),
-                    self.len()
+    fn execute_batch(&self, selection: &Mask, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+        let vector =
+            <V::OperatorVTable as OperatorVTable<V>>::execute_batch(&self.0, selection, ctx)?;
+
+        // Such a cheap check that we run it always. More expensive DType checks live in
+        // debug_assertions.
+        assert_eq!(
+            vector.len(),
+            selection.true_count(),
+            "Batch execution returned vector of incorrect length"
+        );
+
+        #[cfg(debug_assertions)]
+        {
+            // Checks for correct type and nullability.
+            if !vector_matches_dtype(&vector, self.dtype()) {
+                vortex_panic!(
+                    "Returned vector {:?} does not match expected dtype {}",
+                    vector,
+                    self.dtype()
                 );
             }
         }
-        self.bind(selection, &mut ())?.execute()
+
+        Ok(vector)
     }
 
     fn reduce_children(&self) -> VortexResult<Option<ArrayRef>> {
@@ -105,5 +113,16 @@ impl BindCtx for () {
         selection: Option<&ArrayRef>,
     ) -> VortexResult<BatchKernelRef> {
         array.bind(selection, self)
+    }
+}
+
+impl dyn Array + '_ {
+    pub fn execute(&self) -> VortexResult<Vector> {
+        self.execute_batch(&Mask::new_true(self.len()), &mut DummyExecutionCtx)
+    }
+
+    pub fn execute_with_selection(&self, mask: &Mask) -> VortexResult<Vector> {
+        assert_eq!(self.len(), mask.len());
+        self.execute_batch(mask, &mut DummyExecutionCtx)
     }
 }

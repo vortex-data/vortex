@@ -213,7 +213,7 @@ mod tests {
     use vortex_buffer::bitbuffer;
 
     use crate::compute::arrays::logical::{LogicalArray, LogicalOperator};
-    use crate::{ArrayOperator, ArrayRef, IntoArray};
+    use crate::{ArrayRef, IntoArray};
 
     fn and_(lhs: ArrayRef, rhs: ArrayRef) -> ArrayRef {
         LogicalArray::new(lhs, rhs, LogicalOperator::And).into_array()
@@ -232,10 +232,10 @@ mod tests {
         let lhs = bitbuffer![0 1 0].into_array();
         let rhs = bitbuffer![0 1 1].into_array();
 
-        let selection = bitbuffer![0 1 1].into_array();
+        let selection = bitbuffer![0 1 1].into();
 
         let result = and_(lhs, rhs)
-            .execute_with_selection(Some(&selection))
+            .execute_with_selection(&selection)
             .unwrap()
             .into_bool();
         assert_eq!(result.bits(), &bitbuffer![1 0]);

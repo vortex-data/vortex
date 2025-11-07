@@ -188,9 +188,9 @@ mod tests {
             .unwrap()
             .into_array();
 
-        let selection = bitbuffer![1 0 1 0 1].into_array();
+        let selection = bitbuffer![1 0 1 0 1].into();
         let result = seq
-            .execute_with_selection(Some(&selection))
+            .execute_with_selection(&selection)
             .unwrap()
             .into_primitive()
             .into_i32();
@@ -208,9 +208,9 @@ mod tests {
             .unwrap()
             .into_array();
 
-        let selection = bitbuffer![1 1 0 0 0].into_array();
+        let selection = bitbuffer![1 1 0 0 0].into();
         let result = seq
-            .execute_with_selection(Some(&selection))
+            .execute_with_selection(&selection)
             .unwrap()
             .into_primitive()
             .into_i64();
@@ -225,9 +225,9 @@ mod tests {
             .unwrap()
             .into_array();
 
-        let selection = bitbuffer![0 0 1 1].into_array();
+        let selection = bitbuffer![0 0 1 1].into();
         let result = seq
-            .execute_with_selection(Some(&selection))
+            .execute_with_selection(&selection)
             .unwrap()
             .into_primitive()
             .into_u64();
@@ -245,8 +245,8 @@ mod tests {
             .unwrap()
             .into_array();
 
-        let selection = bitbuffer![0 0 0 0].into_array();
-        let result = seq.execute_with_selection(Some(&selection)).unwrap();
+        let selection = bitbuffer![0 0 0 0].into();
+        let result = seq.execute_with_selection(&selection).unwrap();
         assert!(result.is_empty())
     }
 
@@ -257,9 +257,9 @@ mod tests {
             .unwrap()
             .into_array();
 
-        let selection = bitbuffer![1 1 1 1].into_array();
+        let selection = bitbuffer![1 1 1 1].into();
         let result = seq
-            .execute_with_selection(Some(&selection))
+            .execute_with_selection(&selection)
             .unwrap()
             .into_primitive()
             .into_i16();
@@ -277,9 +277,9 @@ mod tests {
             .unwrap()
             .into_array();
 
-        let selection = bitbuffer![1 0 0 1 0 1].into_array();
+        let selection = bitbuffer![1 0 0 1 0 1].into();
         let result = seq
-            .execute_with_selection(Some(&selection))
+            .execute_with_selection(&selection)
             .unwrap()
             .into_primitive()
             .into_i32();
