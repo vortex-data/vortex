@@ -73,8 +73,7 @@ impl<V: VTable> ArrayOperator for ArrayAdapter<V> {
             "Batch execution returned vector of incorrect length"
         );
 
-        #[cfg(debug_assertions)]
-        {
+        if cfg!(debug_assertions) {
             // Checks for correct type and nullability.
             if !vector_matches_dtype(&vector, self.dtype()) {
                 vortex_panic!(
