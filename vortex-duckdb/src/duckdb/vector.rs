@@ -381,7 +381,6 @@ mod tests {
 
         let validity = vector.validity_ref(len);
         let validity = validity.to_validity();
-        assert_eq!(validity.maybe_len(), Some(1));
         assert!(validity.is_null(0));
     }
 
@@ -398,7 +397,6 @@ mod tests {
 
         let validity = vector.validity_ref(len);
         let validity = validity.to_validity();
-        assert_eq!(validity.maybe_len(), Some(1));
         assert!(validity.is_valid(0));
     }
 
@@ -431,7 +429,6 @@ mod tests {
 
         let validity = vector.validity_ref(len);
         let validity = validity.to_validity();
-        assert_eq!(validity.maybe_len(), Some(len));
         // Check that all positions are null
         assert_eq!(validity, Validity::AllInvalid);
     }

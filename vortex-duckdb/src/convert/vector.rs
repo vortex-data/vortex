@@ -108,7 +108,7 @@ pub fn flat_vector_to_vortex(vector: &mut Vector, len: usize) -> VortexResult<Ar
             )
             .into_array();
             Ok(
-                TemporalArray::new_timestamp(arr, TimeUnit::Nanoseconds, Some("UTC".to_string()))
+                TemporalArray::new_timestamp(arr, TimeUnit::Microseconds, Some("UTC".to_string()))
                     .into_array(),
             )
         }
