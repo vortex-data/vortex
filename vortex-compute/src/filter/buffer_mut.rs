@@ -8,8 +8,6 @@ use vortex_mask::Mask;
 
 use crate::filter::Filter;
 
-// TODO(connor): Implement `Filter` for more combinations of `Filter`
-
 impl<T: Copy> Filter for &mut BufferMut<T> {
     type Output = ();
 
@@ -31,10 +29,17 @@ impl<T: Copy> Filter for &mut BufferMut<T> {
 
                 // SAFETY: We checked above that the selection mask has the same length as the
                 // buffer.
-                let new_len = unsafe { filter_slices_in_place(self, slices) };
+                let new_len = unsafe { filter_slices_in_place(self.as_mut_slice(), slices) };
+
+                debug_assert!(
+                    new_len <= self.len(),
+                    "The new length was somehow larger after filter"
+                );
 
                 // Truncate the buffer to the new length.
-                self.truncate(new_len);
+                // SAFETY: The new length cannot be larger than the old length, so all values must
+                // be initialized.
+                unsafe { self.set_len(new_len) };
             }
         }
     }
