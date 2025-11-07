@@ -97,14 +97,14 @@ fn decompress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64
 
 #[divan::bench(types = [f32, f64], args = [10_000, 100_000])]
 fn compress_rd<T: ALPRDFloat>(bencher: Bencher, n: usize) {
-    let primitive = PrimitiveArray::new(buffer![T::from(1.23).unwrap(); n], Validity::NonNullable);
+    let primitive = PrimitiveArray::from_iter(vec![T::from(1.23).unwrap(); n]);
     let encoder = RDEncoder::new(&[T::from(1.23).unwrap()]);
     bencher.bench(|| encoder.encode(&primitive));
 }
 
 #[divan::bench(types = [f32, f64], args = [10_000, 100_000])]
 fn decompress_rd<T: ALPRDFloat>(bencher: Bencher, n: usize) {
-    let primitive = PrimitiveArray::new(buffer![T::from(1.23).unwrap(); n], Validity::NonNullable);
+    let primitive = PrimitiveArray::from_iter(vec![T::from(1.23).unwrap(); n]);
     let encoder = RDEncoder::new(&[T::from(1.23).unwrap()]);
     let encoded = encoder.encode(&primitive);
 

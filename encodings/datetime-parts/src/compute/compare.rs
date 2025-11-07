@@ -195,7 +195,6 @@ mod test {
     use vortex_array::arrays::{PrimitiveArray, TemporalArray};
     use vortex_array::compute::Operator;
     use vortex_array::validity::Validity;
-    use vortex_buffer::buffer;
     use vortex_dtype::IntegerPType;
     use vortex_dtype::datetime::TimeUnit;
 
@@ -205,8 +204,12 @@ mod test {
         value: T,
         validity: Validity,
     ) -> DateTimePartsArray {
+        let array = match validity {
+            Validity::NonNullable => PrimitiveArray::from_iter([value]).into_array(),
+            _ => PrimitiveArray::from_option_iter([Some(value)]).into_array(),
+        };
         DateTimePartsArray::try_from(TemporalArray::new_timestamp(
-            PrimitiveArray::new(buffer![value], validity).into_array(),
+            array,
             TimeUnit::Seconds,
             Some("UTC".to_string()),
         ))
@@ -281,16 +284,22 @@ mod test {
         #[case] rhs_validity: Validity,
     ) {
         let temporal_array = TemporalArray::new_timestamp(
-            PrimitiveArray::new(buffer![0i64], lhs_validity.clone()).into_array(),
+            match lhs_validity.clone() {
+                Validity::NonNullable => PrimitiveArray::from_iter([0i64]).into_array(),
+                _ => PrimitiveArray::from_option_iter([Some(0i64)]).into_array(),
+            },
             TimeUnit::Seconds,
             Some("UTC".to_string()),
         );
 
         let lhs = DateTimePartsArray::try_new(
             DType::Extension(temporal_array.ext_dtype()),
-            PrimitiveArray::new(buffer![0i32], lhs_validity).into_array(),
-            PrimitiveArray::new(buffer![0u32], Validity::NonNullable).into_array(),
-            PrimitiveArray::new(buffer![0i64], Validity::NonNullable).into_array(),
+            match lhs_validity {
+                Validity::NonNullable => PrimitiveArray::from_iter([0i32]).into_array(),
+                _ => PrimitiveArray::from_option_iter([Some(0i32)]).into_array(),
+            },
+            PrimitiveArray::from_iter([0u32]).into_array(),
+            PrimitiveArray::from_iter([0i64]).into_array(),
         )
         .unwrap();
 

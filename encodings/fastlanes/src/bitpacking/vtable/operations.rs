@@ -190,7 +190,7 @@ mod test {
                     8,
                     0,
                     buffer![1u32].into_array(),
-                    PrimitiveArray::new(buffer![999u32], Validity::AllValid).to_array(),
+                    PrimitiveArray::from_option_iter([Some(999u32)]).to_array(),
                     None,
                 )),
                 1,

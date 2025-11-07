@@ -214,7 +214,7 @@ mod test {
                 Validity::from(BitBuffer::from(vec![true, false, true, false, true])),
             )
             .into_array(),
-            PrimitiveArray::new(buffer![3, 6, 9], Validity::AllValid).into_array(),
+            PrimitiveArray::from_option_iter([Some(3), Some(6), Some(9)]).into_array(),
         )
         .unwrap();
         let mask = dict.validity_mask();
@@ -272,7 +272,7 @@ mod test {
                 Validity::from(BitBuffer::from(vec![true, false, true, false, true])),
             )
             .into_array(),
-            PrimitiveArray::new(buffer![3, 6, 9], Validity::NonNullable).into_array(),
+            PrimitiveArray::from_iter([3, 6, 9]).into_array(),
         )
         .unwrap();
         let mask = dict.validity_mask();

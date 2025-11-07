@@ -22,7 +22,7 @@ pub fn sparse_high_null_fill() -> ArrayRef {
             20,
             0,
             buffer![17u64, 18, 19].into_array(),
-            PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
+            PrimitiveArray::from_option_iter([Some(33_i32), Some(44), Some(55)]).into_array(),
             None,
         ))
         .into_array()

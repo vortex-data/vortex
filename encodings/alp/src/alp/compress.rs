@@ -256,7 +256,7 @@ mod tests {
 
     #[test]
     fn test_compress() {
-        let array = PrimitiveArray::new(buffer![1.234f32; 1025], Validity::NonNullable);
+        let array = PrimitiveArray::from_iter([1.234f32; 1025]);
         let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().is_none());
         let expected_encoded = PrimitiveArray::from_iter(vec![1234i32; 1025]);
@@ -553,7 +553,7 @@ mod tests {
     #[test]
     fn test_large_f32_array_uniform_values() {
         let size = 10_000;
-        let array = PrimitiveArray::new(buffer![42.125f32; size], Validity::NonNullable);
+        let array = PrimitiveArray::from_iter(vec![42.125f32; size]);
         let encoded = alp_encode(&array, None).unwrap();
 
         assert!(encoded.patches().is_none());
@@ -564,7 +564,7 @@ mod tests {
     #[test]
     fn test_large_f64_array_uniform_values() {
         let size = 50_000;
-        let array = PrimitiveArray::new(buffer![123.456789f64; size], Validity::NonNullable);
+        let array = PrimitiveArray::from_iter(vec![123.456789f64; size]);
         let encoded = alp_encode(&array, None).unwrap();
 
         assert!(encoded.patches().is_none());

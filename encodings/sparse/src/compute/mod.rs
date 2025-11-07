@@ -39,7 +39,6 @@ mod test {
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
     use vortex_array::compute::{cast, filter};
-    use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef, IntoArray, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
@@ -52,7 +51,7 @@ mod test {
     fn array() -> ArrayRef {
         SparseArray::try_new(
             buffer![2u64, 9, 15].into_array(),
-            PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
+            PrimitiveArray::from_option_iter([Some(33_i32), Some(44), Some(55)]).into_array(),
             20,
             Scalar::null_typed::<i32>(),
         )
@@ -82,7 +81,7 @@ mod test {
         let mask = Mask::from_iter([false, true, false, true, false, true, true]);
         let array = SparseArray::try_new(
             buffer![0_u64, 3, 6].into_array(),
-            PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
+            PrimitiveArray::from_option_iter([Some(33_i32), Some(44), Some(55)]).into_array(),
             7,
             Scalar::null_typed::<i32>(),
         )

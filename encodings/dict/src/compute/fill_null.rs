@@ -69,7 +69,7 @@ mod tests {
                 Validity::from(BitBuffer::from(vec![true, false, true])),
             )
             .into_array(),
-            PrimitiveArray::new(buffer![10, 20, 20], Validity::AllValid).into_array(),
+            PrimitiveArray::from_option_iter([Some(10), Some(20), Some(20)]).into_array(),
         )
         .vortex_unwrap();
 

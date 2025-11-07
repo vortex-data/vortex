@@ -107,7 +107,7 @@ mod tests {
                 Validity::from_iter([false, true, false]),
             )
             .into_array(),
-            PrimitiveArray::new(buffer![1i32, 2, 3], Validity::AllValid).into_array(),
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3)]).into_array(),
         )
         .unwrap();
 

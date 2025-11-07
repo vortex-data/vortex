@@ -141,7 +141,7 @@ mod tests {
         let decimal_dtype = DecimalDType::new(8, 2);
         let dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
         let lhs = DecimalBytePartsArray::try_new(
-            PrimitiveArray::new(buffer![100i32, 200i32, 400i32], Validity::AllValid).to_array(),
+            PrimitiveArray::from_option_iter([Some(100i32), Some(200i32), Some(400i32)]).to_array(),
             decimal_dtype,
         )
         .unwrap()
@@ -189,7 +189,7 @@ mod tests {
         let decimal_dtype = DecimalDType::new(40, 2);
         let dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
         let lhs = DecimalBytePartsArray::try_new(
-            PrimitiveArray::new(buffer![100i32, 200i32, 400i32], Validity::AllValid).to_array(),
+            PrimitiveArray::from_option_iter([Some(100i32), Some(200i32), Some(400i32)]).to_array(),
             decimal_dtype,
         )
         .unwrap()

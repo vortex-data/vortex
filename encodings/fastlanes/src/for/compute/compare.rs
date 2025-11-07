@@ -93,7 +93,7 @@ mod tests {
         let reference = Scalar::from(10);
         // 10, 30, 12
         let lhs = FoRArray::try_new(
-            PrimitiveArray::new(buffer!(0i32, 20, 2), Validity::AllValid).into_array(),
+            PrimitiveArray::from_option_iter([Some(0i32), Some(20), Some(2)]).into_array(),
             reference,
         )
         .unwrap();
@@ -120,7 +120,7 @@ mod tests {
         let reference = Scalar::from(0);
         // 10, 30, 12
         let lhs = FoRArray::try_new(
-            PrimitiveArray::new(buffer!(0i32, 20, 2), Validity::NonNullable).into_array(),
+            PrimitiveArray::from_iter([0i32, 20, 2]).into_array(),
             reference,
         )
         .unwrap();
@@ -146,7 +146,7 @@ mod tests {
         let reference = Scalar::from(10);
         // 10, 30, 12
         let lhs = FoRArray::try_new(
-            PrimitiveArray::new(buffer!(0i32, 10, 1), Validity::AllValid).into_array(),
+            PrimitiveArray::from_option_iter([Some(0i32), Some(10), Some(1)]).into_array(),
             reference,
         )
         .unwrap();

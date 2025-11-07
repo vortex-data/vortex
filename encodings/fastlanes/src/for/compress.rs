@@ -191,7 +191,7 @@ mod test {
 
     #[test]
     fn test_zeros() {
-        let array = PrimitiveArray::new(buffer![0i32; 100], Validity::NonNullable);
+        let array = PrimitiveArray::from_iter([0i32; 100]);
         assert_eq!(array.statistics().len(), 0);
 
         let dtype = array.dtype().clone();

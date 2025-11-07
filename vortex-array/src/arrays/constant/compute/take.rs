@@ -87,7 +87,7 @@ mod tests {
         let array = ConstantArray::new(42, 10).to_array();
         let taken = take(
             &array,
-            &PrimitiveArray::new(buffer![0, 5, 7], Validity::AllValid).into_array(),
+            &PrimitiveArray::from_option_iter([Some(0), Some(5), Some(7)]).into_array(),
         )
         .unwrap();
         assert_eq!(

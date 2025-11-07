@@ -79,7 +79,7 @@ mod tests {
     pub fn nullable_scalar_at() {
         let zigzag = ZigZagEncoding
             .encode(
-                &PrimitiveArray::new(buffer![-189, -160, 1], Validity::AllValid).to_canonical(),
+                &PrimitiveArray::from_option_iter([Some(-189), Some(-160), Some(1)]).to_canonical(),
                 None,
             )
             .unwrap()

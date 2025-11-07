@@ -6,7 +6,7 @@ use vortex_array::arrays::{BoolArray, ConstantArray, PrimitiveArray};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
-use vortex_buffer::{BitBuffer, BitBufferMut, Buffer, BufferMut, buffer};
+use vortex_buffer::{BitBuffer, BitBufferMut, Buffer, BufferMut};
 use vortex_dtype::{
     NativePType, Nullability, match_each_native_ptype, match_each_unsigned_integer_ptype,
 };
@@ -24,7 +24,7 @@ pub fn runend_encode(array: &PrimitiveArray) -> (PrimitiveArray, ArrayRef) {
         Validity::AllInvalid => {
             // We can trivially return an all-null REE array
             return (
-                PrimitiveArray::new(buffer![array.len() as u64], Validity::NonNullable),
+                PrimitiveArray::from_iter([array.len() as u64]),
                 ConstantArray::new(Scalar::null(array.dtype().clone()), 1).into_array(),
             );
         }
