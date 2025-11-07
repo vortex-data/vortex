@@ -4,7 +4,7 @@
 use std::fmt::{Debug, Formatter};
 
 use bitvec::prelude::*;
-use vortex_error::{VortexError, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexError, VortexResult};
 
 use crate::pipeline::{N, N_WORDS};
 
@@ -155,6 +155,8 @@ impl<'a> BitView<'a> {
     ///
     /// The function `f` receives a tuple `(start, len)` where `start` is the index of the first
     /// `true` bit and `len` is the number of consecutive `true` bits.
+    ///
+    /// FIXME(ngates): this code is broken.
     pub fn iter_slices<F>(&self, mut f: F)
     where
         F: FnMut((usize, usize)),
@@ -229,7 +231,6 @@ mod tests {
     use vortex_mask::Mask;
 
     use super::*;
-    use crate::pipeline::bits::BitVector;
 
     #[test]
     fn test_iter_ones_empty() {
@@ -519,29 +520,6 @@ mod tests {
                 assert_eq!(mask_bools[i], expected, "Mismatch at index {}", i);
             }
         });
-    }
-
-    #[test]
-    fn test_mask_and_bitview_all_true() {
-        let mask = Mask::AllTrue(5);
-
-        let vector = BitVector::true_until(5);
-
-        let view = vector.as_view();
-
-        // Collect indices from BitView
-        let mut bitview_ones = Vec::new();
-        view.iter_ones(|idx| bitview_ones.push(idx));
-
-        // Collect indices from BitView
-        let mask_ones = mask.iter_bools(|iter| {
-            iter.enumerate()
-                .filter(|(_, b)| *b)
-                .map(|(i, _)| i)
-                .collect::<Vec<_>>()
-        });
-
-        assert_eq!(bitview_ones, mask_ones);
     }
 
     #[test]

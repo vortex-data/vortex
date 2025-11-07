@@ -18,7 +18,7 @@ use crate::listview::ListViewVectorMut;
 use crate::null::NullVectorMut;
 use crate::primitive::PrimitiveVectorMut;
 use crate::struct_::StructVectorMut;
-use crate::{Vector, VectorMutOps, match_each_vector_mut, match_vector_pair};
+use crate::{match_each_vector_mut, match_vector_pair, Vector, VectorMutOps};
 
 /// An enum over all kinds of mutable vectors, which represent fully decompressed (canonical) array
 /// data.
@@ -131,7 +131,7 @@ impl VectorMutOps for VectorMut {
 
 impl VectorMut {
     /// Returns a reference to the inner [`NullVectorMut`] if `self` is of that variant.
-    pub fn as_null(&self) -> &NullVectorMut {
+    pub fn as_null_mut(&mut self) -> &mut NullVectorMut {
         if let VectorMut::Null(v) = self {
             return v;
         }
@@ -139,7 +139,7 @@ impl VectorMut {
     }
 
     /// Returns a reference to the inner [`BoolVectorMut`] if `self` is of that variant.
-    pub fn as_bool(&self) -> &BoolVectorMut {
+    pub fn as_bool_mut(&mut self) -> &mut BoolVectorMut {
         if let VectorMut::Bool(v) = self {
             return v;
         }
@@ -147,7 +147,7 @@ impl VectorMut {
     }
 
     /// Returns a reference to the inner [`PrimitiveVectorMut`] if `self` is of that variant.
-    pub fn as_primitive(&self) -> &PrimitiveVectorMut {
+    pub fn as_primitive_mut(&mut self) -> &mut PrimitiveVectorMut {
         if let VectorMut::Primitive(v) = self {
             return v;
         }
@@ -155,7 +155,7 @@ impl VectorMut {
     }
 
     /// Returns a reference to the inner [`StringVectorMut`] if `self` is of that variant.
-    pub fn as_string(&self) -> &StringVectorMut {
+    pub fn as_string_mut(&mut self) -> &mut StringVectorMut {
         if let VectorMut::String(v) = self {
             return v;
         }
@@ -163,7 +163,7 @@ impl VectorMut {
     }
 
     /// Returns a reference to the inner [`BinaryVectorMut`] if `self` is of that variant.
-    pub fn as_binary(&self) -> &BinaryVectorMut {
+    pub fn as_binary_mut(&mut self) -> &mut BinaryVectorMut {
         if let VectorMut::Binary(v) = self {
             return v;
         }
@@ -171,7 +171,7 @@ impl VectorMut {
     }
 
     /// Returns a reference to the inner [`ListViewVectorMut`] if `self` is of that variant.
-    pub fn as_list(&self) -> &ListViewVectorMut {
+    pub fn as_list_mut(&mut self) -> &mut ListViewVectorMut {
         if let VectorMut::List(v) = self {
             return v;
         }
@@ -179,7 +179,7 @@ impl VectorMut {
     }
 
     /// Returns a reference to the inner [`FixedSizeListVectorMut`] if `self` is of that variant.
-    pub fn as_fixed_size_list(&self) -> &FixedSizeListVectorMut {
+    pub fn as_fixed_size_list_mut(&mut self) -> &mut FixedSizeListVectorMut {
         if let VectorMut::FixedSizeList(v) = self {
             return v;
         }
@@ -187,7 +187,7 @@ impl VectorMut {
     }
 
     /// Returns a reference to the inner [`StructVectorMut`] if `self` is of that variant.
-    pub fn as_struct(&self) -> &StructVectorMut {
+    pub fn as_struct_mut(&mut self) -> &mut StructVectorMut {
         if let VectorMut::Struct(v) = self {
             return v;
         }
@@ -267,9 +267,9 @@ mod tests {
     use vortex_dtype::{DecimalDType, Nullability, PType};
 
     use super::*;
-    use crate::VectorOps;
     use crate::decimal::DecimalVectorMut;
     use crate::primitive::PVectorMut;
+    use crate::VectorOps;
 
     #[test]
     fn test_with_capacity() {

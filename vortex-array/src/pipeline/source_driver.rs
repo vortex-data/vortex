@@ -103,3 +103,30 @@ impl BindContext for PipelineSourceBindCtx<'_> {
         self.batch_inputs[child_idx].clone()
     }
 }
+
+#[cfg(test)]
+mod test {
+    use crate::arrays::PrimitiveArray;
+    use crate::pipeline::source_driver::PipelineSourceDriver;
+    use crate::validity::Validity;
+    use vortex_buffer::buffer;
+    use vortex_dtype::PTypeDowncastExt;
+    use vortex_mask::Mask;
+    use vortex_vector::VectorOps;
+
+    #[test]
+    fn test_primitive() {
+        let array = PrimitiveArray::new::<u32>(buffer![0..100000u32], Validity::AllValid);
+
+        // Create a selection mask with some ranges.
+        let mask = Mask::from_iter((0..100000).map(|i| i % 30 < 20));
+
+        let out = PipelineSourceDriver::new(&array)
+            .execute(&mask)
+            .unwrap()
+            .into_primitive()
+            .downcast::<u32>();
+
+        assert_eq!(out.len(), mask.true_count());
+    }
+}

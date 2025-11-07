@@ -5,7 +5,7 @@
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
 use vortex_mask::MaskMut;
 
 use crate::primitive::PVector;
@@ -71,6 +71,38 @@ impl<T> PVectorMut<T> {
             elements: BufferMut::with_capacity(capacity),
             validity: MaskMut::with_capacity(capacity),
         }
+    }
+
+    /// Set the length of the vector.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the new length does not exceed the capacity of the vector.
+    pub unsafe fn set_len(&mut self, new_len: usize) {
+        debug_assert!(new_len < self.elements.capacity());
+        debug_assert!(new_len < self.validity.capacity());
+        unsafe { self.elements.set_len(new_len) };
+        unsafe { self.validity.set_len(new_len) };
+    }
+
+    /// Returns a mutable reference to the elements buffer.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that any mutations to the elements do not violate the
+    /// invariants of the vector (e.g., the length must remain consistent with the elements buffer).
+    pub unsafe fn elements_mut(&mut self) -> &mut BufferMut<T> {
+        &mut self.elements
+    }
+
+    /// Returns a mutable reference to the validity mask.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that any mutations to the validity mask do not violate the
+    /// invariants of the vector (e.g., the length must remain consistent with the elements buffer).
+    pub unsafe fn validity_mut(&mut self) -> &mut MaskMut {
+        &mut self.validity
     }
 
     /// Decomposes the primitive vector into its constituent parts (buffer and validity).

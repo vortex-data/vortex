@@ -7,6 +7,7 @@ use vortex_vector::Vector;
 
 use crate::array::IntoArray;
 use crate::execution::{BatchKernelRef, BindCtx, ExecutionCtx};
+use crate::pipeline::PipelinedSource;
 use crate::vtable::{NotSupported, VTable};
 use crate::ArrayRef;
 
@@ -37,6 +38,11 @@ pub trait OperatorVTable<V: VTable> {
         _ctx: &mut dyn ExecutionCtx,
     ) -> VortexResult<Vector> {
         Self::bind(array, Some(&selection.clone().into_array()), &mut ())?.execute()
+    }
+
+    /// Downcast this array into a [`PipelinedSource`] if it supports pipelined execution.
+    fn as_pipelined_source(_array: &V::Array) -> Option<&dyn PipelinedSource> {
+        None
     }
 
     /// Bind the array for execution in batch mode.

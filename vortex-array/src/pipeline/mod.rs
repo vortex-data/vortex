@@ -23,6 +23,7 @@ pub mod source_driver;
 
 use crate::Array;
 use bits::BitView;
+use std::ops::Deref;
 use vortex_error::VortexResult;
 use vortex_vector::{Vector, VectorMut};
 
@@ -60,7 +61,7 @@ pub trait PipelinedOperator: Array {
     fn bind(&self, ctx: &mut dyn BindContext) -> VortexResult<Box<dyn OperatorKernel>>;
 }
 
-pub trait PipelinedSource: Array {
+pub trait PipelinedSource: Deref<Target = dyn Array> {
     /// Bind the operator into a [`Kernel`] for pipelined execution.
     ///
     /// The provided [`BindContext`] can be used to obtain vector IDs for pipelined children and
@@ -143,7 +144,7 @@ impl KernelContext {
     }
 
     /// Get a vector by its ID.
-    pub fn vector(&self, _vector_id: VectorId) -> &Vector {
-        todo!()
+    pub fn vector(&self, vector_id: VectorId) -> &Vector {
+        &self.vectors[vector_id]
     }
 }

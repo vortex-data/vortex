@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Sub;
 use std::sync::Arc;
 
 use vortex_buffer::BitBufferMut;
@@ -92,6 +91,35 @@ impl MaskMut {
             Inner::Builder(bits) => {
                 bits.reserve(additional);
             }
+        }
+    }
+
+    /// Set the length of the mask.
+    pub unsafe fn set_len(&mut self, new_len: usize) {
+        debug_assert!(new_len < self.capacity());
+        match &mut self.0 {
+            Inner::Empty { capacity, .. } => {
+                self.0 = Inner::Constant {
+                    value: false, // Pick any value
+                    len: new_len,
+                    capacity: *capacity,
+                }
+            }
+            Inner::Constant { len, .. } => {
+                *len = new_len;
+            }
+            Inner::Builder(bits) => {
+                unsafe { bits.set_len(new_len) };
+            }
+        }
+    }
+
+    /// Returns the capacity of the mask.
+    pub fn capacity(&self) -> usize {
+        match &self.0 {
+            Inner::Empty { capacity } => *capacity,
+            Inner::Constant { capacity, .. } => *capacity,
+            Inner::Builder(bits) => bits.capacity(),
         }
     }
 
@@ -207,10 +235,11 @@ impl MaskMut {
     /// values from `at` to the end, and leaving `self` with the values from
     /// the start to `at`.
     pub fn split_off(&mut self, at: usize) -> Self {
-        assert!(at <= self.len(), "split_off index out of bounds");
+        assert!(at <= self.capacity(), "split_off index out of bounds");
         match &mut self.0 {
             Inner::Empty { capacity } => {
-                let new_capacity = (*capacity).saturating_sub(at);
+                let new_capacity = *capacity - at;
+                *capacity = at;
                 Self(Inner::Empty {
                     capacity: new_capacity,
                 })
@@ -220,9 +249,12 @@ impl MaskMut {
                 len,
                 capacity,
             } => {
-                let new_len = len.sub(at);
-                *len = at;
-                let new_capacity = (*capacity).saturating_sub(at);
+                // Adjust the lengths, given that length may be < at
+                let new_len = len.saturating_sub(at);
+                let new_capacity = *capacity - at;
+                *len = (*len).min(at);
+                *capacity = at;
+
                 Self(Inner::Constant {
                     value: *value,
                     len: new_len,

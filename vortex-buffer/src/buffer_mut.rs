@@ -9,7 +9,7 @@ use std::ops::{Deref, DerefMut};
 
 use bytes::buf::UninitSlice;
 use bytes::{Buf, BufMut, BytesMut};
-use vortex_error::{VortexExpect, vortex_panic};
+use vortex_error::{vortex_panic, VortexExpect};
 
 use crate::debug::TruncatedDebug;
 use crate::trusted_len::TrustedLen;
@@ -338,8 +338,8 @@ impl<T> BufferMut<T> {
     ///
     /// Panics if either half would have a length that is not a multiple of the alignment.
     pub fn split_off(&mut self, at: usize) -> Self {
-        if at > self.len() {
-            vortex_panic!("Cannot split buffer of length {} at {}", self.len(), at);
+        if at > self.capacity() {
+            vortex_panic!("Cannot split buffer of capacity {} at {}", self.len(), at);
         }
 
         let bytes_at = at * size_of::<T>();
@@ -352,8 +352,10 @@ impl<T> BufferMut<T> {
         }
 
         let new_bytes = self.bytes.split_off(bytes_at);
-        let new_length = self.length - at;
-        self.length = at;
+
+        // Adjust the lengths, given that length may be < at
+        let new_length = self.length.saturating_sub(at);
+        self.length = self.length.min(at);
 
         BufferMut {
             bytes: new_bytes,
@@ -724,7 +726,7 @@ impl Write for ByteBufferMut {
 mod test {
     use bytes::{Buf, BufMut};
 
-    use crate::{Alignment, BufferMut, ByteBufferMut, buffer_mut};
+    use crate::{buffer_mut, Alignment, BufferMut, ByteBufferMut};
 
     #[test]
     fn capacity() {
