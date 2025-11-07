@@ -19,21 +19,19 @@
 //! It is a work-in-progress and is not yet used in production.
 
 pub mod bits;
-pub(crate) mod operator;
 mod types;
 pub mod vec;
 pub mod view;
 
 use std::cell::RefCell;
 
-use self::vec::Vector;
-use crate::operator::Operator;
-use crate::pipeline::bits::BitView;
-use crate::Canonical;
 pub use types::*;
 use vec::VectorRef;
 use vortex_error::VortexResult;
 use vortex_vector::VectorMut;
+
+use self::vec::Vector;
+use crate::pipeline::bits::BitView;
 
 /// The number of elements in each step of a Vortex evaluation operator.
 pub const N: usize = 1024;
@@ -123,8 +121,6 @@ pub trait Kernel: Send {
 pub struct KernelContext {
     /// The allocated vectors for intermediate results.
     pub(crate) vectors: Vec<RefCell<Vector>>,
-    /// The computed batch inputs.
-    pub(crate) batch_inputs: Vec<Canonical>,
 }
 
 impl KernelContext {

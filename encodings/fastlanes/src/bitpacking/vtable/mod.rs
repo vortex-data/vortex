@@ -10,7 +10,6 @@ mod array;
 mod canonical;
 mod encode;
 mod operations;
-mod operator;
 mod serde;
 mod validity;
 mod visitor;
@@ -29,7 +28,7 @@ impl VTable for BitPackedVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
-    type OperatorVTable = Self;
+    type OperatorVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("fastlanes.bitpacked")

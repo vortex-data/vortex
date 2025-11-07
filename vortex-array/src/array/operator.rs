@@ -21,7 +21,7 @@ pub trait ArrayOperator: 'static + Send + Sync {
     /// # Panics
     ///
     /// If the mask length does not match the array length.
-    /// If the array's implementation returns an invalid vector (wrong length, wrong type, etc).
+    /// If the array's implementation returns an invalid vector (wrong length, wrong type, etc.).
     fn execute_batch(&self, selection: &Mask, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector>;
 
     /// Optimize the array by running the optimization rules.

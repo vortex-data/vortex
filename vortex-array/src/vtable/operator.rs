@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_vector::Vector;
 
+use crate::ArrayRef;
 use crate::array::IntoArray;
 use crate::execution::{BatchKernelRef, BindCtx, ExecutionCtx};
-use crate::operator::OperatorRef;
+use crate::pipeline::Pipelined;
 use crate::vtable::{NotSupported, VTable};
-use crate::ArrayRef;
 
 /// A vtable for the new operator-based array functionality. Eventually this vtable will be
 /// merged into the main `VTable`, but for now it is kept separate to allow for incremental
@@ -17,12 +17,6 @@ use crate::ArrayRef;
 ///
 /// See <https://github.com/vortex-data/vortex/pull/4726> for the operators RFC.
 pub trait OperatorVTable<V: VTable> {
-    /// Convert the current array into a [`OperatorRef`].
-    /// Returns `None` if the array cannot be converted to an operator.
-    fn to_operator(_array: &V::Array) -> VortexResult<Option<OperatorRef>> {
-        Ok(None)
-    }
-
     /// Returns a canonical [`Vector`] containing the rows indicated by the given selection [`Mask`].
     ///
     /// The returned vector must be the appropriate one for the array's logical type (they are
@@ -46,7 +40,11 @@ pub trait OperatorVTable<V: VTable> {
         Self::bind(array, Some(&selection.clone().into_array()), &mut ())?.execute()
     }
 
-    /// Returns the
+    /// Returns an implementation of the [`Pipelined`] trait for this array, if pipelined execution
+    /// is supported.
+    fn execute_pipelined(_array: &V::Array) -> Option<&dyn Pipelined> {
+        None
+    }
 
     /// Bind the array for execution in batch mode.
     ///
@@ -106,10 +104,6 @@ pub trait OperatorVTable<V: VTable> {
 }
 
 impl<V: VTable> OperatorVTable<V> for NotSupported {
-    fn to_operator(_array: &V::Array) -> VortexResult<Option<OperatorRef>> {
-        Ok(None)
-    }
-
     fn bind(
         array: &V::Array,
         _selection: Option<&ArrayRef>,

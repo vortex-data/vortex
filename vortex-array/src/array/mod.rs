@@ -26,12 +26,11 @@ use crate::arrays::{
 };
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output, is_constant_opts};
-use crate::operator::OperatorRef;
 use crate::serde::ArrayChildren;
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
 use crate::vtable::{
-    ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, OperatorVTable, SerdeVTable,
-    VTable, ValidityVTable, VisitorVTable,
+    ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, SerdeVTable, VTable,
+    ValidityVTable, VisitorVTable,
 };
 use crate::{
     ArrayEq, ArrayHash, Canonical, DynArrayEq, DynArrayHash, EncodingId, EncodingRef,
@@ -168,11 +167,6 @@ pub trait Array:
     /// call.
     fn invoke(&self, compute_fn: &ComputeFn, args: &InvocationArgs)
     -> VortexResult<Option<Output>>;
-
-    /// Convert the array to an operator if supported by the encoding.
-    ///
-    /// Returns `None` if the encoding does not support operator operations.
-    fn to_operator(&self) -> VortexResult<Option<OperatorRef>>;
 }
 
 impl Array for Arc<dyn Array> {
@@ -274,10 +268,6 @@ impl Array for Arc<dyn Array> {
         args: &InvocationArgs,
     ) -> VortexResult<Option<Output>> {
         self.as_ref().invoke(compute_fn, args)
-    }
-
-    fn to_operator(&self) -> VortexResult<Option<OperatorRef>> {
-        self.as_ref().to_operator()
     }
 }
 
@@ -648,10 +638,6 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         args: &InvocationArgs,
     ) -> VortexResult<Option<Output>> {
         <V::ComputeVTable as ComputeVTable<V>>::invoke(&self.0, compute_fn, args)
-    }
-
-    fn to_operator(&self) -> VortexResult<Option<OperatorRef>> {
-        <V::OperatorVTable as OperatorVTable<V>>::to_operator(&self.0)
     }
 }
 

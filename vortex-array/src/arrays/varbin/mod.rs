@@ -5,7 +5,8 @@ mod array;
 pub use array::VarBinArray;
 
 mod compute;
-pub(crate) use compute::varbin_compute_min_max; // For use in `varbinview`.
+pub(crate) use compute::varbin_compute_min_max;
+// For use in `varbinview`.
 
 mod vtable;
 pub use vtable::{VarBinEncoding, VarBinVTable};
@@ -13,7 +14,6 @@ pub use vtable::{VarBinEncoding, VarBinVTable};
 pub mod builder;
 
 mod accessor;
-mod operator;
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
