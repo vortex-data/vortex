@@ -10,7 +10,7 @@ use crate::{PcoArray, PcoVTable};
 
 impl CastKernel for PcoVTable {
     fn cast(&self, array: &PcoArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        if !dtype.is_nullable() && !array.all_valid() {
+        if !dtype.is_nullable() || !array.all_valid() {
             // TODO(joe): fixme
             // We cannot cast to non-nullable since the validity containing nulls is used to decode
             // the PCO array, this would require rewriting tables.
@@ -51,11 +51,11 @@ register_kernel!(CastKernelAdapter(PcoVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_array::validity::Validity;
+    use vortex_array::{ToCanonical, assert_arrays_eq};
     use vortex_buffer::Buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
@@ -126,6 +126,32 @@ mod tests {
         let decoded = casted.to_primitive();
         let u32_values = decoded.as_slice::<u32>();
         assert_eq!(u32_values, &[20, 30, 40, 50]);
+    }
+
+    #[test]
+    fn test_cast_sliced_pco_part_valid_to_nonnullable() {
+        let values = PrimitiveArray::from_option_iter([
+            None,
+            Some(20u32),
+            Some(30),
+            Some(40),
+            Some(50),
+            Some(60),
+        ]);
+        let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
+        let sliced = pco.slice(1..5);
+        let casted = cast(
+            sliced.as_ref(),
+            &DType::Primitive(PType::U32, Nullability::NonNullable),
+        )
+        .unwrap();
+        assert_eq!(
+            casted.dtype(),
+            &DType::Primitive(PType::U32, Nullability::NonNullable)
+        );
+        let decoded = casted.to_primitive();
+        let expected = PrimitiveArray::from_iter([20u32, 30, 40, 50]);
+        assert_arrays_eq!(decoded, expected);
     }
 
     #[rstest]
