@@ -55,10 +55,13 @@ vortex-zstd = { workspace = true, optional = true }
 [dev-dependencies]
 anyhow = { workspace = true }
 arrow-array = { workspace = true }
+console-subscriber = "0.5.0"
 divan = { workspace = true }
+futures = { workspace = true }
 itertools = { workspace = true }
 mimalloc = { workspace = true }
-parquet = { workspace = true }
+object_store = { workspace = true, features = ["http", "fs"] }
+parquet = { workspace = true, features = ["arrow", "async", "object_store"] }
 rand = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["full"] }

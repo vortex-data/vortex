@@ -3,6 +3,7 @@
 
 use std::sync::{Arc, LazyLock};
 
+use blocking::unblock;
 use futures::future::BoxFuture;
 use tracing::Instrument;
 
@@ -43,7 +44,8 @@ impl Executor for tokio::runtime::Handle {
     }
 
     fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
-        Box::new(tokio::runtime::Handle::spawn(self, async move { cpu() }).abort_handle())
+        // Box::new(tokio::runtime::Handle::spawn(self, async move { cpu() }).abort_handle())
+        Box::new(tokio::runtime::Handle::spawn(self, unblock(|| cpu())).abort_handle())
     }
 
     fn spawn_blocking(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
@@ -66,7 +68,8 @@ impl Executor for CurrentTokioRuntime {
     fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
         Box::new(
             tokio::runtime::Handle::current()
-                .spawn(async move { cpu() })
+                // .spawn(async move { cpu() })
+                .spawn(unblock(|| cpu()))
                 .abort_handle(),
         )
     }
