@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
 use vortex_vector::Vector;
 
-use crate::ArrayRef;
 use crate::array::IntoArray;
 use crate::execution::{BatchKernelRef, BindCtx, ExecutionCtx};
 use crate::operator::OperatorRef;
 use crate::vtable::{NotSupported, VTable};
+use crate::ArrayRef;
 
 /// A vtable for the new operator-based array functionality. Eventually this vtable will be
 /// merged into the main `VTable`, but for now it is kept separate to allow for incremental
@@ -23,8 +23,7 @@ pub trait OperatorVTable<V: VTable> {
         Ok(None)
     }
 
-    /// Takes the array by ownership, returning a canonical [`Vector`] containing the rows
-    /// indicated by the given selection [`Mask`].
+    /// Returns a canonical [`Vector`] containing the rows indicated by the given selection [`Mask`].
     ///
     /// The returned vector must be the appropriate one for the array's logical type (they are
     /// one-to-one with Vortex `DType`s), and should respect the output nullability of the array.
@@ -46,6 +45,8 @@ pub trait OperatorVTable<V: VTable> {
     ) -> VortexResult<Vector> {
         Self::bind(array, Some(&selection.clone().into_array()), &mut ())?.execute()
     }
+
+    /// Returns the
 
     /// Bind the array for execution in batch mode.
     ///

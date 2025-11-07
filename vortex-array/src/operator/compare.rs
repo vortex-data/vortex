@@ -183,7 +183,7 @@ impl PipelinedOperator for CompareOperator {
             return match_each_native_ptype!(ptype, |T| {
                 match_each_compare_op!(self.op.swap(), |Op| {
                     Ok(Box::new(ScalarComparePrimitiveKernel::<T, Op> {
-                        lhs: ctx.children()[1],
+                        lhs: ctx.pipelined_input()[1],
                         rhs: lhs_const
                             .scalar()
                             .as_primitive()
@@ -201,7 +201,7 @@ impl PipelinedOperator for CompareOperator {
             return match_each_native_ptype!(ptype, |T| {
                 match_each_compare_op!(self.op, |Op| {
                     Ok(Box::new(ScalarComparePrimitiveKernel::<T, Op> {
-                        lhs: ctx.children()[0],
+                        lhs: ctx.pipelined_input()[0],
                         rhs: rhs_const
                             .scalar()
                             .as_primitive()
@@ -216,8 +216,8 @@ impl PipelinedOperator for CompareOperator {
         match_each_native_ptype!(ptype, |T| {
             match_each_compare_op!(self.op, |Op| {
                 Ok(Box::new(ComparePrimitiveKernel::<T, Op> {
-                    lhs: ctx.children()[0],
-                    rhs: ctx.children()[1],
+                    lhs: ctx.pipelined_input()[0],
+                    rhs: ctx.pipelined_input()[1],
                     _phantom: PhantomData,
                 }) as Box<dyn Kernel>)
             })

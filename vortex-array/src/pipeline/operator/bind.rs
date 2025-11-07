@@ -5,8 +5,8 @@
 
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::pipeline::operator::PipelineNode;
 use crate::pipeline::operator::buffers::VectorAllocationPlan;
+use crate::pipeline::operator::PipelineNode;
 use crate::pipeline::{BatchId, BindContext, Kernel, VectorId};
 
 pub(crate) fn bind_kernels(
@@ -44,7 +44,7 @@ struct PipelineBindContext<'a> {
 }
 
 impl BindContext for PipelineBindContext<'_> {
-    fn children(&self) -> &[VectorId] {
+    fn pipelined_input(&self) -> &[VectorId] {
         self.children
     }
 
