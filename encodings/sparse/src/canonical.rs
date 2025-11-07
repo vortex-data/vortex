@@ -338,12 +338,7 @@ fn canonicalize_sparse_primitives<
         )
     };
 
-    let parray = match validity {
-        Validity::NonNullable => PrimitiveArray::from_iter(vec![primitive_fill; patches.array_len()]),
-        Validity::AllValid => PrimitiveArray::from_option_iter(vec![Some(primitive_fill); patches.array_len()]),
-        Validity::AllInvalid => PrimitiveArray::new(buffer![primitive_fill; patches.array_len()], validity),
-        _ => PrimitiveArray::new(buffer![primitive_fill; patches.array_len()], validity),
-    };
+    let parray = PrimitiveArray::new(buffer![primitive_fill; patches.array_len()], validity);
 
     Canonical::Primitive(parray.patch(patches))
 }
