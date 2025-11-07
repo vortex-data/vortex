@@ -318,6 +318,8 @@ impl ValidityRef<'_> {
 
 #[cfg(test)]
 mod tests {
+    use vortex::mask::Mask;
+
     use super::*;
     use crate::cpp::DUCKDB_TYPE;
 
@@ -356,16 +358,10 @@ mod tests {
         assert_eq!(validity.maybe_len(), Some(len));
 
         // Check that the right positions are null
-        assert!(validity.is_valid(0));
-        assert!(validity.is_null(1));
-        assert!(validity.is_valid(2));
-        assert!(validity.is_null(3));
-        assert!(validity.is_valid(4));
-        assert!(validity.is_valid(5));
-        assert!(validity.is_valid(6));
-        assert!(validity.is_null(7));
-        assert!(validity.is_valid(8));
-        assert!(validity.is_valid(9));
+        assert_eq!(
+            validity.to_mask(len),
+            Mask::from_indices(len, vec![0, 2, 4, 5, 6, 8, 9])
+        );
     }
 
     #[test]
