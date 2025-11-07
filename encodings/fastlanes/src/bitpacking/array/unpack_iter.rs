@@ -13,7 +13,6 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::PhysicalPType;
 
 use crate::BitPackedArray;
-use crate::bitpacking::bitpack_decompress::BitPackingStrategy;
 
 const CHUNK_SIZE: usize = 1024;
 
@@ -25,6 +24,24 @@ pub trait UnpackStrategy<T: PhysicalPType> {
     /// - `chunk` must contain exactly `elems_per_chunk` elements
     /// - `dst` must have exactly CHUNK_SIZE capacity
     unsafe fn unpack_chunk(&self, bit_width: usize, chunk: &[T::Physical], dst: &mut [T::Physical]);
+}
+
+/// BitPacking strategy - uses plain bitpacking without reference value
+pub struct BitPackingStrategy;
+
+impl<T: PhysicalPType<Physical: BitPacking>> UnpackStrategy<T> for BitPackingStrategy {
+    #[inline(always)]
+    unsafe fn unpack_chunk(
+        &self,
+        bit_width: usize,
+        chunk: &[T::Physical],
+        dst: &mut [T::Physical],
+    ) {
+        // SAFETY: Caller must ensure [`BitPacking::unchecked_unpack`] safety requirements hold.
+        unsafe {
+            BitPacking::unchecked_unpack(bit_width, chunk, dst);
+        }
+    }
 }
 
 /// Accessor to unpacked chunks of bitpacked arrays
