@@ -92,8 +92,6 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::is_sorted;
-    use vortex_array::validity::Validity;
-    use vortex_buffer::buffer;
 
     use crate::FoRArray;
 

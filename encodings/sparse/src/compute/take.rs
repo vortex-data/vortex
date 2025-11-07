@@ -65,7 +65,8 @@ mod test {
     fn sparse_array() -> ArrayRef {
         SparseArray::try_new(
             buffer![0u64, 37, 47, 99].into_array(),
-            PrimitiveArray::from_option_iter([Some(1.23f64), Some(0.47), Some(9.99), Some(3.5)]).into_array(),
+            PrimitiveArray::from_option_iter([Some(1.23f64), Some(0.47), Some(9.99), Some(3.5)])
+                .into_array(),
             100,
             test_array_fill_value(),
         )

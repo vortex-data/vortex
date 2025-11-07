@@ -159,7 +159,6 @@ mod test {
     use vortex_array::stats::StatsProvider;
     use vortex_array::validity::Validity;
     use vortex_array::{ToCanonical, assert_arrays_eq};
-    use vortex_buffer::buffer;
     use vortex_dtype::PType;
     use vortex_scalar::Scalar;
 
