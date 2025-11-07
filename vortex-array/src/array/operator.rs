@@ -3,11 +3,12 @@
 
 use std::sync::Arc;
 
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::{vortex_panic, VortexResult};
 use vortex_mask::Mask;
-use vortex_vector::{Vector, VectorOps, vector_matches_dtype};
+use vortex_vector::{vector_matches_dtype, Vector, VectorOps};
 
 use crate::execution::{BatchKernelRef, BindCtx, DummyExecutionCtx, ExecutionCtx};
+use crate::pipeline::source_driver::PipelineDriver;
 use crate::vtable::{OperatorVTable, VTable};
 use crate::{Array, ArrayAdapter, ArrayRef};
 
@@ -62,6 +63,15 @@ impl ArrayOperator for Arc<dyn Array> {
 
 impl<V: VTable> ArrayOperator for ArrayAdapter<V> {
     fn execute_batch(&self, selection: &Mask, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+        // Check to see if we should execute the array in a pipelined fashion. This is a
+        // short-circuit for now until we have a full pipeline executor, but it allows each arrow
+        // to only implement the pipeline API.
+        if let Some(pipelined) =
+            <V::OperatorVTable as OperatorVTable<V>>::execute_pipelined(&self.0)
+        {
+            PipelineDriver::new(pipelined).execute
+        }
+
         let vector =
             <V::OperatorVTable as OperatorVTable<V>>::execute_batch(&self.0, selection, ctx)?;
 
