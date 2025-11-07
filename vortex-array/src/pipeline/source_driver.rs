@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::pipeline::bits::BitView;
+use crate::pipeline::bit_view::BitView;
 use crate::pipeline::{BindContext, KernelContext, PipelinedSource, VectorId, N};
 use itertools::Itertools;
 use vortex_error::{vortex_panic, VortexResult};

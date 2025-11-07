@@ -18,11 +18,11 @@
 //!
 //! It is a work-in-progress and is not yet used in production.
 
-pub mod bits;
+pub mod bit_view;
 pub mod source_driver;
 
 use crate::Array;
-use bits::BitView;
+use bit_view::BitView;
 use std::ops::Deref;
 use vortex_error::VortexResult;
 use vortex_vector::{Vector, VectorMut};
@@ -97,13 +97,13 @@ pub type VectorId = usize;
 /// the setup costs (such as DType validation, stats short-circuiting, etc.), and to make better
 /// use of CPU caches by performing all operations while the data is hot.
 ///
-/// The [`SourceKernel::step`] method will be invoked repeatedly to process chunks of data, [`N`] elements
-/// at a time. Each invocation is passed a selection mask indicating which elements of the chunk
-/// should be written to the start of the output vector.
+/// The [`SourceKernel::step`] method will be invoked repeatedly to process chunks of data, [`N`]
+/// elements at a time. Each invocation is passed a selection mask indicating which elements of the
+/// chunk should be written to the start of the output vector.
 ///
-/// The mutable output vector is **guaranteed** to have a capacity of at least [`N`] elements, and
-/// its length will initially be set to zero. It is therefore safe to invoke unchecked writes up to
-/// `N` elements.
+/// The mutable output vector is **guaranteed** to have a capacity of at least [`N`] elements. The
+/// caller makes no guarantee about the initial length of the output vector; and the kernel is
+/// expected to append `selection.true_count()` elements.
 ///
 /// The pipeline may invoke the `SourceKernel::skip` method to skip over some number of chunks of data.
 /// The kernel should mutate any internal state as necessary to account for the skipped data.

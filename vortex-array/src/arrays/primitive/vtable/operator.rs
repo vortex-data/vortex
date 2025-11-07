@@ -3,7 +3,7 @@
 
 use crate::arrays::{MaskedVTable, PrimitiveArray, PrimitiveVTable};
 use crate::execution::{kernel, BatchKernelRef, BindCtx};
-use crate::pipeline::bits::BitView;
+use crate::pipeline::bit_view::BitView;
 use crate::pipeline::{BindContext, KernelContext, PipelinedSource, SourceKernel, N};
 use crate::vtable::{OperatorVTable, ValidityHelper};
 use crate::{ArrayRef, IntoArray};
