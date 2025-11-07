@@ -10,7 +10,7 @@ use crate::{PcoArray, PcoVTable};
 
 impl CastKernel for PcoVTable {
     fn cast(&self, array: &PcoArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        if !dtype.is_nullable() && !array.all_valid() {
+        if !dtype.is_nullable() || !array.all_valid() {
             // TODO(joe): fixme
             // We cannot cast to non-nullable since the validity containing nulls is used to decode
             // the PCO array, this would require rewriting tables.
