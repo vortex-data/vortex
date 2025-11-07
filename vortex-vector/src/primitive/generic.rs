@@ -3,13 +3,16 @@
 
 //! Definition and implementation of [`PVector<T>`].
 
+use std::fmt::Debug;
+use std::ops::RangeBounds;
+
 use vortex_buffer::Buffer;
 use vortex_dtype::NativePType;
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 
-use crate::VectorOps;
-use crate::primitive::PVectorMut;
+use crate::primitive::{PScalar, PVectorMut};
+use crate::{Scalar, VectorOps};
 
 /// An immutable vector of generic primitive values.
 ///
@@ -117,6 +120,17 @@ impl<T: NativePType> VectorOps for PVector<T> {
 
     fn validity(&self) -> &Mask {
         &self.validity
+    }
+
+    fn scalar_at(&self, index: usize) -> Scalar {
+        assert!(index < self.len(), "Index out of bounds in `PVector`");
+        PScalar::<T>::new(self.validity.value(index).then(|| self.elements[index])).into()
+    }
+
+    fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self {
+        let elements = self.elements.slice(range.clone());
+        let validity = self.validity.slice(range);
+        Self::new(elements, validity)
     }
 
     /// Try to convert self into a mutable vector.

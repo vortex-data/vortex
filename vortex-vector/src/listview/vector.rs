@@ -3,15 +3,17 @@
 
 //! Definition and implementation of [`ListViewVector`].
 
+use std::fmt::Debug;
+use std::ops::RangeBounds;
 use std::sync::Arc;
 
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 
-use super::ListViewVectorMut;
-use crate::ops::{VectorMutOps, VectorOps};
+use super::{ListViewScalar, ListViewVectorMut};
 use crate::primitive::PrimitiveVector;
-use crate::{Vector, match_each_integer_pvector};
+use crate::vector_ops::{VectorMutOps, VectorOps};
+use crate::{Scalar, Vector, match_each_integer_pvector};
 
 /// A vector of variable-width lists.
 ///
@@ -207,6 +209,15 @@ impl VectorOps for ListViewVector {
 
     fn validity(&self) -> &Mask {
         &self.validity
+    }
+
+    fn scalar_at(&self, index: usize) -> Scalar {
+        assert!(index < self.len());
+        ListViewScalar::new(self.slice(index..index + 1)).into()
+    }
+
+    fn slice(&self, _range: impl RangeBounds<usize> + Clone + Debug) -> Self {
+        todo!()
     }
 
     fn try_into_mut(self) -> Result<ListViewVectorMut, Self> {

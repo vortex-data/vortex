@@ -12,7 +12,7 @@ use crate::{DecimalDType, NativeDecimalType};
 
 /// A struct representing the precision and scale of a decimal type, to be represented
 /// by the native type `D`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PrecisionScale<D> {
     precision: NonZero<u8>,
     scale: i8,

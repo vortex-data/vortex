@@ -5,6 +5,8 @@
 
 use std::fmt::Debug;
 
+use vortex_buffer::{BufferString, ByteBuffer};
+
 use crate::binaryview::{BinaryViewVector, BinaryViewVectorMut};
 use crate::{Vector, VectorMut};
 
@@ -21,9 +23,11 @@ impl<T: BinaryViewType> From<BinaryViewVectorMut<T>> for VectorMut {
 }
 
 /// Trait to mark supported binary view types.
-pub trait BinaryViewType: Debug + Sized + private::Sealed {
+pub trait BinaryViewType: Debug + Sized + Send + Sync + 'static + private::Sealed {
     /// The slice type for this variable binary type.
     type Slice: ?Sized + AsRef<[u8]>;
+    /// The scalar type for this variable binary type.
+    type Scalar: Sized + Clone + AsRef<Self::Slice> + Into<ByteBuffer>;
 
     /// Validate if a set of bytes conforms to the logical type constraints of the native `Slice`.
     fn validate(bytes: &[u8]) -> bool;
@@ -40,6 +44,14 @@ pub trait BinaryViewType: Debug + Sized + private::Sealed {
     /// vector operations.
     unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self::Slice;
 
+    /// Returns the scalar value from a byte buffer.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the buffer conforms to the type requirements of this binary
+    /// type.
+    unsafe fn scalar_from_buffer_unchecked(buffer: ByteBuffer) -> Self::Scalar;
+
     /// Downcast the provided object to a type-specific instance.
     fn downcast<V: BinaryViewDowncast>(visitor: V) -> V::Output<Self>;
 
@@ -52,16 +64,23 @@ pub trait BinaryViewType: Debug + Sized + private::Sealed {
 pub struct StringType;
 impl BinaryViewType for StringType {
     type Slice = str;
+    type Scalar = BufferString;
 
     #[inline(always)]
     fn validate(bytes: &[u8]) -> bool {
         std::str::from_utf8(bytes).is_ok()
     }
 
+    #[inline(always)]
     unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self::Slice {
         // SAFETY: vectors should be checked at the boundary for upholding the UTF8 variant,
         //  or only be built from vectors that are known to satisfy the variant.
         unsafe { std::str::from_utf8_unchecked(bytes) }
+    }
+
+    #[inline(always)]
+    unsafe fn scalar_from_buffer_unchecked(buffer: ByteBuffer) -> Self::Scalar {
+        unsafe { BufferString::new_unchecked(buffer) }
     }
 
     fn downcast<V: BinaryViewDowncast>(visitor: V) -> V::Output<Self> {
@@ -78,14 +97,21 @@ impl BinaryViewType for StringType {
 pub struct BinaryType;
 impl BinaryViewType for BinaryType {
     type Slice = [u8];
+    type Scalar = ByteBuffer;
 
     #[inline(always)]
     fn validate(_bytes: &[u8]) -> bool {
         true
     }
 
+    #[inline(always)]
     unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self::Slice {
         bytes
+    }
+
+    #[inline(always)]
+    unsafe fn scalar_from_buffer_unchecked(buffer: ByteBuffer) -> Self::Scalar {
+        buffer
     }
 
     fn downcast<V: BinaryViewDowncast>(visitor: V) -> V::Output<Self> {

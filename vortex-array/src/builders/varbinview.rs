@@ -11,9 +11,9 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure};
 use vortex_mask::Mask;
 use vortex_scalar::{BinaryScalar, Scalar, Utf8Scalar};
 use vortex_utils::aliases::hash_map::{Entry, HashMap};
+use vortex_vector::binaryview::BinaryView;
 
 use crate::arrays::VarBinViewArray;
-use crate::arrays::binary_view::BinaryView;
 use crate::arrays::compact::BufferUtilization;
 use crate::builders::{ArrayBuilder, LazyBitBufferBuilder};
 use crate::canonical::{Canonical, ToCanonical};
@@ -690,25 +690,25 @@ impl PrecomputedViewAdjustment {
                 buffer_offset,
                 offsets,
             } => {
-                let b_idx = view_ref.buffer_index();
+                let b_idx = view_ref.buffer_index;
                 let offset_shift = offsets
                     .as_ref()
                     .map(|o| o[b_idx as usize])
                     .unwrap_or_default();
                 view_ref
-                    .with_buffer_and_offset(b_idx + buffer_offset, view_ref.offset() - offset_shift)
+                    .with_buffer_and_offset(b_idx + buffer_offset, view_ref.offset - offset_shift)
             }
             Self::Lookup {
                 buffer_lookup,
                 offsets,
             } => {
-                let b_idx = view_ref.buffer_index();
+                let b_idx = view_ref.buffer_index;
                 let buffer = buffer_lookup[b_idx as usize];
                 let offset_shift = offsets
                     .as_ref()
                     .map(|o| o[b_idx as usize])
                     .unwrap_or_default();
-                view_ref.with_buffer_and_offset(buffer, view_ref.offset() - offset_shift)
+                view_ref.with_buffer_and_offset(buffer, view_ref.offset - offset_shift)
             }
         }
         .into()
@@ -729,14 +729,14 @@ impl RewritingViewAdjustment {
         }
 
         let view_ref = view.as_view();
-        self.buffer_lookup[view_ref.buffer_index() as usize].map(|buffer| {
+        self.buffer_lookup[view_ref.buffer_index as usize].map(|buffer| {
             let offset_shift = self
                 .offsets
                 .as_ref()
-                .map(|o| o[view_ref.buffer_index() as usize])
+                .map(|o| o[view_ref.buffer_index as usize])
                 .unwrap_or_default();
             view_ref
-                .with_buffer_and_offset(buffer, view_ref.offset() - offset_shift)
+                .with_buffer_and_offset(buffer, view_ref.offset - offset_shift)
                 .into()
         })
     }

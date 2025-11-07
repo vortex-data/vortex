@@ -34,6 +34,7 @@ vortex-fsst = { workspace = true, optional = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-utils = { workspace = true }
+vortex-vector = { workspace = true }
 
 [lints]
 workspace = true

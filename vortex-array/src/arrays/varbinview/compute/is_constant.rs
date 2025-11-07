@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::{VortexExpect, VortexResult};
+use vortex_vector::binaryview::Ref;
 
-use crate::arrays::varbinview::binary_view::Ref;
 use crate::arrays::{VarBinViewArray, VarBinViewVTable};
 use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
 use crate::register_kernel;
@@ -32,7 +32,7 @@ impl IsConstantKernel for VarBinViewVTable {
         } else {
             // Directly fetch the values for a `Ref`
             let ref_bytes = |view_ref: &Ref| {
-                &array.buffer(view_ref.buffer_index() as usize).as_slice()[view_ref.as_range()]
+                &array.buffer(view_ref.buffer_index as usize).as_slice()[view_ref.as_range()]
             };
 
             let first_view_ref = first_value.as_view();

@@ -2,10 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fs::File;
+use std::future::Future;
 use std::io::{Write, stdout};
 use std::path::PathBuf;
 
-use bench_vortex::bench_run::run_with_setup;
+use bench_vortex::bench_run::run_timed_with_setup;
 use bench_vortex::datasets::taxi_data::*;
 use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
 use bench_vortex::measurements::TimingMeasurement;
@@ -34,8 +35,9 @@ struct Args {
         default_values_t = vec![Format::Parquet, Format::OnDiskVortex]
     )]
     formats: Vec<Format>,
-    #[arg(short, long, default_value_t = 10)]
-    iterations: usize,
+    /// Time limit in seconds for each benchmark target (e.g., 10 for 10 seconds).
+    #[arg(long, default_value_t = 10)]
+    time_limit: u64,
     #[arg(short, long)]
     threads: Option<usize>,
     #[arg(short, long)]
@@ -61,41 +63,48 @@ fn main() -> anyhow::Result<()> {
     random_access(
         args.formats,
         runtime,
-        args.iterations,
+        args.time_limit,
         args.display_format,
         indices,
         &args.output_path,
     )
 }
 
-/// Given a benchmark future, runs it and returns a [`TimingMeasurement`].
-fn create_timing_measurement<O, B, F>(
-    benchmark: B,
+/// Configuration for timing measurements
+struct TimingConfig<'a> {
     name: String,
     storage: String,
-    runtime: &Runtime,
-    indices: &Buffer<u64>,
-    iterations: usize,
+    runtime: &'a Runtime,
+    indices: &'a Buffer<u64>,
+    time_limit: u64,
     target: Target,
-) -> TimingMeasurement
+}
+
+/// Given a benchmark future, runs it and returns a [`TimingMeasurement`].
+fn create_timing_measurement<O, B, F>(benchmark: B, config: TimingConfig) -> TimingMeasurement
 where
     B: FnMut(Buffer<u64>) -> F,
     F: Future<Output = O>,
 {
-    let benchmark_duration = run_with_setup(runtime, iterations, || indices.clone(), benchmark);
+    let runs = run_timed_with_setup(
+        config.runtime,
+        config.time_limit,
+        || config.indices.clone(),
+        benchmark,
+    );
 
     TimingMeasurement {
-        name,
-        storage,
-        target,
-        time: benchmark_duration,
+        name: config.name,
+        storage: config.storage,
+        target: config.target,
+        runs,
     }
 }
 
 fn random_access(
     formats: Vec<Format>,
     runtime: Runtime,
-    iterations: usize,
+    time_limit: u64,
     display_format: DisplayFormat,
     indices: Buffer<u64>,
     output_path: &Option<PathBuf>,
@@ -123,12 +132,14 @@ fn random_access(
                     |indices| async {
                         take_vortex_tokio(&taxi_vortex, indices, validate_vortex_array).await
                     },
-                    "random-access/vortex-tokio-local-disk".to_string(),
-                    STORAGE_NVME.to_owned(),
-                    &runtime,
-                    &indices,
-                    iterations,
-                    target,
+                    TimingConfig {
+                        name: "random-access/vortex-tokio-local-disk".to_string(),
+                        storage: STORAGE_NVME.to_owned(),
+                        runtime: &runtime,
+                        indices: &indices,
+                        time_limit,
+                        target,
+                    },
                 )
             }
             Format::VortexCompact => {
@@ -139,12 +150,14 @@ fn random_access(
                         take_vortex_tokio(&taxi_vortex_compact, indices, validate_vortex_array)
                             .await
                     },
-                    "random-access/vortex-compact-tokio-local-disk".to_string(),
-                    STORAGE_NVME.to_owned(),
-                    &runtime,
-                    &indices,
-                    iterations,
-                    target,
+                    TimingConfig {
+                        name: "random-access/vortex-compact-tokio-local-disk".to_string(),
+                        storage: STORAGE_NVME.to_owned(),
+                        runtime: &runtime,
+                        indices: &indices,
+                        time_limit,
+                        target,
+                    },
                 )
             }
             Format::Parquet => {
@@ -152,12 +165,14 @@ fn random_access(
 
                 create_timing_measurement(
                     |indices| async { take_parquet(&taxi_parquet, indices).await },
-                    "random-access/parquet-tokio-local-disk".to_string(),
-                    STORAGE_NVME.to_owned(),
-                    &runtime,
-                    &indices,
-                    iterations,
-                    target,
+                    TimingConfig {
+                        name: "random-access/parquet-tokio-local-disk".to_string(),
+                        storage: STORAGE_NVME.to_owned(),
+                        runtime: &runtime,
+                        indices: &indices,
+                        time_limit,
+                        target,
+                    },
                 )
             }
             #[cfg(feature = "lance")]
@@ -166,12 +181,14 @@ fn random_access(
 
                 create_timing_measurement(
                     |indices| async { take_lance(&taxi_lance, indices).await },
-                    "random-access/lance-tokio-local-disk".to_string(),
-                    STORAGE_NVME.to_owned(),
-                    &runtime,
-                    &indices,
-                    iterations,
-                    target,
+                    TimingConfig {
+                        name: "random-access/lance-tokio-local-disk".to_string(),
+                        storage: STORAGE_NVME.to_owned(),
+                        runtime: &runtime,
+                        indices: &indices,
+                        time_limit,
+                        target,
+                    },
                 )
             }
             Format::Csv | Format::Arrow | Format::OnDiskDuckDB => unimplemented!(),

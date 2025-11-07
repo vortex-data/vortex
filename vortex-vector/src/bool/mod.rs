@@ -60,6 +60,9 @@ pub use vector::BoolVector;
 mod vector_mut;
 pub use vector_mut::BoolVectorMut;
 
+mod scalar;
+pub use scalar::BoolScalar;
+
 mod iter;
 
 use crate::{Vector, VectorMut};

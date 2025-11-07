@@ -3,13 +3,15 @@
 
 //! Definition and implementation of [`StructVector`].
 
+use std::fmt::Debug;
+use std::ops::RangeBounds;
 use std::sync::Arc;
 
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 
-use crate::struct_::StructVectorMut;
-use crate::{Vector, VectorMutOps, VectorOps};
+use crate::struct_::{StructScalar, StructVectorMut};
+use crate::{Scalar, Vector, VectorMutOps, VectorOps};
 
 /// An immutable vector of struct values.
 ///
@@ -129,6 +131,15 @@ impl VectorOps for StructVector {
 
     fn validity(&self) -> &Mask {
         &self.validity
+    }
+
+    fn scalar_at(&self, index: usize) -> Scalar {
+        assert!(index < self.len());
+        StructScalar::new(self.slice(index..index + 1)).into()
+    }
+
+    fn slice(&self, _range: impl RangeBounds<usize> + Clone + Debug) -> Self {
+        todo!()
     }
 
     fn try_into_mut(self) -> Result<StructVectorMut, Self> {

@@ -10,14 +10,17 @@ pub(crate) mod py;
 mod range_to_sequence;
 
 use arrow_array::{Array as ArrowArray, ArrayRef as ArrowArrayRef};
+use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyRange, PyRangeMethods};
+use pyo3_bytes::PyBytes;
 use vortex::arrays::ChunkedVTable;
 use vortex::arrow::IntoArrowArray;
 use vortex::compute::{Operator, compare, take};
 use vortex::dtype::{DType, Nullability, PType, match_each_integer_ptype};
 use vortex::error::VortexError;
+use vortex::ipc::messages::{EncoderMessage, MessageEncoder};
 use vortex::{Array, ArrayRef, ToCanonical};
 
 use crate::arrays::native::PyNativeArray;
@@ -652,5 +655,77 @@ impl PyArray {
             .into_iter()
             .map(|buffer| buffer.to_vec())
             .collect())
+    }
+
+    /// Support for Python's pickle protocol.
+    ///
+    /// This method serializes the array using Vortex IPC format and returns
+    /// the data needed for pickle to reconstruct the array.
+    fn __reduce__<'py>(
+        slf: &'py Bound<'py, Self>,
+    ) -> PyResult<(Bound<'py, PyAny>, Bound<'py, PyAny>)> {
+        let py = slf.py();
+        let array = PyArrayRef::extract_bound(slf.as_any())?.into_inner();
+
+        let mut encoder = MessageEncoder::default();
+        let buffers = encoder.encode(EncoderMessage::Array(&*array));
+
+        // Return buffers as a list instead of concatenating
+        let array_buffers: Vec<Vec<u8>> = buffers.iter().map(|b| b.to_vec()).collect();
+
+        let dtype_buffers = encoder.encode(EncoderMessage::DType(array.dtype()));
+        let dtype_buffers: Vec<Vec<u8>> = dtype_buffers.iter().map(|b| b.to_vec()).collect();
+
+        let vortex_module = PyModule::import(py, "vortex")?;
+        let unpickle_fn = vortex_module.getattr("_unpickle_array")?;
+
+        let args = (array_buffers, dtype_buffers).into_pyobject(py)?;
+        Ok((unpickle_fn, args.into_any()))
+    }
+
+    /// Support for Python's pickle protocol for protocol >= 5
+    ///
+    /// uses PickleBuffer for out-of-band buffer transfer,
+    /// which potentially avoids copying large data buffers.
+    fn __reduce_ex__<'py>(
+        slf: &'py Bound<'py, Self>,
+        protocol: i32,
+    ) -> PyResult<(Bound<'py, PyAny>, Bound<'py, PyAny>)> {
+        let py = slf.py();
+
+        if protocol < 5 {
+            return Self::__reduce__(slf);
+        }
+
+        let array = PyArrayRef::extract_bound(slf.as_any())?.into_inner();
+
+        let mut encoder = MessageEncoder::default();
+        let array_buffers = encoder.encode(EncoderMessage::Array(&*array));
+        let dtype_buffers = encoder.encode(EncoderMessage::DType(array.dtype()));
+
+        let pickle_module = PyModule::import(py, "pickle")?;
+        let pickle_buffer_class = pickle_module.getattr("PickleBuffer")?;
+
+        let mut pickle_buffers = Vec::new();
+        for buf in array_buffers.into_iter() {
+            // PyBytes wraps bytes::Bytes and implements the buffer protocol
+            // This allows PickleBuffer to reference the data without copying
+            let py_bytes = PyBytes::new(buf).into_py_any(py)?;
+            let pickle_buffer = pickle_buffer_class.call1((py_bytes,))?;
+            pickle_buffers.push(pickle_buffer);
+        }
+
+        let mut dtype_pickle_buffers = Vec::new();
+        for buf in dtype_buffers.into_iter() {
+            let py_bytes = PyBytes::new(buf).into_py_any(py)?;
+            let pickle_buffer = pickle_buffer_class.call1((py_bytes,))?;
+            dtype_pickle_buffers.push(pickle_buffer);
+        }
+
+        let vortex_module = PyModule::import(py, "vortex")?;
+        let unpickle_fn = vortex_module.getattr("_unpickle_array")?;
+
+        let args = (pickle_buffers, dtype_pickle_buffers).into_pyobject(py)?;
+        Ok((unpickle_fn, args.into_any()))
     }
 }

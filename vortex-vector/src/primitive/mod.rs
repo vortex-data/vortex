@@ -113,6 +113,9 @@ pub use vector::PrimitiveVector;
 mod vector_mut;
 pub use vector_mut::PrimitiveVectorMut;
 
+mod scalar;
+pub use scalar::{PScalar, PrimitiveScalar};
+
 mod macros;
 
 use vortex_dtype::NativePType;

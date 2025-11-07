@@ -4,6 +4,7 @@
 use std::mem::transmute;
 
 use itertools::Itertools;
+use num_traits::AsPrimitive;
 use vortex_array::arrays::{PrimitiveArray, patch_chunk};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
@@ -169,8 +170,9 @@ pub fn decompress_chunked(
     let exponents = array.exponents();
     let patches_offset = patches.offset();
 
-    // We need to drop ALPArray here in case converting encoded buffer into primitive didn't create a copy. In that case
-    // both alp_encoded and array will hold a reference to the buffer we want to mutate.
+    // We need to drop ALPArray here in case converting encoded buffer into
+    // primitive didn't create a copy. In that case both alp_encoded and array
+    // will hold a reference to the buffer we want to mutate.
     drop(array);
 
     match_each_alp_float_ptype!(ptype, |T| {
@@ -178,12 +180,17 @@ pub fn decompress_chunked(
         let mut alp_buffer = encoded.into_buffer_mut();
         match_each_unsigned_integer_ptype!(patches_chunk_offsets.ptype(), |C| {
             let patches_chunk_offsets = patches_chunk_offsets.as_slice::<C>();
+            // There always is at least one chunk offset.
+            let base_offset = patches_chunk_offsets[0];
+            let offset_within_chunk = patches.offset_within_chunk().unwrap_or(0);
+
             match_each_unsigned_integer_ptype!(patches_indices.ptype(), |I| {
                 let patches_indices = patches_indices.as_slice::<I>();
 
                 for (chunk_idx, chunk_start) in (0..array_len).step_by(1024).enumerate() {
                     let chunk_end = (chunk_start + 1024).min(array_len);
                     let chunk_slice = &mut alp_buffer.as_mut_slice()[chunk_start..chunk_end];
+
                     <T>::decode_slice_inplace(chunk_slice, exponents);
 
                     let decoded_chunk: &mut [T] = unsafe { transmute(chunk_slice) };
@@ -194,6 +201,8 @@ pub fn decompress_chunked(
                         patches_offset,
                         patches_chunk_offsets,
                         chunk_idx,
+                        base_offset.as_(),
+                        offset_within_chunk,
                     );
                 }
 
@@ -214,8 +223,9 @@ fn decompress_unchunked(array: ALPArray) -> PrimitiveArray {
     let exponents = array.exponents();
     let ptype = array.dtype().as_ptype();
 
-    // We need to drop ALPArray here in case converting encoded buffer into primitive didn't create a copy. In that case
-    // both alp_encoded and array will hold a reference to the buffer we want to mutate.
+    // We need to drop ALPArray here in case converting encoded buffer into
+    // primitive didn't create a copy. In that case both alp_encoded and array
+    // will hold a reference to the buffer we want to mutate.
     drop(array);
 
     let decoded = match_each_alp_float_ptype!(ptype, |T| {
@@ -499,6 +509,27 @@ mod tests {
         let decoded = sliced_alp.to_primitive();
 
         let expected_slice = original.slice(512..1024).to_primitive();
+        assert_eq!(expected_slice.as_slice::<f64>(), decoded.as_slice::<f64>());
+        assert!(encoded.patches().is_some());
+    }
+
+    #[test]
+    fn test_slice_across_chunks_with_patches_roundtrip() {
+        let mut values = vec![1.0f64; 2048];
+        values[100] = PI;
+        values[200] = E;
+        values[600] = 42.42;
+        values[800] = 42.42;
+        values[1000] = 42.42;
+        values[1023] = 42.42;
+
+        let original = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
+        let encoded = alp_encode(&original, None).unwrap();
+
+        let sliced_alp = encoded.slice(1023..1025);
+        let decoded = sliced_alp.to_primitive();
+
+        let expected_slice = original.slice(1023..1025).to_primitive();
         assert_eq!(expected_slice.as_slice::<f64>(), decoded.as_slice::<f64>());
         assert!(encoded.patches().is_some());
     }

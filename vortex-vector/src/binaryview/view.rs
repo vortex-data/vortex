@@ -188,6 +188,10 @@ impl BinaryView {
     }
 
     /// Create a new inlined binary view
+    ///
+    /// # Panics
+    ///
+    /// Panics if the provided string is too long to inline.
     #[inline]
     pub fn new_inlined(value: &[u8]) -> Self {
         assert!(

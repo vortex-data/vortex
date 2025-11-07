@@ -3,13 +3,15 @@
 
 //! Definition and implementation of [`FixedSizeListVector`].
 
+use std::fmt::Debug;
+use std::ops::RangeBounds;
 use std::sync::Arc;
 
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 
-use crate::fixed_size_list::FixedSizeListVectorMut;
-use crate::{Vector, VectorOps};
+use crate::fixed_size_list::{FixedSizeListScalar, FixedSizeListVectorMut};
+use crate::{Scalar, Vector, VectorOps};
 
 /// An immutable vector of fixed-size lists.
 ///
@@ -147,6 +149,15 @@ impl VectorOps for FixedSizeListVector {
 
     fn validity(&self) -> &Mask {
         &self.validity
+    }
+
+    fn scalar_at(&self, index: usize) -> Scalar {
+        assert!(index < self.len());
+        FixedSizeListScalar::new(self.slice(index..index + 1)).into()
+    }
+
+    fn slice(&self, _range: impl RangeBounds<usize> + Clone + Debug) -> Self {
+        todo!()
     }
 
     fn try_into_mut(self) -> Result<FixedSizeListVectorMut, Self> {

@@ -12,8 +12,8 @@ use vortex_error::VortexExpect;
 use vortex_scalar::{
     BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, Scalar, StructScalar, Utf8Scalar,
 };
+use vortex_vector::binaryview::BinaryView;
 
-use crate::arrays::binary_view::BinaryView;
 use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::{
@@ -172,7 +172,7 @@ fn constant_canonical_byte_view(
 ) -> VarBinViewArray {
     match scalar_bytes {
         None => {
-            let views = buffer![BinaryView::from(0_u128); len];
+            let views = buffer![BinaryView::empty_view(); len];
 
             // SAFETY: for all-null the views and buffers are just zeroed, never accessed.
             unsafe {

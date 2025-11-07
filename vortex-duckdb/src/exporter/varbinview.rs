@@ -5,10 +5,10 @@ use std::ffi::c_char;
 
 use itertools::Itertools;
 use vortex::arrays::VarBinViewArray;
-use vortex::arrays::binary_view::{BinaryView, Inlined};
 use vortex::buffer::{Buffer, ByteBuffer};
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
+use vortex_vector::binaryview::{BinaryView, Inlined};
 
 use crate::duckdb::{Vector, VectorBuffer};
 use crate::exporter::{ColumnExporter, all_invalid};
@@ -104,12 +104,12 @@ fn to_ptr_binary_view<'a>(
             PtrBinaryView {
                 _ref: PtrRef {
                     size: v.len(),
-                    prefix: *view.prefix(),
+                    prefix: view.prefix,
                     // TODO(joe) verify this.
                     ptr: unsafe {
-                        buffers[view.buffer_index() as usize]
+                        buffers[view.buffer_index as usize]
                             .as_ptr()
-                            .add(view.offset() as usize)
+                            .add(view.offset as usize)
                             .cast()
                     },
                 },

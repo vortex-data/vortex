@@ -3,13 +3,16 @@
 
 //! Definition and implementation of [`PrimitiveVector`].
 
+use std::fmt::Debug;
+use std::ops::RangeBounds;
+
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType, PTypeDowncast, PTypeUpcast};
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::primitive::{PVector, PrimitiveVectorMut};
-use crate::{VectorOps, match_each_pvector};
+use crate::{Scalar, VectorOps, match_each_pvector};
 
 /// An immutable vector of primitive values.
 ///
@@ -73,6 +76,14 @@ impl VectorOps for PrimitiveVector {
 
     fn validity(&self) -> &Mask {
         match_each_pvector!(self, |v| { v.validity() })
+    }
+
+    fn scalar_at(&self, index: usize) -> Scalar {
+        match_each_pvector!(self, |v| { v.scalar_at(index) })
+    }
+
+    fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self {
+        match_each_pvector!(self, |v| { v.slice(range).into() })
     }
 
     fn try_into_mut(self) -> Result<PrimitiveVectorMut, Self> {

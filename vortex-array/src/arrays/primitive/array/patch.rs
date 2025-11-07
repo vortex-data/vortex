@@ -67,7 +67,10 @@ impl PrimitiveArray {
 /// * `patches_offset` - Offset to subtract from patch indices
 /// * `chunk_offsets_slice` - Slice containing offsets for each chunk
 /// * `chunk_idx` - Index of the chunk to patch
+/// * `base_offset` - Base offset from the first chunk
+/// * `offset_within_chunk` - Offset within chunk for sliced patches
 #[inline]
+#[allow(clippy::too_many_arguments)]
 pub fn patch_chunk<T, I, C>(
     decoded_values: &mut [T],
     patches_indices: &[I],
@@ -75,14 +78,18 @@ pub fn patch_chunk<T, I, C>(
     patches_offset: usize,
     chunk_offsets_slice: &[C],
     chunk_idx: usize,
+    base_offset: usize,
+    offset_within_chunk: usize,
 ) where
     T: NativePType,
     I: UnsignedPType,
     C: UnsignedPType,
 {
-    let patches_start_idx = chunk_offsets_slice[chunk_idx].as_();
+    // Use the same logic as patches slice implementation for calculating patch ranges.
+    let patches_start_idx =
+        (chunk_offsets_slice[chunk_idx].as_() - base_offset).saturating_sub(offset_within_chunk);
     let patches_end_idx = if chunk_idx + 1 < chunk_offsets_slice.len() {
-        chunk_offsets_slice[chunk_idx + 1].as_()
+        chunk_offsets_slice[chunk_idx + 1].as_() - base_offset - offset_within_chunk
     } else {
         patches_indices.len()
     };

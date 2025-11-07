@@ -5,7 +5,6 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use num_traits::NumCast;
-use vortex_array::arrays::binary_view::BinaryView;
 use vortex_array::arrays::{
     BoolArray, ConstantArray, FixedSizeListArray, ListViewArray, NullArray, PrimitiveArray,
     StructArray, VarBinViewArray,
@@ -24,6 +23,7 @@ use vortex_dtype::{
 };
 use vortex_error::{VortexError, VortexExpect, vortex_panic};
 use vortex_scalar::{DecimalScalar, ListScalar, Scalar, StructScalar};
+use vortex_vector::binaryview::BinaryView;
 
 use crate::{SparseArray, SparseVTable};
 
