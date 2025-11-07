@@ -14,10 +14,13 @@ fn main() {
     divan::main();
 }
 
-// Buffer size to test - focusing on 1024 for now
 const BUFFER_SIZE: usize = 1024;
 
-// Pattern types for testing.
+// Full selectivity spectrum with extra detail around the 80% threshold.
+const SELECTIVITIES: &[f64] = &[
+    0.01, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.50, 0.75, 0.78, 0.79, 0.80, 0.81, 0.82, 0.85, 0.99,
+];
+
 #[derive(Copy, Clone, Debug)]
 enum Pattern {
     Random,
@@ -35,7 +38,6 @@ impl fmt::Display for Pattern {
     }
 }
 
-/// Creates a test buffer filled with sequential values.
 fn create_test_buffer<T>(size: usize) -> BufferMut<T>
 where
     T: Copy + Default + From<u8>,
@@ -48,7 +50,6 @@ where
     buffer
 }
 
-/// Generates a mask with the specified selectivity and pattern.
 fn generate_mask(len: usize, selectivity: f64, pattern: Pattern) -> Mask {
     #[expect(clippy::cast_possible_truncation)]
     #[expect(clippy::cast_sign_loss)]
@@ -56,8 +57,6 @@ fn generate_mask(len: usize, selectivity: f64, pattern: Pattern) -> Mask {
 
     let selection = match pattern {
         Pattern::Random => {
-            // Random selection - distribute selected elements randomly.
-            // Use a deterministic pattern for reproducibility.
             let mut selection = vec![false; len];
             let mut indices: Vec<usize> = (0..len).collect();
 
@@ -73,7 +72,6 @@ fn generate_mask(len: usize, selectivity: f64, pattern: Pattern) -> Mask {
             selection
         }
         Pattern::Contiguous => {
-            // One contiguous block in the middle.
             let mut selection = vec![false; len];
             let start = (len.saturating_sub(num_selected)) / 2;
             for i in start..(start + num_selected).min(len) {
@@ -82,7 +80,6 @@ fn generate_mask(len: usize, selectivity: f64, pattern: Pattern) -> Mask {
             selection
         }
         Pattern::Alternating => {
-            // Select every nth element to achieve desired selectivity.
             let mut selection = vec![false; len];
             if num_selected > 0 {
                 let step = len.max(1) / num_selected.max(1);
@@ -98,77 +95,33 @@ fn generate_mask(len: usize, selectivity: f64, pattern: Pattern) -> Mask {
     Mask::from_iter(selection)
 }
 
-// ===== PRIMARY BENCHMARK: Full Selectivity Spectrum =====
-// This shows performance across the entire selectivity range
-// with extra detail around the 80% threshold.
-
-// Macro to generate a type/size benchmark module with all selectivity benchmarks.
-macro_rules! type_size_bench_group {
-    ($mod_name:ident, $type:ty) => {
-        #[divan::bench_group]
-        mod $mod_name {
-            use super::*;
-            type T = $type;
-            const SIZE: usize = BUFFER_SIZE;
-
-            // Inner macro for generating individual selectivity benchmarks.
-            macro_rules! selectivity_bench {
-                ($name: ident,$selectivity: expr) => {
-                    #[divan::bench(sample_count = 1000)]
-                    fn $name(bencher: Bencher) {
-                        bencher
-                            .with_inputs(|| {
-                                let buffer = create_test_buffer::<T>(SIZE);
-                                let mask = generate_mask(SIZE, $selectivity, Pattern::Random);
-                                (buffer, mask)
-                            })
-                            .bench_values(|(mut buffer, mask)| {
-                                buffer.filter(&mask);
-                                divan::black_box(buffer);
-                            });
-                    }
-                };
-            }
-
-            // Generate benchmarks for each selectivity level.
-            selectivity_bench!(sel_01_percent, 0.01);
-            selectivity_bench!(sel_25_percent, 0.25);
-            selectivity_bench!(sel_50_percent, 0.50);
-            selectivity_bench!(sel_75_percent, 0.75);
-            selectivity_bench!(sel_78_percent, 0.78);
-            selectivity_bench!(sel_79_percent, 0.79);
-            selectivity_bench!(sel_80_percent, 0.80);
-            selectivity_bench!(sel_81_percent, 0.81);
-            selectivity_bench!(sel_82_percent, 0.82);
-            selectivity_bench!(sel_85_percent, 0.85);
-            selectivity_bench!(sel_99_percent, 0.99);
-        }
-    };
+#[divan::bench(types = [u8, u32, u64], args = SELECTIVITIES, sample_count = 1000)]
+fn filter_selectivity<T: Copy + Default + From<u8>>(bencher: Bencher, selectivity: f64) {
+    let mask = generate_mask(BUFFER_SIZE, selectivity, Pattern::Random);
+    bencher
+        .with_inputs(|| {
+            let buffer = create_test_buffer::<T>(BUFFER_SIZE);
+            (buffer, mask.clone())
+        })
+        .bench_values(|(mut buffer, mask)| {
+            buffer.filter(&mask);
+            divan::black_box(buffer);
+        });
 }
 
-// Generate benchmark modules for each type.
-type_size_bench_group!(u8_1024, u8);
-type_size_bench_group!(u32_1024, u32);
-type_size_bench_group!(u64_1024, u64);
-
-// ===== PATTERN COMPARISON AT THRESHOLD =====
-// Test different patterns but ONLY at the 80% threshold where the algorithm choice matters most.
-// This tests whether certain patterns perform better with the index-based vs slice-based approach.
-
-#[divan::bench_group]
-mod u32_1024_patterns {
+#[divan::bench_group(sample_count = 1000)]
+mod patterns_at_threshold {
     use super::*;
-    type T = u32;
-    const SIZE: usize = BUFFER_SIZE;
-    const SELECTIVITY: f64 = 0.80;
 
-    #[divan::bench(sample_count = 1000)]
+    const SELECTIVITY: f64 = 0.50;
+
+    #[divan::bench]
     fn random(bencher: Bencher) {
+        let mask = generate_mask(BUFFER_SIZE, SELECTIVITY, Pattern::Random);
         bencher
             .with_inputs(|| {
-                let buffer = create_test_buffer::<T>(SIZE);
-                let mask = generate_mask(SIZE, SELECTIVITY, Pattern::Random);
-                (buffer, mask)
+                let buffer = create_test_buffer::<u32>(BUFFER_SIZE);
+                (buffer, mask.clone())
             })
             .bench_values(|(mut buffer, mask)| {
                 buffer.filter(&mask);
@@ -176,13 +129,13 @@ mod u32_1024_patterns {
             });
     }
 
-    #[divan::bench(sample_count = 1000)]
+    #[divan::bench]
     fn contiguous(bencher: Bencher) {
+        let mask = generate_mask(BUFFER_SIZE, SELECTIVITY, Pattern::Contiguous);
         bencher
             .with_inputs(|| {
-                let buffer = create_test_buffer::<T>(SIZE);
-                let mask = generate_mask(SIZE, SELECTIVITY, Pattern::Contiguous);
-                (buffer, mask)
+                let buffer = create_test_buffer::<u32>(BUFFER_SIZE);
+                (buffer, mask.clone())
             })
             .bench_values(|(mut buffer, mask)| {
                 buffer.filter(&mask);
@@ -190,13 +143,13 @@ mod u32_1024_patterns {
             });
     }
 
-    #[divan::bench(sample_count = 1000)]
+    #[divan::bench]
     fn alternating(bencher: Bencher) {
+        let mask = generate_mask(BUFFER_SIZE, SELECTIVITY, Pattern::Alternating);
         bencher
             .with_inputs(|| {
-                let buffer = create_test_buffer::<T>(SIZE);
-                let mask = generate_mask(SIZE, SELECTIVITY, Pattern::Alternating);
-                (buffer, mask)
+                let buffer = create_test_buffer::<u32>(BUFFER_SIZE);
+                (buffer, mask.clone())
             })
             .bench_values(|(mut buffer, mask)| {
                 buffer.filter(&mask);
@@ -204,10 +157,6 @@ mod u32_1024_patterns {
             });
     }
 }
-
-// ===== LARGE ELEMENT BENCHMARKS =====
-// Test with larger element sizes at the critical threshold range to understand
-// how memcpy performance affects the algorithms.
 
 #[derive(Copy, Clone, Default)]
 #[allow(dead_code)]
@@ -219,107 +168,16 @@ impl From<u8> for LargeElement {
     }
 }
 
-#[divan::bench_group]
-mod large_elem_1024 {
-    use super::*;
-    type T = LargeElement;
-    const SIZE: usize = BUFFER_SIZE;
-
-    #[divan::bench(sample_count = 1000)]
-    fn sel_50_percent(bencher: Bencher) {
-        bencher
-            .with_inputs(|| {
-                let buffer = create_test_buffer::<T>(SIZE);
-                let mask = generate_mask(SIZE, 0.50, Pattern::Random);
-                (buffer, mask)
-            })
-            .bench_values(|(mut buffer, mask)| {
-                buffer.filter(&mask);
-                divan::black_box(buffer);
-            });
-    }
-
-    #[divan::bench(sample_count = 1000)]
-    fn sel_75_percent(bencher: Bencher) {
-        bencher
-            .with_inputs(|| {
-                let buffer = create_test_buffer::<T>(SIZE);
-                let mask = generate_mask(SIZE, 0.75, Pattern::Random);
-                (buffer, mask)
-            })
-            .bench_values(|(mut buffer, mask)| {
-                buffer.filter(&mask);
-                divan::black_box(buffer);
-            });
-    }
-
-    #[divan::bench(sample_count = 1000)]
-    fn sel_79_percent(bencher: Bencher) {
-        bencher
-            .with_inputs(|| {
-                let buffer = create_test_buffer::<T>(SIZE);
-                let mask = generate_mask(SIZE, 0.79, Pattern::Random);
-                (buffer, mask)
-            })
-            .bench_values(|(mut buffer, mask)| {
-                buffer.filter(&mask);
-                divan::black_box(buffer);
-            });
-    }
-
-    #[divan::bench(sample_count = 1000)]
-    fn sel_80_percent(bencher: Bencher) {
-        bencher
-            .with_inputs(|| {
-                let buffer = create_test_buffer::<T>(SIZE);
-                let mask = generate_mask(SIZE, 0.80, Pattern::Random);
-                (buffer, mask)
-            })
-            .bench_values(|(mut buffer, mask)| {
-                buffer.filter(&mask);
-                divan::black_box(buffer);
-            });
-    }
-
-    #[divan::bench(sample_count = 1000)]
-    fn sel_81_percent(bencher: Bencher) {
-        bencher
-            .with_inputs(|| {
-                let buffer = create_test_buffer::<T>(SIZE);
-                let mask = generate_mask(SIZE, 0.81, Pattern::Random);
-                (buffer, mask)
-            })
-            .bench_values(|(mut buffer, mask)| {
-                buffer.filter(&mask);
-                divan::black_box(buffer);
-            });
-    }
-
-    #[divan::bench]
-    fn sel_85_percent(bencher: Bencher) {
-        bencher
-            .with_inputs(|| {
-                let buffer = create_test_buffer::<T>(SIZE);
-                let mask = generate_mask(SIZE, 0.85, Pattern::Random);
-                (buffer, mask)
-            })
-            .bench_values(|(mut buffer, mask)| {
-                buffer.filter(&mask);
-                divan::black_box(buffer);
-            });
-    }
-
-    #[divan::bench]
-    fn sel_90_percent(bencher: Bencher) {
-        bencher
-            .with_inputs(|| {
-                let buffer = create_test_buffer::<T>(SIZE);
-                let mask = generate_mask(SIZE, 0.90, Pattern::Random);
-                (buffer, mask)
-            })
-            .bench_values(|(mut buffer, mask)| {
-                buffer.filter(&mask);
-                divan::black_box(buffer);
-            });
-    }
+#[divan::bench(args = SELECTIVITIES, sample_count = 1000)]
+fn filter_large_element(bencher: Bencher, selectivity: f64) {
+    let mask = generate_mask(BUFFER_SIZE, selectivity, Pattern::Random);
+    bencher
+        .with_inputs(|| {
+            let buffer = create_test_buffer::<LargeElement>(BUFFER_SIZE);
+            (buffer, mask.clone())
+        })
+        .bench_values(|(mut buffer, mask)| {
+            buffer.filter(&mask);
+            divan::black_box(buffer);
+        });
 }
