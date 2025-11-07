@@ -8,7 +8,9 @@ use std::backtrace::Backtrace;
 
 use libfuzzer_sys::{Corpus, fuzz_target};
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{cast, compare, fill_null, filter, mask, min_max, sum, take};
+use vortex_array::compute::{
+    MinMaxResult, cast, compare, fill_null, filter, mask, min_max, sum, take,
+};
 use vortex_array::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
@@ -88,7 +90,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
             }
             Action::Sum => {
                 let sum_result = sum(&current_array).vortex_unwrap();
-                assert_scalar_eq(&expected.scalar(), &sum_result);
+                assert_scalar_eq(&expected.scalar(), &sum_result, i).unwrap();
             }
             Action::MinMax => {
                 let min_max_result = min_max(&current_array).vortex_unwrap();
@@ -106,7 +108,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 let expected_scalars = expected.scalar_vec();
                 for (j, &idx) in indices.iter().enumerate() {
                     let scalar = current_array.scalar_at(idx);
-                    assert_scalar_eq(&expected_scalars[j], &scalar);
+                    assert_scalar_eq(&expected_scalars[j], &scalar, i).unwrap();
                 }
             }
         }
@@ -137,8 +139,16 @@ fn assert_search_sorted(
     }
 }
 
-// TODO(ngates): this is horrific... we should have an array_equals compute function?
 fn assert_array_eq(lhs: &ArrayRef, rhs: &ArrayRef, step: usize) -> VortexFuzzResult<()> {
+    if lhs.dtype() != rhs.dtype() {
+        return Err(VortexFuzzError::DTypeMismatch(
+            lhs.clone(),
+            rhs.clone(),
+            step,
+            Backtrace::capture(),
+        ));
+    }
+
     if lhs.len() != rhs.len() {
         return Err(VortexFuzzError::LengthMismatch(
             lhs.len(),
@@ -168,22 +178,30 @@ fn assert_array_eq(lhs: &ArrayRef, rhs: &ArrayRef, step: usize) -> VortexFuzzRes
     Ok(())
 }
 
-fn assert_scalar_eq(lhs: &Scalar, rhs: &Scalar) {
-    // Use catch_unwind to handle panics in scalar comparison (e.g., decimal conversion issues)
-    assert_eq!(
-        lhs, rhs,
-        "Scalar mismatch: expected {:?}, got {:?}",
-        lhs, rhs
-    );
+fn assert_scalar_eq(lhs: &Scalar, rhs: &Scalar, step: usize) -> VortexFuzzResult<()> {
+    if lhs != rhs {
+        return Err(VortexFuzzError::ScalarMismatch(
+            lhs.clone(),
+            rhs.clone(),
+            step,
+            Backtrace::capture(),
+        ));
+    }
+    Ok(())
 }
 
 fn assert_min_max_eq(
-    lhs: &Option<vortex_array::compute::MinMaxResult>,
-    rhs: &Option<vortex_array::compute::MinMaxResult>,
-    _step: usize,
+    lhs: &Option<MinMaxResult>,
+    rhs: &Option<MinMaxResult>,
+    step: usize,
 ) -> VortexFuzzResult<()> {
     if lhs != rhs {
-        vortex_panic!("MinMax mismatch: expected {:?}, got {:?}", lhs, rhs);
+        return Err(VortexFuzzError::MinMaxMismatch(
+            lhs.clone(),
+            rhs.clone(),
+            step,
+            Backtrace::capture(),
+        ));
     }
     Ok(())
 }
