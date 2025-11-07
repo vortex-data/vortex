@@ -9,7 +9,6 @@ use lending_iterator::gat;
 use lending_iterator::prelude::Item;
 #[gat(Item)]
 use lending_iterator::prelude::LendingIterator;
-use vortex_array::builders::UninitRange;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::PhysicalPType;
 
@@ -159,13 +158,16 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
 
     /// Decode all chunks (initial, full, and trailer) into the output range.
     /// This consolidates the logic for handling all three chunk types in one place.
-    pub fn decode_into(&mut self, output: &mut UninitRange<T>) {
+    pub fn decode_into(&mut self, output: &mut [MaybeUninit<T>]) {
         let mut local_idx = 0;
 
         // Handle initial partial chunk if present
         if let Some(initial) = self.initial() {
-            output.copy_from_slice(0, initial);
             local_idx = initial.len();
+
+            // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout.
+            let uninit_initial: &[MaybeUninit<T>] = unsafe { mem::transmute(initial) };
+            output[..uninit_initial.len()].copy_from_slice(uninit_initial);
         }
 
         // Handle full chunks
@@ -173,7 +175,9 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
 
         // Handle trailing partial chunk if present
         if let Some(trailer) = self.trailer() {
-            output.copy_from_slice(local_idx, trailer);
+            // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout.
+            let uninit_trailer: &[MaybeUninit<T>] = unsafe { mem::transmute(trailer) };
+            output[local_idx..][..uninit_trailer.len()].copy_from_slice(uninit_trailer);
         }
     }
 
@@ -181,7 +185,7 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
     /// Returns the next local index to write to.
     fn decode_full_chunks_into_at(
         &mut self,
-        output: &mut UninitRange<T>,
+        output: &mut [MaybeUninit<T>],
         start_idx: usize,
     ) -> usize {
         // If there's only one chunk it has been handled already by `initial` method
@@ -204,8 +208,7 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
             let chunk = &packed_slice[i * elems_per_chunk..][..elems_per_chunk];
 
             unsafe {
-                // SAFETY: We're about to initialize CHUNK_SIZE elements at local_idx.
-                let uninit_dst = output.slice_uninit_mut(local_idx, CHUNK_SIZE);
+                let uninit_dst = &mut output[local_idx..local_idx + CHUNK_SIZE];
                 // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout
                 let dst: &mut [T::Physical] = mem::transmute(uninit_dst);
                 self.strategy.unpack_chunk(self.bit_width, chunk, dst);
