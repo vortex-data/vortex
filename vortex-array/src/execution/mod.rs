@@ -15,7 +15,7 @@ pub use mask::*;
 pub trait ExecutionCtx: private::Sealed {}
 
 /// A crate-internal dummy execution context.
-pub(crate) struct DummyExecutionCtx;
+pub struct DummyExecutionCtx;
 impl ExecutionCtx for DummyExecutionCtx {}
 
 mod private {

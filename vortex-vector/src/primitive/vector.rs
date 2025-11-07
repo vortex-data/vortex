@@ -12,7 +12,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::primitive::{PVector, PrimitiveVectorMut};
-use crate::{Scalar, VectorOps, match_each_pvector};
+use crate::{Scalar, Vector, VectorOps, match_each_pvector};
 
 /// An immutable vector of primitive values.
 ///
@@ -64,6 +64,11 @@ impl PrimitiveVector {
             Self::F32(_) => PType::F32,
             Self::F64(_) => PType::F64,
         }
+    }
+
+    /// Convert this primitive vector into a type-erased [`Vector`].
+    pub fn into_vec(self) -> Vector {
+        Vector::Primitive(self)
     }
 }
 
