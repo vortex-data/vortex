@@ -1,19 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Not;
 use std::sync::Arc;
 
 use vortex_array::arrays::{
     BoolArray, DecimalArray, ExtensionArray, FixedSizeListArray, ListViewArray, PrimitiveArray,
     StructArray, VarBinViewArray,
 };
-use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{ArrayRef, Canonical, IntoArray, ToCanonical};
+use vortex_array::{ArrayRef, Canonical, IntoArray};
 use vortex_dtype::{ExtDType, match_each_decimal_value_type};
 use vortex_error::{VortexResult, VortexUnwrap};
-use vortex_mask::{AllOr, Mask};
+use vortex_mask::Mask;
 
 /// Apply mask on the canonical form of the array to get a consistent baseline.
 /// This implementation manually applies the mask to each canonical type
