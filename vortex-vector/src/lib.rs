@@ -38,8 +38,13 @@ mod macros;
 mod private;
 mod scalar_macros;
 
-/// Returns true if the vector's data type matches the provided data type, and nulls respect
-/// the nullability of the data type.
+/// Returns true if the vector's is compatible with the provided data type.
+///
+/// This means that the vector's physical representation is compatible with the data type,
+/// typically meaning the enum variants match. In the case of nested types, this function
+/// recursively checks the child types.
+///
+/// This function also checks that if the data type is non-nullable, the vector contains no nulls,
 pub fn vector_matches_dtype(vector: &Vector, dtype: &DType) -> bool {
     if !dtype.is_nullable() && vector.validity().false_count() > 0 {
         // Non-nullable dtype cannot have nulls in the vector.
