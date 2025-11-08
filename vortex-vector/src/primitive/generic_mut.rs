@@ -5,7 +5,7 @@
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
-use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::MaskMut;
 
 use crate::primitive::PVector;

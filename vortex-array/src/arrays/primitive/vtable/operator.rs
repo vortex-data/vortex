@@ -1,19 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::arrays::{MaskedVTable, PrimitiveArray, PrimitiveVTable};
-use crate::execution::{kernel, BatchKernelRef, BindCtx};
-use crate::pipeline::bit_view::BitView;
-use crate::pipeline::{BindContext, KernelContext, PipelinedSource, SourceKernel, N};
-use crate::vtable::{OperatorVTable, ValidityHelper};
-use crate::{ArrayRef, IntoArray};
 use vortex_buffer::Buffer;
 use vortex_compute::filter::Filter;
-use vortex_dtype::{match_each_native_ptype, NativePType, PTypeDowncastExt};
+use vortex_dtype::{NativePType, PTypeDowncastExt, match_each_native_ptype};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_vector::primitive::PVector;
 use vortex_vector::VectorMut;
+use vortex_vector::primitive::PVector;
+
+use crate::arrays::{MaskedVTable, PrimitiveArray, PrimitiveVTable};
+use crate::execution::{BatchKernelRef, BindCtx, kernel};
+use crate::pipeline::bit_view::BitView;
+use crate::pipeline::{BindContext, KernelContext, N, PipelinedSource, SourceKernel};
+use crate::vtable::{OperatorVTable, ValidityHelper};
+use crate::{ArrayRef, IntoArray};
 
 impl OperatorVTable<PrimitiveVTable> for PrimitiveVTable {
     fn as_pipelined_source(array: &PrimitiveArray) -> Option<&dyn PipelinedSource> {

@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::pipeline::bit_view::BitView;
-use crate::pipeline::{BindContext, KernelContext, PipelinedSource, VectorId, N};
 use itertools::Itertools;
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_error::{VortexResult, vortex_panic};
 use vortex_mask::Mask;
 use vortex_vector::{Vector, VectorMut, VectorMutOps};
+
+use crate::pipeline::bit_view::{BitView, BitViewExt};
+use crate::pipeline::{BindContext, KernelContext, N, PipelinedSource, VectorId};
 
 /// Temporary driver for executing a single array in a pipelined fashion.
 pub struct PipelineSourceDriver<'a> {
@@ -40,50 +41,47 @@ impl<'a> PipelineSourceDriver<'a> {
         // `kernel.step(out)` has at least N bytes of capacity.
         let mut output = VectorMut::with_capacity(
             self.array.dtype(),
-            selection.true_count().next_multiple_of(N),
+            // We add an extra N to ensure we have enough capacity so the last chunk has 2 * N
+            // elements of capacity.
+            selection.true_count().next_multiple_of(N) + N,
         );
 
         // TODO(ngates): change behaviour based on the density of the selection mask.
-        let selection_buffer = selection.to_bit_buffer();
-        // TODO(ngates): rewrite chunks to take an arbitrary "storage type"? Or somehow copy
-        //  the chunks directly into a wider bit slice?
-        let selection_chunks = selection_buffer.chunks();
-        let mut selection_chunks_iter = selection_chunks.iter_padded();
+        match selection {
+            Mask::AllTrue(_) => {
+                // Select everything, so we can just run the kernel in a tight loop.
 
-        let output_len = selection.true_count();
+                // The number of _full_ chunks we need to process.
+                let nchunks = selection.len() / N;
+                for _ in 0..nchunks {
+                    let prev_len = output.len();
+                    kernel.step(&kernel_ctx, &BitView::all_true(), &mut output)?;
+                    debug_assert_eq!(output.len(), prev_len + N);
+                }
 
-        let mut selection_chunk = [0u64; N / u64::BITS as usize];
+                // Now process the final partial chunk, if any.
+                let remaining = selection.len() % N;
+                if remaining > 0 {
+                    let selection_view = BitView::with_prefix(remaining);
 
-        let mut output_chunks = vec![];
-        while output.len() < output_len {
-            // Copy the next selection chunk into place.
-            for word_idx in 0..selection_chunk.len() {
-                selection_chunk[word_idx] = selection_chunks_iter.next().unwrap_or_else(|| 0u64);
+                    let prev_len = output.len();
+                    kernel.step(&kernel_ctx, &selection_view, &mut output)?;
+                    debug_assert_eq!(output.len(), prev_len + remaining);
+                    debug_assert_eq!(output.len(), selection.len());
+                }
             }
-
-            // TODO(ngates): ideally our chunks iter would use a usize...
-            let selection_chunk_usize = unsafe { std::mem::transmute(&selection_chunk) };
-            let selection = BitView::new(selection_chunk_usize);
-
-            // We know we have remaining capacity for N elements, so split off a size-N chunk.
-            let remaining_output = output.split_off(N);
-
-            kernel.step(&kernel_ctx, &selection, &mut output)?;
-            assert_eq!(
-                output.len(),
-                selection.true_count(),
-                "Kernel did not write expected number of elements"
-            );
-
-            // Now we un-split the output vector back onto its full size.
-            // output.unsplit(remaining_output);
-            output_chunks.push(output);
-            output = remaining_output;
-        }
-
-        // Combine all output chunks back into the output vector.
-        for chunk in output_chunks {
-            output.unsplit(chunk);
+            Mask::AllFalse(_) => {
+                // Select nothing, return empty output!
+            }
+            Mask::Values(values) => {
+                // Mixed selection, so we have to process in chunks.
+                let selection_bits = values.bit_buffer();
+                for selection_view in selection_bits.iter_bit_views() {
+                    let prev_len = output.len();
+                    kernel.step(&kernel_ctx, &selection_view, &mut output)?;
+                    debug_assert_eq!(output.len(), prev_len + selection_view.true_count());
+                }
+            }
         }
 
         Ok(output.freeze())
@@ -106,13 +104,14 @@ impl BindContext for PipelineSourceBindCtx<'_> {
 
 #[cfg(test)]
 mod test {
-    use crate::arrays::PrimitiveArray;
-    use crate::pipeline::source_driver::PipelineSourceDriver;
-    use crate::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_dtype::PTypeDowncastExt;
     use vortex_mask::Mask;
     use vortex_vector::VectorOps;
+
+    use crate::arrays::PrimitiveArray;
+    use crate::pipeline::source_driver::PipelineSourceDriver;
+    use crate::validity::Validity;
 
     #[test]
     fn test_primitive() {

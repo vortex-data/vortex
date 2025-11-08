@@ -21,11 +21,13 @@
 pub mod bit_view;
 pub mod source_driver;
 
-use crate::Array;
-use bit_view::BitView;
 use std::ops::Deref;
+
+use bit_view::BitView;
 use vortex_error::VortexResult;
 use vortex_vector::{Vector, VectorMut};
+
+use crate::Array;
 
 /// The number of elements in each step of a Vortex evaluation operator.
 pub const N: usize = 1024;
