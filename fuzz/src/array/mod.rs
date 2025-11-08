@@ -180,11 +180,23 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     }
 
                     let indices = random_vec_in_range(u, 0, current_array.len() - 1)?;
+                    let nullable = indices.contains(&None);
+
                     current_array = take_canonical_array(&current_array, &indices).vortex_unwrap();
-                    let indices_array = PrimitiveArray::from_option_iter(
-                        indices.iter().map(|i| i.map(|i| i as u64)),
-                    )
-                    .into_array();
+                    let indices_array = if nullable {
+                        PrimitiveArray::from_option_iter(
+                            indices.iter().map(|i| i.map(|i| i as u64)),
+                        )
+                        .into_array()
+                    } else {
+                        PrimitiveArray::from_iter(
+                            indices
+                                .iter()
+                                .map(|i| i.vortex_expect("must be present"))
+                                .map(|i| i as u64),
+                        )
+                        .into_array()
+                    };
 
                     let compressed = BtrBlocksCompressor::default()
                         .compress(&indices_array)
