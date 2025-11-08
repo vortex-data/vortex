@@ -6,6 +6,7 @@
 mod bitbuffer;
 mod bool;
 mod buffer;
+mod buffer_mut;
 mod mask;
 
 use vortex_mask::Mask;
@@ -22,5 +23,5 @@ pub trait Filter {
     /// # Panics
     ///
     /// If the length of the mask does not equal the length of the value being filtered.
-    fn filter(self, mask: &Mask) -> Self::Output;
+    fn filter(self, selection_mask: &Mask) -> Self::Output;
 }
