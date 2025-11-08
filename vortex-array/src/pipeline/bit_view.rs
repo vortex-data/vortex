@@ -214,6 +214,8 @@ impl<'a> BitView<'a> {
 
     pub fn iter_slices<F>(&self, mut f: F)
     where
+        // FIXME(ngates): I have repeatedly assumed this to be a (start, end) slice, not a
+        //  (start, len)... I think we should wrap this in a struct to avoid confusion.
         F: FnMut((usize, usize)),
     {
         if self.true_count == 0 {

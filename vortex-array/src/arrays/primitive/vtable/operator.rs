@@ -3,16 +3,16 @@
 
 use vortex_buffer::Buffer;
 use vortex_compute::filter::Filter;
-use vortex_dtype::{NativePType, PTypeDowncastExt, match_each_native_ptype};
+use vortex_dtype::{match_each_native_ptype, NativePType, PTypeDowncastExt};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_vector::VectorMut;
 use vortex_vector::primitive::PVector;
+use vortex_vector::{VectorMut, VectorMutOps};
 
 use crate::arrays::{MaskedVTable, PrimitiveArray, PrimitiveVTable};
-use crate::execution::{BatchKernelRef, BindCtx, kernel};
+use crate::execution::{kernel, BatchKernelRef, BindCtx};
 use crate::pipeline::bit_view::BitView;
-use crate::pipeline::{BindContext, KernelContext, N, PipelinedSource, SourceKernel};
+use crate::pipeline::{BindContext, KernelContext, PipelinedSource, SourceKernel, N};
 use crate::vtable::{OperatorVTable, ValidityHelper};
 use crate::{ArrayRef, IntoArray};
 
@@ -106,16 +106,16 @@ impl<T: NativePType> SourceKernel for PrimitiveKernel<T> {
         //  separately from copying over the elements.
         unsafe {
             out.validity_mut().append_n(true, selection.true_count());
-            out.elements_mut().set_len(selection.true_count());
+            let prev_len = out.len();
+            out.elements_mut()
+                .set_len(prev_len + selection.true_count());
         }
 
         let source = &self.buffer.as_slice()[self.offset..];
 
         let mut out_pos = 0;
-        selection.iter_slices(|(start, end)| {
-            print!("Slicing {} to {}\n", start, end);
-            let len = end - start;
-            out.as_mut()[out_pos..][..len].copy_from_slice(&source[start..end]);
+        selection.iter_slices(|(start, len)| {
+            out.as_mut()[out_pos..][..len].copy_from_slice(&source[start..][..len]);
             out_pos += len;
         });
 

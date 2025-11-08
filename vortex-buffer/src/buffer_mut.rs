@@ -9,7 +9,7 @@ use std::ops::{Deref, DerefMut};
 
 use bytes::buf::UninitSlice;
 use bytes::{Buf, BufMut, BytesMut};
-use vortex_error::{VortexExpect, vortex_panic};
+use vortex_error::{vortex_panic, VortexExpect};
 
 use crate::debug::TruncatedDebug;
 use crate::trusted_len::TrustedLen;
@@ -241,10 +241,15 @@ impl<T> BufferMut<T> {
         }
     }
 
+    /// Sets the length of the buffer.
+    ///
     /// # Safety
-    /// The caller must ensure that the buffer was properly initialized up to `len`.
+    ///
+    /// The caller must ensure that there is sufficient capacity in the buffer and that the values
+    /// are valid up to `len`.
     #[inline]
     pub unsafe fn set_len(&mut self, len: usize) {
+        debug_assert!(len <= self.capacity());
         unsafe { self.bytes.set_len(len * size_of::<T>()) };
         self.length = len;
     }
@@ -726,7 +731,7 @@ impl Write for ByteBufferMut {
 mod test {
     use bytes::{Buf, BufMut};
 
-    use crate::{Alignment, BufferMut, ByteBufferMut, buffer_mut};
+    use crate::{buffer_mut, Alignment, BufferMut, ByteBufferMut};
 
     #[test]
     fn capacity() {
