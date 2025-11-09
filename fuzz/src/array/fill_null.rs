@@ -8,7 +8,7 @@ use vortex_array::compute::fill_null;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, Canonical, IntoArray, ToCanonical};
-use vortex_buffer::Buffer;
+use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{DType, Nullability, match_each_decimal_value_type, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_scalar::Scalar;
@@ -136,7 +136,7 @@ fn fill_decimal_array(
                 let validity_bits = validity_bool_array.bit_buffer();
                 let data_buffer = array.buffer::<D>();
 
-                let mut new_data = Vec::with_capacity(array.len());
+                let mut new_data = BufferMut::with_capacity(array.len());
                 for i in 0..array.len() {
                     if validity_bits.value(i) {
                         new_data.push(data_buffer[i]);
@@ -145,7 +145,8 @@ fn fill_decimal_array(
                     }
                 }
 
-                DecimalArray::from_option_iter(new_data.into_iter().map(Some), decimal_dtype)
+                DecimalArray::try_new(new_data.freeze(), decimal_dtype, result_nullability.into())
+                    .vortex_unwrap()
                     .into_array()
             }
         }
