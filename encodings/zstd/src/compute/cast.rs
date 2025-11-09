@@ -10,6 +10,11 @@ use crate::{ZstdArray, ZstdVTable};
 
 impl CastKernel for ZstdVTable {
     fn cast(&self, array: &ZstdArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+        if !dtype.is_nullable() || !array.all_valid() {
+            // We cannot cast to non-nullable since the validity containing nulls is used to decode
+            // the ZSTD array, this would require rewriting tables.
+            return Ok(None);
+        }
         // ZstdArray is a general-purpose compression encoding using Zstandard compression.
         // It can handle nullability changes without decompression by updating the validity
         // bitmap, but type changes require decompression since the compressed data is
@@ -48,6 +53,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
+    use vortex_array::validity::Validity;
     use vortex_array::{ToCanonical, assert_arrays_eq};
     use vortex_buffer::Buffer;
     use vortex_dtype::{DType, Nullability, PType};
@@ -58,7 +64,7 @@ mod tests {
     fn test_cast_zstd_i32_to_i64() {
         let values = PrimitiveArray::new(
             Buffer::copy_from(vec![1i32, 2, 3, 4, 5]),
-            vortex_array::validity::Validity::NonNullable,
+            Validity::NonNullable,
         );
         let zstd = ZstdArray::from_primitive(&values, 0, 0).unwrap();
 
@@ -80,7 +86,7 @@ mod tests {
     fn test_cast_zstd_nullability_change() {
         let values = PrimitiveArray::new(
             Buffer::copy_from(vec![10u32, 20, 30, 40]),
-            vortex_array::validity::Validity::NonNullable,
+            Validity::NonNullable,
         );
         let zstd = ZstdArray::from_primitive(&values, 0, 0).unwrap();
 
@@ -95,22 +101,71 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_cast_sliced_zstd_nullable_to_nonnullable() {
+        let values = PrimitiveArray::new(
+            Buffer::copy_from(vec![10u32, 20, 30, 40, 50, 60]),
+            Validity::from_iter([true, true, true, true, true, true]),
+        );
+        let zstd = ZstdArray::from_primitive(&values, 0, 128).unwrap();
+        let sliced = zstd.slice(1..5);
+        let casted = cast(
+            sliced.as_ref(),
+            &DType::Primitive(PType::U32, Nullability::NonNullable),
+        )
+        .unwrap();
+        assert_eq!(
+            casted.dtype(),
+            &DType::Primitive(PType::U32, Nullability::NonNullable)
+        );
+        // Verify the values are correct
+        let decoded = casted.to_primitive();
+        let u32_values = decoded.as_slice::<u32>();
+        assert_eq!(u32_values, &[20, 30, 40, 50]);
+    }
+
+    #[test]
+    fn test_cast_sliced_zstd_part_valid_to_nonnullable() {
+        let values = PrimitiveArray::from_option_iter([
+            None,
+            Some(20u32),
+            Some(30),
+            Some(40),
+            Some(50),
+            Some(60),
+        ]);
+        let zstd = ZstdArray::from_primitive(&values, 0, 128).unwrap();
+        let sliced = zstd.slice(1..5);
+        let casted = cast(
+            sliced.as_ref(),
+            &DType::Primitive(PType::U32, Nullability::NonNullable),
+        )
+        .unwrap();
+        assert_eq!(
+            casted.dtype(),
+            &DType::Primitive(PType::U32, Nullability::NonNullable)
+        );
+        let decoded = casted.to_primitive();
+        let expected = PrimitiveArray::from_iter([20u32, 30, 40, 50]);
+        assert_arrays_eq!(decoded, expected);
+    }
+
     #[rstest]
     #[case::i32(PrimitiveArray::new(
         Buffer::copy_from(vec![100i32, 200, 300, 400, 500]),
-        vortex_array::validity::Validity::NonNullable,
+        Validity::NonNullable,
     ))]
     #[case::f64(PrimitiveArray::new(
         Buffer::copy_from(vec![1.1f64, 2.2, 3.3, 4.4, 5.5]),
-        vortex_array::validity::Validity::NonNullable,
+        Validity::NonNullable,
     ))]
     #[case::single(PrimitiveArray::new(
         Buffer::copy_from(vec![42i64]),
-        vortex_array::validity::Validity::NonNullable,
+        Validity::NonNullable,
     ))]
     #[case::large(PrimitiveArray::new(
         Buffer::copy_from((0..1000).map(|i| i as u32).collect::<Vec<_>>()),
-        vortex_array::validity::Validity::NonNullable,
+        Validity::NonNullable,
     ))]
     fn test_cast_zstd_conformance(#[case] values: PrimitiveArray) {
         let zstd = ZstdArray::from_primitive(&values, 0, 0).unwrap();
