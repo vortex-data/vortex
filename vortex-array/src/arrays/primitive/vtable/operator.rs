@@ -1,18 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::Buffer;
+use vortex_buffer::{BitBuffer, Buffer};
 use vortex_compute::filter::Filter;
-use vortex_dtype::{match_each_native_ptype, NativePType, PTypeDowncastExt};
+use vortex_dtype::{NativePType, PTypeDowncastExt, match_each_native_ptype};
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 use vortex_vector::primitive::PVector;
 use vortex_vector::{VectorMut, VectorMutOps};
 
 use crate::arrays::{MaskedVTable, PrimitiveArray, PrimitiveVTable};
-use crate::execution::{kernel, BatchKernelRef, BindCtx};
-use crate::pipeline::bit_view::BitView;
-use crate::pipeline::{BindContext, KernelContext, PipelinedSource, SourceKernel, N};
+use crate::execution::{BatchKernelRef, BindCtx, kernel};
+use crate::pipeline::bit_view::{BitSlice, BitView};
+use crate::pipeline::{
+    AllNullSourceKernel, BindContext, KernelContext, N, PipelinedSource, SourceKernel,
+};
+use crate::validity::Validity;
 use crate::vtable::{OperatorVTable, ValidityHelper};
 use crate::{ArrayRef, IntoArray};
 
@@ -71,25 +73,81 @@ impl OperatorVTable<PrimitiveVTable> for PrimitiveVTable {
 }
 
 impl PipelinedSource for PrimitiveArray {
-    fn bind_source(&self, _ctx: &mut dyn BindContext) -> VortexResult<Box<dyn SourceKernel>> {
-        match_each_native_ptype!(self.ptype(), |T| {
-            let primitive_kernel = PrimitiveKernel {
-                buffer: self.buffer::<T>().clone(),
-                validity: self.validity_mask(),
-                offset: 0,
-            };
-            Ok(Box::new(primitive_kernel))
-        })
+    fn bind_source(&self, ctx: &mut dyn BindContext) -> VortexResult<Box<dyn SourceKernel>> {
+        match self.validity() {
+            Validity::NonNullable | Validity::AllValid => {
+                match_each_native_ptype!(self.ptype(), |T| {
+                    let primitive_kernel = NonNullablePrimitiveKernel {
+                        buffer: self.buffer::<T>(),
+                        offset: 0,
+                    };
+                    Ok(Box::new(primitive_kernel))
+                })
+            }
+            Validity::AllInvalid => Ok(Box::new(AllNullSourceKernel)),
+            Validity::Array(_) => {
+                let validity = ctx.batch_input(0).into_bool();
+                // Validity is non-nullable, so we extract the inner bit buffer.
+                let (validity, _) = validity.into_parts();
+
+                match_each_native_ptype!(self.ptype(), |T| {
+                    let primitive_kernel = NullablePrimitiveKernel {
+                        buffer: self.buffer::<T>(),
+                        validity,
+                        offset: 0,
+                    };
+                    Ok(Box::new(primitive_kernel))
+                })
+            }
+        }
     }
 }
 
-struct PrimitiveKernel<T: NativePType> {
+struct NonNullablePrimitiveKernel<T: NativePType> {
     buffer: Buffer<T>,
-    validity: Mask,
     offset: usize,
 }
 
-impl<T: NativePType> SourceKernel for PrimitiveKernel<T> {
+impl<T: NativePType> SourceKernel for NonNullablePrimitiveKernel<T> {
+    fn skip(&mut self, n: usize) {
+        self.offset += n * N;
+    }
+
+    fn step(
+        &mut self,
+        _ctx: &KernelContext,
+        selection: &BitView,
+        out: &mut VectorMut,
+    ) -> VortexResult<()> {
+        let out = out.as_primitive_mut().downcast::<T>();
+
+        // SAFETY: we know the output has sufficient capacity.
+        unsafe {
+            out.validity_mut().append_n(true, selection.true_count());
+            let prev_len = out.len();
+            out.elements_mut()
+                .set_len(prev_len + selection.true_count());
+        }
+
+        let source = &self.buffer.as_slice()[self.offset..];
+        let mut out_pos = 0;
+        selection.iter_slices(|BitSlice { start, len }| {
+            out.as_mut()[out_pos..][..len].copy_from_slice(&source[start..][..len]);
+            out_pos += len;
+        });
+
+        Ok(())
+    }
+}
+
+struct NullablePrimitiveKernel<T: NativePType> {
+    buffer: Buffer<T>,
+    #[allow(dead_code)] // TODO(ngates): implement appending validity bits
+    validity: BitBuffer,
+    offset: usize,
+}
+
+impl<T: NativePType> SourceKernel for NullablePrimitiveKernel<T> {
     fn skip(&mut self, n: usize) {
         self.offset += n * N;
     }
@@ -114,9 +172,14 @@ impl<T: NativePType> SourceKernel for PrimitiveKernel<T> {
         let source = &self.buffer.as_slice()[self.offset..];
 
         let mut out_pos = 0;
-        selection.iter_slices(|(start, len)| {
+        selection.iter_slices(|BitSlice { start, len }| {
+            // Copy over the elements.
             out.as_mut()[out_pos..][..len].copy_from_slice(&source[start..][..len]);
             out_pos += len;
+
+            // Append the validity bits.
+            let _validity = unsafe { out.validity_mut() };
+            todo!("Append validity bits correctly and optimally!");
         });
 
         Ok(())

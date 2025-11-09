@@ -25,7 +25,7 @@ use std::ops::Deref;
 
 use bit_view::BitView;
 use vortex_error::VortexResult;
-use vortex_vector::{Vector, VectorMut};
+use vortex_vector::{Vector, VectorMut, VectorMutOps};
 
 use crate::Array;
 
@@ -148,5 +148,22 @@ impl KernelContext {
     /// Get a vector by its ID.
     pub fn vector(&self, vector_id: VectorId) -> &Vector {
         &self.vectors[vector_id]
+    }
+}
+
+/// A general implementation of a source kernel that produces all null values.
+pub struct AllNullSourceKernel;
+
+impl SourceKernel for AllNullSourceKernel {
+    fn skip(&mut self, _n: usize) {}
+
+    fn step(
+        &mut self,
+        _ctx: &KernelContext,
+        selection: &BitView,
+        out: &mut VectorMut,
+    ) -> VortexResult<()> {
+        out.append_nulls(selection.true_count());
+        Ok(())
     }
 }

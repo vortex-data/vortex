@@ -95,6 +95,10 @@ impl MaskMut {
     }
 
     /// Set the length of the mask.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `new_len` is less than the capacity of the mask.
     pub unsafe fn set_len(&mut self, new_len: usize) {
         debug_assert!(new_len < self.capacity());
         match &mut self.0 {

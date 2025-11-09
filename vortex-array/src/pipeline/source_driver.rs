@@ -2,12 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_error::{VortexResult, vortex_panic};
 use vortex_mask::Mask;
 use vortex_vector::{Vector, VectorMut, VectorMutOps};
 
 use crate::pipeline::bit_view::{BitView, BitViewExt};
-use crate::pipeline::{BindContext, KernelContext, PipelinedSource, VectorId, N};
+use crate::pipeline::{BindContext, KernelContext, N, PipelinedSource, VectorId};
 
 /// Temporary driver for executing a single source array in a pipelined fashion.
 pub struct PipelineSourceDriver<'a> {

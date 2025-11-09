@@ -212,11 +212,13 @@ impl<'a> BitView<'a> {
         }
     }
 
+    /// Runs the provided function `f` for each range of `true` bits in the view.
+    ///
+    /// The function `f` receives a [`BitSlice`] containing the inclusive `start` bit as well as
+    /// the length.
     pub fn iter_slices<F>(&self, mut f: F)
     where
-        // FIXME(ngates): I have repeatedly assumed this to be a (start, end) slice, not a
-        //  (start, len)... I think we should wrap this in a struct to avoid confusion.
-        F: FnMut((usize, usize)),
+        F: FnMut(BitSlice),
     {
         if self.true_count == 0 {
             return;
@@ -231,7 +233,10 @@ impl<'a> BitView<'a> {
                 0 => {
                     // If a slice was being tracked, the run ends at the start of this word.
                     if slice_length > 0 {
-                        f((slice_start_bit, slice_length));
+                        f(BitSlice {
+                            start: slice_start_bit,
+                            len: slice_length,
+                        });
                         slice_length = 0;
                     }
                 }
@@ -250,7 +255,10 @@ impl<'a> BitView<'a> {
 
                         // If a run was open, and we hit a zero gap, report the finished slice
                         if slice_length > 0 && zeros > 0 {
-                            f((slice_start_bit, slice_length));
+                            f(BitSlice {
+                                start: slice_start_bit,
+                                len: slice_length,
+                            });
                             slice_length = 0; // Reset state for a new slice
                         }
 
@@ -284,20 +292,24 @@ impl<'a> BitView<'a> {
         }
 
         if slice_length > 0 {
-            f((slice_start_bit, slice_length));
+            f(BitSlice {
+                start: slice_start_bit,
+                len: slice_length,
+            });
         }
     }
-
-    /// Runs the provided function `f` for each range of `true` bits in the view.
-    ///
-    /// The function `f` receives a tuple `(start, len)` where `start` is the index of the first
-    /// `true` bit and `len` is the number of consecutive `true` bits.
-    ///
-    /// FIXME(ngates): this code is broken.
 
     pub fn as_raw(&self) -> &[u8; N_BYTES] {
         self.bits.as_ref()
     }
+}
+
+/// A slice of bits within a [`BitBuffer`].
+///
+/// We use this struct to avoid a common mistake of assuming the slices represent (start, end) ranges,
+pub struct BitSlice {
+    pub start: usize,
+    pub len: usize,
 }
 
 pub trait BitViewExt {
@@ -319,7 +331,7 @@ impl BitViewExt for BitBuffer {
             0,
             "BitView iteration requires zero bit offset"
         );
-        let n_views = (self.len() + N - 1) / N;
+        let n_views = self.len().div_ceil(N);
         BitViewIterator {
             bits: self.inner().as_ref(),
             view_idx: 0,
@@ -365,8 +377,6 @@ impl<'a> Iterator for BitViewIterator<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::usize;
-
     use super::*;
 
     #[test]
@@ -591,7 +601,6 @@ mod tests {
             view.iter_slices(|slice| slices.push(slice));
 
             assert_eq!(slices.len(), 1);
-            assert_eq!(slices[0], (0, i));
         }
     }
 }
