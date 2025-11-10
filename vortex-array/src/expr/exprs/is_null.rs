@@ -11,11 +11,9 @@ use vortex_mask::Mask;
 use crate::arrays::{BoolArray, ConstantArray};
 use crate::expr::exprs::binary::eq;
 use crate::expr::exprs::literal::lit;
+use crate::expr::{ChildName, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt};
 use crate::stats::Stat;
-use crate::{
-    Array, ArrayRef, ChildName, ExprId, Expression, ExpressionView, IntoArray, StatsCatalog,
-    VTable, VTableExt,
-};
+use crate::{Array, ArrayRef, IntoArray};
 
 /// Expression that checks for null values.
 pub struct IsNull;
@@ -87,7 +85,7 @@ impl VTable for IsNull {
 /// Returns a boolean array indicating which positions contain null values.
 ///
 /// ```rust
-/// # use vortex_expr::{is_null, root};
+/// # use vortex_array::expr::{is_null, root};
 /// let expr = is_null(root());
 /// ```
 pub fn is_null(child: Expression) -> Expression {
@@ -108,9 +106,11 @@ mod tests {
     use crate::expr::exprs::get_item::{col, get_item};
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::root::root;
-    use crate::pruning::checked_pruning_expr;
+    use crate::expr::pruning::checked_pruning_expr;
+    use crate::expr::test_harness;
     use crate::stats::Stat;
-    use crate::{HashSet, IntoArray, test_harness};
+    use crate::IntoArray;
+    use vortex_utils::aliases::hash_set::HashSet;
 
     #[test]
     fn dtype() {

@@ -6,12 +6,11 @@ use std::fmt::Formatter;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
+use crate::ArrayRef;
 use crate::compute::list_contains as compute_list_contains;
 use crate::expr::exprs::binary::{and, gt, lt, or};
 use crate::expr::exprs::literal::{Literal, lit};
-use crate::{
-    ArrayRef, ChildName, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt,
-};
+use crate::expr::{ChildName, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt};
 
 pub struct ListContains;
 
@@ -124,7 +123,7 @@ impl VTable for ListContains {
 /// Returns a boolean array indicating whether the value appears in each list.
 ///
 /// ```rust
-/// # use vortex_expr::{list_contains, lit, root};
+/// # use vortex_array::expr::{list_contains, lit, root};
 /// let expr = list_contains(root(), lit(42));
 /// ```
 pub fn list_contains(list: Expression, value: Expression) -> Expression {
@@ -155,10 +154,12 @@ mod tests {
     use crate::expr::exprs::get_item::{col, get_item};
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::root::root;
-    use crate::pruning::checked_pruning_expr;
+    use crate::expr::pruning::checked_pruning_expr;
     use crate::stats::Stat;
     use crate::validity::Validity;
-    use crate::{Arc, Array, ArrayRef, HashSet, IntoArray};
+    use crate::{Array, ArrayRef, IntoArray};
+    use std::sync::Arc;
+    use vortex_utils::aliases::hash_set::HashSet;
 
     fn test_array() -> ArrayRef {
         ListArray::try_new(

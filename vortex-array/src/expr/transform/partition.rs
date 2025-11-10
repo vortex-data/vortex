@@ -12,11 +12,11 @@ use crate::expr::Expression;
 use crate::expr::exprs::get_item::get_item;
 use crate::expr::exprs::pack::pack;
 use crate::expr::exprs::root::root;
-use crate::expr::traversal::{NodeExt, NodeRewriter, Transformed, TraversalOrder};
-use crate::transform::annotations::{
+use crate::expr::transform::annotations::{
     Annotation, AnnotationFn, Annotations, descendent_annotations,
 };
-use crate::transform::simplify_typed::simplify_typed;
+use crate::expr::transform::simplify_typed::simplify_typed;
+use crate::expr::traversal::{NodeExt, NodeRewriter, Transformed, TraversalOrder};
 
 /// Partition an expression into sub-expressions that are uniquely associated with an annotation.
 /// A root expression is also returned that can be used to recombine the results of the partitions
@@ -207,10 +207,10 @@ mod tests {
     use crate::expr::exprs::pack::pack;
     use crate::expr::exprs::root::root;
     use crate::expr::exprs::select::select;
-    use crate::transform::immediate_access::annotate_scope_access;
-    use crate::transform::replace::replace_root_fields;
-    use crate::transform::simplify::simplify;
-    use crate::transform::simplify_typed::simplify_typed;
+    use crate::expr::transform::immediate_access::annotate_scope_access;
+    use crate::expr::transform::replace::replace_root_fields;
+    use crate::expr::transform::simplify::simplify;
+    use crate::expr::transform::simplify_typed::simplify_typed;
 
     #[fixture]
     fn dtype() -> DType {

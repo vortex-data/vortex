@@ -13,10 +13,8 @@ use vortex_scalar::{Scalar, ScalarValue};
 use crate::arrays::ConstantArray;
 use crate::compute::{Operator, compare};
 use crate::expr::traversal::{NodeExt, NodeVisitor, TraversalOrder};
-use crate::{
-    Array, ArrayRef, ChildName, ExprId, Expression, ExpressionView, IntoArray, StatsCatalog,
-    VTable, VTableExt,
-};
+use crate::expr::{ChildName, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt};
+use crate::{Array, ArrayRef, IntoArray};
 
 /// A dynamic comparison expression can be used to capture a comparison to a value that can change
 /// during the execution of a query, such as when a compute engine pushes down an ORDER BY + LIMIT

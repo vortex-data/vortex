@@ -10,8 +10,8 @@ use vortex_utils::aliases::hash_map::HashMap;
 use super::relation::Relation;
 use crate::expr::exprs::get_item::get_item;
 use crate::expr::exprs::root::root;
+use crate::expr::{Expression, StatsCatalog};
 use crate::stats::Stat;
-use crate::{Expression, StatsCatalog};
 
 pub type RequiredStats = Relation<FieldPath, Stat>;
 
@@ -109,7 +109,6 @@ mod tests {
     };
 
     use super::HashMap;
-    use crate::HashSet;
     use crate::compute::{BetweenOptions, StrictComparison};
     use crate::expr::exprs::between::between;
     use crate::expr::exprs::binary::{and, eq, gt, gt_eq, lt, lt_eq, not_eq, or};
@@ -117,8 +116,9 @@ mod tests {
     use crate::expr::exprs::get_item::{col, get_item};
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::root::root;
-    use crate::pruning::{checked_pruning_expr, field_path_stat_field_name};
+    use crate::expr::pruning::{checked_pruning_expr, field_path_stat_field_name};
     use crate::stats::Stat;
+    use vortex_utils::aliases::hash_set::HashSet;
 
     // Implement some checked pruning expressions.
     #[fixture]

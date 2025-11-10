@@ -4,8 +4,8 @@
 #![allow(clippy::unwrap_used)]
 
 use divan::Bencher;
+use vortex_array::expr::{get_item, pack, root};
 use vortex_dtype::{DType, FieldName, Nullability, PType, StructFields};
-use vortex_expr::{get_item, pack, root};
 
 fn main() {
     divan::main();

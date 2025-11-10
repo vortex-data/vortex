@@ -11,10 +11,9 @@ use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 
 use crate::arrays::StructArray;
+use crate::expr::{ChildName, ExprId, Expression, ExpressionView, VTable, VTableExt};
 use crate::validity::Validity;
-use crate::{
-    ArrayRef, ChildName, ExprId, Expression, ExpressionView, IntoArray, VTable, VTableExt,
-};
+use crate::{ArrayRef, IntoArray};
 
 /// Pack zero or more expressions into a structure with named fields.
 pub struct Pack;
@@ -154,7 +153,7 @@ impl ExpressionView<'_, Pack> {
 ///
 /// ```rust
 /// # use vortex_dtype::Nullability;
-/// # use vortex_expr::{pack, col, lit};
+/// # use vortex_array::expr::{pack, col, lit};
 /// let expr = pack([("id", col("user_id")), ("constant", lit(42))], Nullability::NonNullable);
 /// ```
 pub fn pack(
@@ -185,7 +184,8 @@ mod tests {
     use crate::expr::exprs::get_item::col;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
-    use crate::{Array, ArrayRef, IntoArray, ToCanonical, VTableExt};
+    use crate::expr::VTableExt;
+    use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
     fn test_array() -> ArrayRef {
         StructArray::from_fields(&[

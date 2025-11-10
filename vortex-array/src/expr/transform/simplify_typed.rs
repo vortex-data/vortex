@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::transform::remove_merge::remove_merge;
-use crate::transform::remove_select::remove_select;
-use crate::transform::simplify::simplify;
-use crate::{DType, Expression};
+use crate::expr::Expression;
+use crate::expr::transform::remove_merge::remove_merge;
+use crate::expr::transform::remove_select::remove_select;
+use crate::expr::transform::simplify::simplify;
 
 /// Unlike `simplify`, this function simplifies an expression under the assumption that scope is
 /// a known DType. Simplified is applied first and then additional rules.

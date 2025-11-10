@@ -2,14 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools as _;
+use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::expr::Expression;
 use crate::expr::exprs::get_item::get_item;
 use crate::expr::exprs::merge::{DuplicateHandling, Merge};
 use crate::expr::exprs::pack::pack;
 use crate::expr::traversal::{NodeExt, Transformed};
-use crate::{DType, Expression};
 
 /// Replaces [crate::MergeExpr] with combination of [crate::GetItem] and [crate::Pack] expressions.
 pub(crate) fn remove_merge(e: Expression, ctx: &DType) -> VortexResult<Expression> {
@@ -80,7 +81,7 @@ mod tests {
     use crate::expr::exprs::merge::merge_opts;
     use crate::expr::exprs::pack::Pack;
     use crate::expr::exprs::root::root;
-    use crate::transform::remove_merge::DuplicateHandling;
+    use crate::expr::transform::remove_merge::DuplicateHandling;
 
     #[test]
     fn test_remove_merge() {

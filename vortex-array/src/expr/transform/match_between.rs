@@ -7,8 +7,8 @@ use crate::expr::exprs::binary::{Binary, and};
 use crate::expr::exprs::get_item::GetItem;
 use crate::expr::exprs::literal::{Literal, lit};
 use crate::expr::exprs::operators::Operator;
-use crate::forms::conjuncts;
-use crate::{Expression, VTableExt};
+use crate::expr::forms::conjuncts;
+use crate::expr::{Expression, VTableExt};
 
 /// This pass looks for expression of the form
 ///      `x >= a && x < b` and converts them into x between a and b`

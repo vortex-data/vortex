@@ -11,11 +11,9 @@ use vortex_proto::expr as pb;
 
 use crate::compute::mask;
 use crate::expr::exprs::root::root;
+use crate::expr::{ChildName, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt};
 use crate::stats::Stat;
-use crate::{
-    ArrayRef,  ToCanonical,
-};
-use crate::expr::{ChildName, ExprId, Expression, ExpressionView, StatsCatalog,VTable, VTableExt}
+use crate::{ArrayRef, ToCanonical};
 
 pub struct GetItem;
 
@@ -132,7 +130,7 @@ impl VTable for GetItem {
 /// Equivalent to `get_item(field, root())` - extracts a named field from the input array.
 ///
 /// ```rust
-/// # use vortex_expr::col;
+/// # use vortex_array::expr::col;
 /// let expr = col("name");
 /// ```
 pub fn col(field: impl Into<FieldName>) -> Expression {
@@ -144,7 +142,7 @@ pub fn col(field: impl Into<FieldName>) -> Expression {
 /// Accesses the specified field from the result of the child expression.
 ///
 /// ```rust
-/// # use vortex_expr::{get_item, root};
+/// # use vortex_array::expr::{get_item, root};
 /// let expr = get_item("user_id", root());
 /// ```
 pub fn get_item(field: impl Into<FieldName>, child: Expression) -> Expression {

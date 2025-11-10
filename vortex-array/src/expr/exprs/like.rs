@@ -8,8 +8,9 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 
+use crate::ArrayRef;
 use crate::compute::{LikeOptions, like as like_compute};
-use crate::{ArrayRef, ChildName, ExprId, Expression, ExpressionView, VTable, VTableExt};
+use crate::expr::{ChildName, ExprId, Expression, ExpressionView, VTable, VTableExt};
 
 /// Expression that performs SQL LIKE pattern matching.
 pub struct Like;

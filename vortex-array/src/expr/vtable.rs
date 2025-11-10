@@ -405,8 +405,8 @@ mod tests {
     use crate::expr::exprs::pack::pack;
     use crate::expr::exprs::root::root;
     use crate::expr::exprs::select::{select, select_exclude};
-    use crate::proto::{ExprSerializeProtoExt, deserialize_expr_proto};
-    use crate::session::{ExprRegistry, ExprSession};
+    use crate::expr::proto::{ExprSerializeProtoExt, deserialize_expr_proto};
+    use crate::expr::session::{ExprRegistry, ExprSession};
 
     #[fixture]
     #[once]
@@ -448,7 +448,7 @@ mod tests {
         DType::Primitive(vortex_dtype::PType::I64, vortex_dtype::Nullability::NonNullable)
     ))]
     // Between expressions
-    #[case(between(col("a"), lit(10), lit(20), vortex_array::compute::BetweenOptions { lower_strict: vortex_array::compute::StrictComparison::NonStrict, upper_strict: vortex_array::compute::StrictComparison::NonStrict }))]
+    #[case(between(col("a"), lit(10), lit(20), crate::compute::BetweenOptions { lower_strict: crate::compute::StrictComparison::NonStrict, upper_strict: crate::compute::StrictComparison::NonStrict }))]
     // List contains expressions
     #[case(list_contains(col("list_col"), lit("item")))]
     // Pack expressions - creating struct from fields
@@ -462,7 +462,7 @@ mod tests {
     fn text_expr_serde_round_trip(
         registry: &ExprRegistry,
         #[case] expr: Expression,
-    ) -> anyhow::Result<()> {
+    ) -> VortexResult<()> {
         let serialized_pb = (&expr).serialize_proto()?;
         let deserialized_expr = deserialize_expr_proto(&serialized_pb, registry)?;
 

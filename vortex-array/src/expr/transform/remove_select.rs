@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_err};
 
+use crate::expr::Expression;
 use crate::expr::exprs::get_item::get_item;
 use crate::expr::exprs::pack::pack;
 use crate::expr::exprs::select::Select;
 use crate::expr::traversal::{NodeExt, Transformed};
-use crate::{DType, Expression};
 
 /// Replaces [crate::SelectExpr] with combination of [crate::GetItem] and [crate::Pack] expressions.
 pub(crate) fn remove_select(e: Expression, ctx: &DType) -> VortexResult<Expression> {

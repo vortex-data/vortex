@@ -10,9 +10,9 @@ use std::sync::Arc;
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::{VortexExpect, VortexResult};
 
+use crate::ArrayRef;
 use crate::expr::display::DisplayTreeExpr;
 use crate::expr::{ChildName, ExprId, ExprVTable, ExpressionView, StatsCatalog, VTable};
-use crate::{ArrayRef, display};
 
 /// A node in a Vortex expression tree.
 ///
@@ -215,10 +215,10 @@ impl Expression {
     /// # Example
     ///
     /// ```rust
-    /// # use crate::compute::LikeOptions;
-    /// # use crate::vortex_expr::VTableExt;
+    /// # use vortex_array::compute::LikeOptions;
+    /// # use vortex_array::expr::VTableExt;
     /// # use vortex_dtype::{DType, Nullability, PType};
-    /// # use vortex_expr::{and, cast, eq, get_item, gt, lit, not, root, select, Like};
+    /// # use vortex_array::expr::{and, cast, eq, get_item, gt, lit, not, root, select, Like};
     /// // Build a complex nested expression
     /// let complex_expr = select(
     ///     ["result"],

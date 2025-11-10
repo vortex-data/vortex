@@ -11,10 +11,9 @@ use vortex_proto::expr::select_opts::Opts;
 use vortex_proto::expr::{FieldNames as ProtoFieldNames, SelectOpts};
 
 use crate::expr::expression::Expression;
-use crate::field::DisplayFieldNames;
-use crate::{
-    ArrayRef, ChildName, ExprId, ExpressionView, IntoArray, ToCanonical, VTable, VTableExt,
-};
+use crate::expr::field::DisplayFieldNames;
+use crate::expr::{ChildName, ExprId, ExpressionView, VTable, VTableExt};
+use crate::{ArrayRef, IntoArray, ToCanonical};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FieldSelection {
@@ -149,7 +148,7 @@ impl VTable for Select {
 ///
 /// Projects only the specified fields from the child expression, which must be of DType struct.
 /// ```rust
-/// # use vortex_expr::{select, root};
+/// # use vortex_array::expr::{select, root};
 /// let expr = select(["name", "age"], root());
 /// ```
 pub fn select(field_names: impl Into<FieldNames>, child: Expression) -> Expression {
@@ -163,7 +162,7 @@ pub fn select(field_names: impl Into<FieldNames>, child: Expression) -> Expressi
 /// Projects all fields except the specified ones from the input struct expression.
 ///
 /// ```rust
-/// # use vortex_expr::{select_exclude, root};
+/// # use vortex_array::expr::{select_exclude, root};
 /// let expr = select_exclude(["internal_id", "metadata"], root());
 /// ```
 pub fn select_exclude(fields: impl Into<FieldNames>, child: Expression) -> Expression {
@@ -181,8 +180,8 @@ impl ExpressionView<'_, Select> {
     ///
     /// For example:
     /// ```rust
-    /// # use vortex_expr::{root, Select};
-    /// # use vortex_expr::{FieldSelection, select, select_exclude};
+    /// # use vortex_array::expr::{root, Select};
+    /// # use vortex_array::expr::{FieldSelection, select, select_exclude};
     /// # use vortex_dtype::FieldNames;
     /// let field_names = FieldNames::from(["a", "b", "c"]);
     /// let include = select(["a"], root());
@@ -266,7 +265,8 @@ mod tests {
     use crate::arrays::StructArray;
     use crate::expr::exprs::root::root;
     use crate::expr::exprs::select::Select;
-    use crate::{IntoArray, ToCanonical, test_harness};
+    use crate::expr::test_harness;
+    use crate::{IntoArray, ToCanonical};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[

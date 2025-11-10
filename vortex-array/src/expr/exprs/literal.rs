@@ -10,10 +10,8 @@ use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantArray;
-use crate::{
-    Array, ArrayRef, ChildName, ExprId, Expression, ExpressionView, IntoArray, StatsCatalog,
-    VTable, VTableExt,
-};
+use crate::expr::{ChildName, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt};
+use crate::{Array, ArrayRef, IntoArray};
 
 /// Expression that represents a literal scalar value.
 pub struct Literal;
@@ -118,9 +116,9 @@ impl VTable for Literal {
 /// ## Example usage
 ///
 /// ```
-/// use crate::arrays::PrimitiveArray;
+/// use vortex_array::arrays::PrimitiveArray;
 /// use vortex_dtype::Nullability;
-/// use vortex_expr::{lit, Literal};
+/// use vortex_array::expr::{lit, Literal};
 /// use vortex_scalar::Scalar;
 ///
 /// let number = lit(34i32);
@@ -138,7 +136,7 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use super::lit;
-    use crate::test_harness;
+    use crate::expr::test_harness;
 
     #[test]
     fn dtype() {

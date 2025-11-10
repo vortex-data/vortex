@@ -6,8 +6,9 @@ use std::fmt::Formatter;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
+use crate::ArrayRef;
 use crate::compute::invert;
-use crate::{ArrayRef, ChildName, ExprId, Expression, ExpressionView, VTable, VTableExt};
+use crate::expr::{ChildName, ExprId, Expression, ExpressionView, VTable, VTableExt};
 
 /// Expression that logically inverts boolean values.
 pub struct Not;
@@ -72,7 +73,7 @@ impl VTable for Not {
 /// Returns the logical negation of the input boolean expression.
 ///
 /// ```rust
-/// # use vortex_expr::{not, root};
+/// # use vortex_array::expr::{not, root};
 /// let expr = not(root());
 /// ```
 pub fn not(operand: Expression) -> Expression {
@@ -87,7 +88,8 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::expr::exprs::get_item::{col, get_item};
     use crate::expr::exprs::root::root;
-    use crate::{ToCanonical, test_harness};
+    use crate::expr::test_harness;
+    use crate::ToCanonical;
 
     #[test]
     fn invert_booleans() {

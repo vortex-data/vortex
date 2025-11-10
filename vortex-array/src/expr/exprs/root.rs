@@ -6,9 +6,10 @@ use std::fmt::Formatter;
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
+use crate::ArrayRef;
 use crate::expr::expression::Expression;
+use crate::expr::{ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt};
 use crate::stats::Stat;
-use crate::{ArrayRef, ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt};
 
 /// An expression that returns the full scope of the expression evaluation.
 // TODO(ngates): rename to "Scope"

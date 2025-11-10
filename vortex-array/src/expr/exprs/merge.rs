@@ -11,11 +11,9 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::arrays::StructArray;
+use crate::expr::{ChildName, ExprId, Expression, ExpressionView, VTable, VTableExt};
 use crate::validity::Validity;
-use crate::{
-    Array, ArrayRef, ChildName, ExprId, Expression, ExpressionView, IntoArray as _, ToCanonical,
-    VTable, VTableExt,
-};
+use crate::{Array, ArrayRef, IntoArray as _, ToCanonical};
 
 /// Merge zero or more expressions that ALL return structs.
 ///
@@ -173,7 +171,7 @@ pub enum DuplicateHandling {
 ///
 /// ```rust
 /// # use vortex_dtype::Nullability;
-/// # use vortex_expr::{merge, get_item, root};
+/// # use vortex_array::expr::{merge, get_item, root};
 /// let expr = merge([get_item("a", root()), get_item("b", root())]);
 /// ```
 pub fn merge(elements: impl IntoIterator<Item = impl Into<Expression>>) -> Expression {
@@ -199,7 +197,8 @@ mod tests {
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::merge::{DuplicateHandling, merge_opts};
     use crate::expr::exprs::root::root;
-    use crate::{Array, Expression, IntoArray, ToCanonical};
+    use crate::expr::Expression;
+    use crate::{Array, IntoArray, ToCanonical};
 
     fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();

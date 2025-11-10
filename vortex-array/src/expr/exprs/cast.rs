@@ -9,9 +9,10 @@ use vortex_dtype::{DType, FieldPath};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 
+use crate::ArrayRef;
 use crate::compute::cast as compute_cast;
 use crate::expr::expression::Expression;
-use crate::{ArrayRef, ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt};
+use crate::expr::{ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt};
 
 /// A cast expression that converts values to a target data type.
 pub struct Cast;
@@ -120,7 +121,7 @@ impl VTable for Cast {
 ///
 /// ```rust
 /// # use vortex_dtype::{DType, Nullability, PType};
-/// # use vortex_expr::{cast, root};
+/// # use vortex_array::expr::{cast, root};
 /// let expr = cast(root(), DType::Primitive(PType::I64, Nullability::NonNullable));
 /// ```
 pub fn cast(child: Expression, target: DType) -> Expression {
@@ -138,7 +139,9 @@ mod tests {
     use crate::arrays::StructArray;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::root::root;
-    use crate::{Expression, IntoArray, test_harness};
+    use crate::expr::Expression;
+    use crate::expr::test_harness;
+    use crate::IntoArray;
 
     #[test]
     fn dtype() {

@@ -4,8 +4,8 @@
 use libfuzzer_sys::arbitrary::{Arbitrary, Unstructured};
 use vortex_array::ArrayRef;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
-use vortex_expr::Expression;
-use vortex_expr::arbitrary::{filter_expr, projection_expr};
+use vortex_array::expr::Expression;
+use vortex_array::expr::arbitrary::{filter_expr, projection_expr};
 
 use crate::array::CompressorStrategy;
 

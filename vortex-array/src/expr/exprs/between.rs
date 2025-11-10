@@ -9,12 +9,12 @@ use vortex_dtype::DType::Bool;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 
+use crate::ArrayRef;
 use crate::compute::{BetweenOptions, between as between_compute};
 use crate::expr::expression::Expression;
 use crate::expr::exprs::binary::Binary;
 use crate::expr::exprs::operators::Operator;
-use crate::{ArrayRef};
-use crate::expr::{ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt}
+use crate::expr::{ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt};
 
 /// An optimized scalar expression to compute whether values fall between two bounds.
 ///
@@ -50,14 +50,14 @@ impl VTable for Between {
         let opts = pb::BetweenOpts::decode(metadata)?;
         Ok(Some(BetweenOptions {
             lower_strict: if opts.lower_strict {
-                vortex_array::compute::StrictComparison::Strict
+                crate::compute::StrictComparison::Strict
             } else {
-                vortex_array::compute::StrictComparison::NonStrict
+                crate::compute::StrictComparison::NonStrict
             },
             upper_strict: if opts.upper_strict {
-                vortex_array::compute::StrictComparison::Strict
+                crate::compute::StrictComparison::Strict
             } else {
-                vortex_array::compute::StrictComparison::NonStrict
+                crate::compute::StrictComparison::NonStrict
             },
         }))
     }
@@ -179,9 +179,9 @@ impl ExpressionView<'_, Between> {
 /// The comparison strictness is controlled by the options parameter.
 ///
 /// ```rust
-/// # use crate::compute::BetweenOptions;
-/// # use crate::compute::StrictComparison;
-/// # use vortex_expr::{between, lit, root};
+/// # use vortex_array::compute::BetweenOptions;
+/// # use vortex_array::compute::StrictComparison;
+/// # use vortex_array::expr::{between, lit, root};
 /// let opts = BetweenOptions {
 ///     lower_strict: StrictComparison::NonStrict,
 ///     upper_strict: StrictComparison::NonStrict,

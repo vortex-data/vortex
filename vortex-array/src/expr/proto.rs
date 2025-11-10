@@ -67,7 +67,7 @@ mod tests {
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::root::root;
-    use crate::session::ExprSession;
+    use crate::expr::session::ExprSession;
 
     #[test]
     fn expression_serde() {

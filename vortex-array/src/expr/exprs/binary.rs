@@ -12,9 +12,8 @@ use crate::compute::{add, and_kleene, compare, div, mul, or_kleene, sub};
 use crate::expr::expression::Expression;
 use crate::expr::exprs::literal::lit;
 use crate::expr::exprs::operators::Operator;
-use crate::{
-    ArrayRef, ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt, compute,
-};
+use crate::expr::{ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt};
+use crate::{ArrayRef, compute};
 
 pub struct Binary;
 
@@ -259,11 +258,11 @@ impl ExpressionView<'_, Binary> {
 /// ## Example usage
 ///
 /// ```
-/// # use crate::arrays::{BoolArray, PrimitiveArray };
-/// # use crate::{Array, IntoArray, ToCanonical};
-/// # use crate::validity::Validity;
+/// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
+/// # use vortex_array::{Array, IntoArray, ToCanonical};
+/// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
-/// # use vortex_expr::{eq, root, lit};
+/// # use vortex_array::expr::{eq, root, lit};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = eq(root(), lit(3)).evaluate(&xs.to_array()).unwrap();
 ///
@@ -283,11 +282,11 @@ pub fn eq(lhs: Expression, rhs: Expression) -> Expression {
 /// ## Example usage
 ///
 /// ```
-/// # use crate::arrays::{BoolArray, PrimitiveArray };
-/// # use crate::{IntoArray, ToCanonical};
-/// # use crate::validity::Validity;
+/// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
+/// # use vortex_array::{IntoArray, ToCanonical};
+/// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
-/// # use vortex_expr::{root, lit, not_eq};
+/// # use vortex_array::expr::{root, lit, not_eq};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = not_eq(root(), lit(3)).evaluate(&xs.to_array()).unwrap();
 ///
@@ -307,11 +306,11 @@ pub fn not_eq(lhs: Expression, rhs: Expression) -> Expression {
 /// ## Example usage
 ///
 /// ```
-/// # use crate::arrays::{BoolArray, PrimitiveArray };
-/// # use crate::{IntoArray, ToCanonical};
-/// # use crate::validity::Validity;
+/// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
+/// # use vortex_array::{IntoArray, ToCanonical};
+/// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
-/// # use vortex_expr::{gt_eq, root, lit};
+/// # use vortex_array::expr::{gt_eq, root, lit};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = gt_eq(root(), lit(3)).evaluate(&xs.to_array()).unwrap();
 ///
@@ -331,11 +330,11 @@ pub fn gt_eq(lhs: Expression, rhs: Expression) -> Expression {
 /// ## Example usage
 ///
 /// ```
-/// # use crate::arrays::{BoolArray, PrimitiveArray };
-/// # use crate::{IntoArray, ToCanonical};
-/// # use crate::validity::Validity;
+/// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
+/// # use vortex_array::{IntoArray, ToCanonical};
+/// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
-/// # use vortex_expr::{gt, root, lit};
+/// # use vortex_array::expr::{gt, root, lit};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = gt(root(), lit(2)).evaluate(&xs.to_array()).unwrap();
 ///
@@ -355,11 +354,11 @@ pub fn gt(lhs: Expression, rhs: Expression) -> Expression {
 /// ## Example usage
 ///
 /// ```
-/// # use crate::arrays::{BoolArray, PrimitiveArray };
-/// # use crate::{IntoArray, ToCanonical};
-/// # use crate::validity::Validity;
+/// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
+/// # use vortex_array::{IntoArray, ToCanonical};
+/// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
-/// # use vortex_expr::{root, lit, lt_eq};
+/// # use vortex_array::expr::{root, lit, lt_eq};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = lt_eq(root(), lit(2)).evaluate(&xs.to_array()).unwrap();
 ///
@@ -379,11 +378,11 @@ pub fn lt_eq(lhs: Expression, rhs: Expression) -> Expression {
 /// ## Example usage
 ///
 /// ```
-/// # use crate::arrays::{BoolArray, PrimitiveArray };
-/// # use crate::{IntoArray, ToCanonical};
-/// # use crate::validity::Validity;
+/// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
+/// # use vortex_array::{IntoArray, ToCanonical};
+/// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
-/// # use vortex_expr::{root, lit, lt};
+/// # use vortex_array::expr::{root, lit, lt};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = lt(root(), lit(3)).evaluate(&xs.to_array()).unwrap();
 ///
@@ -403,9 +402,9 @@ pub fn lt(lhs: Expression, rhs: Expression) -> Expression {
 /// ## Example usage
 ///
 /// ```
-/// # use crate::arrays::BoolArray;
-/// # use crate::{IntoArray, ToCanonical};
-/// # use vortex_expr::{root, lit, or};
+/// # use vortex_array::arrays::BoolArray;
+/// # use vortex_array::{IntoArray, ToCanonical};
+/// # use vortex_array::expr::{root, lit, or};
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
 /// let result = or(root(), lit(false)).evaluate(&xs.to_array()).unwrap();
 ///
@@ -437,9 +436,9 @@ where
 /// ## Example usage
 ///
 /// ```
-/// # use crate::arrays::BoolArray;
-/// # use crate::{IntoArray, ToCanonical};
-/// # use vortex_expr::{and, root, lit};
+/// # use vortex_array::arrays::BoolArray;
+/// # use vortex_array::{IntoArray, ToCanonical};
+/// # use vortex_array::expr::{and, root, lit};
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
 /// let result = and(root(), lit(true)).evaluate(&xs.to_array()).unwrap();
 ///
@@ -481,10 +480,10 @@ where
 /// ## Example usage
 ///
 /// ```
-/// # use crate::IntoArray;
-/// # use crate::arrow::IntoArrowArray as _;
+/// # use vortex_array::IntoArray;
+/// # use vortex_array::arrow::IntoArrowArray as _;
 /// # use vortex_buffer::buffer;
-/// # use vortex_expr::{checked_add, lit, root};
+/// # use vortex_array::expr::{checked_add, lit, root};
 /// let xs = buffer![1, 2, 3].into_array();
 /// let result = checked_add(root(), lit(5))
 ///     .evaluate(&xs.to_array())
@@ -511,7 +510,7 @@ mod tests {
     use super::{and, and_collect, and_collect_right, eq, gt, gt_eq, lt, lt_eq, not_eq, or};
     use crate::expr::exprs::get_item::col;
     use crate::expr::exprs::literal::lit;
-    use crate::{Expression, test_harness};
+    use crate::expr::{Expression, test_harness};
 
     #[test]
     fn and_collect_left_assoc() {

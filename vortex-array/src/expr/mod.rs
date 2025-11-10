@@ -14,7 +14,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use arcref::ArcRef;
-use vortex_dtype::{DType, FieldName};
+use vortex_dtype::FieldName;
 use vortex_error::VortexUnwrap;
 use vortex_utils::aliases::hash_set::HashSet;
 

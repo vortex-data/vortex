@@ -40,7 +40,7 @@ pub mod compute;
 mod context;
 mod encoding;
 pub mod execution;
-mod expr;
+pub mod expr;
 mod hash;
 pub mod iter;
 mod mask_future;
