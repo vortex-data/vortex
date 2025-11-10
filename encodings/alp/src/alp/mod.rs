@@ -10,6 +10,7 @@ use num_traits::{CheckedSub, Float, PrimInt, ToPrimitive};
 mod array;
 mod compress;
 mod compute;
+mod operator;
 mod ops;
 mod serde;
 

@@ -75,11 +75,13 @@ pub trait BindContext {
     ///
     /// If the child index requested here was marked as a pipelined child in
     /// [`PipelineTransform::is_pipelined_child`].
-    fn batch_input(&self, child_idx: usize) -> Vector;
+    fn batch_input(&self, child_idx: usize) -> BatchId;
 }
 
 /// The ID of the vector to use.
+// TODO(ngates): make these opaque
 pub type VectorId = usize;
+pub type BatchId = usize;
 
 /// A kernel implements the physical compute required for pipelined execution. It is driven in a
 /// push-based way, typically as part of a larger pipeline of kernels.
@@ -131,6 +133,8 @@ pub trait TransformKernel: Send {
 pub struct KernelContext {
     /// The allocated vectors for intermediate results.
     pub(crate) vectors: Vec<Vector>,
+    /// The batch input vectors.
+    pub(crate) batch_inputs: Vec<Vector>,
 }
 
 impl KernelContext {
@@ -143,6 +147,11 @@ impl KernelContext {
     /// Get a vector by its ID.
     pub fn vector(&self, vector_id: VectorId) -> &Vector {
         &self.vectors[vector_id]
+    }
+
+    /// Get a batch input by its ID.
+    pub fn batch_input(&self, batch_id: BatchId) -> &Vector {
+        &self.batch_inputs[batch_id]
     }
 }
 

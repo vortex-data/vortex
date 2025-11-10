@@ -8,7 +8,7 @@ use std::ops::RangeBounds;
 
 use vortex_buffer::Buffer;
 use vortex_dtype::NativePType;
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use crate::primitive::{PScalar, PVectorMut};
@@ -68,6 +68,11 @@ impl<T> PVector<T> {
     /// Decomposes the primitive vector into its constituent parts (buffer and validity).
     pub fn into_parts(self) -> (Buffer<T>, Mask) {
         (self.elements, self.validity)
+    }
+
+    /// Decompose into the buffer.
+    pub fn into_buffer(self) -> Buffer<T> {
+        self.elements
     }
 
     /// Gets a nullable element at the given index, panicking on out-of-bounds.
