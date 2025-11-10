@@ -1,17 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Debug;
-
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::{BoolArray, NativeValue};
 use vortex_array::compute::{Operator, scalar_cmp};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::BitBuffer;
-use vortex_dtype::{
-    DType, NativePType, Nullability, match_each_decimal_value_type, match_each_native_ptype,
-};
+use vortex_dtype::{DType, Nullability, match_each_decimal_value_type, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_scalar::Scalar;
 
@@ -55,14 +51,14 @@ pub fn compare_canonical_array(
                 let pval = primitive
                     .typed_value::<P>()
                     .vortex_expect("nulls handled before");
-                Ok(compare_native_ptype(
+                Ok(compare_to(
                     primitive_array
                         .as_slice::<P>()
                         .iter()
                         .copied()
                         .zip(array.validity_mask().to_bit_buffer().iter())
-                        .map(|(b, v)| v.then_some(b)),
-                    pval,
+                        .map(|(b, v)| v.then_some(NativeValue(b))),
+                    NativeValue(pval),
                     operator,
                     result_nullability,
                 ))
@@ -144,33 +140,6 @@ fn compare_to<T: PartialOrd>(
         Operator::Gte => v >= cmp_value,
         Operator::Lt => v < cmp_value,
         Operator::Lte => v <= cmp_value,
-    };
-
-    if !nullability.is_nullable() {
-        BoolArray::from_iter(
-            values
-                .map(|val| val.vortex_expect("non nullable"))
-                .map(eval_fn),
-        )
-        .into_array()
-    } else {
-        BoolArray::from_iter(values.map(|val| val.map(eval_fn))).into_array()
-    }
-}
-
-fn compare_native_ptype<T: NativePType>(
-    values: impl Iterator<Item = Option<T>>,
-    cmp_value: T,
-    operator: Operator,
-    nullability: Nullability,
-) -> ArrayRef {
-    let eval_fn = |v: T| match operator {
-        Operator::Eq => v.is_eq(cmp_value),
-        Operator::NotEq => !v.is_eq(cmp_value),
-        Operator::Gt => v.is_gt(cmp_value),
-        Operator::Gte => v.is_ge(cmp_value),
-        Operator::Lt => v.is_lt(cmp_value),
-        Operator::Lte => v.is_le(cmp_value),
     };
 
     if !nullability.is_nullable() {
