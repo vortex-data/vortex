@@ -127,11 +127,13 @@ pub struct MaskValues {
 }
 
 impl MaskValues {
-    fn from_buffer(buffer: BitBuffer) -> Self {
+    #[cfg(feature = "serde")]
+    pub(crate) fn from_buffer(buffer: BitBuffer) -> Self {
         let count = buffer.true_count();
         Self::from_buffer_with_counts(buffer, count)
     }
 
+    #[cfg(feature = "serde")]
     fn from_buffer_with_counts(buffer: BitBuffer, true_count: usize) -> Self {
         let len = buffer.len();
 
