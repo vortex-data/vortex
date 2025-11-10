@@ -133,7 +133,7 @@ impl ZoneMap {
     /// be pruned.
     ///
     /// The expression provided should be the result of converting an existing `VortexExpr` via
-    /// [`checked_pruning_expr`][vortex_expr::pruning::checked_pruning_expr] into a prunable
+    /// [`checked_pruning_expr`][vortex_array::expr::pruning::checked_pruning_expr] into a prunable
     /// expression that can be evaluated on a zone map.
     ///
     /// All zones where the predicate evaluates to `true` can be skipped entirely.
