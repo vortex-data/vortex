@@ -9,7 +9,7 @@ use vortex_vector::{Vector, VectorOps, vector_matches_dtype};
 
 use crate::execution::{BatchKernelRef, BindCtx, DummyExecutionCtx, ExecutionCtx};
 use crate::pipeline::source_driver::PipelineSourceDriver;
-use crate::vtable::{OperatorVTable, VTable};
+use crate::vtable::{OperatorVTable, PipelineNode, VTable};
 use crate::{Array, ArrayAdapter, ArrayRef};
 
 /// Array functions as provided by the `OperatorVTable`.
@@ -63,11 +63,12 @@ impl ArrayOperator for Arc<dyn Array> {
 
 impl<V: VTable> ArrayOperator for ArrayAdapter<V> {
     fn execute_batch(&self, selection: &Mask, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
-        // Check if the array is a pipeline source, and if so use the single-node driver for now.
-        if let Some(pipeline_source) =
-            <V::OperatorVTable as OperatorVTable<V>>::as_pipelined_source(&self.0)
+        // Check if the array is a pipeline node
+        if let Some(pipeline_node) =
+            <V::OperatorVTable as OperatorVTable<V>>::pipeline_node(&self.0)
+            && let PipelineNode::Source(source) = pipeline_node
         {
-            return PipelineSourceDriver::new(pipeline_source).execute(selection);
+            return PipelineSourceDriver::new(source).execute(selection);
         }
 
         let vector =
