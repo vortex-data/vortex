@@ -10,8 +10,6 @@ mod intersect_by_rank;
 mod iter_bools;
 mod mask_mut;
 
-#[cfg(feature = "serde")]
-mod serde;
 #[cfg(test)]
 mod tests;
 
@@ -112,39 +110,21 @@ pub enum Mask {
 
 /// Represents the values of a [`Mask`] that contains some true and some false elements.
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MaskValues {
     buffer: BitBuffer,
 
     // We cached the indices and slices representations, since it can be faster than iterating
     // the bit-mask over and over again.
+    #[cfg_attr(feature = "serde", serde(skip))]
     indices: OnceLock<Vec<usize>>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     slices: OnceLock<Vec<(usize, usize)>>,
 
     // Pre-computed values.
     true_count: usize,
     // i.e., the fraction of values that are true
     density: f64,
-}
-
-impl MaskValues {
-    #[cfg(feature = "serde")]
-    pub(crate) fn from_buffer(buffer: BitBuffer) -> Self {
-        let count = buffer.true_count();
-        Self::from_buffer_with_counts(buffer, count)
-    }
-
-    #[cfg(feature = "serde")]
-    fn from_buffer_with_counts(buffer: BitBuffer, true_count: usize) -> Self {
-        let len = buffer.len();
-
-        Self {
-            buffer,
-            indices: Default::default(),
-            slices: Default::default(),
-            true_count,
-            density: true_count as f64 / len as f64,
-        }
-    }
 }
 
 impl Mask {
