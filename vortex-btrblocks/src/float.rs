@@ -43,7 +43,7 @@ impl Compressor for FloatCompressor {
             &ALPScheme,
             &ALPRDScheme,
             &DictScheme,
-            &SparseScheme,
+            &NullDominated,
             &RLE_FLOAT_SCHEME,
         ]
     }
@@ -83,7 +83,7 @@ struct ALPRDScheme;
 struct DictScheme;
 
 #[derive(Debug, Copy, Clone)]
-pub struct SparseScheme;
+pub struct NullDominated;
 
 pub const RLE_FLOAT_SCHEME: RLEScheme<FloatStats, FloatCode> = RLEScheme::new(
     RUN_LENGTH_SCHEME,
@@ -380,7 +380,7 @@ impl Scheme for DictScheme {
     }
 }
 
-impl Scheme for SparseScheme {
+impl Scheme for NullDominated {
     type StatsType = FloatStats;
     type CodeType = FloatCode;
 

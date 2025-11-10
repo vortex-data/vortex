@@ -97,7 +97,7 @@ impl Compressor for StringCompressor {
             &DictScheme,
             &FSSTScheme,
             &ConstantScheme,
-            &SparseScheme,
+            &NullDominated,
         ]
     }
 
@@ -127,7 +127,7 @@ pub struct FSSTScheme;
 pub struct ConstantScheme;
 
 #[derive(Debug, Copy, Clone)]
-pub struct SparseScheme;
+pub struct NullDominated;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct StringCode(u8);
@@ -347,7 +347,7 @@ impl Scheme for ConstantScheme {
     }
 }
 
-impl Scheme for SparseScheme {
+impl Scheme for NullDominated {
     type StatsType = StringStats;
     type CodeType = StringCode;
 
