@@ -261,7 +261,6 @@ impl LayoutReader for StructReader {
         }
     }
 
-    #[allow(clippy::unwrap_in_result)]
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
