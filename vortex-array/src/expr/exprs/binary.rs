@@ -258,7 +258,7 @@ impl ExpressionView<'_, Binary> {
 /// ## Example usage
 ///
 /// ```
-/// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
+/// # use vortex_array::arrays::{BoolArray, PrimitiveArray};
 /// # use vortex_array::{Array, IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;

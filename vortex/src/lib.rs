@@ -5,7 +5,7 @@
 #![doc = include_str!(concat!("../", env!("CARGO_PKG_README")))]
 
 use vortex_array::expr::session::ExprSession;
-pub use vortex_array::{expr, *};
+pub use vortex_array::*;
 #[cfg(feature = "files")]
 pub use vortex_file as file;
 use vortex_io::session::RuntimeSession;
