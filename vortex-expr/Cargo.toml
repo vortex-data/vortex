@@ -56,6 +56,7 @@ serde = [
     "vortex-dtype/serde",
     "vortex-error/serde",
     "vortex-buffer/serde",
+    "vortex-mask/serde",
 ]
 test-harness = []
 

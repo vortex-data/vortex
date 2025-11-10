@@ -3,8 +3,8 @@
 
 use std::marker::PhantomData;
 
-use serde_core::de::Visitor;
-use serde_core::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::de::Visitor;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{Alignment, Buffer, BufferMut, ByteBuffer};
 
@@ -44,7 +44,7 @@ where
 
     fn visit_byte_buf<E>(self, v: Vec<u8>) -> Result<Self::Value, E>
     where
-        E: serde_core::de::Error,
+        E: serde::de::Error,
     {
         let bytes = ByteBuffer::copy_from_aligned(v, Alignment::of::<T>());
         Ok(Buffer::from_byte_buffer(bytes))
@@ -52,7 +52,7 @@ where
 
     fn visit_borrowed_bytes<E>(self, v: &'de [u8]) -> Result<Self::Value, E>
     where
-        E: serde_core::de::Error,
+        E: serde::de::Error,
     {
         let bytes = ByteBuffer::copy_from_aligned(v, Alignment::of::<T>());
         Ok(Buffer::from_byte_buffer(bytes))
@@ -60,7 +60,7 @@ where
 
     fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
     where
-        E: serde_core::de::Error,
+        E: serde::de::Error,
     {
         let bytes = ByteBuffer::copy_from_aligned(v, Alignment::of::<T>());
         Ok(Buffer::from_byte_buffer(bytes))
@@ -68,7 +68,7 @@ where
 
     fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
     where
-        A: serde_core::de::SeqAccess<'de>,
+        A: serde::de::SeqAccess<'de>,
     {
         let mut buffer = seq
             .size_hint()

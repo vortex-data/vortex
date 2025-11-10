@@ -8641,7 +8641,7 @@ dependencies = [
  "log",
  "memmap2",
  "num-traits",
- "serde_core",
+ "serde",
  "simdutf8",
  "vortex-error",
 ]
@@ -9195,6 +9195,7 @@ version = "0.1.0"
 dependencies = [
  "itertools 0.14.0",
  "rstest",
+ "serde",
  "vortex-buffer",
  "vortex-error",
 ]
