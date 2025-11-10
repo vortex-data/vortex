@@ -11,6 +11,7 @@ pub mod arithmetic;
 #[cfg(feature = "arrow")]
 pub mod arrow;
 pub mod comparison;
+pub mod expand;
 pub mod filter;
 pub mod logical;
 pub mod mask;

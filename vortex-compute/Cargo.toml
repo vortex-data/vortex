@@ -41,3 +41,7 @@ divan = { workspace = true }
 [[bench]]
 name = "filter_buffer_mut"
 harness = false
+
+[[bench]]
+name = "expand_buffer"
+harness = false
