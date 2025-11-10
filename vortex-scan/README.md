@@ -37,7 +37,7 @@ The `vortex-scan` crate provides efficient scanning operations over Vortex array
 
 ```rust
 use vortex_scan::ScanBuilder;
-use vortex_expr::lit;
+use vortex_array::expr::lit;
 
 // Create a scan that reads specific columns with a filter
 let scan = ScanBuilder::new(layout_reader)
