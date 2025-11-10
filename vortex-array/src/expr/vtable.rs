@@ -75,7 +75,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// Evaluate the expression in the given scope.
     fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef>;
 
-    /// See [`crate::Expression::stat_falsification`].
+    /// See [`crate::expr::Expression::stat_falsification`].
     fn stat_falsification(
         &self,
         _expr: &ExpressionView<Self>,
@@ -84,7 +84,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
         None
     }
 
-    /// See [`crate::Expression::stat_max`].
+    /// See [`crate::expr::Expression::stat_max`].
     fn stat_max(
         &self,
         _expr: &ExpressionView<Self>,
@@ -93,7 +93,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
         None
     }
 
-    /// See [`crate::Expression::stat_min`].
+    /// See [`crate::expr::Expression::stat_min`].
     fn stat_min(
         &self,
         _expr: &ExpressionView<Self>,
@@ -102,7 +102,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
         None
     }
 
-    /// See [`crate::Expression::stat_nan_count`].
+    /// See [`crate::expr::Expression::stat_nan_count`].
     fn stat_nan_count(
         &self,
         _expr: &ExpressionView<Self>,
@@ -111,7 +111,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
         None
     }
 
-    /// See [`crate::Expression::stat_field_path`].
+    /// See [`crate::expr::Expression::stat_field_path`].
     fn stat_field_path(&self, _expr: &ExpressionView<Self>) -> Option<FieldPath> {
         None
     }

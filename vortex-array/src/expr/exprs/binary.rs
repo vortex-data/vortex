@@ -253,7 +253,7 @@ impl ExpressionView<'_, Binary> {
     }
 }
 
-/// Create a new [`Binary`] using the [`Eq`](crate::Operator::Eq) operator.
+/// Create a new [`Binary`] using the [`Eq`](crate::expr::exprs::operators::Operator::Eq) operator.
 ///
 /// ## Example usage
 ///
@@ -277,7 +277,7 @@ pub fn eq(lhs: Expression, rhs: Expression) -> Expression {
         .vortex_expect("Failed to create Eq binary expression")
 }
 
-/// Create a new [`Binary`] using the [`NotEq`](crate::Operator::NotEq) operator.
+/// Create a new [`Binary`] using the [`NotEq`](crate::expr::exprs::operators::Operator::NotEq) operator.
 ///
 /// ## Example usage
 ///
@@ -301,7 +301,7 @@ pub fn not_eq(lhs: Expression, rhs: Expression) -> Expression {
         .vortex_expect("Failed to create NotEq binary expression")
 }
 
-/// Create a new [`Binary`] using the [`Gte`](crate::Operator::Gte) operator.
+/// Create a new [`Binary`] using the [`Gte`](crate::expr::exprs::operators::Operator::Gte) operator.
 ///
 /// ## Example usage
 ///
@@ -325,7 +325,7 @@ pub fn gt_eq(lhs: Expression, rhs: Expression) -> Expression {
         .vortex_expect("Failed to create Gte binary expression")
 }
 
-/// Create a new [`Binary`] using the [`Gt`](crate::Operator::Gt) operator.
+/// Create a new [`Binary`] using the [`Gt`](crate::expr::exprs::operators::Operator::Gt) operator.
 ///
 /// ## Example usage
 ///
@@ -349,7 +349,7 @@ pub fn gt(lhs: Expression, rhs: Expression) -> Expression {
         .vortex_expect("Failed to create Gt binary expression")
 }
 
-/// Create a new [`Binary`] using the [`Lte`](crate::Operator::Lte) operator.
+/// Create a new [`Binary`] using the [`Lte`](crate::expr::exprs::operators::Operator::Lte) operator.
 ///
 /// ## Example usage
 ///
@@ -373,7 +373,7 @@ pub fn lt_eq(lhs: Expression, rhs: Expression) -> Expression {
         .vortex_expect("Failed to create Lte binary expression")
 }
 
-/// Create a new [`Binary`] using the [`Lt`](crate::Operator::Lt) operator.
+/// Create a new [`Binary`] using the [`Lt`](crate::expr::exprs::operators::Operator::Lt) operator.
 ///
 /// ## Example usage
 ///
@@ -397,7 +397,7 @@ pub fn lt(lhs: Expression, rhs: Expression) -> Expression {
         .vortex_expect("Failed to create Lt binary expression")
 }
 
-/// Create a new [`Binary`] using the [`Or`](crate::Operator::Or) operator.
+/// Create a new [`Binary`] using the [`Or`](crate::expr::exprs::operators::Operator::Or) operator.
 ///
 /// ## Example usage
 ///
@@ -431,7 +431,7 @@ where
     Some(iter.rfold(first, |acc, elem| or(elem, acc)))
 }
 
-/// Create a new [`Binary`] using the [`And`](crate::Operator::And) operator.
+/// Create a new [`Binary`] using the [`And`](crate::expr::exprs::operators::Operator::And) operator.
 ///
 /// ## Example usage
 ///
@@ -475,7 +475,7 @@ where
     iter.reduce(and)
 }
 
-/// Create a new [`Binary`] using the [`Add`](crate::Operator::Add) operator.
+/// Create a new [`Binary`] using the [`Add`](crate::expr::exprs::operators::Operator::Add) operator.
 ///
 /// ## Example usage
 ///
