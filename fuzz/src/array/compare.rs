@@ -131,8 +131,7 @@ pub fn compare_canonical_array(
     }
 }
 
-#[allow(clippy::unwrap_used)]
-fn compare_to<T: PartialOrd + PartialEq + Debug>(
+fn compare_to<T: PartialOrd>(
     values: impl Iterator<Item = Option<T>>,
     cmp_value: T,
     operator: Operator,
@@ -148,13 +147,17 @@ fn compare_to<T: PartialOrd + PartialEq + Debug>(
     };
 
     if !nullability.is_nullable() {
-        BoolArray::from_iter(values.map(|val| val.unwrap()).map(eval_fn)).into_array()
+        BoolArray::from_iter(
+            values
+                .map(|val| val.vortex_expect("non nullable"))
+                .map(eval_fn),
+        )
+        .into_array()
     } else {
         BoolArray::from_iter(values.map(|val| val.map(eval_fn))).into_array()
     }
 }
 
-#[allow(clippy::unwrap_used)]
 fn compare_native_ptype<T: NativePType>(
     values: impl Iterator<Item = Option<T>>,
     cmp_value: T,
@@ -171,7 +174,12 @@ fn compare_native_ptype<T: NativePType>(
     };
 
     if !nullability.is_nullable() {
-        BoolArray::from_iter(values.map(|val| val.unwrap()).map(eval_fn)).into_array()
+        BoolArray::from_iter(
+            values
+                .map(|val| val.vortex_expect("non nullable"))
+                .map(eval_fn),
+        )
+        .into_array()
     } else {
         BoolArray::from_iter(values.map(|val| val.map(eval_fn))).into_array()
     }
