@@ -230,6 +230,12 @@ impl FileSource for VortexSource {
         filters: Vec<Arc<dyn PhysicalExpr>>,
         _config: &ConfigOptions,
     ) -> DFResult<FilterPushdownPropagation<Arc<dyn FileSource>>> {
+        if filters.is_empty() {
+            return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
+                vec![],
+            ));
+        }
+
         let Some(schema) = self.arrow_file_schema.as_ref() else {
             return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
                 vec![PushedDown::No; filters.len()],
