@@ -35,7 +35,7 @@ impl VTable for ALPRDVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
-    type OperatorVTable = NotSupported;
+    type OperatorVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.alprd")

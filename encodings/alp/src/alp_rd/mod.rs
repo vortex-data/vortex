@@ -11,6 +11,7 @@ use vortex_fastlanes::bitpack_compress::bitpack_encode_unchecked;
 
 mod array;
 mod compute;
+mod operator;
 mod ops;
 mod serde;
 
@@ -282,9 +283,7 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     right_parts: BufferMut<T::UINT>,
     left_parts_patches: Option<&Patches>,
 ) -> Buffer<T> {
-    if left_parts.len() != right_parts.len() {
-        vortex_panic!("alp_rd_decode: left_parts.len != right_parts.len");
-    }
+    assert_eq!(left_parts.len(), right_parts.len());
 
     // Decode the left-parts dictionary
     let mut values = BufferMut::<u16>::from_iter(

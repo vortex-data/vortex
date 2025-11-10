@@ -8528,6 +8528,7 @@ dependencies = [
  "rustc-hash",
  "vortex-array",
  "vortex-buffer",
+ "vortex-compute",
  "vortex-dtype",
  "vortex-error",
  "vortex-fastlanes",
