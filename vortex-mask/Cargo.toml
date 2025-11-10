@@ -13,17 +13,14 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
-
 [features]
 serde = ["dep:serde"]
-
 
 [dependencies]
 itertools = { workspace = true }
 serde = { workspace = true, optional = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-error = { workspace = true }
-
 
 [dev-dependencies]
 rstest = { workspace = true }
