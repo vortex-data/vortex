@@ -124,7 +124,7 @@ impl Default for ArraySession {
 /// Session data for Vortex arrays.
 pub trait ArraySessionExt: SessionExt {
     /// Returns the array encoding registry.
-    fn arrays(&self) -> Ref<'_, ArraySession> {
+    fn arrays<'a>(&'a self) -> Ref<'a, ArraySession> {
         self.get::<ArraySession>()
     }
 }

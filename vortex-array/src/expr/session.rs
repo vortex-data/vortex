@@ -74,7 +74,7 @@ impl Default for ExprSession {
 /// Extension trait for accessing expression session data.
 pub trait ExprSessionExt: SessionExt {
     /// Returns the expression vtable registry.
-    fn expressions(&self) -> Ref<'_, ExprSession> {
+    fn expressions<'a>(&'a self) -> Ref<'a, ExprSession> {
         self.get::<ExprSession>()
     }
 }

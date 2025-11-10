@@ -56,7 +56,7 @@ impl Default for LayoutSession {
 /// Extension trait for accessing layout session data.
 pub trait LayoutSessionExt: SessionExt {
     /// Returns the layout encoding registry.
-    fn layouts(&self) -> Ref<'_, LayoutSession> {
+    fn layouts<'a>(&'a self) -> Ref<'a, LayoutSession> {
         self.get::<LayoutSession>()
     }
 }

@@ -54,12 +54,12 @@ pub trait SessionExt: Sized + private::Sealed {
     fn session(&self) -> VortexSession;
 
     /// Returns the scope variable of type `V`, or inserts a default one if it does not exist.
-    fn get<V: SessionVar>(&self) -> Ref<'_, V>;
+    fn get<'a, V: SessionVar>(&'a self) -> Ref<'a, V>;
 
     /// Returns the scope variable of type `V`, or inserts a default one if it does not exist.
     ///
     /// Note that the returned value internally holds a lock on the variable.
-    fn get_mut<V: SessionVar>(&self) -> RefMut<'_, V>;
+    fn get_mut<'a, V: SessionVar>(&'a self) -> RefMut<'a, V>;
 }
 
 mod private {
@@ -73,7 +73,7 @@ impl SessionExt for VortexSession {
     }
 
     /// Returns the scope variable of type `V`, or inserts a default one if it does not exist.
-    fn get<V: SessionVar>(&self) -> Ref<'_, V> {
+    fn get<'a, V: SessionVar>(&'a self) -> Ref<'a, V> {
         Ref(self
             .0
             .get(&TypeId::of::<V>())
@@ -91,7 +91,7 @@ impl SessionExt for VortexSession {
     /// Returns the scope variable of type `V`, or inserts a default one if it does not exist.
     ///
     /// Note that the returned value internally holds a lock on the variable.
-    fn get_mut<V: SessionVar>(&self) -> RefMut<'_, V> {
+    fn get_mut<'a, V: SessionVar>(&'a self) -> RefMut<'a, V> {
         RefMut(
             self.0
                 .get_mut(&TypeId::of::<V>())
