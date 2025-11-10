@@ -184,8 +184,7 @@ This controls how many splits are processed concurrently.
 
 Core dependencies:
 
-- `vortex-array`: Core array types and operations
-    - `vortex-expr`: Expression evaluation framework
+- `vortex-array`: Core array types and operations (includes expression evaluation framework)
 - `vortex-layout`: Layout reader abstraction
 - `futures`: Async runtime abstractions
 - `tokio` (optional): Multi-threaded async runtime
