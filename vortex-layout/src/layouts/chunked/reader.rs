@@ -10,10 +10,10 @@ use futures::stream::FuturesOrdered;
 use futures::{FutureExt, TryStreamExt};
 use itertools::Itertools;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::expr::Expression;
 use vortex_array::{ArrayRef, MaskFuture};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
-use vortex_expr::Expression;
 use vortex_mask::Mask;
 
 use crate::layouts::chunked::ChunkedLayout;
@@ -289,11 +289,11 @@ mod test {
 
     use futures::stream;
     use rstest::{fixture, rstest};
+    use vortex_array::expr::root;
     use vortex_array::{ArrayContext, IntoArray, MaskFuture, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
-    use vortex_expr::root;
     use vortex_io::runtime::single::block_on;
 
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;

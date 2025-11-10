@@ -181,10 +181,10 @@ mod tests {
 
     use super::{Pack, PackOptions, pack};
     use crate::arrays::{PrimitiveArray, StructArray};
+    use crate::expr::VTableExt;
     use crate::expr::exprs::get_item::col;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
-    use crate::expr::VTableExt;
     use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
     fn test_array() -> ArrayRef {

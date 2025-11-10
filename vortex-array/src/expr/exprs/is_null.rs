@@ -99,8 +99,10 @@ mod tests {
     use vortex_error::VortexUnwrap as _;
     use vortex_scalar::Scalar;
     use vortex_utils::aliases::hash_map::HashMap;
+    use vortex_utils::aliases::hash_set::HashSet;
 
     use super::is_null;
+    use crate::IntoArray;
     use crate::arrays::{PrimitiveArray, StructArray};
     use crate::expr::exprs::binary::eq;
     use crate::expr::exprs::get_item::{col, get_item};
@@ -109,8 +111,6 @@ mod tests {
     use crate::expr::pruning::checked_pruning_expr;
     use crate::expr::test_harness;
     use crate::stats::Stat;
-    use crate::IntoArray;
-    use vortex_utils::aliases::hash_set::HashSet;
 
     #[test]
     fn dtype() {

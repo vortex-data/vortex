@@ -8,11 +8,11 @@ use std::sync::{Arc, OnceLock};
 use futures::future::BoxFuture;
 use futures::{FutureExt, TryFutureExt, try_join};
 use vortex_array::compute::{MinMaxResult, min_max, take};
+use vortex_array::expr::{Expression, root};
 use vortex_array::{Array, ArrayRef, IntoArray, MaskFuture};
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexError, VortexExpect, VortexResult};
-use vortex_expr::{Expression, root};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
@@ -205,10 +205,10 @@ mod tests {
 
     use rstest::rstest;
     use vortex_array::arrays::{StructArray, VarBinArray};
+    use vortex_array::expr::{eq, is_null, lit, not, pack, root};
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayContext, IntoArray as _, MaskFuture, assert_arrays_eq};
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
-    use vortex_expr::{is_null, not, pack, root};
     use vortex_io::runtime::single::block_on;
 
     use crate::layouts::dict::writer::{DictLayoutOptions, DictStrategy};
@@ -347,9 +347,9 @@ mod tests {
                 .await
                 .unwrap();
 
-            let filter = vortex_expr::eq(
+            let filter = eq(
                 root(),
-                vortex_expr::lit(vortex_scalar::Scalar::utf8(
+                lit(vortex_scalar::Scalar::utf8(
                     filter_value,
                     Nullability::Nullable,
                 )),

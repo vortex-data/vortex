@@ -8,14 +8,14 @@ use std::sync::Arc;
 use cudarc::driver::CudaContext;
 use futures::future::try_join_all;
 use itertools::Itertools;
+use vortex_array::expr::transform::immediate_access::annotate_scope_access;
+use vortex_array::expr::transform::{
+    PartitionedExpr, partition, replace, replace_root_fields, simplify_typed,
+};
+use vortex_array::expr::{ExactExpr, Expression, col, root};
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_expr::transform::immediate_access::annotate_scope_access;
-use vortex_expr::transform::{
-    PartitionedExpr, partition, replace, replace_root_fields, simplify_typed,
-};
-use vortex_expr::{ExactExpr, Expression, col, root};
 use vortex_gpu::{GpuStructVector, GpuVector};
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;

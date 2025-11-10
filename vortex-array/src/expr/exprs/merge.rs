@@ -194,10 +194,10 @@ mod tests {
 
     use super::merge;
     use crate::arrays::{PrimitiveArray, StructArray};
+    use crate::expr::Expression;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::merge::{DuplicateHandling, merge_opts};
     use crate::expr::exprs::root::root;
-    use crate::expr::Expression;
     use crate::{Array, IntoArray, ToCanonical};
 
     fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {

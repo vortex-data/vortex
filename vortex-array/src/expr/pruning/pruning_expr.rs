@@ -107,6 +107,7 @@ mod tests {
     use vortex_dtype::{
         DType, FieldName, FieldNames, FieldPath, FieldPathSet, Nullability, StructFields,
     };
+    use vortex_utils::aliases::hash_set::HashSet;
 
     use super::HashMap;
     use crate::compute::{BetweenOptions, StrictComparison};
@@ -118,7 +119,6 @@ mod tests {
     use crate::expr::exprs::root::root;
     use crate::expr::pruning::{checked_pruning_expr, field_path_stat_field_name};
     use crate::stats::Stat;
-    use vortex_utils::aliases::hash_set::HashSet;
 
     // Implement some checked pruning expressions.
     #[fixture]

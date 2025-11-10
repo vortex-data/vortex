@@ -5,10 +5,10 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use futures::Stream;
+use vortex_array::expr::transform::simplify_typed;
+use vortex_array::expr::{Expression, root};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_expr::transform::simplify_typed;
-use vortex_expr::{Expression, root};
 use vortex_gpu::GpuVector;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::session::RuntimeSessionExt;

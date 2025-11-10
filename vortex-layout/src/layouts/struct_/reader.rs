@@ -8,15 +8,15 @@ use std::sync::Arc;
 use futures::try_join;
 use itertools::Itertools;
 use vortex_array::arrays::StructArray;
+use vortex_array::expr::transform::immediate_access::annotate_scope_access;
+use vortex_array::expr::transform::{
+    PartitionedExpr, partition, replace, replace_root_fields, simplify_typed,
+};
+use vortex_array::expr::{ExactExpr, Expression, Merge, Pack, col, root};
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, MaskFuture, ToCanonical};
 use vortex_dtype::{DType, FieldMask, FieldName, Nullability, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_expr::transform::immediate_access::annotate_scope_access;
-use vortex_expr::transform::{
-    PartitionedExpr, partition, replace, replace_root_fields, simplify_typed,
-};
-use vortex_expr::{ExactExpr, Expression, Merge, Pack, col, root};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -331,11 +331,11 @@ mod tests {
     use itertools::Itertools;
     use rstest::{fixture, rstest};
     use vortex_array::arrays::{BoolArray, StructArray};
+    use vortex_array::expr::{col, eq, get_item, gt, lit, or, pack, root, select};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayContext, IntoArray, MaskFuture, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldName, Nullability, PType};
-    use vortex_expr::{col, eq, get_item, gt, lit, or, pack, root, select};
     use vortex_io::runtime::single::block_on;
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;

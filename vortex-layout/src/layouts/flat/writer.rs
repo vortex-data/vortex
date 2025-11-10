@@ -153,13 +153,13 @@ mod tests {
 
     use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray};
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
+    use vortex_array::expr::root;
     use vortex_array::stats::{Precision, Stat, StatsProviderExt};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray, MaskFuture, ToCanonical};
     use vortex_buffer::{BitBufferMut, buffer};
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
     use vortex_error::VortexUnwrap;
-    use vortex_expr::root;
     use vortex_io::runtime::single::block_on;
     use vortex_mask::AllOr;
 

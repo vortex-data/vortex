@@ -136,12 +136,11 @@ mod tests {
     use vortex_error::VortexUnwrap as _;
 
     use super::cast;
+    use crate::IntoArray;
     use crate::arrays::StructArray;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::root::root;
-    use crate::expr::Expression;
-    use crate::expr::test_harness;
-    use crate::IntoArray;
+    use crate::expr::{Expression, test_harness};
 
     #[test]
     fn dtype() {

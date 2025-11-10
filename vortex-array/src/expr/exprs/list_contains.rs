@@ -142,11 +142,14 @@ impl ExpressionView<'_, ListContains> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use vortex_buffer::BitBuffer;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Field, FieldPath, FieldPathSet, Nullability, StructFields};
     use vortex_scalar::Scalar;
     use vortex_utils::aliases::hash_map::HashMap;
+    use vortex_utils::aliases::hash_set::HashSet;
 
     use super::list_contains;
     use crate::arrays::{BoolArray, ListArray, PrimitiveArray};
@@ -158,8 +161,6 @@ mod tests {
     use crate::stats::Stat;
     use crate::validity::Validity;
     use crate::{Array, ArrayRef, IntoArray};
-    use std::sync::Arc;
-    use vortex_utils::aliases::hash_set::HashSet;
 
     fn test_array() -> ArrayRef {
         ListArray::try_new(
