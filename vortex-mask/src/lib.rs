@@ -10,6 +10,8 @@ mod intersect_by_rank;
 mod iter_bools;
 mod mask_mut;
 
+#[cfg(feature = "serde")]
+mod serde;
 #[cfg(test)]
 mod tests;
 
@@ -98,6 +100,7 @@ impl<T> Eq for AllOr<T> where T: Eq {}
 /// A [`Mask`] can be constructed from various representations, and converted to various
 /// others. Internally, these are cached.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub enum Mask {
     /// All values are included.
     AllTrue(usize),
@@ -121,6 +124,25 @@ pub struct MaskValues {
     true_count: usize,
     // i.e., the fraction of values that are true
     density: f64,
+}
+
+impl MaskValues {
+    fn from_buffer(buffer: BitBuffer) -> Self {
+        let count = buffer.true_count();
+        Self::from_buffer_with_counts(buffer, count)
+    }
+
+    fn from_buffer_with_counts(buffer: BitBuffer, true_count: usize) -> Self {
+        let len = buffer.len();
+
+        Self {
+            buffer,
+            indices: Default::default(),
+            slices: Default::default(),
+            true_count,
+            density: true_count as f64 / len as f64,
+        }
+    }
 }
 
 impl Mask {
