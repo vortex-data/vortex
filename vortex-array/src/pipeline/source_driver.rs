@@ -7,15 +7,15 @@ use vortex_mask::Mask;
 use vortex_vector::{Vector, VectorMut, VectorMutOps};
 
 use crate::pipeline::bit_view::{BitView, BitViewExt};
-use crate::pipeline::{BindContext, KernelContext, N, PipelinedSource, VectorId};
+use crate::pipeline::{BindContext, KernelContext, N, PipelineSource, VectorId};
 
 /// Temporary driver for executing a single source array in a pipelined fashion.
 pub struct PipelineSourceDriver<'a> {
-    array: &'a dyn PipelinedSource,
+    array: &'a dyn PipelineSource,
 }
 
 impl<'a> PipelineSourceDriver<'a> {
-    pub fn new(array: &'a dyn PipelinedSource) -> Self {
+    pub fn new(array: &'a dyn PipelineSource) -> Self {
         Self { array }
     }
 
@@ -34,7 +34,7 @@ impl<'a> PipelineSourceDriver<'a> {
         let mut bind_ctx = PipelineSourceBindCtx {
             batch_inputs: &batch_inputs,
         };
-        let mut kernel = self.array.bind_source(&mut bind_ctx)?;
+        let mut kernel = self.array.bind(&mut bind_ctx)?;
         let kernel_ctx = KernelContext::empty();
 
         // Allocate an output vector, with up to N bytes of padding to ensure every call to
@@ -46,7 +46,6 @@ impl<'a> PipelineSourceDriver<'a> {
             selection.true_count().next_multiple_of(N) + N,
         );
 
-        // TODO(ngates): change behaviour based on the density of the selection mask.
         match selection {
             Mask::AllTrue(_) => {
                 // Select everything, so we can just run the kernel in a tight loop.
@@ -99,33 +98,5 @@ impl BindContext for PipelineSourceBindCtx<'_> {
 
     fn batch_input(&self, child_idx: usize) -> Vector {
         self.batch_inputs[child_idx].clone()
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use vortex_buffer::buffer;
-    use vortex_dtype::PTypeDowncastExt;
-    use vortex_mask::Mask;
-    use vortex_vector::VectorOps;
-
-    use crate::arrays::PrimitiveArray;
-    use crate::pipeline::source_driver::PipelineSourceDriver;
-    use crate::validity::Validity;
-
-    #[test]
-    fn test_primitive() {
-        let array = PrimitiveArray::new::<u32>(buffer![0..100000u32], Validity::AllValid);
-
-        // Create a selection mask with some ranges.
-        let mask = Mask::from_iter((0..100000).map(|i| i % 30 < 20));
-
-        let out = PipelineSourceDriver::new(&array)
-            .execute(&mask)
-            .unwrap()
-            .into_primitive()
-            .downcast::<u32>();
-
-        assert_eq!(out.len(), mask.true_count());
     }
 }

@@ -1,23 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Vortex crate containing vectorized operator processing.
-//!
-//! This module contains experiments into pipelined data processing within Vortex.
-//!
-//! Arrays (and eventually Layouts) will be convertible into a [`Kernel`] that can then be
-//! exported into a [`ViewMut`] one chunk of [`N`] elements at a time. This allows us to keep
-//! compute largely within the L1 cache, as well as to write out canonical data into externally
-//! provided buffers.
-//!
-//! Each chunk is represented in a canonical physical form, as determined by the logical
-//! [`vortex_dtype::DType`] of the array. This provides a predicate base on which to perform
-//! compute. Unlike DuckDB and other vectorized systems, we force a single canonical representation
-//! instead of supporting multiple encodings because compute push-down is applied a priori to the
-//! logical representation.
-//!
-//! It is a work-in-progress and is not yet used in production.
-
 pub mod bit_view;
 pub mod source_driver;
 
@@ -38,8 +21,11 @@ pub const N_BYTES: usize = N / 8;
 /// Number of usize words needed to store N bits
 pub const N_WORDS: usize = N / usize::BITS as usize;
 
-/// Returned by an array to indicate that it can be executed in a pipelined fashion.
-pub trait PipelinedOperator: Array {
+/// Indicates that an array supports acting as a transformation node in a pipelined execution.
+///
+/// That is, it has one or more child arrays for which each input element produces a single output
+/// element. See [`PipelineSource`] for nodes that have zero pipelined children.
+pub trait PipelineTransform: Deref<Target = dyn Array> {
     // Whether this operator works by mutating its first child in-place.
     //
     // If `true`, the operator is invoked with the first child's input data passed via the
@@ -56,36 +42,39 @@ pub trait PipelinedOperator: Array {
     /// computed before pipelined execution begins.
     fn is_pipelined_child(&self, child_idx: usize) -> bool;
 
-    /// Bind the operator into a [`Kernel`] for pipelined execution.
+    /// Bind the operator into a [`TransformKernel`] for pipelined execution.
     ///
     /// The provided [`BindContext`] can be used to obtain vector IDs for pipelined children and
     /// batch IDs for batch children. Each child can only be bound once.
-    fn bind(&self, ctx: &mut dyn BindContext) -> VortexResult<Box<dyn OperatorKernel>>;
+    fn bind(&self, ctx: &mut dyn BindContext) -> VortexResult<Box<dyn TransformKernel>>;
 }
 
-pub trait PipelinedSource: Deref<Target = dyn Array> {
-    /// Bind the operator into a [`Kernel`] for pipelined execution.
+/// Indicates that an array supports acting as a source node in a pipelined execution.
+pub trait PipelineSource: Deref<Target = dyn Array> {
+    /// Bind the operator into a [`SourceKernel`] for pipelined execution.
     ///
     /// The provided [`BindContext`] can be used to obtain vector IDs for pipelined children and
     /// batch IDs for batch children. Each child can only be bound once.
-    fn bind_source(&self, ctx: &mut dyn BindContext) -> VortexResult<Box<dyn SourceKernel>>;
+    fn bind(&self, ctx: &mut dyn BindContext) -> VortexResult<Box<dyn SourceKernel>>;
 }
 
 /// The context used when binding an operator for execution.
 pub trait BindContext {
     /// Returns a [`VectorId`] that can be passed to the [`KernelContext`] within the body of
-    /// the [`Kernel`] to access the given child as a pipelined input vector.
+    /// the kernel to access the given child as a pipelined input vector.
     ///
     /// # Panics
     ///
-    /// If the child index requested here was not listed in [`Pipelined::pipelined_children`].
+    /// If the child index requested here was not marked as a pipelined child in
+    /// [`PipelineTransform::is_pipelined_child`].
     fn pipelined_input(&self, child_idx: usize) -> VectorId;
 
     /// Returns the batch input vector for the given child.
     ///
     /// # Panics
     ///
-    /// If the child index requested here was listed in [`Pipelined::pipelined_children`].
+    /// If the child index requested here was marked as a pipelined child in
+    /// [`PipelineTransform::is_pipelined_child`].
     fn batch_input(&self, child_idx: usize) -> Vector;
 }
 
@@ -115,7 +104,12 @@ pub trait SourceKernel: Send {
     /// For example, if `n` is 3, then the kernel should skip over `3 * N` elements of input data.
     fn skip(&mut self, n: usize);
 
-    /// Attempts to perform a single step of the operator, writing data to the output vector.
+    /// Attempts to perform a single step of the operator, appending data to the output vector.
+    ///
+    /// The provided selection mask indicates which elements of the current chunk should be
+    /// appended to the output vector.
+    ///
+    /// The provided output vector is guaranteed to have at least `N` elements of capacity.
     fn step(
         &mut self,
         ctx: &KernelContext,
@@ -124,12 +118,13 @@ pub trait SourceKernel: Send {
     ) -> VortexResult<()>;
 }
 
-pub trait OperatorKernel: Send {
-    /// Attempts to perform a single step of the operator, writing data to the output vector.
+pub trait TransformKernel: Send {
+    /// Attempts to perform a single step of the operator, appending data to the output vector.
     ///
-    /// The output vector has length equal to the number of valid elements in the input vectors.
-    /// This number of values should be written to the output vector.
-    fn step(&self, ctx: &KernelContext, out: &mut VectorMut) -> VortexResult<()>;
+    /// The input vectors can be accessed via the provided `KernelContext`.
+    ///
+    /// The provided output vector is guaranteed to have at least `N` elements of capacity.
+    fn step(&mut self, ctx: &KernelContext, out: &mut VectorMut) -> VortexResult<()>;
 }
 
 /// Context passed to kernels during execution, providing access to vectors.
