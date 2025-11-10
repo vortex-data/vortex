@@ -98,6 +98,7 @@ impl<T> Eq for AllOr<T> where T: Eq {}
 /// A [`Mask`] can be constructed from various representations, and converted to various
 /// others. Internally, these are cached.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub enum Mask {
     /// All values are included.
     AllTrue(usize),
@@ -109,12 +110,15 @@ pub enum Mask {
 
 /// Represents the values of a [`Mask`] that contains some true and some false elements.
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MaskValues {
     buffer: BitBuffer,
 
     // We cached the indices and slices representations, since it can be faster than iterating
     // the bit-mask over and over again.
+    #[cfg_attr(feature = "serde", serde(skip))]
     indices: OnceLock<Vec<usize>>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     slices: OnceLock<Vec<(usize, usize)>>,
 
     // Pre-computed values.
