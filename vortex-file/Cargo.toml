@@ -41,7 +41,6 @@ vortex-decimal-byte-parts = { workspace = true }
 vortex-dict = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
-vortex-expr = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["file"] }
 vortex-fsst = { workspace = true }

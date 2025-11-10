@@ -8493,7 +8493,6 @@ dependencies = [
  "vortex-dict",
  "vortex-dtype",
  "vortex-error",
- "vortex-expr",
  "vortex-fastlanes",
  "vortex-file",
  "vortex-flatbuffers",
@@ -8578,6 +8577,7 @@ dependencies = [
  "rstest",
  "rstest_reuse",
  "rustc-hash",
+ "serde",
  "simdutf8",
  "static_assertions",
  "tabled",
@@ -8591,6 +8591,7 @@ dependencies = [
  "vortex-io",
  "vortex-mask",
  "vortex-metrics",
+ "vortex-proto",
  "vortex-scalar",
  "vortex-session",
  "vortex-utils",
@@ -8862,34 +8863,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vortex-expr"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arbitrary",
- "arcref",
- "codspeed-divan-compat",
- "insta",
- "itertools 0.14.0",
- "parking_lot",
- "paste",
- "prost 0.14.1",
- "rstest",
- "serde",
- "termtree",
- "vortex-array",
- "vortex-buffer",
- "vortex-dtype",
- "vortex-error",
- "vortex-expr",
- "vortex-mask",
- "vortex-proto",
- "vortex-scalar",
- "vortex-session",
- "vortex-utils",
-]
-
-[[package]]
 name = "vortex-fastlanes"
 version = "0.1.0"
 dependencies = [
@@ -8911,7 +8884,6 @@ dependencies = [
  "vortex-compute",
  "vortex-dtype",
  "vortex-error",
- "vortex-expr",
  "vortex-fastlanes",
  "vortex-mask",
  "vortex-scalar",
@@ -8966,7 +8938,6 @@ dependencies = [
  "vortex-dict",
  "vortex-dtype",
  "vortex-error",
- "vortex-expr",
  "vortex-fastlanes",
  "vortex-flatbuffers",
  "vortex-fsst",
@@ -9027,7 +8998,6 @@ dependencies = [
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
- "vortex-expr",
  "vortex-file",
  "vortex-io",
  "vortex-layout",
@@ -9175,7 +9145,6 @@ dependencies = [
  "vortex-dict",
  "vortex-dtype",
  "vortex-error",
- "vortex-expr",
  "vortex-flatbuffers",
  "vortex-gpu",
  "vortex-io",
@@ -9311,7 +9280,6 @@ dependencies = [
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
- "vortex-expr",
  "vortex-gpu",
  "vortex-io",
  "vortex-layout",
@@ -9333,7 +9301,6 @@ dependencies = [
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
- "vortex-expr",
  "vortex-file",
  "vortex-io",
  "vortex-layout",
