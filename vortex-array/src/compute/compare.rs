@@ -294,6 +294,9 @@ fn arrow_compare(
     right: &dyn Array,
     operator: Operator,
 ) -> VortexResult<ArrayRef> {
+    assert_eq!(left.len(), right.len());
+    let len = left.len();
+
     let nullable = left.dtype().is_nullable() || right.dtype().is_nullable();
 
     let array = if left.dtype().is_nested() || right.dtype().is_nested() {
@@ -312,8 +315,6 @@ fn arrow_compare(
         );
 
         let cmp = make_comparator(lhs, rhs, SortOptions::default())?;
-        assert_eq!(lhs.len(), rhs.len());
-        let len = lhs.len();
         let values = (0..len)
             .map(|i| {
                 let cmp = cmp(i, i);
@@ -365,6 +366,7 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_dtype::{FieldName, FieldNames};
 
     use super::*;
     use crate::ToCanonical;
@@ -571,5 +573,31 @@ mod tests {
         assert!(!bool_result.bit_buffer().value(0)); // {true, 1} > {true, 1} = false
         assert!(!bool_result.bit_buffer().value(1)); // {false, 2} > {false, 2} = false
         assert!(bool_result.bit_buffer().value(2)); // {true, 3} > {false, 4} = true (bool field takes precedence)
+    }
+
+    #[test]
+    fn test_empty_struct_compare() {
+        let empty1 = StructArray::try_new(
+            FieldNames::from(Vec::<FieldName>::new()),
+            Vec::new(),
+            5,
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        let empty2 = StructArray::try_new(
+            FieldNames::from(Vec::<FieldName>::new()),
+            Vec::new(),
+            5,
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        let result = compare(empty1.as_ref(), empty2.as_ref(), Operator::Eq).unwrap();
+        let result = result.to_bool();
+
+        for idx in 0..5 {
+            assert!(result.bit_buffer().value(idx));
+        }
     }
 }

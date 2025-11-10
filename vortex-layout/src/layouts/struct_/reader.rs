@@ -261,6 +261,7 @@ impl LayoutReader for StructReader {
         }
     }
 
+    #[allow(clippy::unwrap_in_result)]
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
@@ -331,7 +332,7 @@ mod tests {
     use itertools::Itertools;
     use rstest::{fixture, rstest};
     use vortex_array::arrays::{BoolArray, StructArray};
-    use vortex_array::expr::{col, eq, get_item, gt, lit, or, pack, root, select};
+    use vortex_array::expr::{Expression, col, eq, get_item, gt, lit, or, pack, root, select};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayContext, IntoArray, MaskFuture, ToCanonical};
     use vortex_buffer::buffer;
@@ -345,6 +346,36 @@ mod tests {
     use crate::segments::{SegmentSource, TestSegments};
     use crate::sequence::{SequenceId, SequentialArrayStreamExt};
     use crate::{LayoutRef, LayoutStrategy};
+
+    #[fixture]
+    fn empty_struct() -> (Arc<dyn SegmentSource>, LayoutRef) {
+        let ctx = ArrayContext::empty();
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let strategy =
+            StructStrategy::new(FlatLayoutStrategy::default(), FlatLayoutStrategy::default());
+        let layout = block_on(|handle| {
+            strategy.write_stream(
+                ctx,
+                segments.clone(),
+                StructArray::try_new(
+                    Vec::<FieldName>::new().into(),
+                    vec![],
+                    5,
+                    Validity::NonNullable,
+                )
+                .unwrap()
+                .into_array()
+                .to_array_stream()
+                .sequenced(ptr),
+                eof,
+                handle,
+            )
+        })
+        .unwrap();
+
+        (segments, layout)
+    }
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
@@ -632,5 +663,22 @@ mod tests {
             result.scalar_at(2).as_struct().field_by_idx(0).unwrap(),
             Scalar::primitive(6, Nullability::Nullable)
         );
+    }
+
+    #[rstest]
+    fn test_empty_struct(
+        #[from(empty_struct)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+    ) {
+        let reader = layout.new_reader("".into(), segments).unwrap();
+        let expr = pack(Vec::<(String, Expression)>::new(), Nullability::Nullable);
+
+        let project = reader
+            .projection_evaluation(&(0..5), &expr, MaskFuture::new_true(5))
+            .unwrap();
+
+        let result = block_on(move |_| project).unwrap();
+        assert!(result.dtype().is_struct());
+
+        assert_eq!(result.len(), 5);
     }
 }
