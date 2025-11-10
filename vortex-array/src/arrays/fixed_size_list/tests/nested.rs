@@ -123,7 +123,7 @@ fn test_fsl_of_fsl_with_nulls() {
     let inner_list_size = 2;
 
     // Create elements with some nulls.
-    let elements = PrimitiveArray::from_option_iter(vec![
+    let elements = PrimitiveArray::from_iter(vec![
         Some(1i32),
         None,
         Some(3),

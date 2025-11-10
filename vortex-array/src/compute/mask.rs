@@ -42,7 +42,7 @@ pub(crate) fn warm_up_vtable() -> usize {
 /// use vortex_scalar::Scalar;
 ///
 /// let array =
-///     PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)]);
+///     PrimitiveArray::from_iter([Some(0i32), None, Some(1i32), None, Some(2i32)]);
 /// let mask_array = Mask::from_iter([true, false, false, false, true]);
 ///
 /// let masked = mask(array.as_ref(), &mask_array).unwrap();

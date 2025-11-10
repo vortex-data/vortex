@@ -167,7 +167,7 @@ mod test {
 
     #[test]
     fn test_compress_nullable() {
-        do_roundtrip_test::<u32>(PrimitiveArray::from_option_iter(
+        do_roundtrip_test::<u32>(PrimitiveArray::from_iter(
             (0u32..10_000).map(|i| (i % 2 == 0).then_some(i)),
         ));
     }

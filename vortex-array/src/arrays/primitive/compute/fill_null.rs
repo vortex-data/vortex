@@ -54,7 +54,7 @@ mod test {
 
     #[test]
     fn fill_null_leading_none() {
-        let arr = PrimitiveArray::from_option_iter([None, Some(8u8), None, Some(10), None]);
+        let arr = PrimitiveArray::from_iter([None, Some(8u8), None, Some(10), None]);
         let p = fill_null(arr.as_ref(), &Scalar::from(42u8))
             .unwrap()
             .to_primitive();
@@ -64,7 +64,7 @@ mod test {
 
     #[test]
     fn fill_null_all_none() {
-        let arr = PrimitiveArray::from_option_iter([Option::<u8>::None, None, None, None, None]);
+        let arr = PrimitiveArray::from_iter([Option::<u8>::None, None, None, None, None]);
 
         let p = fill_null(arr.as_ref(), &Scalar::from(255u8))
             .unwrap()

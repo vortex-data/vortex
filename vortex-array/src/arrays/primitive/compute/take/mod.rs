@@ -149,7 +149,7 @@ mod test {
         buffer![0, 1, 2, 3, 4, 5],
         Validity::Array(BoolArray::from_iter([true, false, true, false, true, true]).into_array()),
     ))]
-    #[case(PrimitiveArray::from_option_iter([Some(1), None, Some(3), Some(4), None]))]
+    #[case(PrimitiveArray::from_iter([Some(1), None, Some(3), Some(4), None]))]
     fn test_take_primitive_conformance(#[case] array: PrimitiveArray) {
         test_take_conformance(array.as_ref());
     }

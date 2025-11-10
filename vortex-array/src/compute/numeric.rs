@@ -302,7 +302,7 @@ mod test {
 
     #[test]
     fn test_scalar_subtract_nullable() {
-        let values = PrimitiveArray::from_option_iter([Some(1u16), Some(2), None, Some(3)]);
+        let values = PrimitiveArray::from_iter([Some(1u16), Some(2), None, Some(3)]);
         let result = sub_scalar(values.as_ref(), Some(1u16).into())
             .unwrap()
             .to_primitive();

@@ -686,7 +686,7 @@ mod tests {
 
         // Create source with nullable elements to match builder dtype
         let source = FixedSizeListArray::new(
-            PrimitiveArray::from_option_iter([Some(5i32), Some(6)]).into_array(),
+            PrimitiveArray::from_iter([Some(5i32), Some(6)]).into_array(),
             2,
             Validity::AllValid,
             1,

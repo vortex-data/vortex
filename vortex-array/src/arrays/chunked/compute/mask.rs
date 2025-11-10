@@ -138,8 +138,8 @@ mod test {
     ).unwrap())]
     #[case(ChunkedArray::try_new(
         vec![
-            PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).to_array(),
-            PrimitiveArray::from_option_iter([Some(4i32), Some(5)]).to_array(),
+            PrimitiveArray::from_iter([Some(1i32), None, Some(3)]).to_array(),
+            PrimitiveArray::from_iter([Some(4i32), Some(5)]).to_array(),
         ],
         DType::Primitive(PType::I32, Nullability::Nullable),
     ).unwrap())]

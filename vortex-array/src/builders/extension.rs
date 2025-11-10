@@ -158,7 +158,7 @@ mod tests {
         let array = builder.finish_into_extension();
         let expected = ExtensionArray::new(
             ext_dtype.clone(),
-            PrimitiveArray::from_option_iter([Some(42i32), Some(84), None]).into_array(),
+            PrimitiveArray::from_iter([Some(42i32), Some(84), None]).into_array(),
         );
 
         assert_arrays_eq!(&array, &expected);

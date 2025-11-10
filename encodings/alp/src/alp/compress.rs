@@ -269,15 +269,15 @@ mod tests {
 
     #[test]
     fn test_nullable_compress() {
-        let array = PrimitiveArray::from_option_iter([None, Some(1.234f32), None]);
+        let array = PrimitiveArray::from_iter([None, Some(1.234f32), None]);
         let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().is_none());
-        let expected_encoded = PrimitiveArray::from_option_iter([None, Some(1234i32), None]);
+        let expected_encoded = PrimitiveArray::from_iter([None, Some(1234i32), None]);
         assert_arrays_eq!(encoded.encoded(), expected_encoded);
         assert_eq!(encoded.exponents(), Exponents { e: 9, f: 6 });
 
         let decoded = decompress(encoded);
-        let expected = PrimitiveArray::from_option_iter(vec![None, Some(1.234f32), None]);
+        let expected = PrimitiveArray::from_iter(vec![None, Some(1.234f32), None]);
         assert_arrays_eq!(decoded, expected);
     }
 
@@ -305,7 +305,7 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().is_none());
         let expected_encoded =
-            PrimitiveArray::from_option_iter(buffer![Some(1234i64), Some(2718), None, Some(4000)]);
+            PrimitiveArray::from_iter(buffer![Some(1234i64), Some(2718), None, Some(4000)]);
         assert_arrays_eq!(encoded.encoded(), expected_encoded);
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
@@ -316,13 +316,8 @@ mod tests {
     #[test]
     #[allow(clippy::approx_constant)] // ALP doesn't like E
     fn test_nullable_patched_scalar_at() {
-        let array = PrimitiveArray::from_option_iter([
-            Some(1.234f64),
-            Some(2.718),
-            Some(PI),
-            Some(4.0),
-            None,
-        ]);
+        let array =
+            PrimitiveArray::from_iter([Some(1.234f64), Some(2.718), Some(PI), Some(4.0), None]);
         let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().is_some());
 
@@ -540,7 +535,7 @@ mod tests {
             .map(|i| if i % 3 == 0 { None } else { Some(2.5f32) })
             .collect::<Vec<_>>();
 
-        let original = PrimitiveArray::from_option_iter(values);
+        let original = PrimitiveArray::from_iter(values);
         let encoded = alp_encode(&original, None).unwrap();
 
         let sliced_alp = encoded.slice(512..1024);
@@ -631,7 +626,7 @@ mod tests {
             })
             .collect();
 
-        let array = PrimitiveArray::from_option_iter(values);
+        let array = PrimitiveArray::from_iter(values);
         let encoded = alp_encode(&array, None).unwrap();
         let decoded = decompress(encoded);
 

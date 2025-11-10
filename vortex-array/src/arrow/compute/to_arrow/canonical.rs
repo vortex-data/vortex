@@ -732,8 +732,7 @@ mod tests {
 
     #[test]
     fn struct_nullable_with_nulls_to_arrow() {
-        let xs =
-            PrimitiveArray::from_option_iter(vec![Some(0_i64), Some(1), Some(2), None, Some(3)]);
+        let xs = PrimitiveArray::from_iter(vec![Some(0_i64), Some(1), Some(2), None, Some(3)]);
 
         let struct_a = StructArray::try_new(
             FieldNames::from(["xs"]),

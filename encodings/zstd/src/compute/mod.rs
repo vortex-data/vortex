@@ -37,8 +37,7 @@ mod tests {
     }
 
     fn zstd_nullable_i64() -> ZstdArray {
-        let values =
-            PrimitiveArray::from_option_iter([Some(1000i64), None, Some(3000), Some(4000), None]);
+        let values = PrimitiveArray::from_iter([Some(1000i64), None, Some(3000), Some(4000), None]);
         ZstdArray::from_primitive(&values, 0, 0).unwrap()
     }
 

@@ -68,7 +68,7 @@ mod tests {
 
     #[test]
     fn test_cast_for_nullable() {
-        let values = PrimitiveArray::from_option_iter([Some(0i32), None, Some(20), Some(30), None]);
+        let values = PrimitiveArray::from_iter([Some(0i32), None, Some(20), Some(30), None]);
         let for_array = FoRArray::try_new(values.into_array(), Scalar::from(50i32)).unwrap();
 
         let casted = cast(
@@ -92,7 +92,7 @@ mod tests {
         Scalar::from(1000u64)
     ).unwrap())]
     #[case(FoRArray::try_new(
-        PrimitiveArray::from_option_iter([Some(0i16), None, Some(5), Some(10), None]).into_array(),
+        PrimitiveArray::from_iter([Some(0i16), None, Some(5), Some(10), None]).into_array(),
         Scalar::from(50i16)
     ).unwrap())]
     #[case(FoRArray::try_new(

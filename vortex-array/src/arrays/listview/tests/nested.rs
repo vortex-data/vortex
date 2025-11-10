@@ -282,7 +282,7 @@ fn test_listview_of_struct_with_nulls() {
 
     // Create struct data with some null values.
     let id_values = buffer![1u32, 2, 3, 4, 5, 6].into_array();
-    let value_values = PrimitiveArray::from_option_iter(vec![
+    let value_values = PrimitiveArray::from_iter(vec![
         Some(1.1f64),
         None,
         Some(3.3),

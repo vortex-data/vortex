@@ -166,7 +166,7 @@ mod test {
 
     #[test]
     fn encode_primitive_nulls() {
-        let arr = PrimitiveArray::from_option_iter([
+        let arr = PrimitiveArray::from_iter([
             Some(1),
             Some(1),
             None,
@@ -181,8 +181,7 @@ mod test {
         let expected_codes = buffer![0u8, 0, 1, 2, 2, 1, 2, 1].into_array();
         assert_arrays_eq!(dict.codes(), expected_codes);
 
-        let expected_values =
-            PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array();
+        let expected_values = PrimitiveArray::from_iter([Some(1i32), None, Some(3)]).into_array();
         assert_arrays_eq!(dict.values(), expected_values);
     }
 }

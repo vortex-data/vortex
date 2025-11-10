@@ -530,8 +530,8 @@ mod test {
     #[test]
     fn validity_mask_includes_null_values_when_fill_is_null() {
         let indices = buffer![0u8, 2, 4, 6, 8].into_array();
-        let values = PrimitiveArray::from_option_iter([Some(0i16), Some(1), None, None, Some(4)])
-            .into_array();
+        let values =
+            PrimitiveArray::from_iter([Some(0i16), Some(1), None, None, Some(4)]).into_array();
         let array = SparseArray::try_new(indices, values, 10, Scalar::null_typed::<i16>()).unwrap();
         let actual = array.validity_mask();
         let expected = Mask::from_iter([

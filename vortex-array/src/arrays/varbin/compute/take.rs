@@ -196,7 +196,7 @@ mod tests {
             &DType::Utf8(Nullability::NonNullable)
         );
 
-        let idx2: PrimitiveArray = PrimitiveArray::from_option_iter(vec![Some(0)]);
+        let idx2: PrimitiveArray = PrimitiveArray::from_iter(vec![Some(0)]);
 
         assert_eq!(
             take(arr.as_ref(), idx2.as_ref()).unwrap().dtype(),

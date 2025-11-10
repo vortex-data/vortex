@@ -82,8 +82,7 @@ mod tests {
 
     #[test]
     fn test_cast_alprd_nullable() {
-        let arr =
-            PrimitiveArray::from_option_iter([Some(10.0f64), None, Some(10.1), Some(10.2), None]);
+        let arr = PrimitiveArray::from_iter([Some(10.0f64), None, Some(10.1), Some(10.2), None]);
         let values = vec![10.0f64, 10.1, 10.2];
         let encoder = RDEncoder::new(&values);
         let alprd = encoder.encode(&arr);
@@ -133,7 +132,7 @@ mod tests {
         encoder.encode(&arr)
     })]
     #[case::nullable({
-        let arr = PrimitiveArray::from_option_iter([Some(1.1f32), None, Some(2.2), Some(3.3), None]);
+        let arr = PrimitiveArray::from_iter([Some(1.1f32), None, Some(2.2), Some(3.3), None]);
         let values = vec![1.1f32, 2.2, 3.3];
         let encoder = RDEncoder::new(&values);
         encoder.encode(&arr)

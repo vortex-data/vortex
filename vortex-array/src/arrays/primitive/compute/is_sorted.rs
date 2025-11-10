@@ -96,9 +96,9 @@ mod tests {
     #[rstest]
     #[case(PrimitiveArray::from_iter([1, 2, 3, 4, 5]), true)]
     #[case(PrimitiveArray::from_iter([1, 1, 2, 3, 4, 5]), true)]
-    #[case(PrimitiveArray::from_option_iter([None, None, Some(1i32), Some(2)]), true)]
-    #[case(PrimitiveArray::from_option_iter([None, None, Some(1i32), Some(1)]), true)]
-    #[case(PrimitiveArray::from_option_iter([None, Some(5_u8), None]), false)]
+    #[case(PrimitiveArray::from_iter([None, None, Some(1i32), Some(2)]), true)]
+    #[case(PrimitiveArray::from_iter([None, None, Some(1i32), Some(1)]), true)]
+    #[case(PrimitiveArray::from_iter([None, Some(5_u8), None]), false)]
     fn test_primitive_is_sorted(#[case] array: PrimitiveArray, #[case] expected: bool) {
         assert_eq!(is_sorted(array.as_ref()).vortex_unwrap(), Some(expected));
     }
@@ -106,9 +106,9 @@ mod tests {
     #[rstest]
     #[case(PrimitiveArray::from_iter([1, 2, 3, 4, 5]), true)]
     #[case(PrimitiveArray::from_iter([1, 1, 2, 3, 4, 5]), false)]
-    #[case(PrimitiveArray::from_option_iter([None, None, Some(1i32), Some(2), None]), false)]
-    #[case(PrimitiveArray::from_option_iter([None, None, Some(1i32), Some(1), None]), false)]
-    #[case(PrimitiveArray::from_option_iter([None, Some(5_u8), None]), false)]
+    #[case(PrimitiveArray::from_iter([None, None, Some(1i32), Some(2), None]), false)]
+    #[case(PrimitiveArray::from_iter([None, None, Some(1i32), Some(1), None]), false)]
+    #[case(PrimitiveArray::from_iter([None, Some(5_u8), None]), false)]
     fn test_primitive_is_strict_sorted(#[case] array: PrimitiveArray, #[case] expected: bool) {
         assert_eq!(
             is_strict_sorted(array.as_ref()).vortex_unwrap(),

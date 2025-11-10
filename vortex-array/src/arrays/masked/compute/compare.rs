@@ -120,7 +120,7 @@ mod tests {
         .unwrap();
 
         // RHS has a null value
-        let rhs = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]);
+        let rhs = PrimitiveArray::from_iter([Some(1i32), None, Some(3)]);
 
         let res = compare(masked.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
         let res = res.to_bool();

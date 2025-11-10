@@ -276,8 +276,7 @@ mod tests {
     fn test_zip_all_true() {
         let mask = Mask::new_true(4);
         let if_true = buffer![10, 20, 30, 40].into_array();
-        let if_false =
-            PrimitiveArray::from_option_iter([Some(1), Some(2), Some(3), None]).into_array();
+        let if_false = PrimitiveArray::from_iter([Some(1), Some(2), Some(3), None]).into_array();
 
         let result = zip(&if_true, &if_false, &mask).unwrap();
 

@@ -538,13 +538,13 @@ mod test {
     #[case(None)]
     fn test_sparse_primitive(#[case] fill_value: Option<i32>) {
         let indices = buffer![0u64, 1, 7].into_array();
-        let values = PrimitiveArray::from_option_iter([Some(0i32), None, Some(1)]).into_array();
+        let values = PrimitiveArray::from_iter([Some(0i32), None, Some(1)]).into_array();
         let sparse_ints =
             SparseArray::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
         assert_eq!(*sparse_ints.dtype(), DType::Primitive(PType::I32, Nullable));
 
         let flat_ints = sparse_ints.to_primitive();
-        let expected = PrimitiveArray::from_option_iter([
+        let expected = PrimitiveArray::from_iter([
             Some(0i32),
             None,
             fill_value,
@@ -572,9 +572,9 @@ mod test {
 
         let indices = buffer![0u64, 1, 7, 8].into_array();
         let patch_values_a =
-            PrimitiveArray::from_option_iter([Some(10i32), None, Some(20), Some(30)]).into_array();
+            PrimitiveArray::from_iter([Some(10i32), None, Some(20), Some(30)]).into_array();
         let patch_values_b =
-            PrimitiveArray::from_option_iter([Some(1i32), Some(2), None, Some(3)]).into_array();
+            PrimitiveArray::from_iter([Some(1i32), Some(2), None, Some(3)]).into_array();
         let patch_values = StructArray::try_new_with_dtype(
             vec![patch_values_a, patch_values_b],
             struct_fields.clone(),
@@ -593,7 +593,7 @@ mod test {
         let len = 10;
         let sparse_struct = SparseArray::try_new(indices, patch_values, len, fill_scalar).unwrap();
 
-        let expected_a = PrimitiveArray::from_option_iter((0..len).map(|i| {
+        let expected_a = PrimitiveArray::from_iter((0..len).map(|i| {
             if i == 0 {
                 Some(10)
             } else if i == 1 {
@@ -604,7 +604,7 @@ mod test {
                 Some(-10)
             }
         }));
-        let expected_b = PrimitiveArray::from_option_iter((0..len).map(|i| {
+        let expected_b = PrimitiveArray::from_iter((0..len).map(|i| {
             if i == 0 {
                 Some(1i32)
             } else if i == 1 {
@@ -642,9 +642,9 @@ mod test {
 
         let indices = buffer![0u64, 1, 7, 8].into_array();
         let patch_values_a =
-            PrimitiveArray::from_option_iter([Some(10i32), None, Some(20), Some(30)]).into_array();
+            PrimitiveArray::from_iter([Some(10i32), None, Some(20), Some(30)]).into_array();
         let patch_values_b =
-            PrimitiveArray::from_option_iter([Some(1i32), Some(2), None, Some(3)]).into_array();
+            PrimitiveArray::from_iter([Some(1i32), Some(2), None, Some(3)]).into_array();
         let patch_values = StructArray::try_new_with_dtype(
             vec![patch_values_a, patch_values_b],
             struct_fields.clone(),
@@ -660,7 +660,7 @@ mod test {
         let len = 10;
         let sparse_struct = SparseArray::try_new(indices, patch_values, len, fill_scalar).unwrap();
 
-        let expected_a = PrimitiveArray::from_option_iter((0..len).map(|i| {
+        let expected_a = PrimitiveArray::from_iter((0..len).map(|i| {
             if i == 0 {
                 Some(10)
             } else if i == 1 {
@@ -671,7 +671,7 @@ mod test {
                 Some(-10)
             }
         }));
-        let expected_b = PrimitiveArray::from_option_iter((0..len).map(|i| {
+        let expected_b = PrimitiveArray::from_iter((0..len).map(|i| {
             if i == 0 {
                 Some(1i32)
             } else if i == 1 {

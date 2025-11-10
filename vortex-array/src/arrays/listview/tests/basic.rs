@@ -234,7 +234,7 @@ fn test_validation_errors(
 fn test_validate_nullable_offsets() {
     // Logical lists (invalid due to nullable offsets): [[1,2], [3], ???]
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
-    let offsets = PrimitiveArray::from_option_iter(vec![Some(0u32), Some(2), None]).into_array();
+    let offsets = PrimitiveArray::from_iter(vec![Some(0u32), Some(2), None]).into_array();
     let sizes = buffer![2u32, 1, 2].into_array();
 
     let result = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable);
@@ -253,7 +253,7 @@ fn test_validate_nullable_sizes() {
     // Logical lists (invalid due to nullable sizes): [[1,2], ???, [2,3]]
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     let offsets = buffer![0u32, 2, 1].into_array();
-    let sizes = PrimitiveArray::from_option_iter(vec![Some(2u32), None, Some(2)]).into_array();
+    let sizes = PrimitiveArray::from_iter(vec![Some(2u32), None, Some(2)]).into_array();
 
     let result = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable);
 

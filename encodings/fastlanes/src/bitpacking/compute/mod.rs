@@ -66,8 +66,8 @@ mod tests {
     #[case::u16_array(bitpack_encode(&PrimitiveArray::from_iter([10u16, 20, 30, 40, 50]), 6, None).unwrap())]
     #[case::u32_array(bitpack_encode(&PrimitiveArray::from_iter([100u32, 200, 300, 400, 500]), 9, None).unwrap())]
     // Arrays with nulls
-    #[case::nullable_u8(bitpack_encode(&PrimitiveArray::from_option_iter([Some(1u8), None, Some(3), Some(4), None]), 3, None).unwrap())]
-    #[case::nullable_u32(bitpack_encode(&PrimitiveArray::from_option_iter([Some(100u32), None, Some(300), Some(400), None]), 9, None).unwrap())]
+    #[case::nullable_u8(bitpack_encode(&PrimitiveArray::from_iter([Some(1u8), None, Some(3), Some(4), None]), 3, None).unwrap())]
+    #[case::nullable_u32(bitpack_encode(&PrimitiveArray::from_iter([Some(100u32), None, Some(300), Some(400), None]), 9, None).unwrap())]
     // Edge cases
     #[case::single_element(bitpack_encode(&PrimitiveArray::from_iter([42u32]), 6, None).unwrap())]
     #[case::all_zeros(bitpack_encode(&PrimitiveArray::from_iter([0u16; 100]), 1, None).unwrap())]
@@ -75,7 +75,7 @@ mod tests {
     #[case::large_u16(bitpack_encode(&PrimitiveArray::from_iter((0..2048).map(|i| (i % 256) as u16)), 8, None).unwrap())]
     #[case::large_u32(bitpack_encode(&PrimitiveArray::from_iter((0..3000).map(|i| (i % 1024) as u32)), 10, None).unwrap())]
     #[case::large_u8_many_chunks(bitpack_encode(&PrimitiveArray::from_iter((0..5120).map(|i| (i % 128) as u8)), 7, None).unwrap())] // 5 chunks
-    #[case::large_nullable(bitpack_encode(&PrimitiveArray::from_option_iter((0..2500).map(|i| if i % 10 == 0 { None } else { Some((i % 512) as u16) })), 9, None).unwrap())]
+    #[case::large_nullable(bitpack_encode(&PrimitiveArray::from_iter((0..2500).map(|i| if i % 10 == 0 { None } else { Some((i % 512) as u16) })), 9, None).unwrap())]
     // Arrays with specific bit patterns
     #[case::max_value_for_bits(bitpack_encode(&PrimitiveArray::from_iter([7u8, 7, 7, 7, 7]), 3, None).unwrap())] // max value for 3 bits
     #[case::alternating_bits(bitpack_encode(&PrimitiveArray::from_iter([0u16, 255, 0, 255, 0, 255]), 8, None).unwrap())]

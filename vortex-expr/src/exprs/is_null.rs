@@ -129,8 +129,7 @@ mod tests {
     #[test]
     fn evaluate_mask() {
         let test_array =
-            PrimitiveArray::from_option_iter(vec![Some(1), None, Some(2), None, Some(3)])
-                .into_array();
+            PrimitiveArray::from_iter(vec![Some(1), None, Some(2), None, Some(3)]).into_array();
         let expected = [false, true, false, true, false];
 
         let result = is_null(root()).evaluate(&test_array.clone()).unwrap();
@@ -162,8 +161,7 @@ mod tests {
     #[test]
     fn evaluate_all_true() {
         let test_array =
-            PrimitiveArray::from_option_iter(vec![None::<i32>, None, None, None, None])
-                .into_array();
+            PrimitiveArray::from_iter(vec![None::<i32>, None, None, None, None]).into_array();
 
         let result = is_null(root()).evaluate(&test_array.clone()).unwrap();
 
@@ -178,8 +176,7 @@ mod tests {
     fn evaluate_struct() {
         let test_array = StructArray::from_fields(&[(
             "a",
-            PrimitiveArray::from_option_iter(vec![Some(1), None, Some(2), None, Some(3)])
-                .into_array(),
+            PrimitiveArray::from_iter(vec![Some(1), None, Some(2), None, Some(3)]).into_array(),
         )])
         .unwrap()
         .into_array();

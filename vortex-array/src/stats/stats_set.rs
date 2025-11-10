@@ -824,7 +824,7 @@ mod test {
     #[test]
     fn merge_unordered() {
         let array =
-            PrimitiveArray::from_option_iter([Some(1), None, Some(2), Some(42), Some(10000), None]);
+            PrimitiveArray::from_iter([Some(1), None, Some(2), Some(42), Some(10000), None]);
         let all_stats = all::<Stat>()
             .filter(|s| !matches!(s, Stat::Sum))
             .filter(|s| !matches!(s, Stat::NaNCount))

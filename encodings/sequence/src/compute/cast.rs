@@ -149,7 +149,7 @@ mod tests {
         let decoded = casted.to_primitive();
         assert_arrays_eq!(
             decoded,
-            PrimitiveArray::from_option_iter([Some(5i32), Some(8), Some(11)])
+            PrimitiveArray::from_iter([Some(5i32), Some(8), Some(11)])
         );
     }
 

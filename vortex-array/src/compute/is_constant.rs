@@ -310,7 +310,7 @@ mod tests {
             .unwrap();
         assert!(arr.is_constant());
 
-        let arr = PrimitiveArray::from_option_iter([Some(0), Some(0)]);
+        let arr = PrimitiveArray::from_iter([Some(0), Some(0)]);
         assert!(arr.is_constant());
     }
 
@@ -322,8 +322,7 @@ mod tests {
             .unwrap();
         assert!(!arr.is_constant());
 
-        let arr =
-            PrimitiveArray::from_option_iter([Some(f32::NEG_INFINITY), Some(f32::NEG_INFINITY)]);
+        let arr = PrimitiveArray::from_iter([Some(f32::NEG_INFINITY), Some(f32::NEG_INFINITY)]);
         arr.statistics()
             .compute_all(&[Stat::Min, Stat::Max])
             .unwrap();

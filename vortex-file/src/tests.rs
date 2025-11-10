@@ -431,7 +431,7 @@ async fn filter_string() {
     )
     .into_array();
     let ages_orig =
-        PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]).into_array();
+        PrimitiveArray::from_iter([Some(25), Some(31), None, Some(57), None]).into_array();
     let st = StructArray::try_new(
         ["name", "age"].into(),
         vec![names_orig, ages_orig],
@@ -468,7 +468,7 @@ async fn filter_string() {
     assert_arrays_eq!(names_actual.as_ref(), names_expected.as_ref());
 
     let ages_actual = result[0].to_struct().fields()[1].clone();
-    let ages_expected = PrimitiveArray::from_option_iter([Some(25i32)]).into_array();
+    let ages_expected = PrimitiveArray::from_iter([Some(25i32)]).into_array();
     assert_arrays_eq!(ages_actual.as_ref(), ages_expected.as_ref());
 }
 
@@ -479,7 +479,7 @@ async fn filter_or() {
         vec![Some("Joseph"), None, Some("Angela"), Some("Mikhail"), None],
         DType::Utf8(Nullability::Nullable),
     );
-    let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
+    let ages = PrimitiveArray::from_iter([Some(25), Some(31), None, Some(57), None]);
     let st = StructArray::try_new(
         ["name", "age"].into(),
         vec![names.into_array(), ages.into_array()],
@@ -543,7 +543,7 @@ async fn filter_and() {
         vec![Some("Joseph"), None, Some("Angela"), Some("Mikhail"), None],
         DType::Utf8(Nullability::Nullable),
     );
-    let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
+    let ages = PrimitiveArray::from_iter([Some(25), Some(31), None, Some(57), None]);
     let st = StructArray::try_new(
         ["name", "age"].into(),
         vec![names.into_array(), ages.into_array()],
@@ -586,7 +586,7 @@ async fn filter_and() {
     assert_arrays_eq!(names_actual.as_ref(), names_expected.as_ref());
 
     let ages_actual = result[0].to_struct().fields()[1].clone();
-    let ages_expected = PrimitiveArray::from_option_iter([Some(25i32), Some(31i32)]).into_array();
+    let ages_expected = PrimitiveArray::from_iter([Some(25i32), Some(31i32)]).into_array();
     assert_arrays_eq!(ages_actual.as_ref(), ages_expected.as_ref());
 }
 
@@ -822,7 +822,7 @@ async fn filter_string_chunked() {
     let name_chunk1 =
         VarBinViewArray::from_iter_nullable_str([Some("Joseph"), Some("James"), Some("Angela")])
             .into_array();
-    let age_chunk1 = PrimitiveArray::from_option_iter([Some(25_i32), Some(31), None]).into_array();
+    let age_chunk1 = PrimitiveArray::from_iter([Some(25_i32), Some(31), None]).into_array();
     let name_chunk2 = VarBinViewArray::from_iter_nullable_str([
         Some("Pharrell".to_owned()),
         Some("Khalil".to_owned()),
@@ -831,7 +831,7 @@ async fn filter_string_chunked() {
     ])
     .into_array();
     let age_chunk2 =
-        PrimitiveArray::from_option_iter([Some(57_i32), Some(18), None, Some(32)]).into_array();
+        PrimitiveArray::from_iter([Some(57_i32), Some(18), None, Some(32)]).into_array();
 
     let chunk1 = StructArray::from_fields(&[("name", name_chunk1), ("age", age_chunk1)])
         .unwrap()
@@ -873,7 +873,7 @@ async fn filter_string_chunked() {
     assert_arrays_eq!(names_actual.as_ref(), names_expected.as_ref());
 
     let ages_actual = actual_array.fields()[1].clone();
-    let ages_expected = PrimitiveArray::from_option_iter([Some(25i32)]).into_array();
+    let ages_expected = PrimitiveArray::from_iter([Some(25i32)]).into_array();
     assert_arrays_eq!(ages_actual.as_ref(), ages_expected.as_ref());
 }
 
@@ -886,8 +886,7 @@ async fn test_pruning_with_or() {
         Some("D".to_owned()),
     ])
     .into_array();
-    let number_chunk1 =
-        PrimitiveArray::from_option_iter([Some(25_i32), Some(31), None]).into_array();
+    let number_chunk1 = PrimitiveArray::from_iter([Some(25_i32), Some(31), None]).into_array();
     let letter_chunk2 = VarBinViewArray::from_iter_nullable_str([
         Some("G".to_owned()),
         Some("I".to_owned()),
@@ -896,7 +895,7 @@ async fn test_pruning_with_or() {
     ])
     .into_array();
     let number_chunk2 =
-        PrimitiveArray::from_option_iter([Some(4_i32), Some(18), None, Some(21)]).into_array();
+        PrimitiveArray::from_iter([Some(4_i32), Some(18), None, Some(21)]).into_array();
     let letter_chunk3 = VarBinViewArray::from_iter_nullable_str([
         Some("L".to_owned()),
         None,
@@ -905,15 +904,14 @@ async fn test_pruning_with_or() {
     ])
     .into_array();
     let number_chunk3 =
-        PrimitiveArray::from_option_iter([Some(10_i32), Some(15), None, Some(22)]).into_array();
+        PrimitiveArray::from_iter([Some(10_i32), Some(15), None, Some(22)]).into_array();
     let letter_chunk4 = VarBinViewArray::from_iter_nullable_str([
         Some("X".to_owned()),
         Some("Y".to_owned()),
         Some("Z".to_owned()),
     ])
     .into_array();
-    let number_chunk4 =
-        PrimitiveArray::from_option_iter([Some(66_i32), Some(77), Some(88)]).into_array();
+    let number_chunk4 = PrimitiveArray::from_iter([Some(66_i32), Some(77), Some(88)]).into_array();
 
     let chunk1 = StructArray::from_fields(&[("letter", letter_chunk1), ("number", number_chunk1)])
         .unwrap()
@@ -974,7 +972,7 @@ async fn test_pruning_with_or() {
     assert_arrays_eq!(letters_actual.as_ref(), letters_expected.as_ref());
 
     let numbers_actual = actual_array.fields()[1].clone();
-    let numbers_expected = PrimitiveArray::from_option_iter([
+    let numbers_expected = PrimitiveArray::from_iter([
         Some(25_i32),
         Some(31),
         None,
@@ -1117,7 +1115,7 @@ async fn file_take() -> VortexResult<()> {
     expected = "FileStatsAccumulator temporarily does not support nullable top-level structs"
 )]
 async fn write_nullable_top_level_struct() {
-    let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
+    let ages = PrimitiveArray::from_iter([Some(25), Some(31), None, Some(57), None]);
 
     let array = StructArray::try_new(
         ["age"].into(),

@@ -53,7 +53,7 @@ mod test {
         test_filter_conformance(array.as_ref());
 
         // Test with nullable values
-        let timestamps = PrimitiveArray::from_option_iter([
+        let timestamps = PrimitiveArray::from_iter([
             Some(0i64),
             None,
             Some(172_800_000), // 2 days in ms

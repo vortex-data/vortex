@@ -43,7 +43,7 @@ mod tests {
     )).unwrap())]
     // Nullable arrays
     #[case::datetime_nullable_seconds(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
-        PrimitiveArray::from_option_iter([Some(0i64), None, Some(86400), Some(172800), None]).into_array(),
+        PrimitiveArray::from_iter([Some(0i64), None, Some(86400), Some(172800), None]).into_array(),
         TimeUnit::Seconds,
         Some("UTC".to_string()),
     )).unwrap())]

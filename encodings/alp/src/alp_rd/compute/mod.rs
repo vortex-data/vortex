@@ -33,13 +33,13 @@ mod tests {
     // Nullable arrays
     #[case::nullable_f32({
         let values = vec![1.0f32, 1.2, 1.3];
-        let arr = PrimitiveArray::from_option_iter([Some(1.0f32), None, Some(1.2), Some(1.3), None]);
+        let arr = PrimitiveArray::from_iter([Some(1.0f32), None, Some(1.2), Some(1.3), None]);
         let encoder = RDEncoder::new(&values);
         encoder.encode(&arr)
     })]
     #[case::nullable_f64({
         let values = vec![10.0f64, 10.2, 10.3];
-        let arr = PrimitiveArray::from_option_iter([Some(10.0f64), None, Some(10.2), Some(10.3), None]);
+        let arr = PrimitiveArray::from_iter([Some(10.0f64), None, Some(10.2), Some(10.3), None]);
         let encoder = RDEncoder::new(&values);
         encoder.encode(&arr)
     })]

@@ -101,7 +101,7 @@ mod tests {
 
         let taken = take(
             arr.as_ref(),
-            PrimitiveArray::from_option_iter(vec![Some(1), None]).as_ref(),
+            PrimitiveArray::from_iter(vec![Some(1), None]).as_ref(),
         )
         .unwrap();
 

@@ -251,7 +251,7 @@ mod tests {
 
     #[test]
     fn test_fill_null_primitive() {
-        let array = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None, Some(5)]);
+        let array = PrimitiveArray::from_iter([Some(1i32), None, Some(3), None, Some(5)]);
         let fill_value = Scalar::from(42i32);
 
         let result = fill_null_canonical_array(array.to_canonical(), &fill_value).unwrap();
@@ -289,7 +289,7 @@ mod tests {
 
     #[test]
     fn test_fill_null_all_invalid() {
-        let array = PrimitiveArray::from_option_iter([None::<i32>, None, None]);
+        let array = PrimitiveArray::from_iter([None::<i32>, None, None]);
         let fill_value = Scalar::from(100i32);
 
         let result = fill_null_canonical_array(array.to_canonical(), &fill_value).unwrap();
@@ -312,7 +312,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_fill_null_with_null_value_errors() {
-        let array = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]);
+        let array = PrimitiveArray::from_iter([Some(1i32), None, Some(3)]);
         let fill_value = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
 
         let result = fill_null_canonical_array(array.to_canonical(), &fill_value);

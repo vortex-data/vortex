@@ -95,8 +95,7 @@ fn test_nullable_elements() {
     // Test with nullable elements inside the lists.
     // Logical lists: [[Some(1), None], [Some(3), None], [Some(5), Some(6)]]
     let elements =
-        PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None, Some(5), Some(6)])
-            .into_array();
+        PrimitiveArray::from_iter([Some(1i32), None, Some(3), None, Some(5), Some(6)]).into_array();
     let offsets = buffer![0i32, 2, 4].into_array();
     let sizes = buffer![2i32, 2, 2].into_array();
 

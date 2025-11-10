@@ -95,7 +95,7 @@ mod test {
             BoolArray::from_iter([Some(false), None, Some(false)]).bit_buffer()
         );
 
-        let all_invalid_indices = PrimitiveArray::from_option_iter([None::<u32>, None, None]);
+        let all_invalid_indices = PrimitiveArray::from_iter([None::<u32>, None, None]);
         let b = take(reference.as_ref(), all_invalid_indices.as_ref()).unwrap();
         assert_arrays_eq!(b, BoolArray::from_iter([None, None, None]));
     }

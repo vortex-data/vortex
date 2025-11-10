@@ -130,7 +130,7 @@ mod tests {
         ));
 
         let storage = if nullable {
-            PrimitiveArray::from_option_iter([
+            PrimitiveArray::from_iter([
                 Some(1_000_000i64), // 1 second in microseconds
                 None,
                 Some(2_000_000),

@@ -101,7 +101,7 @@ fn test_take_degenerate_lists(
     test_take_conformance(fsl.as_ref());
 
     // Also test the specific behavior.
-    let indices_array = PrimitiveArray::from_option_iter(indices);
+    let indices_array = PrimitiveArray::from_iter(indices);
     let result = take(fsl.as_ref(), indices_array.as_ref()).unwrap();
     let result_fsl = result.as_::<FixedSizeListVTable>();
 
@@ -149,7 +149,7 @@ fn test_take_fsl_with_null_indices_preserves_elements() {
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
 
     // Create indices with nulls: [1, null, 0].
-    let indices = PrimitiveArray::from_option_iter([Some(1u32), None, Some(0)]);
+    let indices = PrimitiveArray::from_iter([Some(1u32), None, Some(0)]);
     let result = take(fsl.as_ref(), indices.as_ref()).unwrap();
     let result_fsl = result.as_::<FixedSizeListVTable>();
 
@@ -225,7 +225,7 @@ fn test_take_nullable_arrays_fsl_specific(
     let fsl = builder.finish();
 
     // Create indices (with possible nulls).
-    let indices_array = PrimitiveArray::from_option_iter(indices.clone());
+    let indices_array = PrimitiveArray::from_iter(indices.clone());
     let result = take(fsl.as_ref(), indices_array.as_ref()).unwrap();
     let result_fsl = result.as_::<FixedSizeListVTable>();
 

@@ -448,21 +448,13 @@ mod tests {
         let decoded = pco.to_primitive();
         assert_arrays_eq!(
             decoded,
-            PrimitiveArray::from_option_iter([
-                None,
-                Some(20u32),
-                Some(30),
-                Some(40),
-                Some(50),
-                None
-            ])
+            PrimitiveArray::from_iter([None, Some(20u32), Some(30), Some(40), Some(50), None])
         );
 
         // Slice to get only the non-null values in the middle
         let sliced = pco.slice(1..5);
         let expected =
-            PrimitiveArray::from_option_iter([Some(20u32), Some(30), Some(40), Some(50)])
-                .into_array();
+            PrimitiveArray::from_iter([Some(20u32), Some(30), Some(40), Some(50)]).into_array();
         assert_arrays_eq!(sliced, expected);
         assert_arrays_eq!(sliced.to_canonical().into_array(), expected);
     }

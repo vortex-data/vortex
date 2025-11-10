@@ -70,7 +70,7 @@ mod tests {
     fn test_cast_sparse_with_null_fill() {
         let sparse = SparseArray::try_new(
             buffer![1u64, 3, 5].into_array(),
-            PrimitiveArray::from_option_iter([Some(42i32), Some(84), Some(126)]).into_array(),
+            PrimitiveArray::from_iter([Some(42i32), Some(84), Some(126)]).into_array(),
             8,
             Scalar::null_typed::<i32>(),
         )
@@ -102,7 +102,7 @@ mod tests {
     ).unwrap())]
     #[case(SparseArray::try_new(
         buffer![1u64, 3, 7].into_array(),
-        PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),
+        PrimitiveArray::from_iter([Some(100i32), None, Some(300)]).into_array(),
         10,
         Scalar::null_typed::<i32>()
     ).unwrap())]

@@ -77,7 +77,7 @@ fn test_simple_list_array_from_iter() {
 
 #[test]
 fn test_simple_list_filter() {
-    let elements = PrimitiveArray::from_option_iter([None, Some(2), Some(3), Some(4), Some(5)]);
+    let elements = PrimitiveArray::from_iter([None, Some(2), Some(3), Some(4), Some(5)]);
     let offsets = buffer![0, 2, 4, 5].into_array();
     let validity = Validity::AllValid;
 
@@ -452,7 +452,7 @@ fn create_list_of_lists_nullable(data: OptVec<OptVec<OptVec<i32>>>) -> ListArray
 
     // Create the innermost i32 elements array.
     let i32_elements = if has_null_elements {
-        PrimitiveArray::from_option_iter(
+        PrimitiveArray::from_iter(
             all_elements
                 .iter()
                 .zip(&element_validity)
@@ -816,7 +816,7 @@ fn test_validity_length_mismatch() {
 #[should_panic(expected = "offsets have invalid type")]
 fn test_nullable_offsets() {
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
-    let offsets = PrimitiveArray::from_option_iter([Some(0u32), Some(2), None, Some(5)]);
+    let offsets = PrimitiveArray::from_iter([Some(0u32), Some(2), None, Some(5)]);
     let validity = Validity::AllValid;
 
     ListArray::try_new(elements, offsets.into_array(), validity).unwrap();

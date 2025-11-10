@@ -102,7 +102,7 @@ mod tests {
 
         // Nulls in list element array
         let list = ListArray::try_new(
-            PrimitiveArray::from_option_iter([Some(0i32), Some(2), None, None]).to_array(),
+            PrimitiveArray::from_iter([Some(0i32), Some(2), None, None]).to_array(),
             buffer![0, 2, 3].into_array().to_array(),
             Validity::NonNullable,
         )
@@ -135,15 +135,9 @@ mod tests {
     }
 
     fn create_nullable_list() -> ListArray {
-        let data = PrimitiveArray::from_option_iter([
-            Some(10i64),
-            None,
-            Some(20),
-            Some(30),
-            None,
-            Some(40),
-        ])
-        .into_array();
+        let data =
+            PrimitiveArray::from_iter([Some(10i64), None, Some(20), Some(30), None, Some(40)])
+                .into_array();
         let offsets = buffer![0i64, 3, 6].into_array();
         let validity = Validity::Array(BoolArray::from_iter(vec![true, false]).into_array());
 

@@ -44,8 +44,8 @@ mod test {
             Arc::new(DType::Primitive(PType::U64, Nullability::Nullable)),
             None,
         );
-        let storage = PrimitiveArray::from_option_iter([Some(1u64), None, Some(3), Some(4), None])
-            .into_array();
+        let storage =
+            PrimitiveArray::from_iter([Some(1u64), None, Some(3), Some(4), None]).into_array();
         let array = ExtensionArray::new(Arc::new(ext_dtype_nullable), storage);
         test_filter_conformance(array.as_ref());
     }
@@ -63,7 +63,7 @@ mod test {
     })]
     #[case({
         // Nullable extension type
-        let storage = PrimitiveArray::from_option_iter([Some(1u64), None, Some(3), Some(4), None])
+        let storage = PrimitiveArray::from_iter([Some(1u64), None, Some(3), Some(4), None])
             .into_array();
         let ext_dtype_nullable = ExtDType::new(
             ExtID::new("uuid".into()),
@@ -122,7 +122,7 @@ mod tests {
         ExtensionArray::new(Arc::new(ext_dtype), storage)
     })]
     #[case::extension_nullable({
-        let storage = PrimitiveArray::from_option_iter([Some(1u64), None, Some(3), Some(4), None])
+        let storage = PrimitiveArray::from_iter([Some(1u64), None, Some(3), Some(4), None])
             .into_array();
         let ext_dtype = ExtDType::new(
             ExtID::new("test_ext".into()),

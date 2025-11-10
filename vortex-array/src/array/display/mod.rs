@@ -395,13 +395,9 @@ mod test {
     fn test_table_display() {
         use crate::display::DisplayOptions;
 
-        let array = crate::arrays::PrimitiveArray::from_option_iter(vec![
-            Some(-1),
-            Some(-2),
-            Some(-3),
-            None,
-        ])
-        .into_array();
+        let array =
+            crate::arrays::PrimitiveArray::from_iter(vec![Some(-1), Some(-2), Some(-3), None])
+                .into_array();
 
         let struct_ = StructArray::try_from_iter_with_validity(
             [("x", buffer![1, 2, 3, 4].into_array()), ("y", array)],

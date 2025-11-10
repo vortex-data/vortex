@@ -31,11 +31,11 @@ mod tests {
     ).unwrap())]
     // Nullable arrays
     #[case::decimal_nullable_i32(DecimalBytePartsArray::try_new(
-        PrimitiveArray::from_option_iter([Some(100i32), None, Some(300), Some(400), None]).into_array(),
+        PrimitiveArray::from_iter([Some(100i32), None, Some(300), Some(400), None]).into_array(),
         DecimalDType::new(10, 2)
     ).unwrap())]
     #[case::decimal_nullable_i64(DecimalBytePartsArray::try_new(
-        PrimitiveArray::from_option_iter([Some(1000i64), None, Some(3000), Some(4000), None]).into_array(),
+        PrimitiveArray::from_iter([Some(1000i64), None, Some(3000), Some(4000), None]).into_array(),
         DecimalDType::new(19, 4)
     ).unwrap())]
     // Different precision/scale combinations

@@ -66,8 +66,7 @@ mod tests {
 
     #[test]
     fn test_cast_dict_nullable() {
-        let values =
-            PrimitiveArray::from_option_iter([Some(10i32), None, Some(20), Some(10), None]);
+        let values = PrimitiveArray::from_iter([Some(10i32), None, Some(20), Some(10), None]);
         let dict = dict_encode(values.as_ref()).unwrap();
 
         let casted = cast(
@@ -169,7 +168,7 @@ mod tests {
     #[rstest]
     #[case(dict_encode(&buffer![1i32, 2, 3, 2, 1, 3].into_array()).unwrap().into_array())]
     #[case(dict_encode(&buffer![100u32, 200, 100, 300, 200].into_array()).unwrap().into_array())]
-    #[case(dict_encode(&PrimitiveArray::from_option_iter([Some(1i32), None, Some(2), Some(1), None]).into_array()).unwrap().into_array())]
+    #[case(dict_encode(&PrimitiveArray::from_iter([Some(1i32), None, Some(2), Some(1), None]).into_array()).unwrap().into_array())]
     #[case(dict_encode(&buffer![1.5f32, 2.5, 1.5, 3.5].into_array()).unwrap().into_array())]
     fn test_cast_dict_conformance(#[case] array: vortex_array::ArrayRef) {
         test_cast_conformance(array.as_ref());

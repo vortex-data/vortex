@@ -99,14 +99,14 @@ mod test {
 
         let taken = take(
             encoded.as_ref(),
-            PrimitiveArray::from_option_iter([Some(0), Some(2), None]).as_ref(),
+            PrimitiveArray::from_iter([Some(0), Some(2), None]).as_ref(),
         )
         .unwrap()
         .to_primitive();
 
         assert_arrays_eq!(
             taken,
-            PrimitiveArray::from_option_iter([Some(a), Some(outlier), None])
+            PrimitiveArray::from_iter([Some(a), Some(outlier), None])
         );
     }
 
@@ -127,7 +127,7 @@ mod test {
     fn test_take_with_nulls_conformance<T: ALPRDFloat>(#[case] a: T, #[case] outlier: T) {
         test_take_conformance(
             &RDEncoder::new(&[a])
-                .encode(&PrimitiveArray::from_option_iter([
+                .encode(&PrimitiveArray::from_iter([
                     Some(a),
                     None,
                     Some(outlier),

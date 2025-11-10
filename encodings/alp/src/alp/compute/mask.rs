@@ -43,7 +43,7 @@ mod test {
     #[rstest]
     #[case(buffer![10.5f32, 20.5, 30.5, 40.5, 50.5].into_array())]
     #[case(buffer![1000.123f64, 2000.456, 3000.789, 4000.012, 5000.345].into_array())]
-    #[case(PrimitiveArray::from_option_iter([Some(1.1f32), None, Some(2.2), Some(3.3), None]).into_array())]
+    #[case(PrimitiveArray::from_iter([Some(1.1f32), None, Some(2.2), Some(3.3), None]).into_array())]
     #[case(buffer![99.99f64].into_array())]
     #[case(buffer![
         0.1f32, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0,

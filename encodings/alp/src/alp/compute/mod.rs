@@ -24,8 +24,8 @@ mod tests {
     #[case::f32_array(alp_encode(&PrimitiveArray::from_iter([1.23f32, 4.56, 7.89, 10.11, 12.13]), None).unwrap())]
     #[case::f64_array(alp_encode(&PrimitiveArray::from_iter([100.1f64, 200.2, 300.3, 400.4, 500.5]), None).unwrap())]
     // Nullable arrays
-    #[case::nullable_f32(alp_encode(&PrimitiveArray::from_option_iter([Some(1.1f32), None, Some(2.2), Some(3.3), None]), None).unwrap())]
-    #[case::nullable_f64(alp_encode(&PrimitiveArray::from_option_iter([Some(1.1f64), None, Some(2.2), Some(3.3), None]), None).unwrap())]
+    #[case::nullable_f32(alp_encode(&PrimitiveArray::from_iter([Some(1.1f32), None, Some(2.2), Some(3.3), None]), None).unwrap())]
+    #[case::nullable_f64(alp_encode(&PrimitiveArray::from_iter([Some(1.1f64), None, Some(2.2), Some(3.3), None]), None).unwrap())]
     // Edge cases
     #[case::single_element(alp_encode(&PrimitiveArray::from_iter([42.42f64]), None).unwrap())]
     // Large arrays

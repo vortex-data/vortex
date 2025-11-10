@@ -78,7 +78,7 @@ mod test {
         let sparse = sparse_array();
         let sparse = sparse.slice(30..40);
         let taken = take(&sparse, &buffer![6, 7, 8].into_array()).unwrap();
-        let expected = PrimitiveArray::from_option_iter([Option::<f64>::None, Some(0.47), None]);
+        let expected = PrimitiveArray::from_iter([Option::<f64>::None, Some(0.47), None]);
         assert_arrays_eq!(taken, expected.to_array());
     }
 
@@ -86,7 +86,7 @@ mod test {
     fn sparse_take() {
         let sparse = sparse_array();
         let taken = take(&sparse, &buffer![0, 47, 47, 0, 99].into_array()).unwrap();
-        let expected = PrimitiveArray::from_option_iter([
+        let expected = PrimitiveArray::from_iter([
             Some(1.23f64),
             Some(9.99),
             Some(9.99),
@@ -133,12 +133,11 @@ mod test {
 
         let taken = take(
             arr.as_ref(),
-            PrimitiveArray::from_option_iter([Some(2u32), Some(1u32), Option::<u32>::None])
-                .as_ref(),
+            PrimitiveArray::from_iter([Some(2u32), Some(1u32), Option::<u32>::None]).as_ref(),
         )
         .unwrap();
 
-        let expected = PrimitiveArray::from_option_iter([Some(1), Some(10), Option::<i32>::None]);
+        let expected = PrimitiveArray::from_iter([Some(1), Some(10), Option::<i32>::None]);
         assert_arrays_eq!(taken, expected.to_array());
     }
 
@@ -154,12 +153,11 @@ mod test {
 
         let taken = take(
             arr.as_ref(),
-            PrimitiveArray::from_option_iter([Some(2u32), Some(1u32), Option::<u32>::None])
-                .as_ref(),
+            PrimitiveArray::from_iter([Some(2u32), Some(1u32), Option::<u32>::None]).as_ref(),
         )
         .unwrap();
 
-        let expected = PrimitiveArray::from_option_iter([Some(1), Some(10), Option::<i32>::None]);
+        let expected = PrimitiveArray::from_iter([Some(1), Some(10), Option::<i32>::None]);
         assert_arrays_eq!(taken, expected.to_array());
     }
 
@@ -177,7 +175,7 @@ mod test {
         Scalar::from(0i32),
     ).unwrap())]
     #[case({
-        let nullable_values = PrimitiveArray::from_option_iter([Some(100i64), None, Some(300)]);
+        let nullable_values = PrimitiveArray::from_iter([Some(100i64), None, Some(300)]);
         SparseArray::try_new(
             buffer![2u64, 4, 6].into_array(),
             nullable_values.into_array(),

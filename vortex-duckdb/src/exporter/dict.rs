@@ -169,7 +169,7 @@ mod tests {
     #[test]
     fn test_constant_dict() {
         let arr = DictArray::new(
-            PrimitiveArray::from_option_iter([None, Some(0u32)]).into_array(),
+            PrimitiveArray::from_iter([None, Some(0u32)]).into_array(),
             ConstantArray::new(10, 1).into_array(),
         );
 
@@ -192,8 +192,8 @@ mod tests {
     #[test]
     fn test_nullable_dict() {
         let arr = DictArray::new(
-            PrimitiveArray::from_option_iter([None, Some(0u32), Some(1)]).into_array(),
-            PrimitiveArray::from_option_iter([Some(10), None]).into_array(),
+            PrimitiveArray::from_iter([None, Some(0u32), Some(1)]).into_array(),
+            PrimitiveArray::from_iter([Some(10), None]).into_array(),
         );
 
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);

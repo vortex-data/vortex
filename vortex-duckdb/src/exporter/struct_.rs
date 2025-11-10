@@ -97,7 +97,7 @@ mod tests {
 
     #[test]
     fn test_struct_exporter_with_nulls() {
-        let prim = PrimitiveArray::from_option_iter([
+        let prim = PrimitiveArray::from_iter([
             Some(1),
             None,
             Some(2),

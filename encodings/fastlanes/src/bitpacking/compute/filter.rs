@@ -239,7 +239,7 @@ mod test {
         test_filter_conformance(bitpacked.as_ref());
 
         // Test with nullable values
-        let unpacked = PrimitiveArray::from_option_iter([Some(1u16), None, Some(3), Some(4), None]);
+        let unpacked = PrimitiveArray::from_iter([Some(1u16), None, Some(3), Some(4), None]);
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 3).unwrap();
         test_filter_conformance(bitpacked.as_ref());
     }

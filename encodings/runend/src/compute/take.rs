@@ -126,11 +126,11 @@ mod test {
     fn ree_take_nullable() {
         let taken = take(
             ree_array().as_ref(),
-            PrimitiveArray::from_option_iter([Some(1), None]).as_ref(),
+            PrimitiveArray::from_iter([Some(1), None]).as_ref(),
         )
         .unwrap();
 
-        let expected = PrimitiveArray::from_option_iter([Some(1i32), None]);
+        let expected = PrimitiveArray::from_iter([Some(1i32), None]);
         assert_arrays_eq!(taken, expected.to_array());
     }
 
@@ -140,7 +140,7 @@ mod test {
         buffer![1u8, 1, 2, 2, 2, 3, 3, 3, 3, 4].into_array(),
     ).unwrap())]
     #[case(RunEndArray::encode(
-        PrimitiveArray::from_option_iter([
+        PrimitiveArray::from_iter([
             Some(10),
             Some(10),
             None,

@@ -1305,7 +1305,7 @@ mod test {
             10,
             0,
             buffer![2u64, 5, 8].into_array(),
-            PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),
+            PrimitiveArray::from_iter([Some(100i32), None, Some(300)]).into_array(),
             None,
         );
 

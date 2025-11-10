@@ -170,7 +170,7 @@ mod tests {
 
     #[test]
     fn test_mask_primitive_array_with_nulls() {
-        let array = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None]);
+        let array = PrimitiveArray::from_iter([Some(1i32), None, Some(3), Some(4), None]);
         let mask = Mask::from_iter([true, false, false, true, false]);
 
         let result = mask_canonical_array(array.to_canonical(), &mask).unwrap();

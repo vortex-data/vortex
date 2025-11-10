@@ -41,7 +41,7 @@ pub(crate) fn warm_up_vtable() -> usize {
 /// use vortex_scalar::Scalar;
 ///
 /// let array =
-///     PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)]);
+///     PrimitiveArray::from_iter([Some(0i32), None, Some(1i32), None, Some(2i32)]);
 /// let mask = Mask::from_iter([true, false, false, false, true]);
 ///
 /// let filtered = filter(array.as_ref(), &mask).unwrap();
@@ -252,9 +252,8 @@ mod test {
 
     #[test]
     fn test_filter() {
-        let items =
-            PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)])
-                .into_array();
+        let items = PrimitiveArray::from_iter([Some(0i32), None, Some(1i32), None, Some(2i32)])
+            .into_array();
         let mask = Mask::from_iter([true, false, true, false, true]);
 
         let filtered = filter(&items, &mask).unwrap();

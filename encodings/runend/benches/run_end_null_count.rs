@@ -63,7 +63,7 @@ fn fixture(n: usize, run_step: usize, valid_density: f64) -> RunEndArray {
         .collect::<Buffer<_>>()
         .into_array();
 
-    let values = PrimitiveArray::from_option_iter(
+    let values = PrimitiveArray::from_iter(
         (0..ends.len()).map(|x| rng.random_bool(valid_density).then_some(x as u64)),
     )
     .into_array();

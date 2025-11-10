@@ -281,8 +281,7 @@ mod tests {
             [
                 (
                     "a",
-                    PrimitiveArray::from_option_iter([Some(42i32), Some(84), Some(123)])
-                        .into_array(),
+                    PrimitiveArray::from_iter([Some(42i32), Some(84), Some(123)]).into_array(),
                 ),
                 (
                     "b",

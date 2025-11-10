@@ -237,8 +237,7 @@ mod tests {
             vec![
                 (
                     "a",
-                    arrays::PrimitiveArray::from_option_iter(vec![Some(1), None, Some(2)])
-                        .into_array(),
+                    arrays::PrimitiveArray::from_iter(vec![Some(1), None, Some(2)]).into_array(),
                 ),
                 (
                     "b",

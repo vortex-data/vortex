@@ -123,14 +123,8 @@ mod tests {
     #[test]
     fn test_struct_operator_null_handling() {
         // Create fields with nulls.
-        let int_field = PrimitiveArray::from_option_iter([
-            Some(100i32),
-            None,
-            Some(200),
-            Some(300),
-            None,
-            Some(400),
-        ]);
+        let int_field =
+            PrimitiveArray::from_iter([Some(100i32), None, Some(200), Some(300), None, Some(400)]);
 
         // Create bool field with its own validity.
         let bool_array = BoolArray::from_iter([true, false, true, false, true, false]);

@@ -311,7 +311,7 @@ mod test {
         let expected_ends = PrimitiveArray::from_iter(vec![2u8, 4, 5, 8, 10]);
         assert_arrays_eq!(ends, expected_ends);
         let expected_values =
-            PrimitiveArray::from_option_iter(vec![Some(1i32), None, Some(2), Some(3), None]);
+            PrimitiveArray::from_iter(vec![Some(1i32), None, Some(2), Some(3), None]);
         assert_arrays_eq!(values, expected_values);
     }
 
@@ -326,7 +326,7 @@ mod test {
 
         let expected_ends = PrimitiveArray::from_iter(vec![5u64]);
         assert_arrays_eq!(ends, expected_ends);
-        let expected_values = PrimitiveArray::from_option_iter(vec![Option::<i32>::None]);
+        let expected_values = PrimitiveArray::from_iter(vec![Option::<i32>::None]);
         assert_arrays_eq!(values, expected_values);
     }
 

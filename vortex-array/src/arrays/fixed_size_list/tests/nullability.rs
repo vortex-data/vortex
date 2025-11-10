@@ -74,7 +74,7 @@ fn test_nullable_elements_non_nullable_lists() {
 
     // Elements array has nulls but the FSL itself is non-nullable.
     let elements =
-        PrimitiveArray::from_option_iter(vec![Some(1i32), None, Some(3), Some(4), Some(5), None]);
+        PrimitiveArray::from_iter(vec![Some(1i32), None, Some(3), Some(4), Some(5), None]);
     let fsl = FixedSizeListArray::new(elements.into_array(), list_size, Validity::NonNullable, len);
 
     assert_eq!(fsl.len(), len);
@@ -118,7 +118,7 @@ fn test_nullable_elements_and_nullable_lists() {
 
     // Both elements and lists can be null.
     let elements =
-        PrimitiveArray::from_option_iter(vec![Some(10u16), None, Some(20), Some(30), None, None]);
+        PrimitiveArray::from_iter(vec![Some(10u16), None, Some(20), Some(30), None, None]);
     let validity = Validity::from_iter([true, false, true]);
     let fsl = FixedSizeListArray::new(elements.into_array(), list_size, validity, len);
 
@@ -234,7 +234,7 @@ fn test_mixed_nullability_patterns() {
     let list_size = 2;
 
     // Complex nullability pattern.
-    let elements = PrimitiveArray::from_option_iter(vec![
+    let elements = PrimitiveArray::from_iter(vec![
         Some(1i16), // List 0
         None,
         None, // List 1 (null list)

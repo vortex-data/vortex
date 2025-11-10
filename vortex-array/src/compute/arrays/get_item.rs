@@ -252,8 +252,7 @@ mod tests {
     fn test_get_item_intersects_validity() {
         // Test that field validity is intersected with struct validity
         // Field has nulls at indices 1, 3
-        let int_field =
-            PrimitiveArray::from_option_iter([Some(10i32), None, Some(30), None, Some(50)]);
+        let int_field = PrimitiveArray::from_iter([Some(10i32), None, Some(30), None, Some(50)]);
 
         // Struct has nulls at indices 2, 4
         let struct_array = StructArray::try_new(

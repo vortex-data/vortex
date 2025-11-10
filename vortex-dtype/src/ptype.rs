@@ -314,6 +314,91 @@ native_float_ptype!(f16, F16);
 native_float_ptype!(f32, F32);
 native_float_ptype!(f64, F64);
 
+/// Macro to create top-level declarations for each native PType.
+///
+/// This macro generates separate items/declarations for each PType, allowing you to define
+/// implementations that are specialized for each primitive type, rather than using a generic
+/// `impl<T: NativePType>`, this can be removed once rust has trait specialization.
+/// https://github.com/rust-lang/rust/issues/31844
+///
+/// # Arguments
+///
+/// **Mode 1: All types**
+/// * `all(T) => { ... }` - A block that will be expanded once for each native PType, with `T`
+///   being a type alias to the concrete type
+///
+/// **Mode 2: Integer and float types separately**
+/// * `integer(T) => { ... }` - A block that will be expanded for each integer PType (u8-u64, i8-i64)
+/// * `float(T) => { ... }` - A block that will be expanded for each float PType (f16, f32, f64)
+///
+/// # Use Cases
+///
+/// This macro is useful when you want to avoid generic code with trait bounds and instead
+/// create concrete implementations for each type. This can be beneficial for:
+/// - Avoiding generic trait bounds that might cause lifetime or coherence issues
+/// - Creating more specialized implementations per type
+/// - Working around limitations of Rust's type system
+///
+/// ```
+#[macro_export]
+macro_rules! declare_for_each_native_ptype {
+    // Mode 1: all (with optional additional float implementations)
+    (
+        all($T_all:ident) => $all_body:tt
+    ) => {
+        $crate::declare_for_each_native_ptype!(@impl_all $T_all $all_body);
+    };
+
+    // Mode 2: integer + float (disjoint, mutually exclusive with all)
+    (
+        integer($T_integer:ident) => $integer_body:tt,
+        float($T_float:ident) => $float_body:tt
+        $(,)?
+    ) => {
+        $crate::declare_for_each_native_ptype!(@impl_integer $T_integer $integer_body);
+        $crate::declare_for_each_native_ptype!(@impl_float $T_float $float_body);
+    };
+
+    (@impl_all $T:ident $body:tt) => {
+        $crate::declare_for_each_native_ptype!(@expand $T $body u8);
+        $crate::declare_for_each_native_ptype!(@expand $T $body u16);
+        $crate::declare_for_each_native_ptype!(@expand $T $body u32);
+        $crate::declare_for_each_native_ptype!(@expand $T $body u64);
+        $crate::declare_for_each_native_ptype!(@expand $T $body i8);
+        $crate::declare_for_each_native_ptype!(@expand $T $body i16);
+        $crate::declare_for_each_native_ptype!(@expand $T $body i32);
+        $crate::declare_for_each_native_ptype!(@expand $T $body i64);
+        $crate::declare_for_each_native_ptype!(@expand $T $body $crate::half::f16);
+        $crate::declare_for_each_native_ptype!(@expand $T $body f32);
+        $crate::declare_for_each_native_ptype!(@expand $T $body f64);
+    };
+
+    (@impl_integer $T:ident $body:tt) => {
+        $crate::declare_for_each_native_ptype!(@expand $T $body u8);
+        $crate::declare_for_each_native_ptype!(@expand $T $body u16);
+        $crate::declare_for_each_native_ptype!(@expand $T $body u32);
+        $crate::declare_for_each_native_ptype!(@expand $T $body u64);
+        $crate::declare_for_each_native_ptype!(@expand $T $body i8);
+        $crate::declare_for_each_native_ptype!(@expand $T $body i16);
+        $crate::declare_for_each_native_ptype!(@expand $T $body i32);
+        $crate::declare_for_each_native_ptype!(@expand $T $body i64);
+    };
+
+    (@impl_float $T:ident $body:tt) => {
+        $crate::declare_for_each_native_ptype!(@expand $T $body $crate::half::f16);
+        $crate::declare_for_each_native_ptype!(@expand $T $body f32);
+        $crate::declare_for_each_native_ptype!(@expand $T $body f64);
+    };
+
+    (@expand $T:ident {$($body:tt)*} $concrete:ty) => {
+        const _: () = {
+            #[allow(non_camel_case_types)]
+            type $T = $concrete;
+            $($body)*
+        };
+    };
+}
+
 /// Macro to match over each PType, binding the corresponding native type (from `NativePType`)
 #[macro_export]
 macro_rules! match_each_native_ptype {

@@ -248,10 +248,10 @@ mod test {
     ).unwrap())]
     #[case(ChunkedArray::try_new(
         vec![
-            PrimitiveArray::from_option_iter([Some(0u64), None]).to_array(),
-            PrimitiveArray::from_option_iter([Some(2u64)]).to_array(),
+            PrimitiveArray::from_iter([Some(0u64), None]).to_array(),
+            PrimitiveArray::from_iter([Some(2u64)]).to_array(),
             PrimitiveArray::empty::<u64>(Nullability::Nullable).to_array(),
-            PrimitiveArray::from_option_iter([None, Some(4u64)]).to_array(),
+            PrimitiveArray::from_iter([None, Some(4u64)]).to_array(),
         ],
         DType::Primitive(PType::U64, Nullability::Nullable),
     ).unwrap())]

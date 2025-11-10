@@ -152,8 +152,7 @@ mod tests {
         test_filter_conformance(zigzag.as_ref());
 
         // Test with nullable values
-        let array =
-            PrimitiveArray::from_option_iter([Some(-10i16), None, Some(20), Some(-30), None]);
+        let array = PrimitiveArray::from_iter([Some(-10i16), None, Some(20), Some(-30), None]);
         let zigzag = ZigZagEncoding
             .encode(&array.to_canonical(), None)
             .unwrap()
@@ -191,7 +190,7 @@ mod tests {
     #[rstest]
     #[case(buffer![-189i32, -160, 1, 42, -73].into_array())]
     #[case(buffer![1000i64, -2000, 3000, -4000, 5000].into_array())]
-    #[case(PrimitiveArray::from_option_iter([Some(-10i16), None, Some(20), Some(-30), None]).into_array())]
+    #[case(PrimitiveArray::from_iter([Some(-10i16), None, Some(20), Some(-30), None]).into_array())]
     #[case(buffer![42i32].into_array())]
     fn test_take_zigzag_conformance(#[case] array: ArrayRef) {
         use vortex_array::compute::conformance::take::test_take_conformance;
@@ -210,8 +209,8 @@ mod tests {
     #[case::zigzag_i32(zigzag_encode(PrimitiveArray::from_iter([-100000i32, -1000, 0, 1000, 100000])).unwrap())]
     #[case::zigzag_i64(zigzag_encode(PrimitiveArray::from_iter([-1000000i64, -10000, 0, 10000, 1000000])).unwrap())]
     // Nullable arrays
-    #[case::zigzag_nullable_i32(zigzag_encode(PrimitiveArray::from_option_iter([Some(-100i32), None, Some(0), Some(100), None])).unwrap())]
-    #[case::zigzag_nullable_i64(zigzag_encode(PrimitiveArray::from_option_iter([Some(-1000i64), None, Some(0), Some(1000), None])).unwrap())]
+    #[case::zigzag_nullable_i32(zigzag_encode(PrimitiveArray::from_iter([Some(-100i32), None, Some(0), Some(100), None])).unwrap())]
+    #[case::zigzag_nullable_i64(zigzag_encode(PrimitiveArray::from_iter([Some(-1000i64), None, Some(0), Some(1000), None])).unwrap())]
     // Edge cases
     #[case::zigzag_single(zigzag_encode(PrimitiveArray::from_iter([-42i32])).unwrap())]
     #[case::zigzag_alternating(zigzag_encode(PrimitiveArray::from_iter([-1i32, 1, -2, 2, -3, 3])).unwrap())]

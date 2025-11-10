@@ -79,7 +79,7 @@ mod tests {
     fn test_cast_decimal_byte_parts_nullable_to_non_nullable() {
         let decimal_dtype = DecimalDType::new(10, 2);
         let array = DecimalBytePartsArray::try_new(
-            PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),
+            PrimitiveArray::from_iter([Some(100i32), None, Some(300)]).into_array(),
             decimal_dtype,
         )
         .unwrap();
@@ -102,7 +102,7 @@ mod tests {
         DecimalDType::new(19, 4),
     ).unwrap())]
     #[case::nullable(DecimalBytePartsArray::try_new(
-        PrimitiveArray::from_option_iter([Some(100i32), None, Some(300), Some(400), None])
+        PrimitiveArray::from_iter([Some(100i32), None, Some(300), Some(400), None])
             .into_array(),
         DecimalDType::new(10, 2),
     ).unwrap())]

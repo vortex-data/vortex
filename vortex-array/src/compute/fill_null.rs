@@ -35,7 +35,7 @@ pub(crate) fn warm_up_vtable() -> usize {
 /// use vortex_scalar::Scalar;
 ///
 /// let array =
-///     PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)]);
+///     PrimitiveArray::from_iter([Some(0i32), None, Some(1i32), None, Some(2i32)]);
 /// let array = fill_null(array.as_ref(), &Scalar::from(42i32)).unwrap();
 /// assert_eq!(array.display_values().to_string(), "[0i32, 42i32, 1i32, 42i32, 2i32]");
 /// ```

@@ -85,8 +85,8 @@ mod test {
     ).unwrap().into_array())]
     #[case(ChunkedArray::try_new(
         vec![
-            PrimitiveArray::from_option_iter([Some(1.5f32), None, Some(2.5)]).into_array(),
-            PrimitiveArray::from_option_iter([Some(3.5f32), Some(4.5)]).into_array()
+            PrimitiveArray::from_iter([Some(1.5f32), None, Some(2.5)]).into_array(),
+            PrimitiveArray::from_iter([Some(3.5f32), Some(4.5)]).into_array()
         ],
         DType::Primitive(PType::F32, Nullability::Nullable)
     ).unwrap().into_array())]

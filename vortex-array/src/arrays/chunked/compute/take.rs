@@ -114,7 +114,7 @@ mod test {
 
         let result = take(
             arr.as_ref(),
-            PrimitiveArray::from_option_iter(vec![Some(0), None, Some(101)]).as_ref(),
+            PrimitiveArray::from_iter(vec![Some(0), None, Some(101)]).as_ref(),
         )
         .unwrap();
 
@@ -161,8 +161,8 @@ mod test {
         test_take_conformance(arr.as_ref());
 
         // Test with nullable chunked array
-        let a = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]);
-        let b = PrimitiveArray::from_option_iter([Some(4i32), Some(5)]);
+        let a = PrimitiveArray::from_iter([Some(1i32), None, Some(3)]);
+        let b = PrimitiveArray::from_iter([Some(4i32), Some(5)]);
         let dtype = a.dtype().clone();
         let arr = ChunkedArray::try_new(vec![a.into_array(), b.into_array()], dtype).unwrap();
         test_take_conformance(arr.as_ref());

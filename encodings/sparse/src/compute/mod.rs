@@ -185,7 +185,7 @@ mod tests {
     // Basic sparse arrays
     #[case::sparse_i32_null_fill(SparseArray::try_new(
         buffer![2u64, 5, 8].into_array(),
-        PrimitiveArray::from_option_iter([Some(100i32), Some(200), Some(300)]).into_array(),
+        PrimitiveArray::from_iter([Some(100i32), Some(200), Some(300)]).into_array(),
         10,
         Scalar::null_typed::<i32>()
     ).unwrap())]
@@ -217,7 +217,7 @@ mod tests {
     ).unwrap())]
     #[case::sparse_dense_patches(SparseArray::try_new(
         buffer![0u64, 1, 2, 3, 4].into_array(),
-        PrimitiveArray::from_option_iter([Some(10i32), Some(20), Some(30), Some(40), Some(50)]).into_array(),
+        PrimitiveArray::from_iter([Some(10i32), Some(20), Some(30), Some(40), Some(50)]).into_array(),
         5,
         Scalar::null_typed::<i32>()
     ).unwrap())]
@@ -234,7 +234,7 @@ mod tests {
         SparseArray::try_new(
             buffer![1u64, 4, 7].into_array(),
             cast(
-                &PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),
+                &PrimitiveArray::from_iter([Some(100i32), None, Some(300)]).into_array(),
                 null_fill_value.dtype()
             ).unwrap(),
             10,

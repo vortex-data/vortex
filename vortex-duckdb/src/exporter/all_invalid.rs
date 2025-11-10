@@ -39,7 +39,7 @@ mod tests {
 
     #[test]
     fn all_null_array() {
-        let arr = PrimitiveArray::from_option_iter::<i32, _>([None, None, None]);
+        let arr = PrimitiveArray::from_iter::<i32, _>([None, None, None]);
         let ltype = LogicalType::int32();
 
         let mut chunk = DataChunk::new([ltype.clone()]);

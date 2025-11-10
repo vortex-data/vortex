@@ -52,8 +52,8 @@ mod tests {
     #[test]
     fn test_slice_into_const_dict() {
         let dict = DictArray::try_new(
-            PrimitiveArray::from_option_iter(vec![Some(0u32), None, Some(1)]).to_array(),
-            PrimitiveArray::from_option_iter(vec![Some(0i32), Some(1), Some(2)]).to_array(),
+            PrimitiveArray::from_iter(vec![Some(0u32), None, Some(1)]).to_array(),
+            PrimitiveArray::from_iter(vec![Some(0i32), Some(1), Some(2)]).to_array(),
         )
         .unwrap();
 
@@ -71,12 +71,12 @@ mod tests {
     #[test]
     fn test_scalar_at_null_code() {
         let dict = DictArray::try_new(
-            PrimitiveArray::from_option_iter(vec![None, Some(0u32), None]).to_array(),
+            PrimitiveArray::from_iter(vec![None, Some(0u32), None]).to_array(),
             buffer![1i32].into_array(),
         )
         .unwrap();
 
-        let expected = PrimitiveArray::from_option_iter(vec![None, Some(1i32), None]).into_array();
+        let expected = PrimitiveArray::from_iter(vec![None, Some(1i32), None]).into_array();
         assert_arrays_eq!(dict, expected);
     }
 }

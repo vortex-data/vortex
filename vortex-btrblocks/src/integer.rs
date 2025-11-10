@@ -879,13 +879,13 @@ mod tests {
     #[test]
     fn nullable_sequence() {
         let values = (0i32..20).step_by(7).collect_vec();
-        let array = PrimitiveArray::from_option_iter(values.clone().into_iter().map(Some));
+        let array = PrimitiveArray::from_iter(values.clone().into_iter().map(Some));
         let compressed = SequenceScheme
             .compress(&IntegerStats::generate(&array), false, 3, &[])
             .unwrap();
         assert_eq!(compressed.encoding_id(), SequenceEncoding.id());
         let decoded = compressed;
-        let expected = PrimitiveArray::from_option_iter(values.into_iter().map(Some)).into_array();
+        let expected = PrimitiveArray::from_iter(values.into_iter().map(Some)).into_array();
         assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
     }
 

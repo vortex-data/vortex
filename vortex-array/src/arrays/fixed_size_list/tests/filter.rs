@@ -87,7 +87,7 @@ fn test_filter_degenerate_list_size_zero(
 #[test]
 fn test_filter_with_nulls() {
     let elements =
-        PrimitiveArray::from_option_iter([Some(1i32), Some(2), None, Some(4), Some(5), Some(6)]);
+        PrimitiveArray::from_iter([Some(1i32), Some(2), None, Some(4), Some(5), Some(6)]);
     let validity = Validity::from_iter([true, false, true]);
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, validity, 3);
 
@@ -254,7 +254,7 @@ fn create_fsl_nullable(num_lists: usize) -> ArrayRef {
             }
         })
         .collect();
-    let elements = PrimitiveArray::from_option_iter(elements);
+    let elements = PrimitiveArray::from_iter(elements);
 
     let validity = Validity::from_iter((0..num_lists).map(|i| i % 3 != 0));
 
@@ -262,8 +262,7 @@ fn create_fsl_nullable(num_lists: usize) -> ArrayRef {
 }
 
 fn create_fsl_mixed_nulls() -> ArrayRef {
-    let elements =
-        PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None, Some(6)]);
+    let elements = PrimitiveArray::from_iter([Some(1i32), None, Some(3), Some(4), None, Some(6)]);
     let validity = Validity::from_iter([true, false, true]);
     FixedSizeListArray::new(elements.into_array(), 2, validity, 3).into_array()
 }

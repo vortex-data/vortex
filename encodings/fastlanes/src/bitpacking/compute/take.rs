@@ -240,13 +240,13 @@ mod test {
 
         let taken_primitive = take(
             start.as_ref(),
-            PrimitiveArray::from_option_iter([Some(0u64), Some(1), None, Some(3)]).as_ref(),
+            PrimitiveArray::from_iter([Some(0u64), Some(1), None, Some(3)]).as_ref(),
         )
         .unwrap()
         .to_primitive();
         assert_arrays_eq!(
             taken_primitive,
-            PrimitiveArray::from_option_iter([Some(1i32), Some(2), None, Some(4)])
+            PrimitiveArray::from_iter([Some(1i32), Some(2), None, Some(4)])
         );
         assert_eq!(taken_primitive.invalid_count(), 1);
     }
@@ -256,7 +256,7 @@ mod test {
     #[case(BitPackedArray::encode(PrimitiveArray::from_iter((0..256).map(|i| i as u32)).as_ref(), 8).unwrap())]
     #[case(BitPackedArray::encode(buffer![1i32, 2, 3, 4, 5, 6, 7, 8].into_array().as_ref(), 3).unwrap())]
     #[case(BitPackedArray::encode(
-        PrimitiveArray::from_option_iter([Some(10u16), None, Some(20), Some(30), None]).as_ref(),
+        PrimitiveArray::from_iter([Some(10u16), None, Some(20), Some(30), None]).as_ref(),
         5
     ).unwrap())]
     #[case(BitPackedArray::encode(buffer![42u32].into_array().as_ref(), 6).unwrap())]

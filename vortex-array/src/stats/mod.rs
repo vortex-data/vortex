@@ -290,7 +290,7 @@ mod test {
 
     #[test]
     fn min_of_nulls_is_not_panic() {
-        let min = PrimitiveArray::from_option_iter::<i32, _>([None, None, None, None])
+        let min = PrimitiveArray::from_iter([None as Option<i32>; 4])
             .statistics()
             .compute_as::<i64>(Stat::Min);
 

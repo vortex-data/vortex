@@ -42,7 +42,7 @@ mod tests {
     fn take_empty_struct() {
         let struct_arr =
             StructArray::try_new(FieldNames::empty(), vec![], 10, Validity::NonNullable).unwrap();
-        let indices = PrimitiveArray::from_option_iter([Some(1), None]);
+        let indices = PrimitiveArray::from_iter([Some(1), None]);
         let taken = take(struct_arr.as_ref(), indices.as_ref()).unwrap();
 
         assert_arrays_eq!(
@@ -61,7 +61,7 @@ mod tests {
         let struct_arr =
             StructArray::from_fields(&[("a", PrimitiveArray::from_iter(0..10).to_array())])
                 .unwrap();
-        let indices = PrimitiveArray::from_option_iter([Some(1), None]);
+        let indices = PrimitiveArray::from_iter([Some(1), None]);
         let taken = take(struct_arr.as_ref(), indices.as_ref()).unwrap();
         assert_arrays_eq!(
             taken,
@@ -222,7 +222,7 @@ mod tests {
 
     #[test]
     fn test_cast_complex_struct() {
-        let xs = PrimitiveArray::from_option_iter([Some(0i64), Some(1), Some(2), Some(3), Some(4)]);
+        let xs = PrimitiveArray::from_iter([Some(0i64), Some(1), Some(2), Some(3), Some(4)]);
         let ys = VarBinArray::from_vec(vec!["a", "b", "c", "d", "e"], DType::Utf8(Nullable));
         let zs = BoolArray::from_bit_buffer(
             BitBuffer::from_iter([true, true, false, false, true]),
@@ -334,7 +334,7 @@ mod tests {
     #[test]
     fn test_take_nullable_struct_conformance() {
         // Test struct with nullable fields
-        let xs = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None]);
+        let xs = PrimitiveArray::from_iter([Some(1i32), None, Some(3), Some(4), None]);
         let ys = VarBinArray::from_iter(
             [Some("a"), Some("b"), None, Some("d"), None],
             DType::Utf8(Nullable),
@@ -433,7 +433,7 @@ mod tests {
         .unwrap()
     })]
     #[case::struct_nullable({
-        let xs = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None]);
+        let xs = PrimitiveArray::from_iter([Some(1i32), None, Some(3), Some(4), None]);
         let ys = VarBinArray::from_iter(
             [Some("a"), Some("b"), None, Some("d"), None],
             DType::Utf8(Nullable),

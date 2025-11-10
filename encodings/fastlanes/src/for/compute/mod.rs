@@ -65,8 +65,7 @@ mod test {
         test_filter_conformance(for_array.as_ref());
 
         // Test with nullable values
-        let values =
-            PrimitiveArray::from_option_iter([Some(50i16), None, Some(52), Some(53), None]);
+        let values = PrimitiveArray::from_iter([Some(50i16), None, Some(52), Some(53), None]);
         let reference = Scalar::from(50i16);
         let for_array = FoRArray::try_new(values.into_array(), reference).unwrap();
         test_filter_conformance(for_array.as_ref());
@@ -76,7 +75,7 @@ mod test {
     #[case(FoRArray::try_new(buffer![100i32, 101, 102, 103, 104].into_array(), Scalar::from(100i32)).unwrap())]
     #[case(FoRArray::try_new(buffer![1000u64, 1001, 1002, 1003, 1004].into_array(), Scalar::from(1000u64)).unwrap())]
     #[case(FoRArray::try_new(
-        PrimitiveArray::from_option_iter([Some(50i16), None, Some(52), Some(53), None]).into_array(),
+        PrimitiveArray::from_iter([Some(50i16), None, Some(52), Some(53), None]).into_array(),
         Scalar::from(50i16)
     ).unwrap())]
     #[case(FoRArray::try_new(buffer![-100i32, -99, -98, -97, -96].into_array(), Scalar::from(-100i32)).unwrap())]
@@ -111,11 +110,11 @@ mod tests {
     ).unwrap())]
     // Nullable arrays
     #[case::for_nullable_i16(FoRArray::try_new(
-        PrimitiveArray::from_option_iter([Some(50i16), None, Some(52), Some(53), None]).into_array(),
+        PrimitiveArray::from_iter([Some(50i16), None, Some(52), Some(53), None]).into_array(),
         Scalar::from(50i16)
     ).unwrap())]
     #[case::for_nullable_i32(FoRArray::try_new(
-        PrimitiveArray::from_option_iter([Some(200i32), None, Some(202), Some(203), None]).into_array(),
+        PrimitiveArray::from_iter([Some(200i32), None, Some(202), Some(203), None]).into_array(),
         Scalar::from(200i32)
     ).unwrap())]
     // Negative values
@@ -142,7 +141,7 @@ mod tests {
         Scalar::from(10000i64)
     ).unwrap())]
     #[case::for_large_nullable(FoRArray::try_new(
-        PrimitiveArray::from_option_iter((0..2048).map(|i| (i % 15 == 0).then_some(1000 + i))).into_array(),
+        PrimitiveArray::from_iter((0..2048).map(|i| (i % 15 == 0).then_some(1000 + i))).into_array(),
         Scalar::from(1000i32)
     ).unwrap())]
     // Arrays with large deltas from reference

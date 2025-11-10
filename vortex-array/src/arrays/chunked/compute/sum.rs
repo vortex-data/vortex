@@ -97,6 +97,7 @@ fn sum_decimal(chunks: &[ArrayRef], result_decimal_type: DecimalDType) -> Vortex
 
 #[cfg(test)]
 mod tests {
+    use futures::StreamExt;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, DecimalDType, Nullability};
     use vortex_scalar::{DecimalValue, Scalar, i256};
@@ -109,12 +110,11 @@ mod tests {
     #[test]
     fn test_sum_chunked_floats_with_nulls() {
         // Create chunks with floats including nulls
-        let chunk1 =
-            PrimitiveArray::from_option_iter(vec![Some(1.5f64), None, Some(3.2), Some(4.8)]);
+        let chunk1 = PrimitiveArray::from_iter(vec![Some(1.5f64), None, Some(3.2), Some(4.8)]);
 
-        let chunk2 = PrimitiveArray::from_option_iter(vec![Some(2.1f64), Some(5.7), None]);
+        let chunk2 = PrimitiveArray::from_iter(vec![Some(2.1f64), Some(5.7), None]);
 
-        let chunk3 = PrimitiveArray::from_option_iter(vec![None, Some(1.0f64), Some(2.5), None]);
+        let chunk3 = PrimitiveArray::from_iter(vec![None, Some(1.0f64), Some(2.5), None]);
 
         // Create chunked array from the chunks
         let dtype = chunk1.dtype().clone();
@@ -138,8 +138,8 @@ mod tests {
     #[test]
     fn test_sum_chunked_floats_all_nulls_is_zero() {
         // Create chunks with all nulls
-        let chunk1 = PrimitiveArray::from_option_iter::<f32, _>(vec![None, None, None]);
-        let chunk2 = PrimitiveArray::from_option_iter::<f32, _>(vec![None, None]);
+        let chunk1 = PrimitiveArray::from_iter(vec![None as Option<f32>, None, None]);
+        let chunk2 = PrimitiveArray::from_iter(vec![None as Option<f32>, None]);
 
         let dtype = chunk1.dtype().clone();
         let chunked =
@@ -152,9 +152,9 @@ mod tests {
     #[test]
     fn test_sum_chunked_floats_empty_chunks() {
         // Test with some empty chunks mixed with non-empty
-        let chunk1 = PrimitiveArray::from_option_iter(vec![Some(10.5f64), Some(20.3)]);
+        let chunk1 = PrimitiveArray::from_iter(vec![Some(10.5f64), Some(20.3)]);
         let chunk2 = ConstantArray::new(Scalar::primitive(0f64, Nullability::Nullable), 0);
-        let chunk3 = PrimitiveArray::from_option_iter(vec![Some(5.2f64)]);
+        let chunk3 = PrimitiveArray::from_iter(vec![Some(5.2f64)]);
 
         let dtype = chunk1.dtype().clone();
         let chunked = ChunkedArray::try_new(
@@ -174,8 +174,8 @@ mod tests {
 
     #[test]
     fn test_sum_chunked_int_almost_all_null_chunks() {
-        let chunk1 = PrimitiveArray::from_option_iter::<u32, _>(vec![Some(1)]);
-        let chunk2 = PrimitiveArray::from_option_iter::<u32, _>(vec![None]);
+        let chunk1 = PrimitiveArray::from_iter(vec![Some(1)]);
+        let chunk2 = PrimitiveArray::from_iter(vec![None as Option<i32>]);
 
         let dtype = chunk1.dtype().clone();
         let chunked =

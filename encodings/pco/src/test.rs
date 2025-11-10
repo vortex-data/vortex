@@ -52,7 +52,7 @@ fn test_compress_decompress() {
 
 #[test]
 fn test_compress_decompress_small() {
-    let array = PrimitiveArray::from_option_iter([None, Some(1)]);
+    let array = PrimitiveArray::from_iter([None, Some(1)]);
     let compressed = PcoArray::from_primitive(&array, 3, 0).unwrap();
 
     let expected = array.into_array();

@@ -67,10 +67,10 @@ mod test {
             })
             .collect();
 
-        let dict = dict_encode(PrimitiveArray::from_option_iter(values.clone()).as_ref()).unwrap();
+        let dict = dict_encode(PrimitiveArray::from_iter(values.clone()).as_ref()).unwrap();
         let actual = dict.to_primitive();
 
-        let expected = PrimitiveArray::from_option_iter(values);
+        let expected = PrimitiveArray::from_iter(values);
 
         assert_arrays_eq!(actual, expected);
     }
@@ -121,14 +121,8 @@ mod test {
     }
 
     fn sliced_dict_array() -> ArrayRef {
-        let reference = PrimitiveArray::from_option_iter([
-            Some(42),
-            Some(-9),
-            None,
-            Some(42),
-            Some(1),
-            Some(5),
-        ]);
+        let reference =
+            PrimitiveArray::from_iter([Some(42), Some(-9), None, Some(42), Some(1), Some(5)]);
         let dict = dict_encode(reference.as_ref()).unwrap();
         dict.slice(1..4)
     }
@@ -149,7 +143,7 @@ mod test {
         test_mask_conformance(array.as_ref());
 
         let array = dict_encode(
-            PrimitiveArray::from_option_iter([Some(2), None, Some(2), Some(0), Some(10)]).as_ref(),
+            PrimitiveArray::from_iter([Some(2), None, Some(2), Some(0), Some(10)]).as_ref(),
         )
         .unwrap();
         test_mask_conformance(array.as_ref());
@@ -177,7 +171,7 @@ mod test {
         test_filter_conformance(array.as_ref());
 
         let array = dict_encode(
-            PrimitiveArray::from_option_iter([Some(2), None, Some(2), Some(0), Some(10)]).as_ref(),
+            PrimitiveArray::from_iter([Some(2), None, Some(2), Some(0), Some(10)]).as_ref(),
         )
         .unwrap();
         test_filter_conformance(array.as_ref());
@@ -206,7 +200,7 @@ mod test {
         assert_eq!(
             take(
                 array.as_ref(),
-                PrimitiveArray::from_option_iter([Option::<i32>::None]).as_ref()
+                PrimitiveArray::from_iter([Option::<i32>::None]).as_ref()
             )
             .unwrap()
             .dtype(),
@@ -220,7 +214,7 @@ mod test {
         test_take_conformance(array.as_ref());
 
         let array = dict_encode(
-            PrimitiveArray::from_option_iter([Some(2), None, Some(2), Some(0), Some(10)]).as_ref(),
+            PrimitiveArray::from_iter([Some(2), None, Some(2), Some(0), Some(10)]).as_ref(),
         )
         .unwrap();
         test_take_conformance(array.as_ref());
@@ -260,10 +254,10 @@ mod tests {
     #[case::dict_i32(dict_encode(&buffer![1i32, 2, 3, 2, 1].into_array()).unwrap())]
     #[case::dict_nullable_codes(DictArray::try_new(
         buffer![0u32, 1, 2, 2, 0].into_array(),
-        PrimitiveArray::from_option_iter([Some(10), Some(20), None]).into_array(),
+        PrimitiveArray::from_iter([Some(10), Some(20), None]).into_array(),
     ).unwrap())]
     #[case::dict_nullable_values(dict_encode(
-        PrimitiveArray::from_option_iter([Some(1i32), None, Some(2), Some(1), None]).as_ref()
+        PrimitiveArray::from_iter([Some(1i32), None, Some(2), Some(1), None]).as_ref()
     ).unwrap())]
     #[case::dict_u64(dict_encode(&buffer![100u64, 200, 100, 300, 200].into_array()).unwrap())]
     // String arrays

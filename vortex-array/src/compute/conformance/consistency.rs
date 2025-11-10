@@ -468,7 +468,7 @@ fn test_nullable_indices_consistency(array: &dyn Array) {
     }
 
     // Create nullable indices where some indices are null
-    let indices = PrimitiveArray::from_option_iter([Some(0u64), None, Some(2u64)]).into_array();
+    let indices = PrimitiveArray::from_iter([Some(0u64), None, Some(2u64)]).into_array();
 
     let taken = take(array, &indices).vortex_unwrap();
 

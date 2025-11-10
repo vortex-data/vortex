@@ -90,7 +90,7 @@ mod tests {
 
         assert_arrays_eq!(
             vortex_array.as_ref(),
-            PrimitiveArray::from_option_iter([
+            PrimitiveArray::from_iter([
                 Some(100i32),
                 Some(100i32),
                 None,
@@ -154,14 +154,7 @@ mod tests {
 
         assert_arrays_eq!(
             vortex_array,
-            PrimitiveArray::from_option_iter([
-                None,
-                None,
-                Some(30i64),
-                Some(30),
-                Some(30),
-                Some(40),
-            ])
+            PrimitiveArray::from_iter([None, None, Some(30i64), Some(30), Some(30), Some(40),])
         );
     }
 

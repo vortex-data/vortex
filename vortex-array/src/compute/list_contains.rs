@@ -625,7 +625,7 @@ mod tests {
     #[test]
     fn test_list_contains_all_null_elements() {
         // Create lists containing only null elements
-        let elements = PrimitiveArray::from_option_iter::<i32, _>([None, None, None, None, None]);
+        let elements = PrimitiveArray::from_iter([None as Option<i32>, None, None, None, None]);
         let offsets = Buffer::from_iter([0u32, 2, 4]).into_array();
         let sizes = Buffer::from_iter([2u32, 2, 1]).into_array();
 

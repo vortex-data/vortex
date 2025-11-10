@@ -114,12 +114,12 @@ mod test {
         let a = 0.1f64;
         let b = 0.2f64;
         let outlier = 3e100f64;
-        let array = PrimitiveArray::from_option_iter([Some(a), Some(b), Some(outlier)]);
+        let array = PrimitiveArray::from_iter([Some(a), Some(b), Some(outlier)]);
         let encoded = RDEncoder::new(&[a, b]).encode(&array);
         assert!(encoded.left_parts_patches().is_some());
         assert_arrays_eq!(
             encoded,
-            PrimitiveArray::from_option_iter([Some(a), Some(b), Some(outlier)])
+            PrimitiveArray::from_iter([Some(a), Some(b), Some(outlier)])
         );
     }
 }

@@ -130,14 +130,8 @@ mod tests {
 
     #[test]
     fn test_cast_sliced_pco_part_valid_to_nonnullable() {
-        let values = PrimitiveArray::from_option_iter([
-            None,
-            Some(20u32),
-            Some(30),
-            Some(40),
-            Some(50),
-            Some(60),
-        ]);
+        let values =
+            PrimitiveArray::from_iter([None, Some(20u32), Some(30), Some(40), Some(50), Some(60)]);
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
         let sliced = pco.slice(1..5);
         let casted = cast(

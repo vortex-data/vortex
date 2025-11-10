@@ -181,7 +181,7 @@ mod tests {
 
     #[test]
     fn test_downcast_preserves_nullability() {
-        let array = PrimitiveArray::from_option_iter([Some(0_i32), None, Some(127)]);
+        let array = PrimitiveArray::from_iter([Some(0_i32), None, Some(127)]);
         let result = array.narrow().unwrap();
         assert_eq!(
             result.dtype(),

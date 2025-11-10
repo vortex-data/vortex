@@ -152,7 +152,7 @@ mod tests {
         use vortex_array::assert_arrays_eq;
 
         let array = fixture::rle_array_with_nulls();
-        let expected = PrimitiveArray::from_option_iter([
+        let expected = PrimitiveArray::from_iter([
             Some(10u32),
             None,
             Some(20),
@@ -184,7 +184,7 @@ mod tests {
         let sliced = array.slice(2..6); // [20, 20, null, 30]
 
         assert_eq!(sliced.len(), 4);
-        let expected = PrimitiveArray::from_option_iter([Some(20u32), Some(20), None, Some(30)]);
+        let expected = PrimitiveArray::from_iter([Some(20u32), Some(20), None, Some(30)]);
         assert_arrays_eq!(sliced, expected);
     }
 
@@ -226,7 +226,7 @@ mod tests {
         let array = fixture::rle_array_with_nulls();
         let sliced = array.slice(0..7);
 
-        let expected = PrimitiveArray::from_option_iter([
+        let expected = PrimitiveArray::from_iter([
             Some(10u32),
             None,
             Some(20),
@@ -269,7 +269,7 @@ mod tests {
         let array = fixture::rle_array_with_nulls();
         let sliced = array.slice(1..4); // [null, 20, 20]
 
-        let expected = PrimitiveArray::from_option_iter([Option::<u32>::None, Some(20), Some(20)]);
+        let expected = PrimitiveArray::from_iter([Option::<u32>::None, Some(20), Some(20)]);
         assert_arrays_eq!(sliced.to_array(), expected.to_array());
     }
 
@@ -278,7 +278,7 @@ mod tests {
         let array = fixture::rle_array_with_nulls();
         let sliced = array.slice(1..4).to_array().to_primitive(); // [null, 20, 20]
 
-        let expected = PrimitiveArray::from_option_iter([Option::<u32>::None, Some(20), Some(20)]);
+        let expected = PrimitiveArray::from_iter([Option::<u32>::None, Some(20), Some(20)]);
         assert_arrays_eq!(sliced.to_array(), expected.to_array());
     }
 

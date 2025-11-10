@@ -285,7 +285,7 @@ mod test {
         reals[900] = None;
 
         // Create a new array from this.
-        let real_array = PrimitiveArray::from_option_iter(reals.iter().cloned());
+        let real_array = PrimitiveArray::from_iter(reals.iter().cloned());
 
         // Pick a seed that we know will trigger lots of patches.
         let encoder: alp_rd::RDEncoder = alp_rd::RDEncoder::new(&[seed.powi(-2)]);
@@ -294,6 +294,6 @@ mod test {
 
         let decoded = rd_array.to_primitive();
 
-        assert_arrays_eq!(decoded, PrimitiveArray::from_option_iter(reals));
+        assert_arrays_eq!(decoded, PrimitiveArray::from_iter(reals));
     }
 }

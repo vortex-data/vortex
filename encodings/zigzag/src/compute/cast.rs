@@ -108,8 +108,7 @@ mod tests {
 
     #[test]
     fn test_cast_zigzag_nullable() {
-        let values =
-            PrimitiveArray::from_option_iter([Some(-10i32), None, Some(0), Some(10), None]);
+        let values = PrimitiveArray::from_iter([Some(-10i32), None, Some(0), Some(10), None]);
         let zigzag = zigzag_encode(values).unwrap();
 
         let casted = cast(
@@ -126,7 +125,7 @@ mod tests {
     #[rstest]
     #[case(zigzag_encode(PrimitiveArray::from_iter([-100i32, -50, -1, 0, 1, 50, 100])).unwrap())]
     #[case(zigzag_encode(PrimitiveArray::from_iter([-1000i64, -1, 0, 1, 1000])).unwrap())]
-    #[case(zigzag_encode(PrimitiveArray::from_option_iter([Some(-5i16), None, Some(0), Some(5), None])).unwrap())]
+    #[case(zigzag_encode(PrimitiveArray::from_iter([Some(-5i16), None, Some(0), Some(5), None])).unwrap())]
     #[case(zigzag_encode(PrimitiveArray::from_iter([i32::MIN, -1, 0, 1, i32::MAX])).unwrap())]
     fn test_cast_zigzag_conformance(#[case] array: ZigZagArray) {
         test_cast_conformance(array.as_ref());

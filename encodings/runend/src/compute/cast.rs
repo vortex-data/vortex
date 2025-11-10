@@ -94,7 +94,7 @@ mod tests {
     fn test_cast_runend_nullable() {
         let runend = RunEndArray::try_new(
             buffer![2u64, 4, 7].into_array(),
-            PrimitiveArray::from_option_iter([Some(10i32), None, Some(20)]).into_array(),
+            PrimitiveArray::from_iter([Some(10i32), None, Some(20)]).into_array(),
         )
         .unwrap();
 
@@ -156,7 +156,7 @@ mod tests {
     ).unwrap())]
     #[case(RunEndArray::try_new(
         buffer![2u64, 3, 5].into_array(),
-        PrimitiveArray::from_option_iter([Some(42i32), None, Some(84)]).into_array()
+        PrimitiveArray::from_iter([Some(42i32), None, Some(84)]).into_array()
     ).unwrap())]
     #[case(RunEndArray::try_new(
         buffer![10u64].into_array(),

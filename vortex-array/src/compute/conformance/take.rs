@@ -124,7 +124,7 @@ fn test_take_with_nullable_indices(array: &dyn Array) {
         vec![None]
     };
 
-    let indices = PrimitiveArray::from_option_iter(indices_vec.clone());
+    let indices = PrimitiveArray::from_iter(indices_vec.clone());
     let result = take(array, indices.as_ref()).vortex_unwrap();
 
     assert_eq!(result.len(), indices_vec.len());

@@ -267,7 +267,7 @@ mod tests {
 
     #[test]
     fn test_cast_conformance_nullable() {
-        let array = PrimitiveArray::from_option_iter([Some(1u8), None, Some(255), Some(0), None]);
+        let array = PrimitiveArray::from_iter([Some(1u8), None, Some(255), Some(0), None]);
         test_cast_conformance(array.as_ref());
     }
 

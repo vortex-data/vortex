@@ -4,7 +4,7 @@
 //! Conversion methods and trait implementations of [`From`] and [`Into`] for [`PrimitiveArray`].
 
 use vortex_buffer::{BitBufferMut, Buffer, BufferMut};
-use vortex_dtype::{NativePType, Nullability};
+use vortex_dtype::{NativePType, Nullability, declare_for_each_native_ptype};
 use vortex_error::{VortexResult, vortex_ensure, vortex_panic};
 use vortex_vector::primitive::PrimitiveVector;
 use vortex_vector::{VectorOps, match_each_pvector};
@@ -41,28 +41,6 @@ impl PrimitiveArray {
             // length of the buffer and the validity are the same.
             Ok(unsafe { Self::new_unchecked(buffer, validity) })
         })
-    }
-
-    /// Create a PrimitiveArray from an iterator of `T`.
-    /// NOTE: we cannot impl FromIterator trait since it conflicts with `FromIterator<T>`.
-    pub fn from_option_iter<T: NativePType, I: IntoIterator<Item = Option<T>>>(iter: I) -> Self {
-        let iter = iter.into_iter();
-        let mut values = BufferMut::with_capacity(iter.size_hint().0);
-        let mut validity = BitBufferMut::with_capacity(values.capacity());
-
-        for i in iter {
-            match i {
-                None => {
-                    validity.append(false);
-                    values.push(T::default());
-                }
-                Some(e) => {
-                    validity.append(true);
-                    values.push(e);
-                }
-            }
-        }
-        Self::new(values.freeze(), Validity::from(validity.freeze()))
     }
 
     pub fn buffer<T: NativePType>(&self) -> Buffer<T> {
@@ -119,10 +97,38 @@ impl PrimitiveArray {
     }
 }
 
-impl<T: NativePType> FromIterator<T> for PrimitiveArray {
-    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        let values = BufferMut::from_iter(iter);
-        PrimitiveArray::new(values, Validity::NonNullable)
+// Instead of a generic impl<T: NativePType>, we generate concrete implementations
+// for each PType to avoid potential trait coherence issues.
+declare_for_each_native_ptype! {
+    all(T) => {
+        impl FromIterator<T> for PrimitiveArray {
+            fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+                let values = BufferMut::from_iter(iter);
+                PrimitiveArray::new(values, Validity::NonNullable)
+            }
+        }
+
+        impl FromIterator<Option<T>> for PrimitiveArray {
+            fn from_iter<I: IntoIterator<Item=Option<T>>>(iter: I) -> Self {
+                let iter = iter.into_iter();
+                let mut values = BufferMut::with_capacity(iter.size_hint().0);
+                let mut validity = BitBufferMut::with_capacity(values.capacity());
+
+                for i in iter {
+                    match i {
+                        Some(e) => {
+                            validity.append(true);
+                            values.push(e);
+                        }
+                        None => {
+                            validity.append(false);
+                            values.push(T::default());
+                        }
+                    }
+                }
+                Self::new(values.freeze(), Validity::from(validity.freeze()))
+            }
+        }
     }
 }
 

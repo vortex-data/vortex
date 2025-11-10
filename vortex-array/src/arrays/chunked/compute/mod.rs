@@ -35,8 +35,8 @@ mod tests {
     ).unwrap())]
     #[case::chunked_nullable(ChunkedArray::try_new(
         vec![
-            PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array(),
-            PrimitiveArray::from_option_iter([Some(4i32), Some(5)]).into_array(),
+            PrimitiveArray::from_iter([Some(1i32), None, Some(3)]).into_array(),
+            PrimitiveArray::from_iter([Some(4i32), Some(5)]).into_array(),
         ],
         DType::Primitive(PType::I32, Nullability::Nullable),
     ).unwrap())]
@@ -69,9 +69,9 @@ mod tests {
     // Mixed validity across chunks
     #[case::mixed_validity(ChunkedArray::try_new(
         vec![
-            PrimitiveArray::from_option_iter([Some(1.0f32), Some(2.0), Some(3.0)]).into_array(),
-            PrimitiveArray::from_option_iter([Some(4.0f32), None, Some(6.0)]).into_array(),
-            PrimitiveArray::from_option_iter([Some(7.0f32), Some(8.0)]).into_array(),
+            PrimitiveArray::from_iter([Some(1.0f32), Some(2.0), Some(3.0)]).into_array(),
+            PrimitiveArray::from_iter([Some(4.0f32), None, Some(6.0)]).into_array(),
+            PrimitiveArray::from_iter([Some(7.0f32), Some(8.0)]).into_array(),
         ],
         DType::Primitive(PType::F32, Nullability::Nullable),
     ).unwrap())]
@@ -130,8 +130,8 @@ mod tests {
     ).unwrap())]
     #[case::chunked_nullable(ChunkedArray::try_new(
         vec![
-            PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),
-            PrimitiveArray::from_option_iter([Some(400i32), Some(500)]).into_array(),
+            PrimitiveArray::from_iter([Some(100i32), None, Some(300)]).into_array(),
+            PrimitiveArray::from_iter([Some(400i32), Some(500)]).into_array(),
         ],
         DType::Primitive(PType::I32, Nullability::Nullable),
     ).unwrap())]

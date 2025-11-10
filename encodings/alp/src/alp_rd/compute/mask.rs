@@ -50,7 +50,7 @@ mod tests {
     fn test_mask_with_nulls<T: ALPRDFloat>(#[case] a: T, #[case] outlier: T) {
         test_mask_conformance(
             &RDEncoder::new(&[a])
-                .encode(&PrimitiveArray::from_option_iter([
+                .encode(&PrimitiveArray::from_iter([
                     Some(a),
                     None,
                     Some(outlier),

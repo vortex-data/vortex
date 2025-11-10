@@ -37,8 +37,8 @@ mod test {
         test_filter_conformance(array.as_ref());
 
         // Test with nullable values
-        let msp = PrimitiveArray::from_option_iter([Some(10i64), None, Some(30), Some(40), None])
-            .into_array();
+        let msp =
+            PrimitiveArray::from_iter([Some(10i64), None, Some(30), Some(40), None]).into_array();
 
         let decimal_dtype = DecimalDType::new(18, 4);
         let array = DecimalBytePartsArray::try_new(msp, decimal_dtype).unwrap();

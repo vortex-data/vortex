@@ -108,13 +108,13 @@ mod test {
 
     #[rstest]
     #[case(PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]))]
-    #[case(PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None]))]
+    #[case(PrimitiveArray::from_iter([Some(1i32), None, Some(3), Some(4), None]))]
     #[case(PrimitiveArray::from_iter([42u64]))]
     #[case(PrimitiveArray::from_iter(0..MEDIUM_SIZE as i32))]
-    #[case(PrimitiveArray::from_option_iter((0..MEDIUM_SIZE).map(|i| if i % 3 == 0 { None } else { Some(i as i64) })))]
+    #[case(PrimitiveArray::from_iter((0..MEDIUM_SIZE).map(|i| if i % 3 == 0 { None } else { Some(i as i64) })))]
     #[case(PrimitiveArray::from_iter(0..LARGE_SIZE as u32))]
     #[case(PrimitiveArray::from_iter([0.1f32, 0.2, 0.3, 0.4, 0.5]))]
-    #[case(PrimitiveArray::from_option_iter([Some(1.1f64), None, Some(2.2), Some(3.3), None]))]
+    #[case(PrimitiveArray::from_iter([Some(1.1f64), None, Some(2.2), Some(3.3), None]))]
     fn test_filter_primitive_conformance(#[case] array: PrimitiveArray) {
         test_filter_conformance(array.as_ref());
     }

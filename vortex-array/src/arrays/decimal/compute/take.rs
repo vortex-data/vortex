@@ -79,7 +79,7 @@ mod tests {
             Validity::NonNullable,
         );
 
-        let indices = PrimitiveArray::from_option_iter([None, Some(2), Some(3)]).into_array();
+        let indices = PrimitiveArray::from_iter([None, Some(2), Some(3)]).into_array();
         let taken = take(array.as_ref(), indices.as_ref()).unwrap();
 
         assert!(taken.scalar_at(0).is_null());

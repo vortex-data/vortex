@@ -42,7 +42,7 @@ mod test {
     #[rstest]
     #[case(buffer![1.23f32, 4.56, 7.89, 10.11, 12.13].into_array())]
     #[case(buffer![100.1f64, 200.2, 300.3, 400.4, 500.5].into_array())]
-    #[case(PrimitiveArray::from_option_iter([Some(1.1f32), None, Some(2.2), Some(3.3), None]).into_array())]
+    #[case(PrimitiveArray::from_iter([Some(1.1f32), None, Some(2.2), Some(3.3), None]).into_array())]
     #[case(buffer![42.42f64].into_array())]
     fn test_take_alp_conformance(#[case] array: vortex_array::ArrayRef) {
         let alp = ALPEncoding

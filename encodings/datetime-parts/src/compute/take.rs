@@ -109,7 +109,7 @@ mod tests {
         Some("UTC".to_string())
     )).unwrap())]
     #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
-        PrimitiveArray::from_option_iter([
+        PrimitiveArray::from_iter([
             Some(0i64),
             None,
             Some(172_800_000), // 2 days in ms

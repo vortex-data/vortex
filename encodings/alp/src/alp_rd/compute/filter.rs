@@ -77,7 +77,7 @@ mod test {
     fn test_filter_with_nulls<T: ALPRDFloat>(#[case] a: T, #[case] outlier: T) {
         test_filter_conformance(
             &RDEncoder::new(&[a])
-                .encode(&PrimitiveArray::from_option_iter([
+                .encode(&PrimitiveArray::from_iter([
                     Some(a),
                     None,
                     Some(outlier),

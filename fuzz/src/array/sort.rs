@@ -35,7 +35,7 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
                     .map(|(p, v)| v.then_some(p))
                     .collect::<Vec<_>>();
                 sort_primitive_slice(&mut opt_values);
-                Ok(PrimitiveArray::from_option_iter(opt_values).into_array())
+                Ok(PrimitiveArray::from_iter(opt_values).into_array())
             })
         }
         DType::Decimal(d, _) => {

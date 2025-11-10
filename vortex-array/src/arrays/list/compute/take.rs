@@ -205,8 +205,7 @@ mod test {
         .unwrap()
         .to_array();
 
-        let idx =
-            PrimitiveArray::from_option_iter(vec![Some(0), None, Some(1), Some(3)]).to_array();
+        let idx = PrimitiveArray::from_iter(vec![Some(0), None, Some(1), Some(3)]).to_array();
 
         let result = take(&list, &idx).unwrap();
 
@@ -263,7 +262,7 @@ mod test {
         .unwrap()
         .to_array();
 
-        let idx = PrimitiveArray::from_option_iter(vec![Some(0), Some(1), None]).to_array();
+        let idx = PrimitiveArray::from_iter(vec![Some(0), Some(1), None]).to_array();
         // since idx is nullable, the final list will also be nullable
 
         let result = take(&list, &idx).unwrap();
@@ -388,7 +387,7 @@ mod test {
         ).unwrap()
     })]
     #[case(ListArray::try_new(
-        PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None]).to_array(),
+        PrimitiveArray::from_iter([Some(1i32), None, Some(3), Some(4), None]).to_array(),
         buffer![0, 2, 3, 5].into_array(),
         Validity::NonNullable,
     ).unwrap())]
