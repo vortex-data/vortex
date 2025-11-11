@@ -133,6 +133,10 @@ impl VectorMutOps for VectorMut {
     }
 
     fn unsplit(&mut self, other: Self) {
+        if self.is_empty() {
+            *self = other;
+            return;
+        }
         match_vector_pair!(self, other, |a: VectorMut, b: VectorMut| a.unsplit(b))
     }
 }

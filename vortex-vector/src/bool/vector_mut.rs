@@ -138,6 +138,10 @@ impl VectorMutOps for BoolVectorMut {
     }
 
     fn unsplit(&mut self, other: Self) {
+        if self.is_empty() {
+            *self = other;
+            return;
+        }
         self.bits.unsplit(other.bits);
         self.validity.unsplit(other.validity);
     }

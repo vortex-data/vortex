@@ -260,6 +260,11 @@ impl VectorMutOps for FixedSizeListVectorMut {
     fn unsplit(&mut self, other: Self) {
         assert_eq!(self.list_size, other.list_size);
 
+        if self.is_empty() {
+            *self = other;
+            return;
+        }
+
         self.elements.unsplit(*other.elements);
         self.validity.unsplit(other.validity);
 

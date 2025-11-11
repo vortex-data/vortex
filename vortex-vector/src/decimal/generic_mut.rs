@@ -250,6 +250,10 @@ impl<D: NativeDecimalType> VectorMutOps for DVectorMut<D> {
     }
 
     fn unsplit(&mut self, other: Self) {
+        if self.is_empty() {
+            *self = other;
+            return;
+        }
         self.elements.unsplit(other.elements);
         self.validity.unsplit(other.validity);
     }

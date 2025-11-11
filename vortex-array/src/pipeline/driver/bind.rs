@@ -40,7 +40,7 @@ pub(crate) fn bind_kernels(
                 assert_eq!(node.batch_inputs.len(), 1);
                 let batch_id = node.batch_inputs[0];
 
-                let batch = all_batch_inputs[batch_id]
+                let batch = batch_inputs[batch_id]
                     .take()
                     .vortex_expect("Batch input vector has already been consumed")
                     .into_mut();

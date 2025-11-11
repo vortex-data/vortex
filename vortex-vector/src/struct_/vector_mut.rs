@@ -272,6 +272,11 @@ impl VectorMutOps for StructVectorMut {
             other.fields.len()
         );
 
+        if self.is_empty() {
+            *self = other;
+            return;
+        }
+
         // Unsplit each field vector.
         let pairs = self.fields.iter_mut().zip(other.fields);
         for (self_mut_vector, other_mut_vec) in pairs {

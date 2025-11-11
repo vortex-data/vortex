@@ -339,7 +339,11 @@ impl VectorMutOps for ListViewVectorMut {
         todo!()
     }
 
-    fn unsplit(&mut self, _other: Self) {
+    fn unsplit(&mut self, other: Self) {
+        if self.is_empty() {
+            *self = other;
+            return;
+        }
         todo!()
     }
 }
