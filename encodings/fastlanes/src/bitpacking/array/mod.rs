@@ -13,6 +13,7 @@ use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
 
 pub mod bitpack_compress;
 pub mod bitpack_decompress;
+pub mod bitpack_pipeline;
 pub mod unpack_iter;
 
 use crate::bitpack_compress::bitpack_encode;

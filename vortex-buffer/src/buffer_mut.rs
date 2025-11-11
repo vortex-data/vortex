@@ -245,8 +245,10 @@ impl<T> BufferMut<T> {
     ///
     /// # Safety
     ///
-    /// The caller must ensure that there is sufficient capacity in the buffer and that the values
-    /// are valid up to `len`.
+    /// - `new_len` must be less than or equal to [`capacity()`].
+    /// - The elements at `old_len..new_len` must be initialized.
+    ///
+    /// [`capacity()`]: Self::capacity
     #[inline]
     pub unsafe fn set_len(&mut self, len: usize) {
         debug_assert!(len <= self.capacity());
