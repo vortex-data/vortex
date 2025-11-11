@@ -11,7 +11,7 @@
 
  📚 [Documentation](https://docs.vortex.dev/) | 📊 [Performance Benchmarks](https://bench.vortex.dev)
 
- 🚀 [Join the community on Slack!](https://vortex.dev/slack)
+ 🫶 [Join the community on Slack!](https://vortex.dev/slack)
 
 ## Overview
 
