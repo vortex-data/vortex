@@ -18,7 +18,7 @@ use crate::listview::ListViewVectorMut;
 use crate::null::NullVectorMut;
 use crate::primitive::PrimitiveVectorMut;
 use crate::struct_::StructVectorMut;
-use crate::{Vector, VectorMutOps, match_each_vector_mut, match_vector_pair};
+use crate::{match_each_vector_mut, match_vector_pair, Vector, VectorMutOps};
 
 /// An enum over all kinds of mutable vectors, which represent fully decompressed (canonical) array
 /// data.
@@ -104,6 +104,10 @@ impl VectorMutOps for VectorMut {
 
     fn reserve(&mut self, additional: usize) {
         match_each_vector_mut!(self, |v| { v.reserve(additional) })
+    }
+
+    fn clear(&mut self) {
+        match_each_vector_mut!(self, |v| { v.clear() })
     }
 
     fn extend_from_vector(&mut self, other: &Vector) {
@@ -267,9 +271,9 @@ mod tests {
     use vortex_dtype::{DecimalDType, Nullability, PType};
 
     use super::*;
-    use crate::VectorOps;
     use crate::decimal::DecimalVectorMut;
     use crate::primitive::PVectorMut;
+    use crate::VectorOps;
 
     #[test]
     fn test_with_capacity() {

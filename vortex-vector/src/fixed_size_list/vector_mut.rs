@@ -6,11 +6,11 @@
 use std::sync::Arc;
 
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
 use vortex_mask::MaskMut;
 
 use crate::fixed_size_list::FixedSizeListVector;
-use crate::{VectorMut, VectorMutOps, match_vector_pair};
+use crate::{match_vector_pair, VectorMut, VectorMutOps};
 
 /// A mutable vector of fixed-size lists.
 ///
@@ -189,6 +189,12 @@ impl VectorMutOps for FixedSizeListVectorMut {
         self.elements.reserve(additional * self.list_size as usize);
     }
 
+    fn clear(&mut self) {
+        self.elements.clear();
+        self.validity.clear();
+        self.len = 0;
+    }
+
     fn extend_from_vector(&mut self, other: &FixedSizeListVector) {
         match_vector_pair!(
             self.elements.as_mut(),
@@ -263,8 +269,8 @@ mod tests {
     use vortex_mask::{Mask, MaskMut};
 
     use super::*;
-    use crate::VectorOps;
     use crate::primitive::PVectorMut;
+    use crate::VectorOps;
 
     #[test]
     fn test_core_operations() {

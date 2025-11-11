@@ -3,22 +3,18 @@
 
 //! Vector allocation strategy for pipelines
 
-#![allow(dead_code)]
-
-use std::cell::RefCell;
-
+use crate::pipeline::driver::{Node, NodeId};
+use crate::pipeline::{PipelineVector, VectorId, N};
+use crate::Array;
 use vortex_error::{VortexExpect, VortexResult};
-
-use crate::pipeline::operator::{NodeId, PipelineNode};
-use crate::pipeline::vec::Vector;
-use crate::pipeline::{VType, VectorId};
+use vortex_vector::VectorMut;
 
 #[derive(Debug)]
-pub struct VectorAllocationPlan {
+pub struct VectorAllocation {
     /// Where each node writes its output
     pub(crate) output_targets: Vec<OutputTarget>,
     /// The actual allocated vectors
-    pub(crate) vectors: Vec<RefCell<Vector>>,
+    pub(crate) vectors: Vec<PipelineVector>,
 }
 
 // TODO(joe): support in-place view operations
@@ -30,23 +26,16 @@ pub(crate) enum OutputTarget {
     /// Node writes to the top-level provided output
     ExternalOutput,
     /// Node writes to an allocated intermediate vector
-    IntermediateVector(usize), // vector idx
+    IntermediateVector(VectorId), // vector idx
 }
 
 impl OutputTarget {
     pub fn vector_id(&self) -> Option<VectorId> {
         match self {
-            OutputTarget::IntermediateVector(idx) => Some(*idx),
+            OutputTarget::IntermediateVector(vector_id) => Some(*vector_id),
             OutputTarget::ExternalOutput => None,
         }
     }
-}
-
-/// Represents an allocated vector that can be reused
-#[derive(Debug, Clone)]
-struct VectorAllocation {
-    /// Type of elements in this vector
-    element_type: VType,
 }
 
 // ============================================================================
@@ -55,16 +44,16 @@ struct VectorAllocation {
 
 /// Allocate vectors with lifetime analysis and zero-copy optimization
 pub(super) fn allocate_vectors(
-    dag: &[PipelineNode],
+    dag: &[Node],
     execution_order: &[NodeId],
-) -> VortexResult<VectorAllocationPlan> {
+) -> VortexResult<VectorAllocation> {
     let mut output_targets: Vec<Option<OutputTarget>> = vec![None; dag.len()];
-    let mut allocations = Vec::new();
+    let mut allocation_types = Vec::new();
 
     // Process nodes in reverse execution order (top-down for output propagation)
     for &node_idx in execution_order.iter().rev() {
         let node = &dag[node_idx];
-        let operator = &node.operator;
+        let array = &node.array;
 
         // Determine output target
         let output_target = if node.parents.is_empty() {
@@ -81,24 +70,22 @@ pub(super) fn allocate_vectors(
             // 3. Verify no conflicts with parallel execution paths
             // 4. Ensure proper vector lifetime management
 
-            let alloc_id = allocations.len();
-            allocations.push(VectorAllocation {
-                element_type: operator.dtype().into(),
-            });
-            OutputTarget::IntermediateVector(alloc_id)
+            let vector_id = VectorId::new(allocation_types.len());
+            allocation_types.push(array.dtype());
+            OutputTarget::IntermediateVector(vector_id)
         };
 
         output_targets[node_idx] = Some(output_target);
     }
 
-    Ok(VectorAllocationPlan {
+    Ok(VectorAllocation {
         output_targets: output_targets
             .into_iter()
             .map(|target| target.vortex_expect("missing target"))
             .collect(),
-        vectors: allocations
+        vectors: allocation_types
             .into_iter()
-            .map(|alloc| RefCell::new(Vector::new_with_vtype(alloc.element_type)))
+            .map(|dtype| PipelineVector::Compact(VectorMut::with_capacity(dtype, 2 * N)))
             .collect(),
     })
 }

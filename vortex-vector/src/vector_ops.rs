@@ -9,7 +9,7 @@ use std::ops::RangeBounds;
 
 use vortex_mask::{Mask, MaskMut};
 
-use crate::{Scalar, Vector, VectorMut, private};
+use crate::{private, Scalar, Vector, VectorMut};
 
 /// Common operations for immutable vectors (all the variants of [`Vector`]).
 pub trait VectorOps: private::Sealed + Into<Vector> + Sized {
@@ -104,6 +104,9 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> + Sized {
     ///
     /// Please let us know if you need `reserve_exact` functionality!
     fn reserve(&mut self, additional: usize);
+
+    /// Clears the buffer, removing all data. Existing capacity is preserved.
+    fn clear(&mut self);
 
     /// Extends the vector by appending elements from another vector.
     ///

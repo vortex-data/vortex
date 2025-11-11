@@ -4,10 +4,9 @@
 use std::borrow::Cow;
 use std::fmt::{Debug, Formatter};
 
+use crate::pipeline::{N, N_BYTES, N_WORDS};
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
-
-use crate::pipeline::{N, N_BYTES, N_WORDS};
 
 /// A borrowed fixed-size bit vector of length `N` bits, represented as an array of usize words.
 ///

@@ -5,7 +5,7 @@
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
 use vortex_mask::MaskMut;
 
 use crate::primitive::PVector;
@@ -138,6 +138,11 @@ impl<T: NativePType> VectorMutOps for PVectorMut<T> {
     fn reserve(&mut self, additional: usize) {
         self.elements.reserve(additional);
         self.validity.reserve(additional);
+    }
+
+    fn clear(&mut self) {
+        self.elements.clear();
+        self.validity.clear();
     }
 
     /// Extends the vector by appending elements from another vector.

@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
 use vortex_vector::Vector;
 
-use crate::ArrayRef;
 use crate::array::IntoArray;
 use crate::execution::{BatchKernelRef, BindCtx, ExecutionCtx};
-use crate::pipeline::{PipelineSource, PipelineTransform};
+use crate::pipeline::PipelinedNode;
 use crate::vtable::{NotSupported, VTable};
+use crate::ArrayRef;
 
 /// A vtable for the new operator-based array functionality. Eventually this vtable will be
 /// merged into the main `VTable`, but for now it is kept separate to allow for incremental
@@ -43,7 +43,7 @@ pub trait OperatorVTable<V: VTable> {
     /// Downcast this array into a [`PipelineNode`] if it supports pipelined execution.
     ///
     /// Each node is either a source node or a transformation node.
-    fn pipeline_node(_array: &V::Array) -> Option<PipelineNode<'_>> {
+    fn pipeline_node(_array: &V::Array) -> Option<&dyn PipelinedNode> {
         None
     }
 
@@ -102,14 +102,6 @@ pub trait OperatorVTable<V: VTable> {
     ) -> VortexResult<Option<ArrayRef>> {
         Ok(None)
     }
-}
-
-/// An enum over the types of pipeline nodes.
-pub enum PipelineNode<'a> {
-    /// This node is a source node in a pipeline.
-    Source(&'a dyn PipelineSource),
-    /// This node is a transformation node in a pipeline.
-    Transform(&'a dyn PipelineTransform),
 }
 
 impl<V: VTable> OperatorVTable<V> for NotSupported {

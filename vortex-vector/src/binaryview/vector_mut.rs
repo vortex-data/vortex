@@ -6,12 +6,12 @@
 use std::sync::Arc;
 
 use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
 use vortex_mask::MaskMut;
 
-use crate::binaryview::BinaryViewType;
 use crate::binaryview::vector::BinaryViewVector;
-use crate::binaryview::view::{BinaryView, validate_views};
+use crate::binaryview::view::{validate_views, BinaryView};
+use crate::binaryview::BinaryViewType;
 use crate::{VectorMutOps, VectorOps};
 
 // Default capacity for new string data buffers of 2MiB.
@@ -200,6 +200,13 @@ impl<T: BinaryViewType> VectorMutOps for BinaryViewVectorMut<T> {
         self.validity.reserve(additional);
     }
 
+    fn clear(&mut self) {
+        self.views.clear();
+        self.validity.clear();
+        self.buffers.clear();
+        self.open_buffer = None;
+    }
+
     fn extend_from_vector(&mut self, other: &BinaryViewVector<T>) {
         // Close any existing views into a new buffer
         self.flush_open_buffer();
@@ -254,7 +261,7 @@ mod tests {
     use std::ops::Deref;
     use std::sync::Arc;
 
-    use vortex_buffer::{ByteBuffer, buffer, buffer_mut};
+    use vortex_buffer::{buffer, buffer_mut, ByteBuffer};
     use vortex_mask::{Mask, MaskMut};
 
     use crate::binaryview::view::BinaryView;

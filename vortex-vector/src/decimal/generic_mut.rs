@@ -5,7 +5,7 @@
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::{NativeDecimalType, PrecisionScale};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_mask::MaskMut;
 
 use crate::decimal::DVector;
@@ -211,6 +211,11 @@ impl<D: NativeDecimalType> VectorMutOps for DVectorMut<D> {
     fn reserve(&mut self, additional: usize) {
         self.elements.reserve(additional);
         self.validity.reserve(additional);
+    }
+
+    fn clear(&mut self) {
+        self.elements.clear();
+        self.validity.clear();
     }
 
     fn extend_from_vector(&mut self, other: &DVector<D>) {

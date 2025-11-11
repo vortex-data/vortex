@@ -4,7 +4,7 @@
 //! Definition and implementation of [`BoolVectorMut`].
 
 use vortex_buffer::BitBufferMut;
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
 use vortex_mask::MaskMut;
 
 use crate::bool::BoolVector;
@@ -101,6 +101,11 @@ impl VectorMutOps for BoolVectorMut {
     fn reserve(&mut self, additional: usize) {
         self.bits.reserve(additional);
         self.validity.reserve(additional);
+    }
+
+    fn clear(&mut self) {
+        self.bits.clear();
+        self.validity.clear();
     }
 
     fn extend_from_vector(&mut self, other: &BoolVector) {

@@ -5,8 +5,8 @@
 
 use vortex_mask::MaskMut;
 
-use crate::VectorMutOps;
 use crate::null::NullVector;
+use crate::VectorMutOps;
 
 /// A mutable vector of null values.
 ///
@@ -50,6 +50,10 @@ impl VectorMutOps for NullVectorMut {
 
     fn reserve(&mut self, _additional: usize) {
         // We do not allocate memory for `NullVector`, so this is a no-op.
+    }
+
+    fn clear(&mut self) {
+        self.len = 0;
     }
 
     fn extend_from_vector(&mut self, other: &NullVector) {
