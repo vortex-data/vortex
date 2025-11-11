@@ -8,6 +8,7 @@
 [![PyPI - Version](https://img.shields.io/pypi/v/vortex-data)](https://pypi.org/project/vortex-data/)
 [![Maven - Version](https://img.shields.io/maven-central/v/dev.vortex/vortex-spark)](https://central.sonatype.com/artifact/dev.vortex/vortex-spark)
 [![codecov](https://codecov.io/github/vortex-data/vortex/graph/badge.svg)](https://codecov.io/github/vortex-data/vortex)
+[![Developer Slack](https://img.shields.io/badge/Slack-4A154B?logo=slack&logoColor=white)](https://vortex.dev/slack)
 
 📚 [Documentation](https://docs.vortex.dev/) | 📊 [Performance Benchmarks](https://bench.vortex.dev)
 
