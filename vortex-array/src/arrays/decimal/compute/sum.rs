@@ -5,7 +5,7 @@ use arrow_schema::DECIMAL256_MAX_PRECISION;
 use num_traits::AsPrimitive;
 use vortex_dtype::Nullability::Nullable;
 use vortex_dtype::{DecimalDType, DecimalType, match_each_decimal_value_type};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::{DecimalValue, Scalar};
 
@@ -19,7 +19,8 @@ macro_rules! sum_decimal {
         let mut sum: $ty = <$ty>::default();
         for v in $values.iter() {
             let v: $ty = (*v).as_();
-            sum += v;
+            sum = num_traits::CheckedAdd::checked_add(&sum, &v)
+                .ok_or_else(|| vortex_err!("Overflow when summing decimal {sum:?} + {v:?}"))?
         }
         sum
     }};
@@ -30,7 +31,8 @@ macro_rules! sum_decimal {
         for (v, valid) in $values.iter().zip_eq($validity) {
             if valid {
                 let v: $ty = (*v).as_();
-                sum += v;
+                sum = num_traits::CheckedAdd::checked_add(&sum, &v)
+                    .ok_or_else(|| vortex_err!("Overflow when summing decimal {sum:?} + {v:?}"))?
             }
         }
         sum
