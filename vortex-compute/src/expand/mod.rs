@@ -16,7 +16,10 @@ pub trait Expand {
     ///
     ///
     /// The result will have length equal to the mask. All values of `self` are
-    /// then scattered to the true positions of the mask.
+    /// then scattered to the true positions of the mask. False positions can have
+    /// any value that `Output` allows for. No assumption can be made that false
+    /// positions are set the default value of `Output`.
+    ///
     ///
     /// # Panics
     ///
