@@ -4,13 +4,12 @@
 use std::ops::AddAssign;
 
 use num_traits::PrimInt;
-use vortex_dtype::Nullability::Nullable;
-use vortex_dtype::{DType, DecimalDType, NativePType, match_each_native_ptype};
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex_scalar::{DecimalScalar, DecimalValue, Scalar};
+use vortex_scalar::Scalar;
 
 use crate::arrays::{ChunkedArray, ChunkedVTable};
-use crate::compute::{SumKernel, SumKernelAdapter, sum};
+use crate::compute::{SumKernel, SumKernelAdapter, sum, sum_with_initial};
 use crate::stats::Stat;
 use crate::{ArrayRef, register_kernel};
 
@@ -21,14 +20,7 @@ impl SumKernel for ChunkedVTable {
             .ok_or_else(|| vortex_err!("Sum not supported for dtype {}", array.dtype()))?;
 
         match sum_dtype {
-            DType::Decimal(decimal_dtype, _) => sum_decimal(
-                array.chunks(),
-                decimal_dtype,
-                initial_value
-                    .as_decimal()
-                    .decimal_value()
-                    .vortex_expect("cannot be null"),
-            ),
+            DType::Decimal(..) => sum_decimal(array.chunks(), initial_value),
             DType::Primitive(sum_ptype, _) => {
                 let scalar_value = match_each_native_ptype!(
                     sum_ptype,
@@ -82,36 +74,14 @@ fn sum_float<T: NativePType + AddAssign>(
     Ok(Some(result))
 }
 
-fn sum_decimal(
-    chunks: &[ArrayRef],
-    result_decimal_type: DecimalDType,
-    initial_value: DecimalValue,
-) -> VortexResult<Scalar> {
-    let mut result = initial_value;
-
-    let null = || Scalar::null(DType::Decimal(result_decimal_type, Nullable));
+fn sum_decimal(chunks: &[ArrayRef], initial_value: &Scalar) -> VortexResult<Scalar> {
+    let mut result = initial_value.clone();
 
     for chunk in chunks {
-        let chunk_sum = sum(chunk)?;
-
-        let chunk_decimal = DecimalScalar::try_from(&chunk_sum)?;
-        let Some(r) = chunk_decimal
-            .decimal_value()
-            // TODO(joe): added a precision capped checked_add.
-            .and_then(|c_sum| result.checked_add(&c_sum))
-            .filter(|sum_value| {
-                sum_value
-                    .fits_in_precision(result_decimal_type)
-                    .unwrap_or(false)
-            })
-        else {
-            // null if any chunk is null or the sum overflows
-            return Ok(null());
-        };
-        result = r;
+        result = sum_with_initial(chunk, result)?;
     }
 
-    Ok(Scalar::decimal(result, result_decimal_type, Nullable))
+    Ok(result)
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use arrow_array::ArrowNativeTypeOp;
 use num_traits::{CheckedAdd, CheckedMul, ToPrimitive};
 use vortex_dtype::{DType, DecimalDType, NativePType, Nullability, i256, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
@@ -128,7 +129,7 @@ where
     let initial = initial_value
         .as_primitive()
         .as_::<T>()
-        .unwrap_or_else(T::zero);
+        .vortex_expect("cannot be null");
     Ok(initial.checked_add(&array_sum))
 }
 
@@ -137,13 +138,20 @@ fn sum_float(
     array_len: usize,
     initial_value: &Scalar,
 ) -> VortexResult<Option<f64>> {
-    let v = primitive_scalar.as_::<f64>();
+    let v = primitive_scalar
+        .as_::<f64>()
+        .vortex_expect("cannot be null");
     let array_len = array_len
         .to_f64()
         .ok_or_else(|| vortex_err!("array_len must fit the sum type"))?;
 
-    let array_sum = v.map(|v| v * array_len).unwrap_or(0.0);
-    let initial = initial_value.as_primitive().as_::<f64>().unwrap_or(0.0);
+    let Ok(array_sum) = v.mul_checked(array_len) else {
+        return Ok(None);
+    };
+    let initial = initial_value
+        .as_primitive()
+        .as_::<f64>()
+        .vortex_expect("cannot be null");
     Ok(Some(initial + array_sum))
 }
 

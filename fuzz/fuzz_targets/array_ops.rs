@@ -89,8 +89,6 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 current_array = cast_result;
             }
             Action::Sum => {
-                println!("sum {}", current_array.display_tree());
-                println!("sum {}", current_array.display_values());
                 let sum_result = sum(&current_array).vortex_unwrap();
                 assert_scalar_eq(&expected.scalar(), &sum_result, i).unwrap();
             }
