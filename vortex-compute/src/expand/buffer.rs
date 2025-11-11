@@ -138,12 +138,12 @@ fn expand_copy<T: Copy>(src: &[T], mask_values: &MaskValues) -> Buffer<T> {
 
     let mut target_buf = BufferMut::<T>::with_capacity(mask_len);
 
-    // SAFETY: Preallocate full target capacity.
+    // SAFETY: Sufficient capacity has been reserved.
     unsafe { target_buf.set_len(mask_len) };
 
     let buf_slice = target_buf.as_mut_slice();
 
-    // Pick the first value as a default value. The source buffer is not empty.
+    // Pick the first value as a default value.
     let pseudo_default_value = src[0];
 
     let src_len = src.len();
