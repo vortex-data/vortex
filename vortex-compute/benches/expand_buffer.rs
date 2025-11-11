@@ -4,7 +4,7 @@
 //! Expand benchmarks for `Buffer`.
 
 use divan::Bencher;
-use vortex_buffer::Buffer;
+use vortex_buffer::{Buffer, BufferMut};
 use vortex_compute::expand::Expand;
 use vortex_mask::Mask;
 
@@ -30,6 +30,18 @@ where
     Buffer::from(data)
 }
 
+fn create_test_buffer_mut<T>(size: usize) -> BufferMut<T>
+where
+    T: Copy + Default + From<u8> + Send + 'static,
+{
+    let mut data = Vec::with_capacity(size);
+    for i in 0..size {
+        #[expect(clippy::cast_possible_truncation)]
+        data.push(T::from((i % 256) as u8));
+    }
+    Buffer::from(data).into_mut()
+}
+
 fn generate_mask(len: usize, selectivity: f64) -> Mask {
     let mut selection = vec![false; len];
     let mut indices: Vec<usize> = (0..len).collect();
@@ -50,10 +62,7 @@ fn generate_mask(len: usize, selectivity: f64) -> Mask {
 }
 
 #[divan::bench(types = [u8, u32, u64], args = SELECTIVITIES, sample_count = 1000)]
-fn expand_selectivity<T: Copy + Default + From<u8> + Send + 'static>(
-    bencher: Bencher,
-    selectivity: f64,
-) {
+fn expand_copy<T: Copy + Default + From<u8> + Send + 'static>(bencher: Bencher, selectivity: f64) {
     bencher
         .with_inputs(|| {
             let mask = generate_mask(BUFFER_SIZE, selectivity);
@@ -62,6 +71,24 @@ fn expand_selectivity<T: Copy + Default + From<u8> + Send + 'static>(
             (buffer, mask)
         })
         .bench_values(|(buffer, mask)| {
+            let result = buffer.expand(&mask);
+            divan::black_box(result);
+        });
+}
+
+#[divan::bench(types = [u8, u32, u64], args = SELECTIVITIES, sample_count = 1000)]
+fn expand_inplace<T: Copy + Default + From<u8> + Send + 'static>(
+    bencher: Bencher,
+    selectivity: f64,
+) {
+    bencher
+        .with_inputs(|| {
+            let mask = generate_mask(BUFFER_SIZE, selectivity);
+            let true_count = mask.true_count();
+            let buffer = create_test_buffer_mut::<T>(true_count);
+            (buffer, mask)
+        })
+        .bench_values(|(mut buffer, mask)| {
             let result = buffer.expand(&mask);
             divan::black_box(result);
         });

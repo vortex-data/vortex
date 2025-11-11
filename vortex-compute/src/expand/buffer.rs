@@ -88,7 +88,6 @@ fn expand_inplace<T: Copy>(buf_mut: &mut BufferMut<T>, mask_values: &MaskValues)
 
     // SAFETY: Sufficient capacity has been reserved.
     unsafe { buf_mut.set_len(mask_len) };
-
     let buf_slice = buf_mut.as_mut_slice();
 
     // Pick the first value as a default value. The buffer is not empty, and we
@@ -99,21 +98,32 @@ fn expand_inplace<T: Copy>(buf_mut: &mut BufferMut<T>, mask_values: &MaskValues)
     let mut element_idx = buf_len;
 
     // Iterate backwards through the mask to avoid overwriting unprocessed elements.
-    for mask_idx in (buf_len..mask_len).rev() {
-        // NOTE(0ax1): .value is slow => optimize
-        if mask_values.value(mask_idx) {
+    for (mask_idx, is_valid) in mask_values
+        .bit_buffer()
+        .slice(buf_len..)
+        .iter()
+        .rev()
+        .enumerate()
+    {
+        if is_valid {
             element_idx -= 1;
-            buf_slice[mask_idx] = buf_slice[element_idx];
+            unsafe { *buf_slice.get_unchecked_mut(mask_idx) = buf_slice[element_idx] };
         } else {
             // Initialize with a pseudo-default value.
-            buf_slice[mask_idx] = pseudo_default_value;
+            unsafe { *buf_slice.get_unchecked_mut(mask_idx) = pseudo_default_value };
         }
     }
 
-    for mask_idx in (0..buf_len).rev() {
-        if mask_values.value(mask_idx) {
+    for (mask_idx, is_valid) in mask_values
+        .bit_buffer()
+        .slice(..buf_len)
+        .iter()
+        .rev()
+        .enumerate()
+    {
+        if is_valid {
             element_idx -= 1;
-            buf_slice[mask_idx] = buf_slice[element_idx];
+            unsafe { *buf_slice.get_unchecked_mut(mask_idx) = buf_slice[element_idx] };
         }
         // For the range up to buffer length, all positions are already initialized.
     }
@@ -139,20 +149,24 @@ fn expand_copy<T: Copy>(src: &[T], mask_values: &MaskValues) -> Buffer<T> {
 
     // Pick the first value as a default value.
     let pseudo_default_value = src[0];
+    let mut element_idx = 0;
 
-    let src_len = src.len();
-    let mut element_idx = src_len;
-
-    // Iterate backwards through the mask to avoid any issues.
-    for mask_idx in (0..mask_len).rev() {
-        // NOTE(0ax1): .value is slow => optimize
-        if mask_values.value(mask_idx) {
-            element_idx -= 1;
-            target_slice[mask_idx].write(src[element_idx]);
+    for (mask_idx, is_valid) in mask_values.bit_buffer().iter().enumerate() {
+        if is_valid {
+            unsafe {
+                target_slice
+                    .get_unchecked_mut(mask_idx)
+                    .write(src[element_idx])
+            };
+            element_idx += 1;
         } else {
-            // Initialize with a pseudo-default value. In case we expand into a
-            // new buffer all false positions need to be initialized.
-            target_slice[mask_idx].write(pseudo_default_value);
+            // Initialize with a pseudo-default value. In case we expand
+            // into a new buffer all false positions need to be initialized.
+            unsafe {
+                target_slice
+                    .get_unchecked_mut(mask_idx)
+                    .write(pseudo_default_value)
+            };
         }
     }
 
@@ -306,22 +320,6 @@ mod tests {
     }
 
     #[test]
-    fn test_expand_mut_dense() {
-        let mut buf = buffer_mut![1u32, 2, 3, 4, 5];
-        let mask = Mask::from_iter([
-            true, false, true, true, false, true, true, false, false, false,
-        ]);
-
-        (&mut buf).expand(&mask);
-        assert_eq!(buf.len(), 10);
-        assert_eq!(buf.as_slice()[0], 1);
-        assert_eq!(buf.as_slice()[2], 2);
-        assert_eq!(buf.as_slice()[3], 3);
-        assert_eq!(buf.as_slice()[5], 4);
-        assert_eq!(buf.as_slice()[6], 5);
-    }
-
-    #[test]
     #[should_panic(expected = "Expand mask true count must equal the buffer length")]
     fn test_expand_mut_mismatch_true_count() {
         let mut buf = buffer_mut![10u32, 20];
@@ -330,7 +328,28 @@ mod tests {
     }
 
     #[test]
-    fn test_expand_into_new_buffer() {
+    fn test_expand_inplace() {
+        let mut buf = BufferMut::from_iter([10u32, 20, 30, 40, 50]);
+        // Alternating pattern with gaps: [T, F, T, F, T, F, T, F, T, F]
+        let mask = Mask::from_iter([
+            true, false, true, false, true, false, true, false, true, false,
+        ]);
+
+        let Mask::Values(mask_values) = mask else {
+            panic!("Expected Mask::Values");
+        };
+
+        expand_inplace(&mut buf, &mask_values);
+        assert_eq!(buf.len(), 10);
+        assert_eq!(buf.as_slice()[0], 10);
+        assert_eq!(buf.as_slice()[2], 20);
+        assert_eq!(buf.as_slice()[4], 30);
+        assert_eq!(buf.as_slice()[6], 40);
+        assert_eq!(buf.as_slice()[8], 50);
+    }
+
+    #[test]
+    fn test_expand_copy() {
         let src = [10u32, 20, 30, 40, 50];
         // Alternating pattern with gaps: [T, F, T, F, T, F, T, F, T, F]
         let mask = Mask::from_iter([
