@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! Expand function.
+
+mod buffer;
+
+use vortex_mask::Mask;
+
+/// Function for expanding values of `self` to the true positions of a mask.
+pub trait Expand {
+    /// The result type after expansion.
+    type Output;
+
+    /// Expands `self` using the provided mask.
+    ///
+    ///
+    /// The result will have length equal to the mask. All values of `self` are
+    /// then scattered to the true positions of the mask. False positions can have
+    /// any value that `Output` allows for. No assumption can be made that false
+    /// positions are set to the default value of `Output`.
+    ///
+    ///
+    /// # Panics
+    ///
+    /// Panics if the number of true count of the mask does not equal the length of `self`.
+    fn expand(self, mask: &Mask) -> Self::Output;
+}
