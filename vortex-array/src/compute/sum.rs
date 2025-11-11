@@ -1,18 +1,31 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_dtype::Nullability::NonNullable;
 use vortex_error::{VortexResult, vortex_err, vortex_panic};
 use vortex_scalar::Scalar;
 
 use crate::Array;
-use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, UnaryArgs};
+use crate::compute::{
+    ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output, UnaryArgs,
+};
 use crate::stats::{Precision, Stat, StatsProvider};
 use crate::vtable::VTable;
+
+#[derive(Debug, Clone)]
+pub struct SumOptions {
+    pub initial_value: Scalar,
+}
+
+impl Options for SumOptions {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 static SUM_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("sum".into(), ArcRef::new_ref(&Sum));
@@ -26,18 +39,32 @@ pub(crate) fn warm_up_vtable() -> usize {
     SUM_FN.kernels().len()
 }
 
-/// Sum an array.
+/// Sum an array with an initial value.
+///
+/// If the sum overflows, a null scalar will be returned.
+/// If the sum is not supported for the array's dtype, an error will be raised.
+/// If the array is all-invalid, the sum will be the initial_value.
+/// The initial_value must have a dtype compatible with the sum result dtype.
+pub(crate) fn sum_with_initial(array: &dyn Array, initial_value: Scalar) -> VortexResult<Scalar> {
+    SUM_FN
+        .invoke(&InvocationArgs {
+            inputs: &[array.into()],
+            options: &SumOptions { initial_value },
+        })?
+        .unwrap_scalar()
+}
+
+/// Sum an array, starting from zero.
 ///
 /// If the sum overflows, a null scalar will be returned.
 /// If the sum is not supported for the array's dtype, an error will be raised.
 /// If the array is all-invalid, the sum will be zero.
 pub fn sum(array: &dyn Array) -> VortexResult<Scalar> {
-    SUM_FN
-        .invoke(&InvocationArgs {
-            inputs: &[array.into()],
-            options: &(),
-        })?
-        .unwrap_scalar()
+    let sum_dtype = Stat::Sum
+        .dtype(array.dtype())
+        .ok_or_else(|| vortex_err!("Sum not supported for dtype: {}", array.dtype()))?;
+    let zero = Scalar::zero_value(sum_dtype);
+    sum_with_initial(array, zero)
 }
 
 struct Sum;
@@ -48,7 +75,8 @@ impl ComputeFnVTable for Sum {
         args: &InvocationArgs,
         kernels: &[ArcRef<dyn Kernel>],
     ) -> VortexResult<Output> {
-        let UnaryArgs { array, .. } = UnaryArgs::<()>::try_from(args)?;
+        let UnaryArgs { array, options } = UnaryArgs::<SumOptions>::try_from(args)?;
+        let initial_value = &options.initial_value;
 
         // Compute the expected dtype of the sum.
         let sum_dtype = self.return_dtype(args)?;
@@ -58,7 +86,7 @@ impl ComputeFnVTable for Sum {
             return Ok(sum.into());
         }
 
-        let sum_scalar = sum_impl(array, sum_dtype, kernels)?;
+        let sum_scalar = sum_impl(array, sum_dtype, initial_value, kernels)?;
 
         // Update the statistics with the computed sum.
         array
@@ -69,7 +97,7 @@ impl ComputeFnVTable for Sum {
     }
 
     fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
-        let UnaryArgs { array, .. } = UnaryArgs::<()>::try_from(args)?;
+        let UnaryArgs { array, .. } = UnaryArgs::<SumOptions>::try_from(args)?;
         Stat::Sum
             .dtype(array.dtype())
             .ok_or_else(|| vortex_err!("Sum not supported for dtype: {}", array.dtype()))
@@ -93,7 +121,8 @@ pub trait SumKernel: VTable {
     ///
     /// * The array's DType is summable
     /// * The array is not all-null
-    fn sum(&self, array: &Self::Array) -> VortexResult<Scalar>;
+    /// * The initial_value must have a dtype compatible with the sum result dtype
+    fn sum(&self, array: &Self::Array, initial_value: &Scalar) -> VortexResult<Scalar>;
 }
 
 #[derive(Debug)]
@@ -107,11 +136,11 @@ impl<V: VTable + SumKernel> SumKernelAdapter<V> {
 
 impl<V: VTable + SumKernel> Kernel for SumKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
-        let UnaryArgs { array, .. } = UnaryArgs::<()>::try_from(args)?;
+        let UnaryArgs { array, options } = UnaryArgs::<SumOptions>::try_from(args)?;
         let Some(array) = array.as_opt::<V>() else {
             return Ok(None);
         };
-        Ok(Some(V::sum(&self.0, array)?.into()))
+        Ok(Some(V::sum(&self.0, array, &options.initial_value)?.into()))
     }
 }
 
@@ -119,20 +148,23 @@ impl<V: VTable + SumKernel> Kernel for SumKernelAdapter<V> {
 ///
 /// If the sum overflows, a null scalar will be returned.
 /// If the sum is not supported for the array's dtype, an error will be raised.
-/// If the array is all-invalid, the sum will be zero.
+/// If the array is all-invalid, the sum will be the initial_value.
 pub fn sum_impl(
     array: &dyn Array,
-    sum_dtype: DType,
+    _sum_dtype: DType,
+    initial_value: &Scalar,
     kernels: &[ArcRef<dyn Kernel>],
 ) -> VortexResult<Scalar> {
-    if array.is_empty() || array.all_invalid() {
-        return Scalar::default_value(sum_dtype.with_nullability(NonNullable)).cast(&sum_dtype);
+    if array.is_empty() || array.all_invalid() || initial_value.is_null() {
+        return Ok(initial_value.clone());
     }
 
     // Try to find a sum kernel
     let args = InvocationArgs {
         inputs: &[array.into()],
-        options: &(),
+        options: &SumOptions {
+            initial_value: initial_value.clone(),
+        },
     };
     for kernel in kernels {
         if let Some(output) = kernel.invoke(&args)? {
@@ -152,7 +184,7 @@ pub fn sum_impl(
             array.encoding_id()
         );
     }
-    sum(array.to_canonical().as_ref())
+    sum_with_initial(array.to_canonical().as_ref(), initial_value.clone())
 }
 
 #[cfg(test)]

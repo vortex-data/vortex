@@ -3,7 +3,7 @@
 
 use std::ops::BitAnd;
 
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
 
@@ -12,7 +12,7 @@ use crate::compute::{SumKernel, SumKernelAdapter};
 use crate::register_kernel;
 
 impl SumKernel for BoolVTable {
-    fn sum(&self, array: &BoolArray) -> VortexResult<Scalar> {
+    fn sum(&self, array: &BoolArray, initial_value: &Scalar) -> VortexResult<Scalar> {
         let true_count: Option<u64> = match array.validity_mask().bit_buffer() {
             AllOr::All => {
                 // All-valid
@@ -26,7 +26,15 @@ impl SumKernel for BoolVTable {
                 Some(array.bit_buffer().bitand(validity_mask).true_count() as u64)
             }
         };
-        Ok(Scalar::from(true_count))
+
+        // Add initial_value to true_count
+        let initial_u64 = initial_value
+            .as_primitive()
+            .as_::<u64>()
+            .vortex_expect("cannot be null");
+        Ok(Scalar::from(
+            true_count.and_then(|tc| tc.checked_add(initial_u64)),
+        ))
     }
 }
 
