@@ -3,15 +3,13 @@
 
 use crate::{match_each_alp_float_ptype, ALPArray, ALPFloat, ALPVTable, Exponents};
 use std::marker::PhantomData;
-use vortex_array::pipeline::{
-    BindContext, KernelContext, PipelineTransform, TransformKernel, VectorId,
-};
+use vortex_array::pipeline::{BindContext, PipelineTransform, TransformKernel};
 use vortex_array::vtable::{OperatorVTable, PipelineNode};
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_integer_ptype, NativePType, PTypeDowncastExt};
 use vortex_error::VortexResult;
 use vortex_vector::primitive::PVector;
-use vortex_vector::VectorMut;
+use vortex_vector::{Vector, VectorMut};
 
 impl OperatorVTable<ALPVTable> for ALPVTable {
     fn pipeline_node(array: &ALPArray) -> Option<PipelineNode<'_>> {
@@ -20,22 +18,17 @@ impl OperatorVTable<ALPVTable> for ALPVTable {
 }
 
 impl PipelineTransform for ALPArray {
-    fn is_pipelined_child(&self, child_idx: usize) -> bool {
-        match child_idx {
-            0 => true,  // encoded array
-            _ => false, // patch indices + patch values
-        }
+    fn pipelined_child(&self) -> usize {
+        0 // The encoded vector is the first child
     }
 
     fn bind(&self, ctx: &mut dyn BindContext) -> VortexResult<Box<dyn TransformKernel>> {
-        let encoded_vector_id = ctx.pipelined_input(0);
         let exponents = self.exponents();
 
         match self.patches() {
             None => {
                 match_each_alp_float_ptype!(self.ptype(), |A| {
                     Ok(Box::new(ALPKernel::<A> {
-                        encoded_vector_id,
                         exponents,
                         _phantom: PhantomData,
                     }))
@@ -50,7 +43,6 @@ impl PipelineTransform for ALPArray {
                         let patch_indices: Buffer<P> = P::downcast(patch_idxs).into_buffer();
                         let patch_values: PVector<A> = A::downcast(patch_vals);
                         Ok(Box::new(PatchedALPKernel {
-                            encoded_vector_id,
                             exponents,
                             patch_indices,
                             patch_values,
@@ -63,20 +55,14 @@ impl PipelineTransform for ALPArray {
 }
 
 struct ALPKernel<A: ALPFloat> {
-    // The encoded vector that returns `A::ALPInt` values
-    encoded_vector_id: VectorId,
     // The ALP exponents
     exponents: Exponents,
     _phantom: PhantomData<A>,
 }
 
 impl<A: ALPFloat> TransformKernel for ALPKernel<A> {
-    fn step(&mut self, ctx: &KernelContext, out: &mut VectorMut) -> VortexResult<()> {
-        let encoded = ctx
-            .vector(self.encoded_vector_id)
-            .into_primitive()
-            .downcast::<A::ALPInt>()
-            .into_buffer();
+    fn step(&mut self, input: &VectorMut, out: &mut VectorMut) -> VortexResult<()> {
+        let encoded = input.into_primitive().downcast::<A::ALPInt>().into_buffer();
 
         let mut decoded = A::downcast(out.into_primitive());
         decoded.extend(
@@ -89,8 +75,6 @@ impl<A: ALPFloat> TransformKernel for ALPKernel<A> {
 }
 
 struct PatchedALPKernel<A: ALPFloat, P: NativePType> {
-    // The encoded vector that returns `A::ALPInt` values
-    encoded_vector_id: VectorId,
     // The ALP exponents
     exponents: Exponents,
     // The patch indices and values
@@ -99,12 +83,8 @@ struct PatchedALPKernel<A: ALPFloat, P: NativePType> {
 }
 
 impl<A: ALPFloat, P: NativePType> TransformKernel for PatchedALPKernel<A, P> {
-    fn step(&mut self, ctx: &KernelContext, out: &mut VectorMut) -> VortexResult<()> {
-        let encoded = ctx
-            .vector(self.encoded_vector_id)
-            .into_primitive()
-            .downcast::<A::ALPInt>()
-            .into_buffer();
+    fn step(&mut self, input: &Vector, out: &mut VectorMut) -> VortexResult<()> {
+        let encoded = input.into_primitive().downcast::<A::ALPInt>().into_buffer();
 
         let mut decoded = out.into_primitive().downcast::<A>();
         decoded.extend(
