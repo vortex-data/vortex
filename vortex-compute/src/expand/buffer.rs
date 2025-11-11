@@ -74,7 +74,6 @@ impl<T: Copy> Expand for &mut BufferMut<T> {
                     return;
                 }
 
-                // Expand to the new buffer size which equals the length of the mask.
                 self.reserve(mask_len - buf_len);
 
                 // SAFETY: We just reserved enough space above.
@@ -216,6 +215,7 @@ mod tests {
 
     use super::*;
 
+    // Tests for Buffer<T>
     #[test]
     fn test_expand_scattered() {
         let buf = buffer![100u32, 200, 300];
@@ -278,7 +278,7 @@ mod tests {
         buf.expand(&mask);
     }
 
-    // Tests for &Buffer<T> impl
+    // Tests for &Buffer<T>
     #[test]
     fn test_expand_ref_scattered() {
         let buf = buffer![100u32, 200, 300];
@@ -300,7 +300,7 @@ mod tests {
         assert_eq!(result, buffer![10u32, 20, 30]);
     }
 
-    // Tests for &mut BufferMut<T> impl
+    // Tests for &mut BufferMut<T>
     #[test]
     fn test_expand_mut_scattered() {
         let mut buf = buffer_mut![100u32, 200, 300];
@@ -373,5 +373,41 @@ mod tests {
         let mut buf = buffer_mut![10u32, 20];
         let mask = Mask::from_iter([true, true, true, false]);
         (&mut buf).expand(&mask);
+    }
+
+    #[test]
+    fn test_expand_into_new_buffer() {
+        let src = [10u32, 20, 30, 40, 50];
+        // Alternating pattern with gaps: [T, F, T, F, T, F, T, F, T, F]
+        let mask = Mask::from_iter([
+            true, false, true, false, true, false, true, false, true, false,
+        ]);
+
+        let result = expand_into_new_buffer(&src, &mask);
+        assert_eq!(result.len(), 10);
+        assert_eq!(result.as_slice()[0], 10);
+        assert_eq!(result.as_slice()[2], 20);
+        assert_eq!(result.as_slice()[4], 30);
+        assert_eq!(result.as_slice()[6], 40);
+        assert_eq!(result.as_slice()[8], 50);
+    }
+
+    #[test]
+    fn test_scatter_into_slice_from() {
+        let src = [1u32, 2, 3, 4, 5];
+        let mut dest = vec![0u32; 8];
+        let mask = Mask::from_iter([true, true, false, true, true, false, true, false]);
+
+        let mask_values = match &mask {
+            Mask::Values(mv) => mv,
+            _ => panic!("Expected Mask::Values"),
+        };
+
+        scatter_into_slice_from(&src, &mut dest, mask_values);
+        assert_eq!(dest[0], 1);
+        assert_eq!(dest[1], 2);
+        assert_eq!(dest[3], 3);
+        assert_eq!(dest[4], 4);
+        assert_eq!(dest[6], 5);
     }
 }
