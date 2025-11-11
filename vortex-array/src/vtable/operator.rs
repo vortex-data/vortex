@@ -40,7 +40,7 @@ pub trait OperatorVTable<V: VTable> {
         Self::bind(array, Some(&selection.clone().into_array()), &mut ())?.execute()
     }
 
-    /// Downcast this array into a [`PipelineNode`] if it supports pipelined execution.
+    /// Downcast this array into a [`PipelinedNode`] if it supports pipelined execution.
     ///
     /// Each node is either a source node or a transformation node.
     fn pipeline_node(_array: &V::Array) -> Option<&dyn PipelinedNode> {

@@ -66,7 +66,7 @@ pub trait BindContext {
 ///
 /// Each step of the kernel takes and returns vectors (depending on the type of kernel) of `N`
 /// elements. Input vectors are provided via the [`KernelCtx`] and indicate the position of their
-/// elements as either [`PipelineVector::Selection`] or [`PipelineVector::Prefix`] based on whether
+/// elements as either [`PipelineVector::Sparse`] or [`PipelineVector::Compact`] based on whether
 /// the selected elements are in their original positions or compacted at the start of the vector
 /// respectively.
 ///
