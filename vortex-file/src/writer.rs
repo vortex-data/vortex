@@ -11,7 +11,7 @@ use futures::{FutureExt, StreamExt, TryStreamExt, pin_mut, select};
 use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
 use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt, SendableArrayStream};
-use vortex_array::{ArrayContext, ArrayRef};
+use vortex_array::{ArrayContext, ArrayRef, ArraySessionExt};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
@@ -116,8 +116,10 @@ impl VortexWriteOptions {
         mut write: W,
         stream: SendableArrayStream,
     ) -> VortexResult<WriteSummary> {
-        // Set up a Context to capture the encodings used in the file.
-        let ctx = ArrayContext::empty();
+        let ctx = {
+            let encodings: Vec<_> = self.session.arrays().registry().items().collect();
+            ArrayContext::new(encodings)
+        };
         let dtype = stream.dtype().clone();
 
         let (mut ptr, eof) = SequenceId::root().split();
