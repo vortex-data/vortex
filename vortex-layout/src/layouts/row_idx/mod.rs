@@ -13,11 +13,11 @@ pub use expr::*;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::compute::filter;
+use vortex_array::expr::transform::{PartitionedExpr, partition, replace};
+use vortex_array::expr::{ExactExpr, Expression, is_root, root};
 use vortex_array::{ArrayRef, IntoArray, MaskFuture};
 use vortex_dtype::{DType, FieldMask, FieldName, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_expr::transform::{PartitionedExpr, partition, replace};
-use vortex_expr::{ExactExpr, Expression, is_root, root};
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_sequence::SequenceArray;
@@ -259,9 +259,9 @@ mod tests {
     use std::sync::Arc;
 
     use itertools::Itertools;
+    use vortex_array::expr::{eq, gt, lit, or, root};
     use vortex_array::{ArrayContext, IntoArray as _, MaskFuture, ToCanonical};
     use vortex_buffer::{BitBuffer, buffer};
-    use vortex_expr::{eq, gt, lit, or, root};
     use vortex_io::runtime::single::block_on;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;

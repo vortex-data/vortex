@@ -64,9 +64,11 @@ impl LayoutStrategy for StructStrategy {
             vortex_bail!("StructLayout must have unique field names");
         }
 
+        let is_nullable = dtype.is_nullable();
+
         // Optimization: when there are no fields, don't spawn any work and just write a trivial
         // StructLayout.
-        if struct_dtype.nfields() == 0 {
+        if struct_dtype.nfields() == 0 && !is_nullable {
             let row_count = stream
                 .try_fold(
                     0u64,
@@ -77,8 +79,6 @@ impl LayoutStrategy for StructStrategy {
         }
 
         // stream<struct_chunk> -> stream<vec<column_chunk>>
-        let is_nullable = dtype.is_nullable();
-
         let columns_vec_stream = stream.map(move |chunk| {
             let (sequence_id, chunk) = chunk?;
             let mut sequence_pointer = sequence_id.descend();

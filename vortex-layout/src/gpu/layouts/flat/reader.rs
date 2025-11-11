@@ -7,11 +7,11 @@ use std::sync::Arc;
 
 use cudarc::driver::CudaContext;
 use futures::FutureExt;
+use vortex_array::expr::Expression;
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexResult, VortexUnwrap as _};
-use vortex_expr::Expression;
 use vortex_gpu::create_run_jit_kernel;
 
 use crate::layouts::flat::FlatLayout;

@@ -1,6 +1,7 @@
 # vortex-scan
 
-A high-performance scanning and (non-shuffling) query execution engine for the Vortex columnar format, featuring work-stealing parallelism and exhaustively tested concurrent execution.
+A high-performance scanning and (non-shuffling) query execution engine for the Vortex columnar format, featuring
+work-stealing parallelism and exhaustively tested concurrent execution.
 
 ## Overview
 
@@ -36,18 +37,18 @@ The `vortex-scan` crate provides efficient scanning operations over Vortex array
 
 ```rust
 use vortex_scan::ScanBuilder;
-use vortex_expr::lit;
+use vortex_array::expr::lit;
 
 // Create a scan that reads specific columns with a filter
 let scan = ScanBuilder::new(layout_reader)
-    .with_projection(select(["name", "age"]))
-    .with_filter(column("age").gt(lit(18)))
-    .build()?;
+.with_projection(select(["name", "age"]))
+.with_filter(column("age").gt(lit(18)))
+.build() ?;
 
 // Execute the scan
-for batch in scan.into_array_iter()? {
-    let batch = batch?;
-    // Process batch...
+for batch in scan.into_array_iter() ? {
+let batch = batch ?;
+// Process batch...
 }
 ```
 
@@ -56,13 +57,13 @@ for batch in scan.into_array_iter()? {
 ```rust
 // Execute scan across multiple threads
 let scan = ScanBuilder::new(layout_reader)
-    .with_projection(projection)
-    .with_filter(filter)
-    .into_array_iter_multithread()?;
+.with_projection(projection)
+.with_filter(filter)
+.into_array_iter_multithread() ?;
 
 for batch in scan {
-    let batch = batch?;
-    // Results are automatically collected from worker threads
+let batch = batch ?;
+// Results are automatically collected from worker threads
 }
 ```
 
@@ -73,12 +74,12 @@ use arrow_array::RecordBatch;
 
 // Convert scan results to Arrow RecordBatches
 let reader = ScanBuilder::new(layout_reader)
-    .with_filter(filter)
-    .into_record_batch_reader(arrow_schema)?;
+.with_filter(filter)
+.into_record_batch_reader(arrow_schema) ?;
 
 for batch in reader {
-    let record_batch: RecordBatch = batch?;
-    // Process Arrow RecordBatch...
+let record_batch: RecordBatch = batch ?;
+// Process Arrow RecordBatch...
 }
 ```
 
@@ -89,13 +90,13 @@ use vortex_scan::Selection;
 
 // Select specific rows by index
 let scan = ScanBuilder::new(layout_reader)
-    .with_selection(Selection::IncludeByIndex(indices.into()))
-    .build()?;
+.with_selection(Selection::IncludeByIndex(indices.into()))
+.build() ?;
 
 // Or use row ranges
 let scan = ScanBuilder::new(layout_reader)
-    .with_row_range(1000..2000)
-    .build()?;
+.with_row_range(1000..2000)
+.build() ?;
 ```
 
 ## Architecture
@@ -159,8 +160,8 @@ The default concurrency level is 2, meaning each worker thread can have 2 tasks 
 
 ```rust
 let scan = ScanBuilder::new(layout_reader)
-    .with_concurrency(4)  // Increase for more I/O parallelism
-    .build()?;
+.with_concurrency(4)  // Increase for more I/O parallelism
+.build() ?;
 ```
 
 ### Buffer Sizes
@@ -183,9 +184,8 @@ This controls how many splits are processed concurrently.
 
 Core dependencies:
 
-- `vortex-array`: Core array types and operations
+- `vortex-array`: Core array types and operations (includes expression evaluation framework)
 - `vortex-layout`: Layout reader abstraction
-- `vortex-expr`: Expression evaluation framework
 - `futures`: Async runtime abstractions
 - `tokio` (optional): Multi-threaded async runtime
 - `arrow-array` (optional): Arrow integration

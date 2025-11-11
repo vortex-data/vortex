@@ -11,11 +11,11 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::ArrayRef;
+use vortex_array::expr::Expression;
+use vortex_array::expr::pruning::checked_pruning_expr;
 use vortex_array::stats::StatsSet;
 use vortex_dtype::{DType, Field, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::VortexResult;
-use vortex_expr::Expression;
-use vortex_expr::pruning::checked_pruning_expr;
 use vortex_layout::LayoutReader;
 use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;

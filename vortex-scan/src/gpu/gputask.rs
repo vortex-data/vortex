@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use vortex_array::expr::Expression;
 use vortex_error::VortexResult;
-use vortex_expr::Expression;
 use vortex_gpu::GpuVector;
 use vortex_layout::GpuLayoutReader;
 

@@ -12,6 +12,7 @@ use vortex_dict::DictArray;
 use vortex_dtype::PType;
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_scalar::Scalar;
+use vortex_sparse::{SparseArray, SparseVTable};
 
 pub use self::stats::FloatStats;
 use crate::float::dictionary::dictionary_encode;
@@ -42,6 +43,7 @@ impl Compressor for FloatCompressor {
             &ALPScheme,
             &ALPRDScheme,
             &DictScheme,
+            &NullDominated,
             &RLE_FLOAT_SCHEME,
         ]
     }
@@ -63,6 +65,8 @@ const DICT_SCHEME: FloatCode = FloatCode(4);
 const RUN_END_SCHEME: FloatCode = FloatCode(5);
 const RUN_LENGTH_SCHEME: FloatCode = FloatCode(6);
 
+const SPARSE_SCHEME: FloatCode = FloatCode(7);
+
 #[derive(Debug, Copy, Clone)]
 struct UncompressedScheme;
 
@@ -77,6 +81,9 @@ struct ALPRDScheme;
 
 #[derive(Debug, Copy, Clone)]
 struct DictScheme;
+
+#[derive(Debug, Copy, Clone)]
+pub struct NullDominated;
 
 pub const RLE_FLOAT_SCHEME: RLEScheme<FloatStats, FloatCode> = RLEScheme::new(
     RUN_LENGTH_SCHEME,
@@ -373,14 +380,90 @@ impl Scheme for DictScheme {
     }
 }
 
+impl Scheme for NullDominated {
+    type StatsType = FloatStats;
+    type CodeType = FloatCode;
+
+    fn code(&self) -> Self::CodeType {
+        SPARSE_SCHEME
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        stats: &Self::StatsType,
+        _is_sample: bool,
+        allowed_cascading: usize,
+        _excludes: &[Self::CodeType],
+    ) -> VortexResult<f64> {
+        // Only use `SparseScheme` if we can cascade.
+        if allowed_cascading == 0 {
+            return Ok(0.0);
+        }
+
+        if stats.value_count == 0 {
+            // All nulls should use ConstantScheme
+            return Ok(0.0);
+        }
+
+        // If the majority is null, will compress well.
+        if stats.null_count as f64 / stats.src.len() as f64 > 0.9 {
+            return Ok(stats.src.len() as f64 / stats.value_count as f64);
+        }
+
+        // Otherwise we don't go this route
+        Ok(0.0)
+    }
+
+    fn compress(
+        &self,
+        stats: &Self::StatsType,
+        is_sample: bool,
+        allowed_cascading: usize,
+        _excludes: &[Self::CodeType],
+    ) -> VortexResult<ArrayRef> {
+        assert!(allowed_cascading > 0);
+
+        // We pass None as we only run this pathway for NULL-dominated float arrays
+        let sparse_encoded = SparseArray::encode(stats.src.as_ref(), None)?;
+
+        if let Some(sparse) = sparse_encoded.as_opt::<SparseVTable>() {
+            // Compress the values
+            let new_excludes = vec![integer::SparseScheme.code()];
+
+            // Don't attempt to compress the non-null values
+
+            let indices = sparse.patches().indices().to_primitive().narrow()?;
+            let compressed_indices = IntCompressor::compress_no_dict(
+                &indices,
+                is_sample,
+                allowed_cascading - 1,
+                &new_excludes,
+            )?;
+
+            SparseArray::try_new(
+                compressed_indices,
+                sparse.patches().values().clone(),
+                sparse.len(),
+                sparse.fill_scalar().clone(),
+            )
+            .map(|a| a.into_array())
+        } else {
+            Ok(sparse_encoded)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::iter;
 
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::{Buffer, buffer_mut};
+    use vortex_dtype::Nullability;
+    use vortex_sparse::SparseEncoding;
 
     use crate::float::{FloatCompressor, RLE_FLOAT_SCHEME};
     use crate::{Compressor, CompressorStats, MAX_CASCADE, Scheme};
@@ -429,5 +512,23 @@ mod tests {
         let decoded = compressed;
         let expected = Buffer::copy_from(&values).into_array();
         assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
+    }
+
+    #[test]
+    fn test_sparse_compression() {
+        let mut array = PrimitiveBuilder::<f32>::with_capacity(Nullability::Nullable, 100);
+        array.append_value(f32::NAN);
+        array.append_value(-f32::NAN);
+        array.append_value(f32::INFINITY);
+        array.append_value(-f32::INFINITY);
+        array.append_value(0.0f32);
+        array.append_value(-0.0f32);
+        array.append_nulls(90);
+
+        let floats = array.finish_into_primitive();
+
+        let compressed = FloatCompressor::compress(&floats, false, MAX_CASCADE, &[]).unwrap();
+
+        assert_eq!(compressed.encoding_id(), SparseEncoding.id());
     }
 }

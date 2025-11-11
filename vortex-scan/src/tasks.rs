@@ -9,9 +9,9 @@ use std::sync::Arc;
 use bit_vec::BitVec;
 use futures::FutureExt;
 use futures::future::{BoxFuture, ok};
+use vortex_array::expr::Expression;
 use vortex_array::{ArrayRef, MaskFuture};
 use vortex_error::VortexResult;
-use vortex_expr::Expression;
 use vortex_layout::LayoutReader;
 use vortex_mask::Mask;
 

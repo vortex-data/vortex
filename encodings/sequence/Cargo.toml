@@ -31,7 +31,6 @@ itertools = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { path = "../../vortex-array", features = ["test-harness"] }
-vortex-expr = { path = "../../vortex-expr" }
 vortex-file = { path = "../../vortex-file", features = ["tokio"] }
 vortex-layout = { path = "../../vortex-layout" }
 

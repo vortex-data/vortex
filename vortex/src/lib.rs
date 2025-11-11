@@ -4,8 +4,8 @@
 // https://github.com/rust-lang/cargo/pull/11645#issuecomment-1536905941
 #![doc = include_str!(concat!("../", env!("CARGO_PKG_README")))]
 
+use vortex_array::expr::session::ExprSession;
 pub use vortex_array::*;
-use vortex_expr::session::ExprSession;
 #[cfg(feature = "files")]
 pub use vortex_file as file;
 use vortex_io::session::RuntimeSession;
@@ -13,7 +13,7 @@ use vortex_layout::session::LayoutSession;
 use vortex_metrics::VortexMetrics;
 use vortex_session::VortexSession;
 pub use {
-    vortex_buffer as buffer, vortex_dtype as dtype, vortex_error as error, vortex_expr as expr,
+    vortex_buffer as buffer, vortex_dtype as dtype, vortex_error as error,
     vortex_flatbuffers as flatbuffers, vortex_io as io, vortex_ipc as ipc, vortex_layout as layout,
     vortex_mask as mask, vortex_metrics as metrics, vortex_proto as proto, vortex_scalar as scalar,
     vortex_scan as scan, vortex_session as session, vortex_utils as utils,
@@ -66,13 +66,13 @@ impl VortexSessionDefault for VortexSession {
 mod test {
     use itertools::Itertools;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::expr::{gt, lit, root};
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
     use vortex_array::{ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_expr::{gt, lit, root};
     use vortex_file::{OpenOptionsSessionExt, WriteOptionsSessionExt, WriteStrategyBuilder};
     use vortex_layout::layouts::compact::CompactCompressor;
     use vortex_session::VortexSession;

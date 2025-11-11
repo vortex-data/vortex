@@ -4,9 +4,9 @@
 use std::fmt::Formatter;
 
 use vortex_array::ArrayRef;
+use vortex_array::expr::{ChildName, ExprId, Expression, ExpressionView, VTable, VTableExt};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexResult, vortex_bail};
-use vortex_expr::{ChildName, ExprId, Expression, ExpressionView, VTable, VTableExt};
 
 pub struct RowIdx;
 

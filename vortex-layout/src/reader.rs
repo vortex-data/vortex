@@ -8,10 +8,10 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use futures::try_join;
 use once_cell::sync::OnceCell;
+use vortex_array::expr::Expression;
 use vortex_array::{ArrayRef, MaskFuture};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexResult, vortex_bail};
-use vortex_expr::Expression;
 use vortex_mask::Mask;
 
 use crate::children::LayoutChildren;

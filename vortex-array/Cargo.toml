@@ -8,7 +8,7 @@ homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
-readme = { workspace = true }
+readme = "README.md"
 repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
@@ -54,6 +54,7 @@ rand = { workspace = true }
 rstest = { workspace = true, optional = true }
 rstest_reuse = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
+serde = { workspace = true, optional = true, features = ["derive"] }
 simdutf8 = { workspace = true }
 static_assertions = { workspace = true }
 tabled = { workspace = true, optional = true, default-features = false, features = [
@@ -68,6 +69,7 @@ vortex-flatbuffers = { workspace = true, features = ["array"] }
 vortex-io = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
+vortex-proto = { workspace = true, features = ["expr"] }
 vortex-scalar = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
@@ -82,6 +84,13 @@ arbitrary = [
 canonical_counter = []
 table-display = ["dep:tabled"]
 test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
+serde = [
+    "dep:serde",
+    "vortex-buffer/serde",
+    "vortex-dtype/serde",
+    "vortex-error/serde",
+    "vortex-mask/serde",
+]
 
 [dev-dependencies]
 arrow-cast = { workspace = true }
@@ -125,4 +134,9 @@ harness = false
 
 [[bench]]
 name = "varbinview_compact"
+harness = false
+
+[[bench]]
+name = "expr_large_struct_pack"
+path = "benches/expr/large_struct_pack.rs"
 harness = false

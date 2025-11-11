@@ -8,10 +8,10 @@ use std::sync::Arc;
 use cudarc::driver::CudaContext;
 use futures::stream::FuturesOrdered;
 use futures::{FutureExt, TryStreamExt};
+use vortex_array::expr::Expression;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
-use vortex_expr::Expression;
 
 use crate::gpu::children::LazyGpuReaderChildren;
 use crate::layouts::chunked::ChunkedLayout;

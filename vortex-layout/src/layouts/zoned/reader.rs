@@ -9,12 +9,12 @@ use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
 use parking_lot::RwLock;
+use vortex_array::expr::pruning::checked_pruning_expr;
+use vortex_array::expr::{DynamicExprUpdates, Expression, root};
 use vortex_array::{ArrayRef, MaskFuture, ToCanonical};
 use vortex_buffer::BitBufferMut;
 use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
-use vortex_expr::pruning::checked_pruning_expr;
-use vortex_expr::{DynamicExprUpdates, Expression, root};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
@@ -352,9 +352,9 @@ mod test {
 
     use rstest::{fixture, rstest};
     use vortex_array::arrays::ChunkedArray;
+    use vortex_array::expr::{gt, lit, root};
     use vortex_array::{ArrayContext, IntoArray, MaskFuture, assert_arrays_eq};
     use vortex_buffer::buffer;
-    use vortex_expr::{gt, lit, root};
     use vortex_io::runtime::single::block_on;
     use vortex_mask::Mask;
 

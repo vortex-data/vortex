@@ -6,12 +6,12 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_array::arrays::StructArray;
 use vortex_array::compute::sum;
+use vortex_array::expr::Expression;
 use vortex_array::stats::{Precision, Stat, StatsProvider, StatsSet};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{DType, Nullability, PType, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
-use vortex_expr::Expression;
 use vortex_mask::Mask;
 
 use crate::layouts::zoned::builder::{
@@ -133,7 +133,7 @@ impl ZoneMap {
     /// be pruned.
     ///
     /// The expression provided should be the result of converting an existing `VortexExpr` via
-    /// [`checked_pruning_expr`][vortex_expr::pruning::checked_pruning_expr] into a prunable
+    /// [`checked_pruning_expr`][vortex_array::expr::pruning::checked_pruning_expr] into a prunable
     /// expression that can be evaluated on a zone map.
     ///
     /// All zones where the predicate evaluates to `true` can be skipped entirely.
@@ -247,14 +247,14 @@ mod tests {
     use rstest::rstest;
     use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray};
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
+    use vortex_array::expr::pruning::checked_pruning_expr;
+    use vortex_array::expr::{gt, gt_eq, lit, lt, root};
     use vortex_array::stats::Stat;
     use vortex_array::validity::Validity;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::{BitBuffer, buffer};
     use vortex_dtype::{DType, FieldPath, FieldPathSet, Nullability, PType};
     use vortex_error::{VortexExpect, VortexUnwrap};
-    use vortex_expr::pruning::checked_pruning_expr;
-    use vortex_expr::{gt, gt_eq, lit, lt, root};
 
     use crate::layouts::zoned::zone_map::{StatsAccumulator, ZoneMap};
     use crate::layouts::zoned::{MAX_IS_TRUNCATED, MIN_IS_TRUNCATED};

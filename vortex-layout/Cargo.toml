@@ -46,7 +46,6 @@ vortex-decimal-byte-parts = { workspace = true }
 vortex-dict = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
-vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["layout"] }
 vortex-gpu = { workspace = true, optional = true }
 vortex-io = { workspace = true }

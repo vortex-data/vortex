@@ -8,11 +8,11 @@ use std::sync::Arc;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::compute::filter;
+use vortex_array::expr::{Expression, is_root};
 use vortex_array::serde::ArrayParts;
 use vortex_array::{Array, ArrayRef, MaskFuture};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
-use vortex_expr::{Expression, is_root};
 use vortex_mask::Mask;
 
 use crate::LayoutReader;
@@ -204,10 +204,10 @@ mod test {
     use std::sync::Arc;
 
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::expr::{gt, lit, root};
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayContext, IntoArray, MaskFuture, ToCanonical, assert_arrays_eq};
     use vortex_buffer::{BitBuffer, buffer};
-    use vortex_expr::{gt, lit, root};
     use vortex_io::runtime::single::block_on;
 
     use crate::LayoutStrategy;
