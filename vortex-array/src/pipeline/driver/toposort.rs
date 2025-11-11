@@ -3,7 +3,7 @@
 
 use std::collections::VecDeque;
 
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::pipeline::driver::{Node, NodeId};
 

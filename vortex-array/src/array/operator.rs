@@ -3,13 +3,13 @@
 
 use std::sync::Arc;
 
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_error::{VortexResult, vortex_panic};
 use vortex_mask::Mask;
-use vortex_vector::{vector_matches_dtype, Vector, VectorOps};
+use vortex_vector::{Vector, VectorOps, vector_matches_dtype};
 
 use crate::execution::{BatchKernelRef, BindCtx, DummyExecutionCtx, ExecutionCtx};
-use crate::pipeline::driver::PipelineDriver;
 use crate::pipeline::PipelinedNode;
+use crate::pipeline::driver::PipelineDriver;
 use crate::vtable::{OperatorVTable, VTable};
 use crate::{Array, ArrayAdapter, ArrayRef};
 

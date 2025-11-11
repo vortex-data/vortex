@@ -100,6 +100,14 @@ impl VectorMutOps for PrimitiveVectorMut {
         match_each_pvector_mut!(self, |v| { v.reserve(additional) })
     }
 
+    fn clear(&mut self) {
+        match_each_pvector_mut!(self, |v| { v.clear() })
+    }
+
+    fn truncate(&mut self, len: usize) {
+        match_each_pvector_mut!(self, |v| { v.truncate(len) })
+    }
+
     fn extend_from_vector(&mut self, other: &PrimitiveVector) {
         match (self, other) {
             (Self::U8(a), PrimitiveVector::U8(b)) => a.extend_from_vector(b),

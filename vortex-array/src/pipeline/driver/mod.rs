@@ -3,24 +3,23 @@
 
 pub mod allocation;
 mod bind;
-mod input;
 mod toposort;
 
-use std::any::Any;
 use std::hash::{BuildHasher, Hash, Hasher};
 
-use crate::pipeline::bit_view::{BitView, BitViewExt};
-use crate::pipeline::driver::allocation::{allocate_vectors, OutputTarget};
-use crate::pipeline::driver::bind::bind_kernels;
-use crate::pipeline::driver::toposort::topological_sort;
-use crate::pipeline::{ElementPosition, Kernel, KernelCtx, PipelineInputs, PipelineVector, N};
-use crate::{Array, ArrayEq, ArrayHash, ArrayOperator, ArrayRef, ArrayVisitor, Precision};
 use itertools::Itertools;
-use vortex_dtype::{DType, NativePType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_dtype::DType;
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
 use vortex_vector::{Vector, VectorMut, VectorMutOps};
+
+use crate::pipeline::bit_view::{BitView, BitViewExt};
+use crate::pipeline::driver::allocation::{OutputTarget, allocate_vectors};
+use crate::pipeline::driver::bind::bind_kernels;
+use crate::pipeline::driver::toposort::topological_sort;
+use crate::pipeline::{ElementPosition, Kernel, KernelCtx, N, PipelineInputs, PipelineVector};
+use crate::{Array, ArrayEq, ArrayHash, ArrayOperator, ArrayRef, ArrayVisitor, Precision};
 
 /// A pipeline driver takes a Vortex array and executes it into a canonical vector.
 ///
@@ -50,6 +49,7 @@ struct Node {
     // This node's underlying array.
     array: ArrayRef,
     /// The type of pipeline node.
+    #[allow(dead_code)] // TODO(ngates): pipeline execute does not yet use this
     kind: NodeKind,
     // The indices of the pipelined children nodes in the `nodes` vector.
     children: Vec<NodeId>,
@@ -68,8 +68,8 @@ enum NodeKind {
     /// A source node provides input to the pipeline by writing into mutable output vectors one
     /// batch at a time.
     Source,
+    /// A transform node takes pipelined inputs from its children and produces output vectors
     Transform,
-    Zip,
 }
 
 impl PipelineDriver {
@@ -247,21 +247,21 @@ impl Pipeline {
                 // The number of _full_ chunks we need to process.
                 let nchunks = selection.len() / N;
                 for _ in 0..nchunks {
-                    self.step(&mut self.ctx, &BitView::all_true(), &mut output)?;
+                    self.step(&BitView::all_true(), &mut output)?;
                 }
 
                 // Now process the final partial chunk, if any.
                 let remaining = selection.len() % N;
                 if remaining > 0 {
                     let selection_view = BitView::with_prefix(remaining);
-                    self.step(&mut self.ctx, &selection_view, &mut output)?;
+                    self.step(&selection_view, &mut output)?;
                 }
             }
             Mask::Values(mask_values) => {
                 // Loop over each chunk of N elements in the mask as a bit view.
                 let selection_bits = mask_values.bit_buffer();
                 for selection_view in selection_bits.iter_bit_views() {
-                    self.step(&mut self.ctx, &selection_view, &mut output)?;
+                    self.step(&selection_view, &mut output)?;
                 }
             }
         }
@@ -270,12 +270,7 @@ impl Pipeline {
     }
 
     /// Perform a single step of the pipeline.
-    fn step(
-        &self,
-        ctx: &mut KernelCtx,
-        selection: &BitView,
-        output: &mut VectorMut,
-    ) -> VortexResult<()> {
+    fn step(&mut self, selection: &BitView, output: &mut VectorMut) -> VortexResult<()> {
         // Loop over the kernels in toposorted execution order
         for &node_idx in self.exec_order.iter() {
             let kernel = &mut self.kernels[node_idx];
@@ -284,12 +279,12 @@ impl Pipeline {
             // take the intermediate vector and write into that.
             match &self.output_targets[node_idx] {
                 OutputTarget::ExternalOutput => {
-                    let output_len = output.len();
-                    let position = kernel.step(ctx, selection, output)?;
-                    if output.len() != output_len + N {
+                    let prev_output_len = output.len();
+                    let position = kernel.step(&self.ctx, selection, output)?;
+                    if output.len() != prev_output_len + N {
                         vortex_bail!(
                             "Kernel produced incorrect number of output elements, expected {}, got {}",
-                            output_len + N,
+                            prev_output_len + N,
                             output.len()
                         );
                     }
@@ -304,16 +299,15 @@ impl Pipeline {
                         ElementPosition::Compact => {
                             // The output is already compacted, we just need to adjust the length
                             // to cover only the selected elements.
-                            assert!(selection.true_count() <= N);
-                            unsafe { output.set_len(output_len + selection.true_count()) }
+                            output.truncate(prev_output_len + selection.true_count());
                         }
                     }
                 }
                 OutputTarget::IntermediateVector(vector_id) => {
-                    let mut out_vector = VectorMut::from(ctx.take_output(vector_id));
+                    let mut out_vector = VectorMut::from(self.ctx.take_output(vector_id));
                     out_vector.clear();
 
-                    let position = kernel.step(ctx, selection, &mut out_vector)?;
+                    let position = kernel.step(&self.ctx, selection, &mut out_vector)?;
                     if out_vector.len() != N {
                         vortex_bail!(
                             "Kernel produced incorrect number of output elements, expected {}, got {}",
@@ -325,7 +319,7 @@ impl Pipeline {
                     // Wrap the output vector back into a PipelineVector, indicating which position
                     // the elements are in.
                     let out_vector = PipelineVector::from_position(position, out_vector);
-                    ctx.replace_output(vector_id, out_vector)
+                    self.ctx.replace_output(vector_id, out_vector)
                 }
             };
         }

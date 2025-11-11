@@ -9,7 +9,7 @@ use std::ops::RangeBounds;
 
 use vortex_mask::{Mask, MaskMut};
 
-use crate::{private, Scalar, Vector, VectorMut};
+use crate::{Scalar, Vector, VectorMut, private};
 
 /// Common operations for immutable vectors (all the variants of [`Vector`]).
 pub trait VectorOps: private::Sealed + Into<Vector> + Sized {
@@ -107,6 +107,13 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> + Sized {
 
     /// Clears the buffer, removing all data. Existing capacity is preserved.
     fn clear(&mut self);
+
+    /// Shortens the buffer, keeping the first len bytes and dropping the rest.
+    ///
+    /// If len is greater than the buffer’s current length, this has no effect.
+    ///
+    /// Existing underlying capacity is preserved.
+    fn truncate(&mut self, len: usize);
 
     /// Extends the vector by appending elements from another vector.
     ///

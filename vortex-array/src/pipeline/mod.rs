@@ -4,13 +4,10 @@
 pub mod bit_view;
 pub mod driver;
 
-use std::ops::Deref;
-
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_vector::{Vector, VectorMut, VectorMutOps};
+use vortex_vector::{Vector, VectorMut};
 
 use crate::pipeline::bit_view::BitView;
-use crate::Array;
 
 /// The number of elements in each step of a Vortex evaluation operator.
 pub const N: usize = 1024;
@@ -28,7 +25,7 @@ pub trait PipelinedNode {
     fn inputs(&self) -> PipelineInputs;
 
     /// Bind the node into a [`Kernel`] for pipelined execution.
-    fn bind(&self, ctx: &mut dyn BindContext) -> VortexResult<Box<dyn Kernel>>;
+    fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>>;
 }
 
 /// Describes the type of pipeline node and its input information.
@@ -143,11 +140,6 @@ impl VectorId {
     // Non-public constructor to keep the type opaque to end users.
     fn new(idx: usize) -> Self {
         VectorId(idx)
-    }
-
-    // Non-public getter to keep the type opaque to end users.
-    fn as_usize(&self) -> usize {
-        self.0
     }
 }
 

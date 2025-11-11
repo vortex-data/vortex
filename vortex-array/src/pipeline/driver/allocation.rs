@@ -3,11 +3,12 @@
 
 //! Vector allocation strategy for pipelines
 
-use crate::pipeline::driver::{Node, NodeId};
-use crate::pipeline::{PipelineVector, VectorId, N};
-use crate::Array;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_vector::VectorMut;
+
+use crate::Array;
+use crate::pipeline::driver::{Node, NodeId};
+use crate::pipeline::{N, PipelineVector, VectorId};
 
 #[derive(Debug)]
 pub struct VectorAllocation {

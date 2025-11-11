@@ -6,13 +6,13 @@
 use std::sync::Arc;
 
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::MaskMut;
 
 use super::ListViewVector;
 use crate::primitive::{PrimitiveVector, PrimitiveVectorMut};
 use crate::vector_ops::VectorMutOps;
-use crate::{match_each_integer_pvector, match_each_integer_pvector_mut, VectorMut, VectorOps};
+use crate::{VectorMut, VectorOps, match_each_integer_pvector, match_each_integer_pvector_mut};
 
 /// A mutable vector of variable-width lists.
 ///
@@ -248,6 +248,13 @@ impl VectorMutOps for ListViewVectorMut {
         self.elements.clear();
         self.validity.clear();
         self.len = 0;
+    }
+
+    fn truncate(&mut self, len: usize) {
+        self.offsets.truncate(len);
+        self.sizes.truncate(len);
+        self.validity.truncate(len);
+        self.len = self.validity.len();
     }
 
     /// This will also panic if we try to extend the `ListViewVector` beyond the maximum offset

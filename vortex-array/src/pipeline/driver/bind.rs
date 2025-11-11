@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::array::ArrayOperator;
-use crate::pipeline::driver::allocation::VectorAllocation;
-use crate::pipeline::driver::Node;
-use crate::pipeline::{BindContext, Kernel, VectorId};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_vector::Vector;
+
+use crate::array::ArrayOperator;
+use crate::pipeline::driver::Node;
+use crate::pipeline::driver::allocation::VectorAllocation;
+use crate::pipeline::{BindContext, Kernel, VectorId};
 
 pub(crate) fn bind_kernels(
     dag: &[Node],
