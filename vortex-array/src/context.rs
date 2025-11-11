@@ -70,6 +70,10 @@ impl<T: Clone + Eq> VTableContext<T> {
     }
 
     /// Returns the index of the encoding in the context, or adds it if it doesn't exist.
+    ///
+    /// At write time the order encodings are registered by this method can change.
+    /// See [File Format specification](https://docs.vortex.rs/specs/file-format#file-determinism-and-reproducibility)
+    /// for more details.
     pub fn encoding_idx(&self, encoding: &T) -> u16 {
         let mut write = self.0.write();
         if let Some(idx) = write.iter().position(|e| e == encoding) {
