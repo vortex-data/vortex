@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexResult;
-use vortex_vector::{VectorMut, VectorMutOps};
+use vortex_error::{VortexExpect, VortexResult};
+use vortex_vector::{VectorMut, VectorMutOps, VectorOps};
 
 use crate::pipeline::bit_view::BitView;
 use crate::pipeline::{Kernel, KernelCtx, N};
@@ -10,13 +10,13 @@ use crate::pipeline::{Kernel, KernelCtx, N};
 /// A kernel that feeds a batch vector into the pipeline in chunks of size `N` with zero-copy.
 pub(super) struct InputKernel {
     // The batch vector to be fed into the pipeline.
-    batch: VectorMut,
+    batch: Option<VectorMut>,
 }
 
 impl InputKernel {
     /// Create a new input kernel with the given batch vector.
     pub(super) fn new(batch: VectorMut) -> Self {
-        Self { batch }
+        Self { batch: Some(batch) }
     }
 }
 
@@ -24,16 +24,40 @@ impl Kernel for InputKernel {
     fn step(
         &mut self,
         _ctx: &KernelCtx,
-        _selection: &BitView,
+        selection: &BitView,
         out: &mut VectorMut,
     ) -> VortexResult<()> {
+        let mut batch = self
+            .batch
+            .take()
+            .vortex_expect("Input kernel has already been exhausted");
+        let remaining = batch.len();
+
+        // The ideal thing to do here is to split off a chunk of size N from our owned batch vector,
+        // and then unsplit it onto the output vector. This should be a zero-copy operation in both
+        // cases, regardless of whether the output vector is the root output of the pipeline or an
+        // intermediate vector that gets cleared on each iteration.
+        //
+        // The only case this doesn't work, is when we have fewer than N elements left in our batch
+        // vector, _and_ the selection vector is not simply a dense prefix. In this case, we copy
+        // the remaining elements into the output.
+        if remaining < N && selection.true_count() < remaining {
+            // TODO(ngates): this is slow. We should instead unsplit the vector, and then manually
+            //  run a compaction over the vector.
+            let immutable = batch.freeze();
+            selection.iter_ones(|idx| {
+                out.extend_from_vector(&immutable.slice(idx..idx + 1));
+            });
+            return Ok(());
+        }
+
         // We split off from our owned batch vector in chunks of size N, and then unsplit onto the
         // output vector. Both of these operations should be zero-copy.
-        let mut split = self.batch.split_off(N.min(self.batch.len()));
+        let mut split = batch.split_off(N.min(remaining));
 
         // Split-off leaves [0, at) in self.batch, and returns [at, ..)
         // So we swap the remainder back into self.batch for the next iteration
-        std::mem::swap(&mut split, &mut self.batch);
+        std::mem::swap(&mut split, &mut batch);
 
         // If the output vector is the end of the pipeline, then each step we will be given back
         // the same output to append to, and unsplit will be zero-copy.
@@ -41,13 +65,15 @@ impl Kernel for InputKernel {
         // each step, and unsplit will also be zero-copy.
         out.unsplit(split);
 
+        self.batch = Some(batch);
+
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod test {
-    use vortex_buffer::buffer;
+    use vortex_buffer::{bitbuffer, buffer};
     use vortex_dtype::PTypeDowncastExt;
     use vortex_mask::Mask;
 
@@ -69,5 +95,22 @@ mod test {
             .into_primitive()
             .downcast::<u32>();
         assert_eq!(vector.elements().as_ref(), &[123u32; 8000]);
+    }
+
+    #[test]
+    fn test_pipeline_input_with_selection() {
+        let array = buffer![0u32, 1, 2, 3, 4].into_array();
+        assert!(
+            array.as_pipelined().is_none(),
+            "We're explicitly testing non-pipelined arrays"
+        );
+
+        let selection = Mask::from(bitbuffer![1 0 1 0 1]);
+        let vector = PipelineDriver::new(array)
+            .execute(&selection)
+            .unwrap()
+            .into_primitive()
+            .downcast::<u32>();
+        assert_eq!(vector.elements().as_ref(), &[0u32, 2, 4]);
     }
 }

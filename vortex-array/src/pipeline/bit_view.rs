@@ -216,6 +216,8 @@ impl<'a> BitView<'a> {
     ///
     /// The function `f` receives a [`BitSlice`] containing the inclusive `start` bit as well as
     /// the length.
+    ///
+    /// FIXME(ngates): this is still broken.
     pub fn iter_slices<F>(&self, mut f: F)
     where
         F: FnMut(BitSlice),
