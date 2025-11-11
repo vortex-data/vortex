@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::{Buffer, BufferMut};
-use vortex_mask::Mask;
+use vortex_mask::{Mask, MaskValues};
 
 use crate::expand::Expand;
 
@@ -19,7 +19,7 @@ impl<T: Copy> Expand for Buffer<T> {
         match mask {
             Mask::AllTrue(_) => self,
             Mask::AllFalse(_) => Buffer::empty(),
-            Mask::Values(_) => {
+            Mask::Values(mask_values) => {
                 // Try to get exclusive access to expand in-place.
                 match self.try_into_mut() {
                     Ok(mut buf_mut) => {
@@ -27,7 +27,7 @@ impl<T: Copy> Expand for Buffer<T> {
                         buf_mut.freeze()
                     }
                     // Otherwise, expand into a new buffer.
-                    Err(buffer) => expand_into_new_buffer(buffer.as_slice(), mask),
+                    Err(buffer) => expand_copy(buffer.as_slice(), mask_values),
                 }
             }
         }
@@ -46,9 +46,9 @@ impl<T: Copy> Expand for &Buffer<T> {
 
         match mask {
             Mask::AllTrue(_) => self.clone(),
-            Mask::AllFalse(_) => Buffer::empty(),
+            Mask::AllFalse(_) => self.clone(),
             // Expand into new buffer unconditionally as `try_into_mut` can never succeed on `&Buffer`.
-            Mask::Values(_) => expand_into_new_buffer(self.as_slice(), mask),
+            Mask::Values(mask_values) => expand_copy(self.as_slice(), mask_values),
         }
     }
 }
@@ -65,24 +65,18 @@ impl<T: Copy> Expand for &mut BufferMut<T> {
 
         match mask {
             Mask::AllTrue(_) => {}
-            Mask::AllFalse(_) => self.clear(),
+            Mask::AllFalse(_) => {}
             Mask::Values(mask_values) => {
                 let buf_len = self.len();
                 let mask_len = mask_values.len();
 
-                if buf_len == 0 {
-                    return;
-                }
-
                 self.reserve(mask_len - buf_len);
 
-                // SAFETY: We just reserved enough space above.
-                unsafe {
-                    self.set_len(mask_len);
-                }
+                // SAFETY: Sufficient capacity has been reserved.
+                unsafe { self.set_len(mask_len) };
 
                 let buf_slice = self.as_mut_slice();
-                expand_into_slice_inplace(buf_slice, buf_len, mask_values);
+                expand_inplace(buf_slice, buf_len, mask_values);
             }
         }
     }
@@ -96,11 +90,7 @@ impl<T: Copy> Expand for &mut BufferMut<T> {
 /// * `buf_slice` - The buffer slice to scatter into (already expanded to mask length)
 /// * `src_len` - The original length of the buffer before expansion
 /// * `mask_values` - The mask indicating where elements should be placed
-fn expand_into_slice_inplace<T: Copy>(
-    buf_slice: &mut [T],
-    src_len: usize,
-    mask_values: &vortex_mask::MaskValues,
-) {
+fn expand_inplace<T: Copy>(buf_slice: &mut [T], src_len: usize, mask_values: &MaskValues) {
     let mask_len = buf_slice.len();
 
     // Pick the first value as a default value. The buffer is not empty, and we
@@ -112,6 +102,7 @@ fn expand_into_slice_inplace<T: Copy>(
 
     // Iterate backwards through the mask to avoid overwriting unprocessed elements.
     for mask_idx in (src_len..mask_len).rev() {
+        // NOTE(0ax1): .value is slow => optimize
         if mask_values.value(mask_idx) {
             element_idx -= 1;
             buf_slice[mask_idx] = buf_slice[element_idx];
@@ -130,20 +121,27 @@ fn expand_into_slice_inplace<T: Copy>(
     }
 }
 
-/// Scatters elements from a source buffer into a destination slice at positions marked true
-/// in the mask.
+/// Expands a slice into a new buffer at the target size, scattering elements to
+/// true positions in the mask.
 ///
 /// # Arguments
 ///
-/// * `src` - The source elements to scatter
-/// * `dest` - The destination buffer slice (already expanded to mask length)
+/// * `src` - The source slice containing elements to scatter
 /// * `mask_values` - The mask indicating where elements should be placed
-fn scatter_into_slice_from<T: Copy>(
-    src: &[T],
-    dest: &mut [T],
-    mask_values: &vortex_mask::MaskValues,
-) {
-    let mask_len = dest.len();
+///
+/// # Returns
+///
+/// A new `Buffer<T>` with length equal to `mask.len`, with elements from `src` scattered
+/// to positions marked true in the mask. Positions marked false can have arbitrary values.
+fn expand_copy<T: Copy>(src: &[T], mask_values: &MaskValues) -> Buffer<T> {
+    let mask_len = mask_values.len();
+
+    let mut target_buf = BufferMut::<T>::with_capacity(mask_len);
+
+    // SAFETY: Preallocate full target capacity.
+    unsafe { target_buf.set_len(mask_len) };
+
+    let buf_slice = target_buf.as_mut_slice();
 
     // Pick the first value as a default value. The source buffer is not empty.
     let pseudo_default_value = src[0];
@@ -152,60 +150,19 @@ fn scatter_into_slice_from<T: Copy>(
     let mut element_idx = src_len;
 
     // Iterate backwards through the mask to avoid any issues.
-    for mask_idx in (src_len..mask_len).rev() {
+    for mask_idx in (0..mask_len).rev() {
+        // NOTE(0ax1): .value is slow => optimize
         if mask_values.value(mask_idx) {
             element_idx -= 1;
-            dest[mask_idx] = src[element_idx];
+            buf_slice[mask_idx] = src[element_idx];
         } else {
-            // Initialize with a pseudo-default value.
-            dest[mask_idx] = pseudo_default_value;
+            // Initialize with a pseudo-default value. In case we expand into a
+            // new buffer all false positions need to be initialized.
+            buf_slice[mask_idx] = pseudo_default_value;
         }
     }
 
-    for mask_idx in (0..src_len).rev() {
-        if mask_values.value(mask_idx) {
-            element_idx -= 1;
-            dest[mask_idx] = src[element_idx];
-        }
-    }
-}
-
-/// Expands a slice into a new buffer at the target size, scattering elements to
-/// true positions in the mask.
-///
-/// # Arguments
-///
-/// * `src` - The source slice containing elements to scatter
-/// * `mask` - The mask indicating where elements should be placed
-///
-/// # Returns
-///
-/// A new `Buffer<T>` with length equal to `mask.len()`, with elements from `src` scattered
-/// to positions marked true in the mask. Positions marked false can have arbitrary values.
-fn expand_into_new_buffer<T: Copy>(src: &[T], mask: &Mask) -> Buffer<T> {
-    let src_len = src.len();
-    let mask_len = mask.len();
-
-    match mask {
-        Mask::AllTrue(_) => Buffer::from_trusted_len_iter(src.iter().copied()),
-        Mask::AllFalse(_) => Buffer::empty(),
-        Mask::Values(mask_values) => {
-            if src_len == 0 {
-                return Buffer::empty();
-            }
-
-            let mut buf_mut = BufferMut::<T>::with_capacity(mask_len);
-
-            // SAFETY: We're preallocating the full target capacity.
-            unsafe {
-                buf_mut.set_len(mask_len);
-            }
-
-            let buf_slice = buf_mut.as_mut_slice();
-            scatter_into_slice_from(src, buf_slice, mask_values);
-            buf_mut.freeze()
-        }
-    }
+    target_buf.freeze()
 }
 
 #[cfg(test)]
@@ -383,31 +340,16 @@ mod tests {
             true, false, true, false, true, false, true, false, true, false,
         ]);
 
-        let result = expand_into_new_buffer(&src, &mask);
+        let Mask::Values(mask_values) = mask else {
+            panic!("Expected Mask::Values");
+        };
+
+        let result = expand_copy(&src, &mask_values);
         assert_eq!(result.len(), 10);
         assert_eq!(result.as_slice()[0], 10);
         assert_eq!(result.as_slice()[2], 20);
         assert_eq!(result.as_slice()[4], 30);
         assert_eq!(result.as_slice()[6], 40);
         assert_eq!(result.as_slice()[8], 50);
-    }
-
-    #[test]
-    fn test_scatter_into_slice_from() {
-        let src = [1u32, 2, 3, 4, 5];
-        let mut dest = vec![0u32; 8];
-        let mask = Mask::from_iter([true, true, false, true, true, false, true, false]);
-
-        let mask_values = match &mask {
-            Mask::Values(mv) => mv,
-            _ => panic!("Expected Mask::Values"),
-        };
-
-        scatter_into_slice_from(&src, &mut dest, mask_values);
-        assert_eq!(dest[0], 1);
-        assert_eq!(dest[1], 2);
-        assert_eq!(dest[3], 3);
-        assert_eq!(dest[4], 4);
-        assert_eq!(dest[6], 5);
     }
 }
