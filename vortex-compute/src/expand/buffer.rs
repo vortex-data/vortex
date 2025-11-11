@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::mem::MaybeUninit;
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_mask::{Mask, MaskValues};
 
@@ -68,41 +67,39 @@ impl<T: Copy> Expand for &mut BufferMut<T> {
             Mask::AllTrue(_) => {}
             Mask::AllFalse(_) => {}
             Mask::Values(mask_values) => {
-                let buf_len = self.len();
-                let mask_len = mask_values.len();
-
-                self.reserve(mask_len - buf_len);
-
-                // SAFETY: Sufficient capacity has been reserved.
-                unsafe { self.set_len(mask_len) };
-
-                let buf_slice = self.as_mut_slice();
-                expand_inplace(buf_slice, buf_len, mask_values);
+                expand_inplace(self, mask_values);
             }
         }
     }
 }
 
-/// Scatters elements from a mutable slice into itself at positions marked true in the mask.
+/// Scatters elements from a mutable buffer into itself at positions marked true in the mask.
 /// Used for in-place expansion where source and destination are the same buffer.
 ///
 /// # Arguments
 ///
-/// * `buf_slice` - The buffer slice to scatter into (already expanded to mask length)
-/// * `src_len` - The original length of the buffer before expansion
+/// * `buf_mut` - The mutable buffer to expand in-place
 /// * `mask_values` - The mask indicating where elements should be placed
-fn expand_inplace<T: Copy>(buf_slice: &mut [T], src_len: usize, mask_values: &MaskValues) {
-    let mask_len = buf_slice.len();
+fn expand_inplace<T: Copy>(buf_mut: &mut BufferMut<T>, mask_values: &MaskValues) {
+    let buf_len = buf_mut.len();
+    let mask_len = mask_values.len();
+
+    buf_mut.reserve(mask_len - buf_len);
+
+    // SAFETY: Sufficient capacity has been reserved.
+    unsafe { buf_mut.set_len(mask_len) };
+
+    let buf_slice = buf_mut.as_mut_slice();
 
     // Pick the first value as a default value. The buffer is not empty, and we
     // know that the first value is guaranteed to be initialized. By doing this
     // T does not require to implement `Default`.
     let pseudo_default_value = buf_slice[0];
 
-    let mut element_idx = src_len;
+    let mut element_idx = buf_len;
 
     // Iterate backwards through the mask to avoid overwriting unprocessed elements.
-    for mask_idx in (src_len..mask_len).rev() {
+    for mask_idx in (buf_len..mask_len).rev() {
         // NOTE(0ax1): .value is slow => optimize
         if mask_values.value(mask_idx) {
             element_idx -= 1;
@@ -113,7 +110,7 @@ fn expand_inplace<T: Copy>(buf_slice: &mut [T], src_len: usize, mask_values: &Ma
         }
     }
 
-    for mask_idx in (0..src_len).rev() {
+    for mask_idx in (0..buf_len).rev() {
         if mask_values.value(mask_idx) {
             element_idx -= 1;
             buf_slice[mask_idx] = buf_slice[element_idx];
