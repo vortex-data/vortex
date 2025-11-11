@@ -278,6 +278,11 @@ impl Pipeline {
             // take the intermediate vector and write into that.
             match &self.output_targets[node_idx] {
                 OutputTarget::ExternalOutput => {
+                    assert!(
+                        output.capacity() >= N,
+                        "Insufficient capacity in external output vector"
+                    );
+
                     let prev_output_len = output.len();
                     kernel.step(&self.ctx, selection, output)?;
 
@@ -302,6 +307,10 @@ impl Pipeline {
                 OutputTarget::IntermediateVector(vector_id) => {
                     let mut out_vector = VectorMut::from(self.ctx.take_output(vector_id));
                     out_vector.clear();
+                    assert!(
+                        out_vector.capacity() >= N,
+                        "Insufficient capacity in intermediate vector"
+                    );
 
                     kernel.step(&self.ctx, selection, &mut out_vector)?;
 
