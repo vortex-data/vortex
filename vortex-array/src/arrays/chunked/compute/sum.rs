@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::AddAssign;
-
-use num_traits::PrimInt;
+use num_traits::CheckedAdd;
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
@@ -26,7 +24,7 @@ impl SumKernel for ChunkedVTable {
                     sum_ptype,
                     unsigned: |T| { sum_int::<u64>(array.chunks(), initial_value.as_primitive().as_::<u64>().vortex_expect("cannot be null"))?.into() },
                     signed: |T| { sum_int::<i64>(array.chunks(), initial_value.as_primitive().as_::<i64>().vortex_expect("cannot be null"))?.into() },
-                    floating: |T| { sum_float::<f64>(array.chunks(), initial_value.as_primitive().as_::<f64>().vortex_expect("cannot be null"))?.into() }
+                    floating: |T| { sum_float(array.chunks(), initial_value.as_primitive().as_::<f64>().vortex_expect("cannot be null"))?.into() }
                 );
 
                 Ok(Scalar::new(sum_dtype, scalar_value))
@@ -40,7 +38,7 @@ impl SumKernel for ChunkedVTable {
 
 register_kernel!(SumKernelAdapter(ChunkedVTable).lift());
 
-fn sum_int<T: NativePType + PrimInt>(
+fn sum_int<T: NativePType + CheckedAdd>(
     chunks: &[ArrayRef],
     initial_value: T,
 ) -> VortexResult<Option<T>> {
@@ -60,13 +58,10 @@ fn sum_int<T: NativePType + PrimInt>(
     Ok(Some(result))
 }
 
-fn sum_float<T: NativePType + AddAssign>(
-    chunks: &[ArrayRef],
-    initial_value: T,
-) -> VortexResult<Option<T>> {
+fn sum_float(chunks: &[ArrayRef], initial_value: f64) -> VortexResult<Option<f64>> {
     let mut result = initial_value;
     for chunk in chunks {
-        let Some(chunk_sum) = sum(chunk)?.as_primitive().as_::<T>() else {
+        let Some(chunk_sum) = sum(chunk)?.as_primitive().as_::<f64>() else {
             return Ok(None);
         };
         result += chunk_sum;
@@ -78,7 +73,7 @@ fn sum_decimal(chunks: &[ArrayRef], initial_value: &Scalar) -> VortexResult<Scal
     let mut result = initial_value.clone();
 
     for chunk in chunks {
-        result = sum_with_initial(chunk, result)?;
+        result = sum_with_initial(chunk, &result)?;
     }
 
     Ok(result)
