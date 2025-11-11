@@ -41,8 +41,8 @@ impl OperatorVTable<StructVTable> for StructVTable {
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::bitbuffer;
     use vortex_dtype::{FieldNames, PTypeDowncast};
-    use vortex_mask::Mask;
     use vortex_vector::VectorOps;
 
     use crate::IntoArray;
@@ -83,44 +83,6 @@ mod tests {
     }
 
     #[test]
-    fn test_struct_operator_with_mask() {
-        // Create a struct array with two fields.
-        let int_field = PrimitiveArray::from_iter([10i32, 20, 30, 40, 50, 60]);
-        let bool_field = BoolArray::from_iter([true, false, true, false, true, false]);
-
-        let struct_array = StructArray::try_new(
-            FieldNames::from(["numbers", "flags"]),
-            vec![int_field.into_array(), bool_field.into_array()],
-            6,
-            Validity::AllValid,
-        )
-        .unwrap();
-
-        // Create a selection mask that selects indices 0, 2, 4 (alternating pattern).
-        let selection = Mask::from_iter([true, false, true, false, true, false]);
-
-        // Execute with selection mask.
-        let result = struct_array.execute_with_selection(&selection).unwrap();
-
-        // Verify the result has the filtered length.
-        assert_eq!(result.len(), 3);
-
-        // Verify the struct vector fields.
-        let struct_vector = result.as_struct();
-        let fields = struct_vector.fields();
-        assert_eq!(fields.len(), 2);
-
-        // Verify the integer field has the correct filtered values (indices 0, 2, 4).
-        let int_vector = fields[0].as_primitive().clone().into_i32();
-        assert_eq!(int_vector.elements().as_slice(), &[10, 30, 50]);
-
-        // Verify the boolean field has the correct filtered values (indices 0, 2, 4).
-        let bool_vector = fields[1].as_bool();
-        let bool_values: Vec<bool> = (0..3).map(|i| bool_vector.bits().value(i)).collect();
-        assert_eq!(bool_values, vec![true, true, true]);
-    }
-
-    #[test]
     fn test_struct_operator_null_handling() {
         // Create fields with nulls.
         let int_field = PrimitiveArray::from_option_iter([
@@ -148,13 +110,9 @@ mod tests {
         )
         .unwrap();
 
-        // Create a selection mask that selects indices 0, 1, 2, 4, 5.
-        let selection = Mask::from_iter([true, true, true, false, true, true]);
+        let result = struct_array.execute().unwrap();
 
-        // Execute with selection mask.
-        let result = struct_array.execute_with_selection(&selection).unwrap();
-
-        assert_eq!(result.len(), 5);
+        assert_eq!(result.len(), 6);
 
         // Verify the struct vector fields.
         let struct_vector = result.as_struct();
@@ -164,23 +122,19 @@ mod tests {
         // Verify integer field has the correct filtered values with nulls.
         // Selected indices: 0, 1, 2, 4, 5 from [Some(100), None, Some(200), Some(300), None, Some(400)].
         let int_vector = fields[0].as_primitive().clone().into_i32();
-        let int_values: Vec<Option<i32>> = (0..5).map(|i| int_vector.get(i).copied()).collect();
+        let int_values: Vec<Option<i32>> = (0..6).map(|i| int_vector.get(i).copied()).collect();
         assert_eq!(
             int_values,
-            vec![Some(100), None, Some(200), None, Some(400)]
+            vec![Some(100), None, Some(200), Some(300), None, Some(400)]
         );
 
-        // Verify boolean field values.
-        // Selected indices: 0, 1, 2, 4, 5 from [T, F, T, F, T, F].
+        // Verify boolean field values from [T, F, T, F, T, F].
         let bool_vector = fields[1].as_bool();
-        let bool_values: Vec<bool> = (0..5).map(|i| bool_vector.bits().value(i)).collect();
-        assert_eq!(bool_values, vec![true, false, true, true, false]);
+        assert_eq!(bool_vector.bits(), &bitbuffer![1 0 1 0 1 0]);
 
         // Verify the struct-level validity is correctly propagated.
         // Original struct validity: [T, F, T, T, F, T]
-        // Selected indices: 0, 1, 2, 4, 5 -> validity: [T, F, T, F, T].
         let validity_mask = struct_vector.validity();
-        let struct_validity_values: Vec<bool> = (0..5).map(|i| validity_mask.value(i)).collect();
-        assert_eq!(struct_validity_values, vec![true, false, true, false, true]);
+        assert_eq!(validity_mask.to_bit_buffer(), bitbuffer![1 0 1 1 0 1]);
     }
 }

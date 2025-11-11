@@ -119,15 +119,6 @@ pub trait ZipTransformKernel: Send {
     fn step(&mut self, inputs: &[Vector], out: &mut VectorMut) -> VortexResult<()>;
 }
 
-/// A sink kernel consumes input vectors without producing output.
-pub trait SinkKernel: Send {
-    /// Perform a single step of the kernel.
-    fn step(&mut self, input: &Vector) -> VortexResult<()>;
-
-    /// Finalize the sink after all input has been processed.
-    fn finalize(&mut self) -> VortexResult<Vector>;
-}
-
 /// A general implementation of a source kernel that produces all null values.
 pub struct AllNullSourceKernel {
     remaining: usize,

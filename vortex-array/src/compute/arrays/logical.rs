@@ -226,18 +226,4 @@ mod tests {
         let result = and_(lhs, rhs).execute().unwrap().into_bool();
         assert_eq!(result.bits(), &bitbuffer![0 1 0]);
     }
-
-    #[test]
-    fn test_and_selected() {
-        let lhs = bitbuffer![0 1 0].into_array();
-        let rhs = bitbuffer![0 1 1].into_array();
-
-        let selection = bitbuffer![0 1 1].into();
-
-        let result = and_(lhs, rhs)
-            .execute_with_selection(&selection)
-            .unwrap()
-            .into_bool();
-        assert_eq!(result.bits(), &bitbuffer![1 0]);
-    }
 }

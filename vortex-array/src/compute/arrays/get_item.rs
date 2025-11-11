@@ -213,42 +213,6 @@ mod tests {
     }
 
     #[test]
-    fn test_get_item_with_selection() {
-        // Create a struct with multiple fields
-        let int_field = PrimitiveArray::from_iter([10i32, 20, 30, 40, 50, 60]);
-        let bool_field = BoolArray::from_iter([true, false, true, false, true, false]);
-
-        let struct_array = StructArray::try_new(
-            FieldNames::from(["numbers", "flags"]),
-            vec![int_field.into_array(), bool_field.into_array()],
-            6,
-            Validity::from_iter([true, true, false, true, true, false]),
-        )
-        .unwrap()
-        .into_array();
-
-        // Extract the "numbers" field
-        let get_item = GetItemArray::try_new(struct_array, "numbers".into())
-            .unwrap()
-            .into_array();
-
-        // Apply selection mask [1 0 1 0 1 0] => select indices 0, 2, 4
-        let selection = bitbuffer![1 0 1 0 1 0].into();
-        let result = get_item
-            .execute_with_selection(&selection)
-            .unwrap()
-            .into_primitive()
-            .into_i32();
-
-        // Should have 3 elements: indices 0, 2, 4
-        assert_eq!(result.len(), 3);
-        assert_eq!(result.elements(), &buffer![10i32, 30, 50]);
-
-        // Check validity: index 0 is valid, index 2 is null (struct), index 4 is valid
-        assert_eq!(result.validity().to_bit_buffer(), bitbuffer![1 0 1]);
-    }
-
-    #[test]
     fn test_get_item_intersects_validity() {
         // Test that field validity is intersected with struct validity
         // Field has nulls at indices 1, 3

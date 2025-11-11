@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::{match_each_alp_float_ptype, ALPArray, ALPFloat, ALPVTable, Exponents};
 use std::marker::PhantomData;
+
 use vortex_array::pipeline::{BindContext, PipelineTransform, TransformKernel};
 use vortex_array::vtable::{OperatorVTable, PipelineNode};
 use vortex_buffer::Buffer;
-use vortex_dtype::{match_each_integer_ptype, NativePType, PTypeDowncastExt};
+use vortex_dtype::{NativePType, PTypeDowncastExt, match_each_integer_ptype};
 use vortex_error::VortexResult;
 use vortex_vector::primitive::PVector;
 use vortex_vector::{Vector, VectorMut};
+
+use crate::{ALPArray, ALPFloat, ALPVTable, Exponents, match_each_alp_float_ptype};
 
 impl OperatorVTable<ALPVTable> for ALPVTable {
     fn pipeline_node(array: &ALPArray) -> Option<PipelineNode<'_>> {
@@ -40,7 +42,7 @@ impl PipelineTransform for ALPArray {
 
                 match_each_alp_float_ptype!(self.ptype(), |A| {
                     match_each_integer_ptype!(patches.indices_ptype(), |P| {
-                        let patch_indices: Buffer<P> = P::downcast(patch_idxs).into_buffer();
+                        let patch_indices: Buffer<P> = patch_idxs.downcast::<P>().into_elements();
                         let patch_values: PVector<A> = A::downcast(patch_vals);
                         Ok(Box::new(PatchedALPKernel {
                             exponents,
@@ -61,10 +63,10 @@ struct ALPKernel<A: ALPFloat> {
 }
 
 impl<A: ALPFloat> TransformKernel for ALPKernel<A> {
-    fn step(&mut self, input: &VectorMut, out: &mut VectorMut) -> VortexResult<()> {
-        let encoded = input.into_primitive().downcast::<A::ALPInt>().into_buffer();
+    fn step(&mut self, input: &Vector, out: &mut VectorMut) -> VortexResult<()> {
+        let encoded = input.as_primitive().downcast::<A::ALPInt>().elements();
 
-        let mut decoded = A::downcast(out.into_primitive());
+        let decoded = out.as_primitive_mut().downcast::<A>();
         decoded.extend(
             encoded
                 .iter()
@@ -74,6 +76,7 @@ impl<A: ALPFloat> TransformKernel for ALPKernel<A> {
     }
 }
 
+#[allow(dead_code)] // TODO(ngates): implement patching
 struct PatchedALPKernel<A: ALPFloat, P: NativePType> {
     // The ALP exponents
     exponents: Exponents,
@@ -84,9 +87,9 @@ struct PatchedALPKernel<A: ALPFloat, P: NativePType> {
 
 impl<A: ALPFloat, P: NativePType> TransformKernel for PatchedALPKernel<A, P> {
     fn step(&mut self, input: &Vector, out: &mut VectorMut) -> VortexResult<()> {
-        let encoded = input.into_primitive().downcast::<A::ALPInt>().into_buffer();
+        let encoded = input.as_primitive().downcast::<A::ALPInt>().elements();
 
-        let mut decoded = out.into_primitive().downcast::<A>();
+        let decoded = out.as_primitive_mut().downcast::<A>();
         decoded.extend(
             encoded
                 .iter()

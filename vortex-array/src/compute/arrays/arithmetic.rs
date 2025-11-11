@@ -342,7 +342,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::{bitbuffer, buffer};
+    use vortex_buffer::buffer;
     use vortex_dtype::PTypeDowncastExt;
 
     use crate::arrays::PrimitiveArray;
@@ -411,18 +411,5 @@ mod tests {
             .into_primitive()
             .downcast::<u32>();
         assert_eq!(result.elements(), &buffer![10u32, 10, 10]);
-    }
-
-    #[test]
-    fn test_add_with_selection() {
-        let lhs = PrimitiveArray::from_iter([1u32, 2, 3]).into_array();
-        let rhs = PrimitiveArray::from_iter([10u32, 20, 30]).into_array();
-
-        let result = add(lhs, rhs)
-            .execute_with_selection(&bitbuffer![1 0 1].into())
-            .unwrap()
-            .into_primitive()
-            .downcast::<u32>();
-        assert_eq!(result.elements(), &buffer![11u32, 33]);
     }
 }

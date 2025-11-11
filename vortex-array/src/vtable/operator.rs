@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::{vortex_bail, VortexResult};
-use vortex_mask::Mask;
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_vector::Vector;
 
-use crate::array::IntoArray;
+use crate::ArrayRef;
 use crate::execution::{BatchKernelRef, BindCtx, ExecutionCtx};
 use crate::pipeline::{PipelineSource, PipelineTransform, PipelineZipTransform};
 use crate::vtable::{NotSupported, VTable};
-use crate::ArrayRef;
 
 /// A vtable for the new operator-based array functionality. Eventually this vtable will be
 /// merged into the main `VTable`, but for now it is kept separate to allow for incremental
@@ -32,12 +30,11 @@ pub trait OperatorVTable<V: VTable> {
     // TODO(ngates): we should fix array vtables such that we can take the array by ownership. This
     //  allows for more efficient in-place compute, as well as avoids allocating additional memory
     //  if the array's own memory can be reused by some reasonable allocator.
-    fn execute_batch(
-        array: &V::Array,
-        selection: &Mask,
-        _ctx: &mut dyn ExecutionCtx,
-    ) -> VortexResult<Vector> {
-        Self::bind(array, Some(&selection.clone().into_array()), &mut ())?.execute()
+    fn execute_batch(array: &V::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+        vortex_bail!(
+            "Batch execution not yet implemented for {} arrays",
+            array.encoding_id()
+        )
     }
 
     /// Downcast this array into a [`PipelineNode`] if it supports pipelined execution.

@@ -8,7 +8,7 @@ use std::ops::RangeBounds;
 
 use vortex_buffer::Buffer;
 use vortex_dtype::NativePType;
-use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 
 use crate::primitive::{PScalar, PVectorMut};
@@ -70,8 +70,8 @@ impl<T> PVector<T> {
         (self.elements, self.validity)
     }
 
-    /// Decompose into the buffer.
-    pub fn into_buffer(self) -> Buffer<T> {
+    /// Returns the elements buffer, consuming the vector.
+    pub fn into_elements(self) -> Buffer<T> {
         self.elements
     }
 
