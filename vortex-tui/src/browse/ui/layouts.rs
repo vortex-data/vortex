@@ -237,25 +237,22 @@ fn render_children_list(app: &mut AppState, area: Rect, buf: &mut Buffer) {
             // Use fuzzy matching to rank and filter results
             let matcher = SkimMatcherV2::default();
 
-            // Collect scored matches
-            let mut scored_matches = layout
+            // Collect matches
+            let matches = layout
                 .child_names()
                 .enumerate()
                 .filter_map(|(idx, name)| {
                     matcher
                         .fuzzy_match(&name, &search_filter)
-                        .map(|score| (idx, name.to_string(), score))
+                        .map(|_| (idx, name.to_string()))
                 })
                 .collect_vec();
 
-            // Sort by score (higher is better)
-            scored_matches.sort_by(|a, b| b.2.cmp(&a.2));
-
             // Create filter based on fuzzy matches
             let mut filter = vec![false; layout.nchildren()];
-            let list_items = scored_matches
+            let list_items = matches
                 .iter()
-                .map(|(idx, name, _score)| {
+                .map(|(idx, name)| {
                     filter[*idx] = true;
                     name.clone()
                 })
