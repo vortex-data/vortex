@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem::MaybeUninit;
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_mask::{Mask, MaskValues};
 
@@ -137,11 +138,7 @@ fn expand_copy<T: Copy>(src: &[T], mask_values: &MaskValues) -> Buffer<T> {
     let mask_len = mask_values.len();
 
     let mut target_buf = BufferMut::<T>::with_capacity(mask_len);
-
-    // SAFETY: Sufficient capacity has been reserved.
-    unsafe { target_buf.set_len(mask_len) };
-
-    let buf_slice = target_buf.as_mut_slice();
+    let target_slice = target_buf.spare_capacity_mut();
 
     // Pick the first value as a default value.
     let pseudo_default_value = src[0];
@@ -154,13 +151,16 @@ fn expand_copy<T: Copy>(src: &[T], mask_values: &MaskValues) -> Buffer<T> {
         // NOTE(0ax1): .value is slow => optimize
         if mask_values.value(mask_idx) {
             element_idx -= 1;
-            buf_slice[mask_idx] = src[element_idx];
+            target_slice[mask_idx].write(src[element_idx]);
         } else {
             // Initialize with a pseudo-default value. In case we expand into a
             // new buffer all false positions need to be initialized.
-            buf_slice[mask_idx] = pseudo_default_value;
+            target_slice[mask_idx].write(pseudo_default_value);
         }
     }
+
+    // SAFETY: Buffer has sufficient capacity and all elements have been initialized.
+    unsafe { target_buf.set_len(mask_len) };
 
     target_buf.freeze()
 }
