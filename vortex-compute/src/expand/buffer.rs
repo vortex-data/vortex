@@ -18,7 +18,7 @@ impl<T: Copy> Expand for Buffer<T> {
 
         match mask {
             Mask::AllTrue(_) => self,
-            Mask::AllFalse(_) => Buffer::empty(),
+            Mask::AllFalse(_) => self,
             Mask::Values(mask_values) => {
                 // Try to get exclusive access to expand in-place.
                 match self.try_into_mut() {
