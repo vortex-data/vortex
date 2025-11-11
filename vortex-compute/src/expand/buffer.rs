@@ -26,7 +26,7 @@ impl<T: Copy> Expand for Buffer<T> {
                         (&mut buf_mut).expand(mask);
                         buf_mut.freeze()
                     }
-                    // Otherwise, expand into a new buffer at the target size.
+                    // Otherwise, expand into a new buffer.
                     Err(buffer) => expand_into_new_buffer(buffer.as_slice(), mask),
                 }
             }
@@ -83,7 +83,7 @@ impl<T: Copy> Expand for &mut BufferMut<T> {
                 }
 
                 let buf_slice = self.as_mut_slice();
-                scatter_into_slice(buf_slice, buf_len, mask_values);
+                expand_into_slice_inplace(buf_slice, buf_len, mask_values);
             }
         }
     }
@@ -97,7 +97,7 @@ impl<T: Copy> Expand for &mut BufferMut<T> {
 /// * `buf_slice` - The buffer slice to scatter into (already expanded to mask length)
 /// * `src_len` - The original length of the buffer before expansion
 /// * `mask_values` - The mask indicating where elements should be placed
-fn scatter_into_slice<T: Copy>(
+fn expand_into_slice_inplace<T: Copy>(
     buf_slice: &mut [T],
     src_len: usize,
     mask_values: &vortex_mask::MaskValues,
@@ -136,14 +136,12 @@ fn scatter_into_slice<T: Copy>(
 ///
 /// # Arguments
 ///
-/// * `dest` - The destination buffer slice (already expanded to mask length)
 /// * `src` - The source elements to scatter
-/// * `src_len` - The length of the source buffer
+/// * `dest` - The destination buffer slice (already expanded to mask length)
 /// * `mask_values` - The mask indicating where elements should be placed
 fn scatter_into_slice_from<T: Copy>(
-    dest: &mut [T],
     src: &[T],
-    src_len: usize,
+    dest: &mut [T],
     mask_values: &vortex_mask::MaskValues,
 ) {
     let mask_len = dest.len();
@@ -151,6 +149,7 @@ fn scatter_into_slice_from<T: Copy>(
     // Pick the first value as a default value. The source buffer is not empty.
     let pseudo_default_value = src[0];
 
+    let src_len = src.len();
     let mut element_idx = src_len;
 
     // Iterate backwards through the mask to avoid any issues.
@@ -204,7 +203,7 @@ fn expand_into_new_buffer<T: Copy>(src: &[T], mask: &Mask) -> Buffer<T> {
             }
 
             let buf_slice = buf_mut.as_mut_slice();
-            scatter_into_slice_from(buf_slice, src, src_len, mask_values);
+            scatter_into_slice_from(src, buf_slice, mask_values);
             buf_mut.freeze()
         }
     }
