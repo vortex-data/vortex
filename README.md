@@ -9,7 +9,7 @@
 [![Maven - Version](https://img.shields.io/maven-central/v/dev.vortex/vortex-spark)](https://central.sonatype.com/artifact/dev.vortex/vortex-spark)
 [![codecov](https://codecov.io/github/vortex-data/vortex/graph/badge.svg)](https://codecov.io/github/vortex-data/vortex)
 
-🚀 [Community Slack](https://vortex.dev/slack) | 📚 [Documentation](https://docs.vortex.dev/) | 📊 [Performance Benchmarks](https://bench.vortex.dev)
+ 📚 [Documentation](https://docs.vortex.dev/) | 📊 [Performance Benchmarks](https://bench.vortex.dev) | 🚀 [Join us on Slack](https://vortex.dev/slack)
 
 ## Overview
 
