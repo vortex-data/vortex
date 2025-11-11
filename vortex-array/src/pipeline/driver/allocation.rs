@@ -86,7 +86,7 @@ pub(super) fn allocate_vectors(
             .collect(),
         vectors: allocation_types
             .into_iter()
-            .map(|dtype| PipelineVector::Compact(VectorMut::with_capacity(dtype, 2 * N)))
+            .map(|dtype| PipelineVector::Compact(VectorMut::with_capacity(dtype, N)))
             .collect(),
     })
 }

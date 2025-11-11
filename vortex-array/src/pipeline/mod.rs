@@ -59,21 +59,27 @@ pub trait BindContext {
     ///
     /// Note that this child index references the batch inputs only, not all children of the
     /// array.
-    fn batch_input(&self, batch_child_idx: usize) -> Vector;
+    fn batch_input(&mut self, batch_child_idx: usize) -> Vector;
 }
 
 /// A pipeline kernel is a stateful object that performs steps of a pipeline.
 ///
-/// Each step of the kernel takes and returns vectors (depending on the type of kernel) of `N`
-/// elements. Input vectors are provided via the [`KernelCtx`] and indicate the position of their
-/// elements as either [`PipelineVector::Sparse`] or [`PipelineVector::Compact`] based on whether
+/// Each step of the kernel processes zero or more input vectors, and writes output to a
+/// pre-allocated mutable output vector.
+///
+/// Input vectors are provided via the [`KernelCtx`] and indicate the position of their elements
+/// as either [`PipelineVector::InPlace`] or [`PipelineVector::Compact`] based on whether
 /// the selected elements are in their original positions or compacted at the start of the vector
 /// respectively.
 ///
 /// The provided mutable output vector is guaranteed to have at least `N` elements of capacity.
-/// The kernel **must** return a vector of exactly `N` elements in each step, and indicate with
-/// the returned [`ElementPosition`] enum whether the output elements are in their original
-/// positions or compacted at the start of the output vector.
+/// The kernel **must** append either [`BitView::true_count`] elements to the output vector (in
+/// which case the output elements are considered to be in the "Compact" position), or it must
+/// append `N` elements (in which case the output elements are considered to be in their "Flat"
+/// positions). The pipeline driver will assert these conditions after each step.
+///
+/// Note that the output vector may not be empty at the start of the step. The kernel must append
+/// its output to the existing contents of the output vector, rather than replacing it.
 pub trait Kernel: Send {
     /// Perform a single step of the kernel.
     fn step(
@@ -81,15 +87,7 @@ pub trait Kernel: Send {
         ctx: &KernelCtx,
         selection: &BitView,
         out: &mut VectorMut,
-    ) -> VortexResult<ElementPosition>;
-}
-
-/// Defines where the elements produced by a kernel are written in the output vector.
-pub enum ElementPosition {
-    /// Elements are written to the output vector in their original selected positions.
-    Sparse,
-    /// Elements are compacted at the start of the output vector.
-    Compact,
+    ) -> VortexResult<()>;
 }
 
 /// The context provided to kernels during execution to access input vectors.
@@ -146,27 +144,18 @@ impl VectorId {
 /// A pipeline vector passed into and out of pipeline kernels.
 #[derive(Debug)]
 pub enum PipelineVector {
-    /// Sparse indicates that the elements indicated by the selection mask are in their original
-    /// sparse positions within the vector.
-    Sparse(VectorMut),
+    /// `InPlace` indicates that elements are in their original positions, where the selected
+    /// elements are identified by true values in the selection mask.
+    InPlace(VectorMut),
     /// Compact indicates that the selected elements are compacted at the start of the vector in
     /// positions `0..true_count`.
     Compact(VectorMut),
 }
 
-impl PipelineVector {
-    pub fn from_position(position: ElementPosition, vec: VectorMut) -> PipelineVector {
-        match position {
-            ElementPosition::Sparse => PipelineVector::Sparse(vec),
-            ElementPosition::Compact => PipelineVector::Compact(vec),
-        }
-    }
-}
-
 impl From<PipelineVector> for VectorMut {
     fn from(value: PipelineVector) -> Self {
         match value {
-            PipelineVector::Sparse(vec) => vec,
+            PipelineVector::InPlace(vec) => vec,
             PipelineVector::Compact(vec) => vec,
         }
     }

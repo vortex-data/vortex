@@ -3,6 +3,7 @@
 
 pub mod allocation;
 mod bind;
+mod input;
 mod toposort;
 
 use std::hash::{BuildHasher, Hash, Hasher};
@@ -18,7 +19,7 @@ use crate::pipeline::bit_view::{BitView, BitViewExt};
 use crate::pipeline::driver::allocation::{OutputTarget, allocate_vectors};
 use crate::pipeline::driver::bind::bind_kernels;
 use crate::pipeline::driver::toposort::topological_sort;
-use crate::pipeline::{ElementPosition, Kernel, KernelCtx, N, PipelineInputs, PipelineVector};
+use crate::pipeline::{Kernel, KernelCtx, N, PipelineInputs, PipelineVector};
 use crate::{Array, ArrayEq, ArrayHash, ArrayOperator, ArrayRef, ArrayVisitor, Precision};
 
 /// A pipeline driver takes a Vortex array and executes it into a canonical vector.
@@ -59,12 +60,10 @@ struct Node {
     batch_inputs: Vec<BatchId>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NodeKind {
-    /// A view node acts as a pipeline source, but is fed into the pipeline by taking zero-copy
-    /// slices of a batch vector. This occurs when a node declares its child as pipelined, but the
-    /// child itself doesn't support pipelined execution.
-    View,
+    /// An input node feeds a batch vector into the pipeline chunk-by-chunk.
+    Input,
     /// A source node provides input to the pipeline by writing into mutable output vectors one
     /// batch at a time.
     Source,
@@ -102,7 +101,7 @@ impl PipelineDriver {
 
                     Node {
                         array,
-                        kind: NodeKind::View,
+                        kind: NodeKind::Input,
                         children: vec![],
                         parents: vec![],
                         batch_inputs: vec![batch_id],
@@ -200,7 +199,7 @@ impl PipelineDriver {
         let batch_inputs: Vec<_> = self
             .batch_inputs
             .into_iter()
-            .map(|array| array.execute())
+            .map(|array| array.execute().map(Some))
             .try_collect()?;
 
         // Compute the toposort of the DAG
@@ -210,7 +209,7 @@ impl PipelineDriver {
         let allocation_plan = allocate_vectors(&self.dag, &exec_order)?;
 
         // Bind each node in the DAG to create its kernel
-        let kernels = bind_kernels(&self.dag, &allocation_plan, &batch_inputs)?;
+        let kernels = bind_kernels(&self.dag, &allocation_plan, batch_inputs)?;
 
         // Construct the kernel execution context
         let ctx = KernelCtx::new(allocation_plan.vectors);
@@ -280,46 +279,51 @@ impl Pipeline {
             match &self.output_targets[node_idx] {
                 OutputTarget::ExternalOutput => {
                     let prev_output_len = output.len();
-                    let position = kernel.step(&self.ctx, selection, output)?;
-                    if output.len() != prev_output_len + N {
-                        vortex_bail!(
-                            "Kernel produced incorrect number of output elements, expected {}, got {}",
-                            prev_output_len + N,
-                            output.len()
-                        );
-                    }
+                    kernel.step(&self.ctx, selection, output)?;
 
-                    match position {
-                        ElementPosition::Sparse => {
-                            // The output is in sparse form, we need to compact it based on the
-                            // selection mask.
-                            // TODO(ngates): we need to implement compaction here.
-                            todo!()
+                    let added_len = output.len() - prev_output_len;
+                    match added_len {
+                        N => {
+                            // If the kernel added N elements, the output is in-place.
+                            // TODO(ngates): we need to filter if the true count is not N.
                         }
-                        ElementPosition::Compact => {
-                            // The output is already compacted, we just need to adjust the length
-                            // to cover only the selected elements.
-                            output.truncate(prev_output_len + selection.true_count());
+                        _ if added_len == selection.true_count() => {
+                            // If the kernel added exactly the number of selected elements,
+                            // the output is already compacted into the start of the vector.
                         }
+                        _ => vortex_bail!(
+                            "Kernel produced incorrect number of output elements, expected to append either {} or {}, got {}",
+                            N,
+                            selection.true_count(),
+                            added_len
+                        ),
                     }
                 }
                 OutputTarget::IntermediateVector(vector_id) => {
                     let mut out_vector = VectorMut::from(self.ctx.take_output(vector_id));
                     out_vector.clear();
 
-                    let position = kernel.step(&self.ctx, selection, &mut out_vector)?;
-                    if out_vector.len() != N {
-                        vortex_bail!(
-                            "Kernel produced incorrect number of output elements, expected {}, got {}",
-                            N,
-                            out_vector.len()
-                        );
-                    }
+                    kernel.step(&self.ctx, selection, &mut out_vector)?;
 
-                    // Wrap the output vector back into a PipelineVector, indicating which position
-                    // the elements are in.
-                    let out_vector = PipelineVector::from_position(position, out_vector);
-                    self.ctx.replace_output(vector_id, out_vector)
+                    match out_vector.len() {
+                        N => {
+                            // If the kernel added N elements, the output is in-place.
+                            self.ctx
+                                .replace_output(vector_id, PipelineVector::InPlace(out_vector));
+                        }
+                        _ if out_vector.len() == selection.true_count() => {
+                            // If the kernel added exactly the number of selected elements,
+                            // the output is already compacted into the start of the vector.
+                            self.ctx
+                                .replace_output(vector_id, PipelineVector::Compact(out_vector));
+                        }
+                        _ => vortex_bail!(
+                            "Kernel produced incorrect number of output elements, expected to append either {} or {}, got {}",
+                            N,
+                            selection.true_count(),
+                            out_vector.len()
+                        ),
+                    }
                 }
             };
         }
