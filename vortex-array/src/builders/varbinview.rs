@@ -695,6 +695,13 @@ impl PrecomputedViewAdjustment {
                     .as_ref()
                     .map(|o| o[b_idx as usize])
                     .unwrap_or_default();
+
+                // If offset < offset_shift, this view was invalid and wasn't counted in buffer_utilizations.
+                // Return an empty view to match how invalid views are handled in the Rewriting path.
+                if view_ref.offset < offset_shift {
+                    return BinaryView::empty_view();
+                }
+
                 view_ref
                     .with_buffer_and_offset(b_idx + buffer_offset, view_ref.offset - offset_shift)
             }
@@ -708,6 +715,13 @@ impl PrecomputedViewAdjustment {
                     .as_ref()
                     .map(|o| o[b_idx as usize])
                     .unwrap_or_default();
+
+                // If offset < offset_shift, this view was invalid and wasn't counted in buffer_utilizations.
+                // Return an empty view to match how invalid views are handled in the Rewriting path.
+                if view_ref.offset < offset_shift {
+                    return BinaryView::empty_view();
+                }
+
                 view_ref.with_buffer_and_offset(buffer, view_ref.offset - offset_shift)
             }
         }
