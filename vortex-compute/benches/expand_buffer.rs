@@ -89,7 +89,7 @@ fn expand_inplace<T: Copy + Default + From<u8> + Send + 'static>(
             (buffer, mask)
         })
         .bench_values(|(mut buffer, mask)| {
-            let result = buffer.expand(&mask);
-            divan::black_box(result);
+            (&mut buffer).expand(&mask);
+            divan::black_box(buffer);
         });
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_mask::{Mask, MaskValues};
 
@@ -96,37 +97,17 @@ fn expand_inplace<T: Copy>(buf_mut: &mut BufferMut<T>, mask_values: &MaskValues)
     let pseudo_default_value = buf_slice[0];
 
     let mut element_idx = buf_len;
+    let bit_buffer = mask_values.bit_buffer();
 
     // Iterate backwards through the mask to avoid overwriting unprocessed elements.
-    for (mask_idx, is_valid) in mask_values
-        .bit_buffer()
-        .slice(buf_len..)
-        .iter()
-        .rev()
-        .enumerate()
-    {
+    iter_bits_reverse(bit_buffer, 0..mask_len, |idx, is_valid| {
         if is_valid {
             element_idx -= 1;
-            unsafe { *buf_slice.get_unchecked_mut(mask_idx) = buf_slice[element_idx] };
+            unsafe { *buf_slice.get_unchecked_mut(idx) = buf_slice[element_idx] };
         } else {
-            // Initialize with a pseudo-default value.
-            unsafe { *buf_slice.get_unchecked_mut(mask_idx) = pseudo_default_value };
+            unsafe { *buf_slice.get_unchecked_mut(idx) = pseudo_default_value };
         }
-    }
-
-    for (mask_idx, is_valid) in mask_values
-        .bit_buffer()
-        .slice(..buf_len)
-        .iter()
-        .rev()
-        .enumerate()
-    {
-        if is_valid {
-            element_idx -= 1;
-            unsafe { *buf_slice.get_unchecked_mut(mask_idx) = buf_slice[element_idx] };
-        }
-        // For the range up to buffer length, all positions are already initialized.
-    }
+    });
 }
 
 /// Expands a slice into a new buffer at the target size, scattering elements to
@@ -151,7 +132,9 @@ fn expand_copy<T: Copy>(src: &[T], mask_values: &MaskValues) -> Buffer<T> {
     let pseudo_default_value = src[0];
     let mut element_idx = 0;
 
-    for (mask_idx, is_valid) in mask_values.bit_buffer().iter().enumerate() {
+    let bit_buffer = mask_values.bit_buffer();
+
+    iter_bits(bit_buffer, 0..mask_len, |mask_idx, is_valid| {
         if is_valid {
             unsafe {
                 target_slice
@@ -160,20 +143,122 @@ fn expand_copy<T: Copy>(src: &[T], mask_values: &MaskValues) -> Buffer<T> {
             };
             element_idx += 1;
         } else {
-            // Initialize with a pseudo-default value. In case we expand
-            // into a new buffer all false positions need to be initialized.
             unsafe {
                 target_slice
                     .get_unchecked_mut(mask_idx)
-                    .write(pseudo_default_value)
+                    .write(pseudo_default_value);
             };
         }
-    }
+    });
 
     // SAFETY: Buffer has sufficient capacity and all elements have been initialized.
     unsafe { target_buf.set_len(mask_len) };
 
     target_buf.freeze()
+}
+
+/// Iterate through bits in a buffer.
+///
+/// # Arguments
+///
+/// * `bit_buffer` - The bit buffer to iterate through
+/// * `range` - Bit range to iterate through
+/// * `f` - Callback function taking (bit_index, is_set)
+///
+/// # Safety
+///
+/// The caller must ensure that the range is within valid bounds of the bit buffer.
+#[inline]
+fn iter_bits<F>(bit_buffer: &vortex_buffer::BitBuffer, range: Range<usize>, mut f: F)
+where
+    F: FnMut(usize, bool),
+{
+    let start = range.start;
+    let end = range.end;
+
+    assert!(start <= end);
+    assert!(end <= bit_buffer.len());
+
+    let buffer_ptr = bit_buffer.inner().as_ptr();
+    let offset = bit_buffer.offset();
+
+    let full_bytes = (end - start) / 8;
+    let remaining_bits = (end - start) % 8;
+
+    for byte_idx in 0..full_bytes {
+        let bit_offset = offset + start + byte_idx * 8;
+        let byte_offset = bit_offset / 8;
+        let byte = unsafe { *buffer_ptr.add(byte_offset) };
+
+        for bit_idx in 0..8 {
+            let is_set = (byte & (1 << bit_idx)) != 0;
+            f(start + byte_idx * 8 + bit_idx, is_set);
+        }
+    }
+
+    if remaining_bits > 0 {
+        let bit_idx_start = start + full_bytes * 8;
+        let bit_offset = offset + bit_idx_start;
+        let byte_offset = bit_offset / 8;
+        let byte = unsafe { *buffer_ptr.add(byte_offset) };
+
+        for i in 0..remaining_bits {
+            let is_set = (byte & (1 << i)) != 0;
+            f(bit_idx_start + i, is_set);
+        }
+    }
+}
+
+/// Iterate through bits in a buffer in reverse.
+///
+/// # Arguments
+///
+/// * `bit_buffer` - The bit buffer to iterate through
+/// * `range` - Bit range to iterate through in reverse (start inclusive, end exclusive)
+/// * `f` - Callback function taking (bit_index, is_set)
+///
+/// # Safety
+///
+/// The caller must ensure that the range is within valid bounds of the bit buffer.
+#[inline]
+fn iter_bits_reverse<F>(bit_buffer: &vortex_buffer::BitBuffer, range: Range<usize>, mut f: F)
+where
+    F: FnMut(usize, bool),
+{
+    let start = range.start;
+    let end = range.end;
+
+    assert!(start <= end);
+    assert!(end <= bit_buffer.len());
+
+    let buffer_ptr = bit_buffer.inner().as_ptr();
+    let offset = bit_buffer.offset();
+
+    let full_bytes = (end - start) / 8;
+    let remaining_bits = (end - start) % 8;
+
+    if remaining_bits > 0 {
+        let bit_idx_start = start + full_bytes * 8;
+        let bit_offset = offset + bit_idx_start;
+        let byte_offset = bit_offset / 8;
+        let byte = unsafe { *buffer_ptr.add(byte_offset) };
+
+        for bit_idx in (0..remaining_bits).rev() {
+            let is_set = (byte & (1 << bit_idx)) != 0;
+            f(bit_idx_start + bit_idx, is_set);
+        }
+    }
+
+    for byte_idx in (0..full_bytes).rev() {
+        let bit_offset = offset + start + byte_idx * 8;
+        let byte_offset = bit_offset / 8;
+        let byte = unsafe { *buffer_ptr.add(byte_offset) };
+
+        for bit_idx in (0..8).rev() {
+            let is_set = (byte & (1 << bit_idx)) != 0;
+            f(start + byte_idx * 8 + bit_idx, is_set);
+        }
+    }
 }
 
 #[cfg(test)]
