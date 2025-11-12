@@ -29,7 +29,7 @@ use vortex_error::{VortexExpect as _, vortex_panic};
 use vortex_scalar::i256;
 
 use crate::arrays::{
-    BoolArray, DecimalArray, FixedSizeListArray, ListArray, ListViewArray, NullArray,
+    BoolArray, DecimalArray, DictArray, FixedSizeListArray, ListArray, ListViewArray, NullArray,
     PrimitiveArray, StructArray, TemporalArray, VarBinArray, VarBinViewArray,
 };
 use crate::arrow::FromArrowArray;
@@ -492,6 +492,36 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
             DataType::Decimal256(..) => {
                 Self::from_arrow(array.as_primitive::<Decimal256Type>(), nullable)
             }
+            DataType::Dictionary(key_type, _) => match key_type.as_ref() {
+                DataType::Int8 => {
+                    DictArray::from_arrow(array.as_dictionary::<Int8Type>(), nullable).into_array()
+                }
+                DataType::Int16 => {
+                    DictArray::from_arrow(array.as_dictionary::<Int16Type>(), nullable).into_array()
+                }
+                DataType::Int32 => {
+                    DictArray::from_arrow(array.as_dictionary::<Int32Type>(), nullable).into_array()
+                }
+                DataType::Int64 => {
+                    DictArray::from_arrow(array.as_dictionary::<Int64Type>(), nullable).into_array()
+                }
+                DataType::UInt8 => {
+                    DictArray::from_arrow(array.as_dictionary::<UInt8Type>(), nullable).into_array()
+                }
+                DataType::UInt16 => {
+                    DictArray::from_arrow(array.as_dictionary::<UInt16Type>(), nullable)
+                        .into_array()
+                }
+                DataType::UInt32 => {
+                    DictArray::from_arrow(array.as_dictionary::<UInt32Type>(), nullable)
+                        .into_array()
+                }
+                DataType::UInt64 => {
+                    DictArray::from_arrow(array.as_dictionary::<UInt64Type>(), nullable)
+                        .into_array()
+                }
+                key_dt => vortex_panic!("Unsupported dictionary key type: {key_dt}"),
+            },
             dt => vortex_panic!("Array encoding not implemented for Arrow data type {dt}"),
         }
     }
