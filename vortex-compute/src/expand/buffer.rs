@@ -99,7 +99,7 @@ fn expand_inplace<T: Copy>(buf_mut: &mut BufferMut<T>, mask_values: &MaskValues)
     let bit_buffer = mask_values.bit_buffer();
 
     // Iterate backwards through the mask to avoid overwriting unprocessed elements.
-    bit_buffer.iter_bits_reverse(0..mask_len, |idx, is_valid| {
+    bit_buffer.iter_bits_reverse(|idx, is_valid| {
         if is_valid {
             element_idx -= 1;
             unsafe { *buf_slice.get_unchecked_mut(idx) = buf_slice[element_idx] };
@@ -133,7 +133,7 @@ fn expand_copy<T: Copy>(src: &[T], mask_values: &MaskValues) -> Buffer<T> {
 
     let bit_buffer = mask_values.bit_buffer();
 
-    bit_buffer.iter_bits(0..mask_len, |mask_idx, is_valid| {
+    bit_buffer.iter_bits(|mask_idx, is_valid| {
         if is_valid {
             unsafe {
                 target_slice

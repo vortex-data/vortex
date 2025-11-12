@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::{BitAnd, BitOr, BitXor, Not, Range, RangeBounds};
+use std::ops::{BitAnd, BitOr, BitXor, Not, RangeBounds};
 
 use crate::bit::ops::{bitwise_binary_op, bitwise_unary_op};
 use crate::bit::{
@@ -411,49 +411,64 @@ impl BitBuffer {
     ///
     /// # Arguments
     ///
-    /// * `range` - Bit range to iterate through
     /// * `f` - Callback function taking (bit_index, is_set)
     ///
     /// # Panics
     ///
     /// Panics if the range is outside valid bounds of the buffer.
     #[inline]
-    pub fn iter_bits<F>(&self, range: Range<usize>, mut f: F)
+    pub fn iter_bits<F>(&self, mut f: F)
     where
         F: FnMut(usize, bool),
     {
-        let start = range.start;
-        let end = range.end;
-
-        assert!(start <= end);
-        assert!(end <= self.len);
+        let total_bits = self.len;
+        if total_bits == 0 {
+            return;
+        }
 
         let buffer_ptr = self.buffer.as_ptr();
         let offset = self.offset;
+        let mut current_byte = offset / 8;
+        let start_bit_in_byte = offset % 8;
+        let mut bit_pos = 0;
 
-        let full_bytes = (end - start) / 8;
-        let remaining_bits = (end - start) % 8;
+        // Handle incomplete first byte.
+        if start_bit_in_byte > 0 {
+            let bits_in_first_byte = (8 - start_bit_in_byte).min(total_bits);
+            let byte = unsafe { *buffer_ptr.add(current_byte) };
 
-        for byte_idx in 0..full_bytes {
-            let bit_offset = offset + start + byte_idx * 8;
-            let byte_offset = bit_offset / 8;
-            let byte = unsafe { *buffer_ptr.add(byte_offset) };
+            for bit_idx in 0..bits_in_first_byte {
+                let is_set = (byte & (1 << (start_bit_in_byte + bit_idx))) != 0;
+                f(bit_pos, is_set);
+                bit_pos += 1;
+            }
+
+            current_byte += 1;
+        }
+
+        let bits_remaining = total_bits - bit_pos;
+        let complete_bytes = bits_remaining / 8;
+
+        // Process complete bytes.
+        for byte_idx in 0..complete_bytes {
+            let byte = unsafe { *buffer_ptr.add(current_byte + byte_idx) };
 
             for bit_idx in 0..8 {
                 let is_set = (byte & (1 << bit_idx)) != 0;
-                f(start + byte_idx * 8 + bit_idx, is_set);
+                f(bit_pos + byte_idx * 8 + bit_idx, is_set);
             }
         }
+        current_byte += complete_bytes;
 
+        // Handle remaining bits at the end.
+        let remaining_bits = bits_remaining % 8;
         if remaining_bits > 0 {
-            let bit_idx_start = start + full_bytes * 8;
-            let bit_offset = offset + bit_idx_start;
-            let byte_offset = bit_offset / 8;
-            let byte = unsafe { *buffer_ptr.add(byte_offset) };
+            let bit_idx_start = bit_pos + complete_bytes * 8;
+            let byte = unsafe { *buffer_ptr.add(current_byte) };
 
-            for i in 0..remaining_bits {
-                let is_set = (byte & (1 << i)) != 0;
-                f(bit_idx_start + i, is_set);
+            for bit_idx in 0..remaining_bits {
+                let is_set = (byte & (1 << bit_idx)) != 0;
+                f(bit_idx_start + bit_idx, is_set);
             }
         }
     }
@@ -462,49 +477,68 @@ impl BitBuffer {
     ///
     /// # Arguments
     ///
-    /// * `range` - Bit range to iterate through in reverse
     /// * `f` - Callback function taking (bit_index, is_set)
     ///
     /// # Panics
     ///
     /// Panics if the range is outside valid bounds of the buffer.
     #[inline]
-    pub fn iter_bits_reverse<F>(&self, range: Range<usize>, mut f: F)
+    pub fn iter_bits_reverse<F>(&self, mut f: F)
     where
         F: FnMut(usize, bool),
     {
-        let start = range.start;
-        let end = range.end;
-
-        assert!(start <= end);
-        assert!(end <= self.len);
+        let total_bits = self.len;
+        if total_bits == 0 {
+            return;
+        }
 
         let buffer_ptr = self.buffer.as_ptr();
         let offset = self.offset;
+        let start_byte = offset / 8;
+        let start_bit_in_byte = offset % 8;
+        let mut bit_pos = total_bits;
 
-        let full_bytes = (end - start) / 8;
-        let remaining_bits = (end - start) % 8;
+        let bits_in_first_byte = if start_bit_in_byte > 0 {
+            (8 - start_bit_in_byte).min(total_bits)
+        } else {
+            0
+        };
 
-        if remaining_bits > 0 {
-            let bit_idx_start = start + full_bytes * 8;
-            let bit_offset = offset + bit_idx_start;
-            let byte_offset = bit_offset / 8;
-            let byte = unsafe { *buffer_ptr.add(byte_offset) };
+        let bits_after_first = total_bits - bits_in_first_byte;
+        let first_byte_offset = if start_bit_in_byte > 0 { 1 } else { 0 };
+        let complete_bytes = (bits_after_first - bits_after_first % 8) / 8;
+        let trailing_bits = bits_after_first % 8;
 
-            for bit_idx in (0..remaining_bits).rev() {
+        // Handle remaining bit at the end.
+        if trailing_bits > 0 {
+            let byte = unsafe { *buffer_ptr.add(start_byte + first_byte_offset + complete_bytes) };
+
+            for bit_idx in (0..trailing_bits).rev() {
+                bit_pos -= 1;
                 let is_set = (byte & (1 << bit_idx)) != 0;
-                f(bit_idx_start + bit_idx, is_set);
+                f(bit_pos, is_set);
             }
         }
 
-        for byte_idx in (0..full_bytes).rev() {
-            let bit_offset = offset + start + byte_idx * 8;
-            let byte_offset = bit_offset / 8;
-            let byte = unsafe { *buffer_ptr.add(byte_offset) };
+        // Process complete bytes.
+        for byte_idx in (0..complete_bytes).rev() {
+            let byte = unsafe { *buffer_ptr.add(start_byte + first_byte_offset + byte_idx) };
 
             for bit_idx in (0..8).rev() {
+                bit_pos -= 1;
                 let is_set = (byte & (1 << bit_idx)) != 0;
-                f(start + byte_idx * 8 + bit_idx, is_set);
+                f(bit_pos, is_set);
+            }
+        }
+
+        // Handle incomplete first byte.
+        if bits_in_first_byte > 0 {
+            let byte = unsafe { *buffer_ptr.add(start_byte) };
+
+            for bit_idx in (0..bits_in_first_byte).rev() {
+                bit_pos -= 1;
+                let is_set = (byte & (1 << (start_bit_in_byte + bit_idx))) != 0;
+                f(bit_pos, is_set);
             }
         }
     }
@@ -593,6 +627,13 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_slice_offset_calculation() {
+        let buf = BitBuffer::collect_bool(16, |_| true);
+        let sliced = buf.slice(10..16);
+        assert_eq!(sliced.offset(), 10);
+    }
+
     #[rstest]
     #[case(5)]
     #[case(8)]
@@ -605,7 +646,7 @@ mod tests {
         let buf = BitBuffer::collect_bool(len, |i| i % 2 == 0);
 
         let mut collected = Vec::new();
-        buf.iter_bits(0..len, |idx, is_set| {
+        buf.iter_bits(|idx, is_set| {
             collected.push((idx, is_set));
         });
 
@@ -628,7 +669,7 @@ mod tests {
         let buf = BitBuffer::collect_bool(len, |i| i % 2 == 0);
 
         let mut collected = Vec::new();
-        buf.iter_bits_reverse(0..len, |idx, is_set| {
+        buf.iter_bits_reverse(|idx, is_set| {
             collected.push((idx, is_set));
         });
 
@@ -638,6 +679,54 @@ mod tests {
             let expected_idx = len - 1 - i;
             assert_eq!(*idx, expected_idx);
             assert_eq!(*is_set, expected_idx % 2 == 0);
+        }
+    }
+
+    #[rstest]
+    #[case(3, 5)]
+    #[case(3, 8)]
+    #[case(5, 10)]
+    #[case(2, 16)]
+    fn test_iter_bits_with_offset(#[case] offset: usize, #[case] len: usize) {
+        let total_bits = offset + len;
+        let buf = BitBuffer::collect_bool(total_bits, |i| i % 2 == 0);
+        let buf_with_offset = BitBuffer::new_with_offset(buf.inner().clone(), len, offset);
+
+        let mut collected = Vec::new();
+        buf_with_offset.iter_bits(|idx, is_set| {
+            collected.push((idx, is_set));
+        });
+
+        assert_eq!(collected.len(), len);
+
+        for (idx, is_set) in collected {
+            // The bits should match the original buffer at positions offset + idx
+            assert_eq!(is_set, (offset + idx) % 2 == 0);
+        }
+    }
+
+    #[rstest]
+    #[case(3, 5)]
+    #[case(3, 8)]
+    #[case(5, 10)]
+    #[case(2, 16)]
+    fn test_iter_bits_reverse_with_offset(#[case] offset: usize, #[case] len: usize) {
+        let total_bits = offset + len;
+        let buf = BitBuffer::collect_bool(total_bits, |i| i % 2 == 0);
+        let buf_with_offset = BitBuffer::new_with_offset(buf.inner().clone(), len, offset);
+
+        let mut collected = Vec::new();
+        buf_with_offset.iter_bits_reverse(|idx, is_set| {
+            collected.push((idx, is_set));
+        });
+
+        assert_eq!(collected.len(), len);
+
+        for (i, (idx, is_set)) in collected.iter().enumerate() {
+            let expected_idx = len - 1 - i;
+            assert_eq!(*idx, expected_idx);
+            // The bits should match the original buffer at positions offset + expected_idx
+            assert_eq!(*is_set, (offset + expected_idx) % 2 == 0);
         }
     }
 }
