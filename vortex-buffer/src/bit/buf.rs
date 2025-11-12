@@ -406,6 +406,108 @@ impl BitBuffer {
     pub fn bitand_not(&self, rhs: &BitBuffer) -> BitBuffer {
         bitwise_binary_op(self, rhs, |a, b| a & !b)
     }
+
+    /// Iterate through bits in a buffer.
+    ///
+    /// # Arguments
+    ///
+    /// * `range` - Bit range to iterate through
+    /// * `f` - Callback function taking (bit_index, is_set)
+    ///
+    /// # Panics
+    ///
+    /// Panics if the range is outside valid bounds of the buffer.
+    #[inline]
+    pub fn iter_bits<F>(&self, range: std::ops::Range<usize>, mut f: F)
+    where
+        F: FnMut(usize, bool),
+    {
+        let start = range.start;
+        let end = range.end;
+
+        assert!(start <= end);
+        assert!(end <= self.len);
+
+        let buffer_ptr = self.buffer.as_ptr();
+        let offset = self.offset;
+
+        let full_bytes = (end - start) / 8;
+        let remaining_bits = (end - start) % 8;
+
+        for byte_idx in 0..full_bytes {
+            let bit_offset = offset + start + byte_idx * 8;
+            let byte_offset = bit_offset / 8;
+            let byte = unsafe { *buffer_ptr.add(byte_offset) };
+
+            for bit_idx in 0..8 {
+                let is_set = (byte & (1 << bit_idx)) != 0;
+                f(start + byte_idx * 8 + bit_idx, is_set);
+            }
+        }
+
+        if remaining_bits > 0 {
+            let bit_idx_start = start + full_bytes * 8;
+            let bit_offset = offset + bit_idx_start;
+            let byte_offset = bit_offset / 8;
+            let byte = unsafe { *buffer_ptr.add(byte_offset) };
+
+            for i in 0..remaining_bits {
+                let is_set = (byte & (1 << i)) != 0;
+                f(bit_idx_start + i, is_set);
+            }
+        }
+    }
+
+    /// Iterate through bits in a buffer in reverse.
+    ///
+    /// # Arguments
+    ///
+    /// * `range` - Bit range to iterate through in reverse (start inclusive, end exclusive)
+    /// * `f` - Callback function taking (bit_index, is_set)
+    ///
+    /// # Panics
+    ///
+    /// Panics if the range is outside valid bounds of the buffer.
+    #[inline]
+    pub fn iter_bits_reverse<F>(&self, range: std::ops::Range<usize>, mut f: F)
+    where
+        F: FnMut(usize, bool),
+    {
+        let start = range.start;
+        let end = range.end;
+
+        assert!(start <= end);
+        assert!(end <= self.len);
+
+        let buffer_ptr = self.buffer.as_ptr();
+        let offset = self.offset;
+
+        let full_bytes = (end - start) / 8;
+        let remaining_bits = (end - start) % 8;
+
+        if remaining_bits > 0 {
+            let bit_idx_start = start + full_bytes * 8;
+            let bit_offset = offset + bit_idx_start;
+            let byte_offset = bit_offset / 8;
+            let byte = unsafe { *buffer_ptr.add(byte_offset) };
+
+            for bit_idx in (0..remaining_bits).rev() {
+                let is_set = (byte & (1 << bit_idx)) != 0;
+                f(bit_idx_start + bit_idx, is_set);
+            }
+        }
+
+        for byte_idx in (0..full_bytes).rev() {
+            let bit_offset = offset + start + byte_idx * 8;
+            let byte_offset = bit_offset / 8;
+            let byte = unsafe { *buffer_ptr.add(byte_offset) };
+
+            for bit_idx in (0..8).rev() {
+                let is_set = (byte & (1 << bit_idx)) != 0;
+                f(start + byte_idx * 8 + bit_idx, is_set);
+            }
+        }
+    }
 }
 
 impl<'a> IntoIterator for &'a BitBuffer {
@@ -419,6 +521,8 @@ impl<'a> IntoIterator for &'a BitBuffer {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use crate::bit::BitBuffer;
     use crate::{ByteBuffer, buffer};
 
@@ -487,5 +591,53 @@ mod tests {
             buf2.slice(32..64),
             "Buffer slices with different bits should not be equal (`PartialEq` needs `iter_padded()`)"
         );
+    }
+
+    #[rstest]
+    #[case(5)]
+    #[case(8)]
+    #[case(10)]
+    #[case(13)]
+    #[case(16)]
+    #[case(23)]
+    #[case(100)]
+    fn test_iter_bits(#[case] len: usize) {
+        let buf = BitBuffer::collect_bool(len, |i| i % 2 == 0);
+
+        let mut collected = Vec::new();
+        buf.iter_bits(0..len, |idx, is_set| {
+            collected.push((idx, is_set));
+        });
+
+        assert_eq!(collected.len(), len);
+
+        for (idx, is_set) in collected {
+            assert_eq!(is_set, idx % 2 == 0);
+        }
+    }
+
+    #[rstest]
+    #[case(5)]
+    #[case(8)]
+    #[case(10)]
+    #[case(13)]
+    #[case(16)]
+    #[case(23)]
+    #[case(100)]
+    fn test_iter_bits_reverse(#[case] len: usize) {
+        let buf = BitBuffer::collect_bool(len, |i| i % 2 == 0);
+
+        let mut collected = Vec::new();
+        buf.iter_bits_reverse(0..len, |idx, is_set| {
+            collected.push((idx, is_set));
+        });
+
+        assert_eq!(collected.len(), len);
+
+        for (i, (idx, is_set)) in collected.iter().enumerate() {
+            let expected_idx = len - 1 - i;
+            assert_eq!(*idx, expected_idx);
+            assert_eq!(*is_set, expected_idx % 2 == 0);
+        }
     }
 }
