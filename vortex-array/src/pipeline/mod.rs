@@ -75,7 +75,7 @@ pub trait BindContext {
 /// The provided mutable output vector is guaranteed to have at least `N` elements of capacity.
 /// The kernel **must** append either [`BitView::true_count`] elements to the output vector (in
 /// which case the output elements are considered to be in the "Compact" position), or it must
-/// append `N` elements (in which case the output elements are considered to be in their "Flat"
+/// append `N` elements (in which case the output elements are considered to be in their "InPlace"
 /// positions). The pipeline driver will assert these conditions after each step.
 ///
 /// Note that the output vector may not be empty at the start of the step. The kernel must append
