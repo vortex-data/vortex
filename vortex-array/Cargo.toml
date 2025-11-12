@@ -145,3 +145,17 @@ harness = false
 name = "chunked_dict_builder"
 harness = false
 required-features = ["test-harness"]
+
+[[bench]]
+name = "dict_compress"
+harness = false
+required-features = ["test-harness"]
+
+[[bench]]
+name = "dict_compare"
+harness = false
+required-features = ["test-harness"]
+
+[[bench]]
+name = "dict_mask"
+harness = false
