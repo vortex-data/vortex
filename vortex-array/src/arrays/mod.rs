@@ -9,11 +9,15 @@ mod assertions;
 #[cfg(test)]
 mod validation_tests;
 
+#[cfg(any(test, feature = "test-harness"))]
+pub mod dict_test;
+
 mod bool;
 mod chunked;
 mod constant;
 mod datetime;
 mod decimal;
+mod dict;
 mod extension;
 mod fixed_size_list;
 mod list;
@@ -35,6 +39,7 @@ pub use chunked::*;
 pub use constant::*;
 pub use datetime::*;
 pub use decimal::*;
+pub use dict::*;
 pub use extension::*;
 pub use fixed_size_list::*;
 pub use list::*;

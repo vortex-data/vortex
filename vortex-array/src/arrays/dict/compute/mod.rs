@@ -9,14 +9,14 @@ mod is_sorted;
 mod like;
 mod min_max;
 
-use vortex_array::compute::{
-    FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter, filter, take,
-};
-use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::{DictArray, DictVTable};
+use super::{DictArray, DictVTable};
+use crate::compute::{
+    FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter, filter, take,
+};
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl TakeKernel for DictVTable {
     fn take(&self, array: &DictArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -43,18 +43,18 @@ register_kernel!(FilterKernelAdapter(DictVTable).lift());
 mod test {
     #[allow(unused_imports)]
     use itertools::Itertools;
-    use vortex_array::accessor::ArrayAccessor;
-    use vortex_array::arrays::{ConstantArray, PrimitiveArray, VarBinArray, VarBinViewArray};
-    use vortex_array::compute::conformance::filter::test_filter_conformance;
-    use vortex_array::compute::conformance::mask::test_mask_conformance;
-    use vortex_array::compute::conformance::take::test_take_conformance;
-    use vortex_array::compute::{Operator, compare, take};
-    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::builders::dict_encode;
+    use crate::accessor::ArrayAccessor;
+    use crate::arrays::{ConstantArray, PrimitiveArray, VarBinArray, VarBinViewArray};
+    use crate::builders::dict::dict_encode;
+    use crate::compute::conformance::filter::test_filter_conformance;
+    use crate::compute::conformance::mask::test_mask_conformance;
+    use crate::compute::conformance::take::test_take_conformance;
+    use crate::compute::{Operator, compare, take};
+    use crate::{Array, ArrayRef, IntoArray, ToCanonical, assert_arrays_eq};
 
     #[test]
     fn canonicalise_nullable_primitive() {
@@ -135,7 +135,7 @@ mod test {
 
     #[test]
     fn compare_sliced_dict() {
-        use vortex_array::arrays::BoolArray;
+        use crate::arrays::BoolArray;
         let sliced = sliced_dict_array();
         let compared = compare(&sliced, ConstantArray::new(42, 3).as_ref(), Operator::Eq).unwrap();
 
@@ -246,14 +246,14 @@ mod test {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::IntoArray;
-    use vortex_array::arrays::{PrimitiveArray, VarBinArray};
-    use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::DictArray;
-    use crate::builders::dict_encode;
+    use crate::IntoArray;
+    use crate::arrays::dict::DictArray;
+    use crate::arrays::{PrimitiveArray, VarBinArray};
+    use crate::builders::dict::dict_encode;
+    use crate::compute::conformance::consistency::test_array_consistency;
 
     #[rstest]
     // Primitive arrays

@@ -8,10 +8,11 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 pub use stats::IntegerStats;
-use vortex_array::arrays::{ConstantArray, MaskedArray, PrimitiveArray, PrimitiveVTable};
+use vortex_array::arrays::{
+    ConstantArray, DictArray, MaskedArray, PrimitiveArray, PrimitiveVTable,
+};
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
-use vortex_dict::DictArray;
 use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
 use vortex_fastlanes::FoRArray;
 use vortex_fastlanes::bitpack_compress::{
@@ -758,12 +759,11 @@ mod tests {
     use log::LevelFilter;
     use rand::rngs::StdRng;
     use rand::{RngCore, SeedableRng};
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::{DictEncoding, PrimitiveArray};
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
     use vortex_array::{Array, IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::{Buffer, BufferMut, buffer, buffer_mut};
-    use vortex_dict::DictEncoding;
     use vortex_sequence::SequenceEncoding;
     use vortex_sparse::SparseEncoding;
     use vortex_utils::aliases::hash_set::HashSet;

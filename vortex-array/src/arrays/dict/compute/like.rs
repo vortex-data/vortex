@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{LikeKernel, LikeKernelAdapter, LikeOptions, like};
-use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
 
-use crate::{DictArray, DictVTable};
+use super::{DictArray, DictVTable};
+use crate::arrays::ConstantArray;
+use crate::compute::{LikeKernel, LikeKernelAdapter, LikeOptions, like};
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl LikeKernel for DictVTable {
     fn like(

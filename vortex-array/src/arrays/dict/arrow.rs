@@ -3,10 +3,10 @@
 
 use arrow_array::types::ArrowDictionaryKeyType;
 use arrow_array::{AnyDictionaryArray, DictionaryArray};
-use vortex_array::ArrayRef;
-use vortex_array::arrow::FromArrowArray;
 
-use crate::DictArray;
+use super::DictArray;
+use crate::ArrayRef;
+use crate::arrow::FromArrowArray;
 
 impl<K: ArrowDictionaryKeyType> FromArrowArray<&DictionaryArray<K>> for DictArray {
     fn from_arrow(array: &DictionaryArray<K>, nullable: bool) -> Self {

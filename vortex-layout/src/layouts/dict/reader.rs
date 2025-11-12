@@ -7,10 +7,10 @@ use std::sync::{Arc, OnceLock};
 
 use futures::future::BoxFuture;
 use futures::{FutureExt, TryFutureExt, try_join};
+use vortex_array::arrays::DictArray;
 use vortex_array::compute::{MinMaxResult, min_max, take};
 use vortex_array::expr::{Expression, root};
 use vortex_array::{Array, ArrayRef, IntoArray, MaskFuture};
-use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexError, VortexExpect, VortexResult};
 use vortex_mask::Mask;

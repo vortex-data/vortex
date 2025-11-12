@@ -8,13 +8,9 @@
 pub use array::*;
 
 mod array;
-#[cfg(feature = "arrow")]
 mod arrow;
-pub mod builders;
 mod canonical;
 mod compute;
 mod display;
 mod ops;
 mod serde;
-#[cfg(feature = "test-harness")]
-pub mod test;

@@ -4,15 +4,16 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::{ArrayVTable, NotSupported, VTable, ValidityVTable};
-use vortex_array::{
-    Array, ArrayEq, ArrayHash, ArrayRef, EncodingId, EncodingRef, Precision, ToCanonical, vtable,
-};
 use vortex_buffer::BitBuffer;
 use vortex_dtype::{DType, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_mask::{AllOr, Mask};
+
+use crate::stats::{ArrayStats, StatsSetRef};
+use crate::vtable::{ArrayVTable, NotSupported, VTable, ValidityVTable};
+use crate::{
+    Array, ArrayEq, ArrayHash, ArrayRef, EncodingId, EncodingRef, Precision, ToCanonical, vtable,
+};
 
 vtable!(Dict);
 
@@ -194,17 +195,17 @@ mod test {
     use rand::distr::{Distribution, StandardUniform};
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
-    use vortex_array::arrays::{ChunkedArray, PrimitiveArray};
-    use vortex_array::builders::builder_with_capacity;
-    use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::{BitBuffer, buffer};
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, NativePType, PType, UnsignedPType};
     use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
     use vortex_mask::AllOr;
 
-    use crate::DictArray;
+    use crate::arrays::dict::DictArray;
+    use crate::arrays::{ChunkedArray, PrimitiveArray};
+    use crate::builders::builder_with_capacity;
+    use crate::validity::Validity;
+    use crate::{Array, ArrayRef, IntoArray, ToCanonical, assert_arrays_eq};
 
     #[test]
     fn nullable_codes_validity() {

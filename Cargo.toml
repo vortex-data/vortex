@@ -226,7 +226,6 @@ vortex-compute = { version = "0.1.0", path = "./vortex-compute", default-feature
 vortex-datafusion = { version = "0.1.0", path = "./vortex-datafusion", default-features = false }
 vortex-datetime-parts = { version = "0.1.0", path = "./encodings/datetime-parts", default-features = false }
 vortex-decimal-byte-parts = { version = "0.1.0", path = "encodings/decimal-byte-parts", default-features = false }
-vortex-dict = { version = "0.1.0", path = "./encodings/dict", default-features = false }
 vortex-dtype = { version = "0.1.0", path = "./vortex-dtype", default-features = false }
 vortex-error = { version = "0.1.0", path = "./vortex-error", default-features = false }
 vortex-fastlanes = { version = "0.1.0", path = "./encodings/fastlanes", default-features = false }
