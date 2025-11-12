@@ -14,17 +14,6 @@ use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options
 use crate::stats::{Precision, Stat, StatsProvider};
 use crate::vtable::VTable;
 
-#[derive(Debug, Clone)]
-pub struct SumOptions {
-    pub accumulator: Scalar,
-}
-
-impl Options for SumOptions {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
 static SUM_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("sum".into(), ArcRef::new_ref(&Sum));
     for kernel in inventory::iter::<SumKernelRef> {
