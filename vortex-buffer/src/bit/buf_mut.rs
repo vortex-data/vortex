@@ -268,6 +268,7 @@ impl BitBufferMut {
     /// Set a position to `false`.
     ///
     /// This operation is checked so if `index` exceeds the buffer length, this will panic.
+    #[inline]
     pub fn unset(&mut self, index: usize) {
         assert!(index < self.len, "index {index} exceeds len {}", self.len);
 
@@ -294,7 +295,8 @@ impl BitBufferMut {
     /// # Safety
     ///
     /// The caller must ensure that `index` does not exceed the largest bit index in the backing buffer.
-    unsafe fn unset_unchecked(&mut self, index: usize) {
+    #[inline]
+    pub unsafe fn unset_unchecked(&mut self, index: usize) {
         // SAFETY: checked by caller
         unsafe { unset_bit_unchecked(self.buffer.as_mut_ptr(), self.offset + index) }
     }

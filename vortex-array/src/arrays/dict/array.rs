@@ -106,6 +106,45 @@ impl DictArray {
     pub fn values(&self) -> &ArrayRef {
         &self.values
     }
+
+    /// Compute a mask indicating which values in the dictionary are referenced by at least one code.
+    ///
+    /// Returns a `BitBuffer` where unset bits (false) correspond to values that are referenced
+    /// by at least one valid code, and set bits (true) correspond to unreferenced values.
+    ///
+    /// This is useful for operations like min/max that need to ignore unreferenced values.
+    pub fn compute_unreferenced_values_mask(&self) -> VortexResult<BitBuffer> {
+        use vortex_buffer::BitBufferMut;
+
+        let codes_validity = self.codes().validity_mask();
+        let codes_primitive = self.codes().to_primitive();
+        let values_len = self.values().len();
+
+        let mut unreferenced = BitBufferMut::new_set(values_len);
+        if codes_validity.all_true() {
+            match_each_integer_ptype!(codes_primitive.ptype(), |P| {
+                for &code in codes_primitive.as_slice::<P>().iter() {
+                    #[allow(clippy::cast_possible_truncation)]
+                    unsafe {
+                        unreferenced.unset(code as usize);
+                    }
+                }
+            });
+            return Ok(unreferenced.freeze());
+        }
+
+        match_each_integer_ptype!(codes_primitive.ptype(), |P| {
+            let codes = codes_primitive.as_slice::<P>();
+            codes_validity
+                .to_bit_buffer()
+                .set_indices()
+                .for_each(|idx| {
+                    #[allow(clippy::cast_possible_truncation)]
+                    unreferenced.unset(codes[idx] as usize);
+                });
+            Ok(unreferenced.freeze())
+        })
+    }
 }
 
 impl ArrayVTable<DictVTable> for DictVTable {

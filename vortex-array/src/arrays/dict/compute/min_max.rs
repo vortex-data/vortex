@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+<<<<<<< HEAD:vortex-array/src/arrays/dict/compute/min_max.rs
 use vortex_buffer::BitBufferMut;
 use vortex_dtype::match_each_unsigned_integer_ptype;
+=======
+use vortex_array::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult, mask, min_max};
+use vortex_array::{Array as _, register_kernel};
+>>>>>>> 1c1b3e2db (perf[dict]: unreferenced mask):encodings/dict/src/compute/min_max.rs
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -17,24 +22,8 @@ impl MinMaxKernel for DictVTable {
             return Ok(None);
         }
 
-        let codes_primitive = array.codes().to_primitive();
-        let values_len = array.values().len();
-        match_each_unsigned_integer_ptype!(codes_primitive.ptype(), |P| {
-            codes_validity.iter_bools(|validity_iter| {
-                // mask() sets values to null where the mask is true, so we start
-                // with a fully-set bit buffer.
-                let mut unreferenced = BitBufferMut::new_set(values_len);
-                for (&code, is_valid) in codes_primitive.as_slice::<P>().iter().zip(validity_iter) {
-                    if is_valid {
-                        #[allow(clippy::cast_possible_truncation)]
-                        unreferenced.unset(code as usize);
-                    }
-                }
-
-                let unreferenced_mask = Mask::from_buffer(unreferenced.freeze());
-                min_max(&mask(array.values(), &unreferenced_mask)?)
-            })
-        })
+        let unreferenced_mask = Mask::from_buffer(array.compute_unreferenced_values_mask()?);
+        min_max(&mask(array.values(), &unreferenced_mask)?)
     }
 }
 
