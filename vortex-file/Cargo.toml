@@ -19,7 +19,6 @@ all-features = true
 [dependencies]
 async-trait = { workspace = true }
 bytes = { workspace = true }
-cudarc = { workspace = true, optional = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["std", "async-await"] }
 # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
@@ -43,7 +42,6 @@ vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["file"] }
 vortex-fsst = { workspace = true }
-vortex-gpu = { workspace = true, optional = true }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-metrics = { workspace = true }
@@ -77,10 +75,7 @@ tokio = [
     "vortex-scan/tokio",
 ]
 zstd = ["dep:vortex-zstd", "vortex-layout/zstd"]
-gpu = [
-    "dep:cudarc",
-    "dep:vortex-gpu",
-    "vortex-gpu/cuda",
-    "vortex-layout/gpu",
-    "vortex-scan/gpu",
-]
+
+[target.'cfg(gpu_unstable)'.dependencies]
+cudarc = { workspace = true }
+vortex-gpu = { workspace = true, features = ["cuda"] }

@@ -34,14 +34,7 @@ jobs:
 
       - name: Release
         run: |
-          cargo +nightly publish -Zpublish-timeout --no-verify --allow-dirty --workspace \
-          --exclude bench-vortex \
-          --exclude vortex-python \
-          --exclude vortex-duckdb \
-          --exclude vortex-ffi \
-          --exclude vortex-fuzz \
-          --exclude vortex-jni \
-          --exclude xtask
+          cargo +nightly publish -Zpublish-timeout --no-verify --allow-dirty --workspace
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

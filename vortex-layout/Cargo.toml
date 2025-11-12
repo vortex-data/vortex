@@ -21,7 +21,6 @@ arcref = { workspace = true }
 arrow-buffer = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
-cudarc = { workspace = true, optional = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "executor"] }
 itertools = { workspace = true }
@@ -46,7 +45,6 @@ vortex-decimal-byte-parts = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["layout"] }
-vortex-gpu = { workspace = true, optional = true }
 vortex-io = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
@@ -56,6 +54,10 @@ vortex-sequence = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 vortex-zstd = { workspace = true, optional = true }
+
+[target.'cfg(gpu_unstable)'.dependencies]
+cudarc = { workspace = true }
+vortex-gpu = { workspace = true, features = ["cuda"] }
 
 [dev-dependencies]
 futures = { workspace = true, features = ["executor"] }
@@ -68,8 +70,6 @@ vortex-io = { path = "../vortex-io", features = ["tokio"] }
 test-harness = []
 tokio = ["dep:tokio", "vortex-error/tokio"]
 zstd = ["dep:vortex-zstd"]
-gpu = ["cuda", "dep:vortex-gpu"]
-cuda = ["dep:cudarc", "vortex-gpu/cuda"]
 
 [lints]
 workspace = true

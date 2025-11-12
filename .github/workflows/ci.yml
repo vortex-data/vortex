@@ -415,6 +415,7 @@ jobs:
       # Keep frame pointers for better stack traces
       CARGO_PROFILE_DEV_DEBUG: "true"
       CARGO_PROFILE_TEST_DEBUG: "true"
+      RUSTFLAGS: "--cfg gpu_unstable"
     steps:
       - uses: runs-on/action@v2
         with:
