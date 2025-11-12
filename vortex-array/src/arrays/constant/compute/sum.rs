@@ -24,7 +24,7 @@ impl SumKernel for ConstantVTable {
     }
 }
 
-fn sum_scalar(scalar: &Scalar, len: usize, acc: &Scalar) -> VortexResult<ScalarValue> {
+fn sum_scalar(scalar: &Scalar, len: usize, accumulator: &Scalar) -> VortexResult<ScalarValue> {
     match scalar.dtype() {
         DType::Bool(_) => {
             let count = match scalar.as_bool().value() {
@@ -32,25 +32,25 @@ fn sum_scalar(scalar: &Scalar, len: usize, acc: &Scalar) -> VortexResult<ScalarV
                 Some(false) => 0u64,
                 Some(true) => len as u64,
             };
-            let initial_u64 = acc
+            let accumulator = accumulator
                 .as_primitive()
                 .as_::<u64>()
                 .vortex_expect("cannot be null");
-            Ok(ScalarValue::from(initial_u64.checked_add(count)))
+            Ok(ScalarValue::from(accumulator.checked_add(count)))
         }
         DType::Primitive(ptype, _) => {
             let result = match_each_native_ptype!(
                 ptype,
-                unsigned: |T| { sum_integral::<u64>(scalar.as_primitive(), len, acc)?.into() },
-                signed: |T| { sum_integral::<i64>(scalar.as_primitive(), len, acc)?.into() },
-                floating: |T| { sum_float(scalar.as_primitive(), len, acc)?.into() }
+                unsigned: |T| { sum_integral::<u64>(scalar.as_primitive(), len, accumulator)?.into() },
+                signed: |T| { sum_integral::<i64>(scalar.as_primitive(), len, accumulator)?.into() },
+                floating: |T| { sum_float(scalar.as_primitive(), len, accumulator)?.into() }
             );
             Ok(result)
         }
         DType::Decimal(decimal_dtype, _) => {
-            sum_decimal(scalar.as_decimal(), len, *decimal_dtype, acc)
+            sum_decimal(scalar.as_decimal(), len, *decimal_dtype, accumulator)
         }
-        DType::Extension(_) => sum_scalar(&scalar.as_extension().storage(), len, acc),
+        DType::Extension(_) => sum_scalar(&scalar.as_extension().storage(), len, accumulator),
         dtype => vortex_bail!("Unsupported dtype for sum: {}", dtype),
     }
 }

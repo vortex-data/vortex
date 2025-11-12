@@ -98,7 +98,7 @@ impl ComputeFnVTable for Sum {
             return Ok(sum.into());
         }
 
-        let sum_scalar = sum_impl(array, sum_dtype, accumulator, kernels)?;
+        let sum_scalar = sum_impl(array, accumulator, kernels)?;
 
         // Update the statistics with the computed sum.
         array
@@ -163,7 +163,6 @@ impl<V: VTable + SumKernel> Kernel for SumKernelAdapter<V> {
 /// If the array is all-invalid, the sum will be the accumulator.
 pub fn sum_impl(
     array: &dyn Array,
-    _sum_dtype: DType,
     accumulator: &Scalar,
     kernels: &[ArcRef<dyn Kernel>],
 ) -> VortexResult<Scalar> {
