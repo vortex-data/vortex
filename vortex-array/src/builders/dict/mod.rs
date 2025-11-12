@@ -23,7 +23,7 @@ pub const UNCONSTRAINED: DictConstraints = DictConstraints {
     max_len: usize::MAX,
 };
 
-pub trait DictEncoder: Send {
+pub trait DictEncoder: Send + 'static {
     /// Assign dictionary codes to the given input array.
     fn encode(&mut self, array: &dyn Array) -> ArrayRef;
 

@@ -66,7 +66,7 @@ pub trait LayoutStrategy: 'static + Send + Sync {
 // [layout writer]
 
 #[async_trait]
-pub trait Writer: Send + Sync + 'static {
+pub trait Writer: Send + 'static {
     /// Initialize the writer with EOF information.
     fn init(&mut self, eof: SequencePointer);
 

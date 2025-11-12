@@ -8,7 +8,6 @@ use async_trait::async_trait;
 use futures::future::try_join_all;
 use futures::{StreamExt, TryStreamExt, pin_mut};
 use itertools::Itertools;
-use moka::future::FutureExt;
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexError, VortexResult, vortex_bail};

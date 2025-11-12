@@ -16,7 +16,7 @@ use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexResult, vortex_err};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::Handle;
 
@@ -27,7 +27,7 @@ use crate::sequence::{
     SendableSequentialStream, SequenceId, SequencePointer, SequentialStream,
     SequentialStreamAdapter, SequentialStreamExt,
 };
-use crate::{IntoLayout, LayoutRef, LayoutStrategy, OwnedLayoutChildren};
+use crate::{IntoLayout, LayoutRef, LayoutStrategy, OwnedLayoutChildren, Writer};
 
 #[derive(Clone)]
 pub struct DictLayoutConstraints {
@@ -492,4 +492,36 @@ fn encode_chunk(mut encoder: Box<dyn DictEncoder>, chunk: &dyn Array) -> Encodin
 
 fn remainder(array: &dyn Array, encoded_len: usize) -> Option<ArrayRef> {
     (encoded_len < array.len()).then(|| array.slice(encoded_len..array.len()))
+}
+
+/// A [`Writer`] that attempts to apply shared-dictionary compression across incoming chunks.
+pub struct DictWriter {
+    /// The current encoder, if initialized
+    encoder: Box<dyn DictEncoder>,
+    codes_writer: Box<dyn Writer>,
+    values_writer: Box<dyn Writer>,
+    eof: Option<SequencePointer>,
+}
+
+// Deploying the codes writer and the values writer
+
+#[async_trait]
+impl Writer for DictWriter {
+    fn init(&mut self, mut eof: SequencePointer) {
+        self.eof = Some(eof.split_off());
+    }
+
+    async fn push_chunk(&mut self, chunk: ArrayRef, id: SequenceId) -> VortexResult<()> {
+        let encoded = self.encoder.encode(&chunk);
+        if encoded.len() < chunk.len() {
+            // Time to roll the dictionary.
+            vortex_bail!("FINISH ME");
+        }
+
+        Ok(())
+    }
+
+    async fn finish(&mut self) -> VortexResult<LayoutRef> {
+        todo!()
+    }
 }
