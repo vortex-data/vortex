@@ -19,6 +19,7 @@ jobs:
     outputs:
       crashes_found: ${{ steps.check.outputs.crashes_found }}
       crash_count: ${{ steps.check.outputs.crash_count }}
+      first_crash_name: ${{ steps.check.outputs.first_crash_name }}
     steps:
       - uses: runs-on/action@v2
         with:
@@ -55,9 +56,19 @@ jobs:
         run: |
           if [ -d "fuzz/artifacts" ] && [ "$(ls -A fuzz/artifacts 2>/dev/null)" ]; then
             echo "crashes_found=true" >> $GITHUB_OUTPUT
-            CRASH_COUNT=$(find fuzz/artifacts -type f \( -name "crash-*" -o -name "leak-*" -o -name "timeout-*" -o -name "oom-*" \) | wc -l)
-            echo "crash_count=$CRASH_COUNT" >> $GITHUB_OUTPUT
-            echo "Found $CRASH_COUNT crash(es)"
+
+            # Get the first crash file only
+            FIRST_CRASH=$(find fuzz/artifacts -type f \( -name "crash-*" -o -name "leak-*" -o -name "timeout-*" -o -name "oom-*" \) | head -1)
+
+            if [ -n "$FIRST_CRASH" ]; then
+              echo "first_crash=$FIRST_CRASH" >> $GITHUB_OUTPUT
+              echo "first_crash_name=$(basename $FIRST_CRASH)" >> $GITHUB_OUTPUT
+
+              # Count all crashes for reporting
+              CRASH_COUNT=$(find fuzz/artifacts -type f \( -name "crash-*" -o -name "leak-*" -o -name "timeout-*" -o -name "oom-*" \) | wc -l)
+              echo "crash_count=$CRASH_COUNT" >> $GITHUB_OUTPUT
+              echo "Found $CRASH_COUNT crash(es), will process first: $(basename $FIRST_CRASH)"
+            fi
           else
             echo "crashes_found=false" >> $GITHUB_OUTPUT
             echo "crash_count=0" >> $GITHUB_OUTPUT
@@ -115,16 +126,136 @@ jobs:
           name: io-fuzzing-logs
           path: ./logs
 
-      - name: List downloaded files
+      - name: Extract first crash only
         run: |
-          echo "=== Crash Artifacts ==="
-          ls -lah crash_artifacts/ || echo "No crash artifacts"
+          # Only keep the first crash file for analysis
+          FIRST_CRASH="${{ needs.io_fuzz.outputs.first_crash_name }}"
+          echo "Processing only first crash: $FIRST_CRASH"
+
+          # Create a clean directory with just the first crash
+          mkdir -p ./first_crash
+          if [ -f "crash_artifacts/$FIRST_CRASH" ]; then
+            cp "crash_artifacts/$FIRST_CRASH" ./first_crash/
+            echo "Copied first crash to ./first_crash/"
+          else
+            echo "Warning: Could not find crash file $FIRST_CRASH"
+            echo "Available files:"
+            ls -la crash_artifacts/ || echo "No files in crash_artifacts"
+          fi
+
+      - name: Show crash info
+        run: |
+          echo "=== Crash Summary ==="
+          echo "Total crashes found: ${{ needs.io_fuzz.outputs.crash_count }}"
+          echo "Processing first crash: ${{ needs.io_fuzz.outputs.first_crash_name }}"
           echo ""
-          echo "=== Fuzzer Logs ==="
-          ls -lah logs/ || echo "No logs"
+          echo "=== First crash file size ==="
+          ls -lh first_crash/ || echo "No crash file"
           echo ""
-          echo "=== Log preview (first 50 lines) ==="
-          head -50 logs/fuzz_output.log || echo "No log file"
+          echo "=== Fuzzer log preview (last 100 lines, where crashes are reported) ==="
+          tail -100 logs/fuzz_output.log || echo "No log file"
+
+      - name: Create GitHub issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Extract crash type from filename
+          CRASH_FILE="${{ needs.io_fuzz.outputs.first_crash_name }}"
+          if [[ "$CRASH_FILE" == crash-* ]]; then
+            CRASH_TYPE="Crash"
+          elif [[ "$CRASH_FILE" == leak-* ]]; then
+            CRASH_TYPE="Memory Leak"
+          elif [[ "$CRASH_FILE" == timeout-* ]]; then
+            CRASH_TYPE="Timeout"
+          elif [[ "$CRASH_FILE" == oom-* ]]; then
+            CRASH_TYPE="Out of Memory"
+          else
+            CRASH_TYPE="Unknown"
+          fi
+
+          # Create issue with gh CLI
+          gh issue create \
+            --repo ${{ github.repository }} \
+            --title "Fuzzing $CRASH_TYPE: file_io - $(date -u +%Y-%m-%d)" \
+            --label "bug,fuzzing,file_io-fuzz,needs-triage" \
+            --body-file - <<'EOF'
+          ## Fuzzing Crash Report
+
+          The `file_io` fuzzing target detected a $CRASH_TYPE during a scheduled fuzzing run.
+
+          ### Summary
+
+          - **Crash Type**: $CRASH_TYPE
+          - **Target**: `file_io`
+          - **Crash File**: `${{ needs.io_fuzz.outputs.first_crash_name }}`
+          - **Total Crashes Found**: ${{ needs.io_fuzz.outputs.crash_count }}
+          - **Workflow Run**: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          - **Timestamp**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          - **Branch**: ${{ github.ref_name }}
+          - **Commit**: ${{ github.sha }}
+
+          ### Crash Artifacts
+
+          Download crash artifacts from the workflow run:
+          **https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}**
+
+          Artifacts available:
+          - `io-fuzzing-crash-artifacts` - All crash files found (includes ${{ needs.io_fuzz.outputs.crash_count }} crashes)
+          - `io-fuzzing-logs` - Complete fuzzer output with stack traces
+
+          ### Reproduction Steps
+
+          1. Download the `io-fuzzing-crash-artifacts` from the workflow run above
+          2. Extract the crash file to your local `fuzz/artifacts/file_io/` directory
+          3. Reproduce the crash locally:
+
+          ```bash
+          cargo +nightly fuzz run file_io fuzz/artifacts/file_io/${{ needs.io_fuzz.outputs.first_crash_name }}
+          ```
+
+          4. Get full backtrace:
+
+          ```bash
+          RUST_BACKTRACE=full cargo +nightly fuzz run file_io fuzz/artifacts/file_io/${{ needs.io_fuzz.outputs.first_crash_name }}
+          ```
+
+          5. Minimize the test case (optional):
+
+          ```bash
+          cargo +nightly fuzz tmin file_io fuzz/artifacts/file_io/${{ needs.io_fuzz.outputs.first_crash_name }}
+          ```
+
+          ### Investigation Checklist
+
+          - [ ] Download crash artifacts from workflow run
+          - [ ] Reproduce crash locally with full backtrace
+          - [ ] Analyze stack trace and identify root cause
+          - [ ] Determine severity (security vs stability)
+          - [ ] Check if this is a duplicate of an existing issue
+          - [ ] Minimize test case if needed
+          - [ ] Create fix PR with reference to this issue
+          - [ ] Add regression test
+          - [ ] Verify fix with: `cargo +nightly fuzz run file_io <crash-file>`
+
+          ### Environment
+
+          - **Runner**: ubuntu24-full-arm64
+          - **Rust Toolchain**: nightly
+          - **Fuzz Duration**: 7200 seconds (2 hours)
+          - **Fuzzer**: cargo-fuzz (libFuzzer)
+
+          ### Additional Context
+
+          This issue was automatically created by the fuzzing workflow. If multiple crashes were found, this issue represents the first crash detected. All crash artifacts are available for download.
+
+          **Note**: If this issue is a duplicate of an existing bug, please close it and reference the original issue.
+
+          ---
+
+          *Automatically created by fuzzing workflow*
+          *Workflow file: [fuzz.yml](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/.github/workflows/fuzz.yml)*
+          *Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}*
+          EOF
 
   ops_fuzz:
     name: "Array Operations Fuzz"
