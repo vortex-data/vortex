@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::{BitAnd, BitOr, BitXor, Not, RangeBounds};
+use std::ops::{BitAnd, BitOr, BitXor, Not, Range, RangeBounds};
 
 use crate::bit::ops::{bitwise_binary_op, bitwise_unary_op};
 use crate::bit::{
@@ -418,7 +418,7 @@ impl BitBuffer {
     ///
     /// Panics if the range is outside valid bounds of the buffer.
     #[inline]
-    pub fn iter_bits<F>(&self, range: std::ops::Range<usize>, mut f: F)
+    pub fn iter_bits<F>(&self, range: Range<usize>, mut f: F)
     where
         F: FnMut(usize, bool),
     {
@@ -462,14 +462,14 @@ impl BitBuffer {
     ///
     /// # Arguments
     ///
-    /// * `range` - Bit range to iterate through in reverse (start inclusive, end exclusive)
+    /// * `range` - Bit range to iterate through in reverse
     /// * `f` - Callback function taking (bit_index, is_set)
     ///
     /// # Panics
     ///
     /// Panics if the range is outside valid bounds of the buffer.
     #[inline]
-    pub fn iter_bits_reverse<F>(&self, range: std::ops::Range<usize>, mut f: F)
+    pub fn iter_bits_reverse<F>(&self, range: Range<usize>, mut f: F)
     where
         F: FnMut(usize, bool),
     {
