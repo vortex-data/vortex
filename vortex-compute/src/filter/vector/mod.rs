@@ -18,8 +18,14 @@ impl Filter for &mut VectorMut {
             Mask::AllTrue(_) => {}
             Mask::AllFalse(_) => self.clear(),
             Mask::Values(_) => {
-                // match_each_vector_mut!(self, |v| { v.filter(selection_mask)
-                todo!()
+                if let VectorMut::Primitive(primitive) = self {
+                    primitive.filter(selection_mask);
+                    return;
+                }
+
+                // match_each_vector_mut!(self, |v| { v.filter(selection_mask) })
+
+                unimplemented!("Filter has not been implemented for all vectors")
             }
         }
     }
