@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::Any;
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err, vortex_panic};
+use vortex_error::{
+    VortexError, VortexResult, vortex_bail, vortex_ensure, vortex_err, vortex_panic,
+};
 use vortex_scalar::Scalar;
 
 use crate::Array;
-use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
+use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
 use crate::stats::{Precision, Stat, StatsProvider};
 use crate::vtable::VTable;
 
@@ -92,6 +93,12 @@ impl ComputeFnVTable for Sum {
 
         // Compute the expected dtype of the sum.
         let sum_dtype = self.return_dtype(args)?;
+
+        vortex_ensure!(
+            &sum_dtype == accumulator.dtype(),
+            "sum_dtype {sum_dtype} must match accumulator dtype {}",
+            accumulator.dtype()
+        );
 
         // Short-circuit using array statistics.
         if let Some(Precision::Exact(sum)) = array.statistics().get(Stat::Sum) {
