@@ -17,7 +17,7 @@ impl IsConstantKernel for VarBinVTable {
         if opts.is_negligible_cost() {
             return Ok(None);
         }
-        array.with_iterator(compute_is_constant).map(Some)
+        Ok(Some(array.with_iterator(compute_is_constant)))
     }
 }
 

@@ -55,8 +55,8 @@ mod tests {
             DType::Utf8(Nullability::NonNullable),
         );
 
-        let compressor = fsst_train_compressor(strings.as_ref()).unwrap();
-        let fsst = fsst_compress(strings.as_ref(), &compressor).unwrap();
+        let compressor = fsst_train_compressor(&strings);
+        let fsst = fsst_compress(strings, &compressor);
 
         // Cast to nullable
         let casted = cast(fsst.as_ref(), &DType::Utf8(Nullability::Nullable)).unwrap();
@@ -77,8 +77,8 @@ mod tests {
         DType::Utf8(Nullability::NonNullable)
     ))]
     fn test_cast_fsst_conformance(#[case] array: VarBinArray) {
-        let compressor = fsst_train_compressor(array.as_ref()).unwrap();
-        let fsst = fsst_compress(array.as_ref(), &compressor).unwrap();
+        let compressor = fsst_train_compressor(&array);
+        let fsst = fsst_compress(&array, &compressor);
         test_cast_conformance(fsst.as_ref());
     }
 }

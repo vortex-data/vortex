@@ -107,16 +107,12 @@ mod test {
         let dict = dict_encode(reference.as_ref()).unwrap();
         let flattened_dict = dict.to_varbinview();
         assert_eq!(
-            flattened_dict
-                .with_iterator(|iter| iter
-                    .map(|slice| slice.map(|s| s.to_vec()))
-                    .collect::<Vec<_>>())
-                .unwrap(),
-            reference
-                .with_iterator(|iter| iter
-                    .map(|slice| slice.map(|s| s.to_vec()))
-                    .collect::<Vec<_>>())
-                .unwrap(),
+            flattened_dict.with_iterator(|iter| iter
+                .map(|slice| slice.map(|s| s.to_vec()))
+                .collect::<Vec<_>>()),
+            reference.with_iterator(|iter| iter
+                .map(|slice| slice.map(|s| s.to_vec()))
+                .collect::<Vec<_>>()),
         );
     }
 

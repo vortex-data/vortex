@@ -252,8 +252,8 @@ impl Scheme for FSSTScheme {
         allowed_cascading: usize,
         _excludes: &[StringCode],
     ) -> VortexResult<ArrayRef> {
-        let compressor = fsst_train_compressor(&stats.src.clone().into_array())?;
-        let fsst = fsst_compress(&stats.src.clone().into_array(), &compressor)?;
+        let compressor = fsst_train_compressor(&stats.src);
+        let fsst = fsst_compress(&stats.src, &compressor);
 
         let compressed_original_lengths = IntCompressor::compress(
             &fsst.uncompressed_lengths().to_primitive().narrow()?,

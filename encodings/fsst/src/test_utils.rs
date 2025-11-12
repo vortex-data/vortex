@@ -33,11 +33,9 @@ pub fn gen_fsst_test_data(len: usize, avg_str_len: usize, unique_chars: u8) -> A
             .map(|opt_s| opt_s.map(Vec::into_boxed_slice)),
         DType::Binary(Nullability::NonNullable),
     );
-    let compressor = fsst_train_compressor(varbin.as_ref()).vortex_unwrap();
+    let compressor = fsst_train_compressor(&varbin);
 
-    fsst_compress(varbin.as_ref(), &compressor)
-        .vortex_unwrap()
-        .into_array()
+    fsst_compress(varbin, &compressor).into_array()
 }
 
 pub fn gen_dict_fsst_test_data<T: NativePType>(

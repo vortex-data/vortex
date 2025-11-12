@@ -35,12 +35,9 @@ mod tests {
 
         assert!(taken.dtype().is_nullable());
         assert_eq!(
-            taken
-                .to_varbinview()
-                .with_iterator(|it| it
-                    .map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
-                    .collect::<Vec<_>>())
-                .unwrap(),
+            taken.to_varbinview().with_iterator(|it| it
+                .map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
+                .collect::<Vec<_>>()),
             [Some("one".to_string()), Some("four".to_string())]
         );
     }

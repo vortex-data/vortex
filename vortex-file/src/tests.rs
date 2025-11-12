@@ -517,20 +517,16 @@ async fn filter_or() {
     assert_eq!(result.len(), 1);
     let names = result[0].to_struct().fields()[0].clone();
     assert_eq!(
-        names
-            .to_varbinview()
-            .with_iterator(|iter| iter
-                .flatten()
-                .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
-                .collect::<Vec<_>>())
-            .unwrap(),
+        names.to_varbinview().with_iterator(|iter| iter
+            .flatten()
+            .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
+            .collect::<Vec<_>>()),
         vec!["Joseph".to_string(), "Angela".to_string()]
     );
     let ages = result[0].to_struct().fields()[1].clone();
     assert_eq!(
         ages.to_primitive()
-            .with_iterator(|iter| iter.map(|x| x.cloned()).collect::<Vec<_>>())
-            .unwrap(),
+            .with_iterator(|iter| iter.map(|x| x.cloned()).collect::<Vec<_>>()),
         vec![Some(25), None]
     );
 }
@@ -1487,7 +1483,7 @@ async fn test_writer_with_complex_types() -> VortexResult<()> {
     let strings = strings_field.to_varbinview().with_iterator(|iter| {
         iter.map(|s| s.map(|st| unsafe { String::from_utf8_unchecked(st.to_vec()) }))
             .collect::<Vec<_>>()
-    })?;
+    });
     assert_eq!(
         strings,
         vec![

@@ -54,8 +54,8 @@ mod tests {
     #[test]
     fn test_take_null() {
         let arr = VarBinArray::from_iter([Some("h")], DType::Utf8(Nullability::NonNullable));
-        let compr = fsst_train_compressor(arr.as_ref()).unwrap();
-        let fsst = fsst_compress(arr.as_ref(), &compr).unwrap();
+        let compr = fsst_train_compressor(&arr);
+        let fsst = fsst_compress(&arr, &compr);
 
         let idx1: PrimitiveArray = (0..1).collect();
 
@@ -86,8 +86,8 @@ mod tests {
         DType::Utf8(Nullability::NonNullable),
     ))]
     fn test_take_fsst_conformance(#[case] varbin: VarBinArray) {
-        let compressor = fsst_train_compressor(varbin.as_ref()).unwrap();
-        let array = fsst_compress(varbin.as_ref(), &compressor).unwrap();
+        let compressor = fsst_train_compressor(&varbin);
+        let array = fsst_compress(&varbin, &compressor);
         test_take_conformance(array.as_ref());
     }
 
@@ -98,8 +98,8 @@ mod tests {
             ["hello world", "testing fsst", "compression test", "data array", "vortex encoding"].map(Some),
             DType::Utf8(Nullability::NonNullable),
         );
-        let compressor = fsst_train_compressor(varbin.as_ref()).unwrap();
-        fsst_compress(varbin.as_ref(), &compressor).unwrap()
+        let compressor = fsst_train_compressor(&varbin);
+        fsst_compress(&varbin, &compressor)
     })]
     // Nullable strings
     #[case::fsst_nullable({
@@ -107,8 +107,8 @@ mod tests {
             [Some("hello"), None, Some("world"), Some("test"), None],
             DType::Utf8(Nullability::Nullable),
         );
-        let compressor = fsst_train_compressor(varbin.as_ref()).unwrap();
-        fsst_compress(varbin.as_ref(), &compressor).unwrap()
+        let compressor = fsst_train_compressor(&varbin);
+        fsst_compress(varbin, &compressor)
     })]
     // Repetitive patterns (good for FSST compression)
     #[case::fsst_repetitive({
@@ -116,8 +116,8 @@ mod tests {
             ["http://example.com", "http://test.com", "http://vortex.dev", "http://data.org"].map(Some),
             DType::Utf8(Nullability::NonNullable),
         );
-        let compressor = fsst_train_compressor(varbin.as_ref()).unwrap();
-        fsst_compress(varbin.as_ref(), &compressor).unwrap()
+        let compressor = fsst_train_compressor(&varbin);
+        fsst_compress(&varbin, &compressor)
     })]
     // Edge cases
     #[case::fsst_single({
@@ -125,16 +125,16 @@ mod tests {
             ["single element"].map(Some),
             DType::Utf8(Nullability::NonNullable),
         );
-        let compressor = fsst_train_compressor(varbin.as_ref()).unwrap();
-        fsst_compress(varbin.as_ref(), &compressor).unwrap()
+        let compressor = fsst_train_compressor(&varbin);
+        fsst_compress(&varbin, &compressor)
     })]
     #[case::fsst_empty_strings({
         let varbin = VarBinArray::from_iter(
             ["", "test", "", "hello", ""].map(Some),
             DType::Utf8(Nullability::NonNullable),
         );
-        let compressor = fsst_train_compressor(varbin.as_ref()).unwrap();
-        fsst_compress(varbin.as_ref(), &compressor).unwrap()
+        let compressor = fsst_train_compressor(&varbin);
+        fsst_compress(varbin, &compressor)
     })]
     // Large arrays
     #[case::fsst_large({
@@ -153,8 +153,8 @@ mod tests {
             }))
             .collect();
         let varbin = VarBinArray::from_iter(data, DType::Utf8(Nullability::NonNullable));
-        let compressor = fsst_train_compressor(varbin.as_ref()).unwrap();
-        fsst_compress(varbin.as_ref(), &compressor).unwrap()
+        let compressor = fsst_train_compressor(&varbin);
+        fsst_compress(varbin, &compressor)
     })]
 
     fn test_fsst_consistency(#[case] array: FSSTArray) {

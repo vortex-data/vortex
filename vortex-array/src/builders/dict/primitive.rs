@@ -6,8 +6,8 @@ use std::mem;
 
 use rustc_hash::FxBuildHasher;
 use vortex_buffer::{BitBufferMut, BufferMut};
-use vortex_dtype::{NativePType, Nullability, PType, UnsignedPType};
-use vortex_error::{VortexResult, vortex_bail, vortex_panic};
+use vortex_dtype::{NativePType, Nullability, UnsignedPType};
+use vortex_error::vortex_panic;
 use vortex_utils::aliases::hash_map::{Entry, HashMap};
 
 use super::{DictConstraints, DictEncoder};
@@ -114,10 +114,7 @@ where
     NativeValue<T>: Hash + Eq,
     Code: UnsignedPType,
 {
-    fn encode(&mut self, array: &dyn Array) -> VortexResult<ArrayRef> {
-        if T::PTYPE != PType::try_from(array.dtype())? {
-            vortex_bail!("Can only encode arrays of {}", T::PTYPE);
-        }
+    fn encode(&mut self, array: &dyn Array) -> ArrayRef {
         let mut codes = BufferMut::<Code>::with_capacity(array.len());
 
         array.to_primitive().with_iterator(|it| {
@@ -127,17 +124,17 @@ where
                 };
                 unsafe { codes.push_unchecked(code) }
             }
-        })?;
+        });
 
-        Ok(PrimitiveArray::new(codes, Validity::NonNullable).into_array())
+        PrimitiveArray::new(codes, Validity::NonNullable).into_array()
     }
 
-    fn values(&mut self) -> VortexResult<ArrayRef> {
-        Ok(PrimitiveArray::new(
+    fn reset(&mut self) -> ArrayRef {
+        PrimitiveArray::new(
             self.values.clone(),
             Validity::from_bit_buffer(mem::take(&mut self.values_nulls).freeze(), self.nullability),
         )
-        .into_array())
+        .into_array()
     }
 }
 

@@ -236,7 +236,7 @@ fn dict_encode_stream(
                     let chunks = state.encode(&mut labeler, chunk);
                     drop(labeler);
                     for dict_chunk in chunks {
-                        yield dict_chunk?;
+                        yield dict_chunk;
                     }
                 }
                 None => {
@@ -246,7 +246,7 @@ fn dict_encode_stream(
                     let drained = state.drain_values(&mut labeler);
                     drop(labeler);
                     for dict_chunk in encoded.into_iter().chain(drained.into_iter()) {
-                        yield dict_chunk?;
+                        yield dict_chunk;
                     }
                 }
             }
@@ -260,58 +260,42 @@ struct DictStreamState {
 }
 
 impl DictStreamState {
-    fn encode(
-        &mut self,
-        labeler: &mut DictChunkLabeler,
-        chunk: ArrayRef,
-    ) -> Vec<VortexResult<DictionaryChunk>> {
-        self.try_encode(labeler, chunk)
-            .unwrap_or_else(|e| vec![Err(e)])
-    }
-
-    fn try_encode(
-        &mut self,
-        labeler: &mut DictChunkLabeler,
-        chunk: ArrayRef,
-    ) -> VortexResult<Vec<VortexResult<DictionaryChunk>>> {
+    fn encode(&mut self, labeler: &mut DictChunkLabeler, chunk: ArrayRef) -> Vec<DictionaryChunk> {
         let mut res = Vec::new();
         let mut to_be_encoded = Some(chunk);
         while let Some(remaining) = to_be_encoded.take() {
             match self.encoder.take() {
-                None => match start_encoding(&self.constraints, &remaining)? {
+                None => match start_encoding(&self.constraints, &remaining) {
                     EncodingState::Continue((encoder, encoded)) => {
-                        res.push(Ok(labeler.codes(encoded)));
+                        res.push(labeler.codes(encoded));
                         self.encoder = Some(encoder);
                     }
                     EncodingState::Done((values, encoded, unencoded)) => {
-                        res.push(Ok(labeler.codes(encoded)));
-                        res.push(Ok(labeler.values(values)));
+                        res.push(labeler.codes(encoded));
+                        res.push(labeler.values(values));
                         to_be_encoded = Some(unencoded);
                     }
                 },
-                Some(encoder) => match encode_chunk(encoder, &remaining)? {
+                Some(encoder) => match encode_chunk(encoder, &remaining) {
                     EncodingState::Continue((encoder, encoded)) => {
-                        res.push(Ok(labeler.codes(encoded)));
+                        res.push(labeler.codes(encoded));
                         self.encoder = Some(encoder);
                     }
                     EncodingState::Done((values, encoded, unencoded)) => {
-                        res.push(Ok(labeler.codes(encoded)));
-                        res.push(Ok(labeler.values(values)));
+                        res.push(labeler.codes(encoded));
+                        res.push(labeler.values(values));
                         to_be_encoded = Some(unencoded);
                     }
                 },
             }
         }
-        Ok(res)
+        res
     }
 
-    fn drain_values(
-        &mut self,
-        labeler: &mut DictChunkLabeler,
-    ) -> Vec<VortexResult<DictionaryChunk>> {
+    fn drain_values(&mut self, labeler: &mut DictChunkLabeler) -> Vec<DictionaryChunk> {
         match self.encoder.as_mut() {
             None => Vec::new(),
-            Some(encoder) => vec![encoder.values().map(|val| labeler.values(val))],
+            Some(encoder) => vec![labeler.values(encoder.reset())],
         }
     }
 }
@@ -493,20 +477,17 @@ enum EncodingState {
     Done((ArrayRef, ArrayRef, ArrayRef)),
 }
 
-fn start_encoding(constraints: &DictConstraints, chunk: &dyn Array) -> VortexResult<EncodingState> {
-    let encoder = dict_encoder(chunk, constraints)?;
+fn start_encoding(constraints: &DictConstraints, chunk: &dyn Array) -> EncodingState {
+    let encoder = dict_encoder(chunk, constraints);
     encode_chunk(encoder, chunk)
 }
 
-fn encode_chunk(
-    mut encoder: Box<dyn DictEncoder>,
-    chunk: &dyn Array,
-) -> VortexResult<EncodingState> {
-    let encoded = encoder.encode(chunk)?;
-    Ok(match remainder(chunk, encoded.len()) {
+fn encode_chunk(mut encoder: Box<dyn DictEncoder>, chunk: &dyn Array) -> EncodingState {
+    let encoded = encoder.encode(chunk);
+    match remainder(chunk, encoded.len()) {
         None => EncodingState::Continue((encoder, encoded)),
-        Some(unencoded) => EncodingState::Done((encoder.values()?, encoded, unencoded)),
-    })
+        Some(unencoded) => EncodingState::Done((encoder.reset(), encoded, unencoded)),
+    }
 }
 
 fn remainder(array: &dyn Array, encoded_len: usize) -> Option<ArrayRef> {

@@ -86,7 +86,7 @@ pub fn take_canonical_array(
         DType::Utf8(_) | DType::Binary(_) => {
             let utf8 = array.to_varbinview();
             let values =
-                utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())?;
+                utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>());
             Ok(VarBinViewArray::from_iter(
                 indices
                     .iter()
