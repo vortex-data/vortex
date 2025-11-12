@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use divan::Bencher;
+use rand::distr::{Distribution, StandardUniform};
+use vortex_array::Array;
+use vortex_array::arrays::dict_test::gen_dict_primitive_chunks;
+use vortex_array::builders::builder_with_capacity;
+use vortex_array::compute::warm_up_vtables;
+use vortex_dtype::NativePType;
+
+fn main() {
+    warm_up_vtables();
+    divan::main();
+}
+
+const BENCH_ARGS: &[(usize, usize, usize)] = &[
+    (1000, 10, 10),
+    (1000, 100, 10),
+    (1000, 1000, 10),
+    (1000, 10, 100),
+    (1000, 100, 100),
+    (1000, 1000, 100),
+];
+
+#[divan::bench(types = [u32, u64, f32, f64], args = BENCH_ARGS)]
+fn chunked_dict_primitive_canonical_into<T: NativePType>(
+    bencher: Bencher,
+    (len, unique_values, chunk_count): (usize, usize, usize),
+) where
+    StandardUniform: Distribution<T>,
+{
+    let chunk = gen_dict_primitive_chunks::<T, u16>(len, unique_values, chunk_count);
+
+    bencher.with_inputs(|| chunk.clone()).bench_values(|chunk| {
+        let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
+        chunk.append_to_builder(builder.as_mut());
+        builder.finish()
+    })
+}
+
+#[divan::bench(types = [u32, u64, f32, f64], args = BENCH_ARGS)]
+fn chunked_dict_primitive_into_canonical<T: NativePType>(
+    bencher: Bencher,
+    (len, unique_values, chunk_count): (usize, usize, usize),
+) where
+    StandardUniform: Distribution<T>,
+{
+    let chunk = gen_dict_primitive_chunks::<T, u16>(len, unique_values, chunk_count);
+
+    bencher
+        .with_inputs(|| chunk.clone())
+        .bench_values(|chunk| chunk.to_canonical())
+}

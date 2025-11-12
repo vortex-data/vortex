@@ -6,10 +6,10 @@
 use divan::Bencher;
 use vortex_array::IntoArray;
 use vortex_array::arrays::{BoolArray, PrimitiveArray};
+use vortex_array::builders::dict::dict_encode;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::{CompressorStats, IntegerStats, integer_dictionary_encode};
 use vortex_buffer::BufferMut;
-use vortex_dict::builders::dict_encode;
 
 fn make_array() -> PrimitiveArray {
     let values: BufferMut<i32> = (0..50).cycle().take(64_000).collect();

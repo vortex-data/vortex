@@ -5,18 +5,17 @@ use std::hash::BuildHasher;
 use std::mem;
 use std::sync::Arc;
 
-use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::{PrimitiveArray, VarBinVTable, VarBinViewArray, VarBinViewVTable};
-use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_buffer::{BitBufferMut, BufferMut, ByteBufferMut};
 use vortex_dtype::{DType, UnsignedPType};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_panic};
 use vortex_utils::aliases::hash_map::{DefaultHashBuilder, HashTable, HashTableEntry, RandomState};
 use vortex_vector::binaryview::BinaryView;
 
-use super::DictConstraints;
-use crate::builders::DictEncoder;
+use super::{DictConstraints, DictEncoder};
+use crate::accessor::ArrayAccessor;
+use crate::arrays::{PrimitiveArray, VarBinVTable, VarBinViewArray, VarBinViewVTable};
+use crate::validity::Validity;
+use crate::{Array, ArrayRef, IntoArray};
 
 /// Dictionary encode varbin array. Specializes for primitive byte arrays to avoid double copying
 pub struct BytesDictBuilder<Codes> {
@@ -187,11 +186,10 @@ impl<Code: UnsignedPType> DictEncoder for BytesDictBuilder<Code> {
 mod test {
     use std::str;
 
-    use vortex_array::ToCanonical;
-    use vortex_array::accessor::ArrayAccessor;
-    use vortex_array::arrays::VarBinArray;
-
-    use crate::builders::dict_encode;
+    use crate::ToCanonical;
+    use crate::accessor::ArrayAccessor;
+    use crate::arrays::VarBinArray;
+    use crate::builders::dict::dict_encode;
 
     #[test]
     fn encode_varbin() {

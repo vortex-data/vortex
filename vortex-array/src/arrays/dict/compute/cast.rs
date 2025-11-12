@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
-use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{DictArray, DictVTable};
+use super::{DictArray, DictVTable};
+use crate::compute::{CastKernel, CastKernelAdapter, cast};
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl CastKernel for DictVTable {
     fn cast(&self, array: &DictArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -35,15 +35,15 @@ register_kernel!(CastKernelAdapter(DictVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::cast;
-    use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_array::{IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::DictVTable;
-    use crate::builders::dict_encode;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::dict::DictVTable;
+    use crate::builders::dict::dict_encode;
+    use crate::compute::cast;
+    use crate::compute::conformance::cast::test_cast_conformance;
+    use crate::{IntoArray, ToCanonical, assert_arrays_eq};
 
     #[test]
     fn test_cast_dict_to_wider_type() {
@@ -171,7 +171,7 @@ mod tests {
     #[case(dict_encode(&buffer![100u32, 200, 100, 300, 200].into_array()).unwrap().into_array())]
     #[case(dict_encode(&PrimitiveArray::from_option_iter([Some(1i32), None, Some(2), Some(1), None]).into_array()).unwrap().into_array())]
     #[case(dict_encode(&buffer![1.5f32, 2.5, 1.5, 3.5].into_array()).unwrap().into_array())]
-    fn test_cast_dict_conformance(#[case] array: vortex_array::ArrayRef) {
+    fn test_cast_dict_conformance(#[case] array: crate::ArrayRef) {
         test_cast_conformance(array.as_ref());
     }
 }

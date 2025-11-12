@@ -7,13 +7,13 @@ use pyo3::PyClass;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use vortex::arrays::{
-    BoolVTable, ChunkedVTable, ConstantVTable, DecimalVTable, ExtensionVTable, FixedSizeListVTable,
-    ListVTable, NullVTable, PrimitiveVTable, StructVTable, VarBinVTable, VarBinViewVTable,
+    BoolVTable, ChunkedVTable, ConstantVTable, DecimalVTable, DictVTable, ExtensionVTable,
+    FixedSizeListVTable, ListVTable, NullVTable, PrimitiveVTable, StructVTable, VarBinVTable,
+    VarBinViewVTable,
 };
 use vortex::encodings::alp::{ALPRDVTable, ALPVTable};
 use vortex::encodings::bytebool::ByteBoolVTable;
 use vortex::encodings::datetime_parts::DateTimePartsVTable;
-use vortex::encodings::dict::DictVTable;
 use vortex::encodings::fastlanes::{BitPackedVTable, DeltaVTable, FoRVTable};
 use vortex::encodings::fsst::FSSTVTable;
 use vortex::encodings::runend::RunEndVTable;

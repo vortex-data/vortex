@@ -5,17 +5,16 @@ use std::hash::Hash;
 use std::mem;
 
 use rustc_hash::FxBuildHasher;
-use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::{NativeValue, PrimitiveArray};
-use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::{BitBufferMut, BufferMut};
 use vortex_dtype::{NativePType, Nullability, PType, UnsignedPType};
 use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 use vortex_utils::aliases::hash_map::{Entry, HashMap};
 
-use super::DictConstraints;
-use crate::builders::DictEncoder;
+use super::{DictConstraints, DictEncoder};
+use crate::accessor::ArrayAccessor;
+use crate::arrays::{NativeValue, PrimitiveArray};
+use crate::validity::Validity;
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 pub fn primitive_dict_builder<T: NativePType>(
     nullability: Nullability,
@@ -146,11 +145,11 @@ where
 mod test {
     #[allow(unused_imports)]
     use itertools::Itertools;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::{Array, IntoArray as _, assert_arrays_eq};
     use vortex_buffer::buffer;
 
-    use crate::builders::dict_encode;
+    use crate::arrays::PrimitiveArray;
+    use crate::builders::dict::dict_encode;
+    use crate::{Array, IntoArray as _, assert_arrays_eq};
 
     #[test]
     fn encode_primitive() {

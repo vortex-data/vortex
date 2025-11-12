@@ -3,18 +3,18 @@
 
 use std::ops::Not;
 
-use vortex_array::arrays::{BoolArray, ConstantArray};
-use vortex_array::compute::{Operator, cast, compare, mask, take};
-use vortex_array::validity::Validity;
-use vortex_array::vtable::CanonicalVTable;
-use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 use vortex_buffer::BitBuffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
 
-use crate::{DictArray, DictVTable};
+use super::{DictArray, DictVTable};
+use crate::arrays::{BoolArray, ConstantArray};
+use crate::compute::{Operator, cast, compare, mask, take};
+use crate::validity::Validity;
+use crate::vtable::CanonicalVTable;
+use crate::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 
 impl CanonicalVTable<DictVTable> for DictVTable {
     fn canonicalize(array: &DictArray) -> Canonical {

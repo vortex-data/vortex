@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult, mask, min_max};
-use vortex_array::{Array as _, ToCanonical, register_kernel};
 use vortex_buffer::BitBuffer;
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::{DictArray, DictVTable};
+use super::{DictArray, DictVTable};
+use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult, mask, min_max};
+use crate::{Array as _, ToCanonical, register_kernel};
 
 impl MinMaxKernel for DictVTable {
     fn min_max(&self, array: &DictArray) -> VortexResult<Option<MinMaxResult>> {
@@ -44,13 +44,13 @@ register_kernel!(MinMaxKernelAdapter(DictVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::min_max;
-    use vortex_array::{Array, IntoArray};
     use vortex_buffer::buffer;
 
-    use crate::DictArray;
-    use crate::builders::dict_encode;
+    use super::DictArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::builders::dict::dict_encode;
+    use crate::compute::min_max;
+    use crate::{Array, IntoArray};
 
     fn assert_min_max(array: &dyn Array, expected: Option<(i32, i32)>) {
         match (min_max(array).unwrap(), expected) {

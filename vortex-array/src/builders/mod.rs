@@ -43,6 +43,7 @@ use lazy_null_builder::LazyBitBufferBuilder;
 
 mod bool;
 mod decimal;
+pub mod dict;
 mod extension;
 mod fixed_size_list;
 mod list;

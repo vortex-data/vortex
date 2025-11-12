@@ -6,15 +6,13 @@
 use rand::distr::{Alphanumeric, Distribution, StandardUniform};
 use rand::prelude::{IndexedRandom, StdRng};
 use rand::{Rng, SeedableRng};
-use vortex_array::arrays::{ChunkedArray, PrimitiveArray, VarBinArray};
-use vortex_array::validity::Validity;
-use vortex_array::{ArrayRef, IntoArray};
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, NativePType, Nullability};
+use vortex_dtype::NativePType;
 use vortex_error::{VortexResult, VortexUnwrap};
-use vortex_fsst::{fsst_compress, fsst_train_compressor};
 
-use crate::DictArray;
+use super::{ChunkedArray, DictArray, PrimitiveArray};
+use crate::validity::Validity;
+use crate::{ArrayRef, IntoArray};
 
 pub fn gen_primitive_for_dict<T: NativePType>(len: usize, unique_count: usize) -> PrimitiveArray
 where
@@ -63,48 +61,6 @@ pub fn gen_varbin_words(len: usize, unique_count: usize) -> Vec<String> {
     (0..len)
         .map(|_| dict.choose(rng).unwrap().clone())
         .collect()
-}
-
-pub fn gen_fsst_test_data(len: usize, avg_str_len: usize, unique_chars: u8) -> ArrayRef {
-    let mut rng = StdRng::seed_from_u64(0);
-    let mut strings = Vec::with_capacity(len);
-
-    for _ in 0..len {
-        // Generate a random string with length around `avg_len`. The number of possible
-        // characters within the random string is defined by `unique_chars`.
-        let len = avg_str_len * rng.random_range(50..=150) / 100;
-        strings.push(Some(
-            (0..len)
-                .map(|_| rng.random_range(b'a'..(b'a' + unique_chars)))
-                .collect::<Vec<u8>>(),
-        ));
-    }
-
-    let varbin = VarBinArray::from_iter(
-        strings
-            .into_iter()
-            .map(|opt_s| opt_s.map(Vec::into_boxed_slice)),
-        DType::Binary(Nullability::NonNullable),
-    );
-    let compressor = fsst_train_compressor(varbin.as_ref()).vortex_unwrap();
-
-    fsst_compress(varbin.as_ref(), &compressor)
-        .vortex_unwrap()
-        .into_array()
-}
-
-pub fn gen_dict_fsst_test_data<T: NativePType>(
-    len: usize,
-    unique_values: usize,
-    str_len: usize,
-    unique_char_count: u8,
-) -> DictArray {
-    let values = gen_fsst_test_data(len, str_len, unique_char_count);
-    let mut rng = StdRng::seed_from_u64(0);
-    let codes = (0..len)
-        .map(|_| T::from(rng.random_range(0..unique_values)).unwrap())
-        .collect::<PrimitiveArray>();
-    DictArray::try_new(codes.into_array(), values).vortex_unwrap()
 }
 
 pub fn gen_dict_primitive_chunks<T: NativePType, O: NativePType>(

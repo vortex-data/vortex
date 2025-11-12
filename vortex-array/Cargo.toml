@@ -140,3 +140,22 @@ harness = false
 name = "expr_large_struct_pack"
 path = "benches/expr/large_struct_pack.rs"
 harness = false
+
+[[bench]]
+name = "chunked_dict_builder"
+harness = false
+required-features = ["test-harness"]
+
+[[bench]]
+name = "dict_compress"
+harness = false
+required-features = ["test-harness"]
+
+[[bench]]
+name = "dict_compare"
+harness = false
+required-features = ["test-harness"]
+
+[[bench]]
+name = "dict_mask"
+harness = false

@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use pyo3::prelude::*;
+use vortex::arrays::DictVTable;
 use vortex::encodings::alp::{ALPRDVTable, ALPVTable};
 use vortex::encodings::datetime_parts::DateTimePartsVTable;
-use vortex::encodings::dict::DictVTable;
 use vortex::encodings::fsst::FSSTVTable;
 use vortex::encodings::runend::RunEndVTable;
 use vortex::encodings::sequence::SequenceVTable;

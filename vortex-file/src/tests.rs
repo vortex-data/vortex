@@ -10,8 +10,8 @@ use futures::{StreamExt, TryStreamExt, pin_mut};
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
-    ChunkedArray, ConstantArray, DecimalArray, ListArray, PrimitiveArray, StructArray, VarBinArray,
-    VarBinViewArray,
+    ChunkedArray, ConstantArray, DecimalArray, DictEncoding, DictVTable, ListArray, PrimitiveArray,
+    StructArray, VarBinArray, VarBinViewArray,
 };
 use vortex_array::expr::{
     Pack, PackOptions, VTableExt, and, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root, select,
@@ -21,7 +21,6 @@ use vortex_array::stream::{ArrayStreamAdapter, ArrayStreamExt};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, ArraySession, IntoArray, ToCanonical, assert_arrays_eq};
 use vortex_buffer::{Buffer, ByteBufferMut, buffer};
-use vortex_dict::{DictEncoding, DictVTable};
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, DecimalDType, Nullability, PType, StructFields};
 use vortex_error::VortexResult;

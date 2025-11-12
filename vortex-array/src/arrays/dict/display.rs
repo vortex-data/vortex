@@ -3,12 +3,12 @@
 
 #[cfg(test)]
 mod test {
-    use vortex_array::IntoArray as _;
-    use vortex_array::arrays::{BoolArray, ListArray, VarBinArray};
-    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
-    use crate::DictArray;
+    use crate::IntoArray as _;
+    use crate::arrays::dict::DictArray;
+    use crate::arrays::{BoolArray, ListArray, VarBinArray};
+    use crate::validity::Validity;
 
     #[test]
     fn test_dict_display() {
