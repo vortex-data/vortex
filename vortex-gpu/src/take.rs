@@ -149,8 +149,7 @@ where
 mod tests {
     use cudarc::driver::CudaContext;
     use rstest::rstest;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::dict::DictArray;
+    use vortex_array::arrays::{DictArray, PrimitiveArray};
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_dtype::match_each_native_ptype;
 
