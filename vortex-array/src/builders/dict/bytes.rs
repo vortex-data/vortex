@@ -7,13 +7,14 @@ use std::sync::Arc;
 
 use vortex_buffer::{BitBufferMut, BufferMut, ByteBufferMut};
 use vortex_dtype::{DType, UnsignedPType};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_panic};
+use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
 use vortex_utils::aliases::hash_map::{DefaultHashBuilder, HashTable, HashTableEntry, RandomState};
 use vortex_vector::binaryview::BinaryView;
 
 use super::{DictConstraints, DictEncoder};
 use crate::accessor::ArrayAccessor;
 use crate::arrays::{PrimitiveArray, VarBinVTable, VarBinViewArray, VarBinViewVTable};
+use crate::canonical::ToCanonical;
 use crate::validity::Validity;
 use crate::{Array, ArrayRef, IntoArray};
 
@@ -120,11 +121,7 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
         }
     }
 
-    fn encode_bytes<A: ArrayAccessor<[u8]>>(
-        &mut self,
-        accessor: &A,
-        len: usize,
-    ) -> VortexResult<ArrayRef> {
+    fn encode_bytes<A: ArrayAccessor<[u8]>>(&mut self, accessor: &A, len: usize) -> ArrayRef {
         let mut local_lookup = self.lookup.take().vortex_expect("Must have a lookup dict");
         let mut codes: BufferMut<Code> = BufferMut::with_capacity(len);
 
@@ -133,26 +130,27 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
                 let Some(code) = self.encode_value(&mut local_lookup, value) else {
                     break;
                 };
+                // SAFETY: we reserved capacity in the buffer for `len` elements
                 unsafe { codes.push_unchecked(code) }
             }
-        })?;
+        });
 
         // Restore lookup dictionary back into the struct
         self.lookup = Some(local_lookup);
 
-        Ok(PrimitiveArray::new(codes, Validity::NonNullable).into_array())
+        PrimitiveArray::new(codes, Validity::NonNullable).into_array()
     }
 }
 
 impl<Code: UnsignedPType> DictEncoder for BytesDictBuilder<Code> {
-    fn encode(&mut self, array: &dyn Array) -> VortexResult<ArrayRef> {
-        if &self.dtype != array.dtype() {
-            vortex_bail!(
-                "Array DType {} does not match builder dtype {}",
-                array.dtype(),
-                self.dtype
-            );
-        }
+    fn encode(&mut self, array: &dyn Array) -> ArrayRef {
+        debug_assert_eq!(
+            &self.dtype,
+            array.dtype(),
+            "Array DType {} does not match builder dtype {}",
+            array.dtype(),
+            self.dtype
+        );
 
         let len = array.len();
         if let Some(varbinview) = array.as_opt::<VarBinViewVTable>() {
@@ -160,24 +158,27 @@ impl<Code: UnsignedPType> DictEncoder for BytesDictBuilder<Code> {
         } else if let Some(varbin) = array.as_opt::<VarBinVTable>() {
             self.encode_bytes(varbin, len)
         } else {
-            vortex_bail!("Can only dictionary encode VarBin and VarBinView arrays");
+            // NOTE(aduffy): it is very rare that this path would be taken, only e.g.
+            //  if we're performing dictionary encoding downstream of some other compression.
+            self.encode_bytes(&array.to_varbinview(), len)
         }
     }
 
-    fn values(&mut self) -> VortexResult<ArrayRef> {
+    fn reset(&mut self) -> ArrayRef {
+        let views = mem::take(&mut self.views).freeze();
+        let buffer = mem::take(&mut self.values).freeze();
+        let value_nulls = mem::take(&mut self.values_nulls).freeze();
+
         // SAFETY: we build the views explicitly and the bytes should be checked before feeding
         //  to the encoder.
         unsafe {
-            Ok(VarBinViewArray::new_unchecked(
-                self.views.clone().freeze(),
-                Arc::from([self.values.clone().freeze()]),
+            VarBinViewArray::new_unchecked(
+                views,
+                Arc::from([buffer]),
                 self.dtype.clone(),
-                Validity::from_bit_buffer(
-                    mem::take(&mut self.values_nulls).freeze(),
-                    self.dtype.nullability(),
-                ),
+                Validity::from_bit_buffer(value_nulls, self.dtype.nullability()),
             )
-            .into_array())
+            .into_array()
         }
     }
 }
@@ -199,17 +200,14 @@ mod test {
             dict.codes().to_primitive().as_slice::<u8>(),
             &[0, 1, 0, 2, 1]
         );
-        dict.values()
-            .to_varbinview()
-            .with_iterator(|iter| {
-                assert_eq!(
-                    iter.flatten()
-                        .map(|b| unsafe { str::from_utf8_unchecked(b) })
-                        .collect::<Vec<_>>(),
-                    vec!["hello", "world", "again"]
-                );
-            })
-            .unwrap();
+        dict.values().to_varbinview().with_iterator(|iter| {
+            assert_eq!(
+                iter.flatten()
+                    .map(|b| unsafe { str::from_utf8_unchecked(b) })
+                    .collect::<Vec<_>>(),
+                vec!["hello", "world", "again"]
+            );
+        });
     }
 
     #[test]
@@ -231,33 +229,27 @@ mod test {
             dict.codes().to_primitive().as_slice::<u8>(),
             &[0, 1, 2, 0, 1, 3, 2, 1]
         );
-        dict.values()
-            .to_varbinview()
-            .with_iterator(|iter| {
-                assert_eq!(
-                    iter.map(|b| b.map(|v| unsafe { str::from_utf8_unchecked(v) }))
-                        .collect::<Vec<_>>(),
-                    vec![Some("hello"), None, Some("world"), Some("again")]
-                );
-            })
-            .unwrap();
+        dict.values().to_varbinview().with_iterator(|iter| {
+            assert_eq!(
+                iter.map(|b| b.map(|v| unsafe { str::from_utf8_unchecked(v) }))
+                    .collect::<Vec<_>>(),
+                vec![Some("hello"), None, Some("world"), Some("again")]
+            );
+        });
     }
 
     #[test]
     fn repeated_values() {
         let arr = VarBinArray::from(vec!["a", "a", "b", "b", "a", "b", "a", "b"]);
         let dict = dict_encode(arr.as_ref()).unwrap();
-        dict.values()
-            .to_varbinview()
-            .with_iterator(|iter| {
-                assert_eq!(
-                    iter.flatten()
-                        .map(|b| unsafe { str::from_utf8_unchecked(b) })
-                        .collect::<Vec<_>>(),
-                    vec!["a", "b"]
-                );
-            })
-            .unwrap();
+        dict.values().to_varbinview().with_iterator(|iter| {
+            assert_eq!(
+                iter.flatten()
+                    .map(|b| unsafe { str::from_utf8_unchecked(b) })
+                    .collect::<Vec<_>>(),
+                vec!["a", "b"]
+            );
+        });
         assert_eq!(
             dict.codes().to_primitive().as_slice::<u8>(),
             &[0, 0, 1, 1, 0, 1, 0, 1]

@@ -26,10 +26,8 @@ pub(crate) fn build_fsst_array() -> ArrayRef {
     input_array.append_value(b"Nothing in present history can contradict them");
     let input_array = input_array.finish(DType::Utf8(Nullability::NonNullable));
 
-    let compressor = fsst_train_compressor(input_array.as_ref()).unwrap();
-    fsst_compress(input_array.as_ref(), &compressor)
-        .unwrap()
-        .into_array()
+    let compressor = fsst_train_compressor(&input_array);
+    fsst_compress(input_array, &compressor).into_array()
 }
 
 #[test]

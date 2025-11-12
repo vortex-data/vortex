@@ -10,15 +10,15 @@ use crate::register_kernel;
 
 impl IsSortedKernel for VarBinVTable {
     fn is_sorted(&self, array: &VarBinArray) -> VortexResult<Option<bool>> {
-        array
-            .with_iterator(|bytes_iter| bytes_iter.is_sorted())
-            .map(Some)
+        Ok(Some(
+            array.with_iterator(|bytes_iter| bytes_iter.is_sorted()),
+        ))
     }
 
     fn is_strict_sorted(&self, array: &VarBinArray) -> VortexResult<Option<bool>> {
-        array
-            .with_iterator(|bytes_iter| bytes_iter.is_strict_sorted())
-            .map(Some)
+        Ok(Some(
+            array.with_iterator(|bytes_iter| bytes_iter.is_strict_sorted()),
+        ))
     }
 }
 

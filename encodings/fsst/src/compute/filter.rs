@@ -46,8 +46,8 @@ mod test {
         builder.append_value(b"world");
         let varbin = builder.finish(DType::Utf8(Nullability::NonNullable));
 
-        let compressor = fsst_train_compressor(varbin.as_ref()).unwrap();
-        let array = fsst_compress(varbin.as_ref(), &compressor).unwrap();
+        let compressor = fsst_train_compressor(&varbin);
+        let array = fsst_compress(&varbin, &compressor);
         test_filter_conformance(array.as_ref());
 
         // Test with longer strings that benefit from compression
@@ -59,8 +59,8 @@ mod test {
         builder.append_value(b"the lazy dog sleeps");
         let varbin = builder.finish(DType::Utf8(Nullability::NonNullable));
 
-        let compressor = fsst_train_compressor(varbin.as_ref()).unwrap();
-        let array = fsst_compress(varbin.as_ref(), &compressor).unwrap();
+        let compressor = fsst_train_compressor(&varbin);
+        let array = fsst_compress(&varbin, &compressor);
         test_filter_conformance(array.as_ref());
 
         // Test with nullable strings
@@ -72,8 +72,8 @@ mod test {
         builder.append_null();
         let varbin = builder.finish(DType::Utf8(Nullability::Nullable));
 
-        let compressor = fsst_train_compressor(varbin.as_ref()).unwrap();
-        let array = fsst_compress(varbin.as_ref(), &compressor).unwrap();
+        let compressor = fsst_train_compressor(&varbin);
+        let array = fsst_compress(&varbin, &compressor);
         test_filter_conformance(array.as_ref());
     }
 }

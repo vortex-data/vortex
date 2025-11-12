@@ -54,9 +54,7 @@ fn bench_compare_primitive(bencher: divan::Bencher, (len, uniqueness): (usize, u
 fn bench_compare_varbin(bencher: divan::Bencher, (len, uniqueness): (usize, usize)) {
     let varbin_arr = VarBinArray::from(gen_varbin_words(len, uniqueness));
     let dict = dict_encode(varbin_arr.as_ref()).unwrap();
-    let bytes = varbin_arr
-        .with_iterator(|i| i.next().unwrap().unwrap().to_vec())
-        .unwrap();
+    let bytes = varbin_arr.with_iterator(|i| i.next().unwrap().unwrap().to_vec());
     let value = from_utf8(bytes.as_slice()).unwrap();
 
     bencher.with_inputs(|| dict.clone()).bench_refs(|dict| {
@@ -73,9 +71,7 @@ fn bench_compare_varbin(bencher: divan::Bencher, (len, uniqueness): (usize, usiz
 fn bench_compare_varbinview(bencher: divan::Bencher, (len, uniqueness): (usize, usize)) {
     let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(len, uniqueness));
     let dict = dict_encode(varbinview_arr.as_ref()).unwrap();
-    let bytes = varbinview_arr
-        .with_iterator(|i| i.next().unwrap().unwrap().to_vec())
-        .unwrap();
+    let bytes = varbinview_arr.with_iterator(|i| i.next().unwrap().unwrap().to_vec());
     let value = from_utf8(bytes.as_slice()).unwrap();
     bencher.with_inputs(|| dict.clone()).bench_refs(|dict| {
         compare(
@@ -127,9 +123,7 @@ fn bench_compare_sliced_dict_varbinview(
     let varbin_arr = VarBinArray::from(gen_varbin_words(codes_len.max(values_len), values_len));
     let dict = dict_encode(varbin_arr.as_ref()).unwrap();
     let dict = dict.slice(0..codes_len);
-    let bytes = varbin_arr
-        .with_iterator(|i| i.next().unwrap().unwrap().to_vec())
-        .unwrap();
+    let bytes = varbin_arr.with_iterator(|i| i.next().unwrap().unwrap().to_vec());
     let value = from_utf8(bytes.as_slice()).unwrap();
 
     bencher.with_inputs(|| dict.clone()).bench_refs(|dict| {

@@ -4,7 +4,7 @@
 use bytes::bytes_dict_builder;
 use primitive::primitive_dict_builder;
 use vortex_dtype::match_each_native_ptype;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 
 use crate::arrays::{DictArray, PrimitiveVTable, VarBinVTable, VarBinViewVTable};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
@@ -25,15 +25,13 @@ pub const UNCONSTRAINED: DictConstraints = DictConstraints {
 
 pub trait DictEncoder: Send {
     /// Assign dictionary codes to the given input array.
-    fn encode(&mut self, array: &dyn Array) -> VortexResult<ArrayRef>;
+    fn encode(&mut self, array: &dyn Array) -> ArrayRef;
 
-    fn values(&mut self) -> VortexResult<ArrayRef>;
+    /// Clear the encoder state to make it ready for a new round of decoding.
+    fn reset(&mut self) -> ArrayRef;
 }
 
-pub fn dict_encoder(
-    array: &dyn Array,
-    constraints: &DictConstraints,
-) -> VortexResult<Box<dyn DictEncoder>> {
+pub fn dict_encoder(array: &dyn Array, constraints: &DictConstraints) -> Box<dyn DictEncoder> {
     let dict_builder: Box<dyn DictEncoder> = if let Some(pa) = array.as_opt::<PrimitiveVTable>() {
         match_each_native_ptype!(pa.ptype(), |P| {
             primitive_dict_builder::<P>(pa.dtype().nullability(), constraints)
@@ -43,22 +41,22 @@ pub fn dict_encoder(
     } else if let Some(vb) = array.as_opt::<VarBinVTable>() {
         bytes_dict_builder(vb.dtype().clone(), constraints)
     } else {
-        vortex_bail!("Can only encode primitive or varbin/view arrays")
+        vortex_panic!("Can only encode primitive or varbin/view arrays")
     };
-    Ok(dict_builder)
+    dict_builder
 }
 
 pub fn dict_encode_with_constraints(
     array: &dyn Array,
     constraints: &DictConstraints,
 ) -> VortexResult<DictArray> {
-    let mut encoder = dict_encoder(array, constraints)?;
-    let codes = encoder.encode(array)?.to_primitive().narrow()?;
+    let mut encoder = dict_encoder(array, constraints);
+    let codes = encoder.encode(array).to_primitive().narrow()?;
     // SAFETY: The encoding process will produce a value set of codes and values
     unsafe {
         Ok(DictArray::new_unchecked(
             codes.into_array(),
-            encoder.values()?,
+            encoder.reset(),
         ))
     }
 }
