@@ -6,10 +6,10 @@ use std::ops::Deref;
 use pyo3::PyClass;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
-use vortex::arrays::DictVTable;
 use vortex::arrays::{
-    BoolVTable, ChunkedVTable, ConstantVTable, DecimalVTable, ExtensionVTable, FixedSizeListVTable,
-    ListVTable, NullVTable, PrimitiveVTable, StructVTable, VarBinVTable, VarBinViewVTable,
+    BoolVTable, ChunkedVTable, ConstantVTable, DecimalVTable, DictVTable, ExtensionVTable,
+    FixedSizeListVTable, ListVTable, NullVTable, PrimitiveVTable, StructVTable, VarBinVTable,
+    VarBinViewVTable,
 };
 use vortex::encodings::alp::{ALPRDVTable, ALPVTable};
 use vortex::encodings::bytebool::ByteBoolVTable;

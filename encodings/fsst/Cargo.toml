@@ -44,6 +44,6 @@ name = "fsst_compress"
 harness = false
 
 [[bench]]
-name = "chunked_dict_array_builder"
+name = "chunked_dict_fsst_builder"
 harness = false
 required-features = ["test-harness"]

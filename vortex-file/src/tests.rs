@@ -10,10 +10,9 @@ use futures::{StreamExt, TryStreamExt, pin_mut};
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
-    ChunkedArray, ConstantArray, DecimalArray, ListArray, PrimitiveArray, StructArray, VarBinArray,
-    VarBinViewArray,
+    ChunkedArray, ConstantArray, DecimalArray, DictEncoding, DictVTable, ListArray, PrimitiveArray,
+    StructArray, VarBinArray, VarBinViewArray,
 };
-use vortex_array::arrays::{DictEncoding, DictVTable};
 use vortex_array::expr::{
     Pack, PackOptions, VTableExt, and, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root, select,
 };
