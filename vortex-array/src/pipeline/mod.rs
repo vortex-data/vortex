@@ -4,7 +4,6 @@
 pub mod bit_view;
 pub mod driver;
 
-use std::ops::Deref;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_vector::{Vector, VectorMut};
 

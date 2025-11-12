@@ -9,7 +9,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::MaskMut;
 
 use crate::primitive::{PVectorMut, PrimitiveVector};
-use crate::{match_each_pvector_mut, VectorMutOps};
+use crate::{VectorMutOps, match_each_pvector_mut};
 
 /// A mutable vector of primitive values.
 ///
