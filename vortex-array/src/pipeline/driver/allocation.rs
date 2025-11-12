@@ -6,9 +6,9 @@
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_vector::VectorMut;
 
-use crate::Array;
 use crate::pipeline::driver::{Node, NodeId};
-use crate::pipeline::{N, PipelineVector, VectorId};
+use crate::pipeline::{PipelineVector, VectorId, N};
+use crate::Array;
 
 #[derive(Debug)]
 pub struct VectorAllocation {
@@ -86,7 +86,7 @@ pub(super) fn allocate_vectors(
             .collect(),
         vectors: allocation_types
             .into_iter()
-            .map(|dtype| PipelineVector::Compact(VectorMut::with_capacity(dtype, N)))
+            .map(|dtype| PipelineVector::new_compact(VectorMut::with_capacity(dtype, N)))
             .collect(),
     })
 }

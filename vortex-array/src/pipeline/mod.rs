@@ -4,6 +4,7 @@
 pub mod bit_view;
 pub mod driver;
 
+use std::ops::Deref;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_vector::{Vector, VectorMut};
 
@@ -112,7 +113,7 @@ impl KernelCtx {
     ///
     /// If the input vector at the given index is not available (typically because the vector
     /// happens to be currently borrowed as an output vector!).
-    pub fn input(&mut self, id: VectorId) -> &PipelineVector {
+    pub fn input(&self, id: VectorId) -> &PipelineVector {
         self.vectors[id.0]
             .as_ref()
             .vortex_expect("Input vector at index is not available")
@@ -143,20 +144,50 @@ impl VectorId {
 
 /// A pipeline vector passed into and out of pipeline kernels.
 #[derive(Debug)]
-pub enum PipelineVector {
-    /// `InPlace` indicates that elements are in their original positions, where the selected
-    /// elements are identified by true values in the selection mask.
-    InPlace(VectorMut),
-    /// Compact indicates that the selected elements are compacted at the start of the vector in
-    /// positions `0..true_count`.
-    Compact(VectorMut),
+pub struct PipelineVector {
+    vector: VectorMut,
+    position: Position,
 }
 
-impl From<PipelineVector> for VectorMut {
-    fn from(value: PipelineVector) -> Self {
-        match value {
-            PipelineVector::InPlace(vec) => vec,
-            PipelineVector::Compact(vec) => vec,
+/// Describes the position of the selected elements in a pipeline vector.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum Position {
+    /// `InPlace` indicates that elements are in their original positions, where the selected
+    /// elements are identified by true values in the selection mask.
+    InPlace,
+    /// Compact indicates that the selected elements are compacted at the start of the vector in
+    /// positions `0..true_count`.
+    Compact,
+}
+
+impl PipelineVector {
+    pub fn new_in_place(vector: VectorMut) -> Self {
+        Self {
+            vector,
+            position: Position::InPlace,
         }
+    }
+
+    pub fn new_compact(vector: VectorMut) -> Self {
+        Self {
+            vector,
+            position: Position::Compact,
+        }
+    }
+
+    pub fn position(&self) -> Position {
+        self.position
+    }
+
+    pub fn into_vector(self) -> VectorMut {
+        self.vector
+    }
+}
+
+impl Deref for PipelineVector {
+    type Target = VectorMut;
+
+    fn deref(&self) -> &Self::Target {
+        &self.vector
     }
 }

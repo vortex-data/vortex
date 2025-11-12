@@ -10,16 +10,16 @@ use std::hash::{BuildHasher, Hash, Hasher};
 
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
 use vortex_vector::{Vector, VectorMut, VectorMutOps};
 
 use crate::pipeline::bit_view::{BitView, BitViewExt};
-use crate::pipeline::driver::allocation::{OutputTarget, allocate_vectors};
+use crate::pipeline::driver::allocation::{allocate_vectors, OutputTarget};
 use crate::pipeline::driver::bind::bind_kernels;
 use crate::pipeline::driver::toposort::topological_sort;
-use crate::pipeline::{Kernel, KernelCtx, N, PipelineInputs, PipelineVector};
+use crate::pipeline::{Kernel, KernelCtx, PipelineInputs, PipelineVector, N};
 use crate::{Array, ArrayEq, ArrayHash, ArrayOperator, ArrayRef, ArrayVisitor, Precision};
 
 /// A pipeline driver takes a Vortex array and executes it into a canonical vector.
@@ -305,7 +305,7 @@ impl Pipeline {
                     }
                 }
                 OutputTarget::IntermediateVector(vector_id) => {
-                    let mut out_vector = VectorMut::from(self.ctx.take_output(vector_id));
+                    let mut out_vector = self.ctx.take_output(vector_id).into_vector();
                     out_vector.clear();
                     assert!(
                         out_vector.capacity() >= N,
@@ -317,14 +317,16 @@ impl Pipeline {
                     match out_vector.len() {
                         N => {
                             // If the kernel added N elements, the output is in-place.
-                            self.ctx
-                                .replace_output(vector_id, PipelineVector::InPlace(out_vector));
+                            self.ctx.replace_output(
+                                vector_id,
+                                PipelineVector::new_in_place(out_vector),
+                            );
                         }
                         _ if out_vector.len() == selection.true_count() => {
                             // If the kernel added exactly the number of selected elements,
                             // the output is already compacted into the start of the vector.
                             self.ctx
-                                .replace_output(vector_id, PipelineVector::Compact(out_vector));
+                                .replace_output(vector_id, PipelineVector::new_compact(out_vector));
                         }
                         _ => vortex_bail!(
                             "Kernel produced incorrect number of output elements, expected to append either {} or {}, got {}",

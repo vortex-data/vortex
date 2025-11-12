@@ -9,7 +9,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::MaskMut;
 
 use crate::primitive::{PVectorMut, PrimitiveVector};
-use crate::{VectorMutOps, match_each_pvector_mut};
+use crate::{match_each_pvector_mut, VectorMutOps};
 
 /// A mutable vector of primitive values.
 ///
@@ -281,6 +281,87 @@ impl PTypeDowncast for PrimitiveVectorMut {
             return v;
         }
         vortex_panic!("Expected PrimitiveVectorMut::F64, got {self:?}");
+    }
+}
+
+impl<'a> PTypeDowncast for &'a PrimitiveVectorMut {
+    type Output<T: NativePType> = &'a PVectorMut<T>;
+
+    fn into_u8(self) -> Self::Output<u8> {
+        match self {
+            PrimitiveVectorMut::U8(v) => v,
+            _ => vortex_panic!("Expected PrimitiveVectorMut::U8, got {self:?}"),
+        }
+    }
+
+    fn into_u16(self) -> Self::Output<u16> {
+        match self {
+            PrimitiveVectorMut::U16(v) => v,
+            _ => vortex_panic!("Expected PrimitiveVectorMut::U16, got {self:?}"),
+        }
+    }
+
+    fn into_u32(self) -> Self::Output<u32> {
+        match self {
+            PrimitiveVectorMut::U32(v) => v,
+            _ => vortex_panic!("Expected PrimitiveVectorMut::U32, got {self:?}"),
+        }
+    }
+
+    fn into_u64(self) -> Self::Output<u64> {
+        match self {
+            PrimitiveVectorMut::U64(v) => v,
+            _ => vortex_panic!("Expected PrimitiveVectorMut::U64, got {self:?}"),
+        }
+    }
+
+    fn into_i8(self) -> Self::Output<i8> {
+        match self {
+            PrimitiveVectorMut::I8(v) => v,
+            _ => vortex_panic!("Expected PrimitiveVectorMut::I8, got {self:?}"),
+        }
+    }
+
+    fn into_i16(self) -> Self::Output<i16> {
+        match self {
+            PrimitiveVectorMut::I16(v) => v,
+            _ => vortex_panic!("Expected PrimitiveVectorMut::I16, got {self:?}"),
+        }
+    }
+
+    fn into_i32(self) -> Self::Output<i32> {
+        match self {
+            PrimitiveVectorMut::I32(v) => v,
+            _ => vortex_panic!("Expected PrimitiveVectorMut::I32, got {self:?}"),
+        }
+    }
+
+    fn into_i64(self) -> Self::Output<i64> {
+        match self {
+            PrimitiveVectorMut::I64(v) => v,
+            _ => vortex_panic!("Expected PrimitiveVectorMut::I64, got {self:?}"),
+        }
+    }
+
+    fn into_f16(self) -> Self::Output<f16> {
+        match self {
+            PrimitiveVectorMut::F16(v) => v,
+            _ => vortex_panic!("Expected PrimitiveVectorMut::F16, got {self:?}"),
+        }
+    }
+
+    fn into_f32(self) -> Self::Output<f32> {
+        match self {
+            PrimitiveVectorMut::F32(v) => v,
+            _ => vortex_panic!("Expected PrimitiveVectorMut::F32, got {self:?}"),
+        }
+    }
+
+    fn into_f64(self) -> Self::Output<f64> {
+        match self {
+            PrimitiveVectorMut::F64(v) => v,
+            _ => vortex_panic!("Expected PrimitiveVectorMut::F64, got {self:?}"),
+        }
     }
 }
 

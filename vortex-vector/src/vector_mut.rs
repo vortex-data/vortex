@@ -18,7 +18,7 @@ use crate::listview::ListViewVectorMut;
 use crate::null::NullVectorMut;
 use crate::primitive::PrimitiveVectorMut;
 use crate::struct_::StructVectorMut;
-use crate::{Vector, VectorMutOps, match_each_vector_mut, match_vector_pair};
+use crate::{match_each_vector_mut, match_vector_pair, Vector, VectorMutOps};
 
 /// An enum over all kinds of mutable vectors, which represent fully decompressed (canonical) array
 /// data.
@@ -138,6 +138,70 @@ impl VectorMutOps for VectorMut {
 }
 
 impl VectorMut {
+    /// Returns a reference to the inner [`NullVectorMut`] if `self` is of that variant.
+    pub fn as_null(&self) -> &NullVectorMut {
+        if let VectorMut::Null(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected NullVectorMut, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`BoolVectorMut`] if `self` is of that variant.
+    pub fn as_bool(&self) -> &BoolVectorMut {
+        if let VectorMut::Bool(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected BoolVectorMut, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`PrimitiveVectorMut`] if `self` is of that variant.
+    pub fn as_primitive(&self) -> &PrimitiveVectorMut {
+        if let VectorMut::Primitive(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVectorMut, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`StringVectorMut`] if `self` is of that variant.
+    pub fn as_string(&self) -> &StringVectorMut {
+        if let VectorMut::String(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected StringVectorMut, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`BinaryVectorMut`] if `self` is of that variant.
+    pub fn as_binary(&self) -> &BinaryVectorMut {
+        if let VectorMut::Binary(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected BinaryVectorMut, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`ListViewVectorMut`] if `self` is of that variant.
+    pub fn as_list(&self) -> &ListViewVectorMut {
+        if let VectorMut::List(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected ListViewVectorMut, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`FixedSizeListVectorMut`] if `self` is of that variant.
+    pub fn as_fixed_size_list(&self) -> &FixedSizeListVectorMut {
+        if let VectorMut::FixedSizeList(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected FixedSizeListVectorMut, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`StructVectorMut`] if `self` is of that variant.
+    pub fn as_struct(&self) -> &StructVectorMut {
+        if let VectorMut::Struct(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected StructVectorMut, got {self:?}");
+    }
+
     /// Returns a reference to the inner [`NullVectorMut`] if `self` is of that variant.
     pub fn as_null_mut(&mut self) -> &mut NullVectorMut {
         if let VectorMut::Null(v) = self {
@@ -275,9 +339,9 @@ mod tests {
     use vortex_dtype::{DecimalDType, Nullability, PType};
 
     use super::*;
-    use crate::VectorOps;
     use crate::decimal::DecimalVectorMut;
     use crate::primitive::PVectorMut;
+    use crate::VectorOps;
 
     #[test]
     fn test_with_capacity() {
