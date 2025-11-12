@@ -100,6 +100,7 @@ mod strategy;
 #[cfg(test)]
 mod tests;
 mod writer;
+mod writer2;
 
 pub use file::*;
 pub use footer::*;

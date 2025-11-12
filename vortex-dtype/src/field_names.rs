@@ -304,6 +304,16 @@ impl IntoIterator for FieldNames {
     }
 }
 
+impl From<Vec<&str>> for FieldNames {
+    fn from(value: Vec<&str>) -> Self {
+        let names: Vec<FieldName> = value
+            .into_iter()
+            .map(|name| FieldName::from(name))
+            .collect();
+        names.into()
+    }
+}
+
 impl From<Vec<FieldName>> for FieldNames {
     fn from(value: Vec<FieldName>) -> Self {
         Self(value.into())

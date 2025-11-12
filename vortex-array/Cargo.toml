@@ -98,6 +98,7 @@ divan = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 insta = { workspace = true }
 rstest = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
 vortex-array = { path = ".", features = ["test-harness", "table-display"] }
 
 [[bench]]

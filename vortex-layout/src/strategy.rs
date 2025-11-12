@@ -2,13 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use async_trait::async_trait;
-use vortex_array::ArrayContext;
+use vortex_array::{ArrayContext, ArrayRef};
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 
 use crate::LayoutRef;
 use crate::segments::SegmentSinkRef;
-use crate::sequence::{SendableSequentialStream, SequencePointer};
+use crate::sequence::{SendableSequentialStream, SequenceId, SequencePointer};
 
 // [layout writer]
 #[async_trait]
@@ -64,3 +64,16 @@ pub trait LayoutStrategy: 'static + Send + Sync {
     }
 }
 // [layout writer]
+
+#[async_trait]
+pub trait Writer: Send + Sync + 'static {
+    /// Initialize the writer with EOF information.
+    fn init(&mut self, eof: SequencePointer);
+
+    /// Process a new chunk of data.
+    ///
+    async fn push_chunk(&mut self, chunk: ArrayRef, id: SequenceId) -> VortexResult<()>;
+
+    /// Force the writer to complete, yielding the inner layout type.
+    async fn finish(&mut self) -> VortexResult<LayoutRef>;
+}

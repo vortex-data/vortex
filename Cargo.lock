@@ -8581,6 +8581,7 @@ dependencies = [
  "static_assertions",
  "tabled",
  "termtree",
+ "tokio",
  "vortex-array",
  "vortex-buffer",
  "vortex-compute",

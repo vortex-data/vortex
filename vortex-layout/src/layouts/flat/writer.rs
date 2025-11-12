@@ -5,16 +5,16 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::stats::{Precision, Stat, StatsProvider};
-use vortex_array::{Array, ArrayContext};
+use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
 use vortex_io::runtime::Handle;
 
 use crate::layouts::flat::{FLAT_LAYOUT_INLINE_ARRAY_NODE, FlatLayout};
 use crate::layouts::zoned::{lower_bound, upper_bound};
-use crate::segments::SegmentSinkRef;
-use crate::sequence::{SendableSequentialStream, SequencePointer};
-use crate::{IntoLayout, LayoutRef, LayoutStrategy};
+use crate::segments::{SegmentId, SegmentSinkRef};
+use crate::sequence::{SendableSequentialStream, SequenceId, SequencePointer};
+use crate::{IntoLayout, LayoutRef, LayoutStrategy, Writer};
 
 #[derive(Clone)]
 pub struct FlatLayoutStrategy {
@@ -144,6 +144,73 @@ impl LayoutStrategy for FlatLayoutStrategy {
     fn buffered_bytes(&self) -> u64 {
         // FlatLayoutStrategy is a leaf strategy with no child strategies and no buffering
         0
+    }
+}
+
+// Every writer should handle a new segment type here.
+pub struct FlatWriter {
+    pub dtype: DType,
+    pub include_padding: bool,
+    pub segment_sink: SegmentSinkRef,
+    pub array_ctx: ArrayContext,
+    segment_id: Option<SegmentId>,
+    row_count: u64,
+    eof: Option<SequencePointer>,
+}
+
+impl FlatWriter {
+    /// Create a new layout writer that emits a single "flat" serialized array chunk one time.
+    pub fn new(
+        dtype: DType,
+        include_padding: bool,
+        segment_sink: SegmentSinkRef,
+        array_ctx: ArrayContext,
+    ) -> Self {
+        Self {
+            dtype,
+            include_padding,
+            segment_sink,
+            array_ctx,
+            segment_id: None,
+            row_count: 0,
+            eof: None,
+        }
+    }
+}
+
+#[async_trait]
+impl Writer for FlatWriter {
+    fn init(&mut self, eof: SequencePointer) {
+        self.eof = Some(eof);
+    }
+
+    async fn push_chunk(&mut self, chunk: ArrayRef, id: SequenceId) -> VortexResult<()> {
+        vortex_ensure!(chunk.dtype() == &self.dtype);
+
+        let buffers = chunk.serialize(&self.array_ctx, &SerializeOptions::default())?;
+
+        self.row_count = chunk.len() as u64;
+        self.segment_id = Some(self.segment_sink.write(id, buffers).await?);
+
+        Ok(())
+    }
+
+    async fn finish(&mut self) -> VortexResult<LayoutRef> {
+        let Some(segment_id) = self.segment_id else {
+            vortex_bail!("called finish() for FlatWriter before any chunks were pushed");
+        };
+
+        // Drop the eof, signaling that this pipeline has finished writing whatever it was
+        // meant to write.
+        drop(self.eof.take());
+
+        Ok(FlatLayout::new(
+            self.row_count,
+            self.dtype.clone(),
+            segment_id,
+            self.array_ctx.clone(),
+        )
+        .into_layout())
     }
 }
 

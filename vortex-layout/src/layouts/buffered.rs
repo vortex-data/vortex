@@ -2,21 +2,23 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::collections::VecDeque;
+use std::mem;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::StreamExt as _;
-use vortex_array::ArrayContext;
-use vortex_error::VortexResult;
+use vortex_array::{ArrayContext, ArrayRef};
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_io::runtime::Handle;
 
 use crate::segments::SegmentSinkRef;
 use crate::sequence::{
-    SendableSequentialStream, SequencePointer, SequentialStreamAdapter, SequentialStreamExt as _,
+    SendableSequentialStream, SequenceId, SequencePointer, SequentialStreamAdapter,
+    SequentialStreamExt as _,
 };
-use crate::{LayoutRef, LayoutStrategy};
+use crate::{LayoutRef, LayoutStrategy, Writer};
 
 #[derive(Clone)]
 pub struct BufferedStrategy {
@@ -104,5 +106,69 @@ impl LayoutStrategy for BufferedStrategy {
 
     fn buffered_bytes(&self) -> u64 {
         self.buffered_bytes.load(Ordering::Relaxed) + self.child.buffered_bytes()
+    }
+}
+
+pub struct BufferedWriter {
+    next: Box<dyn Writer>,
+    options: BufferOptions,
+    buffered_chunks: Vec<ArrayRef>,
+    buffered_nbytes: u64,
+    eof: Option<SequencePointer>,
+}
+
+pub struct BufferOptions {
+    /// Number of bytes to buffer before flushing
+    pub buffer_bytes: u64,
+}
+
+#[async_trait]
+impl Writer for BufferedWriter {
+    fn init(&mut self, eof: SequencePointer) {
+        // Initialize the children with EOF information.
+        let (eof, next_eof) = eof.split();
+        self.next.init(next_eof);
+        self.eof = Some(eof);
+    }
+
+    async fn push_chunk(&mut self, chunk: ArrayRef, id: SequenceId) -> VortexResult<()> {
+        let chunk_bytes = chunk.nbytes();
+
+        if self.buffered_nbytes + chunk_bytes > self.options.buffer_bytes {
+            // Flush the buffered chunks. We assign new sequence IDs as a group so they get
+            // written together.
+            let buffer = mem::take(&mut self.buffered_chunks);
+            let mut sequence_ptr = id.descend();
+
+            // NOTE(aduffy): this forces us to call await to flush every chunk.
+            // This might not be so bad actually, since we have some buffer nodes in the mix and
+            // internally it will hit the buffer before it does anything that is too slow.
+
+            // We buffer all of these and push them together at once.
+            for chunk in buffer {
+                self.next.push_chunk(chunk, sequence_ptr.advance()).await?;
+            }
+        }
+
+        // Buffer the next chunk
+        self.buffered_chunks.push(chunk);
+        self.buffered_nbytes += chunk_bytes;
+
+        Ok(())
+    }
+
+    async fn finish(&mut self) -> VortexResult<LayoutRef> {
+        // Send any unwritten buffered data to the child
+        let mut eof = self.eof.take().vortex_expect("eof saved in initialization");
+
+        let buffer = mem::take(&mut self.buffered_chunks);
+        for chunk in buffer {
+            self.next.push_chunk(chunk, eof.advance()).await?;
+        }
+
+        drop(eof);
+
+        // Then, we finish the child and return its layout.
+        self.next.finish().await
     }
 }

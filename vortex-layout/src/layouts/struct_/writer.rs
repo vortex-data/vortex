@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::iter;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use futures::{StreamExt, TryStreamExt, pin_mut};
 use itertools::Itertools;
+use moka::future::FutureExt;
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexError, VortexResult, vortex_bail};
@@ -21,11 +23,68 @@ use crate::sequence::{
     SendableSequentialStream, SequenceId, SequencePointer, SequentialStreamAdapter,
     SequentialStreamExt,
 };
-use crate::{IntoLayout as _, LayoutRef, LayoutStrategy};
+use crate::{IntoLayout as _, LayoutRef, LayoutStrategy, Writer};
+
+pub struct StructWriter {
+    row_count: u64,
+    schema: DType,
+    field_writers: Vec<Box<dyn Writer>>,
+}
+
+impl StructWriter {
+    pub fn new(schema: DType, field_writers: Vec<Box<dyn Writer>>) -> Self {
+        Self {
+            field_writers,
+            schema,
+            row_count: 0,
+        }
+    }
+}
+
+#[async_trait]
+impl Writer for StructWriter {
+    fn init(&mut self, mut eof: SequencePointer) {
+        for writer in self.field_writers.iter_mut() {
+            let child_eof = eof.split_off();
+            writer.init(child_eof);
+        }
+    }
+
+    async fn push_chunk(&mut self, chunk: ArrayRef, id: SequenceId) -> VortexResult<()> {
+        // The input is going to be a StructArray chunk. Decompose it into all of its
+        // individual ones and pass them down.
+        let chunk = chunk.to_struct();
+        self.row_count += chunk.len() as u64;
+
+        let mut sequence_pointer = id.descend();
+
+        // We can push to each field writer concurrently
+        let mut tasks = Vec::with_capacity(self.field_writers.len());
+
+        for (field, writer) in iter::zip(chunk.fields().iter(), self.field_writers.iter_mut()) {
+            let fut = writer.push_chunk(field.clone(), sequence_pointer.advance());
+            tasks.push(fut);
+        }
+
+        // Await all the writes
+        try_join_all(tasks).await?;
+
+        Ok(())
+    }
+
+    async fn finish(&mut self) -> VortexResult<LayoutRef> {
+        let children =
+            try_join_all(self.field_writers.iter_mut().map(|writer| writer.finish())).await?;
+
+        Ok(StructLayout::new(self.row_count, self.schema.clone(), children).into_layout())
+    }
+}
 
 #[derive(Clone)]
 pub struct StructStrategy {
+    /// The default strategy used to write child fields of this struct
     child: Arc<dyn LayoutStrategy>,
+    /// The layout strategy for writing the validity stream for this struct
     validity: Arc<dyn LayoutStrategy>,
 }
 
@@ -135,7 +194,7 @@ impl LayoutStrategy for StructStrategy {
 
         // First child column is the validity, subsequence children are the individual struct fields
         let column_dtypes: Vec<DType> = if is_nullable {
-            std::iter::once(DType::Bool(Nullability::NonNullable))
+            iter::once(DType::Bool(Nullability::NonNullable))
                 .chain(struct_dtype.fields())
                 .collect()
         } else {

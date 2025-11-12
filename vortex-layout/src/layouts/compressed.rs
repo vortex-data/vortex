@@ -13,9 +13,10 @@ use vortex_io::runtime::Handle;
 
 use crate::segments::SegmentSinkRef;
 use crate::sequence::{
-    SendableSequentialStream, SequencePointer, SequentialStreamAdapter, SequentialStreamExt,
+    SendableSequentialStream, SequenceId, SequencePointer, SequentialStreamAdapter,
+    SequentialStreamExt,
 };
-use crate::{LayoutRef, LayoutStrategy};
+use crate::{LayoutRef, LayoutStrategy, Writer};
 
 /// A boxed compressor function from arrays into compressed arrays.
 ///
@@ -156,5 +157,63 @@ impl LayoutStrategy for CompressingStrategy {
 
     fn buffered_bytes(&self) -> u64 {
         self.child.buffered_bytes()
+    }
+}
+
+/// A [`Writer`] which compresses data chunks before emitting them to the next operator.
+pub struct CompressedWriter {
+    handle: Handle,
+    next: Box<dyn Writer>,
+    compressor: Arc<dyn CompressorPlugin>,
+}
+
+impl CompressedWriter {
+    /// Create a new writer that compresses each chunk using a BtrBlocks-style compressor.
+    pub fn new_btrblocks(
+        handle: Handle,
+        next: Box<dyn Writer>,
+        exclude_int_dict_encoding: bool,
+    ) -> Self {
+        Self {
+            handle,
+            next,
+            compressor: Arc::new(BtrBlocksCompressor {
+                exclude_int_dict_encoding,
+            }),
+        }
+    }
+
+    /// Create a new writer that compresses each chunk with.
+    #[cfg(feature = "zstd")]
+    pub fn new_compact(handle: Handle, next: Box<dyn Writer>) -> Self {
+        Self {
+            handle,
+            next,
+            compressor: Arc::new(crate::layouts::compact::CompactCompressor::default()),
+        }
+    }
+}
+
+#[async_trait]
+impl Writer for CompressedWriter {
+    fn init(&mut self, eof: SequencePointer) {
+        self.next.init(eof);
+    }
+
+    async fn push_chunk(&mut self, chunk: ArrayRef, id: SequenceId) -> VortexResult<()> {
+        // Push a new chunk, compressing it, and then sending it to the child stream.
+        let compressor = self.compressor.clone();
+        let compress = self
+            .handle
+            .spawn_cpu(move || compressor.compress_chunk(&chunk));
+
+        let chunk = compress.await?;
+        self.next.push_chunk(chunk, id).await?;
+
+        Ok(())
+    }
+
+    async fn finish(&mut self) -> VortexResult<LayoutRef> {
+        self.next.finish().await
     }
 }

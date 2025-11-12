@@ -197,6 +197,15 @@ impl FromIterator<Field> for FieldPath {
     }
 }
 
+impl<N> From<N> for FieldPath
+where
+    N: Into<FieldName>,
+{
+    fn from(value: N) -> Self {
+        Self::from_name(value)
+    }
+}
+
 impl From<Field> for FieldPath {
     fn from(value: Field) -> Self {
         FieldPath(vec![value])
