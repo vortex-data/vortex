@@ -16,6 +16,9 @@ jobs:
       - disk=large
       - extras=s3-cache
       - tag=io-fuzz
+    outputs:
+      crashes_found: ${{ steps.check.outputs.crashes_found }}
+      crash_count: ${{ steps.check.outputs.crash_count }}
     steps:
       - uses: runs-on/action@v2
         with:
@@ -44,13 +47,36 @@ jobs:
           AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
       - name: Run fuzzing target
         id: fuzz
-        run: RUST_BACKTRACE=1 cargo +nightly fuzz run --release --debug-assertions file_io -- -max_total_time=7200
+        run: |
+          RUST_BACKTRACE=1 cargo +nightly fuzz run --release --debug-assertions file_io -- -max_total_time=7200 2>&1 | tee fuzz_output.log
         continue-on-error: true
+      - name: Check for crashes
+        id: check
+        run: |
+          if [ -d "fuzz/artifacts" ] && [ "$(ls -A fuzz/artifacts 2>/dev/null)" ]; then
+            echo "crashes_found=true" >> $GITHUB_OUTPUT
+            CRASH_COUNT=$(find fuzz/artifacts -type f \( -name "crash-*" -o -name "leak-*" -o -name "timeout-*" -o -name "oom-*" \) | wc -l)
+            echo "crash_count=$CRASH_COUNT" >> $GITHUB_OUTPUT
+            echo "Found $CRASH_COUNT crash(es)"
+          else
+            echo "crashes_found=false" >> $GITHUB_OUTPUT
+            echo "crash_count=0" >> $GITHUB_OUTPUT
+            echo "No crashes found"
+          fi
       - name: Archive crash artifacts
+        if: steps.check.outputs.crashes_found == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: io-fuzzing-crash-artifacts
           path: fuzz/artifacts
+          retention-days: 30
+      - name: Archive fuzzer output log
+        if: steps.check.outputs.crashes_found == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: io-fuzzing-logs
+          path: fuzz_output.log
+          retention-days: 30
       - name: Persist corpus
         shell: bash
         run: |
@@ -62,8 +88,43 @@ jobs:
           AWS_REGION: "us-east-1"
           AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
       - name: Fail job if fuzz run found a bug
-        if: steps.fuzz.outcome == 'failure'
+        if: steps.check.outputs.crashes_found == 'true'
         run: exit 1
+
+  report-io-fuzz-failures:
+    name: "Report IO Fuzz Failures"
+    needs: io_fuzz
+    if: always() && needs.io_fuzz.outputs.crashes_found == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Download crash artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: io-fuzzing-crash-artifacts
+          path: ./crash_artifacts
+
+      - name: Download fuzzer logs
+        uses: actions/download-artifact@v4
+        with:
+          name: io-fuzzing-logs
+          path: ./logs
+
+      - name: List downloaded files
+        run: |
+          echo "=== Crash Artifacts ==="
+          ls -lah crash_artifacts/ || echo "No crash artifacts"
+          echo ""
+          echo "=== Fuzzer Logs ==="
+          ls -lah logs/ || echo "No logs"
+          echo ""
+          echo "=== Log preview (first 50 lines) ==="
+          head -50 logs/fuzz_output.log || echo "No log file"
 
   ops_fuzz:
     name: "Array Operations Fuzz"
