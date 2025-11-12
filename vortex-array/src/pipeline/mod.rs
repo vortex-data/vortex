@@ -67,19 +67,19 @@ pub trait BindContext {
 /// Each step of the kernel processes zero or more input vectors, and writes output to a
 /// pre-allocated mutable output vector.
 ///
-/// Input vectors are provided via the [`KernelCtx`] and indicate the position of their elements
-/// as either [`PipelineVector::InPlace`] or [`PipelineVector::Compact`] based on whether
-/// the selected elements are in their original positions or compacted at the start of the vector
-/// respectively.
+/// Input vectors will either have length [`N`], indicating that all elements from the step are
+/// present. Or they will have length equal to the [`BitView::true_count`] of the selection mask,
+/// in which case only the selected elements are present.
 ///
-/// The provided mutable output vector is guaranteed to have at least `N` elements of capacity.
-/// The kernel **must** append either [`BitView::true_count`] elements to the output vector (in
-/// which case the output elements are considered to be in the "Compact" position), or it must
-/// append `N` elements (in which case the output elements are considered to be in their "InPlace"
-/// positions). The pipeline driver will assert these conditions after each step.
+/// Output vectors will always be passed with length zero.
 ///
-/// Note that the output vector may not be empty at the start of the step. The kernel must append
-/// its output to the existing contents of the output vector, rather than replacing it.
+/// Kernels may choose to output either all `N` elements in their original positions, or output
+/// only the selected elements to the first `true_count` positions of the output vector. When
+/// emitting `N` elements in-place, the kernel may omit expensive computations over the unselected
+/// elements, provided that the output elements in those positions are still valid (i.e. typically
+/// zeroed, rather than undefined).
+///
+/// The pipeline driver will verify these conditions before and after each step.
 pub trait Kernel: Send {
     /// Perform a single step of the kernel.
     fn step(
@@ -92,11 +92,11 @@ pub trait Kernel: Send {
 
 /// The context provided to kernels during execution to access input vectors.
 pub struct KernelCtx {
-    vectors: Vec<Option<PipelineVector>>,
+    vectors: Vec<Option<VectorMut>>,
 }
 
 impl KernelCtx {
-    fn new(vectors: Vec<PipelineVector>) -> Self {
+    fn new(vectors: Vec<VectorMut>) -> Self {
         Self {
             vectors: vectors.into_iter().map(Some).collect(),
         }
@@ -112,21 +112,21 @@ impl KernelCtx {
     ///
     /// If the input vector at the given index is not available (typically because the vector
     /// happens to be currently borrowed as an output vector!).
-    pub fn input(&mut self, id: VectorId) -> &PipelineVector {
+    pub fn input(&mut self, id: VectorId) -> &VectorMut {
         self.vectors[id.0]
             .as_ref()
             .vortex_expect("Input vector at index is not available")
     }
 
     #[inline]
-    fn take_output(&mut self, id: &VectorId) -> PipelineVector {
+    fn take_output(&mut self, id: &VectorId) -> VectorMut {
         self.vectors[id.0]
             .take()
             .vortex_expect("Output vector at index is not available")
     }
 
     #[inline]
-    fn replace_output(&mut self, id: &VectorId, vec: PipelineVector) {
+    fn replace_output(&mut self, id: &VectorId, vec: VectorMut) {
         self.vectors[id.0] = Some(vec);
     }
 }
@@ -138,25 +138,5 @@ impl VectorId {
     // Non-public constructor to keep the type opaque to end users.
     fn new(idx: usize) -> Self {
         VectorId(idx)
-    }
-}
-
-/// A pipeline vector passed into and out of pipeline kernels.
-#[derive(Debug)]
-pub enum PipelineVector {
-    /// `InPlace` indicates that elements are in their original positions, where the selected
-    /// elements are identified by true values in the selection mask.
-    InPlace(VectorMut),
-    /// Compact indicates that the selected elements are compacted at the start of the vector in
-    /// positions `0..true_count`.
-    Compact(VectorMut),
-}
-
-impl From<PipelineVector> for VectorMut {
-    fn from(value: PipelineVector) -> Self {
-        match value {
-            PipelineVector::InPlace(vec) => vec,
-            PipelineVector::Compact(vec) => vec,
-        }
     }
 }

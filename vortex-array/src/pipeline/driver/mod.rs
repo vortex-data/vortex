@@ -19,7 +19,7 @@ use crate::pipeline::bit_view::{BitView, BitViewExt};
 use crate::pipeline::driver::allocation::{OutputTarget, allocate_vectors};
 use crate::pipeline::driver::bind::bind_kernels;
 use crate::pipeline::driver::toposort::topological_sort;
-use crate::pipeline::{Kernel, KernelCtx, N, PipelineInputs, PipelineVector};
+use crate::pipeline::{Kernel, KernelCtx, N, PipelineInputs};
 use crate::{Array, ArrayEq, ArrayHash, ArrayOperator, ArrayRef, ArrayVisitor, Precision};
 
 /// A pipeline driver takes a Vortex array and executes it into a canonical vector.
@@ -278,56 +278,38 @@ impl Pipeline {
             // take the intermediate vector and write into that.
             match &self.output_targets[node_idx] {
                 OutputTarget::ExternalOutput => {
-                    assert!(
-                        output.capacity() >= N,
-                        "Insufficient capacity in external output vector"
-                    );
+                    // We split off the next N elements of capacity from the external output vector.
+                    let mut tail = output.split_off(output.len());
+                    assert!(tail.is_empty());
 
-                    let prev_output_len = output.len();
-                    kernel.step(&self.ctx, selection, output)?;
-
-                    let added_len = output.len() - prev_output_len;
-                    match added_len {
-                        N => {
-                            // If the kernel added N elements, the output is in-place.
-                            // TODO(ngates): we need to filter if the true count is not N.
-                        }
-                        _ if added_len == selection.true_count() => {
-                            // If the kernel added exactly the number of selected elements,
-                            // the output is already compacted into the start of the vector.
-                        }
-                        _ => vortex_bail!(
-                            "Kernel produced incorrect number of output elements, expected to append either {} or {}, got {}",
+                    kernel.step(&self.ctx, selection, &mut tail)?;
+                    if tail.len() != N && tail.len() != selection.true_count() {
+                        vortex_bail!(
+                            "Kernel produced incorrect number of output elements, expected either {} or {}, got {}",
                             N,
                             selection.true_count(),
-                            added_len
-                        ),
+                            tail.len()
+                        );
                     }
+
+                    // Now we append the produced output back to the main output vector.
+                    output.unsplit(tail);
                 }
                 OutputTarget::IntermediateVector(vector_id) => {
-                    let mut out_vector = VectorMut::from(self.ctx.take_output(vector_id));
+                    let mut out_vector = self.ctx.take_output(vector_id);
                     out_vector.clear();
-                    assert!(
-                        out_vector.capacity() >= N,
-                        "Insufficient capacity in intermediate vector"
-                    );
 
+                    assert!(out_vector.is_empty());
                     kernel.step(&self.ctx, selection, &mut out_vector)?;
 
                     match out_vector.len() {
-                        N => {
+                        // Valid cases are all N elements, or only the selected elements.
+                        n if n == N || n == selection.true_count() => {
                             // If the kernel added N elements, the output is in-place.
-                            self.ctx
-                                .replace_output(vector_id, PipelineVector::InPlace(out_vector));
-                        }
-                        _ if out_vector.len() == selection.true_count() => {
-                            // If the kernel added exactly the number of selected elements,
-                            // the output is already compacted into the start of the vector.
-                            self.ctx
-                                .replace_output(vector_id, PipelineVector::Compact(out_vector));
+                            self.ctx.replace_output(vector_id, out_vector);
                         }
                         _ => vortex_bail!(
-                            "Kernel produced incorrect number of output elements, expected to append either {} or {}, got {}",
+                            "Kernel produced incorrect number of output elements, expected either {} or {}, got {}",
                             N,
                             selection.true_count(),
                             out_vector.len()
