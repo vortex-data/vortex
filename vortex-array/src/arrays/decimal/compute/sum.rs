@@ -41,7 +41,7 @@ macro_rules! sum_decimal {
 
 impl SumKernel for DecimalVTable {
     #[allow(clippy::cognitive_complexity)]
-    fn sum(&self, array: &DecimalArray, initial_value: &Scalar) -> VortexResult<Scalar> {
+    fn sum(&self, array: &DecimalArray, accumulator: &Scalar) -> VortexResult<Scalar> {
         let decimal_dtype = array.decimal_dtype();
 
         // Both Spark and DataFusion use this heuristic.
@@ -52,7 +52,7 @@ impl SumKernel for DecimalVTable {
         let return_dtype = DecimalDType::new(new_precision, new_scale);
 
         // Extract the initial value as a DecimalValue
-        let initial_decimal = DecimalScalar::try_from(initial_value)
+        let initial_decimal = DecimalScalar::try_from(accumulator)
             .vortex_expect("must be a decimal")
             .decimal_value()
             .vortex_expect("cannot be null");
@@ -65,7 +65,9 @@ impl SumKernel for DecimalVTable {
                 let values_type = DecimalType::smallest_decimal_value_type(&return_dtype);
                 match_each_decimal_value_type!(array.values_type(), |I| {
                     match_each_decimal_value_type!(values_type, |O| {
-                        let initial_val: O = initial_decimal.cast().unwrap_or_else(O::default);
+                        let initial_val: O = initial_decimal
+                            .cast()
+                            .vortex_expect("cannot fail to cast initial value");
                         Ok(Scalar::decimal(
                             DecimalValue::from(sum_decimal!(O, array.buffer::<I>(), initial_val)),
                             return_dtype,
@@ -78,7 +80,9 @@ impl SumKernel for DecimalVTable {
                 let values_type = DecimalType::smallest_decimal_value_type(&return_dtype);
                 match_each_decimal_value_type!(array.values_type(), |I| {
                     match_each_decimal_value_type!(values_type, |O| {
-                        let initial_val: O = initial_decimal.cast().unwrap_or_else(O::default);
+                        let initial_val: O = initial_decimal
+                            .cast()
+                            .vortex_expect("cannot fail to cast initial value");
                         Ok(Scalar::decimal(
                             DecimalValue::from(sum_decimal!(
                                 O,

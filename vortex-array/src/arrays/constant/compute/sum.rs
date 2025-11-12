@@ -13,13 +13,13 @@ use crate::register_kernel;
 use crate::stats::Stat;
 
 impl SumKernel for ConstantVTable {
-    fn sum(&self, array: &ConstantArray, initial_value: &Scalar) -> VortexResult<Scalar> {
+    fn sum(&self, array: &ConstantArray, accumulator: &Scalar) -> VortexResult<Scalar> {
         // Compute the expected dtype of the sum.
         let sum_dtype = Stat::Sum
             .dtype(array.dtype())
             .ok_or_else(|| vortex_err!("Sum not supported for dtype {}", array.dtype()))?;
 
-        let sum_value = sum_scalar(array.scalar(), array.len(), initial_value)?;
+        let sum_value = sum_scalar(array.scalar(), array.len(), accumulator)?;
         Ok(Scalar::new(sum_dtype, sum_value))
     }
 }
@@ -59,7 +59,7 @@ fn sum_decimal(
     decimal_scalar: DecimalScalar,
     array_len: usize,
     decimal_dtype: DecimalDType,
-    initial_value: &Scalar,
+    accumulator: &Scalar,
 ) -> VortexResult<ScalarValue> {
     let result_dtype = Stat::Sum
         .dtype(&DType::Decimal(decimal_dtype, Nullability::Nullable))
@@ -85,8 +85,8 @@ fn sum_decimal(
             .then_some(result)
     });
 
-    // Add initial_value to array_sum
-    let initial_decimal = DecimalScalar::try_from(initial_value)?;
+    // Add accumulator to array_sum
+    let initial_decimal = DecimalScalar::try_from(accumulator)?;
     let initial_dec_value = initial_decimal
         .decimal_value()
         .unwrap_or(DecimalValue::I256(i256::ZERO));
@@ -113,7 +113,7 @@ fn sum_decimal(
 fn sum_integral<T>(
     primitive_scalar: PrimitiveScalar<'_>,
     array_len: usize,
-    initial_value: &Scalar,
+    accumulator: &Scalar,
 ) -> VortexResult<Option<T>>
 where
     T: NativePType + CheckedMul + CheckedAdd,
@@ -126,7 +126,7 @@ where
         return Ok(None);
     };
 
-    let initial = initial_value
+    let initial = accumulator
         .as_primitive()
         .as_::<T>()
         .vortex_expect("cannot be null");
@@ -136,7 +136,7 @@ where
 fn sum_float(
     primitive_scalar: PrimitiveScalar<'_>,
     array_len: usize,
-    initial_value: &Scalar,
+    accumulator: &Scalar,
 ) -> VortexResult<Option<f64>> {
     let v = primitive_scalar
         .as_::<f64>()
@@ -148,7 +148,7 @@ fn sum_float(
     let Ok(array_sum) = v.mul_checked(array_len) else {
         return Ok(None);
     };
-    let initial = initial_value
+    let initial = accumulator
         .as_primitive()
         .as_::<f64>()
         .vortex_expect("cannot be null");

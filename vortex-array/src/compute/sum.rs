@@ -16,7 +16,7 @@ use crate::vtable::VTable;
 
 #[derive(Debug, Clone)]
 pub struct SumOptions {
-    pub initial_value: Scalar,
+    pub accumulator: Scalar,
 }
 
 impl Options for SumOptions {
@@ -41,12 +41,15 @@ pub(crate) fn warm_up_vtable() -> usize {
 ///
 /// If the sum overflows, a null scalar will be returned.
 /// If the sum is not supported for the array's dtype, an error will be raised.
-/// If the array is all-invalid, the sum will be the initial_value.
-/// The initial_value must have a dtype compatible with the sum result dtype.
-pub(crate) fn sum_with_initial(array: &dyn Array, initial_value: &Scalar) -> VortexResult<Scalar> {
+/// If the array is all-invalid, the sum will be the accumulator.
+/// The accumulator must have a dtype compatible with the sum result dtype.
+pub(crate) fn sum_with_accumulator(
+    array: &dyn Array,
+    accumulator: &Scalar,
+) -> VortexResult<Scalar> {
     SUM_FN
         .invoke(&InvocationArgs {
-            inputs: &[array.into(), initial_value.into()],
+            inputs: &[array.into(), accumulator.into()],
             options: &(),
         })?
         .unwrap_scalar()
@@ -62,7 +65,7 @@ pub fn sum(array: &dyn Array) -> VortexResult<Scalar> {
         .dtype(array.dtype())
         .ok_or_else(|| vortex_err!("Sum not supported for dtype: {}", array.dtype()))?;
     let zero = Scalar::zero_value(sum_dtype);
-    sum_with_initial(array, &zero)
+    sum_with_accumulator(array, &zero)
 }
 
 /// For unary compute functions, it's useful to just have this short-cut.
@@ -141,8 +144,8 @@ pub trait SumKernel: VTable {
     ///
     /// * The array's DType is summable
     /// * The array is not all-null
-    /// * The initial_value must have a dtype compatible with the sum result dtype
-    fn sum(&self, array: &Self::Array, initial_value: &Scalar) -> VortexResult<Scalar>;
+    /// * The accumulator must have a dtype compatible with the sum result dtype
+    fn sum(&self, array: &Self::Array, accumulator: &Scalar) -> VortexResult<Scalar>;
 }
 
 #[derive(Debug)]
@@ -156,14 +159,11 @@ impl<V: VTable + SumKernel> SumKernelAdapter<V> {
 
 impl<V: VTable + SumKernel> Kernel for SumKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
-        let SumArgs {
-            array,
-            accumulator: initial_value,
-        } = args.try_into()?;
+        let SumArgs { array, accumulator } = args.try_into()?;
         let Some(array) = array.as_opt::<V>() else {
             return Ok(None);
         };
-        Ok(Some(V::sum(&self.0, array, initial_value)?.into()))
+        Ok(Some(V::sum(&self.0, array, accumulator)?.into()))
     }
 }
 
@@ -171,20 +171,20 @@ impl<V: VTable + SumKernel> Kernel for SumKernelAdapter<V> {
 ///
 /// If the sum overflows, a null scalar will be returned.
 /// If the sum is not supported for the array's dtype, an error will be raised.
-/// If the array is all-invalid, the sum will be the initial_value.
+/// If the array is all-invalid, the sum will be the accumulator.
 pub fn sum_impl(
     array: &dyn Array,
     _sum_dtype: DType,
-    initial_value: &Scalar,
+    accumulator: &Scalar,
     kernels: &[ArcRef<dyn Kernel>],
 ) -> VortexResult<Scalar> {
-    if array.is_empty() || array.all_invalid() || initial_value.is_null() {
-        return Ok(initial_value.clone());
+    if array.is_empty() || array.all_invalid() || accumulator.is_null() {
+        return Ok(accumulator.clone());
     }
 
     // Try to find a sum kernel
     let args = InvocationArgs {
-        inputs: &[array.into(), initial_value.into()],
+        inputs: &[array.into(), accumulator.into()],
         options: &(),
     };
     for kernel in kernels {
@@ -205,7 +205,7 @@ pub fn sum_impl(
             array.encoding_id()
         );
     }
-    sum_with_initial(array.to_canonical().as_ref(), initial_value)
+    sum_with_accumulator(array.to_canonical().as_ref(), accumulator)
 }
 
 #[cfg(test)]

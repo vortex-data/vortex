@@ -1,83 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use num_traits::CheckedAdd;
-use vortex_dtype::{DType, NativePType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{ChunkedArray, ChunkedVTable};
-use crate::compute::{SumKernel, SumKernelAdapter, sum, sum_with_initial};
-use crate::stats::Stat;
-use crate::{ArrayRef, register_kernel};
+use crate::compute::{SumKernel, SumKernelAdapter, sum_with_accumulator};
+use crate::register_kernel;
 
 impl SumKernel for ChunkedVTable {
-    fn sum(&self, array: &ChunkedArray, initial_value: &Scalar) -> VortexResult<Scalar> {
-        let sum_dtype = Stat::Sum
-            .dtype(array.dtype())
-            .ok_or_else(|| vortex_err!("Sum not supported for dtype {}", array.dtype()))?;
-
-        match sum_dtype {
-            DType::Decimal(..) => sum_decimal(array.chunks(), initial_value),
-            DType::Primitive(sum_ptype, _) => {
-                let scalar_value = match_each_native_ptype!(
-                    sum_ptype,
-                    unsigned: |T| { sum_int::<u64>(array.chunks(), initial_value.as_primitive().as_::<u64>().vortex_expect("cannot be null"))?.into() },
-                    signed: |T| { sum_int::<i64>(array.chunks(), initial_value.as_primitive().as_::<i64>().vortex_expect("cannot be null"))?.into() },
-                    floating: |T| { sum_float(array.chunks(), initial_value.as_primitive().as_::<f64>().vortex_expect("cannot be null"))?.into() }
-                );
-
-                Ok(Scalar::new(sum_dtype, scalar_value))
-            }
-            _ => {
-                vortex_bail!("Sum not supported for dtype {}", sum_dtype);
-            }
-        }
+    fn sum(&self, array: &ChunkedArray, accumulator: &Scalar) -> VortexResult<Scalar> {
+        array
+            .chunks
+            .iter()
+            .try_fold(accumulator.clone(), |result, chunk| {
+                sum_with_accumulator(chunk, &result)
+            })
     }
 }
 
 register_kernel!(SumKernelAdapter(ChunkedVTable).lift());
-
-fn sum_int<T: NativePType + CheckedAdd>(
-    chunks: &[ArrayRef],
-    initial_value: T,
-) -> VortexResult<Option<T>> {
-    let mut result: T = initial_value;
-    for chunk in chunks {
-        let chunk_sum = sum(chunk)?;
-        let Some(chunk_sum) = chunk_sum
-            .as_primitive()
-            .as_::<T>()
-            .and_then(|chunk_sum| result.checked_add(&chunk_sum))
-        else {
-            // Bail out on null or overflow
-            return Ok(None);
-        };
-        result = chunk_sum;
-    }
-    Ok(Some(result))
-}
-
-fn sum_float(chunks: &[ArrayRef], initial_value: f64) -> VortexResult<Option<f64>> {
-    let mut result = initial_value;
-    for chunk in chunks {
-        let Some(chunk_sum) = sum(chunk)?.as_primitive().as_::<f64>() else {
-            return Ok(None);
-        };
-        result += chunk_sum;
-    }
-    Ok(Some(result))
-}
-
-fn sum_decimal(chunks: &[ArrayRef], initial_value: &Scalar) -> VortexResult<Scalar> {
-    let mut result = initial_value.clone();
-
-    for chunk in chunks {
-        result = sum_with_initial(chunk, &result)?;
-    }
-
-    Ok(result)
-}
 
 #[cfg(test)]
 mod tests {
