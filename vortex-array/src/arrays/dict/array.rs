@@ -4,7 +4,16 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
+<<<<<<< HEAD:vortex-array/src/arrays/dict/array.rs
 use vortex_buffer::BitBuffer;
+=======
+use vortex_array::stats::{ArrayStats, StatsSetRef};
+use vortex_array::vtable::{ArrayVTable, NotSupported, VTable, ValidityVTable};
+use vortex_array::{
+    Array, ArrayEq, ArrayHash, ArrayRef, EncodingId, EncodingRef, Precision, ToCanonical, vtable,
+};
+use vortex_buffer::{BitBuffer, BitBufferMut};
+>>>>>>> 541544af8 (perf[dict]: unreferenced mask Vec<bool>):encodings/dict/src/array.rs
 use vortex_dtype::{DType, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_mask::{AllOr, Mask};
@@ -114,36 +123,33 @@ impl DictArray {
     ///
     /// This is useful for operations like min/max that need to ignore unreferenced values.
     pub fn compute_unreferenced_values_mask(&self) -> VortexResult<BitBuffer> {
-        use vortex_buffer::BitBufferMut;
-
         let codes_validity = self.codes().validity_mask();
         let codes_primitive = self.codes().to_primitive();
         let values_len = self.values().len();
 
-        let mut unreferenced = BitBufferMut::new_set(values_len);
+        let mut unreferenced_vec = vec![true; values_len];
         if codes_validity.all_true() {
             match_each_integer_ptype!(codes_primitive.ptype(), |P| {
+                #[allow(clippy::cast_possible_truncation)]
                 for &code in codes_primitive.as_slice::<P>().iter() {
-                    #[allow(clippy::cast_possible_truncation)]
-                    unsafe {
-                        unreferenced.unset(code as usize);
-                    }
+                    unreferenced_vec[code as usize] = false;
                 }
             });
-            return Ok(unreferenced.freeze());
+        } else {
+            match_each_integer_ptype!(codes_primitive.ptype(), |P| {
+                let codes = codes_primitive.as_slice::<P>();
+                codes_validity
+                    .to_bit_buffer()
+                    .set_indices()
+                    .for_each(|idx| {
+                        unreferenced_vec[codes[idx] as usize] = false;
+                    });
+            })
         }
 
-        match_each_integer_ptype!(codes_primitive.ptype(), |P| {
-            let codes = codes_primitive.as_slice::<P>();
-            codes_validity
-                .to_bit_buffer()
-                .set_indices()
-                .for_each(|idx| {
-                    #[allow(clippy::cast_possible_truncation)]
-                    unreferenced.unset(codes[idx] as usize);
-                });
-            Ok(unreferenced.freeze())
-        })
+        Ok(BitBuffer::collect_bool(values_len, |idx| {
+            unreferenced_vec[idx]
+        }))
     }
 }
 

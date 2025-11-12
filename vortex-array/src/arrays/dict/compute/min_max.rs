@@ -1,13 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-<<<<<<< HEAD:vortex-array/src/arrays/dict/compute/min_max.rs
-use vortex_buffer::BitBufferMut;
-use vortex_dtype::match_each_unsigned_integer_ptype;
-=======
-use vortex_array::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult, mask, min_max};
-use vortex_array::{Array as _, register_kernel};
->>>>>>> 1c1b3e2db (perf[dict]: unreferenced mask):encodings/dict/src/compute/min_max.rs
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
