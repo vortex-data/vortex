@@ -7,6 +7,7 @@
 //! Native interface to Vortex arrays, types, files and streams.
 
 mod array;
+mod array_builder;
 mod array_iterator;
 mod dtype;
 mod error;
