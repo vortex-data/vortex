@@ -7,7 +7,7 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_vector::VectorMut;
 
 use crate::pipeline::driver::{Node, NodeId};
-use crate::pipeline::{PipelineVector, VectorId, N};
+use crate::pipeline::{VectorId, N};
 use crate::Array;
 
 #[derive(Debug)]
@@ -15,7 +15,7 @@ pub struct VectorAllocation {
     /// Where each node writes its output
     pub(crate) output_targets: Vec<OutputTarget>,
     /// The actual allocated vectors
-    pub(crate) vectors: Vec<PipelineVector>,
+    pub(crate) vectors: Vec<VectorMut>,
 }
 
 // TODO(joe): support in-place view operations
@@ -86,7 +86,7 @@ pub(super) fn allocate_vectors(
             .collect(),
         vectors: allocation_types
             .into_iter()
-            .map(|dtype| PipelineVector::new_compact(VectorMut::with_capacity(dtype, N)))
+            .map(|dtype| VectorMut::with_capacity(dtype, N))
             .collect(),
     })
 }
