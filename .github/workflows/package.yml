@@ -66,7 +66,7 @@ jobs:
           PYO3_ENVIRONMENT_SIGNATURE: "cpython3"
 
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: "wheels-${{ matrix.target.target }}.zip"
           path: dist/
@@ -86,7 +86,7 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - run: cargo build --release --package vortex-jni
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: "libvortex_jni_aarch64-apple-darwin.zip"
           path: "target/release/libvortex_jni.dylib"
@@ -127,7 +127,7 @@ jobs:
           targets: ${{ matrix.target.target }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - run: cargo build --release --package vortex-jni
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: "libvortex_jni_${{ matrix.target.target }}.zip"
           path: "target/release/libvortex_jni.so"

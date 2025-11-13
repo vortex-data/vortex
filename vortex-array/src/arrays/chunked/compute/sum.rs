@@ -1,99 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use num_traits::PrimInt;
-use vortex_dtype::Nullability::Nullable;
-use vortex_dtype::{DType, DecimalDType, NativePType, i256, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_scalar::{DecimalScalar, DecimalValue, Scalar};
+use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
 use crate::arrays::{ChunkedArray, ChunkedVTable};
-use crate::compute::{SumKernel, SumKernelAdapter, sum};
-use crate::stats::Stat;
-use crate::{ArrayRef, register_kernel};
+use crate::compute::{SumKernel, SumKernelAdapter, sum_with_accumulator};
+use crate::register_kernel;
 
 impl SumKernel for ChunkedVTable {
-    fn sum(&self, array: &ChunkedArray) -> VortexResult<Scalar> {
-        let sum_dtype = Stat::Sum
-            .dtype(array.dtype())
-            .ok_or_else(|| vortex_err!("Sum not supported for dtype {}", array.dtype()))?;
-
-        match sum_dtype {
-            DType::Decimal(decimal_dtype, _) => sum_decimal(array.chunks(), decimal_dtype),
-            DType::Primitive(sum_ptype, _) => {
-                let scalar_value = match_each_native_ptype!(
-                    sum_ptype,
-                    unsigned: |T| { sum_int::<u64>(array.chunks())?.into() },
-                    signed: |T| { sum_int::<i64>(array.chunks())?.into() },
-                    floating: |T| { sum_float(array.chunks())?.into() }
-                );
-
-                Ok(Scalar::new(sum_dtype, scalar_value))
-            }
-            _ => {
-                vortex_bail!("Sum not supported for dtype {}", sum_dtype);
-            }
-        }
+    fn sum(&self, array: &ChunkedArray, accumulator: &Scalar) -> VortexResult<Scalar> {
+        array
+            .chunks
+            .iter()
+            .try_fold(accumulator.clone(), |result, chunk| {
+                sum_with_accumulator(chunk, &result)
+            })
     }
 }
 
 register_kernel!(SumKernelAdapter(ChunkedVTable).lift());
-
-fn sum_int<T: NativePType + PrimInt>(chunks: &[ArrayRef]) -> VortexResult<Option<T>> {
-    let mut result: T = T::zero();
-    for chunk in chunks {
-        let chunk_sum = sum(chunk)?;
-        let Some(chunk_sum) = chunk_sum
-            .as_primitive()
-            .as_::<T>()
-            .and_then(|chunk_sum| result.checked_add(&chunk_sum))
-        else {
-            // Bail out on null or overflow
-            return Ok(None);
-        };
-        result = chunk_sum;
-    }
-    Ok(Some(result))
-}
-
-fn sum_float(chunks: &[ArrayRef]) -> VortexResult<Option<f64>> {
-    let mut result = 0f64;
-    for chunk in chunks {
-        let Some(chunk_sum) = sum(chunk)?.as_primitive().as_::<f64>() else {
-            return Ok(None);
-        };
-        result += chunk_sum;
-    }
-    Ok(Some(result))
-}
-
-fn sum_decimal(chunks: &[ArrayRef], result_decimal_type: DecimalDType) -> VortexResult<Scalar> {
-    let mut result = DecimalValue::I256(i256::ZERO);
-
-    let null = || Scalar::null(DType::Decimal(result_decimal_type, Nullable));
-
-    for chunk in chunks {
-        let chunk_sum = sum(chunk)?;
-
-        let chunk_decimal = DecimalScalar::try_from(&chunk_sum)?;
-        let Some(r) = chunk_decimal
-            .decimal_value()
-            // TODO(joe): added a precision capped checked_add.
-            .and_then(|c_sum| result.checked_add(&c_sum))
-            .filter(|sum_value| {
-                sum_value
-                    .fits_in_precision(result_decimal_type)
-                    .unwrap_or(false)
-            })
-        else {
-            // null if any chunk is null or the sum overflows
-            return Ok(null());
-        };
-        result = r;
-    }
-
-    Ok(Scalar::decimal(result, result_decimal_type, Nullable))
-}
 
 #[cfg(test)]
 mod tests {

@@ -4,10 +4,9 @@
 //! Filter function.
 
 mod bitbuffer;
-mod bool;
 mod buffer;
-mod buffer_mut;
 mod mask;
+mod vector;
 
 use vortex_mask::Mask;
 

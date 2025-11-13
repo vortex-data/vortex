@@ -105,7 +105,7 @@ mod tests {
 
     use crate::{fsst_compress, fsst_train_compressor};
 
-    fn make_data() -> (ArrayRef, Vec<Option<Vec<u8>>>) {
+    fn make_data() -> (VarBinArray, Vec<Option<Vec<u8>>>) {
         const STRING_COUNT: usize = 1000;
         let mut rng = StdRng::seed_from_u64(0);
         let mut strings = Vec::with_capacity(STRING_COUNT);
@@ -133,8 +133,7 @@ mod tests {
                     .into_iter()
                     .map(|opt_s| opt_s.map(Vec::into_boxed_slice)),
                 DType::Binary(Nullability::Nullable),
-            )
-            .into_array(),
+            ),
             strings,
         )
     }
@@ -144,11 +143,8 @@ mod tests {
         let (arr_vec, data_vec): (Vec<ArrayRef>, Vec<Vec<Option<Vec<u8>>>>) = (0..10)
             .map(|_| {
                 let (array, data) = make_data();
-                let compressor = fsst_train_compressor(&array).unwrap();
-                (
-                    fsst_compress(&array, &compressor).unwrap().into_array(),
-                    data,
-                )
+                let compressor = fsst_train_compressor(&array);
+                (fsst_compress(&array, &compressor).into_array(), data)
             })
             .unzip();
 
@@ -168,17 +164,15 @@ mod tests {
 
         {
             let arr = builder.finish_into_canonical().into_varbinview();
-            let res1 = arr
-                .with_iterator(|iter| iter.map(|b| b.map(|v| v.to_vec())).collect::<Vec<_>>())
-                .unwrap();
+            let res1 =
+                arr.with_iterator(|iter| iter.map(|b| b.map(|v| v.to_vec())).collect::<Vec<_>>());
             assert_eq!(data, res1);
         };
 
         {
             let arr2 = chunked_arr.to_varbinview();
-            let res2 = arr2
-                .with_iterator(|iter| iter.map(|b| b.map(|v| v.to_vec())).collect::<Vec<_>>())
-                .unwrap();
+            let res2 =
+                arr2.with_iterator(|iter| iter.map(|b| b.map(|v| v.to_vec())).collect::<Vec<_>>());
             assert_eq!(data, res2)
         };
     }

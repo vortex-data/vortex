@@ -131,8 +131,8 @@ mod tests {
             ],
             DType::Utf8(Nullability::Nullable),
         );
-        let compressor = fsst_train_compressor(lhs.as_ref()).unwrap();
-        let lhs = fsst_compress(lhs.as_ref(), &compressor).unwrap();
+        let compressor = fsst_train_compressor(&lhs);
+        let lhs = fsst_compress(lhs, &compressor);
 
         let rhs = ConstantArray::new("world", lhs.len());
 

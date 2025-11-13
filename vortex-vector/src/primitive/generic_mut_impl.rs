@@ -131,18 +131,6 @@ impl<T: NativePType> PVectorMut<T> {
             }
         }
     }
-
-    /// Clear the vector, removing all elements.
-    pub fn clear(&mut self) {
-        self.elements.clear();
-        self.validity.clear();
-    }
-
-    /// Shortens the vector, keeping the first `len` elements.
-    pub fn truncate(&mut self, len: usize) {
-        self.elements.truncate(len);
-        self.validity.truncate(len);
-    }
 }
 
 #[cfg(test)]

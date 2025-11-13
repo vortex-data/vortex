@@ -200,6 +200,18 @@ impl<T: BinaryViewType> VectorMutOps for BinaryViewVectorMut<T> {
         self.validity.reserve(additional);
     }
 
+    fn clear(&mut self) {
+        self.views.clear();
+        self.validity.clear();
+        self.buffers.clear();
+        self.open_buffer = None;
+    }
+
+    fn truncate(&mut self, len: usize) {
+        self.views.truncate(len);
+        self.validity.truncate(len);
+    }
+
     fn extend_from_vector(&mut self, other: &BinaryViewVector<T>) {
         // Close any existing views into a new buffer
         self.flush_open_buffer();
@@ -244,7 +256,12 @@ impl<T: BinaryViewType> VectorMutOps for BinaryViewVectorMut<T> {
         todo!()
     }
 
-    fn unsplit(&mut self, _other: Self) {
+    fn unsplit(&mut self, other: Self) {
+        if self.is_empty() {
+            *self = other;
+            return;
+        }
+
         todo!()
     }
 }

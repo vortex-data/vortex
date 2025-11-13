@@ -9,8 +9,8 @@ use crate::compute::{self, SumKernel, SumKernelAdapter};
 use crate::register_kernel;
 
 impl SumKernel for ExtensionVTable {
-    fn sum(&self, array: &ExtensionArray) -> VortexResult<Scalar> {
-        compute::sum(array.storage())
+    fn sum(&self, array: &ExtensionArray, accumulator: &Scalar) -> VortexResult<Scalar> {
+        compute::sum_with_accumulator(array.storage(), accumulator)
     }
 }
 

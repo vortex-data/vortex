@@ -8,20 +8,13 @@ use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::BitBuffer;
 use vortex_dtype::{DType, Nullability, match_each_decimal_value_type, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{VortexExpect, vortex_panic};
 use vortex_scalar::Scalar;
 
-pub fn compare_canonical_array(
-    array: &dyn Array,
-    value: &Scalar,
-    operator: Operator,
-) -> VortexResult<ArrayRef> {
+pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Operator) -> ArrayRef {
     if value.is_null() {
-        return Ok(BoolArray::from_bit_buffer(
-            BitBuffer::new_unset(array.len()),
-            Validity::AllInvalid,
-        )
-        .into_array());
+        return BoolArray::from_bit_buffer(BitBuffer::new_unset(array.len()), Validity::AllInvalid)
+            .into_array();
     }
 
     let result_nullability = array.dtype().nullability() | value.dtype().nullability();
@@ -32,7 +25,7 @@ pub fn compare_canonical_array(
                 .as_bool()
                 .value()
                 .vortex_expect("nulls handled before");
-            Ok(compare_to(
+            compare_to(
                 array
                     .to_bool()
                     .bit_buffer()
@@ -42,7 +35,7 @@ pub fn compare_canonical_array(
                 bool,
                 operator,
                 result_nullability,
-            ))
+            )
         }
         DType::Primitive(p, _) => {
             let primitive = value.as_primitive();
@@ -51,7 +44,7 @@ pub fn compare_canonical_array(
                 let pval = primitive
                     .typed_value::<P>()
                     .vortex_expect("nulls handled before");
-                Ok(compare_to(
+                compare_to(
                     primitive_array
                         .as_slice::<P>()
                         .iter()
@@ -61,7 +54,7 @@ pub fn compare_canonical_array(
                     NativeValue(pval),
                     operator,
                     result_nullability,
-                ))
+                )
             })
         }
         DType::Decimal(..) => {
@@ -72,9 +65,9 @@ pub fn compare_canonical_array(
                     .decimal_value()
                     .vortex_expect("nulls handled before")
                     .cast::<D>()
-                    .ok_or_else(|| vortex_err!("todo: handle upcast of decimal array"))?;
+                    .unwrap_or_else(|| vortex_panic!("todo: handle upcast of decimal array"));
                 let buf = decimal_array.buffer::<D>();
-                Ok(compare_to(
+                compare_to(
                     buf.as_slice()
                         .iter()
                         .copied()
@@ -83,7 +76,7 @@ pub fn compare_canonical_array(
                     dval,
                     operator,
                     result_nullability,
-                ))
+                )
             })
         }
         DType::Utf8(_) => array.to_varbinview().with_iterator(|iter| {
@@ -114,12 +107,12 @@ pub fn compare_canonical_array(
         }),
         DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => {
             let scalar_vals: Vec<Scalar> = (0..array.len()).map(|i| array.scalar_at(i)).collect();
-            Ok(BoolArray::from_iter(
+            BoolArray::from_iter(
                 scalar_vals
                     .iter()
                     .map(|v| scalar_cmp(v, value, operator).as_bool().value()),
             )
-            .into_array())
+            .into_array()
         }
         d @ (DType::Null | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")

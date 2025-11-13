@@ -72,6 +72,14 @@ impl VectorMutOps for DecimalVectorMut {
         match_each_dvector_mut!(self, |d| { d.reserve(additional) })
     }
 
+    fn clear(&mut self) {
+        match_each_dvector_mut!(self, |d| { d.clear() })
+    }
+
+    fn truncate(&mut self, len: usize) {
+        match_each_dvector_mut!(self, |d| { d.truncate(len) })
+    }
+
     fn extend_from_vector(&mut self, other: &DecimalVector) {
         match (self, other) {
             (Self::D8(s), DecimalVector::D8(o)) => s.extend_from_vector(o),

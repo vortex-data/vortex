@@ -5,9 +5,9 @@ use arrow_schema::DECIMAL256_MAX_PRECISION;
 use num_traits::AsPrimitive;
 use vortex_dtype::Nullability::Nullable;
 use vortex_dtype::{DecimalDType, DecimalType, match_each_decimal_value_type};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
-use vortex_scalar::{DecimalValue, Scalar};
+use vortex_scalar::{DecimalScalar, DecimalValue, Scalar};
 
 use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{SumKernel, SumKernelAdapter};
@@ -15,22 +15,24 @@ use crate::register_kernel;
 
 // Its safe to use `AsPrimitive` here because we always cast up.
 macro_rules! sum_decimal {
-    ($ty:ty, $values:expr) => {{
-        let mut sum: $ty = <$ty>::default();
+    ($ty:ty, $values:expr, $initial:expr) => {{
+        let mut sum: $ty = $initial;
         for v in $values.iter() {
             let v: $ty = (*v).as_();
-            sum += v;
+            sum = num_traits::CheckedAdd::checked_add(&sum, &v)
+                .ok_or_else(|| vortex_err!("Overflow when summing decimal {sum:?} + {v:?}"))?
         }
         sum
     }};
-    ($ty:ty, $values:expr, $validity:expr) => {{
+    ($ty:ty, $values:expr, $validity:expr, $initial:expr) => {{
         use itertools::Itertools;
 
-        let mut sum: $ty = <$ty>::default();
+        let mut sum: $ty = $initial;
         for (v, valid) in $values.iter().zip_eq($validity) {
             if valid {
                 let v: $ty = (*v).as_();
-                sum += v;
+                sum = num_traits::CheckedAdd::checked_add(&sum, &v)
+                    .ok_or_else(|| vortex_err!("Overflow when summing decimal {sum:?} + {v:?}"))?
             }
         }
         sum
@@ -39,7 +41,7 @@ macro_rules! sum_decimal {
 
 impl SumKernel for DecimalVTable {
     #[allow(clippy::cognitive_complexity)]
-    fn sum(&self, array: &DecimalArray) -> VortexResult<Scalar> {
+    fn sum(&self, array: &DecimalArray, accumulator: &Scalar) -> VortexResult<Scalar> {
         let decimal_dtype = array.decimal_dtype();
 
         // Both Spark and DataFusion use this heuristic.
@@ -49,6 +51,12 @@ impl SumKernel for DecimalVTable {
         let new_scale = decimal_dtype.scale();
         let return_dtype = DecimalDType::new(new_precision, new_scale);
 
+        // Extract the initial value as a DecimalValue
+        let initial_decimal = DecimalScalar::try_from(accumulator)
+            .vortex_expect("must be a decimal")
+            .decimal_value()
+            .vortex_expect("cannot be null");
+
         match array.validity_mask() {
             Mask::AllFalse(_) => {
                 vortex_bail!("invalid state, all-null array should be checked by top-level sum fn")
@@ -57,8 +65,11 @@ impl SumKernel for DecimalVTable {
                 let values_type = DecimalType::smallest_decimal_value_type(&return_dtype);
                 match_each_decimal_value_type!(array.values_type(), |I| {
                     match_each_decimal_value_type!(values_type, |O| {
+                        let initial_val: O = initial_decimal
+                            .cast()
+                            .vortex_expect("cannot fail to cast initial value");
                         Ok(Scalar::decimal(
-                            DecimalValue::from(sum_decimal!(O, array.buffer::<I>())),
+                            DecimalValue::from(sum_decimal!(O, array.buffer::<I>(), initial_val)),
                             return_dtype,
                             Nullable,
                         ))
@@ -69,11 +80,15 @@ impl SumKernel for DecimalVTable {
                 let values_type = DecimalType::smallest_decimal_value_type(&return_dtype);
                 match_each_decimal_value_type!(array.values_type(), |I| {
                     match_each_decimal_value_type!(values_type, |O| {
+                        let initial_val: O = initial_decimal
+                            .cast()
+                            .vortex_expect("cannot fail to cast initial value");
                         Ok(Scalar::decimal(
                             DecimalValue::from(sum_decimal!(
                                 O,
                                 array.buffer::<I>(),
-                                mask_values.bit_buffer()
+                                mask_values.bit_buffer(),
+                                initial_val
                             )),
                             return_dtype,
                             Nullable,

@@ -14,7 +14,7 @@ use crate::register_kernel;
 
 impl MinMaxKernel for VarBinVTable {
     fn min_max(&self, array: &VarBinArray) -> VortexResult<Option<MinMaxResult>> {
-        varbin_compute_min_max(array, array.dtype())
+        Ok(varbin_compute_min_max(array, array.dtype()))
     }
 }
 
@@ -24,8 +24,8 @@ register_kernel!(MinMaxKernelAdapter(VarBinVTable).lift());
 pub(crate) fn varbin_compute_min_max<T: ArrayAccessor<[u8]>>(
     array: &T,
     dtype: &DType,
-) -> VortexResult<Option<MinMaxResult>> {
-    let minmax = array.with_iterator(|iter| match iter.flatten().minmax() {
+) -> Option<MinMaxResult> {
+    array.with_iterator(|iter| match iter.flatten().minmax() {
         itertools::MinMaxResult::NoElements => None,
         itertools::MinMaxResult::OneElement(value) => {
             let scalar = make_scalar(dtype, value);
@@ -38,9 +38,7 @@ pub(crate) fn varbin_compute_min_max<T: ArrayAccessor<[u8]>>(
             min: make_scalar(dtype, min),
             max: make_scalar(dtype, max),
         }),
-    })?;
-
-    Ok(minmax)
+    })
 }
 
 /// Helper function to make sure that min/max has the right [`Scalar`] type.

@@ -106,6 +106,14 @@ impl VectorMutOps for VectorMut {
         match_each_vector_mut!(self, |v| { v.reserve(additional) })
     }
 
+    fn clear(&mut self) {
+        match_each_vector_mut!(self, |v| { v.clear() })
+    }
+
+    fn truncate(&mut self, len: usize) {
+        match_each_vector_mut!(self, |v| { v.truncate(len) })
+    }
+
     fn extend_from_vector(&mut self, other: &Vector) {
         match_vector_pair!(self, other, |a: VectorMut, b: Vector| {
             a.extend_from_vector(b)

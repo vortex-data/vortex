@@ -77,7 +77,10 @@ impl<T> PVectorMut<T> {
     ///
     /// # Safety
     ///
-    /// The caller must ensure that the new length does not exceed the capacity of the vector.
+    /// - `new_len` must be less than or equal to [`capacity()`].
+    /// - The elements at `old_len..new_len` must be initialized.
+    ///
+    /// [`capacity()`]: Self::capacity
     pub unsafe fn set_len(&mut self, new_len: usize) {
         debug_assert!(new_len < self.elements.capacity());
         debug_assert!(new_len < self.validity.capacity());
@@ -140,6 +143,16 @@ impl<T: NativePType> VectorMutOps for PVectorMut<T> {
         self.validity.reserve(additional);
     }
 
+    fn clear(&mut self) {
+        self.elements.clear();
+        self.validity.clear();
+    }
+
+    fn truncate(&mut self, len: usize) {
+        self.elements.truncate(len);
+        self.validity.truncate(len);
+    }
+
     /// Extends the vector by appending elements from another vector.
     fn extend_from_vector(&mut self, other: &PVector<T>) {
         self.elements.extend_from_slice(other.elements.as_slice());
@@ -167,6 +180,10 @@ impl<T: NativePType> VectorMutOps for PVectorMut<T> {
     }
 
     fn unsplit(&mut self, other: Self) {
+        if self.is_empty() {
+            *self = other;
+            return;
+        }
         self.elements.unsplit(other.elements);
         self.validity.unsplit(other.validity);
     }

@@ -267,6 +267,8 @@ impl BitBufferMut {
     }
 
     /// Truncate the buffer to the given length.
+    ///
+    /// If the given length is greater than the current length, this is a no-op.
     pub fn truncate(&mut self, len: usize) {
         if len > self.len {
             return;

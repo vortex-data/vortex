@@ -153,12 +153,10 @@ pub fn pack_nested_structs() {
     let canonical_struct = chunked.to_struct();
     let canonical_varbin = canonical_struct.fields()[0].to_varbinview();
     let original_varbin = struct_array.fields()[0].to_varbinview();
-    let orig_values = original_varbin
-        .with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>())
-        .unwrap();
-    let canon_values = canonical_varbin
-        .with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>())
-        .unwrap();
+    let orig_values =
+        original_varbin.with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>());
+    let canon_values =
+        canonical_varbin.with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>());
     assert_eq!(orig_values, canon_values);
 }
 

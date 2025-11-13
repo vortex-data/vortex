@@ -8,7 +8,7 @@ use vortex_vector::Vector;
 use crate::ArrayRef;
 use crate::array::IntoArray;
 use crate::execution::{BatchKernelRef, BindCtx, ExecutionCtx};
-use crate::pipeline::{PipelineSource, PipelineTransform};
+use crate::pipeline::PipelinedNode;
 use crate::vtable::{NotSupported, VTable};
 
 /// A vtable for the new operator-based array functionality. Eventually this vtable will be
@@ -40,10 +40,10 @@ pub trait OperatorVTable<V: VTable> {
         Self::bind(array, Some(&selection.clone().into_array()), &mut ())?.execute()
     }
 
-    /// Downcast this array into a [`PipelineNode`] if it supports pipelined execution.
+    /// Downcast this array into a [`PipelinedNode`] if it supports pipelined execution.
     ///
     /// Each node is either a source node or a transformation node.
-    fn pipeline_node(_array: &V::Array) -> Option<PipelineNode<'_>> {
+    fn pipeline_node(_array: &V::Array) -> Option<&dyn PipelinedNode> {
         None
     }
 
@@ -102,14 +102,6 @@ pub trait OperatorVTable<V: VTable> {
     ) -> VortexResult<Option<ArrayRef>> {
         Ok(None)
     }
-}
-
-/// An enum over the types of pipeline nodes.
-pub enum PipelineNode<'a> {
-    /// This node is a source node in a pipeline.
-    Source(&'a dyn PipelineSource),
-    /// This node is a transformation node in a pipeline.
-    Transform(&'a dyn PipelineTransform),
 }
 
 impl<V: VTable> OperatorVTable<V> for NotSupported {

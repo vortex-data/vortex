@@ -8,8 +8,9 @@ use vortex_mask::Mask;
 use vortex_vector::{Vector, VectorOps, vector_matches_dtype};
 
 use crate::execution::{BatchKernelRef, BindCtx, DummyExecutionCtx, ExecutionCtx};
-use crate::pipeline::source_driver::PipelineSourceDriver;
-use crate::vtable::{OperatorVTable, PipelineNode, VTable};
+use crate::pipeline::PipelinedNode;
+use crate::pipeline::driver::PipelineDriver;
+use crate::vtable::{OperatorVTable, VTable};
 use crate::{Array, ArrayAdapter, ArrayRef};
 
 /// Array functions as provided by the `OperatorVTable`.
@@ -30,6 +31,9 @@ pub trait ArrayOperator: 'static + Send + Sync {
 
     /// Optimize the array by pushing down a parent array.
     fn reduce_parent(&self, parent: &ArrayRef, child_idx: usize) -> VortexResult<Option<ArrayRef>>;
+
+    /// Returns the array as a pipeline node, if supported.
+    fn as_pipelined(&self) -> Option<&dyn PipelinedNode>;
 
     /// Bind the array to a batch kernel. This is an internal function
     fn bind(
@@ -52,6 +56,10 @@ impl ArrayOperator for Arc<dyn Array> {
         self.as_ref().reduce_parent(parent, child_idx)
     }
 
+    fn as_pipelined(&self) -> Option<&dyn PipelinedNode> {
+        self.as_ref().as_pipelined()
+    }
+
     fn bind(
         &self,
         selection: Option<&ArrayRef>,
@@ -63,14 +71,6 @@ impl ArrayOperator for Arc<dyn Array> {
 
 impl<V: VTable> ArrayOperator for ArrayAdapter<V> {
     fn execute_batch(&self, selection: &Mask, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
-        // Check if the array is a pipeline node
-        if let Some(pipeline_node) =
-            <V::OperatorVTable as OperatorVTable<V>>::pipeline_node(&self.0)
-            && let PipelineNode::Source(source) = pipeline_node
-        {
-            return PipelineSourceDriver::new(source).execute(selection);
-        }
-
         let vector =
             <V::OperatorVTable as OperatorVTable<V>>::execute_batch(&self.0, selection, ctx)?;
 
@@ -104,6 +104,10 @@ impl<V: VTable> ArrayOperator for ArrayAdapter<V> {
         <V::OperatorVTable as OperatorVTable<V>>::reduce_parent(&self.0, parent, child_idx)
     }
 
+    fn as_pipelined(&self) -> Option<&dyn PipelinedNode> {
+        <V::OperatorVTable as OperatorVTable<V>>::pipeline_node(&self.0)
+    }
+
     fn bind(
         &self,
         selection: Option<&ArrayRef>,
@@ -126,11 +130,17 @@ impl BindCtx for () {
 
 impl dyn Array + '_ {
     pub fn execute(&self) -> VortexResult<Vector> {
-        self.execute_batch(&Mask::new_true(self.len()), &mut DummyExecutionCtx)
+        self.execute_with_selection(&Mask::new_true(self.len()))
     }
 
-    pub fn execute_with_selection(&self, mask: &Mask) -> VortexResult<Vector> {
-        assert_eq!(self.len(), mask.len());
-        self.execute_batch(mask, &mut DummyExecutionCtx)
+    pub fn execute_with_selection(&self, selection: &Mask) -> VortexResult<Vector> {
+        assert_eq!(self.len(), selection.len());
+
+        // Check if the array is a pipeline node
+        if self.as_pipelined().is_some() {
+            return PipelineDriver::new(self.to_array()).execute(selection);
+        }
+
+        self.execute_batch(selection, &mut DummyExecutionCtx)
     }
 }

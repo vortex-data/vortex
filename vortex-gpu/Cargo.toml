@@ -12,21 +12,16 @@ readme = { workspace = true }
 repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
-publish = false
 
 [dependencies]
 cudarc = { workspace = true }
-itertools = { workspace = true }
-parking_lot = { workspace = true }
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
-vortex-buffer = { workspace = true, features = ["cuda"] }
-vortex-dict = { workspace = true }
+vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-mask = { workspace = true }
-vortex-utils = { workspace = true }
 
 [dev-dependencies]
 criterion = { version = "0.7", features = ["html_reports"] }

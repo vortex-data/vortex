@@ -213,6 +213,16 @@ impl<D: NativeDecimalType> VectorMutOps for DVectorMut<D> {
         self.validity.reserve(additional);
     }
 
+    fn clear(&mut self) {
+        self.elements.clear();
+        self.validity.clear();
+    }
+
+    fn truncate(&mut self, len: usize) {
+        self.elements.truncate(len);
+        self.validity.truncate(len);
+    }
+
     fn extend_from_vector(&mut self, other: &DVector<D>) {
         self.elements.extend_from_slice(&other.elements);
         self.validity.append_mask(other.validity());
@@ -240,6 +250,10 @@ impl<D: NativeDecimalType> VectorMutOps for DVectorMut<D> {
     }
 
     fn unsplit(&mut self, other: Self) {
+        if self.is_empty() {
+            *self = other;
+            return;
+        }
         self.elements.unsplit(other.elements);
         self.validity.unsplit(other.validity);
     }

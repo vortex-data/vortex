@@ -242,6 +242,21 @@ impl VectorMutOps for ListViewVectorMut {
         self.validity.reserve(additional);
     }
 
+    fn clear(&mut self) {
+        self.offsets.clear();
+        self.sizes.clear();
+        self.elements.clear();
+        self.validity.clear();
+        self.len = 0;
+    }
+
+    fn truncate(&mut self, len: usize) {
+        self.offsets.truncate(len);
+        self.sizes.truncate(len);
+        self.validity.truncate(len);
+        self.len = self.validity.len();
+    }
+
     /// This will also panic if we try to extend the `ListViewVector` beyond the maximum offset
     /// representable by the type of the `offsets` primitive vector.
     fn extend_from_vector(&mut self, other: &ListViewVector) {
@@ -324,7 +339,11 @@ impl VectorMutOps for ListViewVectorMut {
         todo!()
     }
 
-    fn unsplit(&mut self, _other: Self) {
+    fn unsplit(&mut self, other: Self) {
+        if self.is_empty() {
+            *self = other;
+            return;
+        }
         todo!()
     }
 }

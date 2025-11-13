@@ -4,11 +4,10 @@
 //! Dictionary compressor that reuses the unique values in the `IntegerStats`.
 
 use vortex_array::IntoArray;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::{DictArray, PrimitiveArray};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
-use vortex_dict::DictArray;
 
 use crate::integer::IntegerStats;
 use crate::integer::stats::ErasedStats;

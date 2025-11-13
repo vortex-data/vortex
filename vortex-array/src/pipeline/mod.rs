@@ -2,15 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod bit_view;
-pub mod source_driver;
+pub mod driver;
 
-use std::ops::Deref;
+use vortex_error::{VortexExpect, VortexResult};
+use vortex_vector::{Vector, VectorMut};
 
-use bit_view::BitView;
-use vortex_error::VortexResult;
-use vortex_vector::{Vector, VectorMut, VectorMutOps};
-
-use crate::Array;
+use crate::pipeline::bit_view::BitView;
 
 /// The number of elements in each step of a Vortex evaluation operator.
 pub const N: usize = 1024;
@@ -21,144 +18,125 @@ pub const N_BYTES: usize = N / 8;
 /// Number of usize words needed to store N bits
 pub const N_WORDS: usize = N / usize::BITS as usize;
 
-/// Indicates that an array supports acting as a transformation node in a pipelined execution.
-///
-/// That is, it has one or more child arrays for which each input element produces a single output
-/// element. See [`PipelineSource`] for nodes that have zero pipelined children.
-pub trait PipelineTransform: Deref<Target = dyn Array> {
-    // Whether this operator works by mutating its first child in-place.
-    //
-    // If `true`, the operator is invoked with the first child's input data passed via the
-    // mutable output view. The node is expected to mutate this data in-place.
-    // TODO(ngates): enable this
-    // fn in_place(&self) -> bool {
-    //     false
-    // }
+/// A pipeline node is a trait that enables an array to participate in pipelined execution.
+pub trait PipelinedNode {
+    /// Returns information about the children of this node and how the node should participate
+    /// in pipelined execution.
+    fn inputs(&self) -> PipelineInputs;
 
-    /// Returns whether the nth child of this array should be passed to the kernel as a pipelined
-    /// input vector, 1024 elements at a time.
-    ///
-    /// Any child that reports `false` will be treated as a batch input, and the full vector will be
-    /// computed before pipelined execution begins.
-    fn is_pipelined_child(&self, child_idx: usize) -> bool;
-
-    /// Bind the operator into a [`TransformKernel`] for pipelined execution.
-    ///
-    /// The provided [`BindContext`] can be used to obtain vector IDs for pipelined children and
-    /// batch IDs for batch children. Each child can only be bound once.
-    fn bind(&self, ctx: &mut dyn BindContext) -> VortexResult<Box<dyn TransformKernel>>;
+    /// Bind the node into a [`Kernel`] for pipelined execution.
+    fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>>;
 }
 
-/// Indicates that an array supports acting as a source node in a pipelined execution.
-pub trait PipelineSource: Deref<Target = dyn Array> {
-    /// Bind the operator into a [`SourceKernel`] for pipelined execution.
+/// Describes the type of pipeline node and its input information.
+pub enum PipelineInputs {
+    /// This node acts as a pipeline source.
     ///
-    /// The provided [`BindContext`] can be used to obtain vector IDs for pipelined children and
-    /// batch IDs for batch children. Each child can only be bound once.
-    fn bind(&self, ctx: &mut dyn BindContext) -> VortexResult<Box<dyn SourceKernel>>;
+    /// All array inputs will be available as pre-computed batch inputs in the [`BindContext`].
+    Source,
+
+    /// This node acts as a transform node.
+    ///
+    /// Each listed index indicates a child that should be provided as a pipelined input. Each
+    /// pipelined input should be bound to a [`VectorId`] via the [`BindContext`] and then
+    /// accessed within the kernel by passing the [`VectorId`] to the [`KernelCtx`].
+    ///
+    /// All other children will be available as pre-computed batch inputs in the [`BindContext`].
+    Transform { pipelined_inputs: Vec<usize> },
+    // TODO(ngates): we may want a Chain variant in the future to support pipelining chunked arrays
 }
 
 /// The context used when binding an operator for execution.
 pub trait BindContext {
-    /// Returns a [`VectorId`] that can be passed to the [`KernelContext`] within the body of
-    /// the kernel to access the given child as a pipelined input vector.
+    /// Returns the [`VectorId`] for the given child that can be passed to the
+    /// [`KernelCtx`] within each step to access the given input.
     ///
-    /// # Panics
-    ///
-    /// If the child index requested here was not marked as a pipelined child in
-    /// [`PipelineTransform::is_pipelined_child`].
-    fn pipelined_input(&self, child_idx: usize) -> VectorId;
+    /// Note that this child index references the pipelined inputs only, not all children of the
+    /// array.
+    fn pipelined_input(&self, pipelined_child_idx: usize) -> VectorId;
 
     /// Returns the batch input vector for the given child.
     ///
-    /// # Panics
-    ///
-    /// If the child index requested here was marked as a pipelined child in
-    /// [`PipelineTransform::is_pipelined_child`].
-    fn batch_input(&self, child_idx: usize) -> Vector;
+    /// Note that this child index references the batch inputs only, not all children of the
+    /// array.
+    fn batch_input(&mut self, batch_child_idx: usize) -> Vector;
 }
 
-/// The ID of the vector to use.
-pub type VectorId = usize;
-
-/// A kernel implements the physical compute required for pipelined execution. It is driven in a
-/// push-based way, typically as part of a larger pipeline of kernels.
+/// A pipeline kernel is a stateful object that performs steps of a pipeline.
 ///
-/// By passing multiple vector computations through the same operator, we can amortize
-/// the setup costs (such as DType validation, stats short-circuiting, etc.), and to make better
-/// use of CPU caches by performing all operations while the data is hot.
+/// Each step of the kernel processes zero or more input vectors, and writes output to a
+/// pre-allocated mutable output vector.
 ///
-/// The [`SourceKernel::step`] method will be invoked repeatedly to process chunks of data, [`N`]
-/// elements at a time. Each invocation is passed a selection mask indicating which elements of the
-/// chunk should be written to the start of the output vector.
+/// Input vectors will either have length [`N`], indicating that all elements from the step are
+/// present. Or they will have length equal to the [`BitView::true_count`] of the selection mask,
+/// in which case only the selected elements are present.
 ///
-/// The mutable output vector is **guaranteed** to have a capacity of at least [`N`] elements. The
-/// caller makes no guarantee about the initial length of the output vector; and the kernel is
-/// expected to append `selection.true_count()` elements.
+/// Output vectors will always be passed with length zero.
 ///
-/// The pipeline may invoke the `SourceKernel::skip` method to skip over some number of chunks of data.
-/// The kernel should mutate any internal state as necessary to account for the skipped data.
-pub trait SourceKernel: Send {
-    /// Skip over the given number of chunks of data.
-    ///
-    /// For example, if `n` is 3, then the kernel should skip over `3 * N` elements of input data.
-    fn skip(&mut self, n: usize);
-
-    /// Attempts to perform a single step of the operator, appending data to the output vector.
-    ///
-    /// The provided selection mask indicates which elements of the current chunk should be
-    /// appended to the output vector.
-    ///
-    /// The provided output vector is guaranteed to have at least `N` elements of capacity.
+/// Kernels may choose to output either all `N` elements in their original positions, or output
+/// only the selected elements to the first `true_count` positions of the output vector. When
+/// emitting `N` elements in-place, the kernel may omit expensive computations over the unselected
+/// elements, provided that the output elements in those positions are still valid (i.e. typically
+/// zeroed, rather than undefined).
+///
+/// The pipeline driver will verify these conditions before and after each step.
+pub trait Kernel: Send {
+    /// Perform a single step of the kernel.
     fn step(
         &mut self,
-        ctx: &KernelContext,
+        ctx: &KernelCtx,
         selection: &BitView,
         out: &mut VectorMut,
     ) -> VortexResult<()>;
 }
 
-pub trait TransformKernel: Send {
-    /// Attempts to perform a single step of the operator, appending data to the output vector.
-    ///
-    /// The input vectors can be accessed via the provided `KernelContext`.
-    ///
-    /// The provided output vector is guaranteed to have at least `N` elements of capacity.
-    fn step(&mut self, ctx: &KernelContext, out: &mut VectorMut) -> VortexResult<()>;
+/// The context provided to kernels during execution to access input vectors.
+pub struct KernelCtx {
+    vectors: Vec<Option<VectorMut>>,
 }
 
-/// Context passed to kernels during execution, providing access to vectors.
-pub struct KernelContext {
-    /// The allocated vectors for intermediate results.
-    pub(crate) vectors: Vec<Vector>,
-}
-
-impl KernelContext {
-    pub fn empty() -> Self {
+impl KernelCtx {
+    fn new(vectors: Vec<VectorMut>) -> Self {
         Self {
-            vectors: Vec::new(),
+            vectors: vectors.into_iter().map(Some).collect(),
         }
     }
 
-    /// Get a vector by its ID.
-    pub fn vector(&self, vector_id: VectorId) -> &Vector {
-        &self.vectors[vector_id]
+    /// Returns the input vector at the given index.
+    ///
+    /// Note that a [`VectorMut`] is returned here, indicating that this is the only instance of
+    /// the data. It does not imply that the caller is able to mutate the data (it is returned
+    /// as an immutable reference).
+    ///
+    /// # Panics
+    ///
+    /// If the input vector at the given index is not available (typically because the vector
+    /// happens to be currently borrowed as an output vector!).
+    pub fn input(&mut self, id: VectorId) -> &VectorMut {
+        self.vectors[id.0]
+            .as_ref()
+            .vortex_expect("Input vector at index is not available")
+    }
+
+    #[inline]
+    fn take_output(&mut self, id: &VectorId) -> VectorMut {
+        self.vectors[id.0]
+            .take()
+            .vortex_expect("Output vector at index is not available")
+    }
+
+    #[inline]
+    fn replace_output(&mut self, id: &VectorId, vec: VectorMut) {
+        self.vectors[id.0] = Some(vec);
     }
 }
 
-/// A general implementation of a source kernel that produces all null values.
-pub struct AllNullSourceKernel;
-
-impl SourceKernel for AllNullSourceKernel {
-    fn skip(&mut self, _n: usize) {}
-
-    fn step(
-        &mut self,
-        _ctx: &KernelContext,
-        selection: &BitView,
-        out: &mut VectorMut,
-    ) -> VortexResult<()> {
-        out.append_nulls(selection.true_count());
-        Ok(())
+/// A unique identifier for a vector in the pipeline execution context.
+#[derive(Debug, Clone, Copy)]
+pub struct VectorId(usize);
+impl VectorId {
+    // Non-public constructor to keep the type opaque to end users.
+    fn new(idx: usize) -> Self {
+        VectorId(idx)
     }
 }

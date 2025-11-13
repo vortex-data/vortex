@@ -103,6 +103,16 @@ impl VectorMutOps for BoolVectorMut {
         self.validity.reserve(additional);
     }
 
+    fn clear(&mut self) {
+        self.bits.clear();
+        self.validity.clear();
+    }
+
+    fn truncate(&mut self, len: usize) {
+        self.bits.truncate(len);
+        self.validity.truncate(len);
+    }
+
     fn extend_from_vector(&mut self, other: &BoolVector) {
         self.bits.append_buffer(&other.bits);
         self.validity.append_mask(other.validity());
@@ -128,6 +138,10 @@ impl VectorMutOps for BoolVectorMut {
     }
 
     fn unsplit(&mut self, other: Self) {
+        if self.is_empty() {
+            *self = other;
+            return;
+        }
         self.bits.unsplit(other.bits);
         self.validity.unsplit(other.validity);
     }

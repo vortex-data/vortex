@@ -105,6 +105,16 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> + Sized {
     /// Please let us know if you need `reserve_exact` functionality!
     fn reserve(&mut self, additional: usize);
 
+    /// Clears the buffer, removing all data. Existing capacity is preserved.
+    fn clear(&mut self);
+
+    /// Shortens the buffer, keeping the first len bytes and dropping the rest.
+    ///
+    /// If len is greater than the buffer’s current length, this has no effect.
+    ///
+    /// Existing underlying capacity is preserved.
+    fn truncate(&mut self, len: usize);
+
     /// Extends the vector by appending elements from another vector.
     ///
     /// # Panics

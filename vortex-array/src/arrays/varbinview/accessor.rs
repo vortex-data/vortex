@@ -3,8 +3,6 @@
 
 use std::iter;
 
-use vortex_error::VortexResult;
-
 use crate::ToCanonical;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::varbinview::VarBinViewArray;
@@ -15,7 +13,7 @@ impl ArrayAccessor<[u8]> for VarBinViewArray {
     fn with_iterator<F: for<'a> FnOnce(&mut dyn Iterator<Item = Option<&'a [u8]>>) -> R, R>(
         &self,
         f: F,
-    ) -> VortexResult<R> {
+    ) -> R {
         let bytes = (0..self.nbuffers())
             .map(|i| self.buffer(i))
             .collect::<Vec<_>>();
@@ -33,9 +31,9 @@ impl ArrayAccessor<[u8]> for VarBinViewArray {
                         )
                     }
                 });
-                Ok(f(&mut iter))
+                f(&mut iter)
             }
-            Validity::AllInvalid => Ok(f(&mut iter::repeat_n(None, views.len()))),
+            Validity::AllInvalid => f(&mut iter::repeat_n(None, views.len())),
             Validity::Array(v) => {
                 let validity = v.to_bool();
                 let mut iter = views
@@ -55,8 +53,17 @@ impl ArrayAccessor<[u8]> for VarBinViewArray {
                             None
                         }
                     });
-                Ok(f(&mut iter))
+                f(&mut iter)
             }
         }
+    }
+}
+
+impl ArrayAccessor<[u8]> for &VarBinViewArray {
+    fn with_iterator<F, R>(&self, f: F) -> R
+    where
+        F: for<'a> FnOnce(&mut dyn Iterator<Item = Option<&'a [u8]>>) -> R,
+    {
+        <VarBinViewArray as ArrayAccessor<[u8]>>::with_iterator(*self, f)
     }
 }
