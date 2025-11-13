@@ -45,8 +45,6 @@ jobs:
           echo "issue_body<<EOF" >> $GITHUB_OUTPUT
           echo "$ISSUE_DATA" | jq -r '.body' >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
