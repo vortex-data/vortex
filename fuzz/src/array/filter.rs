@@ -77,7 +77,7 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
                     .filter(|(_, f)| **f)
                     .map(|(v, _)| v.map(|u| u.to_vec()))
                     .collect::<Vec<_>>()
-            })?;
+            });
             Ok(VarBinViewArray::from_iter(values, array.dtype().clone()).into_array())
         }
         DType::Struct(..) => {

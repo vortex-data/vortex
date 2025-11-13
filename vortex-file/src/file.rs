@@ -96,7 +96,7 @@ impl VortexFile {
         )
     }
 
-    #[cfg(feature = "gpu")]
+    #[cfg(gpu_unstable)]
     pub fn gpu_scan(
         &self,
         ctx: Arc<cudarc::driver::CudaContext>,

@@ -131,7 +131,7 @@ fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usi
                     buffer.extend_from_slice(value);
                 }
                 Ok::<_, VortexError>(())
-            })??;
+            })?;
             (buffer.freeze(), value_byte_indices)
         }
     };

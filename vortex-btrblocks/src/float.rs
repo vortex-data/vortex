@@ -5,10 +5,9 @@ pub(crate) mod dictionary;
 mod stats;
 
 use vortex_alp::{ALPArray, ALPEncoding, ALPVTable, RDEncoder};
-use vortex_array::arrays::{ConstantArray, MaskedArray, PrimitiveVTable};
+use vortex_array::arrays::{ConstantArray, DictArray, MaskedArray, PrimitiveVTable};
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
-use vortex_dict::DictArray;
 use vortex_dtype::PType;
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_scalar::Scalar;

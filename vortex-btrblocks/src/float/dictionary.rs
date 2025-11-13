@@ -4,11 +4,10 @@
 //! Float-specific dictionary encoding implementation.
 
 use vortex_array::IntoArray;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::{DictArray, PrimitiveArray};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
-use vortex_dict::DictArray;
 use vortex_dtype::half::f16;
 
 use crate::float::stats::{ErasedDistinctValues, FloatStats};

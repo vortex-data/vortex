@@ -34,14 +34,7 @@ jobs:
 
       - name: Release
         run: |
-          cargo +nightly publish -Zpublish-timeout --no-verify --allow-dirty --workspace \
-          --exclude bench-vortex \
-          --exclude vortex-python \
-          --exclude vortex-duckdb \
-          --exclude vortex-ffi \
-          --exclude vortex-fuzz \
-          --exclude vortex-jni \
-          --exclude xtask
+          cargo +nightly publish -Zpublish-timeout --no-verify --allow-dirty --workspace
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
@@ -56,7 +49,7 @@ jobs:
       name: push-to-pypi
       url: https://pypi.org/p/vortex-data
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v6
         with:
           pattern: wheels-*.zip
           # https://github.com/actions/download-artifact?tab=readme-ov-file#download-all-artifacts
@@ -89,7 +82,7 @@ jobs:
           distribution: "corretto"
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v5
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v6
         with:
           pattern: libvortex_jni_*.zip
       - name: Copy native JNI libs

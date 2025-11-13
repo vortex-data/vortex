@@ -86,10 +86,10 @@ impl EncodeVTable<FSSTVTable> for FSSTVTable {
 
         let compressor = match like {
             Some(like) => Compressor::rebuild_from(like.symbols(), like.symbol_lengths()),
-            None => fsst_train_compressor(array.as_ref())?,
+            None => fsst_train_compressor(&array),
         };
 
-        Ok(Some(fsst_compress(array.as_ref(), &compressor)?))
+        Ok(Some(fsst_compress(array, &compressor)))
     }
 }
 

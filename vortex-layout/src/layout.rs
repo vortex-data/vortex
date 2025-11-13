@@ -51,7 +51,7 @@ pub trait Layout: 'static + Send + Sync + Debug + private::Sealed {
     /// Get the segment IDs for this layout.
     fn segment_ids(&self) -> Vec<SegmentId>;
 
-    #[cfg(feature = "gpu")]
+    #[cfg(gpu_unstable)]
     fn new_gpu_reader(
         &self,
         name: Arc<str>,
@@ -259,7 +259,7 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
         V::segment_ids(&self.0)
     }
 
-    #[cfg(feature = "gpu")]
+    #[cfg(gpu_unstable)]
     fn new_gpu_reader(
         &self,
         name: Arc<str>,

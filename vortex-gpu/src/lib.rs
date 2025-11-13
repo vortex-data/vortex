@@ -1,6 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! This crate contains support for GPU and CUDA accelerated compute for Vortex.
+//!
+//! This crate is currently considered unstable, and much of its code is behind a the `gpu_unstable` config.
+//! If you wish to use it, you should build your code with:
+//! ```shell
+//! RUSTFLAGS="--cfg gpu_unstable" cargo build -p ...
+//! ```
+
 pub mod bit_unpack;
 pub mod for_;
 mod for_bp;

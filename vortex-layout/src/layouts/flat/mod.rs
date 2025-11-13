@@ -79,7 +79,7 @@ impl VTable for FlatVTable {
         )))
     }
 
-    #[cfg(feature = "gpu")]
+    #[cfg(gpu_unstable)]
     fn new_gpu_reader(
         layout: &Self::Layout,
         name: Arc<str>,
