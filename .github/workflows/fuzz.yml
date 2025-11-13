@@ -124,10 +124,6 @@ jobs:
           name: io-fuzzing-logs
           path: ./logs
 
-      # Single Claude Code Action that does everything:
-      # - Analyzes crash from logs
-      # - Checks for duplicate issues
-      # - Creates new issue OR comments on existing issue
       - name: Analyze and report crash with Claude
         env:
           CRASH_FILE: ${{ needs.io_fuzz.outputs.first_crash_name }}
