@@ -6,12 +6,12 @@
 use divan::Bencher;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng as _};
-use vortex_alp::{ALPFloat, ALPRDFloat, RDEncoder, alp_encode, decompress};
-use vortex_array::IntoArray;
+use vortex_alp::{alp_encode, decompress, ALPFloat, ALPRDFloat, RDEncoder};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::warm_up_vtables;
 use vortex_array::validity::Validity;
-use vortex_buffer::{Buffer, buffer};
+use vortex_array::IntoArray;
+use vortex_buffer::{buffer, Buffer};
 use vortex_dtype::NativePType;
 
 fn main() {
@@ -21,19 +21,19 @@ fn main() {
 
 const BENCH_ARGS: &[(usize, f64, f64)] = &[
     // length, fraction_patch, fraction_valid
-    // (1_000, 0.0, 0.25),
+    (1_000, 0.0, 0.25),
     // (1_000, 0.01, 0.25),
     // (1_000, 0.1, 0.25),
-    // (1_000, 0.0, 0.95),
+    (1_000, 0.0, 0.95),
     // (1_000, 0.01, 0.95),
     // (1_000, 0.1, 0.95),
     (1_000, 0.0, 1.0),
     // (1_000, 0.01, 1.0),
     // (1_000, 0.1, 1.0),
-    // (10_000, 0.0, 0.25),
+    (10_000, 0.0, 0.25),
     // (10_000, 0.01, 0.25),
     // (10_000, 0.1, 0.25),
-    // (10_000, 0.0, 0.95),
+    (10_000, 0.0, 0.95),
     // (10_000, 0.01, 0.95),
     // (10_000, 0.1, 0.95),
     (10_000, 0.0, 1.0),

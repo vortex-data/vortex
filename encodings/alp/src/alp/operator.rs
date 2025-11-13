@@ -5,15 +5,15 @@ use std::marker::PhantomData;
 
 use vortex_array::pipeline::bit_view::BitView;
 use vortex_array::pipeline::{
-    BindContext, Kernel, KernelCtx, N, PipelineInputs, PipelinedNode, VectorId,
+    BindContext, Kernel, KernelCtx, PipelineInputs, PipelinedNode, VectorId, N,
 };
 use vortex_array::vtable::OperatorVTable;
 use vortex_dtype::PTypeDowncastExt;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_vector::primitive::PVectorMut;
 use vortex_vector::{VectorMut, VectorMutOps};
 
-use crate::{ALPArray, ALPFloat, ALPVTable, Exponents, match_each_alp_float_ptype};
+use crate::{match_each_alp_float_ptype, ALPArray, ALPFloat, ALPVTable, Exponents};
 
 impl OperatorVTable<ALPVTable> for ALPVTable {
     fn pipeline_node(array: &ALPArray) -> Option<&dyn PipelinedNode> {
@@ -33,9 +33,6 @@ impl PipelinedNode for ALPArray {
         match self.patches() {
             Some(_) => vortex_bail!("patched ALP kernel not implemented",),
             None => {
-                if !self.all_valid() {
-                    vortex_bail!("ALP kernel does not yet handle nulls",);
-                }
                 match_each_alp_float_ptype!(self.ptype(), |A| {
                     Ok(Box::new(UnpatchedALPKernel {
                         encoded_vector_id,
@@ -66,45 +63,43 @@ impl<A: ALPFloat> Kernel for UnpatchedALPKernel<A> {
             return Ok(());
         }
 
-        let encoded_vec = ctx.input(self.encoded_vector_id);
-        let encoded = encoded_vec
+        // Downcast our input/output vectors
+        let encoded_vec = ctx
+            .input(self.encoded_vector_id)
             .as_primitive()
-            .downcast::<A::ALPInt>()
-            .elements();
-
+            .downcast::<A::ALPInt>();
         let decoded_vec = out.as_primitive_mut().downcast::<A>();
 
         // If our input is in-place, and we have only a few selected elements, then iterate only
         // the selected elements and write them to the output.
-        if encoded.len() == N && selection.true_count() < (N / 8) {
-            sparse_alp(decoded_vec, encoded.as_slice(), self.exponents, selection)
+        if encoded_vec.len() == N && selection.true_count() < (N / 8) {
+            sparse_alp(
+                decoded_vec,
+                encoded_vec.elements().as_slice(),
+                self.exponents,
+                selection,
+            )
         }
 
-        // If the input is smaller than N, we have to do a traditional loop (vs known loop over N)
-        if encoded.len() < N {
-            sparse_alp(decoded_vec, encoded.as_slice(), self.exponents, selection)
-        }
+        // Otherwise, we apply ALP decoding to all the input elements.
+        decoded_vec.reserve(encoded_vec.len());
 
-        debug_assert_eq!(encoded.len(), N);
-        debug_assert_eq!(decoded_vec.len(), N);
+        // Copy over the validity from the input vector.
+        unsafe {
+            decoded_vec
+                .validity_mut()
+                // FIXME(ngates)
+                .append_mask(&encoded_vec.validity().clone().freeze())
+        };
+        // And set_len on the elements to match.
+        unsafe { decoded_vec.elements_mut().set_len(encoded_vec.len()) };
 
-        // Otherwise, iterate the entire input.
-        decoded_vec.reserve(N.saturating_sub(decoded_vec.capacity()));
-        unsafe { decoded_vec.validity_mut().append_n(true, N) };
-        unsafe { decoded_vec.elements_mut().set_len(N) };
-
-        // Unsafe cast to array (avoiding the cost of constructing slices...)
-        let decoded: &mut [A; N] =
-            unsafe { &mut *(decoded_vec.elements_mut().as_mut_ptr() as *mut [A; N]) };
-        let encoded: &[A::ALPInt; N] = unsafe { &*(encoded.as_ptr() as *const [A::ALPInt; N]) };
-
-        // By extracting these outside the loop, we auto-vectorize the decoding.
-        // I wonder if the regular ALP is actually vectorized?
         let f = A::F10[self.exponents.f as usize];
         let ie = A::IF10[self.exponents.e as usize];
-
-        for i in 0..N {
-            decoded[i] = A::from_int(encoded[i]) * f * ie;
+        for i in 0..encoded_vec.len() {
+            let encoded = unsafe { encoded_vec.elements().get_unchecked(i) };
+            let decoded = unsafe { decoded_vec.elements_mut().get_unchecked_mut(i) };
+            *decoded = A::from_int(*encoded) * f * ie;
         }
 
         Ok(())
@@ -145,9 +140,9 @@ fn sparse_alp<A: ALPFloat>(
 
 #[cfg(test)]
 mod test {
-    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
+    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::PTypeDowncastExt;
 
