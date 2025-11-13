@@ -41,9 +41,9 @@ pub(crate) fn bind_kernels(
                 assert_eq!(node.batch_inputs.len(), 1);
                 let batch_id = node.batch_inputs[0];
 
-                // Drop the node to ensure any buffers shared by the array and the vector do not
-                // have multiple references that might hinder the into_mut call below.
-                drop(node);
+                // Release ownership of the array before trying to call into_mut on the vector.
+                // This is in case the vector was constructed zero-copy from the array's data.
+                drop(node.array);
 
                 let batch = batch_inputs[batch_id]
                     .take()

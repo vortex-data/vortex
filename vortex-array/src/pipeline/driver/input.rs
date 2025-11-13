@@ -73,11 +73,13 @@ impl Kernel for InputKernel {
 
 #[cfg(test)]
 mod test {
-    use vortex_buffer::{bitbuffer, buffer};
+    use vortex_buffer::{BitBuffer, bitbuffer, buffer};
     use vortex_dtype::PTypeDowncastExt;
     use vortex_mask::Mask;
 
+    use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::pipeline::driver::PipelineDriver;
+    use crate::validity::Validity;
     use crate::{Array, ArrayOperator, IntoArray};
 
     #[test]
@@ -112,5 +114,39 @@ mod test {
             .into_primitive()
             .downcast::<u32>();
         assert_eq!(vector.elements().as_ref(), &[0u32, 2, 4]);
+    }
+
+    /// Ensures that we can feed an input into a pipeline with zero-copy.
+    /// This can require careful book keeping to make sure we don't hold references to arrays
+    /// around longer than necessary.
+    #[test]
+    fn test_pipeline_input_zero_copy() {
+        let elements = buffer![123u32; 8000];
+        let elements_ptr = elements.as_ptr();
+        let validity = BitBuffer::from_iter((0..8000).map(|i| i % 2 == 0));
+        let validity_ptr = validity.inner().as_ptr();
+
+        let array = PrimitiveArray::new(
+            elements,
+            Validity::Array(BoolArray::from(validity).into_array()),
+        )
+        .into_array();
+        assert!(
+            array.as_pipelined().is_none(),
+            "We're explicitly testing non-pipelined arrays to trigger the input case"
+        );
+
+        let selection = Mask::new_true(array.len());
+        let vector = PipelineDriver::new(array)
+            .execute(&selection)
+            .unwrap()
+            .into_primitive()
+            .downcast::<u32>();
+
+        let (vector_elements, vector_validity) = vector.into_parts();
+        let vector_validity = vector_validity.into_bit_buffer().into_inner();
+
+        assert_eq!(vector_elements.as_ptr(), elements_ptr);
+        assert_eq!(vector_validity.as_ptr(), validity_ptr);
     }
 }
