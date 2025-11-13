@@ -40,7 +40,7 @@ impl<'a> MaskIndices<'a> {
     /// # Safety
     ///
     /// The caller must ensure that the indices are strict-sorted, i.e. that they
-    /// are montonic and unique.
+    /// are monotonic and unique.
     ///
     /// Users of the `Indices` type assume this and failure to uphold this guarantee
     /// can result in UB downstream.

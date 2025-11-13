@@ -5,6 +5,7 @@ use crate::null::NullVectorMut;
 use crate::{Scalar, ScalarOps, VectorMut};
 
 /// Represents a null scalar value.
+#[derive(Debug)]
 pub struct NullScalar;
 
 impl ScalarOps for NullScalar {

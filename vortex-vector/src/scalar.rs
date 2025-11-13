@@ -14,6 +14,7 @@ use crate::struct_::StructScalar;
 use crate::{ScalarOps, VectorMut, match_each_scalar};
 
 /// Represents a scalar value of any supported type.
+#[derive(Debug)]
 pub enum Scalar {
     /// Null scalars are always null.
     Null(NullScalar),
