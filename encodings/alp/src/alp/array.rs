@@ -10,13 +10,13 @@ use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
 };
 use vortex_array::{
-    vtable, Array, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, Precision,
+    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, Precision, vtable,
 };
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 
-use crate::alp::{decompress, Exponents};
 use crate::ALPFloat;
+use crate::alp::{Exponents, decompress};
 
 vtable!(ALP);
 

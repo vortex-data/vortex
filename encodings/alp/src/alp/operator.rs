@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::{match_each_alp_float_ptype, ALPArray, ALPFloat, ALPVTable, Exponents};
 use std::marker::PhantomData;
+
 use vortex_array::pipeline::bit_view::BitView;
 use vortex_array::pipeline::{
-    BindContext, Kernel, KernelCtx, PipelineInputs, PipelinedNode, VectorId, N,
+    BindContext, Kernel, KernelCtx, N, PipelineInputs, PipelinedNode, VectorId,
 };
 use vortex_array::vtable::OperatorVTable;
 use vortex_dtype::PTypeDowncastExt;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_vector::primitive::PVectorMut;
 use vortex_vector::{VectorMut, VectorMutOps};
+
+use crate::{ALPArray, ALPFloat, ALPVTable, Exponents, match_each_alp_float_ptype};
 
 impl OperatorVTable<ALPVTable> for ALPVTable {
     fn pipeline_node(array: &ALPArray) -> Option<&dyn PipelinedNode> {
@@ -143,12 +145,13 @@ fn sparse_alp<A: ALPFloat>(
 
 #[cfg(test)]
 mod test {
-    use crate::alp_encode;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayOperatorExt, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dtype::PTypeDowncastExt;
+
+    use crate::alp_encode;
 
     #[test]
     fn test_alp_kernel() {
