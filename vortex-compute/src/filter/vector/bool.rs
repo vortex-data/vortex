@@ -7,7 +7,7 @@ use vortex_vector::bool::BoolVector;
 
 use crate::filter::Filter;
 
-impl Filter for &BoolVector {
+impl Filter<Mask> for &BoolVector {
     type Output = BoolVector;
 
     fn filter(self, mask: &Mask) -> BoolVector {

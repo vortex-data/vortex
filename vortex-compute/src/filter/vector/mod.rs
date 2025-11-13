@@ -10,7 +10,7 @@ mod bool;
 mod primitive;
 mod pvector;
 
-impl Filter for &mut VectorMut {
+impl Filter<Mask> for &mut VectorMut {
     type Output = ();
 
     fn filter(self, selection_mask: &Mask) {

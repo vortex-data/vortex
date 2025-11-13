@@ -3,11 +3,11 @@
 
 use vortex_mask::Mask;
 use vortex_vector::primitive::{PrimitiveVector, PrimitiveVectorMut};
-use vortex_vector::{VectorOps, match_each_pvector, match_each_pvector_mut};
+use vortex_vector::{match_each_pvector, match_each_pvector_mut};
 
 use crate::filter::Filter;
 
-impl Filter for &PrimitiveVector {
+impl Filter<Mask> for &PrimitiveVector {
     type Output = PrimitiveVector;
 
     fn filter(self, selection_mask: &Mask) -> PrimitiveVector {
@@ -15,7 +15,7 @@ impl Filter for &PrimitiveVector {
     }
 }
 
-impl Filter for &mut PrimitiveVectorMut {
+impl Filter<Mask> for &mut PrimitiveVectorMut {
     type Output = ();
 
     fn filter(self, selection_mask: &Mask) {
@@ -23,16 +23,10 @@ impl Filter for &mut PrimitiveVectorMut {
     }
 }
 
-impl Filter for PrimitiveVector {
+impl Filter<Mask> for PrimitiveVector {
     type Output = Self;
 
     fn filter(self, selection_mask: &Mask) -> Self {
-        assert_eq!(
-            selection_mask.len(),
-            self.len(),
-            "Selection mask length must equal the buffer length"
-        );
-
         match_each_pvector!(self, |v| { v.filter(selection_mask).into() })
     }
 }

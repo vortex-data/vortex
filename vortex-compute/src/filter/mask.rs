@@ -5,7 +5,7 @@ use vortex_mask::{Mask, MaskMut};
 
 use crate::filter::Filter;
 
-impl Filter for &Mask {
+impl Filter<Mask> for &Mask {
     type Output = Mask;
 
     fn filter(self, selection_mask: &Mask) -> Mask {
@@ -28,7 +28,7 @@ impl Filter for &Mask {
     }
 }
 
-impl Filter for &mut MaskMut {
+impl Filter<Mask> for &mut MaskMut {
     type Output = ();
 
     fn filter(self, selection_mask: &Mask) {

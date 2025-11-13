@@ -8,10 +8,8 @@ mod buffer;
 mod mask;
 mod vector;
 
-use vortex_mask::Mask;
-
 /// Function for filtering based on a selection mask.
-pub trait Filter {
+pub trait Filter<Rhs> {
     /// The result type after performing the operation.
     type Output;
 
@@ -22,5 +20,5 @@ pub trait Filter {
     /// # Panics
     ///
     /// If the length of the mask does not equal the length of the value being filtered.
-    fn filter(self, selection_mask: &Mask) -> Self::Output;
+    fn filter(self, selection: &Rhs) -> Self::Output;
 }

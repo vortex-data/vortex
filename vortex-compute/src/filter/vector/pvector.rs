@@ -8,7 +8,7 @@ use vortex_vector::{VectorMutOps, VectorOps};
 
 use crate::filter::Filter;
 
-impl<T: NativePType> Filter for &PVector<T> {
+impl<T: NativePType> Filter<Mask> for &PVector<T> {
     type Output = PVector<T>;
 
     fn filter(self, selection_mask: &Mask) -> PVector<T> {
@@ -27,7 +27,7 @@ impl<T: NativePType> Filter for &PVector<T> {
     }
 }
 
-impl<T: NativePType> Filter for &mut PVectorMut<T> {
+impl<T: NativePType> Filter<Mask> for &mut PVectorMut<T> {
     type Output = ();
 
     fn filter(self, selection_mask: &Mask) {
@@ -46,7 +46,7 @@ impl<T: NativePType> Filter for &mut PVectorMut<T> {
     }
 }
 
-impl<T: NativePType> Filter for PVector<T> {
+impl<T: NativePType> Filter<Mask> for PVector<T> {
     type Output = Self;
 
     fn filter(self, selection_mask: &Mask) -> Self {
