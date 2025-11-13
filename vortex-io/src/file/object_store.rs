@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::io;
+#[cfg(unix)]
 use std::os::unix::fs::FileExt;
 use std::sync::Arc;
 
@@ -129,10 +130,18 @@ impl ReadSource for ObjectStoreIoSource {
                             // The read_exact_at call will either fill the entire buffer or return an error,
                             // ensuring no uninitialized memory is exposed.
                             unsafe { buffer.set_len(len) };
+
                             handle
                                 .spawn_blocking(move || {
-                                    file.read_exact_at(&mut buffer, range.start)?;
-                                    Ok::<_, io::Error>(buffer)
+                                    #[cfg(unix)] {
+                                        file.read_exact_at(&mut buffer, range.start)?;
+                                        Ok::<_, io::Error>(buffer)
+                                    }
+                                    #[cfg(not(unix))] {
+                                        file.seek(range.start)?;
+                                        file.read_exact(&mut buffer)?;
+                                        Ok::<_, io::Error>(buffer)
+                                    }
                                 })
                                 .await
                                 .map_err(io::Error::other)?
