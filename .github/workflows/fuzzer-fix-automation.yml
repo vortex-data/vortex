@@ -173,10 +173,10 @@ jobs:
       - name: Build fuzzer target
         id: build
         run: |
-          echo "Building fuzzer target: ${{ steps.extract.outputs.target }}"
+          echo "Building fuzzer target: ${{ steps.extract.outputs.target }} (debug mode for faster build)"
 
-          # Build the fuzzer target to ensure it compiles
-          if cargo +nightly fuzz build --sanitizer=none "${{ steps.extract.outputs.target }}" 2>&1 | tee fuzzer_build.log; then
+          # Build the fuzzer target in debug mode (faster than release)
+          if cargo +nightly fuzz build --dev --sanitizer=none "${{ steps.extract.outputs.target }}" 2>&1 | tee fuzzer_build.log; then
             echo "✅ Fuzzer target built successfully"
             echo "build_success=true" >> $GITHUB_OUTPUT
           else
@@ -193,10 +193,10 @@ jobs:
         id: reproduce
         continue-on-error: true
         run: |
-          echo "Attempting to reproduce crash with fuzzer..."
+          echo "Attempting to reproduce crash with fuzzer (debug mode)..."
 
-          # Run fuzzer with crash file (no sanitizer, full backtrace for debugging)
-          RUST_BACKTRACE=full timeout 30s cargo +nightly fuzz run --sanitizer=none "${{ steps.extract.outputs.target }}" "${{ steps.download.outputs.crash_file_path }}" -- -runs=1 2>&1 | tee crash_reproduction.log
+          # Run fuzzer with crash file (debug mode, no sanitizer, full backtrace)
+          RUST_BACKTRACE=full timeout 30s cargo +nightly fuzz run --dev --sanitizer=none "${{ steps.extract.outputs.target }}" "${{ steps.download.outputs.crash_file_path }}" -- -runs=1 2>&1 | tee crash_reproduction.log
 
           FUZZ_EXIT_CODE=${PIPESTATUS[0]}
 
@@ -278,6 +278,7 @@ jobs:
             - Read the crash log first: `cat crash_reproduction.log`
             - Keep fixes minimal - only fix the specific bug
             - Follow CLAUDE.md code style guidelines
+            - **Use `--dev` flag** for faster builds: `cargo +nightly fuzz run --dev --sanitizer=none`
             - **YOU MUST post a comment on issue #${{ env.ISSUE_NUMBER }}** using `gh issue comment` when done
 
             ## Fixability Guidelines
