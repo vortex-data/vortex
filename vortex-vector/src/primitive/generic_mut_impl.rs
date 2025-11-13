@@ -27,15 +27,17 @@ impl<T: NativePType> PVectorMut<T> {
         self.validity.value(index).then(|| self.elements[index])
     }
 
-    /// Appends an element to the back of the vector.
+    /// Pushes an element to the back of the vector.
     ///
-    /// The element is treated as valid.
+    /// The element is treated as non-null.
     pub fn push(&mut self, value: T) {
         self.elements.push(value);
         self.validity.append_n(true, 1);
     }
 
-    /// Pushes a value without bounds checking or validity updates.
+    /// Pushes an element without bounds checking.
+    ///
+    /// The element is treated as non-null.
     ///
     /// # Safety
     ///
