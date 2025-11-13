@@ -209,7 +209,7 @@ impl PipelineDriver {
         let allocation_plan = allocate_vectors(&self.dag, &exec_order)?;
 
         // Bind each node in the DAG to create its kernel
-        let kernels = bind_kernels(&self.dag, &allocation_plan, batch_inputs)?;
+        let kernels = bind_kernels(self.dag, &allocation_plan, batch_inputs)?;
 
         // Construct the kernel execution context
         let ctx = KernelCtx::new(allocation_plan.vectors);

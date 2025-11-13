@@ -441,6 +441,19 @@ impl Mask {
         }
     }
 
+    /// Return a boolean buffer representation of the mask, allocating new buffers for all-true
+    /// and all-false variants.
+    #[inline]
+    pub fn into_bit_buffer(self) -> BitBuffer {
+        match self {
+            Self::AllTrue(l) => BitBuffer::new_set(l),
+            Self::AllFalse(l) => BitBuffer::new_unset(l),
+            Self::Values(values) => Arc::try_unwrap(values)
+                .map(|v| v.into_bit_buffer())
+                .unwrap_or_else(|v| v.bit_buffer().clone()),
+        }
+    }
+
     /// Return the indices representation of the mask.
     #[inline]
     pub fn indices(&self) -> AllOr<&[usize]> {
@@ -596,6 +609,12 @@ impl MaskValues {
     #[inline]
     pub fn bit_buffer(&self) -> &BitBuffer {
         &self.buffer
+    }
+
+    /// Returns the boolean buffer representation of the mask.
+    #[inline]
+    pub fn into_bit_buffer(self) -> BitBuffer {
+        self.buffer
     }
 
     /// Returns the boolean value at a given index.
