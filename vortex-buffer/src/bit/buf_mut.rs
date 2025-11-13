@@ -541,14 +541,38 @@ impl Not for BitBufferMut {
 
 impl From<&[bool]> for BitBufferMut {
     fn from(value: &[bool]) -> Self {
-        let mut buf = BitBufferMut::new_unset(value.len());
-        for (i, &v) in value.iter().enumerate() {
-            if v {
-                // SAFETY: i is in bounds
-                unsafe { buf.set_unchecked(i) }
+        // Use the same optimized approach as BitBuffer::collect_bool
+        // Pack 64 booleans at a time into u64 words for better performance
+        let len = value.len();
+        let mut buffer = BufferMut::with_capacity(len.div_ceil(64) * 8);
+
+        let chunks = len / 64;
+        let remainder = len % 64;
+        for chunk in 0..chunks {
+            let mut packed = 0u64;
+            for bit_idx in 0..64 {
+                let i = bit_idx + chunk * 64;
+                packed |= (value[i] as u64) << bit_idx;
             }
+
+            // SAFETY: Already allocated sufficient capacity
+            unsafe { buffer.push_unchecked(packed) }
         }
-        buf
+
+        if remainder != 0 {
+            let mut packed = 0u64;
+            for bit_idx in 0..remainder {
+                let i = bit_idx + chunks * 64;
+                packed |= (value[i] as u64) << bit_idx;
+            }
+
+            // SAFETY: Already allocated sufficient capacity
+            unsafe { buffer.push_unchecked(packed) }
+        }
+
+        buffer.truncate(len.div_ceil(8));
+
+        Self::from_buffer(buffer.freeze().into_byte_buffer().into_mut(), 0, len)
     }
 }
 
