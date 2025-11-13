@@ -142,7 +142,7 @@ jobs:
         run: |
           RUSTFLAGS="--cfg gpu_unstable" RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
           # nextest doesn't support doc tests, so we run it here
-          cargo test --doc --workspace --all-features --exclude vortex-cxx --exclude vortex-jni --exclude vortex-ffi --exclude xtask --no-fail-fast
+          RUSTFLAGS="--cfg gpu_unstable" cargo test --doc --workspace --all-features --exclude vortex-cxx --exclude vortex-jni --exclude vortex-ffi --exclude xtask --no-fail-fast
 
   build-rust:
     name: "Rust build (${{matrix.config.name}})"
