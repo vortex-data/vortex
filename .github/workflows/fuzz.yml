@@ -107,194 +107,23 @@ jobs:
     name: "Report IO Fuzz Failures"
     needs: io_fuzz
     if: always() && needs.io_fuzz.outputs.crashes_found == 'true'
-    runs-on: ubuntu-latest
     permissions:
       issues: write
       contents: read
       id-token: write
       pull-requests: read
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-
-      - name: Download fuzzer logs
-        uses: actions/download-artifact@v4
-        with:
-          name: io-fuzzing-logs
-          path: ./logs
-
-      - name: Analyze and report crash with Claude
-        env:
-          CRASH_FILE: ${{ needs.io_fuzz.outputs.first_crash_name }}
-          ARTIFACT_URL: ${{ needs.io_fuzz.outputs.artifact_url }}
-          BRANCH: ${{ github.ref_name }}
-          COMMIT: ${{ github.sha }}
-        uses: anthropics/claude-code-action@v1
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          show_full_output: true
-          prompt: |
-            # Fuzzer Crash Analysis and Reporting
-
-            A fuzzing run for the `file_io` target has detected a crash. Analyze it and report by creating or updating a GitHub issue.
-
-            ## Step 1: Analyze the Crash
-
-            1. Read the fuzzer log: `logs/fuzz_output.log`
-            2. Extract:
-               - Stack trace (lines with `#0`, `#1`, etc.)
-               - Error message ("panicked at" or "ERROR:")
-               - Crash location (top user code frame, not std/core/libfuzzer)
-               - Debug output (look for "Output of `std::fmt::Debug`:" section before the crash)
-            3. Read the source code at the crash location to understand root cause
-
-            ## Step 2: Check for Duplicates
-
-            1. List existing fuzzer issues:
-               ```bash
-               gh issue list --repo ${{ github.repository }} --label fuzzer --state open --json number,title,body --limit 50
-               ```
-
-            2. For each existing issue, compare:
-               - **Crash location**: Same file + function? (line numbers can differ)
-               - **Error pattern**: Same error after normalizing values?
-                 - "index 5 out of bounds" = "index 12 out of bounds" (SAME)
-                 - "len is 100" = "len is 5" (SAME)
-               - Read source code if needed to verify same root cause
-
-            3. Determine duplication level:
-               - **EXACT DUPLICATE**: Same crash location + same error pattern → Add reaction
-               - **SIMILAR**: Same general area but unclear → Add comment
-               - **NEW BUG**: Different location or different error type → Create new issue
-
-            ## Step 3: Take Action
-
-            ### If EXACT DUPLICATE (high confidence):
-            Update or create a tracking comment to count occurrences:
-
-            1. First, check if there's already a tracking comment (look for a comment starting with "<!-- occurrences: ")
-            2. If found, extract the count, increment it, and edit the comment
-            3. If not found, create a new comment
-
-            Comment format:
-            ```markdown
-            <!-- occurrences: N -->
-            **Crash seen N time(s)**
-
-            Latest occurrence:
-            - Crash file: $CRASH_FILE
-            - Artifact: $ARTIFACT_URL
-            - Branch: $BRANCH
-            - Commit: $COMMIT
-            ```
-
-            Use:
-            - `gh api repos/${{ github.repository }}/issues/ISSUE_NUM/comments` to list comments
-            - `gh api repos/${{ github.repository }}/issues/comments/COMMENT_ID -X PATCH` to update
-            - `gh issue comment ISSUE_NUM` to create new
-
-            ### If SIMILAR (medium confidence):
-            Comment on the existing issue with analysis:
-            ```bash
-            gh issue comment ISSUE_NUM --repo ${{ github.repository }} --body "..."
-            ```
-
-            Include in comment:
-            - Note that another crash was detected
-            - Your confidence level and reasoning
-            - Key differences if any
-            - Crash file: $CRASH_FILE
-            - Workflow: $WORKFLOW_RUN
-
-            ### If NEW BUG (not a duplicate):
-            Create a new issue with `gh issue create`:
-            ```bash
-            gh issue create --repo ${{ github.repository }} \
-              --title "Fuzzing Crash: [brief description]" \
-              --label "bug,fuzzer" \
-              --body "..."
-            ```
-
-            Issue body must include:
-            ```markdown
-            ## Fuzzing Crash Report
-
-            ### Analysis
-
-            **Crash Location**: `file.rs:function_name`
-
-            **Error Message**:
-            ```
-            [error message]
-            ```
-
-            **Stack Trace**:
-            ```
-            [top 5-7 frames - keep in code block to prevent markdown rendering issues]
-            ```
-
-            Note: Keep stack traces in code blocks to prevent `#0`, `#1` from being interpreted as markdown headers.
-
-            **Root Cause**: [Your analysis]
-
-            <details>
-            <summary>Debug Output</summary>
-
-            ```
-            [Include the complete "Output of std::fmt::Debug:" section from the fuzzer log]
-            ```
-            </details>
-
-            ### Summary
-
-            - **Target**: `file_io`
-            - **Crash File**: `$CRASH_FILE`
-            - **Branch**: $BRANCH
-            - **Commit**: $COMMIT
-            - **Crash Artifact**: $ARTIFACT_URL
-
-            ### Reproduction
-
-            1. Download the crash artifact:
-               - **Direct download**: $ARTIFACT_URL
-               - Or find `io-fuzzing-crash-artifacts` at: $WORKFLOW_RUN
-               - Extract the zip file
-
-            2. Reproduce locally:
-            ```bash
-            # The artifact contains file_io/$CRASH_FILE
-            cargo +nightly fuzz run --sanitizer=none file_io file_io/$CRASH_FILE
-            ```
-
-            3. Get full backtrace:
-            ```bash
-            RUST_BACKTRACE=full cargo +nightly fuzz run --sanitizer=none file_io file_io/$CRASH_FILE
-            ```
-
-            ---
-            *Auto-created by fuzzing workflow with Claude analysis*
-            ```
-
-            ## Important Guidelines
-
-            - Be conservative: when unsure, prefer creating a new issue over marking as duplicate
-            - Focus on ROOT CAUSE, not specific values in error messages
-            - You have full repo access - read source code to understand crashes
-            - Only use +1 reaction for truly identical crashes
-
-            ## Environment Variables
-
-            - CRASH_FILE: $CRASH_FILE
-            - ARTIFACT_URL: $ARTIFACT_URL (direct link to crash artifact)
-            - BRANCH: $BRANCH
-            - COMMIT: $COMMIT
-
-            Start by reading `logs/fuzz_output.log`.
-          claude_args: |
-            --model claude-sonnet-4-5-20250929
-            --max-turns 25
-            --allowedTools "Read,Write,Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh issue create:*),Bash(gh issue comment:*),Bash(gh api:*),Bash(echo:*),Bash(cat:*),Bash(jq:*),Bash(grep:*),Bash(cargo +nightly fuzz run:*),Bash(RUST_BACKTRACE=* cargo +nightly fuzz run:*)"
+    uses: ./.github/workflows/report-fuzz-crash.yml
+    with:
+      fuzz_target: file_io
+      crash_file: ${{ needs.io_fuzz.outputs.first_crash_name }}
+      artifact_url: ${{ needs.io_fuzz.outputs.artifact_url }}
+      artifact_name: io-fuzzing-crash-artifacts
+      logs_artifact_name: io-fuzzing-logs
+      branch: ${{ github.ref_name }}
+      commit: ${{ github.sha }}
+    secrets:
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      gh_token: ${{ secrets.GITHUB_TOKEN }}
 
 
   ops_fuzz:
@@ -307,6 +136,10 @@ jobs:
       - disk=large
       - extras=s3-cache
       - tag=ops-fuzz
+    outputs:
+      crashes_found: ${{ steps.check.outputs.crashes_found }}
+      first_crash_name: ${{ steps.check.outputs.first_crash_name }}
+      artifact_url: ${{ steps.upload_artifacts.outputs.artifact-url }}
     steps:
       - uses: runs-on/action@v2
         with:
@@ -335,13 +168,47 @@ jobs:
           AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
       - name: Run fuzzing target
         id: fuzz
-        run: RUST_BACKTRACE=1 cargo +nightly fuzz run --release --debug-assertions array_ops -- -max_total_time=7200
+        run: |
+          RUST_BACKTRACE=1 cargo +nightly fuzz run --release --debug-assertions array_ops -- -max_total_time=7200 2>&1 | tee fuzz_output.log
         continue-on-error: true
+      - name: Check for crashes
+        id: check
+        run: |
+          if [ -d "fuzz/artifacts" ] && [ "$(ls -A fuzz/artifacts 2>/dev/null)" ]; then
+            echo "crashes_found=true" >> $GITHUB_OUTPUT
+
+            # Get the first crash file only
+            FIRST_CRASH=$(find fuzz/artifacts -type f \( -name "crash-*" -o -name "leak-*" -o -name "timeout-*" -o -name "oom-*" \) | head -1)
+
+            if [ -n "$FIRST_CRASH" ]; then
+              echo "first_crash=$FIRST_CRASH" >> $GITHUB_OUTPUT
+              echo "first_crash_name=$(basename $FIRST_CRASH)" >> $GITHUB_OUTPUT
+
+              # Count all crashes for reporting
+              CRASH_COUNT=$(find fuzz/artifacts -type f \( -name "crash-*" -o -name "leak-*" -o -name "timeout-*" -o -name "oom-*" \) | wc -l)
+              echo "crash_count=$CRASH_COUNT" >> $GITHUB_OUTPUT
+              echo "Found $CRASH_COUNT crash(es), will process first: $(basename $FIRST_CRASH)"
+            fi
+          else
+            echo "crashes_found=false" >> $GITHUB_OUTPUT
+            echo "crash_count=0" >> $GITHUB_OUTPUT
+            echo "No crashes found"
+          fi
       - name: Archive crash artifacts
+        id: upload_artifacts
+        if: steps.check.outputs.crashes_found == 'true'
         uses: actions/upload-artifact@v5
         with:
           name: operations-fuzzing-crash-artifacts
           path: fuzz/artifacts
+          retention-days: 30
+      - name: Archive fuzzer output log
+        if: steps.check.outputs.crashes_found == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ops-fuzzing-logs
+          path: fuzz_output.log
+          retention-days: 30
       - name: Persist corpus
         shell: bash
         run: |
@@ -353,5 +220,27 @@ jobs:
           AWS_REGION: "us-east-1"
           AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
       - name: Fail job if fuzz run found a bug
-        if: steps.fuzz.outcome == 'failure'
+        if: steps.check.outputs.crashes_found == 'true'
         run: exit 1
+
+  report-ops-fuzz-failures:
+    name: "Report Array Operations Fuzz Failures"
+    needs: ops_fuzz
+    if: always() && needs.ops_fuzz.outputs.crashes_found == 'true'
+    permissions:
+      issues: write
+      contents: read
+      id-token: write
+      pull-requests: read
+    uses: ./.github/workflows/report-fuzz-crash.yml
+    with:
+      fuzz_target: array_ops
+      crash_file: ${{ needs.ops_fuzz.outputs.first_crash_name }}
+      artifact_url: ${{ needs.ops_fuzz.outputs.artifact_url }}
+      artifact_name: operations-fuzzing-crash-artifacts
+      logs_artifact_name: ops-fuzzing-logs
+      branch: ${{ github.ref_name }}
+      commit: ${{ github.sha }}
+    secrets:
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      gh_token: ${{ secrets.GITHUB_TOKEN }}
