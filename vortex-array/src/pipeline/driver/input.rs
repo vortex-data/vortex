@@ -131,6 +131,10 @@ mod test {
             Validity::Array(BoolArray::from(validity).into_array()),
         )
         .into_array();
+        assert!(
+            array.as_pipelined().is_none(),
+            "We're explicitly testing non-pipelined arrays to trigger the input case"
+        );
 
         let selection = Mask::new_true(array.len());
         let vector = PipelineDriver::new(array)
