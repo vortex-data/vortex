@@ -541,7 +541,6 @@ impl Not for BitBufferMut {
 
 impl From<&[bool]> for BitBufferMut {
     fn from(value: &[bool]) -> Self {
-        // Use the optimized collect_bool to pack 64 booleans at a time
         BitBuffer::collect_bool(value.len(), |i| value[i]).into_mut()
     }
 }
