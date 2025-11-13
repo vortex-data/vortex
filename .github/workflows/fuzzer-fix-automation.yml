@@ -100,13 +100,121 @@ jobs:
           echo "Extracted: target=$TARGET, crash_file=$CRASH_FILE"
           rm -f issue_body.txt
 
+      - name: Validate issue details
+        id: validate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ISSUE_NUM="${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.issue_number || github.event.issue.number }}"
+
+          # Check if issue exists and has fuzzer label
+          ISSUE_LABELS=$(gh issue view "$ISSUE_NUM" --repo ${{ github.repository }} --json labels --jq '.labels[].name')
+
+          if ! echo "$ISSUE_LABELS" | grep -q "fuzzer"; then
+            echo "❌ Issue #$ISSUE_NUM does not have 'fuzzer' label"
+            exit 1
+          fi
+
+          echo "✅ Issue #$ISSUE_NUM has 'fuzzer' label"
+
+          # Check if we have required crash details
+          if [ -z "${{ steps.extract.outputs.crash_file }}" ]; then
+            echo "❌ Could not extract crash file name from issue"
+            exit 1
+          fi
+
+          if [ -z "${{ steps.extract.outputs.artifact_url }}" ]; then
+            echo "❌ Could not extract artifact URL from issue"
+            exit 1
+          fi
+
+          echo "✅ Extracted crash details: target=${{ steps.extract.outputs.target }}, crash_file=${{ steps.extract.outputs.crash_file }}"
+
+      - name: Download and verify crash artifact
+        id: download
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Extract run ID from artifact URL
+          ARTIFACT_URL="${{ steps.extract.outputs.artifact_url }}"
+          RUN_ID=$(echo "$ARTIFACT_URL" | grep -oP 'runs/\K[0-9]+')
+          ARTIFACT_ID=$(echo "$ARTIFACT_URL" | grep -oP 'artifacts/\K[0-9]+')
+
+          echo "Downloading artifact $ARTIFACT_ID from run $RUN_ID"
+
+          # Download the artifact
+          gh run download "$RUN_ID" --name "${{ steps.extract.outputs.target }}-fuzzing-crash-artifacts" --repo ${{ github.repository }}
+
+          # Verify crash file exists
+          CRASH_FILE_PATH="${{ steps.extract.outputs.target }}/${{ steps.extract.outputs.crash_file }}"
+          if [ ! -f "$CRASH_FILE_PATH" ]; then
+            echo "❌ Crash file not found: $CRASH_FILE_PATH"
+            ls -la "${{ steps.extract.outputs.target }}/" || true
+            exit 1
+          fi
+
+          echo "✅ Downloaded crash file: $CRASH_FILE_PATH"
+          echo "crash_file_path=$CRASH_FILE_PATH" >> $GITHUB_OUTPUT
+
+      - name: Reproduce crash
+        id: reproduce
+        continue-on-error: true
+        run: |
+          echo "Attempting to reproduce crash with fuzzer..."
+
+          # Run fuzzer with crash file (no sanitizer, just reproduce)
+          timeout 30s cargo +nightly fuzz run --sanitizer=none "${{ steps.extract.outputs.target }}" "${{ steps.download.outputs.crash_file_path }}" -- -runs=1 2>&1 | tee crash_reproduction.log
+
+          FUZZ_EXIT_CODE=${PIPESTATUS[0]}
+
+          if [ $FUZZ_EXIT_CODE -eq 0 ]; then
+            echo "⚠️  Fuzzer did not crash - may have been fixed already"
+            echo "crash_reproduced=false" >> $GITHUB_OUTPUT
+          else
+            echo "✅ Crash reproduced (exit code: $FUZZ_EXIT_CODE)"
+            echo "crash_reproduced=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check if crash still exists
+        if: steps.reproduce.outputs.crash_reproduced == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ISSUE_NUM="${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.issue_number || github.event.issue.number }}"
+
+          gh issue comment "$ISSUE_NUM" --repo ${{ github.repository }} --body "## 🤖 Automated Analysis
+
+          I attempted to reproduce this crash but the fuzzer completed successfully without crashing.
+
+          **This likely means the issue has already been fixed.**
+
+          ### Verification Steps
+
+          I ran:
+          \`\`\`bash
+          cargo +nightly fuzz run --sanitizer=none ${{ steps.extract.outputs.target }} ${{ steps.download.outputs.crash_file_path }} -- -runs=1
+          \`\`\`
+
+          The fuzzer exited with code 0 (success).
+
+          ### Next Steps
+
+          - Verify if a recent commit fixed this issue
+          - If confirmed fixed, close this issue
+          - If not fixed, the crash may be non-deterministic and requires further investigation"
+
+          echo "Crash could not be reproduced - skipping fix attempt"
+          exit 0
+
       - name: Attempt to fix crash with Claude
+        if: steps.reproduce.outputs.crash_reproduced == 'true'
         env:
           ISSUE_NUMBER: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.issue_number || github.event.issue.number }}
           ISSUE_TITLE: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && steps.fetch_issue.outputs.issue_title || github.event.issue.title }}
           ISSUE_BODY: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && steps.fetch_issue.outputs.issue_body || github.event.issue.body }}
           TARGET: ${{ steps.extract.outputs.target }}
           CRASH_FILE: ${{ steps.extract.outputs.crash_file }}
+          CRASH_FILE_PATH: ${{ steps.download.outputs.crash_file_path }}
           ARTIFACT_URL: ${{ steps.extract.outputs.artifact_url }}
         uses: anthropics/claude-code-action@v1
         with:
@@ -134,32 +242,28 @@ jobs:
             - **Target**: ${{ env.TARGET }}
             - **Crash File**: ${{ env.CRASH_FILE }}
 
-            ## Step 1: Download the Crash Artifact
+            ## ✅ Pre-Validated Information
 
-            The issue body contains an artifact URL. Extract it and download the crash file:
+            **Good news!** The crash artifact has already been downloaded and the crash has been reproduced.
 
-            ```bash
-            # The issue body should contain the crash artifact URL
-            # Download it using gh or curl
-            # Example:
-            gh run download RUN_ID --name ${{ env.TARGET }}-fuzzing-crash-artifacts
-            ```
+            - **Crash file location**: `${{ env.CRASH_FILE_PATH }}`
+            - **Crash reproduction log**: `crash_reproduction.log`
 
-            Look for the artifact URL in the issue body. If you can't download it automatically, note this in your comment and provide manual instructions.
+            The crash has been confirmed to still exist on the current codebase, so you can proceed with analysis and fixing.
 
-            ## Step 2: Reproduce the Crash
+            ## Step 1: Analyze the Crash
 
-            Once you have the crash file, reproduce it:
+            Read the crash reproduction log to see the actual crash output:
 
             ```bash
-            cargo +nightly fuzz run --sanitizer=none ${{ env.TARGET }} <path-to-crash-file>
+            cat crash_reproduction.log
             ```
 
-            Capture the output and verify you can reproduce the panic/crash.
+            This will show you the panic message, stack trace, and any debug output.
 
-            ## Step 3: Analyze the Root Cause
+            ## Step 2: Analyze the Root Cause
 
-            1. Read the **Stack Trace** from the issue body
+            1. Read the **Stack Trace** from the crash reproduction log
             2. Identify the **Crash Location** (file and line)
             3. Read the source code at that location
             4. Understand what input caused the crash (check the Debug Output in the issue)
@@ -170,7 +274,7 @@ jobs:
                - Integer overflow?
                - etc.
 
-            ## Step 4: Assess Fixability
+            ## Step 3: Assess Fixability
 
             Determine if this is something you can fix:
 
@@ -188,7 +292,7 @@ jobs:
             - Multiple files/modules affected
             - Unclear requirements
 
-            ## Step 5: If Fixable - Create the Fix
+            ## Step 4: If Fixable - Create the Fix
 
             1. **Modify the source code** to fix the issue
             2. **Add validation** or bounds checks as needed
@@ -196,7 +300,7 @@ jobs:
             4. **Follow the project's code style** (see CLAUDE.md)
             5. **Keep changes minimal** - only fix the specific issue
 
-            ## Step 6: Write Regression Tests
+            ## Step 5: Write Regression Tests
 
             Create tests that:
             1. **Would fail before your fix** (reproduce the crash)
@@ -221,7 +325,7 @@ jobs:
             }
             ```
 
-            ## Step 7: Verify Your Fix
+            ## Step 6: Verify Your Fix
 
             1. Run the new regression test:
             ```bash
@@ -230,7 +334,7 @@ jobs:
 
             2. Run the fuzzer with the crash file:
             ```bash
-            cargo +nightly fuzz run --sanitizer=none ${{ env.TARGET }} <path-to-crash-file> -- -runs=100
+            cargo +nightly fuzz run --sanitizer=none ${{ env.TARGET }} ${{ env.CRASH_FILE_PATH }} -- -runs=100
             ```
 
             3. Run related tests:
@@ -248,7 +352,7 @@ jobs:
             cargo +nightly fmt --all
             ```
 
-            ## Step 8: Post Your Analysis
+            ## Step 7: Post Your Analysis
 
             Comment on issue #${{ env.ISSUE_NUMBER }} with your findings:
 
