@@ -102,28 +102,7 @@ jobs:
             ## Step 3: Take Action
 
             ### If EXACT DUPLICATE (high confidence):
-            Update or create a tracking comment to count occurrences:
-
-            1. First, check if there's already a tracking comment (look for a comment starting with "<!-- occurrences: ")
-            2. If found, extract the count, increment it, and edit the comment
-            3. If not found, create a new comment
-
-            Comment format:
-            ```markdown
-            <!-- occurrences: N -->
-            **Crash seen N time(s)**
-
-            Latest occurrence:
-            - Crash file: $CRASH_FILE
-            - Artifact: $ARTIFACT_URL
-            - Branch: $BRANCH
-            - Commit: $COMMIT
-            ```
-
-            Use:
-            - `gh api repos/${{ github.repository }}/issues/ISSUE_NUM/comments` to list comments
-            - `gh api repos/${{ github.repository }}/issues/comments/COMMENT_ID -X PATCH` to update
-            - `gh issue comment ISSUE_NUM` to create new
+            Do nothing - the issue already exists and is tracked. No need to add noise with duplicate comments.
 
             ### If LIKELY RELATED (same area/similar patterns):
             Add a detailed comment to the existing issue instead of creating a new one:
@@ -275,4 +254,4 @@ jobs:
           claude_args: |
             --model claude-sonnet-4-5-20250929
             --max-turns 25
-            --allowedTools "Read,Write,Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh issue create:*),Bash(gh issue comment:*),Bash(gh api:*),Bash(echo:*),Bash(cat:*),Bash(jq:*),Bash(grep:*),Bash(cargo +nightly fuzz run:*),Bash(RUST_BACKTRACE=* cargo +nightly fuzz run:*)"
+            --allowedTools "Read,Write,Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh issue create:*),Bash(gh issue comment:*),Bash(echo:*),Bash(cat:*),Bash(jq:*),Bash(grep:*),Bash(cargo +nightly fuzz run:*),Bash(RUST_BACKTRACE=* cargo +nightly fuzz run:*)"
