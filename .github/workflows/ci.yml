@@ -199,7 +199,7 @@ jobs:
   check-min-deps:
     name: "Check build with minimal dependencies"
     timeout-minutes: 120
-    env: 
+    env:
       RUSTFLAGS: "--cfg gpu_unstable"
     runs-on:
       - runs-on=${{ github.run_id }}
