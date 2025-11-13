@@ -31,7 +31,7 @@ jobs:
       (github.event.action == 'labeled' && github.event.label.name == 'fuzzer')
 
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     permissions:
       contents: write
@@ -268,60 +268,106 @@ jobs:
             ## Your Task
 
             1. **Analyze**: Read `crash_reproduction.log` to understand the crash
-            2. **Fix**: If straightforward (missing bounds check, validation, edge case), fix it
-            3. **Test**: Write a regression test using the crash file
-            4. **Verify**: Run the test and fuzzer to confirm fix works
-            5. **Post**: Comment on issue #${{ env.ISSUE_NUMBER }} with your analysis
+            2. **Post analysis**: Post initial analysis comment to issue #${{ env.ISSUE_NUMBER }}
+            3. **Fix**: If straightforward (missing bounds check, validation, edge case), fix it
+            4. **Post progress**: After implementing fix, post progress comment with what was changed
+            5. **Test**: Write a regression test using the crash file
+            6. **Post completion**: Post final comment with test results and summary
 
-            ## Important
+            ## Important - Progressive Updates
 
-            - Read the crash log first: `cat crash_reproduction.log`
+            - **Post comments frequently** as you make progress using `gh issue comment`
+            - After analyzing the crash, post what you found before starting the fix
+            - After implementing the fix, post what files were changed before testing
+            - After writing tests, post the final summary
+            - This ensures your work is visible even if you hit the turn limit
             - Keep fixes minimal - only fix the specific bug
             - Follow CLAUDE.md code style guidelines
             - **Use `--dev` flag** for faster builds: `cargo +nightly fuzz run --dev --sanitizer=none`
-            - **YOU MUST post a comment on issue #${{ env.ISSUE_NUMBER }}** using `gh issue comment` when done
 
             ## Fixability Guidelines
 
             **Can fix** (do it): Missing bounds check, validation, edge case, off-by-one
             **Can't fix** (analyze only): Architecture issues, complex logic, requires domain knowledge
 
-            ## Comment Template
+            ## Comment Templates
 
-            When done, post your findings using:
+            Post comments at each stage using:
             ```bash
             gh issue comment ${{ env.ISSUE_NUMBER }} --body "YOUR_COMMENT_HERE"
             ```
 
-            **If you fixed it**, include:
-            - Root cause (2-3 sentences)
-            - Files modified
-            - Test name and verification results
-            - Note: "This is an automated fix - please review carefully"
+            **After analysis** (post immediately):
+            ```markdown
+            ## 🔍 Analysis
 
-            **If you can't fix it**, include:
-            - Root cause analysis
-            - Why it needs human intervention
-            - Suggested approach
+            **Root Cause**: [2-3 sentence explanation]
+
+            **Crash Location**: `file.rs:function_name`
+
+            **Next Step**: [Attempting fix | Needs human review because...]
+            ```
+
+            **After implementing fix** (post immediately):
+            ```markdown
+            ## 🔧 Fix Implemented
+
+            **Modified**: `path/to/file.rs`
+
+            **Changes**: [Brief description of what was changed]
+
+            **Next Step**: Writing regression test...
+            ```
+
+            **Final summary** (post at end):
+            ```markdown
+            ## ✅ Automated Fix Complete
+
+            **Root Cause**: [Summary]
+
+            **Files Modified**:
+            - `path/to/file.rs`
+
+            **Test**: `test_name` - [Pass/Fail status]
+
+            **Note**: This is an automated fix - please review carefully before merging.
+            ```
+
+            **If can't fix**:
+            ```markdown
+            ## 🤖 Analysis Complete - Human Review Needed
+
+            **Root Cause**: [Analysis]
+
+            **Why Manual Fix Required**: [Reason]
+
+            **Suggested Approach**: [Recommendation]
+            ```
           claude_args: |
             --model claude-opus-4-20250514
-            --max-turns 60
+            --max-turns 120
             --allowedTools "Read,Write,Edit,Glob,Grep,Bash(cargo:*),Bash(gh issue comment:*),Bash(gh run download:*),Bash(curl:*),Bash(find:*),Bash(ls:*),Bash(cat:*),Bash(RUST_BACKTRACE=*:*)"
 
-      - name: Verify Claude posted comment
+      - name: Verify Claude posted comments
         if: steps.reproduce.outputs.crash_reproduced == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ISSUE_NUM="${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.issue_number || github.event.issue.number }}"
 
-          # Check if there are any new comments from claude-code-action
-          COMMENT_COUNT=$(gh api repos/${{ github.repository }}/issues/$ISSUE_NUM/comments --jq 'length')
+          # Check for comments from claude-code[bot]
+          COMMENT_COUNT=$(gh api "repos/${{ github.repository }}/issues/$ISSUE_NUM/comments" \
+            --jq '[.[] | select(.user.login == "claude-code[bot]" or .user.type == "Bot")] | length')
 
           if [ "$COMMENT_COUNT" -eq 0 ]; then
-            echo "⚠️ WARNING: Claude did not post a comment on issue #$ISSUE_NUM"
-            echo "This may indicate Claude hit max turns or encountered an error"
+            echo "⚠️ WARNING: Claude did not post any comments on issue #$ISSUE_NUM"
+            echo "This may indicate Claude encountered an error early on"
             exit 1
           else
-            echo "✅ Claude posted analysis comment on issue #$ISSUE_NUM"
+            echo "✅ Claude posted $COMMENT_COUNT comment(s) on issue #$ISSUE_NUM"
+
+            # Show summary of what was posted
+            echo "Comment titles:"
+            gh api "repos/${{ github.repository }}/issues/$ISSUE_NUM/comments" \
+              --jq '.[] | select(.user.login == "claude-code[bot]" or .user.type == "Bot") | "- " + (.body | split("\n") | .[0])'
           fi
