@@ -21,8 +21,8 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{
     BoolEncoding, ConstantVTable, DecimalEncoding, ExtensionEncoding, FixedSizeListEncoding,
-    ListEncoding, ListViewEncoding, NullEncoding, PrimitiveEncoding, StructEncoding,
-    VarBinEncoding, VarBinViewEncoding,
+    ListViewEncoding, NullEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding,
+    VarBinViewEncoding,
 };
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output, is_constant_opts};
