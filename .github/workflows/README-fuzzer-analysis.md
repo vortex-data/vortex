@@ -1,227 +1,215 @@
 # Automated Fuzzer Crash Analysis with Claude Code
 
-This directory contains workflows for automated fuzzer crash detection and analysis using the Claude Code bot.
+This directory contains workflows for automated fuzzer crash detection, analysis, and issue creation using the Claude Code bot.
 
 ## Overview
 
-The fuzzing infrastructure consists of two main workflows:
-
-1. **`fuzz.yml`** - Runs fuzzing targets on a schedule and detects crashes
-2. **`fuzzer-claude-analysis.yml`** - Automatically analyzes crashes using Claude Code
+The fuzzing infrastructure automatically detects crashes and uses Claude to analyze them and create/update GitHub issues with duplicate detection.
 
 ## How It Works
 
-### 1. Crash Detection (fuzz.yml)
+### 1. Crash Detection and Analysis (fuzz.yml)
 
 The fuzzing workflow runs every 4 hours and:
 
-- Runs fuzzing targets (`file_io`, `array_ops`) for 2 hours each
-- Detects crashes and saves crash artifacts
-- Automatically creates a GitHub issue with:
-  - Crash details and backtrace
-  - Links to download crash artifacts
-  - Reproduction instructions
-  - Automatically mentions `@claude` to trigger analysis
+1. **Runs Fuzzing Targets** - Executes `file_io` and `array_ops` targets for 2 hours each
+2. **Detects Crashes** - Checks for crash files in `fuzz/artifacts`
+3. **Archives Artifacts** - Saves crash files and fuzzer logs
+4. **Triggers Claude Analysis** - Spawns a separate job to analyze the crash
 
 **Fuzzing Targets:**
 - `file_io` - Tests file I/O operations
 - `array_ops` - Tests array operations
 
-### 2. Automated Analysis (fuzzer-claude-analysis.yml)
+### 2. Claude Automated Analysis (report-*-fuzz-failures jobs)
 
-When a fuzzer crash issue is created, the Claude Code bot automatically:
+When crashes are detected, Claude automatically:
 
-1. **Downloads** crash artifacts from the workflow run
-2. **Reproduces** the crash locally with full backtrace
-3. **Analyzes** the crash to identify the root cause
-4. **Assesses** severity (security issue, panic, or logic error)
-5. **Attempts to fix** the issue if possible
-6. **Creates regression tests** to prevent recurrence
-7. **Posts findings** as a comment on the issue
+1. **Reads Fuzzer Output** - Parses `fuzz_output.log` to extract:
+   - Stack trace (frames with `#0`, `#1`, etc.)
+   - Error message (panic message or ERROR)
+   - Crash location (top user code frame, excluding std/core/libfuzzer)
+   - Debug output (from `std::fmt::Debug` section)
 
-### 3. Triggering the Analysis
+2. **Analyzes Root Cause** - Reads source code at crash location to understand the issue
 
-The Claude analysis workflow is triggered when:
+3. **Checks for Duplicates** - Searches existing issues labeled `fuzzer`:
+   - Compares crash location (file + function, ignoring line numbers)
+   - Compares error patterns (normalizing values, e.g., "index 5" = "index 12")
+   - Reads source code to verify same root cause
+   - Determines: EXACT DUPLICATE, SIMILAR, or NEW BUG
 
-- An issue is created with the `fuzzing` label, OR
-- An issue title contains "Fuzzing Crash Report"
+4. **Takes Action Based on Classification**:
 
-The fuzzing workflow automatically creates issues that meet these criteria.
+   **EXACT DUPLICATE (high confidence):**
+   - Updates or creates a tracking comment with occurrence count
+   - Comment format: `<!-- occurrences: N -->` followed by latest occurrence details
+   - Uses GitHub API to find and edit existing tracking comments
 
-## Manual Triggering
+   **SIMILAR (medium confidence):**
+   - Adds a new comment explaining the similarity
+   - Includes confidence level and reasoning
+   - Notes key differences if any
 
-You can also manually trigger Claude analysis on any fuzzer-related issue by:
-
-1. Adding the `fuzzing` label to the issue
-2. Mentioning `@claude` in a comment with specific instructions
-
-Example:
-```
-@claude - Please analyze this fuzzer crash and create a fix if possible.
-```
+   **NEW BUG (not a duplicate):**
+   - Creates a new issue with label `bug,fuzzer`
+   - Includes detailed analysis, stack trace, root cause, reproduction steps
 
 ## Issue Format
 
-Fuzzer crash issues are automatically created with:
+Claude creates issues with this structure:
 
 ```markdown
 ## Fuzzing Crash Report
 
-The `<target>` fuzzing target detected a <crash_type> during a scheduled fuzzing run.
+### Analysis
 
-### Summary
-- **Crash Type**: crash/panic/timeout
-- **Target**: `file_io` or `array_ops`
-- **Crash File**: `crash-<hash>`
-- **Workflow Run**: [link]
-- **Timestamp**: [UTC timestamp]
+**Crash Location**: `file.rs:function_name`
 
-### Crash Artifacts
-[Download links to artifacts]
-
-### Reproduction Steps
-[Commands to reproduce locally]
-
-### Investigation Checklist
-[Checklist of investigation steps]
-
-### Automated Analysis
-@claude - Please analyze this fuzzer crash:
-1. Download and reproduce the crash
-2. Identify the root cause
-3. Assess severity
-4. Create a fix if possible
-5. Verify the fix
-
-### Environment
-[Environment details]
+**Error Message**:
+```
+[error message]
 ```
 
-## Claude's Analysis Process
+**Stack Trace**:
+```
+[top 5-7 frames in code block]
+```
 
-When triggered, Claude will:
+**Root Cause**: [Claude's analysis of the underlying issue]
 
-1. **Setup Environment**
-   - Checkout repository
-   - Install Rust nightly toolchain
-   - Install cargo-fuzz
+<details>
+<summary>Debug Output</summary>
 
-2. **Reproduce Crash**
-   - Download crash artifacts from the workflow run
-   - Run the fuzzer with the crash file
-   - Capture full backtrace with `RUST_BACKTRACE=full`
+```
+[Complete "Output of std::fmt::Debug:" section from fuzzer log]
+```
+</details>
 
-3. **Analyze Root Cause**
-   - Examine backtrace and crash output
-   - Identify the code path that triggered the crash
-   - Determine the underlying issue
+### Summary
 
-4. **Severity Assessment**
-   - **Security**: Memory safety issues, overflows, out-of-bounds access
-   - **Panic**: Unwraps, assertions, explicit panics
-   - **Logic Error**: Incorrect behavior without panic
+- **Target**: `file_io` or `array_ops`
+- **Crash File**: `crash-<hash>`
+- **Branch**: [branch name]
+- **Commit**: [commit SHA]
+- **Crash Artifact**: [direct download link]
 
-5. **Create Fix** (if possible)
-   - Modify the relevant source files
-   - Add input validation or error handling
-   - Follow project code style guidelines
+### Reproduction
 
-6. **Write Regression Tests**
-   - Create test cases that capture the failure
-   - Use the minimized crash file as test input
-   - Ensure tests fail before fix and pass after
+1. Download the crash artifact:
+   - **Direct download**: [artifact URL]
+   - Extract the zip file
 
-7. **Verify Fix**
-   - Run fuzzer again with the crash file
-   - Run full test suite
-   - Check with clippy for any new warnings
+2. Reproduce locally:
+```bash
+# The artifact contains <target>/<crash-file>
+cargo +nightly fuzz run --sanitizer=none <target> <target>/<crash-file>
+```
 
-8. **Post Results**
-   - Comment on the issue with findings
-   - If a fix was created, push a branch and reference the issue
-   - Provide next steps for manual review
+3. Get full backtrace:
+```bash
+RUST_BACKTRACE=full cargo +nightly fuzz run --sanitizer=none <target> <target>/<crash-file>
+```
 
-## What Claude Can Do
+---
+*Auto-created by fuzzing workflow with Claude analysis*
+```
+
+## Key Features
+
+### Smart Duplicate Detection
+
+Claude compares crashes based on:
+- **Crash location**: Same file and function (line numbers may differ)
+- **Error pattern**: Same error type after normalizing values
+  - Example: "index 5 out of bounds" = "index 12 out of bounds" (SAME)
+  - Example: "len is 100" = "len is 5" (SAME)
+- **Source code context**: Reads actual code to verify same root cause
+
+### Occurrence Tracking
+
+For duplicate crashes, Claude maintains a single tracking comment:
+
+```markdown
+<!-- occurrences: 15 -->
+**Crash seen 15 time(s)**
+
+Latest occurrence:
+- Crash file: crash-abc123
+- Artifact: [link]
+- Branch: develop
+- Commit: abc123
+```
+
+This keeps issues clean and shows crash frequency without spam.
+
+### Conservative Approach
+
+Claude is programmed to:
+- Prefer creating new issues when unsure (avoid false positives)
+- Focus on ROOT CAUSE rather than specific values in error messages
+- Read source code to understand crashes deeply
+- Only mark as duplicate with high confidence
+
+## Claude's Capabilities
 
 Claude has access to:
 
-- ✅ All project source code
-- ✅ Full cargo toolchain (build, test, clippy, fmt, fuzz)
-- ✅ Crash artifacts and backtrace
-- ✅ Git operations (create branches, commit changes)
-- ✅ File editing capabilities
+- ✅ Full repository source code (via `Read` tool)
+- ✅ Fuzzer logs and crash output
+- ✅ GitHub API (`gh` CLI for issues)
+- ✅ Source code analysis at crash locations
+- ✅ Cargo fuzz for crash reproduction (optional)
 
-Claude will:
+Claude uses:
+- **Model**: Claude Sonnet 4.5 (`claude-sonnet-4-5-20250929`)
+- **Cost**: ~$0.03-0.05 per crash analysis
+- **Max turns**: 25 (for complex analysis)
 
-- ✅ Follow project code style (see `CLAUDE.md`)
-- ✅ Run `cargo clippy` and `cargo fmt` before finishing
-- ✅ Create meaningful regression tests
-- ✅ Provide detailed explanations of the root cause
+## Workflow Structure
 
-## Limitations
-
-Claude may not be able to fix:
-
-- ❌ Issues requiring extensive architectural changes
-- ❌ Issues in dependencies or external crates
-- ❌ Complex concurrency bugs
-- ❌ Issues requiring domain-specific knowledge
-
-In these cases, Claude will still provide:
-- Root cause analysis
-- Severity assessment
-- Suggestions for how to approach the fix
-
-## Workflow Permissions
-
-The workflows require these GitHub permissions:
-
-**fuzz.yml:**
-- `contents: read` - Read repository code
-- `issues: write` - Create crash report issues
-
-**fuzzer-claude-analysis.yml:**
-- `contents: write` - Create branches with fixes
-- `pull-requests: write` - Create PRs (if needed)
-- `issues: write` - Comment on issues
-- `actions: read` - Download artifacts from workflow runs
+```
+┌─────────────────────────────────────────┐
+│ io_fuzz / ops_fuzz                      │
+│ - Run fuzzing target                    │
+│ - Check for crashes                     │
+│ - Archive artifacts + logs              │
+│ - Output: crashes_found, first_crash   │
+└──────────────┬──────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────┐
+│ report-io-fuzz-failures /               │
+│ report-ops-fuzz-failures                │
+│ - Download fuzzer logs                  │
+│ - Run Claude with analysis prompt       │
+│ - Claude creates/updates issues         │
+└─────────────────────────────────────────┘
+```
 
 ## Configuration
 
 ### Required Secrets
 
 - `CLAUDE_CODE_OAUTH_TOKEN` - OAuth token for Claude Code bot
-- `R2_FUZZ_ACCESS_KEY_ID` - For fuzzer corpus storage (existing)
-- `R2_FUZZ_SECRET_ACCESS_KEY` - For fuzzer corpus storage (existing)
+- `R2_FUZZ_ACCESS_KEY_ID` - For fuzzer corpus storage
+- `R2_FUZZ_SECRET_ACCESS_KEY` - For fuzzer corpus storage
 
-### Modifying the Workflows
+### Required Labels
 
-**To add a new fuzzing target:**
+- `bug` - For bug reports
+- `fuzzer` - For fuzzer-generated issues
 
-1. Add a new job to `fuzz.yml` following the existing pattern
-2. Update `.github/scripts/create-fuzzer-issue.sh` if needed
-3. The Claude analysis workflow will automatically handle it
+### Workflow Permissions
 
-**To customize Claude's behavior:**
+**Fuzzing jobs (io_fuzz, ops_fuzz):**
+- No special permissions needed (artifacts uploaded automatically)
 
-Edit the `custom_instructions` in `fuzzer-claude-analysis.yml`:
-
-```yaml
-custom_instructions: |
-  You are analyzing a fuzzer crash. Focus on:
-  1. <your custom instruction>
-  2. <another instruction>
-```
-
-**To change the model:**
-
-The workflow uses Claude Opus 4 for complex crash analysis. To use a different model:
-
-```yaml
-model: "claude-sonnet-4-20250514"  # Faster, lower cost
-# or
-model: "claude-opus-4-20250514"    # Most capable, higher cost
-```
+**Reporting jobs (report-*-fuzz-failures):**
+- `issues: write` - Create and update issues
+- `contents: read` - Read repository code
+- `id-token: write` - OIDC token for authentication
+- `pull-requests: read` - Read PR context if needed
 
 ## Monitoring
 
@@ -232,111 +220,158 @@ All fuzzing runs are available at:
 https://github.com/spiraldb/vortex/actions/workflows/fuzz.yml
 ```
 
-### View Claude Analysis Runs
+### View Created Issues
 
-All Claude analysis runs are available at:
+All fuzzer-detected issues:
 ```
-https://github.com/spiraldb/vortex/actions/workflows/fuzzer-claude-analysis.yml
+https://github.com/spiraldb/vortex/issues?q=is%3Aissue+label%3Afuzzer
 ```
 
 ### Artifacts
 
-Each crash produces these artifacts:
+Each crash produces these artifacts (retained for 30 days):
 
-1. **From fuzzing workflow:**
-   - `<target>-fuzzing-crash-artifacts` - All crash files
-   - `<target>-fuzzing-logs` - Fuzzer output logs
+1. **`<target>-fuzzing-crash-artifacts`** - All crash files found
+2. **`<target>-fuzzing-logs`** - Complete fuzzer output with stack traces
 
-2. **From Claude analysis:**
-   - All analysis results are posted directly as comments on the issue
-   - The crash output and backtrace are included in the issue comments
-   - Full workflow logs available in the GitHub Actions run
+## Customization
+
+### Adding a New Fuzzing Target
+
+1. Add a new job in `fuzz.yml` following the existing pattern (copy `io_fuzz`)
+2. Add a corresponding `report-<target>-fuzz-failures` job
+3. Update the target name in the Claude prompt
+
+### Customizing Claude's Analysis
+
+Edit the `prompt` in the `report-*-fuzz-failures` jobs:
+
+```yaml
+prompt: |
+  # Fuzzer Crash Analysis and Reporting
+
+  [Your custom instructions here]
+```
+
+### Changing the Model
+
+Edit the `claude_args` section:
+
+```yaml
+claude_args: |
+  --model claude-opus-4-20250514  # For more complex analysis
+  --max-turns 25
+  --allowedTools "..."
+```
+
+**Model Options:**
+- `claude-sonnet-4-5-20250929` - Default, balanced cost/performance
+- `claude-opus-4-20250514` - More capable, higher cost
+
+### Adjusting Duplicate Detection Sensitivity
+
+Modify the duplicate detection instructions in the prompt to make Claude more or less conservative about marking crashes as duplicates.
 
 ## Troubleshooting
 
-### Issue Not Created After Crash
+### Claude Creates Too Many Duplicate Issues
+
+Make Claude more aggressive about duplicate detection by:
+- Emphasizing root cause comparison in the prompt
+- Reducing the conservatism instruction
+- Adding examples of what constitutes a duplicate
+
+### Claude Misses Duplicates
+
+Make Claude more thorough by:
+- Increasing `--max-turns` to allow more analysis time
+- Adding specific duplicate detection patterns for common errors
+- Enhancing the error pattern normalization instructions
+
+### Issues Not Created
 
 Check:
-1. Fuzzing workflow has `issues: write` permission
-2. GitHub CLI (`gh`) is available in the runner
-3. Check workflow logs for error messages
-
-### Claude Not Analyzing Issue
-
-Check:
-1. Issue has `fuzzing` label OR title contains "Fuzzing Crash Report"
-2. `CLAUDE_CODE_OAUTH_TOKEN` secret is configured
-3. Claude workflow has required permissions
+1. `CLAUDE_CODE_OAUTH_TOKEN` is configured
+2. Repository has `bug` and `fuzzer` labels
+3. Reporting job has `issues: write` permission
+4. Check workflow logs for errors
 
 ### Cannot Download Artifacts
 
 Check:
-1. Workflow run ID in the issue is correct
-2. Artifacts haven't expired (GitHub retains for 90 days)
-3. Claude workflow has `actions: read` permission
-
-### Crash Cannot Be Reproduced
-
-This can happen if:
-- The crash was environment-specific (timing, resources)
-- The crash has already been fixed in main branch
-- Artifacts are corrupted or incomplete
-
-Claude will note this in the analysis comment.
+1. Artifacts haven't expired (30-day retention)
+2. Direct artifact URL from the issue is still valid
+3. You have repository access
 
 ## Examples
 
-### Successful Analysis
+### Example 1: New Crash Detected
 
-When Claude successfully analyzes and fixes a crash:
+1. Fuzzer detects crash in `file_io` target
+2. `io_fuzz` job archives crash files and logs
+3. `report-io-fuzz-failures` job triggered
+4. Claude analyzes fuzzer log, identifies panic in `vortex_io::read_header`
+5. Claude searches existing issues, finds no match
+6. Claude creates new issue with detailed analysis
+7. Issue includes stack trace, root cause, reproduction steps
 
-1. Issue is created automatically by fuzzing workflow
-2. Claude workflow triggers within minutes
-3. Initial comment is posted with:
-   - ✅ Crash reproduction confirmation
-   - 📋 Full backtrace and crash output
-   - 🔧 Reproduction command
-4. Claude analyzes and posts follow-up comments with:
-   - ✅ Root cause identified
-   - ✅ Severity assessment
-   - ✅ Fix created in branch `fuzzer-fix-<target>-<issue-number>`
-   - ✅ Regression tests added
-   - ✅ Verification results
-5. A human reviews the fix and creates a PR
+### Example 2: Duplicate Crash
 
-### Partial Analysis
+1. Fuzzer detects crash (same as issue #123)
+2. Claude analyzes, recognizes same crash location and error pattern
+3. Claude finds existing issue #123
+4. Claude updates tracking comment: "Crash seen 5 time(s)"
+5. No new issue created, keeping issue list clean
 
-When Claude can analyze but not fix:
+### Example 3: Similar but Different
 
-1. Issue is created
-2. Initial comment shows crash reproduction
-3. Claude posts follow-up comments with:
-   - ✅ Root cause identified
-   - ✅ Severity assessment
-   - ❌ Fix not created (explanation provided)
-   - 📝 Suggestions for fixing
-4. A human uses Claude's analysis to create a fix
-
-All findings are posted directly to the issue for easy review and discussion.
+1. Fuzzer detects crash in same function as issue #456
+2. Claude analyzes, sees same location but different error pattern
+3. Claude determines it's SIMILAR (medium confidence)
+4. Claude adds comment to issue #456 explaining the similarity
+5. Human reviews and decides if it's truly the same or needs new issue
 
 ## Best Practices
 
-1. **Review all Claude fixes** - Even successful fixes should be manually reviewed
-2. **Check regression tests** - Ensure tests actually capture the failure
-3. **Verify across platforms** - Test fixes on different architectures if relevant
-4. **Update fuzzer corpus** - Add minimized crash files to corpus if valuable
-5. **Close duplicates** - Check if similar crashes have been reported
+1. **Review Claude's Classifications** - Especially "similar" cases
+2. **Close True Duplicates** - If Claude missed one, close and reference the original
+3. **Add Labels** - Tag issues with severity (`P0`, `P1`, etc.)
+4. **Track Frequency** - High occurrence counts indicate priority bugs
+5. **Minimize Test Cases** - Use `cargo fuzz tmin` to create minimal reproducers
+6. **Update Corpus** - Add interesting crashes to corpus after fixing
+
+## Limitations
+
+Claude may have difficulty with:
+
+- ❌ Extremely complex crashes spanning multiple files
+- ❌ Race conditions and timing-dependent bugs
+- ❌ Crashes in dependencies (external crates)
+- ❌ Crashes requiring deep domain knowledge
+
+In these cases:
+- Claude will still create an issue with available information
+- Human analysis will be needed for root cause
+- Claude's initial analysis can still help narrow the scope
+
+## Cost and Performance
+
+- **Analysis Time**: 1-3 minutes per crash
+- **Cost**: ~$0.03-0.05 per crash (using Sonnet 4.5)
+- **Accuracy**: High for duplicate detection (based on source code analysis)
+- **False Positives**: Low (conservative by default)
 
 ## Future Enhancements
 
 Potential improvements:
 
-- [ ] Automatic PR creation by Claude (currently creates branch only)
-- [ ] Crash deduplication before issue creation
+- [ ] Automatic crash minimization before reporting
+- [ ] Severity classification (security vs stability)
+- [ ] Automatic PR creation for simple fixes
 - [ ] Integration with coverage reports
-- [ ] Automatic corpus minimization
 - [ ] Historical crash trend analysis
-- [ ] Severity-based issue prioritization
+- [ ] Cross-target duplicate detection
+- [ ] Automatic corpus optimization
 
 ## Support
 
@@ -344,6 +379,6 @@ For issues with the fuzzing infrastructure:
 - Create an issue with the `fuzzing` label
 - Tag relevant maintainers
 
-For issues with Claude Code:
-- See [Claude Code documentation](https://github.com/anthropics/claude-code-action)
-- Report issues at https://github.com/anthropics/claude-code/issues
+For issues with Claude Code Action:
+- See [Claude Code Action docs](https://github.com/anthropics/claude-code-action)
+- Report at https://github.com/anthropics/claude-code-action/issues
