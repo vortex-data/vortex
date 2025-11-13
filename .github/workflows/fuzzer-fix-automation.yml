@@ -162,8 +162,8 @@ jobs:
         run: |
           echo "Attempting to reproduce crash with fuzzer..."
 
-          # Run fuzzer with crash file (no sanitizer, just reproduce)
-          timeout 30s cargo +nightly fuzz run --sanitizer=none "${{ steps.extract.outputs.target }}" "${{ steps.download.outputs.crash_file_path }}" -- -runs=1 2>&1 | tee crash_reproduction.log
+          # Run fuzzer with crash file (no sanitizer, full backtrace for debugging)
+          RUST_BACKTRACE=full timeout 30s cargo +nightly fuzz run --sanitizer=none "${{ steps.extract.outputs.target }}" "${{ steps.download.outputs.crash_file_path }}" -- -runs=1 2>&1 | tee crash_reproduction.log
 
           FUZZ_EXIT_CODE=${PIPESTATUS[0]}
 
@@ -332,9 +332,9 @@ jobs:
             cargo test test_fuzzer_crash_issue_${{ env.ISSUE_NUMBER }}
             ```
 
-            2. Run the fuzzer with the crash file:
+            2. Run the fuzzer with the crash file (with full backtrace):
             ```bash
-            cargo +nightly fuzz run --sanitizer=none ${{ env.TARGET }} ${{ env.CRASH_FILE_PATH }} -- -runs=100
+            RUST_BACKTRACE=full cargo +nightly fuzz run --sanitizer=none ${{ env.TARGET }} ${{ env.CRASH_FILE_PATH }} -- -runs=100
             ```
 
             3. Run related tests:
