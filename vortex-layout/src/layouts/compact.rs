@@ -136,11 +136,29 @@ impl CompactCompressor {
                 let compressed_elems = self.compress(listview.elements())?;
 
                 // Note that since the type of our offsets and sizes is not encoded in our `DType`,
-                // we can narrow the widths.
-                let compressed_offsets =
-                    self.compress(&listview.offsets().to_primitive().narrow()?.into_array())?;
-                let compressed_sizes =
-                    self.compress(&listview.sizes().to_primitive().narrow()?.into_array())?;
+                // we can narrow the widths. However, we must ensure that the size type can fit
+                // within the offset type, so we need to determine compatible types.
+                let narrowed_offsets = listview.offsets().to_primitive().narrow()?;
+                let narrowed_sizes = listview.sizes().to_primitive().narrow()?;
+
+                // Ensure compatible types: if sizes have a larger type than offsets,
+                // we need to cast offsets to match
+                let sizes_ptype = narrowed_sizes.ptype();
+                let offsets_ptype = narrowed_offsets.ptype();
+
+                let (final_offsets, final_sizes) = if sizes_ptype.byte_width() > offsets_ptype.byte_width() {
+                    // Cast offsets to match sizes type
+                    let casted_offsets = vortex_array::compute::cast(
+                        &narrowed_offsets.into_array(),
+                        narrowed_sizes.dtype(),
+                    )?;
+                    (casted_offsets, narrowed_sizes.into_array())
+                } else {
+                    (narrowed_offsets.into_array(), narrowed_sizes.into_array())
+                };
+
+                let compressed_offsets = self.compress(&final_offsets)?;
+                let compressed_sizes = self.compress(&final_sizes)?;
 
                 // SAFETY: Since compression does not change the logical values of arrays, this is
                 // effectively the same array but represented differently, so all invariants that
@@ -250,5 +268,46 @@ mod tests {
 
             assert_arrays_eq!(decompressed_array.as_ref(), columns[i].as_ref());
         }
+    }
+
+    #[test]
+    fn test_listview_narrow_compatible_types() {
+        use vortex_array::arrays::ListViewArray;
+
+        let compressor = CompactCompressor::default();
+
+        // Create a ListViewArray where after narrowing:
+        // - offsets would narrow to U8 (all values < 255)
+        // - sizes would narrow to U16 (some values > 255)
+        // This reproduces the fuzzer crash where sizes had a larger type than offsets
+        let elements = PrimitiveArray::new(
+            buffer![1u32; 300], // 300 elements of value 1
+            Validity::NonNullable,
+        )
+        .into_array();
+
+        // Offsets that fit in U8 (all < 255)
+        let offsets = PrimitiveArray::new(
+            buffer![0u32, 10, 20, 30], // All offsets < 255
+            Validity::NonNullable,
+        )
+        .into_array();
+
+        // Sizes where at least one exceeds U8 max (255)
+        let sizes = PrimitiveArray::new(
+            buffer![10u32, 10, 10, 260], // Last size is 260 > 255, requires U16
+            Validity::NonNullable,
+        )
+        .into_array();
+
+        let listview =
+            ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable).unwrap();
+
+        // This should not panic - the fix ensures compatible types
+        let compressed = compressor.compress(listview.as_ref()).unwrap();
+
+        // Verify the compressed array is still valid
+        let decompressed = compressed.to_canonical().into_array();
+        assert_eq!(decompressed.len(), 4);
     }
 }
