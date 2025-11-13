@@ -114,7 +114,7 @@ where
     unsafe { buffer.set_len(codes.len()) }
 
     stream
-        .memcpy_dtoh(&cu_out, &mut buffer)
+        .memcpy_dtoh(&cu_out, &mut buffer[..])
         .map_err(|e| vortex_err!("Failed to copy to device: {e}"))?;
     stream
         .synchronize()

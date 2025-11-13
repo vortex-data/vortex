@@ -117,7 +117,7 @@ impl GpuPrimitiveVector {
             let mut buffer = BufferMut::<P>::with_capacity(self.len);
             unsafe { buffer.set_len(self.len) }
             stream
-                .memcpy_dtoh(&self.as_slice::<P>(), &mut buffer)
+                .memcpy_dtoh(&self.as_slice::<P>(), &mut buffer[..])
                 .map_err(|e| vortex_err!("Failed to copy to device: {e}"))?;
             stream
                 .synchronize()
