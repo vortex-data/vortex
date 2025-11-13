@@ -16,6 +16,9 @@ jobs:
       - disk=large
       - extras=s3-cache
       - tag=io-fuzz
+    permissions:
+      contents: read
+      issues: write
     steps:
       - uses: runs-on/action@v2
         with:
@@ -47,10 +50,32 @@ jobs:
         run: RUST_BACKTRACE=1 cargo +nightly fuzz run --release --debug-assertions file_io -- -max_total_time=7200
         continue-on-error: true
       - name: Archive crash artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: io-fuzzing-crash-artifacts
           path: fuzz/artifacts
+      - name: Archive fuzzing logs
+        if: steps.fuzz.outcome == 'failure'
+        uses: actions/upload-artifact@v5
+        with:
+          name: io-fuzzing-logs
+          path: |
+            fuzz/*.log
+            fuzz/artifacts/**/*.log
+          if-no-files-found: ignore
+      - name: Create GitHub issue for crash
+        if: steps.fuzz.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Count crash files
+          CRASH_COUNT=$(find fuzz/artifacts/file_io -name "crash-*" -type f 2>/dev/null | wc -l || echo "0")
+
+          # Determine crash type based on output
+          CRASH_TYPE="crash"
+
+          # Create issue using our script
+          ./.github/scripts/create-fuzzer-issue.sh "file_io" "$CRASH_TYPE" "io-fuzzing-crash-artifacts" "$CRASH_COUNT"
       - name: Persist corpus
         shell: bash
         run: |
@@ -75,6 +100,9 @@ jobs:
       - disk=large
       - extras=s3-cache
       - tag=ops-fuzz
+    permissions:
+      contents: read
+      issues: write
     steps:
       - uses: runs-on/action@v2
         with:
@@ -106,10 +134,32 @@ jobs:
         run: RUST_BACKTRACE=1 cargo +nightly fuzz run --release --debug-assertions array_ops -- -max_total_time=7200
         continue-on-error: true
       - name: Archive crash artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: operations-fuzzing-crash-artifacts
           path: fuzz/artifacts
+      - name: Archive fuzzing logs
+        if: steps.fuzz.outcome == 'failure'
+        uses: actions/upload-artifact@v5
+        with:
+          name: operations-fuzzing-logs
+          path: |
+            fuzz/*.log
+            fuzz/artifacts/**/*.log
+          if-no-files-found: ignore
+      - name: Create GitHub issue for crash
+        if: steps.fuzz.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Count crash files
+          CRASH_COUNT=$(find fuzz/artifacts/array_ops -name "crash-*" -type f 2>/dev/null | wc -l || echo "0")
+
+          # Determine crash type based on output
+          CRASH_TYPE="crash"
+
+          # Create issue using our script
+          ./.github/scripts/create-fuzzer-issue.sh "array_ops" "$CRASH_TYPE" "operations-fuzzing-crash-artifacts" "$CRASH_COUNT"
       - name: Persist corpus
         shell: bash
         run: |

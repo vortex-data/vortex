@@ -1,0 +1,281 @@
+name: Fuzzer Crash Analysis with Claude
+
+on:
+  issues:
+    types: [opened, labeled]
+
+jobs:
+  analyze-fuzzer-crash:
+    # Only run on issues with 'fuzzing' label or that contain "Fuzzing Crash Report" in title
+    if: |
+      contains(github.event.issue.labels.*.name, 'fuzzing') ||
+      contains(github.event.issue.title, 'Fuzzing Crash Report')
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+
+    steps:
+      - name: Extract fuzzer information from issue
+        id: extract-info
+        run: |
+          # Extract workflow run ID from the issue body
+          WORKFLOW_RUN=$(echo "${{ github.event.issue.body }}" | grep -oP 'actions/runs/\K[0-9]+' | head -1)
+          echo "workflow_run=$WORKFLOW_RUN" >> $GITHUB_OUTPUT
+
+          # Extract crash file name
+          CRASH_FILE=$(echo "${{ github.event.issue.body }}" | grep -oP 'crash-[a-f0-9]+' | head -1)
+          echo "crash_file=$CRASH_FILE" >> $GITHUB_OUTPUT
+
+          # Extract target name (file_io, array_ops, etc.)
+          TARGET=$(echo "${{ github.event.issue.body }}" | grep -oP '(?<=\*\*Target\*\*: `)[^`]+' || echo "file_io")
+          echo "target=$TARGET" >> $GITHUB_OUTPUT
+
+          # Extract artifact name from issue body
+          ARTIFACT=$(echo "${{ github.event.issue.body }}" | grep -oP '`\K[^`]+-fuzzing-crash-artifacts(?=`)' | head -1 || echo "io-fuzzing-crash-artifacts")
+          echo "artifact=$ARTIFACT" >> $GITHUB_OUTPUT
+
+          echo "Extracted info:"
+          echo "  Workflow Run: $WORKFLOW_RUN"
+          echo "  Crash File: $CRASH_FILE"
+          echo "  Target: $TARGET"
+          echo "  Artifact: $ARTIFACT"
+
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          toolchain: nightly
+
+      - name: Install llvm
+        uses: aminya/setup-cpp@v1
+        with:
+          compiler: llvm
+
+      - name: Install cargo fuzz
+        run: cargo install --locked cargo-fuzz
+
+      - name: Download crash artifacts
+        if: steps.extract-info.outputs.workflow_run != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.extract-info.outputs.artifact }}
+          path: fuzz/artifacts
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ steps.extract-info.outputs.workflow_run }}
+        continue-on-error: true
+
+      - name: List downloaded artifacts
+        run: |
+          echo "Contents of fuzz/artifacts:"
+          find fuzz/artifacts -type f
+
+      - name: Reproduce crash with backtrace
+        id: reproduce
+        if: steps.extract-info.outputs.crash_file != ''
+        run: |
+          echo "Attempting to reproduce crash with full backtrace..."
+          CRASH_PATH=$(find fuzz/artifacts -name "${{ steps.extract-info.outputs.crash_file }}" | head -1)
+
+          if [ -z "$CRASH_PATH" ]; then
+            echo "Crash file not found, listing all crash files:"
+            find fuzz/artifacts -name "crash-*"
+            CRASH_PATH=$(find fuzz/artifacts -name "crash-*" | head -1)
+          fi
+
+          if [ -n "$CRASH_PATH" ]; then
+            echo "crash_path=$CRASH_PATH" >> $GITHUB_OUTPUT
+            echo "Found crash file at: $CRASH_PATH"
+
+            # Run with full backtrace and capture output
+            set +e
+            RUST_BACKTRACE=full cargo +nightly fuzz run ${{ steps.extract-info.outputs.target }} "$CRASH_PATH" -- -runs=1 2>&1 | tee crash_output.txt
+            CRASH_EXIT_CODE=$?
+            set -e
+
+            echo "crash_exit_code=$CRASH_EXIT_CODE" >> $GITHUB_OUTPUT
+
+            if [ $CRASH_EXIT_CODE -ne 0 ]; then
+              echo "✓ Successfully reproduced the crash"
+              echo "reproduced=true" >> $GITHUB_OUTPUT
+            else
+              echo "⚠ Could not reproduce the crash"
+              echo "reproduced=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "❌ No crash file found"
+            echo "reproduced=false" >> $GITHUB_OUTPUT
+          fi
+        continue-on-error: true
+
+      - name: Create analysis prompt for Claude
+        if: steps.reproduce.outputs.reproduced == 'true'
+        run: |
+          cat > claude_prompt.md << 'EOF'
+          # Fuzzer Crash Analysis Task
+
+          A fuzzer has detected a crash in the **${{ steps.extract-info.outputs.target }}** fuzzing target.
+
+          ## Your Task
+
+          1. **Analyze the crash**: Review the backtrace and crash output in `crash_output.txt`
+          2. **Identify root cause**: Determine what is causing the crash
+          3. **Assess severity**: Is this a security issue, a panic, or a logic error?
+          4. **Attempt to fix**: If you can identify the root cause, create a fix
+          5. **Create tests**: Write regression tests that capture this failure
+          6. **Verify the fix**: Run the fuzzer against your fix to ensure it resolves the issue
+
+          ## Crash Information
+
+          - **Target**: `${{ steps.extract-info.outputs.target }}`
+          - **Crash File**: `${{ steps.reproduce.outputs.crash_path }}`
+          - **Issue**: #${{ github.event.issue.number }}
+
+          ## Reproduction Command
+
+          ```bash
+          RUST_BACKTRACE=full cargo +nightly fuzz run ${{ steps.extract-info.outputs.target }} "${{ steps.reproduce.outputs.crash_path }}" -- -runs=1
+          ```
+
+          ## Output to Provide
+
+          Please provide:
+          1. A summary of the root cause
+          2. The severity assessment (security / panic / logic error)
+          3. If you created a fix:
+             - The files you modified
+             - A brief explanation of the fix
+             - Test results showing the crash is resolved
+          4. If you created regression tests:
+             - The test files created
+             - How to run them
+
+          ## Next Steps After Analysis
+
+          Your findings will be posted as a comment on issue #${{ github.event.issue.number }}.
+          If you created a fix, it will be committed to a new branch and a PR will be created.
+
+          ---
+
+          **Note**: Follow the project's development guidelines in CLAUDE.md. Remember to:
+          - Run `cargo clippy --all-targets --all-features` before finishing
+          - Run `cargo +nightly fmt --all` to format code
+          - Create meaningful regression tests
+          EOF
+
+      - name: Run Claude Code analysis
+        if: steps.reproduce.outputs.reproduced == 'true'
+        id: claude
+        uses: anthropics/claude-code-action@beta
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # Use Opus for complex crash analysis
+          model: "claude-opus-4-20250514"
+
+          # Custom prompt from file
+          initial_prompt_file: claude_prompt.md
+
+          # Allow Claude to use cargo commands and create branches/PRs
+          allowed_tools: "Bash(cargo:*),Bash(timeout:*),Bash(find:*),Bash(git:*)"
+
+          custom_instructions: |
+            You are analyzing a fuzzer crash. Focus on:
+            1. Understanding the root cause from the backtrace
+            2. Creating a minimal fix if possible
+            3. Writing regression tests
+            4. Verifying your fix resolves the crash
+
+            You have access to:
+            - Full cargo toolchain (cargo fuzz, cargo test, cargo clippy, cargo fmt)
+            - The crash file and backtrace
+            - All project source code
+
+            If you successfully create a fix:
+            1. Create a new branch named: fuzzer-fix-${{ steps.extract-info.outputs.target }}-${{ github.event.issue.number }}
+            2. Commit your changes with a descriptive message
+            3. Push the branch
+            4. Reference this issue (#${{ github.event.issue.number }}) in your commit message
+
+            Be thorough but concise in your analysis.
+        continue-on-error: true
+
+      - name: Post initial analysis status
+        if: always() && steps.reproduce.outputs.reproduced == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            let comment = '## 🤖 Claude Code Fuzzer Analysis\n\n';
+
+            // Add reproduction status
+            if ('${{ steps.reproduce.outputs.reproduced }}' === 'true') {
+              comment += '✅ **Crash reproduced successfully**\n\n';
+
+              // Try to read crash output
+              try {
+                const crashOutput = fs.readFileSync('crash_output.txt', 'utf8');
+                // Limit to ~8000 chars for better readability in issues
+                const truncated = crashOutput.length > 8000
+                  ? crashOutput.substring(0, 8000) + '\n\n... (output truncated, see workflow logs for full backtrace)'
+                  : crashOutput;
+                comment += '### Crash Output\n\n```\n' + truncated + '\n```\n\n';
+              } catch (e) {
+                comment += '_Could not read crash output_\n\n';
+              }
+
+              // Add reproduction info
+              comment += '### Reproduction\n\n';
+              comment += '**Crash File**: `${{ steps.reproduce.outputs.crash_path }}`\n\n';
+              comment += '**Command**:\n```bash\n';
+              comment += 'RUST_BACKTRACE=full cargo +nightly fuzz run ${{ steps.extract-info.outputs.target }} "${{ steps.reproduce.outputs.crash_path }}" -- -runs=1\n';
+              comment += '```\n\n';
+
+              // Add Claude's analysis status
+              if ('${{ steps.claude.outcome }}' === 'success') {
+                comment += '✅ **Claude analysis in progress**\n\n';
+                comment += 'Claude is now analyzing the crash. Findings will be posted as follow-up comments.\n\n';
+              } else if ('${{ steps.claude.outcome }}' === 'failure') {
+                comment += '⚠️ **Analysis encountered issues**\n\n';
+                comment += 'Claude encountered issues during analysis. Check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.\n\n';
+              } else {
+                comment += 'ℹ️ **Analysis was skipped or cancelled**\n\n';
+              }
+            } else {
+              comment += '❌ **Could not reproduce crash**\n\n';
+              comment += 'The crash could not be reproduced. This may indicate:\n';
+              comment += '- The crash file was not found in artifacts\n';
+              comment += '- The crash is environment-specific\n';
+              comment += '- The crash has already been fixed\n\n';
+
+              // Still try to show what files were found
+              try {
+                const { execSync } = require('child_process');
+                const files = execSync('find fuzz/artifacts -name "crash-*" -type f 2>/dev/null || true').toString().trim();
+                if (files) {
+                  comment += '**Available crash files**:\n```\n' + files + '\n```\n\n';
+                }
+              } catch (e) {
+                // Ignore errors
+              }
+            }
+
+            comment += '---\n';
+            comment += `*Automated analysis by Claude Code • [Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ github.event.issue.number }},
+              body: comment
+            });
