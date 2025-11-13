@@ -427,44 +427,43 @@ impl BitBuffer {
         }
 
         let is_bit_set = |byte: u8, bit_idx: usize| (byte & (1 << bit_idx)) != 0;
-
+        let bit_offset = self.offset % 8;
         let mut buffer_ptr = unsafe { self.buffer.as_ptr().add(self.offset / 8) };
-        let start_bit_in_byte = self.offset % 8;
-        let mut bit_pos = 0;
+        let mut callback_idx = 0;
 
         // Handle incomplete first byte.
-        if start_bit_in_byte > 0 {
-            let bits_in_first_byte = (8 - start_bit_in_byte).min(total_bits);
+        if bit_offset > 0 {
+            let bits_in_first_byte = (8 - bit_offset).min(total_bits);
             let byte = unsafe { *buffer_ptr };
 
             for bit_idx in 0..bits_in_first_byte {
-                f(bit_pos, is_bit_set(byte, start_bit_in_byte + bit_idx));
+                f(callback_idx, is_bit_set(byte, bit_offset + bit_idx));
+                callback_idx += 1;
             }
 
-            bit_pos += bits_in_first_byte;
             buffer_ptr = unsafe { buffer_ptr.add(1) };
         }
 
-        let complete_bytes = (total_bits - bit_pos) / 8;
-
         // Process complete bytes.
-        for byte_idx in 0..complete_bytes {
+        let complete_bytes = (total_bits - callback_idx) / 8;
+        for _ in 0..complete_bytes {
             let byte = unsafe { *buffer_ptr };
 
             for bit_idx in 0..8 {
-                f(bit_pos + byte_idx * 8 + bit_idx, is_bit_set(byte, bit_idx));
+                f(callback_idx, is_bit_set(byte, bit_idx));
+                callback_idx += 1;
             }
             buffer_ptr = unsafe { buffer_ptr.add(1) };
         }
-        bit_pos += complete_bytes * 8;
 
         // Handle remaining bits at the end.
-        let remaining_bits = (total_bits - bit_pos) % 8;
+        let remaining_bits = total_bits - callback_idx;
         if remaining_bits > 0 {
             let byte = unsafe { *buffer_ptr };
 
             for bit_idx in 0..remaining_bits {
-                f(bit_pos + bit_idx, is_bit_set(byte, bit_idx));
+                f(callback_idx, is_bit_set(byte, bit_idx));
+                callback_idx += 1;
             }
         }
     }
