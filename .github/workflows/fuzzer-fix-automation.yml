@@ -156,6 +156,25 @@ jobs:
           echo "✅ Downloaded crash file: $CRASH_FILE_PATH"
           echo "crash_file_path=$CRASH_FILE_PATH" >> $GITHUB_OUTPUT
 
+      - name: Build fuzzer target
+        id: build
+        run: |
+          echo "Building fuzzer target: ${{ steps.extract.outputs.target }}"
+
+          # Build the fuzzer target to ensure it compiles
+          if cargo +nightly fuzz build --sanitizer=none "${{ steps.extract.outputs.target }}" 2>&1 | tee fuzzer_build.log; then
+            echo "✅ Fuzzer target built successfully"
+            echo "build_success=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Fuzzer target failed to build"
+            echo "build_success=false" >> $GITHUB_OUTPUT
+
+            # Show the build errors
+            echo "Build errors:"
+            tail -50 fuzzer_build.log
+            exit 1
+          fi
+
       - name: Reproduce crash
         id: reproduce
         continue-on-error: true
