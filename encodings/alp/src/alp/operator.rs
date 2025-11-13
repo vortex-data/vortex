@@ -73,12 +73,7 @@ impl<A: ALPFloat> Kernel for UnpatchedALPKernel<A> {
         // If our input is in-place, and we have only a few selected elements, then iterate only
         // the selected elements and write them to the output.
         if encoded_vec.len() == N && selection.true_count() < (N / 8) {
-            sparse_alp(
-                decoded_vec,
-                encoded_vec.elements().as_slice(),
-                self.exponents,
-                selection,
-            )
+            sparse_alp(decoded_vec, encoded_vec, self.exponents, selection)
         }
 
         // Otherwise, we have to decode the entire vector.
@@ -108,30 +103,21 @@ impl<A: ALPFloat> Kernel for UnpatchedALPKernel<A> {
 #[inline(never)]
 fn sparse_alp<A: ALPFloat>(
     decoded_vec: &mut PVectorMut<A>,
-    encoded: &[A::ALPInt],
+    encoded_vec: &PVectorMut<A::ALPInt>,
     exponents: Exponents,
     selection: &BitView,
 ) {
     // Reserve capacity for the true_count elements.
-    decoded_vec.reserve(
-        selection
-            .true_count()
-            .saturating_sub(decoded_vec.capacity()),
-    );
+    decoded_vec.reserve(selection.true_count());
 
-    // SAFETY: we set_len and append_validity ensuring elements len matches validity len.
-    unsafe { decoded_vec.validity_mut() }.append_n(true, selection.true_count());
-    unsafe { decoded_vec.elements_mut().set_len(selection.true_count()) };
-
-    // SAFETY: we reserved capacity above.
-    let decoded = unsafe { decoded_vec.elements_mut() };
-
-    let mut out_pos = 0;
-    selection.iter_ones(|idx| {
-        let encoded = unsafe { encoded.get_unchecked(idx) };
-        let element = A::decode_single(*encoded, exponents);
-        unsafe { *decoded.get_unchecked_mut(out_pos) = element };
-        out_pos += 1;
+    let encoded = encoded_vec.elements().as_slice();
+    selection.iter_ones(|idx| unsafe {
+        decoded_vec.push_opt_unchecked(
+            encoded_vec
+                .validity()
+                .value(idx)
+                .then(|| A::decode_single(unsafe { *encoded.get_unchecked(idx) }, exponents)),
+        )
     });
 
     debug_assert_eq!(decoded_vec.validity().len(), decoded_vec.elements().len());

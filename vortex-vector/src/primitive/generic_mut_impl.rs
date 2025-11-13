@@ -35,7 +35,7 @@ impl<T: NativePType> PVectorMut<T> {
         self.validity.append_n(true, 1);
     }
 
-    /// Pushes a value without bounds checking or validity updates.
+    /// Pushes a value without checking for capacity.
     ///
     /// # Safety
     ///
@@ -60,6 +60,28 @@ impl<T: NativePType> PVectorMut<T> {
         } else {
             self.elements.push(T::default());
             self.validity.append_n(false, 1);
+        }
+    }
+
+    /// Pushes a value without bounds checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that there is sufficient capacity in both elements and validity
+    /// buffers.
+    #[inline]
+    pub unsafe fn push_opt_unchecked(&mut self, value: Option<T>) {
+        // SAFETY: The caller guarantees there is sufficient capacity in the elements buffer,
+        // so we can write to the spare capacity and increment the length without bounds checks.
+        match value {
+            Some(value) => unsafe { self.push_unchecked(value) },
+            None => {
+                unsafe {
+                    self.elements.spare_capacity_mut()[0].write(T::default());
+                    self.elements.set_len(self.len() + 1);
+                }
+                self.validity.append_n(false, 1);
+            }
         }
     }
 }
