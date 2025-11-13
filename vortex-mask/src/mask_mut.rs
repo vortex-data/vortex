@@ -210,6 +210,21 @@ impl MaskMut {
         }
     }
 
+    /// Append a [`MaskMut`] to this mutable mask.
+    pub fn append_mask_mut(&mut self, other: &MaskMut) {
+        match &other.0 {
+            Inner::Empty { .. } => {
+                // No work to do
+            }
+            Inner::Constant { value, len, .. } => {
+                self.append_n(*value, *len);
+            }
+            Inner::Builder(bits) => {
+                self.materialize().append_buffer(&bits.clone().freeze());
+            }
+        }
+    }
+
     /// Ensures that the internal bit buffer is allocated and returns a mutable reference to it.
     fn materialize(&mut self) -> &mut BitBufferMut {
         let needs_materialization = !matches!(self.0, Inner::Builder(_));

@@ -81,25 +81,24 @@ impl<A: ALPFloat> Kernel for UnpatchedALPKernel<A> {
             )
         }
 
-        // Otherwise, we apply ALP decoding to all the input elements.
+        // Otherwise, we have to decode the entire vector.
         decoded_vec.reserve(encoded_vec.len());
 
         // Copy over the validity from the input vector.
         unsafe {
             decoded_vec
                 .validity_mut()
-                // FIXME(ngates)
-                .append_mask(&encoded_vec.validity().clone().freeze())
+                .append_mask_mut(encoded_vec.validity())
         };
         // And set_len on the elements to match.
         unsafe { decoded_vec.elements_mut().set_len(encoded_vec.len()) };
 
-        let f = A::F10[self.exponents.f as usize];
-        let ie = A::IF10[self.exponents.e as usize];
+        let enc = encoded_vec.elements();
+        let dec = unsafe { decoded_vec.elements_mut() };
         for i in 0..encoded_vec.len() {
-            let encoded = unsafe { encoded_vec.elements().get_unchecked(i) };
-            let decoded = unsafe { decoded_vec.elements_mut().get_unchecked_mut(i) };
-            *decoded = A::from_int(*encoded) * f * ie;
+            let encoded = unsafe { enc.get_unchecked(i) };
+            let decoded = unsafe { dec.get_unchecked_mut(i) };
+            *decoded = A::decode_single(*encoded, self.exponents)
         }
 
         Ok(())
