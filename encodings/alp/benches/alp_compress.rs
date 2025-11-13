@@ -123,7 +123,7 @@ fn decompress_alp_pipeline<T: ALPFloat + NativePType>(bencher: Bencher, args: (u
                     validity
                         .as_array()
                         .map(|a| Validity::copy_from_array(a))
-                        .unwrap_or(validity.clone()),
+                        .unwrap_or_else(|| validity.clone()),
                 ),
                 None,
             )

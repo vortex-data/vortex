@@ -185,7 +185,7 @@ mod test {
         let values = values.freeze();
 
         // We take a copy of the values to ensure we can into_mut
-        let array = PrimitiveArray::new(Buffer::copy_from(&values), validity.clone());
+        let array = PrimitiveArray::new(Buffer::copy_from(&values), validity);
         let array = alp_encode(&array, None).unwrap().into_array();
 
         let vector = array.execute().unwrap();

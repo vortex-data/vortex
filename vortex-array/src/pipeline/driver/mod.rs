@@ -10,16 +10,16 @@ use std::hash::{BuildHasher, Hash, Hasher};
 
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
 use vortex_vector::{Vector, VectorMut, VectorMutOps};
 
 use crate::pipeline::bit_view::{BitView, BitViewExt};
-use crate::pipeline::driver::allocation::{allocate_vectors, OutputTarget};
+use crate::pipeline::driver::allocation::{OutputTarget, allocate_vectors};
 use crate::pipeline::driver::bind::bind_kernels;
 use crate::pipeline::driver::toposort::topological_sort;
-use crate::pipeline::{Kernel, KernelCtx, PipelineInputs, N};
+use crate::pipeline::{Kernel, KernelCtx, N, PipelineInputs};
 use crate::{Array, ArrayEq, ArrayHash, ArrayOperator, ArrayRef, ArrayVisitor, Precision};
 
 /// A pipeline driver takes a Vortex array and executes it into a canonical vector.
@@ -272,53 +272,59 @@ impl Pipeline {
 
     /// Perform a single step of the pipeline.
     fn step(&mut self, selection: &BitView, output: &mut VectorMut) -> VortexResult<()> {
-        // Loop over the kernels in execution order.
-        for node_id in &self.exec_order {
-            let kernel = &mut self.kernels[*node_id];
+        // Loop over the kernels in toposorted execution order.
+        for &node_id in self.exec_order.iter() {
+            let kernel = &mut self.kernels[node_id];
 
             // Depending on the output target, either write directly to the pipeline output, or
             // take the intermediate vector and write into that.
-            match &self.output_targets[*node_id] {
+            match &self.output_targets[node_id] {
                 OutputTarget::ExternalOutput => {
                     // We split off the next N elements of capacity from the external output vector.
                     let mut tail = output.split_off(output.len());
                     debug_assert!(tail.is_empty());
 
                     kernel.step(&self.ctx, selection, &mut tail)?;
-                    if tail.len() != N && tail.len() != selection.true_count() {
-                        vortex_bail!(
-                            "Kernel produced incorrect number of output elements, expected either {} or {}, got {}",
-                            N,
-                            selection.true_count(),
-                            tail.len()
-                        );
+
+                    let len = tail.len();
+                    vortex_ensure!(
+                        len == N || len == selection.true_count(),
+                        "Kernel produced incorrect number of output elements, \
+                            expected either {N} or {}, got {len}",
+                        selection.true_count(),
+                    );
+
+                    // Since we are writing to the final vector, there are no other kernels who we
+                    // can delegate filtering the selection mask out to, so check if we need to do
+                    // a final filter before we return.
+                    if selection.true_count() < N && len == N {
+                        // tail.filter(selection_mask)
+                        todo!("Filter via a bit mask")
                     }
 
                     // FIXME(ngates): if true_count < N && tail.len() == N, we need to
                     //  filter-in-place to ensure the pipeline's output vector is contiguous
 
-                    // Now we append the produced output back to the main output vector.
+                    // Now we join the produced output back to the main output vector.
                     output.unsplit(tail);
                 }
                 OutputTarget::IntermediateVector(vector_id) => {
                     let mut out_vector = self.ctx.take_output(vector_id);
                     out_vector.clear();
+                    debug_assert!(out_vector.is_empty());
 
                     kernel.step(&self.ctx, selection, &mut out_vector)?;
 
-                    match out_vector.len() {
-                        // Valid cases are all N elements, or only the selected elements.
-                        n if n == N || n == selection.true_count() => {
-                            // If the kernel added N elements, the output is in-place.
-                            self.ctx.replace_output(vector_id, out_vector);
-                        }
-                        _ => vortex_bail!(
-                            "Kernel produced incorrect number of output elements, expected either {} or {}, got {}",
-                            N,
-                            selection.true_count(),
-                            out_vector.len()
-                        ),
-                    }
+                    let len = out_vector.len();
+                    vortex_ensure!(
+                        len == N || len == selection.true_count(),
+                        "Kernel produced incorrect number of output elements, \
+                            expected either {N} or {}, got {len}",
+                        selection.true_count(),
+                    );
+
+                    // If the kernel added N elements, the output is in-place.
+                    self.ctx.replace_output(vector_id, out_vector);
                 }
             };
         }
@@ -336,7 +342,7 @@ impl Hash for ArrayKey<'_> {
 }
 impl PartialEq for ArrayKey<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.0.array_eq(&other.0, Precision::Ptr)
+        self.0.array_eq(other.0, Precision::Ptr)
     }
 }
 impl Eq for ArrayKey<'_> {}

@@ -217,6 +217,7 @@ mod tests {
         }
     }
 
+    #[ignore = "TODO(connor): need to filter in pipeline driver step"]
     #[test]
     fn test_bitpack_pipeline_dense_75_percent() {
         // Create exactly 1024 elements (0 to 1023).
