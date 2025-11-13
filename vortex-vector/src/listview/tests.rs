@@ -30,7 +30,7 @@ fn get_list_values(list: &ListViewVector, list_idx: usize) -> Vec<i32> {
 
     // Extract values from elements vector
     let elements = list.elements();
-    if let Vector::Primitive(PrimitiveVector::I32(pvec)) = elements {
+    if let Vector::Primitive(PrimitiveVector::I32(pvec)) = &**elements {
         let mut values = Vec::new();
         for i in offset..(offset + size) {
             if let Some(val) = pvec.get(i) {
