@@ -5,15 +5,15 @@ use std::marker::PhantomData;
 
 use vortex_array::pipeline::bit_view::BitView;
 use vortex_array::pipeline::{
-    BindContext, Kernel, KernelCtx, PipelineInputs, PipelinedNode, VectorId, N,
+    BindContext, Kernel, KernelCtx, N, PipelineInputs, PipelinedNode, VectorId,
 };
 use vortex_array::vtable::OperatorVTable;
 use vortex_dtype::PTypeDowncastExt;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_vector::primitive::PVectorMut;
 use vortex_vector::{VectorMut, VectorMutOps};
 
-use crate::{match_each_alp_float_ptype, ALPArray, ALPFloat, ALPVTable, Exponents};
+use crate::{ALPArray, ALPFloat, ALPVTable, Exponents, match_each_alp_float_ptype};
 
 impl OperatorVTable<ALPVTable> for ALPVTable {
     fn pipeline_node(array: &ALPArray) -> Option<&dyn PipelinedNode> {
@@ -139,11 +139,14 @@ fn sparse_alp<A: ALPFloat>(
 
 #[cfg(test)]
 mod test {
+    use rand::prelude::StdRng;
+    use rand::{Rng, SeedableRng};
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::IntoArray;
-    use vortex_buffer::buffer;
+    use vortex_buffer::{Buffer, buffer, buffer_mut};
     use vortex_dtype::PTypeDowncastExt;
+    use vortex_vector::VectorOps;
 
     use crate::alp_encode;
 
@@ -160,5 +163,32 @@ mod test {
             .downcast::<f32>();
 
         assert_eq!(decoded.elements(), &buffer);
+    }
+
+    #[test]
+    fn test_alp_into_mut() {
+        let (n, fraction_patch, fraction_valid) = (10_000, 0.0, 1.0);
+        let mut rng = StdRng::seed_from_u64(0);
+        let mut values = buffer_mut![1.234f32; n];
+        if fraction_patch > 0.0 {
+            for index in 0..values.len() {
+                if rng.random_bool(fraction_patch) {
+                    values[index] = 1000.0f32
+                }
+            }
+        }
+        let validity = if fraction_valid < 1.0 {
+            Validity::from_iter((0..values.len()).map(|_| rng.random_bool(fraction_valid)))
+        } else {
+            Validity::NonNullable
+        };
+        let values = values.freeze();
+
+        // We take a copy of the values to ensure we can into_mut
+        let array = PrimitiveArray::new(Buffer::copy_from(&values), validity.clone());
+        let array = alp_encode(&array, None).unwrap().into_array();
+
+        let vector = array.execute().unwrap();
+        assert_eq!(vector.len(), values.len());
     }
 }

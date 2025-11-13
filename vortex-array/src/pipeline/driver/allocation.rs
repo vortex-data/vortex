@@ -6,13 +6,13 @@
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_vector::VectorMut;
 
-use crate::pipeline::driver::{Node, NodeId};
-use crate::pipeline::{VectorId, N};
 use crate::Array;
+use crate::pipeline::driver::{Node, NodeId};
+use crate::pipeline::{N, VectorId};
 
 #[derive(Debug)]
 pub struct VectorAllocation {
-    /// Where each node writes its output
+    /// Where each node writes its output, indexed by [`NodeId`].
     pub(crate) output_targets: Vec<OutputTarget>,
     /// The actual allocated vectors
     pub(crate) vectors: Vec<VectorMut>,
@@ -22,7 +22,7 @@ pub struct VectorAllocation {
 // Node mutates its input in-place (input node index, vector idx)
 // add variant InPlace.
 /// Tracks which vector a node outputs to
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum OutputTarget {
     /// Node writes to the top-level provided output
     ExternalOutput,
@@ -52,8 +52,8 @@ pub(super) fn allocate_vectors(
     let mut allocation_types = Vec::new();
 
     // Process nodes in reverse execution order (top-down for output propagation)
-    for &node_idx in execution_order.iter().rev() {
-        let node = &dag[node_idx];
+    for &node_id in execution_order.iter().rev() {
+        let node = &dag[node_id];
         let array = &node.array;
 
         // Determine output target
@@ -76,7 +76,7 @@ pub(super) fn allocate_vectors(
             OutputTarget::IntermediateVector(vector_id)
         };
 
-        output_targets[node_idx] = Some(output_target);
+        output_targets[node_id] = Some(output_target);
     }
 
     Ok(VectorAllocation {

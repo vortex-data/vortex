@@ -6,12 +6,12 @@
 use divan::Bencher;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng as _};
-use vortex_alp::{alp_encode, decompress, ALPFloat, ALPRDFloat, RDEncoder};
+use vortex_alp::{ALPFloat, ALPRDFloat, RDEncoder, alp_encode, decompress};
+use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::warm_up_vtables;
 use vortex_array::validity::Validity;
-use vortex_array::IntoArray;
-use vortex_buffer::{buffer, Buffer};
+use vortex_buffer::{Buffer, buffer};
 use vortex_dtype::NativePType;
 
 fn main() {
@@ -118,7 +118,13 @@ fn decompress_alp_pipeline<T: ALPFloat + NativePType>(bencher: Bencher, args: (u
     bencher
         .with_inputs(|| {
             alp_encode(
-                &PrimitiveArray::new(Buffer::copy_from(&values), validity.clone()),
+                &PrimitiveArray::new(
+                    Buffer::copy_from(&values),
+                    validity
+                        .as_array()
+                        .map(|a| Validity::copy_from_array(a))
+                        .unwrap_or(validity.clone()),
+                ),
                 None,
             )
             .unwrap()

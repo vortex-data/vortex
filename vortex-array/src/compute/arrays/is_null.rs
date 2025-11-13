@@ -131,7 +131,7 @@ mod tests {
         )
         .into_array();
 
-        let result = IsNullArray::new(array).execute()?.into_bool();
+        let result = IsNullArray::new(array).into_array().execute()?.into_bool();
         assert!(result.validity().all_true());
         assert_eq!(result.bits(), &validity.not());
 

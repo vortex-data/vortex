@@ -129,16 +129,17 @@ impl BindCtx for () {
 }
 
 impl dyn Array + '_ {
-    pub fn execute(&self) -> VortexResult<Vector> {
-        self.execute_with_selection(&Mask::new_true(self.len()))
+    pub fn execute(self: Arc<Self>) -> VortexResult<Vector> {
+        let selection = Mask::new_true(self.len());
+        self.execute_with_selection(&selection)
     }
 
-    pub fn execute_with_selection(&self, selection: &Mask) -> VortexResult<Vector> {
+    pub fn execute_with_selection(self: Arc<Self>, selection: &Mask) -> VortexResult<Vector> {
         assert_eq!(self.len(), selection.len());
 
         // Check if the array is a pipeline node
         if self.as_pipelined().is_some() {
-            return PipelineDriver::new(self.to_array()).execute(selection);
+            return PipelineDriver::new(self).execute(selection);
         }
 
         self.execute_batch(selection, &mut DummyExecutionCtx)

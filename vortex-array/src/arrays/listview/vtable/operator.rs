@@ -58,7 +58,7 @@ mod tests {
     fn test_listview_operator_basic() {
         // Test basic ListView execution without selection.
         // ListView: [[0,1,2], [3,4], [5,6], [7,8,9]]
-        let listview = create_basic_listview();
+        let listview = create_basic_listview().into_array();
 
         // Execute without selection.
         let result = listview.execute().unwrap();
@@ -94,7 +94,8 @@ mod tests {
                 .into_array();
         let offsets = PrimitiveArray::from_iter([0u32, 2, 4, 6, 8, 10]).into_array();
         let sizes = PrimitiveArray::from_iter([2u32, 2, 2, 2, 2, 2]).into_array();
-        let listview = ListViewArray::new(elements, offsets, sizes, Validity::AllValid);
+        let listview =
+            ListViewArray::new(elements, offsets, sizes, Validity::AllValid).into_array();
 
         // Create selection mask: [true, false, true, false, true, false].
         let selection = Mask::from_iter([true, false, true, false, true, false]);
@@ -126,7 +127,7 @@ mod tests {
     #[test]
     fn test_listview_operator_with_nulls_and_selection() {
         // Use the nullable listview: [[10,20], null, [50]]
-        let listview = create_nullable_listview();
+        let listview = create_nullable_listview().into_array();
 
         // Create selection mask: [true, true, false].
         let selection = Mask::from_iter([true, true, false]);
@@ -159,7 +160,7 @@ mod tests {
     #[test]
     fn test_listview_operator_overlapping_with_selection() {
         // Use the overlapping listview: [[5,6,7], [2,3], [8,9], [0,1], [1,2,3,4]]
-        let listview = create_overlapping_listview();
+        let listview = create_overlapping_listview().into_array();
 
         // Create selection mask: [true, false, true, true, false].
         let selection = Mask::from_iter([true, false, true, true, false]);

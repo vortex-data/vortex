@@ -10,16 +10,16 @@ use std::hash::{BuildHasher, Hash, Hasher};
 
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
 use vortex_vector::{Vector, VectorMut, VectorMutOps};
 
 use crate::pipeline::bit_view::{BitView, BitViewExt};
-use crate::pipeline::driver::allocation::{OutputTarget, allocate_vectors};
+use crate::pipeline::driver::allocation::{allocate_vectors, OutputTarget};
 use crate::pipeline::driver::bind::bind_kernels;
 use crate::pipeline::driver::toposort::topological_sort;
-use crate::pipeline::{Kernel, KernelCtx, N, PipelineInputs};
+use crate::pipeline::{Kernel, KernelCtx, PipelineInputs, N};
 use crate::{Array, ArrayEq, ArrayHash, ArrayOperator, ArrayRef, ArrayVisitor, Precision};
 
 /// A pipeline driver takes a Vortex array and executes it into a canonical vector.
@@ -202,14 +202,16 @@ impl PipelineDriver {
             .map(|array| array.execute().map(Some))
             .try_collect()?;
 
-        // Compute the toposort of the DAG
+        // We figure out the execution order of the nodes in the DAG.
+        // TODO(ngates): make sure the left-hand child is executed before the right-hand child
+        //  for our own sanity.
         let exec_order = topological_sort(&self.dag)?;
 
-        // Compute an allocation plan for intermediate vectors
+        // Compute an allocation plan for intermediate vectors.
         let allocation_plan = allocate_vectors(&self.dag, &exec_order)?;
 
-        // Bind each node in the DAG to create its kernel
-        let kernels = bind_kernels(self.dag, &allocation_plan, batch_inputs)?;
+        // Bind each node in the DAG to create its kernel.
+        let kernels = bind_kernels(self.dag, &exec_order, &allocation_plan, batch_inputs)?;
 
         // Construct the kernel execution context
         let ctx = KernelCtx::new(allocation_plan.vectors);
@@ -217,8 +219,8 @@ impl PipelineDriver {
         Pipeline {
             dtype,
             ctx,
-            kernels,
             exec_order,
+            kernels,
             output_targets: allocation_plan.output_targets,
         }
         .execute(selection)
@@ -228,8 +230,8 @@ impl PipelineDriver {
 struct Pipeline {
     dtype: DType,
     ctx: KernelCtx,
-    kernels: Vec<Box<dyn Kernel>>,
     exec_order: Vec<NodeId>,
+    kernels: Vec<Box<dyn Kernel>>,
     output_targets: Vec<OutputTarget>,
 }
 
@@ -270,17 +272,17 @@ impl Pipeline {
 
     /// Perform a single step of the pipeline.
     fn step(&mut self, selection: &BitView, output: &mut VectorMut) -> VortexResult<()> {
-        // Loop over the kernels in toposorted execution order
-        for &node_idx in self.exec_order.iter() {
-            let kernel = &mut self.kernels[node_idx];
+        // Loop over the kernels in execution order.
+        for node_id in &self.exec_order {
+            let kernel = &mut self.kernels[*node_id];
 
             // Depending on the output target, either write directly to the pipeline output, or
             // take the intermediate vector and write into that.
-            match &self.output_targets[node_idx] {
+            match &self.output_targets[*node_id] {
                 OutputTarget::ExternalOutput => {
                     // We split off the next N elements of capacity from the external output vector.
                     let mut tail = output.split_off(output.len());
-                    assert!(tail.is_empty());
+                    debug_assert!(tail.is_empty());
 
                     kernel.step(&self.ctx, selection, &mut tail)?;
                     if tail.len() != N && tail.len() != selection.true_count() {
@@ -302,7 +304,6 @@ impl Pipeline {
                     let mut out_vector = self.ctx.take_output(vector_id);
                     out_vector.clear();
 
-                    assert!(out_vector.is_empty());
                     kernel.step(&self.ctx, selection, &mut out_vector)?;
 
                     match out_vector.len() {

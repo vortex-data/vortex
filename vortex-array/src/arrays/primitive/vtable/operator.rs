@@ -5,34 +5,25 @@ use vortex_buffer::Buffer;
 use vortex_compute::filter::Filter;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
+use vortex_vector::Vector;
 use vortex_vector::primitive::PVector;
 
 use crate::arrays::{MaskedVTable, PrimitiveArray, PrimitiveVTable};
-use crate::execution::{BatchKernelRef, BindCtx, kernel};
+use crate::execution::ExecutionCtx;
 use crate::vtable::{OperatorVTable, ValidityHelper};
 use crate::{ArrayRef, IntoArray};
 
 impl OperatorVTable<PrimitiveVTable> for PrimitiveVTable {
-    fn bind(
+    fn execute_batch(
         array: &PrimitiveArray,
-        selection: Option<&ArrayRef>,
-        ctx: &mut dyn BindCtx,
-    ) -> VortexResult<BatchKernelRef> {
-        let mask = ctx.bind_selection(array.len(), selection)?;
-        let validity = ctx.bind_validity(array.validity(), array.len(), selection)?;
-
+        selection: &Mask,
+        _ctx: &mut dyn ExecutionCtx,
+    ) -> VortexResult<Vector> {
+        let validity = array.validity_mask().filter(selection);
         match_each_native_ptype!(array.ptype(), |P| {
-            let elements = array.buffer::<P>();
-            Ok(kernel(move || {
-                let mask = mask.execute()?;
-                let validity = validity.execute()?;
-
-                // Note that validity already has the mask applied so we only need to apply it to
-                // the elements.
-                let elements = elements.filter(&mask);
-
-                Ok(PVector::<P>::try_new(elements, validity)?.into())
-            }))
+            let elements = array.buffer::<P>().filter(selection);
+            Ok(PVector::<P>::try_new(elements, validity)?.into())
         })
     }
 

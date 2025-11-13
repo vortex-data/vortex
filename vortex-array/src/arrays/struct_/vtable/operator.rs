@@ -61,7 +61,8 @@ mod tests {
             5,
             Validity::AllValid,
         )
-        .unwrap();
+        .unwrap()
+        .into_array();
 
         // Execute without selection.
         let result = struct_array.execute().unwrap();
@@ -94,7 +95,8 @@ mod tests {
             6,
             Validity::AllValid,
         )
-        .unwrap();
+        .unwrap()
+        .into_array();
 
         // Create a selection mask that selects indices 0, 2, 4 (alternating pattern).
         let selection = Mask::from_iter([true, false, true, false, true, false]);
@@ -146,7 +148,8 @@ mod tests {
             6,
             struct_validity,
         )
-        .unwrap();
+        .unwrap()
+        .into_array();
 
         // Create a selection mask that selects indices 0, 1, 2, 4, 5.
         let selection = Mask::from_iter([true, true, true, false, true, true]);
