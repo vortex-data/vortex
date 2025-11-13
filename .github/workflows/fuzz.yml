@@ -18,7 +18,6 @@ jobs:
       - tag=io-fuzz
     outputs:
       crashes_found: ${{ steps.check.outputs.crashes_found }}
-      crash_count: ${{ steps.check.outputs.crash_count }}
       first_crash_name: ${{ steps.check.outputs.first_crash_name }}
       artifact_url: ${{ steps.upload_artifacts.outputs.artifact-url }}
     steps:
@@ -112,8 +111,8 @@ jobs:
     permissions:
       issues: write
       contents: read
-      id-token: write  # Required for Claude Code Action OIDC authentication
-      pull-requests: read  # For gh api commands
+      id-token: write
+      pull-requests: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -127,8 +126,6 @@ jobs:
       - name: Analyze and report crash with Claude
         env:
           CRASH_FILE: ${{ needs.io_fuzz.outputs.first_crash_name }}
-          CRASH_COUNT: ${{ needs.io_fuzz.outputs.crash_count }}
-          WORKFLOW_RUN: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           ARTIFACT_URL: ${{ needs.io_fuzz.outputs.artifact_url }}
           BRANCH: ${{ github.ref_name }}
           COMMIT: ${{ github.sha }}
@@ -241,10 +238,13 @@ jobs:
 
             **Root Cause**: [Your analysis]
 
-            **Debug Output** (if available):
+            <details>
+            <summary>Debug Output</summary>
+
             ```
-            [Include any Debug: output or structured debug information from the fuzzer log]
+            [Include the complete "Output of std::fmt::Debug:" section from the fuzzer log]
             ```
+            </details>
 
             ### Summary
 
@@ -286,8 +286,6 @@ jobs:
             ## Environment Variables
 
             - CRASH_FILE: $CRASH_FILE
-            - CRASH_COUNT: $CRASH_COUNT
-            - WORKFLOW_RUN: $WORKFLOW_RUN
             - ARTIFACT_URL: $ARTIFACT_URL (direct link to crash artifact)
             - BRANCH: $BRANCH
             - COMMIT: $COMMIT
