@@ -8,7 +8,7 @@ use std::ops::RangeBounds;
 
 use vortex_buffer::Buffer;
 use vortex_dtype::NativePType;
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::{vortex_ensure, vortex_panic, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use crate::primitive::{PScalar, PVectorMut};
@@ -138,6 +138,7 @@ impl<T: NativePType> VectorOps for PVector<T> {
         let elements = match self.elements.try_into_mut() {
             Ok(elements) => elements,
             Err(elements) => {
+                vortex_panic!("ELEMS");
                 return Err(Self {
                     elements,
                     validity: self.validity,
@@ -150,10 +151,13 @@ impl<T: NativePType> VectorOps for PVector<T> {
                 elements,
                 validity: validity_mut,
             }),
-            Err(validity) => Err(Self {
-                elements: elements.freeze(),
-                validity,
-            }),
+            Err(validity) => {
+                vortex_panic!("VALID");
+                Err(Self {
+                    elements: elements.freeze(),
+                    validity,
+                })
+            }
         }
     }
 

@@ -141,6 +141,7 @@ impl<'a> BitView<'a> {
     }
 
     /// Runs the provided function `f` for each index of a `true` bit in the view.
+    #[inline(never)]
     pub fn iter_ones<F>(&self, mut f: F)
     where
         F: FnMut(usize),

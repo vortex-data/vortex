@@ -10,17 +10,19 @@ use std::hash::{BuildHasher, Hash, Hasher};
 
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
 use vortex_vector::{Vector, VectorMut, VectorMutOps};
 
 use crate::pipeline::bit_view::{BitView, BitViewExt};
-use crate::pipeline::driver::allocation::{OutputTarget, allocate_vectors};
+use crate::pipeline::driver::allocation::{allocate_vectors, OutputTarget};
 use crate::pipeline::driver::bind::bind_kernels;
 use crate::pipeline::driver::toposort::topological_sort;
-use crate::pipeline::{Kernel, KernelCtx, N, PipelineInputs};
-use crate::{Array, ArrayEq, ArrayHash, ArrayOperator, ArrayRef, ArrayVisitor, Precision};
+use crate::pipeline::{Kernel, KernelCtx, PipelineInputs, N};
+use crate::{
+    Array, ArrayEq, ArrayHash, ArrayOperator, ArrayOperatorExt, ArrayRef, ArrayVisitor, Precision,
+};
 
 /// A pipeline driver takes a Vortex array and executes it into a canonical vector.
 ///
@@ -85,7 +87,7 @@ impl PipelineDriver {
             random_state: &RandomState,
         ) -> NodeId {
             // Compute the hash for this subtree.
-            let subtree_hash = random_state.hash_one(ArrayKey(array.clone()));
+            let subtree_hash = random_state.hash_one(ArrayKey(&array));
 
             // Check if we've seen this subtree before (sub-expression elimination)
             if let Some(&existing_index) = hash_to_id.get(&subtree_hash) {
@@ -134,7 +136,7 @@ impl PipelineDriver {
                         for (child_idx, child) in children.into_iter().enumerate() {
                             if pipelined_inputs.contains(&child_idx) {
                                 pipeline_inputs.push(visit_node(
-                                    child.clone(),
+                                    child,
                                     dag,
                                     batch,
                                     hash_to_id,
@@ -209,7 +211,7 @@ impl PipelineDriver {
         let allocation_plan = allocate_vectors(&self.dag, &exec_order)?;
 
         // Bind each node in the DAG to create its kernel
-        let kernels = bind_kernels(&self.dag, &allocation_plan, batch_inputs)?;
+        let kernels = bind_kernels(self.dag, &allocation_plan, batch_inputs)?;
 
         // Construct the kernel execution context
         let ctx = KernelCtx::new(allocation_plan.vectors);
@@ -292,6 +294,9 @@ impl Pipeline {
                         );
                     }
 
+                    // FIXME(ngates): if true_count < N && tail.len() == N, we need to
+                    //  filter-in-place to ensure the pipeline's output vector is contiguous
+
                     // Now we append the produced output back to the main output vector.
                     output.unsplit(tail);
                 }
@@ -324,15 +329,15 @@ impl Pipeline {
 }
 
 /// A hashable array compared with [`Precision::Ptr`].
-struct ArrayKey(ArrayRef);
-impl Hash for ArrayKey {
+struct ArrayKey<'a>(&'a ArrayRef);
+impl Hash for ArrayKey<'_> {
     fn hash<H: Hasher>(&self, mut state: &mut H) {
         self.0.array_hash(&mut state, Precision::Ptr)
     }
 }
-impl PartialEq for ArrayKey {
+impl PartialEq for ArrayKey<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.0.array_eq(&other.0, Precision::Ptr)
     }
 }
-impl Eq for ArrayKey {}
+impl Eq for ArrayKey<'_> {}

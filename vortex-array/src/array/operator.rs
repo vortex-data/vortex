@@ -3,13 +3,13 @@
 
 use std::sync::Arc;
 
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::{vortex_panic, VortexResult};
 use vortex_mask::Mask;
-use vortex_vector::{Vector, VectorOps, vector_matches_dtype};
+use vortex_vector::{vector_matches_dtype, Vector, VectorOps};
 
 use crate::execution::{BatchKernelRef, BindCtx, DummyExecutionCtx, ExecutionCtx};
-use crate::pipeline::PipelinedNode;
 use crate::pipeline::driver::PipelineDriver;
+use crate::pipeline::PipelinedNode;
 use crate::vtable::{OperatorVTable, VTable};
 use crate::{Array, ArrayAdapter, ArrayRef};
 
@@ -128,17 +128,26 @@ impl BindCtx for () {
     }
 }
 
-impl dyn Array + '_ {
-    pub fn execute(&self) -> VortexResult<Vector> {
-        self.execute_with_selection(&Mask::new_true(self.len()))
+pub trait ArrayOperatorExt: Array {
+    /// Execute the array without any selection mask (all rows).
+    fn execute(self: Arc<Self>) -> VortexResult<Vector>;
+
+    /// Execute the array with the given selection mask.
+    fn execute_with_selection(self: Arc<Self>, selection: &Mask) -> VortexResult<Vector>;
+}
+
+impl ArrayOperatorExt for dyn Array + '_ {
+    fn execute(self: Arc<Self>) -> VortexResult<Vector> {
+        let mask = Mask::new_true(self.len());
+        self.execute_with_selection(&mask)
     }
 
-    pub fn execute_with_selection(&self, selection: &Mask) -> VortexResult<Vector> {
+    fn execute_with_selection(self: Arc<Self>, selection: &Mask) -> VortexResult<Vector> {
         assert_eq!(self.len(), selection.len());
 
         // Check if the array is a pipeline node
         if self.as_pipelined().is_some() {
-            return PipelineDriver::new(self.to_array()).execute(selection);
+            return PipelineDriver::new(self).execute(selection);
         }
 
         self.execute_batch(selection, &mut DummyExecutionCtx)

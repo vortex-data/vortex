@@ -6,11 +6,12 @@
 use divan::Bencher;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng as _};
-use vortex_alp::{ALPFloat, ALPRDFloat, RDEncoder, alp_encode, decompress};
+use vortex_alp::{alp_encode, decompress, ALPFloat, ALPRDFloat, RDEncoder};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::warm_up_vtables;
 use vortex_array::validity::Validity;
-use vortex_buffer::{Buffer, buffer};
+use vortex_array::{ArrayOperatorExt, IntoArray};
+use vortex_buffer::{buffer, Buffer};
 use vortex_dtype::NativePType;
 
 fn main() {
@@ -20,24 +21,25 @@ fn main() {
 
 const BENCH_ARGS: &[(usize, f64, f64)] = &[
     // length, fraction_patch, fraction_valid
-    (1_000, 0.0, 0.25),
-    (1_000, 0.01, 0.25),
-    (1_000, 0.1, 0.25),
-    (1_000, 0.0, 0.95),
-    (1_000, 0.01, 0.95),
-    (1_000, 0.1, 0.95),
+    // (1_000, 0.0, 0.25),
+    // (1_000, 0.01, 0.25),
+    // (1_000, 0.1, 0.25),
+    // (1_000, 0.0, 0.95),
+    // (1_000, 0.01, 0.95),
+    // (1_000, 0.1, 0.95),
     (1_000, 0.0, 1.0),
-    (1_000, 0.01, 1.0),
-    (1_000, 0.1, 1.0),
-    (10_000, 0.0, 0.25),
-    (10_000, 0.01, 0.25),
-    (10_000, 0.1, 0.25),
-    (10_000, 0.0, 0.95),
-    (10_000, 0.01, 0.95),
-    (10_000, 0.1, 0.95),
+    // (1_000, 0.01, 1.0),
+    // (1_000, 0.1, 1.0),
+    // (10_000, 0.0, 0.25),
+    // (10_000, 0.01, 0.25),
+    // (10_000, 0.1, 0.25),
+    // (10_000, 0.0, 0.95),
+    // (10_000, 0.01, 0.95),
+    // (10_000, 0.1, 0.95),
     (10_000, 0.0, 1.0),
-    (10_000, 0.01, 1.0),
-    (10_000, 0.1, 1.0),
+    // (10_000, 0.01, 1.0),
+    // (10_000, 0.1, 1.0),
+    (100_000, 0.0, 1.0),
 ];
 
 #[divan::bench(types = [f32, f64], args = BENCH_ARGS)]
@@ -93,6 +95,36 @@ fn decompress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64
             .unwrap()
         })
         .bench_values(decompress);
+}
+
+#[divan::bench(types = [f32, f64], args = BENCH_ARGS)]
+fn decompress_alp_pipeline<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64, f64)) {
+    let (n, fraction_patch, fraction_valid) = args;
+    let mut rng = StdRng::seed_from_u64(0);
+    let mut values = buffer![T::from(1.234).unwrap(); n].into_mut();
+    if fraction_patch > 0.0 {
+        for index in 0..values.len() {
+            if rng.random_bool(fraction_patch) {
+                values[index] = T::from(1000.0).unwrap()
+            }
+        }
+    }
+    let validity = if fraction_valid < 1.0 {
+        Validity::from_iter((0..values.len()).map(|_| rng.random_bool(fraction_valid)))
+    } else {
+        Validity::NonNullable
+    };
+    let values = values.freeze();
+    bencher
+        .with_inputs(|| {
+            alp_encode(
+                &PrimitiveArray::new(Buffer::copy_from(&values), validity.clone()),
+                None,
+            )
+            .unwrap()
+            .into_array()
+        })
+        .bench_values(|array| array.execute().unwrap());
 }
 
 #[divan::bench(types = [f32, f64], args = [10_000, 100_000])]

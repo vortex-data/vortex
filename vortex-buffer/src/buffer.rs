@@ -10,7 +10,7 @@ use std::marker::PhantomData;
 use std::ops::{Deref, RangeBounds};
 
 use bytes::{Buf, Bytes};
-use vortex_error::{VortexExpect, vortex_panic};
+use vortex_error::{vortex_panic, VortexExpect};
 
 use crate::debug::TruncatedDebug;
 use crate::trusted_len::TrustedLen;
@@ -651,7 +651,7 @@ impl<T> From<BufferMut<T>> for Buffer<T> {
 mod test {
     use bytes::Buf;
 
-    use crate::{Alignment, Buffer, ByteBuffer, buffer};
+    use crate::{buffer, Alignment, Buffer, ByteBuffer};
 
     #[test]
     fn align() {

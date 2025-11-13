@@ -10,8 +10,9 @@ use crate::pipeline::driver::input::InputKernel;
 use crate::pipeline::driver::{Node, NodeKind};
 use crate::pipeline::{BindContext, Kernel, VectorId};
 
+// We consume the DAG and the batch inputs such that our into_mut calls are safe
 pub(crate) fn bind_kernels(
-    dag: &[Node],
+    dag: Vec<Node>,
     allocation_plan: &VectorAllocation,
     mut all_batch_inputs: Vec<Option<Vector>>,
 ) -> VortexResult<Vec<Box<dyn Kernel>>> {
@@ -40,10 +41,16 @@ pub(crate) fn bind_kernels(
                 assert_eq!(node.batch_inputs.len(), 1);
                 let batch_id = node.batch_inputs[0];
 
+                // Drop the node to ensure any buffers shared by the array and the vector do not
+                // have multiple references that might hinder the into_mut call below.
+                drop(node);
+
                 let batch = batch_inputs[batch_id]
                     .take()
                     .vortex_expect("Batch input vector has already been consumed")
-                    .into_mut();
+                    // FIXME(ngates): we really really want this into_mut to succeed!
+                    .try_into_mut()
+                    .unwrap();
 
                 Box::new(InputKernel::new(batch))
             }
