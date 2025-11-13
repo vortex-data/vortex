@@ -84,11 +84,11 @@ harness = false
 test = false
 
 [[bench]]
-name = "pipeline_bitpacking_kernel"
+name = "pipeline_rle"
 harness = false
 test = false
 
 [[bench]]
-name = "pipeline_rle"
+name = "pipeline_v2_bitpacking_basic"
 harness = false
 test = false
