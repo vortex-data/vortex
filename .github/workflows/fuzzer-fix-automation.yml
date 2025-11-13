@@ -6,7 +6,13 @@ on:
   workflow_dispatch:
     inputs:
       issue_number:
-        description: 'Issue number to analyze and fix'
+        description: "Issue number to analyze and fix"
+        required: true
+        type: number
+  workflow_call:
+    inputs:
+      issue_number:
+        description: "Issue number to analyze and fix"
         required: true
         type: number
 
@@ -16,8 +22,10 @@ jobs:
     # Only run when:
     # 1. Issue is opened with 'fuzzer' label, OR
     # 2. 'fuzzer' label is added to existing issue, OR
-    # 3. Manually triggered via workflow_dispatch
+    # 3. Manually triggered via workflow_dispatch, OR
+    # 4. Called from another workflow (workflow_call)
     if: |
+      github.event_name == 'workflow_call' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event.action == 'opened' && contains(github.event.issue.labels.*.name, 'fuzzer')) ||
       (github.event.action == 'labeled' && github.event.label.name == 'fuzzer')
@@ -35,8 +43,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Fetch issue details (for workflow_dispatch)
-        if: github.event_name == 'workflow_dispatch'
+      - name: Fetch issue details (for workflow_dispatch/workflow_call)
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call'
         id: fetch_issue
         run: |
           ISSUE_DATA=$(gh issue view ${{ inputs.issue_number }} --repo ${{ github.repository }} --json number,title,body,labels)
@@ -62,33 +70,39 @@ jobs:
 
       - name: Extract crash details from issue
         id: extract
+        shell: bash
         run: |
-          # Use fetched issue body for workflow_dispatch, otherwise use event issue body
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            ISSUE_BODY="${{ steps.fetch_issue.outputs.issue_body }}"
+          # Use fetched issue body for workflow_dispatch/workflow_call, otherwise use event issue body
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "workflow_call" ]; then
+            cat > issue_body.txt <<'ISSUE_EOF'
+          ${{ steps.fetch_issue.outputs.issue_body }}
+          ISSUE_EOF
           else
-            ISSUE_BODY="${{ github.event.issue.body }}"
+            cat > issue_body.txt <<'ISSUE_EOF'
+          ${{ github.event.issue.body }}
+          ISSUE_EOF
           fi
 
           # Extract target name from issue body
-          TARGET=$(echo "$ISSUE_BODY" | grep -oP '(?<=\*\*Target\*\*: `)[^`]+' || echo "file_io")
+          TARGET=$(grep -oP '(?<=\*\*Target\*\*: `)[^`]+' issue_body.txt || echo "file_io")
           echo "target=$TARGET" >> $GITHUB_OUTPUT
 
           # Extract crash file name
-          CRASH_FILE=$(echo "$ISSUE_BODY" | grep -oP '(?<=\*\*Crash File\*\*: `)[^`]+' || echo "")
+          CRASH_FILE=$(grep -oP '(?<=\*\*Crash File\*\*: `)[^`]+' issue_body.txt || echo "")
           echo "crash_file=$CRASH_FILE" >> $GITHUB_OUTPUT
 
           # Extract artifact URL
-          ARTIFACT_URL=$(echo "$ISSUE_BODY" | grep -oP 'https://[^\s]+/artifacts/[0-9]+' | head -1 || echo "")
+          ARTIFACT_URL=$(grep -oP 'https://[^\s]+/artifacts/[0-9]+' issue_body.txt | head -1 || echo "")
           echo "artifact_url=$ARTIFACT_URL" >> $GITHUB_OUTPUT
 
           echo "Extracted: target=$TARGET, crash_file=$CRASH_FILE"
+          rm -f issue_body.txt
 
       - name: Attempt to fix crash with Claude
         env:
-          ISSUE_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.issue_number || github.event.issue.number }}
-          ISSUE_TITLE: ${{ github.event_name == 'workflow_dispatch' && steps.fetch_issue.outputs.issue_title || github.event.issue.title }}
-          ISSUE_BODY: ${{ github.event_name == 'workflow_dispatch' && steps.fetch_issue.outputs.issue_body || github.event.issue.body }}
+          ISSUE_NUMBER: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.issue_number || github.event.issue.number }}
+          ISSUE_TITLE: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && steps.fetch_issue.outputs.issue_title || github.event.issue.title }}
+          ISSUE_BODY: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && steps.fetch_issue.outputs.issue_body || github.event.issue.body }}
           TARGET: ${{ steps.extract.outputs.target }}
           CRASH_FILE: ${{ steps.extract.outputs.crash_file }}
           ARTIFACT_URL: ${{ steps.extract.outputs.artifact_url }}

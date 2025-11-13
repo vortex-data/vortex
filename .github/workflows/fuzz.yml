@@ -108,6 +108,8 @@ jobs:
     needs: io_fuzz
     if: always() && needs.io_fuzz.outputs.crashes_found == 'true'
     runs-on: ubuntu-latest
+    outputs:
+      issue_number: ${{ steps.extract_issue.outputs.issue_number }}
     permissions:
       issues: write
       contents: read
@@ -124,6 +126,7 @@ jobs:
           path: ./logs
 
       - name: Analyze and report crash with Claude
+        id: claude_report
         env:
           CRASH_FILE: ${{ needs.io_fuzz.outputs.first_crash_name }}
           ARTIFACT_URL: ${{ needs.io_fuzz.outputs.artifact_url }}
@@ -208,12 +211,17 @@ jobs:
             - Workflow: $WORKFLOW_RUN
 
             ### If NEW BUG (not a duplicate):
-            Create a new issue with `gh issue create`:
+            Create a new issue with `gh issue create` and save the issue number:
             ```bash
-            gh issue create --repo ${{ github.repository }} \
+            ISSUE_URL=$(gh issue create --repo ${{ github.repository }} \
               --title "Fuzzing Crash: [brief description]" \
               --label "bug,fuzzer" \
-              --body "..."
+              --body "...")
+
+            # Extract issue number from URL and save to file
+            ISSUE_NUMBER=$(echo "$ISSUE_URL" | grep -oP '\d+$')
+            echo "$ISSUE_NUMBER" > issue_number.txt
+            echo "Created issue #$ISSUE_NUMBER"
             ```
 
             Issue body must include:
@@ -291,11 +299,33 @@ jobs:
             - COMMIT: $COMMIT
 
             Start by reading `logs/fuzz_output.log`.
+
+            **IMPORTANT**: After creating a new issue, you MUST save the issue number to `issue_number.txt` as shown above. This is required for the automated fix workflow.
           claude_args: |
             --model claude-sonnet-4-5-20250929
             --max-turns 25
             --allowedTools "Read,Write,Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh issue create:*),Bash(gh issue comment:*),Bash(gh api:*),Bash(echo:*),Bash(cat:*),Bash(jq:*),Bash(grep:*),Bash(cargo +nightly fuzz run:*),Bash(RUST_BACKTRACE=* cargo +nightly fuzz run:*)"
 
+      - name: Extract issue number
+        id: extract_issue
+        run: |
+          if [ -f issue_number.txt ]; then
+            ISSUE_NUM=$(cat issue_number.txt)
+            echo "issue_number=$ISSUE_NUM" >> $GITHUB_OUTPUT
+            echo "New issue created: #$ISSUE_NUM"
+          else
+            echo "No new issue created (duplicate or similar)"
+            echo "issue_number=" >> $GITHUB_OUTPUT
+          fi
+
+  attempt-fix-io:
+    name: "Attempt Fix for IO Fuzz Crash"
+    needs: report-io-fuzz-failures
+    if: always() && needs.report-io-fuzz-failures.outputs.issue_number != ''
+    uses: ./.github/workflows/fuzzer-fix-automation.yml
+    with:
+      issue_number: ${{ needs.report-io-fuzz-failures.outputs.issue_number }}
+    secrets: inherit
 
   ops_fuzz:
     name: "Array Operations Fuzz"
