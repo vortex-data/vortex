@@ -8,6 +8,7 @@ use crate::decimal::DVectorMut;
 use crate::{Scalar, ScalarOps, VectorMut, VectorMutOps};
 
 /// Represents a decimal scalar value.
+#[derive(Debug)]
 pub enum DecimalScalar {
     /// 8-bit decimal scalar.
     I8(DScalar<i8>),

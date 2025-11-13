@@ -7,6 +7,7 @@ use crate::binaryview::{
 use crate::{Scalar, ScalarOps, VectorMutOps};
 
 /// A scalar value for types that implement [`BinaryViewType`].
+#[derive(Debug)]
 pub struct BinaryViewScalar<T: BinaryViewType>(Option<T::Scalar>);
 
 impl<T: BinaryViewType> From<Option<T::Scalar>> for BinaryViewScalar<T> {

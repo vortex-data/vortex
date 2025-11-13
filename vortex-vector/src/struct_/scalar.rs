@@ -7,6 +7,7 @@ use crate::{Scalar, ScalarOps, VectorMut, VectorOps};
 /// Represents a struct scalar value.
 ///
 /// The inner value is a StructVector with length 1.
+#[derive(Debug)]
 pub struct StructScalar(StructVector);
 
 impl StructScalar {

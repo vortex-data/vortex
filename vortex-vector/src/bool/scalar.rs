@@ -5,6 +5,7 @@ use crate::bool::BoolVectorMut;
 use crate::{Scalar, ScalarOps, VectorMut, VectorMutOps};
 
 /// A scalar value for boolean types.
+#[derive(Debug)]
 pub struct BoolScalar(Option<bool>);
 
 impl From<Option<bool>> for BoolScalar {

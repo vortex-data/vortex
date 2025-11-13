@@ -10,6 +10,7 @@ use crate::{Scalar, ScalarOps, VectorMut, VectorOps};
 ///
 // NOTE(ngates): the reason we don't hold Option<Vector> representing the elements is that we
 //  wouldn't be able to go back to a vector using "repeat".
+#[derive(Debug)]
 pub struct FixedSizeListScalar(FixedSizeListVector);
 
 impl FixedSizeListScalar {

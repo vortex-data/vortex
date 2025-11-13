@@ -10,6 +10,7 @@ use crate::primitive::{PVectorMut, PrimitiveVectorMut};
 use crate::{Scalar, ScalarOps, VectorMut, VectorMutOps};
 
 /// Represents a primitive scalar value.
+#[derive(Debug)]
 pub enum PrimitiveScalar {
     /// 8-bit signed integer scalar
     I8(PScalar<i8>),

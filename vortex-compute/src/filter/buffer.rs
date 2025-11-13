@@ -4,12 +4,12 @@
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_mask::{Mask, MaskIter};
 
-use crate::filter::Filter;
+use crate::filter::{Filter, MaskIndices};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
-impl<T: Copy> Filter for &Buffer<T> {
+impl<T: Copy> Filter<Mask> for &Buffer<T> {
     type Output = Buffer<T>;
 
     fn filter(self, selection_mask: &Mask) -> Buffer<T> {
@@ -32,7 +32,15 @@ impl<T: Copy> Filter for &Buffer<T> {
     }
 }
 
-impl<T: Copy> Filter for &mut BufferMut<T> {
+impl<T: Copy> Filter<MaskIndices<'_>> for &Buffer<T> {
+    type Output = Buffer<T>;
+
+    fn filter(self, indices: &MaskIndices) -> Buffer<T> {
+        filter_indices(self, indices)
+    }
+}
+
+impl<T: Copy> Filter<Mask> for &mut BufferMut<T> {
     type Output = ();
 
     fn filter(self, selection_mask: &Mask) {
@@ -69,16 +77,26 @@ impl<T: Copy> Filter for &mut BufferMut<T> {
     }
 }
 
-impl<T: Copy> Filter for Buffer<T> {
+impl<T: Copy> Filter<MaskIndices<'_>> for &mut BufferMut<T> {
+    type Output = ();
+
+    fn filter(self, indices: &MaskIndices) -> Self::Output {
+        for (write_index, &read_index) in indices.iter().enumerate() {
+            self[write_index] = self[read_index];
+        }
+
+        self.truncate(indices.len());
+    }
+}
+
+impl<M, T: Copy> Filter<M> for Buffer<T>
+where
+    for<'a> &'a Buffer<T>: Filter<M, Output = Buffer<T>>,
+    for<'a> &'a mut BufferMut<T>: Filter<M, Output = ()>,
+{
     type Output = Self;
 
-    fn filter(self, selection_mask: &Mask) -> Self {
-        assert_eq!(
-            selection_mask.len(),
-            self.len(),
-            "Selection mask length must equal the buffer length"
-        );
-
+    fn filter(self, selection_mask: &M) -> Self {
         // If we have exclusive access, we can perform the filter in place.
         match self.try_into_mut() {
             Ok(mut buffer_mut) => {

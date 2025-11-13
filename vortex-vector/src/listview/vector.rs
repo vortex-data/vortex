@@ -183,7 +183,7 @@ impl ListViewVector {
 
     /// Returns a reference to the `elements` vector.
     #[inline]
-    pub fn elements(&self) -> &Vector {
+    pub fn elements(&self) -> &Arc<Vector> {
         &self.elements
     }
 
