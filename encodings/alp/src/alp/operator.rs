@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::{match_each_alp_float_ptype, ALPArray, ALPFloat, ALPVTable, Exponents};
 use std::marker::PhantomData;
 use vortex_array::pipeline::bit_view::BitView;
 use vortex_array::pipeline::{
@@ -9,9 +10,8 @@ use vortex_array::pipeline::{
 use vortex_array::vtable::OperatorVTable;
 use vortex_dtype::PTypeDowncastExt;
 use vortex_error::{vortex_bail, VortexResult};
+use vortex_vector::primitive::PVectorMut;
 use vortex_vector::{VectorMut, VectorMutOps};
-
-use crate::{match_each_alp_float_ptype, ALPArray, ALPFloat, ALPVTable, Exponents};
 
 impl OperatorVTable<ALPVTable> for ALPVTable {
     fn pipeline_node(array: &ALPArray) -> Option<&dyn PipelinedNode> {
@@ -68,58 +68,77 @@ impl<A: ALPFloat> Kernel for UnpatchedALPKernel<A> {
         let encoded = encoded_vec
             .as_primitive()
             .downcast::<A::ALPInt>()
-            .elements()
-            .as_slice();
+            .elements();
 
         let decoded_vec = out.as_primitive_mut().downcast::<A>();
 
         // If our input is in-place, and we have only a few selected elements, then iterate only
         // the selected elements and write them to the output.
         if encoded.len() == N && selection.true_count() < (N / 8) {
-            // Reserve capacity for the true_count elements.
-            decoded_vec.reserve(
-                selection
-                    .true_count()
-                    .saturating_sub(decoded_vec.capacity()),
-            );
-
-            // SAFETY: we set_len and append_validity ensuring elements len matches validity len.
-            unsafe { decoded_vec.validity_mut() }.append_n(true, selection.true_count());
-            unsafe { decoded_vec.elements_mut().set_len(selection.true_count()) };
-
-            // SAFETY: we reserved capacity above.
-            let decoded = unsafe { decoded_vec.elements_mut() };
-
-            let mut out_pos = 0;
-            selection.iter_ones(|idx| {
-                let encoded = unsafe { encoded.get_unchecked(idx) };
-                let element = A::decode_single(*encoded, self.exponents);
-                unsafe { *decoded.get_unchecked_mut(out_pos) = element };
-                out_pos += 1;
-            });
-
-            debug_assert_eq!(decoded_vec.validity().len(), decoded_vec.elements().len());
-            return Ok(());
+            sparse_alp(decoded_vec, encoded.as_slice(), self.exponents, selection)
         }
+
+        // If the input is smaller than N, we have to do a traditional loop (vs known loop over N)
+        if encoded.len() < N {
+            sparse_alp(decoded_vec, encoded.as_slice(), self.exponents, selection)
+        }
+
+        debug_assert_eq!(encoded.len(), N);
+        debug_assert_eq!(decoded_vec.len(), N);
 
         // Otherwise, iterate the entire input.
         decoded_vec.reserve(N.saturating_sub(decoded_vec.capacity()));
         unsafe { decoded_vec.validity_mut().append_n(true, N) };
         unsafe { decoded_vec.elements_mut().set_len(N) };
-        let decoded = unsafe { decoded_vec.elements_mut().as_mut_slice() };
+
+        // Unsafe cast to array (avoiding the cost of constructing slices...)
+        let decoded: &mut [A; N] =
+            unsafe { &mut *(decoded_vec.elements_mut().as_mut_ptr() as *mut [A; N]) };
+        let encoded: &[A::ALPInt; N] = unsafe { &*(encoded.as_ptr() as *const [A::ALPInt; N]) };
 
         // By extracting these outside the loop, we auto-vectorize the decoding.
         // I wonder if the regular ALP is actually vectorized?
         let f = A::F10[self.exponents.f as usize];
         let ie = A::IF10[self.exponents.e as usize];
-        for idx in 0..N {
-            unsafe {
-                *decoded.get_unchecked_mut(idx) = A::from_int(*encoded.get_unchecked(idx)) * f * ie;
-            }
+
+        for i in 0..N {
+            decoded[i] = A::from_int(encoded[i]) * f * ie;
         }
 
         Ok(())
     }
+}
+
+#[inline(never)]
+fn sparse_alp<A: ALPFloat>(
+    decoded_vec: &mut PVectorMut<A>,
+    encoded: &[A::ALPInt],
+    exponents: Exponents,
+    selection: &BitView,
+) {
+    // Reserve capacity for the true_count elements.
+    decoded_vec.reserve(
+        selection
+            .true_count()
+            .saturating_sub(decoded_vec.capacity()),
+    );
+
+    // SAFETY: we set_len and append_validity ensuring elements len matches validity len.
+    unsafe { decoded_vec.validity_mut() }.append_n(true, selection.true_count());
+    unsafe { decoded_vec.elements_mut().set_len(selection.true_count()) };
+
+    // SAFETY: we reserved capacity above.
+    let decoded = unsafe { decoded_vec.elements_mut() };
+
+    let mut out_pos = 0;
+    selection.iter_ones(|idx| {
+        let encoded = unsafe { encoded.get_unchecked(idx) };
+        let element = A::decode_single(*encoded, exponents);
+        unsafe { *decoded.get_unchecked_mut(out_pos) = element };
+        out_pos += 1;
+    });
+
+    debug_assert_eq!(decoded_vec.validity().len(), decoded_vec.elements().len());
 }
 
 #[cfg(test)]

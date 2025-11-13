@@ -48,9 +48,7 @@ pub(crate) fn bind_kernels(
                 let batch = batch_inputs[batch_id]
                     .take()
                     .vortex_expect("Batch input vector has already been consumed")
-                    // FIXME(ngates): we really really want this into_mut to succeed!
-                    .try_into_mut()
-                    .unwrap();
+                    .into_mut();
 
                 Box::new(InputKernel::new(batch))
             }

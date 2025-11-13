@@ -161,6 +161,7 @@ impl MaskMut {
     }
 
     /// Append n values to the mask.
+    #[inline(never)]
     pub fn append_n(&mut self, new_value: bool, n: usize) {
         match &mut self.0 {
             Inner::Empty { capacity } => {
