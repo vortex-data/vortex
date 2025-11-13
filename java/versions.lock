@@ -318,7 +318,7 @@ ch.qos.logback:logback-core:1.5.21 (1 constraints: 3a0d412a)
 
 org.junit:junit-bom:5.14.1 (7 constraints: d475ef0e)
 
-org.junit.jupiter:junit-jupiter:5.14.1 (2 constraints: bd10f0ee)
+org.junit.jupiter:junit-jupiter:5.14.1 (2 constraints: e8100bfb)
 
 org.junit.jupiter:junit-jupiter-api:5.14.1 (4 constraints: 3b39b5e5)
 
