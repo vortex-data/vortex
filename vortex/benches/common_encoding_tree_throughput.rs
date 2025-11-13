@@ -9,13 +9,12 @@ use divan::Bencher;
 use divan::counter::BytesCount;
 use mimalloc::MiMalloc;
 use rand::{Rng, SeedableRng};
-use vortex::arrays::{PrimitiveArray, TemporalArray, VarBinArray, VarBinViewArray};
+use vortex::arrays::{DictArray, PrimitiveArray, TemporalArray, VarBinArray, VarBinViewArray};
 use vortex::compute::cast;
 use vortex::dtype::datetime::TimeUnit;
 use vortex::dtype::{DType, PType};
 use vortex::encodings::alp::alp_encode;
 use vortex::encodings::datetime_parts::{DateTimePartsArray, split_temporal};
-use vortex::encodings::dict::DictArray;
 use vortex::encodings::fastlanes::FoRArray;
 use vortex::encodings::fsst::{FSSTArray, fsst_compress, fsst_train_compressor};
 use vortex::encodings::runend::RunEndArray;
@@ -186,9 +185,9 @@ fn setup_dict_fsst_varbin_string() -> ArrayRef {
         .collect();
 
     // Train and compress unique values with FSST
-    let unique_varbinview = VarBinViewArray::from_iter_str(unique_strings).into_array();
-    let fsst_compressor = fsst_train_compressor(&unique_varbinview).unwrap();
-    let fsst_values = fsst_compress(&unique_varbinview, &fsst_compressor).unwrap();
+    let unique_varbinview = VarBinViewArray::from_iter_str(unique_strings);
+    let fsst_compressor = fsst_train_compressor(&unique_varbinview);
+    let fsst_values = fsst_compress(&unique_varbinview, &fsst_compressor);
 
     // Create codes array (random indices into unique values)
     let codes: Vec<u32> = (0..NUM_VALUES)
@@ -218,9 +217,9 @@ fn setup_dict_fsst_varbin_bp_string() -> ArrayRef {
         .collect();
 
     // Train and compress unique values with FSST
-    let unique_varbinview = VarBinViewArray::from_iter_str(unique_strings).into_array();
-    let fsst_compressor = fsst_train_compressor(&unique_varbinview).unwrap();
-    let fsst = fsst_compress(&unique_varbinview, &fsst_compressor).unwrap();
+    let unique_varbinview = VarBinViewArray::from_iter_str(unique_strings);
+    let fsst_compressor = fsst_train_compressor(&unique_varbinview);
+    let fsst = fsst_compress(&unique_varbinview, &fsst_compressor);
 
     // Compress the VarBin offsets with BitPacked
     let codes = fsst.codes();

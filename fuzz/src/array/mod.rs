@@ -255,8 +255,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     };
 
                     let op = u.arbitrary()?;
-                    current_array =
-                        compare_canonical_array(&current_array, &scalar, op).vortex_unwrap();
+                    current_array = compare_canonical_array(&current_array, &scalar, op);
                     (
                         Action::Compare(scalar, op),
                         ExpectedValue::Array(current_array.to_array()),

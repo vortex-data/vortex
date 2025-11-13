@@ -6,7 +6,7 @@ pub mod layouts;
 pub use children::*;
 pub use encoding::*;
 pub use flatbuffers::*;
-#[cfg(feature = "gpu")]
+#[cfg(gpu_unstable)]
 pub use gpu::*;
 pub use layout::*;
 pub use reader::*;
@@ -18,7 +18,7 @@ mod children;
 pub mod display;
 mod encoding;
 mod flatbuffers;
-#[cfg(feature = "gpu")]
+#[cfg(gpu_unstable)]
 pub mod gpu;
 mod layout;
 mod reader;

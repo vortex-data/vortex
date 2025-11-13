@@ -8490,7 +8490,6 @@ dependencies = [
  "vortex-bytebool",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
- "vortex-dict",
  "vortex-dtype",
  "vortex-error",
  "vortex-fastlanes",
@@ -8617,7 +8616,6 @@ dependencies = [
  "vortex-buffer",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
- "vortex-dict",
  "vortex-dtype",
  "vortex-error",
  "vortex-fastlanes",
@@ -8644,6 +8642,7 @@ dependencies = [
  "log",
  "memmap2",
  "num-traits",
+ "rstest",
  "serde",
  "simdutf8",
  "vortex-error",
@@ -8765,30 +8764,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vortex-dict"
-version = "0.1.0"
-dependencies = [
- "arrow-array",
- "arrow-buffer",
- "codspeed-divan-compat",
- "itertools 0.14.0",
- "num-traits",
- "prost 0.14.1",
- "rand 0.9.2",
- "rstest",
- "rustc-hash",
- "vortex-array",
- "vortex-buffer",
- "vortex-dtype",
- "vortex-error",
- "vortex-fsst",
- "vortex-mask",
- "vortex-scalar",
- "vortex-utils",
- "vortex-vector",
-]
-
-[[package]]
 name = "vortex-dtype"
 version = "0.1.0"
 dependencies = [
@@ -8880,6 +8855,7 @@ dependencies = [
  "prost 0.14.1",
  "rand 0.9.2",
  "rstest",
+ "static_assertions",
  "vortex-alp",
  "vortex-array",
  "vortex-buffer",
@@ -8937,7 +8913,6 @@ dependencies = [
  "vortex-bytebool",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
- "vortex-dict",
  "vortex-dtype",
  "vortex-error",
  "vortex-fastlanes",
@@ -9016,20 +8991,16 @@ dependencies = [
  "anyhow",
  "criterion",
  "cudarc",
- "itertools 0.14.0",
- "parking_lot",
  "rand 0.9.2",
  "rstest",
  "vortex-alp",
  "vortex-array",
  "vortex-buffer",
- "vortex-dict",
  "vortex-dtype",
  "vortex-error",
  "vortex-fastlanes",
  "vortex-gpu-kernels",
  "vortex-mask",
- "vortex-utils",
  "walkdir",
 ]
 
@@ -9144,7 +9115,6 @@ dependencies = [
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-decimal-byte-parts",
- "vortex-dict",
  "vortex-dtype",
  "vortex-error",
  "vortex-flatbuffers",

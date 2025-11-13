@@ -140,9 +140,9 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Docs
         run: |
-          RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
+          RUSTFLAGS="--cfg gpu_unstable" RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
           # nextest doesn't support doc tests, so we run it here
-          cargo test --doc --workspace --all-features --exclude vortex-cxx --exclude vortex-jni --exclude vortex-ffi --exclude xtask --no-fail-fast
+          RUSTFLAGS="--cfg gpu_unstable" cargo test --doc --workspace --all-features --exclude vortex-cxx --exclude vortex-jni --exclude vortex-ffi --exclude xtask --no-fail-fast
 
   build-rust:
     name: "Rust build (${{matrix.config.name}})"
@@ -156,7 +156,7 @@ jobs:
       - tag=${{ matrix.config.name }}
     env:
       # disable lints for build, they will be caught in Rust lint job.
-      RUSTFLAGS: "-A warnings"
+      RUSTFLAGS: "-A warnings --cfg gpu_unstable"
     strategy:
       fail-fast: false
       matrix:
@@ -199,6 +199,8 @@ jobs:
   check-min-deps:
     name: "Check build with minimal dependencies"
     timeout-minutes: 120
+    env:
+      RUSTFLAGS: "--cfg gpu_unstable"
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
@@ -221,6 +223,8 @@ jobs:
   rust-lint:
     name: "Rust (lint)"
     timeout-minutes: 120
+    env:
+      RUSTFLAGS: "--cfg gpu_unstable"
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
@@ -249,6 +253,8 @@ jobs:
   rust-lint-no-default:
     name: "Rust (lint, no default)"
     timeout-minutes: 120
+    env:
+      RUSTFLAGS: "--cfg gpu_unstable"
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
@@ -415,6 +421,7 @@ jobs:
       # Keep frame pointers for better stack traces
       CARGO_PROFILE_DEV_DEBUG: "true"
       CARGO_PROFILE_TEST_DEBUG: "true"
+      RUSTFLAGS: "--cfg gpu_unstable"
     steps:
       - uses: runs-on/action@v2
         with:

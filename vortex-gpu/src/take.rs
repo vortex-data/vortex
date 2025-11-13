@@ -8,11 +8,10 @@ use cudarc::driver::{
     CudaContext, CudaFunction, DeviceRepr, LaunchConfig, PushKernelArg, ValidAsZeroBits,
 };
 use cudarc::nvrtc::Ptx;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::{DictArray, PrimitiveArray};
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayRef, Canonical, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
-use vortex_dict::DictArray;
 use vortex_dtype::{
     DType, NativePType, Nullability, UnsignedPType, match_each_native_ptype,
     match_each_unsigned_integer_ptype,
@@ -115,7 +114,7 @@ where
     unsafe { buffer.set_len(codes.len()) }
 
     stream
-        .memcpy_dtoh(&cu_out, &mut buffer)
+        .memcpy_dtoh(&cu_out, &mut buffer[..])
         .map_err(|e| vortex_err!("Failed to copy to device: {e}"))?;
     stream
         .synchronize()
@@ -150,9 +149,8 @@ where
 mod tests {
     use cudarc::driver::CudaContext;
     use rstest::rstest;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::{DictArray, PrimitiveArray};
     use vortex_array::{IntoArray, ToCanonical};
-    use vortex_dict::DictArray;
     use vortex_dtype::match_each_native_ptype;
 
     use crate::take::cuda_take;

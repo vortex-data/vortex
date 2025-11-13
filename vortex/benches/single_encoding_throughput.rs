@@ -11,10 +11,10 @@ use mimalloc::MiMalloc;
 use rand::prelude::IndexedRandom;
 use rand::{Rng, SeedableRng};
 use vortex::arrays::{PrimitiveArray, VarBinViewArray};
+use vortex::builders::dict::dict_encode;
 use vortex::compute::cast;
 use vortex::dtype::PType;
 use vortex::encodings::alp::{RDEncoder, alp_encode};
-use vortex::encodings::dict::builders::dict_encode;
 use vortex::encodings::fastlanes::{DeltaArray, FoRArray, delta_compress};
 use vortex::encodings::fsst::{fsst_compress, fsst_train_compressor};
 use vortex::encodings::pco::PcoArray;
@@ -310,19 +310,19 @@ fn bench_dict_decompress_string(bencher: Bencher) {
 #[divan::bench(name = "fsst_compress_string")]
 fn bench_fsst_compress_string(bencher: Bencher) {
     let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(1_000_000, 0.00005));
-    let fsst_compressor = fsst_train_compressor(&varbinview_arr.clone().into_array()).unwrap();
+    let fsst_compressor = fsst_train_compressor(&varbinview_arr);
     let nbytes = varbinview_arr.nbytes() as u64;
 
     with_counter!(bencher, nbytes)
         .with_inputs(|| varbinview_arr.clone())
-        .bench_values(|a| fsst_compress(&a.into_array(), &fsst_compressor).unwrap());
+        .bench_values(|a| fsst_compress(&a, &fsst_compressor));
 }
 
 #[divan::bench(name = "fsst_decompress_string")]
 fn bench_fsst_decompress_string(bencher: Bencher) {
     let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(1_000_000, 0.00005));
-    let fsst_compressor = fsst_train_compressor(&varbinview_arr.clone().into_array()).unwrap();
-    let fsst_array = fsst_compress(&varbinview_arr.clone().into_array(), &fsst_compressor).unwrap();
+    let fsst_compressor = fsst_train_compressor(&varbinview_arr);
+    let fsst_array = fsst_compress(&varbinview_arr, &fsst_compressor);
     let nbytes = varbinview_arr.into_array().nbytes() as u64;
 
     with_counter!(bencher, nbytes)

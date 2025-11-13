@@ -7,9 +7,8 @@ use std::sync::Arc;
 use bitvec::macros::internal::funty::Fundamental;
 use num_traits::AsPrimitive;
 use parking_lot::Mutex;
-use vortex::arrays::{ConstantArray, ConstantVTable, PrimitiveArray};
+use vortex::arrays::{ConstantArray, ConstantVTable, DictArray, PrimitiveArray};
 use vortex::dtype::{IntegerPType, match_each_integer_ptype};
-use vortex::encodings::dict::DictArray;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 use vortex::{Array, ToCanonical, compute};
@@ -149,9 +148,8 @@ impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
 #[cfg(test)]
 mod tests {
     use vortex::IntoArray;
-    use vortex::arrays::{ConstantArray, PrimitiveArray};
+    use vortex::arrays::{ConstantArray, DictArray, PrimitiveArray};
     use vortex::buffer::Buffer;
-    use vortex::encodings::dict::DictArray;
     use vortex::error::VortexResult;
 
     use crate::cpp;

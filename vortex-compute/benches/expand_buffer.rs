@@ -3,20 +3,29 @@
 
 //! Expand benchmarks for `Buffer`.
 
-use divan::Bencher;
 use vortex_buffer::Buffer;
 use vortex_compute::expand::Expand;
 use vortex_mask::Mask;
 
+// buffer size, selectivity
+const PARAMETERS: &[(usize, f64)] = &[
+    (256, 0.1),
+    (256, 0.5),
+    (256, 0.9),
+    (1024, 0.1),
+    (1024, 0.5),
+    (1024, 0.9),
+    (4096, 0.1),
+    (4096, 0.5),
+    (4096, 0.9),
+    (16384, 0.1),
+    (16384, 0.5),
+    (16384, 0.9),
+];
+
 fn main() {
     divan::main();
 }
-
-const BUFFER_SIZE: usize = 1024;
-
-const SELECTIVITIES: &[f64] = &[
-    0.01, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 0.99,
-];
 
 fn create_test_buffer<T>(size: usize) -> Buffer<T>
 where
@@ -49,20 +58,20 @@ fn generate_mask(len: usize, selectivity: f64) -> Mask {
     Mask::from_iter(selection)
 }
 
-#[divan::bench(types = [u8, u32, u64], args = SELECTIVITIES, sample_count = 1000)]
-fn expand_selectivity<T: Copy + Default + From<u8> + Send + 'static>(
-    bencher: Bencher,
-    selectivity: f64,
+#[divan::bench(types = [u8, u32, u64], args = PARAMETERS, sample_count = 1000)]
+fn expand_buffer<T: Copy + Default + From<u8> + Send + 'static>(
+    bencher: divan::Bencher,
+    (buffer_size, selectivity): (usize, f64),
 ) {
     bencher
         .with_inputs(|| {
-            let mask = generate_mask(BUFFER_SIZE, selectivity);
+            let mask = generate_mask(buffer_size, selectivity);
             let true_count = mask.true_count();
             let buffer = create_test_buffer::<T>(true_count);
             (buffer, mask)
         })
-        .bench_values(|(buffer, mask)| {
-            let result = buffer.expand(&mask);
+        .bench_refs(|(buffer, mask)| {
+            let result = buffer.expand(mask);
             divan::black_box(result);
         });
 }

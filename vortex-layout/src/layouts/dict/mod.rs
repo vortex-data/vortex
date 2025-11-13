@@ -83,7 +83,7 @@ impl VTable for DictVTable {
         )?))
     }
 
-    #[cfg(feature = "gpu")]
+    #[cfg(gpu_unstable)]
     fn new_gpu_reader(
         _layout: &Self::Layout,
         _name: Arc<str>,

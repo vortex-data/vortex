@@ -64,7 +64,7 @@ mod buffer;
 mod buffer_mut;
 mod bytes;
 mod r#const;
-#[cfg(feature = "cuda")]
+#[cfg(gpu_unstable)]
 mod cuda;
 mod debug;
 mod macros;

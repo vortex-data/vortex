@@ -1,0 +1,330 @@
+name: Fuzzer Fix Automation
+
+on:
+  issues:
+    types: [opened, labeled]
+
+jobs:
+  attempt-fix:
+    name: "Attempt to Fix Fuzzer Crash"
+    # Only run when:
+    # 1. Issue is opened with 'fuzzer' label, OR
+    # 2. 'fuzzer' label is added to existing issue
+    if: |
+      (github.event.action == 'opened' && contains(github.event.issue.labels.*.name, 'fuzzer')) ||
+      (github.event.action == 'labeled' && github.event.label.name == 'fuzzer')
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          toolchain: nightly
+
+      - name: Install llvm
+        uses: aminya/setup-cpp@v1
+        with:
+          compiler: llvm
+
+      - name: Install cargo fuzz
+        run: cargo install --locked cargo-fuzz
+
+      - name: Extract crash details from issue
+        id: extract
+        run: |
+          # Extract target name from issue body
+          TARGET=$(echo "${{ github.event.issue.body }}" | grep -oP '(?<=\*\*Target\*\*: `)[^`]+' || echo "file_io")
+          echo "target=$TARGET" >> $GITHUB_OUTPUT
+
+          # Extract crash file name
+          CRASH_FILE=$(echo "${{ github.event.issue.body }}" | grep -oP '(?<=\*\*Crash File\*\*: `)[^`]+' || echo "")
+          echo "crash_file=$CRASH_FILE" >> $GITHUB_OUTPUT
+
+          # Extract artifact URL
+          ARTIFACT_URL=$(echo "${{ github.event.issue.body }}" | grep -oP 'https://[^\s]+/artifacts/[0-9]+' | head -1 || echo "")
+          echo "artifact_url=$ARTIFACT_URL" >> $GITHUB_OUTPUT
+
+          echo "Extracted: target=$TARGET, crash_file=$CRASH_FILE"
+
+      - name: Attempt to fix crash with Claude
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          TARGET: ${{ steps.extract.outputs.target }}
+          CRASH_FILE: ${{ steps.extract.outputs.crash_file }}
+          ARTIFACT_URL: ${{ steps.extract.outputs.artifact_url }}
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          show_full_output: true
+          prompt: |
+            # Fuzzer Crash Fix Automation
+
+            You are analyzing a fuzzer-detected crash to attempt an automated fix. This issue was created by our fuzzing automation.
+
+            ## Your Mission
+
+            1. **Download and reproduce the crash**
+            2. **Analyze the root cause** using the stack trace and source code
+            3. **Create a fix** if the issue is straightforward
+            4. **Write regression tests** that would fail without your fix
+            5. **Verify the fix** by running the fuzzer and tests
+            6. **Post your findings** as a comment on the issue
+
+            ## Issue Details
+
+            - **Issue**: #${{ env.ISSUE_NUMBER }}
+            - **Title**: ${{ env.ISSUE_TITLE }}
+            - **Target**: ${{ env.TARGET }}
+            - **Crash File**: ${{ env.CRASH_FILE }}
+
+            ## Step 1: Download the Crash Artifact
+
+            The issue body contains an artifact URL. Extract it and download the crash file:
+
+            ```bash
+            # The issue body should contain the crash artifact URL
+            # Download it using gh or curl
+            # Example:
+            gh run download RUN_ID --name ${{ env.TARGET }}-fuzzing-crash-artifacts
+            ```
+
+            Look for the artifact URL in the issue body. If you can't download it automatically, note this in your comment and provide manual instructions.
+
+            ## Step 2: Reproduce the Crash
+
+            Once you have the crash file, reproduce it:
+
+            ```bash
+            cargo +nightly fuzz run --sanitizer=none ${{ env.TARGET }} <path-to-crash-file>
+            ```
+
+            Capture the output and verify you can reproduce the panic/crash.
+
+            ## Step 3: Analyze the Root Cause
+
+            1. Read the **Stack Trace** from the issue body
+            2. Identify the **Crash Location** (file and line)
+            3. Read the source code at that location
+            4. Understand what input caused the crash (check the Debug Output in the issue)
+            5. Determine the root cause:
+               - Bounds check missing?
+               - Invalid assumption?
+               - Edge case not handled?
+               - Integer overflow?
+               - etc.
+
+            ## Step 4: Assess Fixability
+
+            Determine if this is something you can fix:
+
+            **CAN FIX** (straightforward):
+            - Missing bounds check
+            - Missing validation
+            - Edge case handling
+            - Simple panic that should be an error
+            - Off-by-one error
+
+            **CANNOT FIX** (needs human):
+            - Architectural issues
+            - Complex logic errors
+            - Requires domain knowledge
+            - Multiple files/modules affected
+            - Unclear requirements
+
+            ## Step 5: If Fixable - Create the Fix
+
+            1. **Modify the source code** to fix the issue
+            2. **Add validation** or bounds checks as needed
+            3. **Handle the edge case** properly
+            4. **Follow the project's code style** (see CLAUDE.md)
+            5. **Keep changes minimal** - only fix the specific issue
+
+            ## Step 6: Write Regression Tests
+
+            Create tests that:
+            1. **Would fail before your fix** (reproduce the crash)
+            2. **Pass after your fix** (verify it's solved)
+            3. **Use the crash file as input** (the actual fuzzer input that triggered it)
+            4. **Are placed in the right location** (near the code being tested)
+
+            Example structure:
+            ```rust
+            #[test]
+            fn test_fuzzer_crash_issue_${{ env.ISSUE_NUMBER }}() {
+                // This test reproduces the crash from issue #${{ env.ISSUE_NUMBER }}
+                // The fuzzer discovered this input that caused a panic
+
+                let input = /* minimal reproducing input */;
+
+                // This should not panic
+                let result = function_that_crashed(input);
+
+                // Assert the expected behavior
+                assert!(result.is_ok() || result.is_err()); // depending on expected outcome
+            }
+            ```
+
+            ## Step 7: Verify Your Fix
+
+            1. Run the new regression test:
+            ```bash
+            cargo test test_fuzzer_crash_issue_${{ env.ISSUE_NUMBER }}
+            ```
+
+            2. Run the fuzzer with the crash file:
+            ```bash
+            cargo +nightly fuzz run --sanitizer=none ${{ env.TARGET }} <path-to-crash-file> -- -runs=100
+            ```
+
+            3. Run related tests:
+            ```bash
+            cargo test --package <affected-package>
+            ```
+
+            4. Check for lint issues:
+            ```bash
+            cargo clippy --all-targets --all-features
+            ```
+
+            5. Format code:
+            ```bash
+            cargo +nightly fmt --all
+            ```
+
+            ## Step 8: Post Your Analysis
+
+            Comment on issue #${{ env.ISSUE_NUMBER }} with your findings:
+
+            ### If You Created a Fix:
+
+            ```markdown
+            ## 🤖 Automated Fix Attempt
+
+            I've analyzed this crash and created a potential fix.
+
+            ### Root Cause Analysis
+
+            [Explain what caused the crash in 2-3 sentences]
+
+            ### The Fix
+
+            **Modified files:**
+            - `path/to/file.rs` - [brief description of changes]
+
+            **Key changes:**
+            - [Bullet point summary of what you changed]
+
+            ### Regression Tests
+
+            Created test(s):
+            - `test_fuzzer_crash_issue_${{ env.ISSUE_NUMBER }}()` in `path/to/test.rs`
+
+            **Test verification:**
+            ```
+            [Output from running the test]
+            ```
+
+            ### Verification
+
+            ✅ Regression test passes
+            ✅ Fuzzer no longer crashes on the input
+            ✅ Related tests pass
+            ✅ Clippy checks pass
+            ✅ Code formatted
+
+            ### Next Steps
+
+            Please review the fix and:
+            1. Verify the logic is correct
+            2. Check if additional edge cases should be handled
+            3. Consider if this fix should be applied elsewhere
+            4. Merge if satisfactory or provide feedback
+
+            **Note**: This is an automated fix attempt. Please review carefully before merging.
+            ```
+
+            Use the `gh issue comment` command to post this.
+
+            ### If You Cannot Fix It:
+
+            ```markdown
+            ## 🤖 Automated Analysis
+
+            I've analyzed this crash but cannot create an automated fix.
+
+            ### Root Cause Analysis
+
+            [Explain what caused the crash]
+
+            ### Why I Can't Fix It
+
+            [Explain why this needs human intervention - e.g., architectural issue, requires domain knowledge, etc.]
+
+            ### Suggested Approach
+
+            [Provide suggestions for how a human might fix this:
+            - What code needs to change
+            - What validation might be needed
+            - Potential approaches to consider]
+
+            ### Reproduction Verified
+
+            [If you were able to reproduce it, confirm here]
+
+            **Note**: This issue requires human analysis and fixing.
+            ```
+
+            ## Important Guidelines
+
+            - **Be conservative**: Only create fixes for straightforward issues
+            - **Minimal changes**: Don't refactor, just fix the specific bug
+            - **Test thoroughly**: Your regression tests must actually catch the bug
+            - **Follow CLAUDE.md**: Use project conventions
+            - **Comment your reasoning**: Help reviewers understand the fix
+            - **Don't commit yet**: Post your analysis first for review
+
+            ## Available Tools
+
+            You have access to:
+            - Full repository source code (Read/Write/Edit)
+            - Cargo toolchain (build, test, clippy, fmt, fuzz)
+            - Git operations (for creating branches if requested)
+            - GitHub CLI (for commenting on issues)
+
+            ## Issue Body
+
+            Here's the full issue body for reference:
+
+            ```
+            ${{ env.ISSUE_BODY }}
+            ```
+
+            ## Start Here
+
+            Begin by reading the issue body carefully to extract:
+            1. The stack trace
+            2. The crash location
+            3. The error message
+            4. The artifact download URL
+            5. Any debug output
+
+            Then proceed with your analysis. Good luck! 🚀
+          claude_args: |
+            --model claude-opus-4-20250514
+            --max-turns 40
+            --allowedTools "Read,Write,Edit,Glob,Grep,Bash(cargo:*),Bash(gh issue comment:*),Bash(gh run download:*),Bash(curl:*),Bash(find:*),Bash(ls:*),Bash(cat:*),Bash(RUST_BACKTRACE=*:*)"

@@ -4,7 +4,6 @@
 use std::iter;
 
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::VortexResult;
 
 use crate::ToCanonical;
 use crate::accessor::ArrayAccessor;
@@ -13,7 +12,7 @@ use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 impl ArrayAccessor<[u8]> for VarBinArray {
-    fn with_iterator<F, R>(&self, f: F) -> VortexResult<R>
+    fn with_iterator<F, R>(&self, f: F) -> R
     where
         F: for<'a> FnOnce(&mut dyn Iterator<Item = Option<&'a [u8]>>) -> R,
     {
@@ -32,18 +31,27 @@ impl ArrayAccessor<[u8]> for VarBinArray {
                     let mut iter = offsets
                         .windows(2)
                         .map(|w| Some(&bytes[w[0] as usize..w[1] as usize]));
-                    Ok(f(&mut iter))
+                    f(&mut iter)
                 }
-                Validity::AllInvalid => Ok(f(&mut iter::repeat_n(None, self.len()))),
+                Validity::AllInvalid => f(&mut iter::repeat_n(None, self.len())),
                 Validity::Array(v) => {
                     let validity = v.to_bool();
                     let mut iter = offsets
                         .windows(2)
                         .zip(validity.bit_buffer())
                         .map(|(w, valid)| valid.then(|| &bytes[w[0] as usize..w[1] as usize]));
-                    Ok(f(&mut iter))
+                    f(&mut iter)
                 }
             }
         })
+    }
+}
+
+impl ArrayAccessor<[u8]> for &VarBinArray {
+    fn with_iterator<F, R>(&self, f: F) -> R
+    where
+        F: for<'a> FnOnce(&mut dyn Iterator<Item = Option<&'a [u8]>>) -> R,
+    {
+        <VarBinArray as ArrayAccessor<[u8]>>::with_iterator(*self, f)
     }
 }

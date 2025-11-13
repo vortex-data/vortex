@@ -54,9 +54,8 @@ mod tests {
     use std::ffi::CString;
 
     use vortex::IntoArray;
-    use vortex::arrays::{ConstantArray, PrimitiveArray, VarBinViewArray};
+    use vortex::arrays::{ConstantArray, DictArray, PrimitiveArray, VarBinViewArray};
     use vortex::buffer::{BitBuffer, buffer};
-    use vortex::encodings::dict::DictArray;
     use vortex::error::{VortexExpect, VortexUnwrap};
     use vortex::validity::Validity;
 

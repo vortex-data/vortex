@@ -108,7 +108,7 @@ pub fn search_sorted_canonical_array(
         DType::Utf8(_) | DType::Binary(_) => {
             let utf8 = array.to_varbinview();
             let opt_values =
-                utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())?;
+                utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>());
             let to_find = if matches!(array.dtype(), DType::Utf8(_)) {
                 BufferString::try_from(scalar)?.as_str().as_bytes().to_vec()
             } else {

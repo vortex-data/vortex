@@ -406,6 +406,67 @@ impl BitBuffer {
     pub fn bitand_not(&self, rhs: &BitBuffer) -> BitBuffer {
         bitwise_binary_op(self, rhs, |a, b| a & !b)
     }
+
+    /// Iterate through bits in a buffer.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - Callback function taking (bit_index, is_set)
+    ///
+    /// # Panics
+    ///
+    /// Panics if the range is outside valid bounds of the buffer.
+    #[inline]
+    pub fn iter_bits<F>(&self, mut f: F)
+    where
+        F: FnMut(usize, bool),
+    {
+        let total_bits = self.len;
+        if total_bits == 0 {
+            return;
+        }
+
+        let is_bit_set = |byte: u8, bit_idx: usize| (byte & (1 << bit_idx)) != 0;
+        let bit_offset = self.offset % 8;
+        let mut buffer_ptr = unsafe { self.buffer.as_ptr().add(self.offset / 8) };
+        let mut callback_idx = 0;
+
+        // Handle incomplete first byte.
+        if bit_offset > 0 {
+            let bits_in_first_byte = (8 - bit_offset).min(total_bits);
+            let byte = unsafe { *buffer_ptr };
+
+            for bit_idx in 0..bits_in_first_byte {
+                f(callback_idx, is_bit_set(byte, bit_offset + bit_idx));
+                callback_idx += 1;
+            }
+
+            buffer_ptr = unsafe { buffer_ptr.add(1) };
+        }
+
+        // Process complete bytes.
+        let complete_bytes = (total_bits - callback_idx) / 8;
+        for _ in 0..complete_bytes {
+            let byte = unsafe { *buffer_ptr };
+
+            for bit_idx in 0..8 {
+                f(callback_idx, is_bit_set(byte, bit_idx));
+                callback_idx += 1;
+            }
+            buffer_ptr = unsafe { buffer_ptr.add(1) };
+        }
+
+        // Handle remaining bits at the end.
+        let remaining_bits = total_bits - callback_idx;
+        if remaining_bits > 0 {
+            let byte = unsafe { *buffer_ptr };
+
+            for bit_idx in 0..remaining_bits {
+                f(callback_idx, is_bit_set(byte, bit_idx));
+                callback_idx += 1;
+            }
+        }
+    }
 }
 
 impl<'a> IntoIterator for &'a BitBuffer {
@@ -419,6 +480,8 @@ impl<'a> IntoIterator for &'a BitBuffer {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use crate::bit::BitBuffer;
     use crate::{ByteBuffer, buffer};
 
@@ -487,5 +550,58 @@ mod tests {
             buf2.slice(32..64),
             "Buffer slices with different bits should not be equal (`PartialEq` needs `iter_padded()`)"
         );
+    }
+
+    #[test]
+    fn test_slice_offset_calculation() {
+        let buf = BitBuffer::collect_bool(16, |_| true);
+        let sliced = buf.slice(10..16);
+        assert_eq!(sliced.offset(), 10);
+    }
+
+    #[rstest]
+    #[case(5)]
+    #[case(8)]
+    #[case(10)]
+    #[case(13)]
+    #[case(16)]
+    #[case(23)]
+    #[case(100)]
+    fn test_iter_bits(#[case] len: usize) {
+        let buf = BitBuffer::collect_bool(len, |i| i % 2 == 0);
+
+        let mut collected = Vec::new();
+        buf.iter_bits(|idx, is_set| {
+            collected.push((idx, is_set));
+        });
+
+        assert_eq!(collected.len(), len);
+
+        for (idx, is_set) in collected {
+            assert_eq!(is_set, idx % 2 == 0);
+        }
+    }
+
+    #[rstest]
+    #[case(3, 5)]
+    #[case(3, 8)]
+    #[case(5, 10)]
+    #[case(2, 16)]
+    fn test_iter_bits_with_offset(#[case] offset: usize, #[case] len: usize) {
+        let total_bits = offset + len;
+        let buf = BitBuffer::collect_bool(total_bits, |i| i % 2 == 0);
+        let buf_with_offset = BitBuffer::new_with_offset(buf.inner().clone(), len, offset);
+
+        let mut collected = Vec::new();
+        buf_with_offset.iter_bits(|idx, is_set| {
+            collected.push((idx, is_set));
+        });
+
+        assert_eq!(collected.len(), len);
+
+        for (idx, is_set) in collected {
+            // The bits should match the original buffer at positions offset + idx
+            assert_eq!(is_set, (offset + idx) % 2 == 0);
+        }
     }
 }

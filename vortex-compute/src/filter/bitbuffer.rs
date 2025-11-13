@@ -13,14 +13,21 @@ const FILTER_SLICES_DENSITY_THRESHOLD: f64 = 0.8;
 impl Filter for &BitBuffer {
     type Output = BitBuffer;
 
-    fn filter(self, mask: &Mask) -> BitBuffer {
-        assert_eq!(mask.len(), self.len());
-        match mask {
+    fn filter(self, selection_mask: &Mask) -> BitBuffer {
+        assert_eq!(
+            selection_mask.len(),
+            self.len(),
+            "Selection mask length must equal the mask length"
+        );
+
+        match selection_mask {
             Mask::AllTrue(_) => self.clone(),
             Mask::AllFalse(_) => BitBuffer::empty(),
             Mask::Values(v) => match v.threshold_iter(FILTER_SLICES_DENSITY_THRESHOLD) {
                 MaskIter::Indices(indices) => filter_indices(self, indices),
-                MaskIter::Slices(slices) => filter_slices(self, mask.true_count(), slices),
+                MaskIter::Slices(slices) => {
+                    filter_slices(self, selection_mask.true_count(), slices)
+                }
             },
         }
     }
