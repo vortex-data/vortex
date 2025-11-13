@@ -241,255 +241,72 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           show_full_output: true
           prompt: |
-            # Fuzzer Crash Fix Automation
+            # Fuzzer Crash Fix - Issue #${{ env.ISSUE_NUMBER }}
 
-            You are analyzing a fuzzer-detected crash to attempt an automated fix. This issue was created by our fuzzing automation.
+            ## Context
 
-            ## Your Mission
+            A fuzzer crash has been detected, downloaded, and reproduced. Your job is to analyze it and attempt a fix.
 
-            1. **Download and reproduce the crash**
-            2. **Analyze the root cause** using the stack trace and source code
-            3. **Create a fix** if the issue is straightforward
-            4. **Write regression tests** that would fail without your fix
-            5. **Verify the fix** by running the fuzzer and tests
-            6. **Post your findings** as a comment on the issue
+            **Crash file**: `${{ env.CRASH_FILE_PATH }}`
+            **Crash log**: `crash_reproduction.log` (already run with RUST_BACKTRACE=full)
+            **Target**: ${{ env.TARGET }}
 
-            ## Issue Details
+            ## Your Task
 
-            - **Issue**: #${{ env.ISSUE_NUMBER }}
-            - **Title**: ${{ env.ISSUE_TITLE }}
-            - **Target**: ${{ env.TARGET }}
-            - **Crash File**: ${{ env.CRASH_FILE }}
+            1. **Analyze**: Read `crash_reproduction.log` to understand the crash
+            2. **Fix**: If straightforward (missing bounds check, validation, edge case), fix it
+            3. **Test**: Write a regression test using the crash file
+            4. **Verify**: Run the test and fuzzer to confirm fix works
+            5. **Post**: Comment on issue #${{ env.ISSUE_NUMBER }} with your analysis
 
-            ## ✅ Pre-Validated Information
+            ## Important
 
-            **Good news!** The crash artifact has already been downloaded and the crash has been reproduced.
+            - Read the crash log first: `cat crash_reproduction.log`
+            - Keep fixes minimal - only fix the specific bug
+            - Follow CLAUDE.md code style guidelines
+            - **YOU MUST post a comment on issue #${{ env.ISSUE_NUMBER }}** using `gh issue comment` when done
 
-            - **Crash file location**: `${{ env.CRASH_FILE_PATH }}`
-            - **Crash reproduction log**: `crash_reproduction.log`
+            ## Fixability Guidelines
 
-            The crash has been confirmed to still exist on the current codebase, so you can proceed with analysis and fixing.
+            **Can fix** (do it): Missing bounds check, validation, edge case, off-by-one
+            **Can't fix** (analyze only): Architecture issues, complex logic, requires domain knowledge
 
-            ## Step 1: Analyze the Crash
+            ## Comment Template
 
-            Read the crash reproduction log to see the actual crash output:
-
+            When done, post your findings using:
             ```bash
-            cat crash_reproduction.log
+            gh issue comment ${{ env.ISSUE_NUMBER }} --body "YOUR_COMMENT_HERE"
             ```
 
-            This will show you the panic message, stack trace, and any debug output.
+            **If you fixed it**, include:
+            - Root cause (2-3 sentences)
+            - Files modified
+            - Test name and verification results
+            - Note: "This is an automated fix - please review carefully"
 
-            ## Step 2: Analyze the Root Cause
-
-            1. Read the **Stack Trace** from the crash reproduction log
-            2. Identify the **Crash Location** (file and line)
-            3. Read the source code at that location
-            4. Understand what input caused the crash (check the Debug Output in the issue)
-            5. Determine the root cause:
-               - Bounds check missing?
-               - Invalid assumption?
-               - Edge case not handled?
-               - Integer overflow?
-               - etc.
-
-            ## Step 3: Assess Fixability
-
-            Determine if this is something you can fix:
-
-            **CAN FIX** (straightforward):
-            - Missing bounds check
-            - Missing validation
-            - Edge case handling
-            - Simple panic that should be an error
-            - Off-by-one error
-
-            **CANNOT FIX** (needs human):
-            - Architectural issues
-            - Complex logic errors
-            - Requires domain knowledge
-            - Multiple files/modules affected
-            - Unclear requirements
-
-            ## Step 4: If Fixable - Create the Fix
-
-            1. **Modify the source code** to fix the issue
-            2. **Add validation** or bounds checks as needed
-            3. **Handle the edge case** properly
-            4. **Follow the project's code style** (see CLAUDE.md)
-            5. **Keep changes minimal** - only fix the specific issue
-
-            ## Step 5: Write Regression Tests
-
-            Create tests that:
-            1. **Would fail before your fix** (reproduce the crash)
-            2. **Pass after your fix** (verify it's solved)
-            3. **Use the crash file as input** (the actual fuzzer input that triggered it)
-            4. **Are placed in the right location** (near the code being tested)
-
-            Example structure:
-            ```rust
-            #[test]
-            fn test_fuzzer_crash_issue_${{ env.ISSUE_NUMBER }}() {
-                // This test reproduces the crash from issue #${{ env.ISSUE_NUMBER }}
-                // The fuzzer discovered this input that caused a panic
-
-                let input = /* minimal reproducing input */;
-
-                // This should not panic
-                let result = function_that_crashed(input);
-
-                // Assert the expected behavior
-                assert!(result.is_ok() || result.is_err()); // depending on expected outcome
-            }
-            ```
-
-            ## Step 6: Verify Your Fix
-
-            1. Run the new regression test:
-            ```bash
-            cargo test test_fuzzer_crash_issue_${{ env.ISSUE_NUMBER }}
-            ```
-
-            2. Run the fuzzer with the crash file (with full backtrace):
-            ```bash
-            RUST_BACKTRACE=full cargo +nightly fuzz run --sanitizer=none ${{ env.TARGET }} ${{ env.CRASH_FILE_PATH }} -- -runs=100
-            ```
-
-            3. Run related tests:
-            ```bash
-            cargo test --package <affected-package>
-            ```
-
-            4. Check for lint issues:
-            ```bash
-            cargo clippy --all-targets --all-features
-            ```
-
-            5. Format code:
-            ```bash
-            cargo +nightly fmt --all
-            ```
-
-            ## Step 7: Post Your Analysis
-
-            Comment on issue #${{ env.ISSUE_NUMBER }} with your findings:
-
-            ### If You Created a Fix:
-
-            ```markdown
-            ## 🤖 Automated Fix Attempt
-
-            I've analyzed this crash and created a potential fix.
-
-            ### Root Cause Analysis
-
-            [Explain what caused the crash in 2-3 sentences]
-
-            ### The Fix
-
-            **Modified files:**
-            - `path/to/file.rs` - [brief description of changes]
-
-            **Key changes:**
-            - [Bullet point summary of what you changed]
-
-            ### Regression Tests
-
-            Created test(s):
-            - `test_fuzzer_crash_issue_${{ env.ISSUE_NUMBER }}()` in `path/to/test.rs`
-
-            **Test verification:**
-            ```
-            [Output from running the test]
-            ```
-
-            ### Verification
-
-            ✅ Regression test passes
-            ✅ Fuzzer no longer crashes on the input
-            ✅ Related tests pass
-            ✅ Clippy checks pass
-            ✅ Code formatted
-
-            ### Next Steps
-
-            Please review the fix and:
-            1. Verify the logic is correct
-            2. Check if additional edge cases should be handled
-            3. Consider if this fix should be applied elsewhere
-            4. Merge if satisfactory or provide feedback
-
-            **Note**: This is an automated fix attempt. Please review carefully before merging.
-            ```
-
-            Use the `gh issue comment` command to post this.
-
-            ### If You Cannot Fix It:
-
-            ```markdown
-            ## 🤖 Automated Analysis
-
-            I've analyzed this crash but cannot create an automated fix.
-
-            ### Root Cause Analysis
-
-            [Explain what caused the crash]
-
-            ### Why I Can't Fix It
-
-            [Explain why this needs human intervention - e.g., architectural issue, requires domain knowledge, etc.]
-
-            ### Suggested Approach
-
-            [Provide suggestions for how a human might fix this:
-            - What code needs to change
-            - What validation might be needed
-            - Potential approaches to consider]
-
-            ### Reproduction Verified
-
-            [If you were able to reproduce it, confirm here]
-
-            **Note**: This issue requires human analysis and fixing.
-            ```
-
-            ## Important Guidelines
-
-            - **Be conservative**: Only create fixes for straightforward issues
-            - **Minimal changes**: Don't refactor, just fix the specific bug
-            - **Test thoroughly**: Your regression tests must actually catch the bug
-            - **Follow CLAUDE.md**: Use project conventions
-            - **Comment your reasoning**: Help reviewers understand the fix
-            - **Don't commit yet**: Post your analysis first for review
-
-            ## Available Tools
-
-            You have access to:
-            - Full repository source code (Read/Write/Edit)
-            - Cargo toolchain (build, test, clippy, fmt, fuzz)
-            - Git operations (for creating branches if requested)
-            - GitHub CLI (for commenting on issues)
-
-            ## Issue Body
-
-            Here's the full issue body for reference:
-
-            ```
-            ${{ env.ISSUE_BODY }}
-            ```
-
-            ## Start Here
-
-            Begin by reading the issue body carefully to extract:
-            1. The stack trace
-            2. The crash location
-            3. The error message
-            4. The artifact download URL
-            5. Any debug output
-
-            Then proceed with your analysis. Good luck! 🚀
+            **If you can't fix it**, include:
+            - Root cause analysis
+            - Why it needs human intervention
+            - Suggested approach
           claude_args: |
             --model claude-opus-4-20250514
-            --max-turns 40
+            --max-turns 60
             --allowedTools "Read,Write,Edit,Glob,Grep,Bash(cargo:*),Bash(gh issue comment:*),Bash(gh run download:*),Bash(curl:*),Bash(find:*),Bash(ls:*),Bash(cat:*),Bash(RUST_BACKTRACE=*:*)"
+
+      - name: Verify Claude posted comment
+        if: steps.reproduce.outputs.crash_reproduced == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ISSUE_NUM="${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.issue_number || github.event.issue.number }}"
+
+          # Check if there are any new comments from claude-code-action
+          COMMENT_COUNT=$(gh api repos/${{ github.repository }}/issues/$ISSUE_NUM/comments --jq 'length')
+
+          if [ "$COMMENT_COUNT" -eq 0 ]; then
+            echo "⚠️ WARNING: Claude did not post a comment on issue #$ISSUE_NUM"
+            echo "This may indicate Claude hit max turns or encountered an error"
+            exit 1
+          else
+            echo "✅ Claude posted analysis comment on issue #$ISSUE_NUM"
+          fi
