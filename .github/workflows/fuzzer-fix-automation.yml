@@ -46,6 +46,8 @@ jobs:
       - name: Fetch issue details (for workflow_dispatch/workflow_call)
         if: github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call'
         id: fetch_issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ISSUE_DATA=$(gh issue view ${{ inputs.issue_number }} --repo ${{ github.repository }} --json number,title,body,labels)
           echo "issue_number=${{ inputs.issue_number }}" >> $GITHUB_OUTPUT
