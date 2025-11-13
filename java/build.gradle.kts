@@ -6,7 +6,7 @@ import net.ltgt.gradle.errorprone.errorprone
 plugins {
     id("com.diffplug.spotless") version "8.0.0"
     id("com.palantir.consistent-versions") version "3.7.0"
-    id("com.palantir.git-version") version "4.0.0"
+    id("com.palantir.git-version") version "4.2.0"
     id("net.ltgt.errorprone") version "4.3.0" apply false
     id("com.google.protobuf") version "0.9.5" apply false
     id("com.vanniktech.maven.publish") version "0.35.0" apply false
