@@ -140,10 +140,24 @@ jobs:
           RUN_ID=$(echo "$ARTIFACT_URL" | grep -oP 'runs/\K[0-9]+')
           ARTIFACT_ID=$(echo "$ARTIFACT_URL" | grep -oP 'artifacts/\K[0-9]+')
 
-          echo "Downloading artifact $ARTIFACT_ID from run $RUN_ID"
+          # Map target name to artifact name (hardcoded in fuzz.yml)
+          TARGET="${{ steps.extract.outputs.target }}"
+          case "$TARGET" in
+            file_io)
+              ARTIFACT_NAME="io-fuzzing-crash-artifacts"
+              ;;
+            array_ops)
+              ARTIFACT_NAME="operations-fuzzing-crash-artifacts"
+              ;;
+            *)
+              ARTIFACT_NAME="${TARGET}-fuzzing-crash-artifacts"
+              ;;
+          esac
+
+          echo "Downloading artifact $ARTIFACT_NAME (ID: $ARTIFACT_ID) from run $RUN_ID"
 
           # Download the artifact
-          gh run download "$RUN_ID" --name "${{ steps.extract.outputs.target }}-fuzzing-crash-artifacts" --repo ${{ github.repository }}
+          gh run download "$RUN_ID" --name "$ARTIFACT_NAME" --repo ${{ github.repository }}
 
           # Verify crash file exists
           CRASH_FILE_PATH="${{ steps.extract.outputs.target }}/${{ steps.extract.outputs.crash_file }}"
