@@ -10,15 +10,14 @@ use vortex_mask::Mask;
 /// Function for expanding values of `self` to the true positions of a mask.
 pub trait Expand {
     /// The result type after expansion.
-    type Output;
+    type Output: Default;
 
     /// Expands `self` using the provided mask.
     ///
     ///
     /// The result will have length equal to the mask. All values of `self` are
-    /// then scattered to the true positions of the mask. False positions can have
-    /// any value that `Output` allows for. No assumption can be made that false
-    /// positions are set to the default value of `Output`.
+    /// scattered to the true positions of the mask. False positions are set to
+    /// `Output::default`.
     ///
     ///
     /// # Panics
