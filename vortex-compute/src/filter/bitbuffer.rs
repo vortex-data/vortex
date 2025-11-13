@@ -10,7 +10,7 @@ use crate::filter::Filter;
 // TODO(ngates): we need more experimentation to determine the best threshold here.
 const FILTER_SLICES_DENSITY_THRESHOLD: f64 = 0.8;
 
-impl Filter for &BitBuffer {
+impl Filter<Mask> for &BitBuffer {
     type Output = BitBuffer;
 
     fn filter(self, selection_mask: &Mask) -> BitBuffer {
@@ -30,6 +30,14 @@ impl Filter for &BitBuffer {
                 }
             },
         }
+    }
+}
+
+impl Filter<[usize]> for &BitBuffer {
+    type Output = BitBuffer;
+
+    fn filter(self, indices: &[usize]) -> BitBuffer {
+        filter_indices(self, indices)
     }
 }
 

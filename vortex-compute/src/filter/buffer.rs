@@ -9,7 +9,7 @@ use crate::filter::Filter;
 // This is modeled after the constant with the equivalent name in arrow-rs.
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
-impl<T: Copy> Filter for &Buffer<T> {
+impl<T: Copy> Filter<Mask> for &Buffer<T> {
     type Output = Buffer<T>;
 
     fn filter(self, selection_mask: &Mask) -> Buffer<T> {
@@ -32,7 +32,15 @@ impl<T: Copy> Filter for &Buffer<T> {
     }
 }
 
-impl<T: Copy> Filter for &mut BufferMut<T> {
+impl<T: Copy> Filter<[usize]> for &Buffer<T> {
+    type Output = Buffer<T>;
+
+    fn filter(self, indices: &[usize]) -> Self::Output {
+        filter_indices(self, indices)
+    }
+}
+
+impl<T: Copy> Filter<Mask> for &mut BufferMut<T> {
     type Output = ();
 
     fn filter(self, selection_mask: &Mask) {
@@ -69,7 +77,15 @@ impl<T: Copy> Filter for &mut BufferMut<T> {
     }
 }
 
-impl<T: Copy> Filter for Buffer<T> {
+impl<T: Copy> Filter<[usize]> for &mut BufferMut<T> {
+    type Output = ();
+
+    fn filter(self, indices: &[usize]) -> Self::Output {
+        // Add the indices here instead
+    }
+}
+
+impl<T: Copy> Filter<Mask> for Buffer<T> {
     type Output = Self;
 
     fn filter(self, selection_mask: &Mask) -> Self {
