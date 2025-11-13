@@ -541,14 +541,8 @@ impl Not for BitBufferMut {
 
 impl From<&[bool]> for BitBufferMut {
     fn from(value: &[bool]) -> Self {
-        let mut buf = BitBufferMut::new_unset(value.len());
-        for (i, &v) in value.iter().enumerate() {
-            if v {
-                // SAFETY: i is in bounds
-                unsafe { buf.set_unchecked(i) }
-            }
-        }
-        buf
+        // Use the optimized collect_bool to pack 64 booleans at a time
+        BitBuffer::collect_bool(value.len(), |i| value[i]).into_mut()
     }
 }
 
