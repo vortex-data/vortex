@@ -2,13 +2,17 @@ name: Fuzzer Fix Automation
 
 on:
   issues:
-    types: [labeled]
+    types: [opened, labeled]
 
 jobs:
   attempt-fix:
     name: "Attempt to Fix Fuzzer Crash"
-    # Only run when the 'fuzzer' label is added
-    if: github.event.label.name == 'fuzzer'
+    # Only run when:
+    # 1. Issue is opened with 'fuzzer' label, OR
+    # 2. 'fuzzer' label is added to existing issue
+    if: |
+      (github.event.action == 'opened' && contains(github.event.issue.labels.*.name, 'fuzzer')) ||
+      (github.event.action == 'labeled' && github.event.label.name == 'fuzzer')
 
     runs-on: ubuntu-latest
     timeout-minutes: 60
