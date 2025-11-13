@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_mask::Mask;
 use vortex_vector::decimal::{DecimalVector, DecimalVectorMut};
 use vortex_vector::{match_each_dvector, match_each_dvector_mut};
