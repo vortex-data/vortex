@@ -277,10 +277,11 @@ jobs:
             ## Important - Progressive Updates
 
             - **Post comments frequently** as you make progress using `gh issue comment`
-            - After analyzing the crash, post what you found before starting the fix
-            - After implementing the fix, post what files were changed before testing
-            - After writing tests, post the final summary
-            - This ensures your work is visible even if you hit the turn limit
+            - **CRITICAL**: Include ALL relevant code inline in your comments in code blocks
+            - After analyzing the crash, post what you found WITH the problematic code section
+            - After implementing the fix, post the COMPLETE changed code (entire function/section)
+            - After writing tests, post the COMPLETE test code inline
+            - This ensures your work is visible and reviewable even if you hit the turn limit
             - Keep fixes minimal - only fix the specific bug
             - Follow CLAUDE.md code style guidelines
             - **Use `--dev` flag** for faster builds: `cargo +nightly fuzz run --dev --sanitizer=none`
@@ -305,6 +306,11 @@ jobs:
 
             **Crash Location**: `file.rs:function_name`
 
+            **Relevant Code** (from crash location):
+            \`\`\`rust
+            [Include the problematic code section from the crash location - show enough context]
+            \`\`\`
+
             **Next Step**: [Attempting fix | Needs human review because...]
             ```
 
@@ -315,6 +321,11 @@ jobs:
             **Modified**: `path/to/file.rs`
 
             **Changes**: [Brief description of what was changed]
+
+            **Complete Code Changes**:
+            \`\`\`rust
+            [Include ALL the changed code - the entire function or section that was modified]
+            \`\`\`
 
             **Next Step**: Writing regression test...
             ```
@@ -328,7 +339,17 @@ jobs:
             **Files Modified**:
             - `path/to/file.rs`
 
-            **Test**: `test_name` - [Pass/Fail status]
+            **Complete Fix**:
+            \`\`\`rust
+            [Include the complete fixed code again for easy review]
+            \`\`\`
+
+            **Regression Test**:
+            \`\`\`rust
+            [Include the complete test code inline]
+            \`\`\`
+
+            **Test Result**: [Pass/Fail status with output]
 
             **Note**: This is an automated fix - please review carefully before merging.
             ```
@@ -339,9 +360,14 @@ jobs:
 
             **Root Cause**: [Analysis]
 
+            **Problematic Code**:
+            \`\`\`rust
+            [Show the problematic code section]
+            \`\`\`
+
             **Why Manual Fix Required**: [Reason]
 
-            **Suggested Approach**: [Recommendation]
+            **Suggested Approach**: [Recommendation with code snippets if possible]
             ```
           claude_args: |
             --model claude-opus-4-20250514
