@@ -45,21 +45,15 @@ jobs:
           additional_permissions: |
             actions: read
 
-          # Optional: Specify model (defaults to Claude Sonnet 4, uncomment for Claude Opus 4)
-          # model: "claude-opus-4-20250514"
-
           # Optional: Customize the trigger phrase (default: @claude)
           # trigger_phrase: "/claude"
 
           # Optional: Trigger when specific user is assigned to an issue
           # assignee_trigger: "claude-bot"
 
-          allowed_tools: "Bash(cargo nextest:*),Bash(cargo check:*),Bash(cargo clippy:*),Bash(cargo fmt:*),Bash(uv run:*)"
-
-          # Optional: Add custom instructions for Claude to customize its behavior for your project
-          custom_instructions: "You have also been granted tools:
-           - for editing files and running cargo commands (cargo nextest, cargo check, cargo clippy, cargo fmt).
-           - uv for running pytest (e.g. via uv run --all-packages pytest)"
+          claude_args: |
+            --allowedTools "Bash(cargo nextest:*),Bash(cargo check:*),Bash(cargo clippy:*),Bash(cargo fmt:*),Bash(uv run:*)"
+            --system-prompt "You have been granted tools for editing files and running cargo commands (cargo nextest, cargo check, cargo clippy, cargo fmt) and uv for running pytest (e.g. via uv run --all-packages pytest)"
 
           # Optional: Custom environment variables for Claude
           # claude_env: |
