@@ -120,27 +120,26 @@ impl ChunkedWriter {
     }
 }
 
-#[async_trait]
 impl Writer for ChunkedWriter {
     fn init(&mut self, eof: SequencePointer) {
         self.eof = Some(eof);
     }
 
-    async fn push_chunk(&mut self, chunk: ArrayRef, id: SequenceId) -> VortexResult<()> {
+    fn push_chunk(&mut self, chunk: ArrayRef, id: SequenceId) -> VortexResult<()> {
         let mut eof = self.eof.take().vortex_expect("eof must be present");
         let chunk_eof = eof.split_off();
         self.eof = Some(eof);
 
         let mut next = (self.make_writer)();
         next.init(chunk_eof);
-        next.push_chunk(chunk, id).await?;
+        next.push_chunk(chunk, id)?;
 
-        self.layouts.push(next.finish().await?);
+        self.layouts.push(next.finish()?);
 
         Ok(())
     }
 
-    async fn finish(&mut self) -> VortexResult<LayoutRef> {
+    fn finish(&mut self) -> VortexResult<LayoutRef> {
         let layouts = mem::take(&mut self.layouts);
         let row_count = layouts.iter().map(|layout| layout.row_count()).sum::<u64>();
 

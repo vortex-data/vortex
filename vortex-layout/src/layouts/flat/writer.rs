@@ -6,6 +6,7 @@ use futures::StreamExt;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::stats::{Precision, Stat, StatsProvider};
 use vortex_array::{Array, ArrayContext, ArrayRef};
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
 use vortex_io::runtime::Handle;
@@ -151,7 +152,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
 pub struct FlatWriter {
     pub dtype: DType,
     pub include_padding: bool,
-    pub segment_sink: SegmentSinkRef,
+    pub segment_sink: kanal::Sender<(SequenceId, Vec<ByteBuffer>)>,
     pub array_ctx: ArrayContext,
     segment_id: Option<SegmentId>,
     row_count: u64,
@@ -163,7 +164,7 @@ impl FlatWriter {
     pub fn new(
         dtype: DType,
         include_padding: bool,
-        segment_sink: SegmentSinkRef,
+        segment_sink: kanal::Sender<(SequenceId, Vec<ByteBuffer>)>,
         array_ctx: ArrayContext,
     ) -> Self {
         Self {
@@ -178,24 +179,25 @@ impl FlatWriter {
     }
 }
 
-#[async_trait]
 impl Writer for FlatWriter {
     fn init(&mut self, eof: SequencePointer) {
         self.eof = Some(eof);
     }
 
-    async fn push_chunk(&mut self, chunk: ArrayRef, id: SequenceId) -> VortexResult<()> {
+    fn push_chunk(&mut self, chunk: ArrayRef, id: SequenceId) -> VortexResult<()> {
         vortex_ensure!(chunk.dtype() == &self.dtype);
 
         let buffers = chunk.serialize(&self.array_ctx, &SerializeOptions::default())?;
 
         self.row_count = chunk.len() as u64;
-        self.segment_id = Some(self.segment_sink.write(id, buffers).await?);
+        self.segment_sink.send((id, buffers));
+
+        // What to do with the segment_id?
 
         Ok(())
     }
 
-    async fn finish(&mut self) -> VortexResult<LayoutRef> {
+    fn finish(&mut self) -> VortexResult<LayoutRef> {
         let Some(segment_id) = self.segment_id else {
             vortex_bail!("called finish() for FlatWriter before any chunks were pushed");
         };

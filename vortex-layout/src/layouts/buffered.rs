@@ -122,7 +122,6 @@ pub struct BufferOptions {
     pub buffer_bytes: u64,
 }
 
-#[async_trait]
 impl Writer for BufferedWriter {
     fn init(&mut self, eof: SequencePointer) {
         // Initialize the children with EOF information.
@@ -131,7 +130,7 @@ impl Writer for BufferedWriter {
         self.eof = Some(eof);
     }
 
-    async fn push_chunk(&mut self, chunk: ArrayRef, id: SequenceId) -> VortexResult<()> {
+    fn push_chunk(&mut self, chunk: ArrayRef, id: SequenceId) -> VortexResult<()> {
         let chunk_bytes = chunk.nbytes();
 
         if self.buffered_nbytes + chunk_bytes > self.options.buffer_bytes {
@@ -146,7 +145,7 @@ impl Writer for BufferedWriter {
 
             // We buffer all of these and push them together at once.
             for chunk in buffer {
-                self.next.push_chunk(chunk, sequence_ptr.advance()).await?;
+                self.next.push_chunk(chunk, sequence_ptr.advance())?;
             }
         }
 
@@ -157,18 +156,18 @@ impl Writer for BufferedWriter {
         Ok(())
     }
 
-    async fn finish(&mut self) -> VortexResult<LayoutRef> {
+    fn finish(&mut self) -> VortexResult<LayoutRef> {
         // Send any unwritten buffered data to the child
         let mut eof = self.eof.take().vortex_expect("eof saved in initialization");
 
         let buffer = mem::take(&mut self.buffered_chunks);
         for chunk in buffer {
-            self.next.push_chunk(chunk, eof.advance()).await?;
+            self.next.push_chunk(chunk, eof.advance())?;
         }
 
         drop(eof);
 
         // Then, we finish the child and return its layout.
-        self.next.finish().await
+        self.next.finish()
     }
 }

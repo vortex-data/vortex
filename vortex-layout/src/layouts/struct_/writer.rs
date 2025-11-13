@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use futures::future::try_join_all;
 use futures::{StreamExt, TryStreamExt, pin_mut};
 use itertools::Itertools;
+use parking_lot::Mutex;
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexError, VortexResult, vortex_bail};
@@ -40,7 +41,6 @@ impl StructWriter {
     }
 }
 
-#[async_trait]
 impl Writer for StructWriter {
     fn init(&mut self, mut eof: SequencePointer) {
         for writer in self.field_writers.iter_mut() {
@@ -49,7 +49,7 @@ impl Writer for StructWriter {
         }
     }
 
-    async fn push_chunk(&mut self, chunk: ArrayRef, id: SequenceId) -> VortexResult<()> {
+    fn push_chunk(&mut self, chunk: ArrayRef, id: SequenceId) -> VortexResult<()> {
         // The input is going to be a StructArray chunk. Decompose it into all of its
         // individual ones and pass them down.
         let chunk = chunk.to_struct();
@@ -57,25 +57,67 @@ impl Writer for StructWriter {
 
         let mut sequence_pointer = id.descend();
 
-        // We can push to each field writer concurrently
-        let mut tasks = Vec::with_capacity(self.field_writers.len());
+        // Share any errors back to the top
+        let error: Mutex<Option<VortexError>> = Mutex::new(None);
 
-        for (field, writer) in iter::zip(chunk.fields().iter(), self.field_writers.iter_mut()) {
-            let fut = writer.push_chunk(field.clone(), sequence_pointer.advance());
-            tasks.push(fut);
+        // We want to make sure that we can do a lot of task switching here as well
+        rayon::scope(|scope| {
+            for (field, writer) in iter::zip(chunk.fields().iter(), self.field_writers.iter_mut()) {
+                let id = sequence_pointer.advance();
+                scope.spawn(|_| {
+                    if let Err(e) = writer.push_chunk(field.clone(), id) {
+                        *error.lock() = Some(e);
+                    }
+                });
+            }
+        });
+
+        if let Some(err) = error.lock().take() {
+            return Err(err);
         }
-
-        // Await all the writes
-        try_join_all(tasks).await?;
 
         Ok(())
     }
 
-    async fn finish(&mut self) -> VortexResult<LayoutRef> {
-        let children =
-            try_join_all(self.field_writers.iter_mut().map(|writer| writer.finish())).await?;
+    fn finish(&mut self) -> VortexResult<LayoutRef> {
+        // Attempt to finish all of the field writers.
+        // This also works in parallel as well.
 
-        Ok(StructLayout::new(self.row_count, self.schema.clone(), children).into_layout())
+        let children: Mutex<Vec<LayoutRef>> =
+            Mutex::new(Vec::with_capacity(self.field_writers.len()));
+        let error: Mutex<Option<VortexError>> = Mutex::new(None);
+
+        // Push into a channel, extract in priority order
+
+        let writers = std::mem::take(&mut self.field_writers);
+
+        rayon::scope(|scope| {
+            for (index, writer) in writers.into_iter().enumerate() {
+                let index = index;
+                let mut writer = writer;
+                scope.spawn(|_s| match writer.finish() {
+                    Ok(layout) => {
+                        children.lock().spare_capacity_mut()[index].write(layout);
+                    }
+                    Err(err) => {
+                        *error.lock() = Some(err);
+                    }
+                })
+            }
+        });
+
+        // Check any errors thrown in child tasks
+        if let Some(err) = error.lock().take() {
+            return Err(err);
+        }
+
+        // If no errors, all slots were initialized
+        // let mut children: Vec<LayoutRef> = { std::mem::take(children.lock().as_mut()) };
+        // unsafe {
+        //     children.set_len(children.capacity());
+        // }
+
+        Ok(StructLayout::new(self.row_count, self.schema.clone(), vec![]).into_layout())
     }
 }
 

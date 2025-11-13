@@ -65,15 +65,16 @@ pub trait LayoutStrategy: 'static + Send + Sync {
 }
 // [layout writer]
 
-#[async_trait]
+/// A generic interface for writing arrays to files.
 pub trait Writer: Send + 'static {
     /// Initialize the writer with EOF information.
     fn init(&mut self, eof: SequencePointer);
 
     /// Process a new chunk of data.
-    ///
-    async fn push_chunk(&mut self, chunk: ArrayRef, id: SequenceId) -> VortexResult<()>;
+    fn push_chunk(&mut self, chunk: ArrayRef, id: SequenceId) -> VortexResult<()>;
 
     /// Force the writer to complete, yielding the inner layout type.
-    async fn finish(&mut self) -> VortexResult<LayoutRef>;
+    fn finish(&mut self) -> VortexResult<LayoutRef>;
 }
+
+// We can use a synchronous channel to create some amount of backpressure.

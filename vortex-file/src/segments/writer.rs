@@ -95,3 +95,74 @@ impl SegmentSink for BufferedSegmentSink {
         Ok(segment_id)
     }
 }
+
+/// lol
+pub struct SyncSink {
+    buffers: kanal::Sender<ByteBuffer>,
+    byte_offset: AtomicU64,
+    segment_specs: Mutex<Vec<SegmentSpec>>,
+}
+
+impl SyncSink {
+    pub fn write(
+        &self,
+        mut sequence_id: SequenceId,
+        buffers: Vec<ByteBuffer>,
+    ) -> VortexResult<SegmentId> {
+        // We wait for all segment IDs before this one to be dropped. Then while we hold a strong
+        // reference to this one, we essentially have an exclusive lock on the segment writer.
+        //
+        // DO THIS IN SYNC MODE SOMEHOW?? park thread until we're woken? unclear!
+        // Also figure out how to make this work inside WASMcccccbngjuectfgvedritiiuitdkrnbgevigingdnhvl
+        //
+        // sequence_id.collapse();
+
+        let (segment_id, padding_buffer) = {
+            let mut specs = self.segment_specs.lock();
+            let segment_id = SegmentId::from(
+                u32::try_from(specs.len())
+                    .map_err(|_| vortex_err!("Too mant segments, u32 overflow"))?,
+            );
+
+            // The API requires us to write these buffers contiguously. Therefore, we can only
+            // respect the alignment of the first one.
+            // Don't worry, in most cases the caller knows what they're doing and will align the
+            // buffers themselves, inserting padding buffers where necessary.
+            let alignment = buffers
+                .first()
+                .map(|buffer| buffer.alignment())
+                .unwrap_or_else(Alignment::none);
+            let length = u32::try_from(buffers.iter().map(|buffer| buffer.len()).sum::<usize>())
+                .map_err(|_| vortex_err!("segment buffer length exceeds maximum u32"))?;
+
+            // Add any padding required to align the segment.
+            let byte_offset = self.byte_offset.load(Ordering::Relaxed);
+            let padding = byte_offset.next_multiple_of(*alignment as u64) - byte_offset;
+            let offset = byte_offset + padding;
+            specs.push(SegmentSpec {
+                offset,
+                length,
+                alignment,
+            });
+
+            self.byte_offset
+                .store(byte_offset + padding + u64::from(length), Ordering::Relaxed);
+
+            // Send the buffers to the stream.
+            if padding > 0 {
+                (segment_id, Some(ByteBuffer::zeroed(padding as usize)))
+            } else {
+                (segment_id, None)
+            }
+        };
+
+        if let Some(padding) = padding_buffer {
+            drop(self.buffers.send(padding));
+        }
+        for buffer in buffers {
+            drop(self.buffers.send(buffer));
+        }
+
+        Ok(segment_id)
+    }
+}

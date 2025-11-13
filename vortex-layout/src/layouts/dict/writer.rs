@@ -505,13 +505,12 @@ pub struct DictWriter {
 
 // Deploying the codes writer and the values writer
 
-#[async_trait]
 impl Writer for DictWriter {
     fn init(&mut self, mut eof: SequencePointer) {
         self.eof = Some(eof.split_off());
     }
 
-    async fn push_chunk(&mut self, chunk: ArrayRef, id: SequenceId) -> VortexResult<()> {
+    fn push_chunk(&mut self, chunk: ArrayRef, id: SequenceId) -> VortexResult<()> {
         let encoded = self.encoder.encode(&chunk);
         if encoded.len() < chunk.len() {
             // Time to roll the dictionary.
@@ -521,7 +520,7 @@ impl Writer for DictWriter {
         Ok(())
     }
 
-    async fn finish(&mut self) -> VortexResult<LayoutRef> {
+    fn finish(&mut self) -> VortexResult<LayoutRef> {
         todo!()
     }
 }

@@ -194,26 +194,24 @@ impl CompressedWriter {
     }
 }
 
-#[async_trait]
 impl Writer for CompressedWriter {
     fn init(&mut self, eof: SequencePointer) {
         self.next.init(eof);
     }
 
-    async fn push_chunk(&mut self, chunk: ArrayRef, id: SequenceId) -> VortexResult<()> {
+    fn push_chunk(&mut self, chunk: ArrayRef, id: SequenceId) -> VortexResult<()> {
         // Push a new chunk, compressing it, and then sending it to the child stream.
         let compressor = self.compressor.clone();
-        let compress = self
-            .handle
-            .spawn_cpu(move || compressor.compress_chunk(&chunk));
+        // TODO(aduffy): spawn onto the thread pool?
+        let compress = compressor.compress_chunk(&chunk);
 
-        let chunk = compress.await?;
-        self.next.push_chunk(chunk, id).await?;
+        let chunk = compress?;
+        self.next.push_chunk(chunk, id)?;
 
         Ok(())
     }
 
-    async fn finish(&mut self) -> VortexResult<LayoutRef> {
-        self.next.finish().await
+    fn finish(&mut self) -> VortexResult<LayoutRef> {
+        self.next.finish()
     }
 }
