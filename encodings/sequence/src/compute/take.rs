@@ -11,7 +11,7 @@ use vortex_dtype::{
     DType, IntegerPType, NativePType, Nullability, match_each_integer_ptype,
     match_each_native_ptype,
 };
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
 
@@ -25,6 +25,8 @@ impl TakeKernel for SequenceVTable {
 
         Ok(match_each_integer_ptype!(indices.ptype(), |T| {
             let indices = indices.as_slice::<T>();
+            check_bounds(indices, array.len())?;
+
             match_each_native_ptype!(array.ptype(), |S| {
                 let mul = array.multiplier().cast::<S>();
                 let base = array.base().cast::<S>();
@@ -32,6 +34,17 @@ impl TakeKernel for SequenceVTable {
             })
         }))
     }
+}
+
+fn check_bounds<T: IntegerPType>(indices: &[T], len: usize) -> VortexResult<()> {
+    for &i in indices {
+        let i = i.as_();
+        if i >= len {
+            vortex_bail!(OutOfBounds: i, 0, len);
+        }
+    }
+
+    Ok(())
 }
 
 fn take<T: IntegerPType, S: NativePType>(
@@ -76,6 +89,7 @@ register_kernel!(TakeKernelAdapter(SequenceVTable).lift());
 #[cfg(test)]
 mod test {
     use rstest::rstest;
+    use vortex_array::compute::take;
     use vortex_dtype::Nullability;
 
     use crate::SequenceArray;
@@ -132,5 +146,20 @@ mod test {
     fn test_take_conformance(#[case] sequence: SequenceArray) {
         use vortex_array::compute::conformance::take::test_take_conformance;
         test_take_conformance(sequence.as_ref());
+    }
+
+    #[test]
+    fn test_bounds_check() {
+        let array = SequenceArray::typed_new(0i32, 1i32, Nullability::NonNullable, 10).unwrap();
+        let indices = vortex_array::arrays::PrimitiveArray::from_iter([0i32, 20]);
+        let result = take(array.as_ref(), indices.as_ref());
+        assert!(result.is_err());
+        assert!(
+            result
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("out of bounds from")
+        );
     }
 }
