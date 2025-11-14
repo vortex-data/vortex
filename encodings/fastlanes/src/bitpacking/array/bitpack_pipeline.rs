@@ -134,7 +134,7 @@ impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<
         debug_assert!(output.is_empty());
 
         let packed_offset = self.num_chunks_unpacked * self.packed_stride;
-        let not_yet_unpacked_values = &self.packed_buffer.as_slice()[packed_offset..];
+        let packed_bytes = &self.packed_buffer[packed_offset..][..self.packed_stride];
 
         // If the true count is very small (the selection is sparse), we can unpack individual
         // elements directly into the output vector.
@@ -151,7 +151,7 @@ impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<
                     let unpacked_value = unsafe {
                         BitPacking::unchecked_unpack_single(
                             self.packed_bit_width,
-                            not_yet_unpacked_values,
+                            packed_bytes,
                             idx,
                         )
                     };
@@ -179,7 +179,7 @@ impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<
         unsafe {
             BitPacking::unchecked_unpack(
                 self.packed_bit_width,
-                &not_yet_unpacked_values[..self.packed_stride],
+                packed_bytes,
                 transmute(elements.as_mut()),
             );
         }
@@ -200,12 +200,11 @@ impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<
 
 #[cfg(test)]
 mod tests {
+    use crate::BitPackedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_dtype::PTypeDowncast;
     use vortex_mask::Mask;
     use vortex_vector::VectorOps;
-
-    use crate::BitPackedArray;
 
     #[test]
     fn test_bitpack_pipeline_basic() {
