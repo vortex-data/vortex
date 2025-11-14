@@ -10,7 +10,6 @@ mod toposort;
 use std::hash::{BuildHasher, Hash, Hasher};
 
 use itertools::Itertools;
-use vortex_compute::filter::MaskIndices;
 use vortex_dtype::DType;
 use vortex_error::{vortex_ensure, VortexResult};
 use vortex_mask::Mask;
@@ -310,10 +309,7 @@ impl Pipeline {
                         if selection.true_count() == 0 {
                             tail.clear();
                         } else {
-                            let mut indices = Vec::with_capacity(selection.true_count());
-                            selection.iter_ones(|i| indices.push(i));
-                            let mask_indices = unsafe { MaskIndices::new_unchecked(&indices) };
-                            tail.filter(&mask_indices);
+                            tail.filter(selection);
                             assert_eq!(tail.len(), selection.true_count());
                         }
                     }

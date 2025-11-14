@@ -3,6 +3,7 @@
 
 pub mod bit_view;
 pub mod driver;
+mod filter;
 
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_vector::{Vector, VectorMut};
