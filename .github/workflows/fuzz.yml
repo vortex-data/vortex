@@ -125,6 +125,14 @@ jobs:
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       gh_token: ${{ secrets.GITHUB_TOKEN }}
 
+  attempt-fix-io:
+    name: "Attempt Fix for IO Fuzz Crash"
+    needs: report-io-fuzz-failures
+    if: needs.report-io-fuzz-failures.outputs.issue_number != ''
+    uses: ./.github/workflows/fuzzer-fix-automation.yml
+    with:
+      issue_number: ${{ needs.report-io-fuzz-failures.outputs.issue_number }}
+    secrets: inherit
 
   ops_fuzz:
     name: "Array Operations Fuzz"
