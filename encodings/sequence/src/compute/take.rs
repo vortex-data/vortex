@@ -11,7 +11,7 @@ use vortex_dtype::{
     DType, IntegerPType, NativePType, Nullability, match_each_integer_ptype,
     match_each_native_ptype,
 };
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
 
@@ -23,28 +23,22 @@ impl TakeKernel for SequenceVTable {
         let indices = indices.to_primitive();
         let result_nullability = array.dtype().nullability() | indices.dtype().nullability();
 
-        Ok(match_each_integer_ptype!(indices.ptype(), |T| {
+        match_each_integer_ptype!(indices.ptype(), |T| {
             let indices = indices.as_slice::<T>();
-            check_bounds(indices, array.len())?;
-
             match_each_native_ptype!(array.ptype(), |S| {
                 let mul = array.multiplier().cast::<S>();
                 let base = array.base().cast::<S>();
-                take(mul, base, indices, mask, result_nullability)
+                Ok(take(
+                    mul,
+                    base,
+                    indices,
+                    mask,
+                    result_nullability,
+                    array.len(),
+                ))
             })
-        }))
+        })
     }
-}
-
-fn check_bounds<T: IntegerPType>(indices: &[T], len: usize) -> VortexResult<()> {
-    for &i in indices {
-        let i = i.as_();
-        if i >= len {
-            vortex_bail!(OutOfBounds: i, 0, len);
-        }
-    }
-
-    Ok(())
 }
 
 fn take<T: IntegerPType, S: NativePType>(
@@ -53,10 +47,14 @@ fn take<T: IntegerPType, S: NativePType>(
     indices: &[T],
     indices_mask: Mask,
     result_nullability: Nullability,
+    len: usize,
 ) -> ArrayRef {
     match indices_mask.bit_buffer() {
         AllOr::All => PrimitiveArray::new(
             Buffer::from_trusted_len_iter(indices.iter().map(|i| {
+                if i.as_() >= len {
+                    vortex_panic!(OutOfBounds: i.as_(), 0, len);
+                }
                 let i = <S as NumCast>::from::<T>(*i).vortex_expect("all indices fit");
                 base + i * mul
             })),
@@ -72,6 +70,10 @@ fn take<T: IntegerPType, S: NativePType>(
             let buffer =
                 Buffer::from_trusted_len_iter(indices.iter().enumerate().map(|(mask_index, i)| {
                     if b.value(mask_index) {
+                        if i.as_() >= len {
+                            vortex_panic!(OutOfBounds: i.as_(), 0, len);
+                        }
+
                         let i =
                             <S as NumCast>::from::<T>(*i).vortex_expect("all valid indices fit");
                         base + i * mul
@@ -149,17 +151,10 @@ mod test {
     }
 
     #[test]
+    #[should_panic(expected = "index 20 out of bounds")]
     fn test_bounds_check() {
         let array = SequenceArray::typed_new(0i32, 1i32, Nullability::NonNullable, 10).unwrap();
         let indices = vortex_array::arrays::PrimitiveArray::from_iter([0i32, 20]);
-        let result = take(array.as_ref(), indices.as_ref());
-        assert!(result.is_err());
-        assert!(
-            result
-                .err()
-                .unwrap()
-                .to_string()
-                .contains("out of bounds from")
-        );
+        let _array = take(array.as_ref(), indices.as_ref()).unwrap();
     }
 }
