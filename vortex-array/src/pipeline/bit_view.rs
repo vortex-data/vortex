@@ -323,21 +323,23 @@ pub trait BitViewExt {
     /// # Panics
     ///
     /// If the bit buffer's bit-offset is not zero.
-    fn iter_bit_views(&self) -> impl Iterator<Item = BitView<'_>> + '_;
+    fn iter_bit_views(&self) -> impl Iterator<Item = (BitView<'_>, usize)> + '_;
 }
 
 impl BitViewExt for BitBuffer {
-    fn iter_bit_views(&self) -> impl Iterator<Item = BitView<'_>> + '_ {
+    fn iter_bit_views(&self) -> impl Iterator<Item = (BitView<'_>, usize)> + '_ {
         assert_eq!(
             self.offset(),
             0,
             "BitView iteration requires zero bit offset"
         );
         let n_views = self.len().div_ceil(N);
+        let final_view_len = self.len() % N;
         BitViewIterator {
             bits: self.inner().as_ref(),
             view_idx: 0,
             n_views,
+            final_view_len,
         }
     }
 }
@@ -348,10 +350,12 @@ struct BitViewIterator<'a> {
     view_idx: usize,
     // The total number of views
     n_views: usize,
+    // Final view len
+    final_view_len: usize,
 }
 
 impl<'a> Iterator for BitViewIterator<'a> {
-    type Item = BitView<'a>;
+    type Item = (BitView<'a>, usize);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.view_idx == self.n_views {
@@ -363,13 +367,13 @@ impl<'a> Iterator for BitViewIterator<'a> {
 
         let bits = if end_byte <= self.bits.len() {
             // Full view from the original bits
-            BitView::from_slice(&self.bits[start_byte..end_byte])
+            (BitView::from_slice(&self.bits[start_byte..end_byte]), N)
         } else {
             // Partial view, copy to scratch
             let remaining_bytes = self.bits.len() - start_byte;
             let mut remaining = [0u8; N_BYTES];
             remaining[..remaining_bytes].copy_from_slice(&self.bits[start_byte..]);
-            BitView::new_owned(remaining)
+            (BitView::new_owned(remaining), self.final_view_len)
         };
 
         self.view_idx += 1;

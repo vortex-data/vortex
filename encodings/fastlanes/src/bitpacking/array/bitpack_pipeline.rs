@@ -95,6 +95,7 @@ pub struct AlignedBitPackedKernel<BP: PhysicalPType<Physical: BitPacking>> {
 impl<BP: PhysicalPType<Physical: BitPacking>> AlignedBitPackedKernel<BP> {
     pub fn new(
         packed_bit_width: usize,
+        // TODO(ngates): hold an iterator over chunks instead of the full buffer?
         packed_buffer: Buffer<BP::Physical>,
         validity: MaskMut,
     ) -> Self {
@@ -124,6 +125,11 @@ impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<
         selection: &BitView,
         out: VectorMut,
     ) -> VortexResult<VectorMut> {
+        if selection.true_count() == 0 {
+            debug_assert!(out.is_empty());
+            return Ok(out);
+        }
+
         let mut output: PVectorMut<BP> = out.into_primitive().downcast();
         debug_assert!(output.is_empty());
 
@@ -165,6 +171,7 @@ impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<
         // element lane with SIMD / FastLanes and let other nodes in the pipeline decide if they
         // want to perform the selection filter themselves.
         let (mut elements, _validity) = output.into_parts();
+
         elements.reserve(N);
         // SAFETY: we just reserved enough capacity.
         unsafe { elements.set_len(N) };
@@ -181,10 +188,9 @@ impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<
         let mut chunk_validity = self.validity.split_off(N.min(self.validity.capacity()));
         std::mem::swap(&mut self.validity, &mut chunk_validity);
 
-        if chunk_validity.len() < N {
-            let padding = N - chunk_validity.len();
-            chunk_validity.append_n(true, padding);
-        }
+        // For the final chunk, we may have fewer than N elements to unpack.
+        // So we just set the length of the output to the correct value.
+        unsafe { elements.set_len(chunk_validity.len()) };
 
         self.num_chunks_unpacked += 1;
 
