@@ -34,7 +34,7 @@ the following expression represents the set of rows for which the `age` column l
 .. autoclass:: vortex.expr.Expr
    :members:
 
-   .. py:method:: __getitem__(name, /)
+   .. py:method:: __getitem__ (name, /)
 
       Extract a field of a struct array.
 

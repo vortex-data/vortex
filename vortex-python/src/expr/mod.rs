@@ -241,7 +241,7 @@ pub fn root() -> PyExpr {
 ///
 /// .. seealso::
 ///
-///    Use :meth:`.vortex.Expr.__getitem__` to retrieve a field of a struct array.
+///    Use :meth:`.vortex.expr.Expr.__getitem__` to retrieve a field of a struct array.
 #[pyfunction]
 pub fn column<'py>(name: &Bound<'py, PyString>) -> PyResult<Bound<'py, PyExpr>> {
     let py = name.py();
