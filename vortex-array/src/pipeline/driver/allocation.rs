@@ -4,7 +4,7 @@
 //! Vector allocation strategy for pipelines
 
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_vector::{Vector, VectorMut, VectorMutOps};
+use vortex_vector::VectorMut;
 
 use crate::pipeline::driver::{Node, NodeId};
 use crate::pipeline::{VectorId, N};
@@ -15,7 +15,7 @@ pub struct VectorAllocation {
     /// Where each node writes its output
     pub(crate) output_targets: Vec<OutputTarget>,
     /// The actual allocated vectors
-    pub(crate) vectors: Vec<Vector>,
+    pub(crate) vectors: Vec<VectorMut>,
 }
 
 // TODO(joe): support in-place view operations
@@ -86,10 +86,7 @@ pub(super) fn allocate_vectors(
             .collect(),
         vectors: allocation_types
             .into_iter()
-            // TODO(ngates): we may actually want to use capacity = 0 and let the first step
-            //  of the pipeline call "reserve". Some kernels don't need oututs (if they propagate
-            //  their inputs untouched), so allocating N for all vectors may be wasteful.
-            .map(|dtype| VectorMut::with_capacity(dtype, N).freeze())
+            .map(|dtype| VectorMut::with_capacity(dtype, N))
             .collect(),
     })
 }

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_vector::Vector;
+use vortex_vector::{Vector, VectorOps};
 
 use crate::array::ArrayOperator;
 use crate::pipeline::driver::allocation::VectorAllocation;
@@ -46,7 +46,8 @@ pub(crate) fn bind_kernels(
 
                 let batch = batch_inputs[batch_id]
                     .take()
-                    .vortex_expect("Batch input vector has already been consumed");
+                    .vortex_expect("Batch input vector has already been consumed")
+                    .into_mut();
 
                 Box::new(InputKernel::new(batch))
             }

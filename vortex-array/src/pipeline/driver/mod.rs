@@ -13,7 +13,7 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_ensure, VortexResult};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
-use vortex_vector::{Vector, VectorMut, VectorMutOps, VectorOps};
+use vortex_vector::{Vector, VectorMut, VectorMutOps};
 
 use crate::pipeline::bit_view::{BitView, BitViewExt};
 use crate::pipeline::driver::allocation::{allocate_vectors, OutputTarget};
@@ -282,7 +282,7 @@ impl Pipeline {
                     let tail = output.split_off(output.len());
                     debug_assert!(tail.is_empty());
 
-                    let tail = kernel.step(&self.ctx, selection, tail)?;
+                    let tail = kernel.step(&mut self.ctx, selection, tail)?;
 
                     let len = tail.len();
                     vortex_ensure!(
@@ -304,19 +304,13 @@ impl Pipeline {
                     // }
 
                     // Now we join the produced output back to the main output vector.
-                    // TODO(ngates): we should be able to `output.extend(tail)` and try unsplit,
-                    //  and if not, copy directly. Rather than into_mut which is two copies.
-
-                    // FIXME(ngates): this into_mut will always fail, so it copies, then the
-                    //  unsplit copies again... We cannot freeze/into_mut a split_off BytesMut.
-                    let tail = tail.into_mut();
                     output.unsplit(tail);
                 }
                 OutputTarget::IntermediateVector(vector_id) => {
                     let mut out_vector = self.ctx.take_output(vector_id);
                     out_vector.clear();
 
-                    let out_vector = kernel.step(&self.ctx, selection, out_vector.into_mut())?;
+                    let out_vector = kernel.step(&mut self.ctx, selection, out_vector)?;
 
                     let len = out_vector.len();
                     vortex_ensure!(
@@ -349,16 +343,3 @@ impl PartialEq for ArrayKey {
     }
 }
 impl Eq for ArrayKey {}
-
-#[cfg(test)]
-mod test {
-    use bytes::BytesMut;
-
-    #[test]
-    fn it_works() {
-        let mut bytes = BytesMut::from_iter([0, 1, 2, 3, 4, 5]);
-        let tail = bytes.split_off(4);
-        assert!(bytes.freeze().is_unique());
-        assert!(tail.freeze().is_unique());
-    }
-}

@@ -9,10 +9,10 @@ use vortex_array::pipeline::{BindContext, Kernel, KernelCtx, PipelineInputs, Pip
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_integer_ptype, PTypeDowncastExt, PhysicalPType};
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
-use vortex_vector::primitive::{PVector, PVectorMut};
-use vortex_vector::{Vector, VectorMutOps};
-use vortex_vector::{VectorMut, VectorOps};
+use vortex_mask::MaskMut;
+use vortex_vector::primitive::PVectorMut;
+use vortex_vector::VectorMut;
+use vortex_vector::VectorMutOps;
 
 use crate::BitPackedArray;
 
@@ -57,7 +57,7 @@ impl PipelinedNode for BitPackedArray {
             Ok(Box::new(AlignedBitPackedKernel::<T>::new(
                 packed_bit_width,
                 packed_buffer,
-                self.validity.to_mask(self.len()),
+                self.validity.to_mask(self.len()).into_mut(),
             )) as Box<dyn Kernel>)
         })
     }
@@ -86,7 +86,7 @@ pub struct AlignedBitPackedKernel<BP: PhysicalPType<Physical: BitPacking>> {
     packed_buffer: Buffer<BP::Physical>,
 
     /// The validity mask for the bitpacked array.
-    validity: Mask,
+    validity: MaskMut,
 
     /// The total number of bitpacked chunks we have unpacked.
     num_chunks_unpacked: usize,
@@ -96,7 +96,7 @@ impl<BP: PhysicalPType<Physical: BitPacking>> AlignedBitPackedKernel<BP> {
     pub fn new(
         packed_bit_width: usize,
         packed_buffer: Buffer<BP::Physical>,
-        validity: Mask,
+        validity: MaskMut,
     ) -> Self {
         let packed_stride =
             packed_bit_width * <<BP as PhysicalPType>::Physical as FastLanes>::LANES;
@@ -120,19 +120,15 @@ impl<BP: PhysicalPType<Physical: BitPacking>> AlignedBitPackedKernel<BP> {
 impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<BP> {
     fn step(
         &mut self,
-        _ctx: &KernelCtx,
+        _ctx: &mut KernelCtx,
         selection: &BitView,
         out: VectorMut,
-    ) -> VortexResult<Vector> {
+    ) -> VortexResult<VectorMut> {
         let mut output: PVectorMut<BP> = out.into_primitive().downcast();
         debug_assert!(output.is_empty());
 
         let packed_offset = self.num_chunks_unpacked * self.packed_stride;
         let not_yet_unpacked_values = &self.packed_buffer.as_slice()[packed_offset..];
-
-        let chunk_offset = self.num_chunks_unpacked * N;
-        let array_len = self.validity.len();
-        debug_assert!(chunk_offset < array_len);
 
         // If the true count is very small (the selection is sparse), we can unpack individual
         // elements directly into the output vector.
@@ -140,8 +136,7 @@ impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<
             output.reserve(selection.true_count());
 
             selection.iter_ones(|idx| {
-                let absolute_idx = chunk_offset + idx;
-                if self.validity.value(absolute_idx) {
+                if self.validity.value(idx) {
                     // SAFETY:
                     // - The documentation for `packed_bit_width` explains that the size is valid.
                     // - We know that the size of the `next_packed_chunk` we provide is equal to
@@ -163,7 +158,7 @@ impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<
             });
 
             self.num_chunks_unpacked += 1;
-            return Ok(output.freeze().into());
+            return Ok(output.into());
         }
 
         // Otherwise if the mask is dense, it is faster to fully unpack the entire 1024
@@ -183,17 +178,17 @@ impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<
         }
 
         // Prepare the output validity mask for this chunk.
-        let mut chunk_validity = self.validity.slice(chunk_offset..array_len);
-        let padding = (chunk_offset + N) - array_len;
-        if padding > 0 {
-            let mut chunk_validity_mut = chunk_validity.into_mut();
-            chunk_validity_mut.append_n(true, padding);
-            chunk_validity = chunk_validity_mut.freeze();
+        let mut chunk_validity = self.validity.split_off(N.min(self.validity.capacity()));
+        std::mem::swap(&mut self.validity, &mut chunk_validity);
+
+        if chunk_validity.len() < N {
+            let padding = N - chunk_validity.len();
+            chunk_validity.append_n(true, padding);
         }
 
         self.num_chunks_unpacked += 1;
 
-        Ok(PVector::new(elements.freeze(), chunk_validity).into())
+        Ok(PVectorMut::new(elements, chunk_validity).into())
     }
 }
 
