@@ -56,12 +56,6 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install DuckDB
-        run: |
-          wget -qO- https://github.com/duckdb/duckdb/releases/download/v1.3.2/duckdb_cli-linux-amd64.zip | funzip > duckdb
-          chmod +x duckdb
-          echo "$PWD" >> $GITHUB_PATH
-
       - name: Build binary
         shell: bash
         env:
