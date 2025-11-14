@@ -587,6 +587,9 @@ mod tests {
     #[case(3, 8)]
     #[case(5, 10)]
     #[case(2, 16)]
+    #[case(8, 16)]
+    #[case(9, 16)]
+    #[case(17, 16)]
     fn test_iter_bits_with_offset(#[case] offset: usize, #[case] len: usize) {
         let total_bits = offset + len;
         let buf = BitBuffer::collect_bool(total_bits, |i| i % 2 == 0);
@@ -602,6 +605,38 @@ mod tests {
         for (idx, is_set) in collected {
             // The bits should match the original buffer at positions offset + idx
             assert_eq!(is_set, (offset + idx) % 2 == 0);
+        }
+    }
+
+    #[rstest]
+    #[case(8, 10)]
+    #[case(9, 7)]
+    #[case(16, 8)]
+    #[case(17, 10)]
+    fn test_iter_bits_catches_wrong_byte_offset(#[case] offset: usize, #[case] len: usize) {
+        let total_bits = offset + len;
+        // Alternating pattern to catch byte offset errors: Bits are set for even indexed bytes.
+        let buf = BitBuffer::collect_bool(total_bits, |i| (i / 8) % 2 == 0);
+
+        let buf_with_offset = BitBuffer::new_with_offset(buf.inner().clone(), len, offset);
+
+        let mut collected = Vec::new();
+        buf_with_offset.iter_bits(|idx, is_set| {
+            collected.push((idx, is_set));
+        });
+
+        assert_eq!(collected.len(), len);
+
+        for (idx, is_set) in collected {
+            let bit_position = offset + idx;
+            let byte_index = bit_position / 8;
+            let expected_is_set = byte_index % 2 == 0;
+
+            assert_eq!(
+                is_set, expected_is_set,
+                "Bit mismatch at index {}: expected {} got {}",
+                bit_position, expected_is_set, is_set
+            );
         }
     }
 }
