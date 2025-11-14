@@ -146,16 +146,17 @@ impl CompactCompressor {
                 let sizes_ptype = narrowed_sizes.ptype();
                 let offsets_ptype = narrowed_offsets.ptype();
 
-                let (final_offsets, final_sizes) = if sizes_ptype.byte_width() > offsets_ptype.byte_width() {
-                    // Cast offsets to match sizes type
-                    let casted_offsets = vortex_array::compute::cast(
-                        &narrowed_offsets.into_array(),
-                        narrowed_sizes.dtype(),
-                    )?;
-                    (casted_offsets, narrowed_sizes.into_array())
-                } else {
-                    (narrowed_offsets.into_array(), narrowed_sizes.into_array())
-                };
+                let (final_offsets, final_sizes) =
+                    if sizes_ptype.byte_width() > offsets_ptype.byte_width() {
+                        // Cast offsets to match sizes type
+                        let casted_offsets = vortex_array::compute::cast(
+                            &narrowed_offsets.into_array(),
+                            narrowed_sizes.dtype(),
+                        )?;
+                        (casted_offsets, narrowed_sizes.into_array())
+                    } else {
+                        (narrowed_offsets.into_array(), narrowed_sizes.into_array())
+                    };
 
                 let compressed_offsets = self.compress(&final_offsets)?;
                 let compressed_sizes = self.compress(&final_sizes)?;
@@ -300,8 +301,7 @@ mod tests {
         )
         .into_array();
 
-        let listview =
-            ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable).unwrap();
+        let listview = ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable);
 
         // This should not panic - the fix ensures compatible types
         let compressed = compressor.compress(listview.as_ref()).unwrap();
