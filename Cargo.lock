@@ -8817,6 +8817,8 @@ dependencies = [
  "tempfile",
  "url",
  "vortex",
+ "vortex-runend",
+ "vortex-sequence",
  "vortex-utils",
  "vortex-vector",
  "walkdir",

@@ -15,14 +15,17 @@ use num_traits::AsPrimitive;
 use tempfile::NamedTempFile;
 use vortex::IntoArray;
 use vortex::arrays::{
-    BoolArray, ConstantArray, FixedSizeListArray, ListArray, PrimitiveArray, StructArray,
-    VarBinArray, VarBinViewArray,
+    BoolArray, ConstantArray, DictArray, FixedSizeListArray, ListArray, PrimitiveArray,
+    StructArray, VarBinArray, VarBinViewArray,
 };
 use vortex::buffer::buffer;
+use vortex::dtype::{Nullability, PType};
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
-use vortex::scalar::Scalar;
+use vortex::scalar::{PValue, Scalar};
 use vortex::validity::Validity;
+use vortex_runend::RunEndArray;
+use vortex_sequence::SequenceArray;
 
 use crate::cpp::{duckdb_string_t, duckdb_timestamp};
 use crate::duckdb::{Connection, Database};
@@ -702,4 +705,194 @@ fn test_vortex_scan_ultra_deep_nesting() {
         let _vec = chunk.get_vector(0);
     }
     assert_eq!(row_count, 1, "Should have retrieved 1 row");
+}
+
+async fn write_vortex_file_with_encodings() -> NamedTempFile {
+    let temp_file_path = create_temp_file();
+
+    // 0. Primitive
+    let primitive_i32 = buffer![1i32, 2, 3, 4, 5];
+    let primitive_f64 = buffer![1.1f64, 2.2, 3.3, 4.4, 5.5];
+
+    // 1. Constant
+    let constant_str = ConstantArray::new(Scalar::from("constant_value"), 5);
+
+    // 2. Boolean
+    let bool_array = BoolArray::from_bit_buffer(
+        vec![true, false, true, false, true].into(),
+        Validity::NonNullable,
+    );
+
+    // 3. Dictionary
+    let keys = buffer![0u32, 1, 0, 2, 1];
+    let values = VarBinArray::from(vec!["apple", "banana", "cherry"]);
+    let dict_array = DictArray::try_new(keys.into_array(), values.into_array()).unwrap();
+
+    // 4. Run-End
+    let run_ends = buffer![3u32, 5];
+    let run_values = buffer![100i32, 200];
+    let rle_array = RunEndArray::try_new(run_ends.into_array(), run_values.into_array()).unwrap();
+
+    // 5. Sequence array
+    let sequence_array = SequenceArray::new(
+        PValue::I64(0),
+        PValue::I64(10),
+        PType::I64,
+        Nullability::NonNullable,
+        5,
+    )
+    .unwrap()
+    .into_array();
+
+    // 6. VarBin
+    let varbin_array = VarBinArray::from(vec!["hello", "world", "vortex", "test", "data"]);
+
+    // 7. List
+    let list_values = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    let list_offsets = buffer![0u32, 2, 5, 6, 10, 10]; // [1,2], [3,4,5], [6], [7,8,9,10], []
+    let list_array = ListArray::try_new(
+        list_values.into_array(),
+        list_offsets.into_array(),
+        Validity::NonNullable,
+    )
+    .unwrap();
+
+    // 8. Fixed-size list
+    let fixed_list_values = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    let fixed_list_array = FixedSizeListArray::try_new(
+        fixed_list_values.into_array(),
+        2, // 2 elements per list
+        Validity::NonNullable,
+        5, // 5 lists
+    )
+    .unwrap();
+
+    // Struct array containing the different encodings.
+    let struct_array = StructArray::try_from_iter([
+        ("primitive_i32", primitive_i32.into_array()),
+        ("primitive_f64", primitive_f64.into_array()),
+        ("constant_str", constant_str.into_array()),
+        ("bool_col", bool_array.into_array()),
+        ("dict_col", dict_array.into_array()),
+        ("rle_col", rle_array.into_array()),
+        ("sequence_col", sequence_array),
+        ("varbin_col", varbin_array.into_array()),
+        ("list_col", list_array.into_array()),
+        ("fixed_list_col", fixed_list_array.into_array()),
+    ])
+    .unwrap();
+
+    // Write to file
+    let mut file = async_fs::File::create(&temp_file_path).await.unwrap();
+    SESSION
+        .write_options()
+        .write(&mut file, struct_array.to_array_stream())
+        .await
+        .unwrap();
+
+    temp_file_path
+}
+
+#[allow(clippy::cognitive_complexity)]
+#[test]
+fn test_vortex_encodings_roundtrip() {
+    let file = RUNTIME.block_on(write_vortex_file_with_encodings());
+    let conn = database_connection();
+
+    // Test reading back each column type
+    let result = conn
+        .query(&format!(
+            "SELECT * FROM vortex_scan('{}')",
+            file.path().to_string_lossy()
+        ))
+        .unwrap();
+
+    let chunk = result.into_iter().next().unwrap();
+    assert_eq!(chunk.len(), 5); // 5 rows
+    assert_eq!(chunk.column_count(), 10); // 10 columns
+
+    // Verify primitive i32 (column 0)
+    let primitive_i32_vec = chunk.get_vector(0);
+    let primitive_i32_slice = primitive_i32_vec.as_slice_with_len::<i32>(chunk.len().as_());
+    assert_eq!(primitive_i32_slice, [1, 2, 3, 4, 5]);
+
+    // Verify primitive f64 (column 1)
+    let primitive_f64_vec = chunk.get_vector(1);
+    let primitive_f64_slice = primitive_f64_vec.as_slice_with_len::<f64>(chunk.len().as_());
+    assert!((primitive_f64_slice[0] - 1.1).abs() < f64::EPSILON);
+    assert!((primitive_f64_slice[1] - 2.2).abs() < f64::EPSILON);
+    assert!((primitive_f64_slice[2] - 3.3).abs() < f64::EPSILON);
+
+    // Verify constant string (column 2)
+    let mut constant_vec = chunk.get_vector(2);
+    let constant_slice = unsafe { constant_vec.as_slice_mut::<duckdb_string_t>(chunk.len().as_()) };
+    for idx in 0..5 {
+        let string_val = String::from_duckdb_value(&mut constant_slice[idx]);
+        assert_eq!(string_val, "constant_value");
+    }
+
+    // Verify boolean (column 3)
+    let bool_vec = chunk.get_vector(3);
+    let bool_slice = bool_vec.as_slice_with_len::<bool>(chunk.len().as_());
+    assert_eq!(bool_slice, [true, false, true, false, true]);
+
+    // Verify dictionary (column 4)
+    let mut dict_vec = chunk.get_vector(4);
+    let dict_slice = unsafe { dict_vec.as_slice_mut::<duckdb_string_t>(chunk.len().as_()) };
+    // Keys were [0, 1, 0, 2, 1] and values were ["apple", "banana", "cherry"]
+    let expected_dict_values = ["apple", "banana", "apple", "cherry", "banana"];
+    for idx in 0..5 {
+        let string_val = String::from_duckdb_value(&mut dict_slice[idx]);
+        assert_eq!(string_val, expected_dict_values[idx]);
+    }
+
+    // Verify RLE (column 5)
+    let rle_vec = chunk.get_vector(5);
+    let rle_slice = rle_vec.as_slice_with_len::<i32>(chunk.len().as_());
+    assert_eq!(rle_slice, [100, 100, 100, 200, 200]);
+
+    // Verify sequence (column 6)
+    let seq_vec = chunk.get_vector(6);
+    let seq_slice = seq_vec.as_slice_with_len::<i64>(chunk.len().as_());
+    assert_eq!(seq_slice, [0, 10, 20, 30, 40]);
+
+    // Verify varbin (column 7)
+    let mut varbin_vec = chunk.get_vector(7);
+    let varbin_slice = unsafe { varbin_vec.as_slice_mut::<duckdb_string_t>(chunk.len().as_()) };
+    let expected_strings = ["hello", "world", "vortex", "test", "data"];
+    for i in 0..5 {
+        let string_val = String::from_duckdb_value(&mut varbin_slice[i]);
+        assert_eq!(string_val, expected_strings[i]);
+    }
+
+    // Verify list (column 8)
+    // Expected lists: [1,2], [3,4,5], [6], [7,8,9,10], []
+    let list_vec = chunk.get_vector(8);
+    let list_entries = list_vec.as_slice_with_len::<cpp::duckdb_list_entry>(chunk.len().as_());
+
+    // Verify list lengths
+    assert_eq!(list_entries[0].length, 2); // [1,2]
+    assert_eq!(list_entries[1].length, 3); // [3,4,5]
+    assert_eq!(list_entries[2].length, 1); // [6]
+    assert_eq!(list_entries[3].length, 4); // [7,8,9,10]
+    assert_eq!(list_entries[4].length, 0); // []
+
+    // Verify list offsets are sequential
+    assert_eq!(list_entries[0].offset, 0);
+    assert_eq!(list_entries[1].offset, 2);
+    assert_eq!(list_entries[2].offset, 5);
+    assert_eq!(list_entries[3].offset, 6);
+    assert_eq!(list_entries[4].offset, 10);
+
+    // Get child vector and verify actual values
+    let list_child = list_vec.list_vector_get_child();
+    let child_values = list_child.as_slice_with_len::<i32>(10); // 10 total child elements
+    assert_eq!(child_values, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+
+    // Verify fixed-size list column (column 9)
+    // Expected fixed-size lists: [1,2], [3,4], [5,6], [7,8], [9,10]
+    let fixed_list_vec = chunk.get_vector(9);
+    let fixed_child = fixed_list_vec.array_vector_get_child();
+    let fixed_child_values = fixed_child.as_slice_with_len::<i32>(10); // 10 total child elements
+    assert_eq!(fixed_child_values, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 }

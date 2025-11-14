@@ -41,6 +41,8 @@ vortex-vector = { workspace = true }
 [dev-dependencies]
 jiff = { workspace = true }
 rstest = { workspace = true }
+vortex-runend = { workspace = true }
+vortex-sequence = { workspace = true }
 
 [lints]
 workspace = true
