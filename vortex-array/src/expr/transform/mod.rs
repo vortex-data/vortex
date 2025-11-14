@@ -7,21 +7,14 @@ pub mod immediate_access;
 pub(crate) mod match_between;
 mod partition;
 mod remove_merge;
-mod remove_select;
+pub mod remove_select;
 mod replace;
-mod simplify;
+pub mod simplify;
 mod simplify_typed;
+pub mod traits;
 
 pub use partition::*;
 pub use replace::*;
 pub use simplify::*;
 pub use simplify_typed::*;
-
-use crate::expr::traversal::Transformed;
-use crate::expr::{ExprId, Expression};
-
-trait ExpressionParentTransformer {
-    fn id(&self) -> ExprId;
-
-    fn reduce_parent(&self, expr: &Expression, parent: &Expression) -> Transformed<Expression>;
-}
+pub use traits::*;
