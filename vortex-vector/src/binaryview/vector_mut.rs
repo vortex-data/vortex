@@ -112,6 +112,31 @@ impl<T: BinaryViewType> BinaryViewVectorMut<T> {
         }
     }
 
+    /// Get a mutable handle to the buffer holding the [views][BinaryView] of the vector.
+    ///
+    /// # Safety
+    ///
+    /// Caller must make sure that length of the views always matches
+    /// length of the validity mask.
+    pub unsafe fn views_mut(&mut self) -> &mut BufferMut<BinaryView> {
+        &mut self.views
+    }
+
+    /// Get a mutable handle to the validity mask of the vector.
+    ///
+    /// # Safety
+    ///
+    /// Caller must make sure that the length of the validity mask
+    /// always matches the length of the views
+    pub unsafe fn validity_mut(&mut self) -> &mut MaskMut {
+        &mut self.validity
+    }
+
+    /// Get a mutable handle to the vector of buffers backing the string data of the vector.
+    pub fn buffers(&mut self) -> &mut Vec<ByteBuffer> {
+        &mut self.buffers
+    }
+
     /// Append a repeated sequence of binary data to a vector.
     ///
     /// ```

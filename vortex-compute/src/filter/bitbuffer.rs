@@ -4,13 +4,13 @@
 use vortex_buffer::{BitBuffer, BitBufferMut, get_bit};
 use vortex_mask::{Mask, MaskIter};
 
-use crate::filter::Filter;
+use crate::filter::{Filter, MaskIndices};
 
 /// If the filter density is above 80%, we use slices to filter the array instead of indices.
 // TODO(ngates): we need more experimentation to determine the best threshold here.
 const FILTER_SLICES_DENSITY_THRESHOLD: f64 = 0.8;
 
-impl Filter for &BitBuffer {
+impl Filter<Mask> for &BitBuffer {
     type Output = BitBuffer;
 
     fn filter(self, selection_mask: &Mask) -> BitBuffer {
@@ -30,6 +30,14 @@ impl Filter for &BitBuffer {
                 }
             },
         }
+    }
+}
+
+impl Filter<MaskIndices<'_>> for &BitBuffer {
+    type Output = BitBuffer;
+
+    fn filter(self, indices: &MaskIndices) -> BitBuffer {
+        filter_indices(self, indices)
     }
 }
 

@@ -7,7 +7,7 @@ use std::fmt::{Display, Formatter};
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
-use arrow_array::{BooleanArray, Datum as ArrowDatum};
+use arrow_array::BooleanArray;
 use arrow_buffer::NullBuffer;
 use arrow_ord::cmp;
 use arrow_ord::ord::make_comparator;
@@ -18,7 +18,7 @@ use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_
 use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantArray;
-use crate::arrow::{Datum, from_arrow_array_with_len};
+use crate::arrow::{Datum, IntoArrowArray, from_arrow_array_with_len};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, Canonical, IntoArray};
@@ -295,17 +295,12 @@ fn arrow_compare(
     operator: Operator,
 ) -> VortexResult<ArrayRef> {
     assert_eq!(left.len(), right.len());
-    let len = left.len();
 
     let nullable = left.dtype().is_nullable() || right.dtype().is_nullable();
 
     let array = if left.dtype().is_nested() || right.dtype().is_nested() {
-        let rhs = Datum::try_new_array(&right.to_canonical().into_array())?;
-        let (rhs, _) = rhs.get();
-
-        // prefer the rhs data type since this is usually used in assert_eq!(actual, expect).
-        let lhs = Datum::with_target_datatype(&left.to_canonical().into_array(), rhs.data_type())?;
-        let (lhs, _) = lhs.get();
+        let rhs = right.to_array().into_arrow_preferred()?;
+        let lhs = left.to_array().into_arrow(rhs.data_type())?;
 
         assert!(
             lhs.data_type().equals_datatype(rhs.data_type()),
@@ -314,7 +309,8 @@ fn arrow_compare(
             rhs.data_type()
         );
 
-        let cmp = make_comparator(lhs, rhs, SortOptions::default())?;
+        let cmp = make_comparator(lhs.as_ref(), rhs.as_ref(), SortOptions::default())?;
+        let len = left.len();
         let values = (0..len)
             .map(|i| {
                 let cmp = cmp(i, i);
@@ -366,13 +362,14 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_buffer::buffer;
     use vortex_dtype::{FieldName, FieldNames};
 
     use super::*;
     use crate::ToCanonical;
     use crate::arrays::{
-        BoolArray, ConstantArray, ListArray, PrimitiveArray, StructArray, VarBinArray,
-        VarBinViewArray,
+        BoolArray, ConstantArray, ListArray, ListViewArray, PrimitiveArray, StructArray,
+        VarBinArray, VarBinViewArray,
     };
     use crate::test_harness::to_int_indices;
     use crate::validity::Validity;
@@ -599,5 +596,21 @@ mod tests {
         for idx in 0..5 {
             assert!(result.bit_buffer().value(idx));
         }
+    }
+
+    #[test]
+    fn test_empty_list() {
+        let list = ListViewArray::new(
+            BoolArray::from_iter(Vec::<bool>::new()).into_array(),
+            buffer![0i32, 0i32, 0i32].into_array(),
+            buffer![0i32, 0i32, 0i32].into_array(),
+            Validity::AllValid,
+        );
+
+        // Compare two lists together
+        let result = compare(list.as_ref(), list.as_ref(), Operator::Eq).unwrap();
+        assert!(result.scalar_at(0).is_valid());
+        assert!(result.scalar_at(1).is_valid());
+        assert!(result.scalar_at(2).is_valid());
     }
 }

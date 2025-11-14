@@ -8641,6 +8641,7 @@ dependencies = [
  "log",
  "memmap2",
  "num-traits",
+ "rstest",
  "serde",
  "simdutf8",
  "vortex-error",

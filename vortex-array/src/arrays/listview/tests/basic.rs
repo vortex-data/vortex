@@ -267,20 +267,6 @@ fn test_validate_nullable_sizes() {
 }
 
 #[test]
-fn test_validate_size_type_too_large() {
-    // Logical lists (invalid due to size type > offset type): [[1,2], [3], [2,3]]
-    let elements = buffer![1i32, 2, 3, 4, 5].into_array();
-    // Use u64 for sizes and u32 for offsets (sizes type is larger).
-    let offsets = buffer![0u32, 2, 1].into_array();
-    let sizes = buffer![2u64, 1, 2].into_array();
-
-    let result = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable);
-
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("size type"));
-}
-
-#[test]
 fn test_validate_offset_plus_size_overflow() {
     // Logical lists (invalid due to overflow): would overflow, [[1], [1]]
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();

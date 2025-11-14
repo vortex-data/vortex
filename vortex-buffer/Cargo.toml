@@ -43,6 +43,7 @@ workspace = true
 [dev-dependencies]
 arrow-buffer = { workspace = true }
 divan = { workspace = true }
+rstest = { workspace = true }
 
 [[bench]]
 name = "vortex_buffer"

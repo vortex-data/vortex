@@ -209,9 +209,43 @@ impl ListViewVectorMut {
         &self.offsets
     }
 
+    /// Returns a mutable handle to the offsets vector.
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure that any offsets must be valid offsets within
+    /// the elements.
+    ///
+    /// Caller must also ensure that offsets and sizes continue to be of same length.
+    pub unsafe fn offsets_mut(&mut self) -> &mut PrimitiveVectorMut {
+        &mut self.offsets
+    }
+
     /// Returns a reference to the sizes vector.
     pub fn sizes(&self) -> &PrimitiveVectorMut {
         &self.sizes
+    }
+
+    /// Returns a mutable handle to the sizes vector.
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure that any sizes, coupled with the corresponding offset,
+    /// address valid ranges of elements.
+    ///
+    /// Caller must also ensure that offsets and sizes continue to be of same length.
+    pub unsafe fn sizes_mut(&mut self) -> &mut PrimitiveVectorMut {
+        &mut self.sizes
+    }
+
+    /// Returns a mutable handle to the validity mask of the vector.
+    ///
+    /// # Safety
+    ///
+    /// Callers must ensure modifying the length of the validity mask is only done
+    /// with corresponding updates to length of the offsets and sizes.
+    pub unsafe fn validity_mut(&mut self) -> &mut MaskMut {
+        &mut self.validity
     }
 }
 

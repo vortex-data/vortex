@@ -7,6 +7,7 @@ use crate::{Scalar, ScalarOps, VectorMut, VectorOps};
 /// A scalar value for list view types.
 ///
 /// The inner value is a ListViewVector with length 1.
+#[derive(Debug)]
 pub struct ListViewScalar(ListViewVector);
 
 impl ListViewScalar {

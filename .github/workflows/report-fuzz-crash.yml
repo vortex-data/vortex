@@ -1,0 +1,257 @@
+name: Report Fuzz Crash
+
+on:
+  workflow_call:
+    inputs:
+      fuzz_target:
+        required: true
+        type: string
+      crash_file:
+        required: true
+        type: string
+      artifact_url:
+        required: true
+        type: string
+      artifact_name:
+        required: true
+        type: string
+      logs_artifact_name:
+        required: true
+        type: string
+      branch:
+        required: true
+        type: string
+      commit:
+        required: true
+        type: string
+    secrets:
+      claude_code_oauth_token:
+        required: true
+      gh_token:
+        required: true
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Download fuzzer logs
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.logs_artifact_name }}
+          path: ./logs
+
+      - name: Analyze and report crash with Claude
+        env:
+          CRASH_FILE: ${{ inputs.crash_file }}
+          ARTIFACT_URL: ${{ inputs.artifact_url }}
+          BRANCH: ${{ inputs.branch }}
+          COMMIT: ${{ inputs.commit }}
+          FUZZ_TARGET: ${{ inputs.fuzz_target }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
+          github_token: ${{ secrets.gh_token }}
+          show_full_output: true
+          prompt: |
+            # Fuzzer Crash Analysis and Reporting
+
+            A fuzzing run for the `$FUZZ_TARGET` target has detected a crash. Analyze it and report by creating or updating a GitHub issue.
+
+            ## Step 1: Analyze the Crash
+
+            1. Read the fuzzer log: `logs/fuzz_output.log`
+            2. Extract:
+               - Stack trace (lines with `#0`, `#1`, etc.)
+               - Error message ("panicked at" or "ERROR:")
+               - Crash location (top user code frame, not std/core/libfuzzer)
+               - Debug output (look for "Output of `std::fmt::Debug`:" section before the crash)
+            3. Read the source code at the crash location to understand root cause
+
+            ## Step 2: Check for Duplicates
+
+            1. Download all open fuzzer issues locally:
+               ```bash
+               gh issue list --repo ${{ github.repository }} --label fuzzer --state open --json number,title,body,url --limit 100 > fuzzer_issues.json
+               ```
+
+            2. Search locally for potential duplicates:
+               - Extract your crash location (file + function name) and error pattern
+               - Use `grep` or `jq` to search `fuzzer_issues.json` for:
+                 - Same file name in "Crash Location"
+                 - Same function name
+                 - Similar error messages (normalize numbers: "index 5" matches "index 12")
+                 - Similar stack trace patterns (same function call sequence)
+
+            3. For each potential match found:
+               - Read the full issue body using `gh issue view <number>`
+               - Compare stack traces and error patterns carefully
+               - Read source code if needed to verify same root cause
+
+            4. Determine duplication level:
+               - **EXACT DUPLICATE**: Same crash location (file + function) AND same error pattern → Update occurrence count
+               - **LIKELY RELATED**: Same general area/component, similar patterns, or unclear if truly different → Add detailed comment to existing issue
+               - **CLEARLY DIFFERENT**: Different component/area AND different error pattern → Create new issue
+
+            **IMPORTANT**: Prefer commenting on existing issues over creating new ones to reduce noise. Only create a new issue if the crash is clearly in a different area or has a distinctly different root cause.
+
+            ## Step 3: Take Action
+
+            ### If EXACT DUPLICATE (high confidence):
+            Do nothing - the issue already exists and is tracked. No need to add noise with duplicate comments.
+
+            ### If LIKELY RELATED (same area/similar patterns):
+            Add a detailed comment to the existing issue instead of creating a new one:
+            ```bash
+            gh issue comment ISSUE_NUM --repo ${{ github.repository }} --body "..."
+            ```
+
+            The comment should include ALL crash details in this format:
+            ```markdown
+            ## Related Crash Detected
+
+            A similar crash was detected in the `$FUZZ_TARGET` target.
+
+            ### Crash Details
+
+            **Crash Location**: `file.rs:function_name`
+
+            **Error Message**:
+            ```
+            [error message]
+            ```
+
+            **Stack Trace**:
+            ```
+            [top 5-7 frames]
+            ```
+
+            **Similarities to Original Issue**:
+            - [List what makes this crash similar - same area, similar error pattern, etc.]
+
+            **Differences**:
+            - [List any differences in crash location, error details, or circumstances]
+            - Note: These differences may indicate the same root cause manifesting differently
+
+            <details>
+            <summary>Debug Output</summary>
+
+            ```
+            [Include the complete "Output of std::fmt::Debug:" section]
+            ```
+            </details>
+
+            ### Occurrence Details
+
+            - **Crash File**: `$CRASH_FILE`
+            - **Branch**: $BRANCH
+            - **Commit**: $COMMIT
+            - **Crash Artifact**: $ARTIFACT_URL
+
+            ### Reproduction
+
+            ```bash
+            cargo +nightly fuzz run --sanitizer=none $FUZZ_TARGET $FUZZ_TARGET/$CRASH_FILE
+            ```
+
+            ---
+            *Auto-detected by fuzzing workflow with Claude analysis*
+            ```
+
+            ### If CLEARLY DIFFERENT (new bug):
+            Create a new issue with `gh issue create`:
+            ```bash
+            gh issue create --repo ${{ github.repository }} \
+              --title "Fuzzing Crash: [brief description]" \
+              --label "bug,fuzzer" \
+              --body "..."
+            ```
+
+            Issue body must include:
+            ```markdown
+            ## Fuzzing Crash Report
+
+            ### Analysis
+
+            **Crash Location**: `file.rs:function_name`
+
+            **Error Message**:
+            ```
+            [error message]
+            ```
+
+            **Stack Trace**:
+            ```
+            [top 5-7 frames - keep in code block to prevent markdown rendering issues]
+            ```
+
+            Note: Keep stack traces in code blocks to prevent `#0`, `#1` from being interpreted as markdown headers.
+
+            **Root Cause**: [Your analysis]
+
+            <details>
+            <summary>Debug Output</summary>
+
+            ```
+            [Include the complete "Output of std::fmt::Debug:" section from the fuzzer log]
+            ```
+            </details>
+
+            ### Summary
+
+            - **Target**: `$FUZZ_TARGET`
+            - **Crash File**: `$CRASH_FILE`
+            - **Branch**: $BRANCH
+            - **Commit**: $COMMIT
+            - **Crash Artifact**: $ARTIFACT_URL
+
+            ### Reproduction
+
+            1. Download the crash artifact:
+               - **Direct download**: $ARTIFACT_URL
+               - Or find `$ARTIFACT_NAME` at: $WORKFLOW_RUN
+               - Extract the zip file
+
+            2. Reproduce locally:
+            ```bash
+            # The artifact contains $FUZZ_TARGET/$CRASH_FILE
+            cargo +nightly fuzz run --sanitizer=none $FUZZ_TARGET $FUZZ_TARGET/$CRASH_FILE
+            ```
+
+            3. Get full backtrace:
+            ```bash
+            RUST_BACKTRACE=full cargo +nightly fuzz run --sanitizer=none $FUZZ_TARGET $FUZZ_TARGET/$CRASH_FILE
+            ```
+
+            ---
+            *Auto-created by fuzzing workflow with Claude analysis*
+            ```
+
+            ## Important Guidelines
+
+            - **Prefer comments over new issues**: When crashes are in the same area or similar, add a detailed comment instead of creating a new issue
+            - **Reduce issue noise**: Only create new issues for crashes in clearly different components or with distinctly different root causes
+            - **Download issues locally**: Use `gh issue list` to download all fuzzer issues, then search locally with grep/jq
+            - **Focus on ROOT CAUSE**: Normalize numbers in error messages - "index 5" and "index 12" are the same pattern
+            - **Be liberal with "likely related"**: If there's any similarity in area/component/pattern, comment on existing issue
+            - **Only mark exact duplicates**: Same file + function + error pattern = update occurrence count
+            - **You have full repo access**: Read source code to understand root causes and determine if crashes are related
+
+            ## Environment Variables
+
+            - CRASH_FILE: $CRASH_FILE
+            - ARTIFACT_URL: $ARTIFACT_URL (direct link to crash artifact)
+            - BRANCH: $BRANCH
+            - COMMIT: $COMMIT
+            - FUZZ_TARGET: $FUZZ_TARGET
+            - ARTIFACT_NAME: $ARTIFACT_NAME
+
+            Start by reading `logs/fuzz_output.log`.
+          claude_args: |
+            --model claude-sonnet-4-5-20250929
+            --max-turns 25
+            --allowedTools "Read,Write,Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh issue create:*),Bash(gh issue comment:*),Bash(echo:*),Bash(cat:*),Bash(jq:*),Bash(grep:*),Bash(cargo +nightly fuzz run:*),Bash(RUST_BACKTRACE=* cargo +nightly fuzz run:*)"

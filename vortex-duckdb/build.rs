@@ -18,7 +18,7 @@ static DUCKDB_VERSION: Lazy<String> = Lazy::new(|| {
     // This is to ensure that we don't implicitly build against a different DuckDB version during
     // an extension build which might lead to subtle ABI breaks, e.g. reordering fields in C++ structs.
     env::var("DUCKDB_VERSION")
-        .unwrap_or_else(|_| "1.4.1".to_owned())
+        .unwrap_or_else(|_| "1.4.2".to_owned())
         .trim_start_matches("v")
         .to_owned()
 });

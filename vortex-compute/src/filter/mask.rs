@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_mask::Mask;
+use vortex_mask::{Mask, MaskMut};
 
-use crate::filter::Filter;
+use crate::filter::{Filter, MaskIndices};
 
-impl Filter for &Mask {
+impl Filter<Mask> for &Mask {
     type Output = Mask;
 
     fn filter(self, selection_mask: &Mask) -> Mask {
@@ -25,5 +25,43 @@ impl Filter for &Mask {
                 Mask::from(v1.bit_buffer().filter(selection_mask))
             }
         }
+    }
+}
+
+impl Filter<MaskIndices<'_>> for &Mask {
+    type Output = Mask;
+
+    fn filter(self, indices: &MaskIndices<'_>) -> Mask {
+        match self {
+            Mask::AllTrue(_) => Mask::AllTrue(indices.len()),
+            Mask::AllFalse(_) => Mask::AllFalse(indices.len()),
+            Mask::Values(mask_values) => Mask::from(mask_values.bit_buffer().filter(indices)),
+        }
+    }
+}
+
+impl Filter<Mask> for &mut MaskMut {
+    type Output = ();
+
+    fn filter(self, selection_mask: &Mask) {
+        assert_eq!(
+            selection_mask.len(),
+            self.len(),
+            "Selection mask length must equal the mask length"
+        );
+
+        // TODO(connor): There is definitely a better way to do this (in place).
+        let filtered = self.clone().freeze().filter(selection_mask).into_mut();
+        *self = filtered;
+    }
+}
+
+impl Filter<MaskIndices<'_>> for &mut MaskMut {
+    type Output = ();
+
+    fn filter(self, indices: &MaskIndices<'_>) -> Self::Output {
+        // TODO(aduffy): Filter in-place
+        let filtered = self.clone().freeze().filter(indices).into_mut();
+        *self = filtered;
     }
 }
