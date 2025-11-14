@@ -1,36 +1,64 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::{BitBufferMut, BufferMut, ByteBufferMut};
-use vortex_dtype::{DType, IntegerPType, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
-use vortex_mask::Mask;
+use std::sync::Arc;
+
+use vortex_buffer::Buffer;
+use vortex_dtype::{IntegerPType, match_each_integer_ptype};
+use vortex_error::{VortexExpect, VortexResult};
+use vortex_vector::binaryview::BinaryView;
 
 use crate::arrays::varbin::VarBinArray;
-use crate::arrays::{PrimitiveArray, VarBinVTable};
+use crate::arrays::{VarBinVTable, VarBinViewArray};
 use crate::compute::{TakeKernel, TakeKernelAdapter};
-use crate::validity::Validity;
+use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl TakeKernel for VarBinVTable {
+    #[allow(clippy::cognitive_complexity)]
     fn take(&self, array: &VarBinArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let offsets = array.offsets().to_primitive();
-        let data = array.bytes();
+        let data = array.bytes().clone();
+
+        let has_null_indices = !indices.all_valid();
+
+        // Get the validity result
+        let result_validity = array.validity().take(indices)?;
+        let result_dtype = array
+            .dtype()
+            .with_nullability(result_validity.nullability());
+
         let indices = indices.to_primitive();
+
         match_each_integer_ptype!(offsets.ptype(), |O| {
             match_each_integer_ptype!(indices.ptype(), |I| {
-                Ok(take(
-                    array
-                        .dtype()
-                        .clone()
-                        .union_nullability(indices.dtype().nullability()),
-                    offsets.as_slice::<O>(),
-                    data.as_slice(),
-                    indices.as_slice::<I>(),
-                    array.validity_mask(),
-                    indices.validity_mask(),
-                )?
-                .into_array())
+                let views = if has_null_indices {
+                    take_to_views::<O, I, _>(
+                        data.as_slice(),
+                        offsets.as_slice::<O>(),
+                        indices.as_slice::<I>(),
+                        |index| indices.is_valid(index),
+                    )
+                } else {
+                    take_to_views::<O, I, _>(
+                        data.as_slice(),
+                        offsets.as_slice::<O>(),
+                        indices.as_slice::<I>(),
+                        |_| true,
+                    )
+                };
+
+                // SAFETY: views are constructed against validated
+                //   string array, validity will have same length as indices.
+                unsafe {
+                    Ok(VarBinViewArray::new_unchecked(
+                        views,
+                        Arc::new([data]),
+                        result_dtype,
+                        result_validity,
+                    )
+                    .into_array())
+                }
             })
         })
     }
@@ -38,141 +66,31 @@ impl TakeKernel for VarBinVTable {
 
 register_kernel!(TakeKernelAdapter(VarBinVTable).lift());
 
-fn take<I: IntegerPType, O: IntegerPType>(
-    dtype: DType,
-    offsets: &[O],
-    data: &[u8],
-    indices: &[I],
-    validity_mask: Mask,
-    indices_validity_mask: Mask,
-) -> VortexResult<VarBinArray> {
-    if !validity_mask.all_true() || !indices_validity_mask.all_true() {
-        return Ok(take_nullable(
-            dtype,
-            offsets,
-            data,
-            indices,
-            validity_mask,
-            indices_validity_mask,
-        ));
-    }
+/// A take implementation which yields VarBinViewArray back.
+#[inline(always)]
+fn take_to_views<Offset: IntegerPType, Index: IntegerPType, F: Fn(usize) -> bool>(
+    bytes: &[u8],
+    offsets: &[Offset],
+    indices: &[Index],
+    index_is_valid: F,
+) -> Buffer<BinaryView> {
+    indices
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(indices_index, index)| {
+            if !index_is_valid(indices_index) {
+                BinaryView::empty_view()
+            } else {
+                let index = index.as_();
+                let offset = offsets[index].to_u32().vortex_expect("offset u32");
+                let end = offsets[index + 1].as_();
+                let string = &bytes[offset as usize..end];
 
-    let mut new_offsets = BufferMut::with_capacity(indices.len() + 1);
-    new_offsets.push(O::zero());
-    let mut current_offset = O::zero();
-
-    for &idx in indices {
-        let idx = idx
-            .to_usize()
-            .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", idx));
-        let start = offsets[idx];
-        let stop = offsets[idx + 1];
-        current_offset += stop - start;
-        new_offsets.push(current_offset);
-    }
-
-    let mut new_data = ByteBufferMut::with_capacity(
-        current_offset
-            .to_usize()
-            .vortex_expect("Failed to cast max offset to usize"),
-    );
-
-    for idx in indices {
-        let idx = idx
-            .to_usize()
-            .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", idx));
-        let start = offsets[idx]
-            .to_usize()
-            .vortex_expect("Failed to cast max offset to usize");
-        let stop = offsets[idx + 1]
-            .to_usize()
-            .vortex_expect("Failed to cast max offset to usize");
-        new_data.extend_from_slice(&data[start..stop]);
-    }
-
-    let array_validity = Validity::from(dtype.nullability());
-
-    // Safety:
-    // All variants of VarBinArray are satisfied here.
-    unsafe {
-        Ok(VarBinArray::new_unchecked(
-            PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable).into_array(),
-            new_data.freeze(),
-            dtype,
-            array_validity,
-        ))
-    }
-}
-
-fn take_nullable<I: IntegerPType, O: IntegerPType>(
-    dtype: DType,
-    offsets: &[O],
-    data: &[u8],
-    indices: &[I],
-    data_validity: Mask,
-    indices_validity: Mask,
-) -> VarBinArray {
-    let mut new_offsets = BufferMut::with_capacity(indices.len() + 1);
-    new_offsets.push(O::zero());
-    let mut current_offset = O::zero();
-
-    let mut validity_buffer = BitBufferMut::with_capacity(indices.len());
-
-    // Convert indices once and store valid ones with their positions
-    let mut valid_indices = Vec::with_capacity(indices.len());
-
-    // First pass: calculate offsets and validity
-    for (idx, data_idx) in indices.iter().enumerate() {
-        if !indices_validity.value(idx) {
-            validity_buffer.append(false);
-            new_offsets.push(current_offset);
-            continue;
-        }
-        let data_idx_usize = data_idx
-            .to_usize()
-            .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", data_idx));
-        if data_validity.value(data_idx_usize) {
-            validity_buffer.append(true);
-            let start = offsets[data_idx_usize];
-            let stop = offsets[data_idx_usize + 1];
-            current_offset += stop - start;
-            new_offsets.push(current_offset);
-            valid_indices.push(data_idx_usize);
-        } else {
-            validity_buffer.append(false);
-            new_offsets.push(current_offset);
-        }
-    }
-
-    let mut new_data = ByteBufferMut::with_capacity(
-        current_offset
-            .to_usize()
-            .vortex_expect("Failed to cast max offset to usize"),
-    );
-
-    // Second pass: copy data for valid indices only
-    for data_idx in valid_indices {
-        let start = offsets[data_idx]
-            .to_usize()
-            .vortex_expect("Failed to cast max offset to usize");
-        let stop = offsets[data_idx + 1]
-            .to_usize()
-            .vortex_expect("Failed to cast max offset to usize");
-        new_data.extend_from_slice(&data[start..stop]);
-    }
-
-    let array_validity = Validity::from(validity_buffer.freeze());
-
-    // Safety:
-    // All variants of VarBinArray are satisfied here.
-    unsafe {
-        VarBinArray::new_unchecked(
-            PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable).into_array(),
-            new_data.freeze(),
-            dtype,
-            array_validity,
-        )
-    }
+                BinaryView::make_view(string, 0u32, offset)
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
