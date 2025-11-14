@@ -9,7 +9,7 @@ use std::ops::RangeBounds;
 
 use vortex_mask::{Mask, MaskMut};
 
-use crate::{Scalar, Vector, VectorMut, private};
+use crate::{private, Scalar, Vector, VectorMut};
 
 /// Common operations for immutable vectors (all the variants of [`Vector`]).
 pub trait VectorOps: private::Sealed + Into<Vector> + Sized {
@@ -81,6 +81,7 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> + Sized {
     fn len(&self) -> usize;
 
     /// Returns `true` if the vector contains no elements.
+    #[inline]
     fn is_empty(&self) -> bool {
         self.len() == 0
     }

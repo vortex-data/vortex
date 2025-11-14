@@ -3,10 +3,11 @@
 
 use fastlanes::{BitPacking, FastLanes};
 use static_assertions::const_assert_eq;
+use std::mem::{transmute, transmute_copy};
 use vortex_array::pipeline::bit_view::BitView;
-use vortex_array::pipeline::{BindContext, Kernel, KernelCtx, N, PipelineInputs, PipelinedNode};
+use vortex_array::pipeline::{BindContext, Kernel, KernelCtx, PipelineInputs, PipelinedNode, N};
 use vortex_buffer::Buffer;
-use vortex_dtype::{PTypeDowncastExt, PhysicalPType, match_each_integer_ptype};
+use vortex_dtype::{match_each_integer_ptype, PTypeDowncastExt, PhysicalPType};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_vector::primitive::PVectorMut;
@@ -122,7 +123,7 @@ impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<
         selection: &BitView,
         out: &mut VectorMut,
     ) -> VortexResult<()> {
-        let output_vector: &mut PVectorMut<BP::Physical> = out.as_primitive_mut().downcast();
+        let output_vector: &mut PVectorMut<BP> = out.as_primitive_mut().downcast();
         debug_assert!(output_vector.is_empty());
 
         let packed_offset = self.num_chunks_unpacked * self.packed_stride;
@@ -156,7 +157,7 @@ impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<
                     };
 
                     // SAFETY: We just reserved enough capacity to push these values.
-                    unsafe { output_vector.push_unchecked(unpacked_value) };
+                    unsafe { output_vector.push_unchecked(transmute_copy(&unpacked_value)) };
                 } else {
                     output_vector.append_nulls(1);
                 }
@@ -179,6 +180,8 @@ impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<
             // memory.
             unsafe { output_vector.elements_mut().set_len(N) };
 
+            let physical_output: &mut [BP::Physical] = unsafe { transmute(output_vector.as_mut()) };
+
             // SAFETY:
             // - The documentation for `packed_bit_width` explains that the size is valid.
             // - We know that the size of the `next_packed_chunk` we provide is equal to
@@ -188,7 +191,7 @@ impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<
                 BitPacking::unchecked_unpack(
                     self.packed_bit_width,
                     next_packed_chunk,
-                    output_vector.as_mut(),
+                    physical_output,
                 );
             }
 

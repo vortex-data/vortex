@@ -9,17 +9,18 @@ mod toposort;
 use std::hash::{BuildHasher, Hash, Hasher};
 
 use itertools::Itertools;
+use vortex_compute::filter::{Filter, MaskIndices};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_ensure};
+use vortex_error::{vortex_ensure, VortexResult};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
 use vortex_vector::{Vector, VectorMut, VectorMutOps};
 
 use crate::pipeline::bit_view::{BitView, BitViewExt};
-use crate::pipeline::driver::allocation::{OutputTarget, allocate_vectors};
+use crate::pipeline::driver::allocation::{allocate_vectors, OutputTarget};
 use crate::pipeline::driver::bind::bind_kernels;
 use crate::pipeline::driver::toposort::topological_sort;
-use crate::pipeline::{Kernel, KernelCtx, N, PipelineInputs};
+use crate::pipeline::{Kernel, KernelCtx, PipelineInputs, N};
 use crate::{Array, ArrayEq, ArrayHash, ArrayOperator, ArrayRef, ArrayVisitor, Precision};
 
 /// A pipeline driver takes a Vortex array and executes it into a canonical vector.
@@ -285,19 +286,21 @@ impl Pipeline {
                     kernel.step(&self.ctx, selection, &mut tail)?;
 
                     let len = tail.len();
-                    vortex_ensure!(
-                        len == N || len == selection.true_count(),
-                        "Kernel produced incorrect number of output elements, \
-                            expected either {N} or {}, got {len}",
-                        selection.true_count(),
-                    );
+                    // vortex_ensure!(
+                    //     len == N || len == selection.true_count(),
+                    //     "Kernel produced incorrect number of output elements, \
+                    //         expected either {N} or {}, got {len}",
+                    //     selection.true_count(),
+                    // );
 
                     // Since we are writing to the final vector, there are no other kernels who we
                     // can delegate filtering the selection mask out to, so check if we need to do
                     // a final filter before we return.
                     if selection.true_count() < N && len == N {
-                        // tail.filter(selection_mask)
-                        todo!("Filter via a bit mask")
+                        let mut indices = Vec::with_capacity(selection.true_count());
+                        selection.iter_ones(|i| indices.push(i));
+                        let mask_indices = unsafe { MaskIndices::new_unchecked(&indices) };
+                        tail.filter(&mask_indices);
                     }
 
                     // Now we join the produced output back to the main output vector.

@@ -3,15 +3,16 @@
 
 use std::collections::VecDeque;
 
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 
 use crate::pipeline::driver::{Node, NodeId};
 
 /// Topological sort for execution order
 pub(super) fn topological_sort(dag: &[Node]) -> VortexResult<Vec<NodeId>> {
     let mut in_degree = vec![0; dag.len()];
-    let mut queue = VecDeque::new();
-    let mut result = Vec::new();
+    // Most nodes will have few children, so start with a small capacity
+    let mut queue = VecDeque::with_capacity(8);
+    let mut result = Vec::with_capacity(dag.len());
 
     // Calculate in-degrees
     for node in dag {
