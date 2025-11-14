@@ -195,25 +195,13 @@ impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<
                 );
             }
 
-            if array_len < chunk_offset + N {
-                let vector_len = array_len - chunk_offset;
-                debug_assert!(vector_len < N, "math is broken");
+            let chunk_mask = self.validity.slice(chunk_offset..array_len);
+            let padding = (chunk_offset + N) - array_len;
 
-                // SAFETY: This must be less than `N` so this is just a truncate.
-                unsafe { output_vector.elements_mut().set_len(vector_len) };
-
-                let chunk_mask = self.validity.slice(chunk_offset..array_len);
-
-                // SAFETY: We have just set the elements length to N, and the validity buffer has
-                // capacity for N elements.
-                unsafe { output_vector.validity_mut() }.append_mask(&chunk_mask);
-            } else {
-                let chunk_mask = self.validity.slice(chunk_offset..chunk_offset + N);
-
-                // SAFETY: We have just set the elements length to N, and the validity buffer has
-                // capacity for N elements.
-                unsafe { output_vector.validity_mut() }.append_mask(&chunk_mask);
-            }
+            // SAFETY: We have just set the elements length to N, and the validity buffer has
+            // capacity for N elements.
+            unsafe { output_vector.validity_mut() }.append_mask(&chunk_mask);
+            unsafe { output_vector.validity_mut() }.append_n(false, padding);
         }
 
         self.num_chunks_unpacked += 1;

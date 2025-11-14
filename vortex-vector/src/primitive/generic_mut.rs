@@ -5,7 +5,7 @@
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
 use vortex_mask::MaskMut;
 
 use crate::primitive::PVector;
@@ -61,7 +61,8 @@ impl<T> PVectorMut<T> {
         if cfg!(debug_assertions) {
             Self::new(elements, validity)
         } else {
-            Self { elements, validity }
+            Self::new(elements, validity)
+            // Self { elements, validity }
         }
     }
 
@@ -141,27 +142,32 @@ impl<T: NativePType> VectorMutOps for PVectorMut<T> {
     fn reserve(&mut self, additional: usize) {
         self.elements.reserve(additional);
         self.validity.reserve(additional);
+        debug_assert_eq!(self.elements.len(), self.validity.len());
     }
 
     fn clear(&mut self) {
         self.elements.clear();
         self.validity.clear();
+        debug_assert_eq!(self.elements.len(), self.validity.len());
     }
 
     fn truncate(&mut self, len: usize) {
         self.elements.truncate(len);
         self.validity.truncate(len);
+        debug_assert_eq!(self.elements.len(), self.validity.len());
     }
 
     /// Extends the vector by appending elements from another vector.
     fn extend_from_vector(&mut self, other: &PVector<T>) {
         self.elements.extend_from_slice(other.elements.as_slice());
         self.validity.append_mask(other.validity());
+        debug_assert_eq!(self.elements.len(), self.validity.len());
     }
 
     fn append_nulls(&mut self, n: usize) {
         self.elements.push_n(T::zero(), n); // Note that the value we push doesn't actually matter.
         self.validity.append_n(false, n);
+        debug_assert_eq!(self.elements.len(), self.validity.len());
     }
 
     /// Freeze the vector into an immutable one.
@@ -186,5 +192,6 @@ impl<T: NativePType> VectorMutOps for PVectorMut<T> {
         }
         self.elements.unsplit(other.elements);
         self.validity.unsplit(other.validity);
+        debug_assert_eq!(self.elements.len(), self.validity.len());
     }
 }

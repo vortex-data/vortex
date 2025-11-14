@@ -280,18 +280,20 @@ impl Pipeline {
             match &self.output_targets[node_idx] {
                 OutputTarget::ExternalOutput => {
                     // We split off the next N elements of capacity from the external output vector.
+                    // FIXME(ngates): how can this trigger the problem!
                     let mut tail = output.split_off(output.len());
+
                     assert!(tail.is_empty());
 
                     kernel.step(&self.ctx, selection, &mut tail)?;
 
                     let len = tail.len();
-                    // vortex_ensure!(
-                    //     len == N || len == selection.true_count(),
-                    //     "Kernel produced incorrect number of output elements, \
-                    //         expected either {N} or {}, got {len}",
-                    //     selection.true_count(),
-                    // );
+                    vortex_ensure!(
+                        len == N || len == selection.true_count(),
+                        "Kernel produced incorrect number of output elements, \
+                            expected either {N} or {}, got {len}",
+                        selection.true_count(),
+                    );
 
                     // Since we are writing to the final vector, there are no other kernels who we
                     // can delegate filtering the selection mask out to, so check if we need to do

@@ -7,7 +7,7 @@ use arrow_buffer::bit_chunk_iterator::{BitChunks, UnalignedBitChunk};
 use bitvec::view::BitView;
 
 use crate::bit::{get_bit_unchecked, ops, set_bit_unchecked, unset_bit_unchecked};
-use crate::{BitBuffer, BufferMut, ByteBufferMut, buffer_mut};
+use crate::{buffer_mut, BitBuffer, BufferMut, ByteBufferMut};
 
 /// A mutable bitset buffer that allows random access to individual bits for set and get.
 ///
@@ -438,34 +438,41 @@ impl BitBufferMut {
     /// Unlike bytes, if the split position is not on a byte-boundary this operation will copy
     /// data into the result type, and mutate self.
     pub fn split_off(&mut self, at: usize) -> Self {
-        assert!(at <= self.len, "index {at} exceeds len {}", self.len);
+        assert!(
+            at <= self.capacity(),
+            "index {at} exceeds capacity {}",
+            self.capacity()
+        );
 
-        let new_offset = self.offset;
-        let new_len = self.len - at;
+        let tail_offset = (self.offset + at) % 8;
+        let tail_len = self.len.saturating_sub(at);
 
         // If we are splitting on a byte boundary, we can just slice the buffer
-        if (self.offset + at) % 8 == 0 {
+        if tail_offset == 0 {
             let byte_pos = (self.offset + at) / 8;
             let new_buffer = self.buffer.split_off(byte_pos);
-            self.len = at;
+            self.len = self.len.min(at);
             return Self {
                 buffer: new_buffer,
-                offset: new_offset,
-                len: new_len,
+                offset: tail_offset,
+                len: tail_len,
             };
         }
 
-        // Otherwise, we need to copy bits into a new buffer
-        let mut new_buffer = BitBufferMut::with_capacity(new_len);
-        for i in 0..new_len {
-            let value = self.value(at + i);
-            new_buffer.append(value);
+        // If we're not on a byte boundary, we have no choice but to copy the tail.
+        let tail_buffer = BitBufferMut::with_capacity(self.capacity() - at);
+
+        // If at >= len, we don't need to worry about copying any bits to the new tail.
+        if at >= self.len {
+            self.truncate(at);
+            return tail_buffer;
         }
 
-        // Truncate self to the split position
-        self.truncate(at);
-
-        new_buffer
+        // Otherwise, we need to copy bits into a new buffer
+        println!("SELF: {:?}", self);
+        println!("CAP: {:?}", self.capacity());
+        println!("AT: {:?}", at);
+        todo!("Do this efficiently")
     }
 
     /// Absorbs a mutable buffer that was previously split off.
@@ -594,7 +601,7 @@ impl FromIterator<bool> for BitBufferMut {
 #[cfg(test)]
 mod tests {
     use crate::bit::buf_mut::BitBufferMut;
-    use crate::{BufferMut, bitbuffer, bitbuffer_mut, buffer_mut};
+    use crate::{bitbuffer, bitbuffer_mut, buffer_mut, BufferMut};
 
     #[test]
     fn test_bits_mut() {
