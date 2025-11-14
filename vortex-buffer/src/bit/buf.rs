@@ -5,10 +5,10 @@ use std::ops::{BitAnd, BitOr, BitXor, Not, RangeBounds};
 
 use crate::bit::ops::{bitwise_binary_op, bitwise_unary_op};
 use crate::bit::{
-    get_bit_unchecked, BitChunks, BitIndexIterator, BitIterator, BitSliceIterator,
-    UnalignedBitChunk,
+    BitChunks, BitIndexIterator, BitIterator, BitSliceIterator, UnalignedBitChunk,
+    get_bit_unchecked,
 };
-use crate::{buffer, Alignment, BitBufferMut, Buffer, BufferMut, ByteBuffer};
+use crate::{Alignment, BitBufferMut, Buffer, BufferMut, ByteBuffer, buffer};
 
 /// An immutable bitset stored as a packed byte buffer.
 #[derive(Debug, Clone, Eq)]
@@ -495,7 +495,7 @@ mod tests {
     use rstest::rstest;
 
     use crate::bit::BitBuffer;
-    use crate::{buffer, ByteBuffer};
+    use crate::{ByteBuffer, buffer};
 
     #[test]
     fn test_bool() {

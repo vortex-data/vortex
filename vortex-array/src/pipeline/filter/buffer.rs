@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::pipeline::bit_view::BitView;
-use crate::pipeline::N;
 use vortex_compute::filter::Filter;
+
+use crate::pipeline::N;
+use crate::pipeline::bit_view::BitView;
 
 impl<'a, T: Copy> Filter<BitView<'a>> for &'a mut [T] {
     type Output = ();

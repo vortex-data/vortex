@@ -6,9 +6,9 @@
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_vector::VectorMut;
 
-use crate::pipeline::driver::{Node, NodeId};
-use crate::pipeline::{VectorId, N};
 use crate::Array;
+use crate::pipeline::driver::{Node, NodeId};
+use crate::pipeline::{N, VectorId};
 
 #[derive(Debug)]
 pub struct VectorAllocation {

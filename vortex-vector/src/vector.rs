@@ -19,7 +19,7 @@ use crate::listview::ListViewVector;
 use crate::null::NullVector;
 use crate::primitive::PrimitiveVector;
 use crate::struct_::StructVector;
-use crate::{match_each_vector, Scalar, VectorMut, VectorOps};
+use crate::{Scalar, VectorMut, VectorOps, match_each_vector};
 
 /// An enum over all kinds of immutable vectors, which represent fully decompressed (canonical)
 /// array data.
@@ -67,10 +67,6 @@ impl VectorOps for Vector {
 
     fn len(&self) -> usize {
         match_each_vector!(self, |v| { v.len() })
-    }
-
-    fn clear(&mut self) {
-        match_each_vector!(self, |v| { v.clear() })
     }
 
     fn validity(&self) -> &vortex_mask::Mask {

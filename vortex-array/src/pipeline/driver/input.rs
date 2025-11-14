@@ -73,7 +73,7 @@ impl Kernel for InputKernel {
 
 #[cfg(test)]
 mod test {
-    use vortex_buffer::{bitbuffer, buffer, BitBuffer};
+    use vortex_buffer::{BitBuffer, bitbuffer, buffer};
     use vortex_dtype::PTypeDowncastExt;
     use vortex_mask::Mask;
 

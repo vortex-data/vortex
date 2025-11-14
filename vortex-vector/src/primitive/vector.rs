@@ -12,7 +12,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::primitive::{PVector, PrimitiveVectorMut};
-use crate::{match_each_pvector, Scalar, VectorOps};
+use crate::{Scalar, VectorOps, match_each_pvector};
 
 /// An immutable vector of primitive values.
 ///
@@ -72,10 +72,6 @@ impl VectorOps for PrimitiveVector {
 
     fn len(&self) -> usize {
         match_each_pvector!(self, |v| { v.len() })
-    }
-
-    fn clear(&mut self) {
-        match_each_pvector!(self, |v| { v.clear() })
     }
 
     fn validity(&self) -> &Mask {

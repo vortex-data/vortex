@@ -8,7 +8,7 @@ use std::ops::RangeBounds;
 
 use vortex_buffer::Buffer;
 use vortex_dtype::NativePType;
-use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 
 use crate::primitive::{PScalar, PVectorMut};
@@ -125,11 +125,6 @@ impl<T: NativePType> VectorOps for PVector<T> {
 
     fn len(&self) -> usize {
         self.elements.len()
-    }
-
-    fn clear(&mut self) {
-        self.elements.clear();
-        self.validity.clear();
     }
 
     fn validity(&self) -> &Mask {

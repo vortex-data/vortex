@@ -9,7 +9,7 @@ use std::ops::RangeBounds;
 
 use vortex_mask::{Mask, MaskMut};
 
-use crate::{private, Scalar, Vector, VectorMut};
+use crate::{Scalar, Vector, VectorMut, private};
 
 /// Common operations for immutable vectors (all the variants of [`Vector`]).
 pub trait VectorOps: private::Sealed + Into<Vector> + Sized {
@@ -23,9 +23,6 @@ pub trait VectorOps: private::Sealed + Into<Vector> + Sized {
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
-
-    /// Clear the vector, making it empty, preserving the underlying capacity.
-    fn clear(&mut self);
 
     /// Returns the validity mask of the vector, where `true` represents a _valid_ element and
     /// `false` represents a `null` element.

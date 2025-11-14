@@ -3,12 +3,13 @@
 
 mod buffer;
 
-use crate::pipeline::bit_view::BitView;
 use vortex_compute::filter::Filter;
 use vortex_dtype::NativePType;
 use vortex_mask::MaskMut;
 use vortex_vector::primitive::{PVectorMut, PrimitiveVectorMut};
-use vortex_vector::{match_each_pvector_mut, VectorMut, VectorMutOps};
+use vortex_vector::{VectorMut, match_each_pvector_mut};
+
+use crate::pipeline::bit_view::BitView;
 
 impl Filter<BitView<'_>> for &mut VectorMut {
     type Output = ();

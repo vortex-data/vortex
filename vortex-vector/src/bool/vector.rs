@@ -7,7 +7,7 @@ use std::fmt::Debug;
 use std::ops::RangeBounds;
 
 use vortex_buffer::BitBuffer;
-use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 
 use crate::bool::BoolVectorMut;
@@ -78,11 +78,6 @@ impl VectorOps for BoolVector {
     fn len(&self) -> usize {
         debug_assert!(self.validity.len() == self.bits.len());
         self.bits.len()
-    }
-
-    fn clear(&mut self) {
-        self.bits.clear();
-        self.validity.clear();
     }
 
     fn validity(&self) -> &Mask {

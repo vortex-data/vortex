@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem::{transmute, transmute_copy};
+
 use fastlanes::{BitPacking, FastLanes};
 use static_assertions::const_assert_eq;
-use std::mem::{transmute, transmute_copy};
 use vortex_array::pipeline::bit_view::BitView;
-use vortex_array::pipeline::{BindContext, Kernel, KernelCtx, PipelineInputs, PipelinedNode, N};
+use vortex_array::pipeline::{BindContext, Kernel, KernelCtx, N, PipelineInputs, PipelinedNode};
 use vortex_buffer::Buffer;
-use vortex_dtype::{match_each_integer_ptype, PTypeDowncastExt, PhysicalPType};
+use vortex_dtype::{PTypeDowncastExt, PhysicalPType, match_each_integer_ptype};
 use vortex_error::VortexResult;
 use vortex_mask::MaskMut;
 use vortex_vector::primitive::PVectorMut;
-use vortex_vector::VectorMut;
-use vortex_vector::VectorMutOps;
+use vortex_vector::{VectorMut, VectorMutOps};
 
 use crate::BitPackedArray;
 
@@ -200,11 +200,12 @@ impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<
 
 #[cfg(test)]
 mod tests {
-    use crate::BitPackedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_dtype::PTypeDowncast;
     use vortex_mask::Mask;
     use vortex_vector::VectorOps;
+
+    use crate::BitPackedArray;
 
     #[test]
     fn test_bitpack_pipeline_basic() {

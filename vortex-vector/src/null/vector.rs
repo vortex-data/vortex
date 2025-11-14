@@ -43,11 +43,6 @@ impl VectorOps for NullVector {
         self.len
     }
 
-    fn clear(&mut self) {
-        self.len = 0;
-        self.validity = Mask::AllFalse(0);
-    }
-
     fn validity(&self) -> &Mask {
         &self.validity
     }

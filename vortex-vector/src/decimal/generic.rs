@@ -8,7 +8,7 @@ use std::ops::RangeBounds;
 
 use vortex_buffer::Buffer;
 use vortex_dtype::{NativeDecimalType, PrecisionScale};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::decimal::{DScalar, DVectorMut};
@@ -162,11 +162,6 @@ impl<D: NativeDecimalType> VectorOps for DVector<D> {
 
     fn len(&self) -> usize {
         self.elements.len()
-    }
-
-    fn clear(&mut self) {
-        self.elements.clear();
-        self.validity.clear();
     }
 
     fn validity(&self) -> &Mask {

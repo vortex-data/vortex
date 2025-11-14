@@ -20,8 +20,8 @@ use std::sync::{Arc, OnceLock};
 
 use itertools::Itertools;
 pub use mask_mut::*;
-use vortex_buffer::{set_bit_unchecked, BitBuffer, BitBufferMut};
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_buffer::{BitBuffer, BitBufferMut, set_bit_unchecked};
+use vortex_error::{VortexResult, vortex_panic};
 
 /// Represents a set of values that are all included, all excluded, or some mixture of both.
 pub enum AllOr<T> {
