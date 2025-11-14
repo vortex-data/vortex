@@ -209,7 +209,6 @@ mod tests {
     use crate::expr::exprs::select::select;
     use crate::expr::transform::immediate_access::annotate_scope_access;
     use crate::expr::transform::replace::replace_root_fields;
-    use crate::expr::transform::simplify::simplify;
     use crate::expr::transform::simplify_typed::simplify_typed;
 
     #[fixture]
@@ -274,7 +273,7 @@ mod tests {
 
         let split_a = partitioned.find_partition(&"a".into()).unwrap();
         assert_eq!(
-            &simplify(split_a.clone()).unwrap(),
+            &simplify_typed(split_a.clone(), &dtype).unwrap(),
             &pack(
                 [
                     ("a_0", get_item("x", get_item("a", root()))),

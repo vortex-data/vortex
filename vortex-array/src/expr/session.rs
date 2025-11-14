@@ -12,17 +12,18 @@ use crate::expr::exprs::between::Between;
 use crate::expr::exprs::binary::Binary;
 use crate::expr::exprs::cast::Cast;
 use crate::expr::exprs::get_item::GetItem;
+use crate::expr::exprs::get_item::transform::PackGetItemRule;
 use crate::expr::exprs::is_null::IsNull;
 use crate::expr::exprs::like::Like;
 use crate::expr::exprs::list_contains::ListContains;
 use crate::expr::exprs::literal::Literal;
 use crate::expr::exprs::merge::Merge;
+use crate::expr::exprs::merge::transform::RemoveMergeRule;
 use crate::expr::exprs::not::Not;
 use crate::expr::exprs::pack::Pack;
 use crate::expr::exprs::root::Root;
 use crate::expr::exprs::select::Select;
-use crate::expr::transform::remove_select::RemoveSelectRule;
-use crate::expr::transform::simplify::PackGetItemRule;
+use crate::expr::exprs::select::transform::RemoveSelectRule;
 use crate::expr::transform::traits::{
     ChildReduceRule, ParentReduceRule, ReduceRule, RewriteContext,
 };
@@ -313,6 +314,7 @@ impl Default for ExprSession {
         // Register built-in rewrite rules
         let mut rewrite_rules = RewriteRuleRegistry::new();
         rewrite_rules.register_reduce_rule(&Select, RemoveSelectRule);
+        rewrite_rules.register_reduce_rule(&Merge, RemoveMergeRule);
         rewrite_rules.register_child_rule(&GetItem, PackGetItemRule);
 
         Self {

@@ -6,8 +6,6 @@ pub mod annotations;
 pub mod immediate_access;
 pub(crate) mod match_between;
 mod partition;
-mod remove_merge;
-pub mod remove_select;
 mod replace;
 pub mod simplify;
 mod simplify_typed;
