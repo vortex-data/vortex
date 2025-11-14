@@ -15,6 +15,9 @@ categories:
     collapse-after: 8
     labels:
       - "fix"
+  - title: "📖 Documentation"
+    labels:
+      - "documentation"
   - title: "🧰 Maintenance"
     labels:
       - "chore"
