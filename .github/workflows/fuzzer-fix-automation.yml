@@ -1,8 +1,6 @@
 name: Fuzzer Fix Automation
 
 on:
-  issues:
-    types: [opened, labeled]
   workflow_dispatch:
     inputs:
       issue_number:
@@ -20,15 +18,11 @@ jobs:
   attempt-fix:
     name: "Attempt to Fix Fuzzer Crash"
     # Only run when:
-    # 1. Issue is opened with 'fuzzer' label, OR
-    # 2. 'fuzzer' label is added to existing issue, OR
-    # 3. Manually triggered via workflow_dispatch, OR
-    # 4. Called from another workflow (workflow_call)
+    # 1. Manually triggered via workflow_dispatch, OR
+    # 2. Called from another workflow (workflow_call)
     if: |
       github.event_name == 'workflow_call' ||
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.action == 'opened' && contains(github.event.issue.labels.*.name, 'fuzzer')) ||
-      (github.event.action == 'labeled' && github.event.label.name == 'fuzzer')
+      github.event_name == 'workflow_dispatch'
 
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -43,8 +37,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Fetch issue details (for workflow_dispatch/workflow_call)
-        if: github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call'
+      - name: Fetch issue details
         id: fetch_issue
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -74,16 +67,10 @@ jobs:
         id: extract
         shell: bash
         run: |
-          # Use fetched issue body for workflow_dispatch/workflow_call, otherwise use event issue body
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "workflow_call" ]; then
-            cat > issue_body.txt <<'ISSUE_EOF'
+          # Extract crash details from the fetched issue body
+          cat > issue_body.txt <<'ISSUE_EOF'
           ${{ steps.fetch_issue.outputs.issue_body }}
           ISSUE_EOF
-          else
-            cat > issue_body.txt <<'ISSUE_EOF'
-          ${{ github.event.issue.body }}
-          ISSUE_EOF
-          fi
 
           # Extract target name from issue body
           TARGET=$(grep -oP '(?<=\*\*Target\*\*: `)[^`]+' issue_body.txt || echo "file_io")
@@ -105,7 +92,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ISSUE_NUM="${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.issue_number || github.event.issue.number }}"
+          ISSUE_NUM="${{ inputs.issue_number }}"
 
           # Check if issue exists and has fuzzer label
           ISSUE_LABELS=$(gh issue view "$ISSUE_NUM" --repo ${{ github.repository }} --json labels --jq '.labels[].name')
@@ -213,7 +200,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ISSUE_NUM="${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.issue_number || github.event.issue.number }}"
+          ISSUE_NUM="${{ inputs.issue_number }}"
 
           gh issue comment "$ISSUE_NUM" --repo ${{ github.repository }} --body "## 🤖 Automated Analysis
 
@@ -242,9 +229,9 @@ jobs:
       - name: Attempt to fix crash with Claude
         if: steps.reproduce.outputs.crash_reproduced == 'true'
         env:
-          ISSUE_NUMBER: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.issue_number || github.event.issue.number }}
-          ISSUE_TITLE: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && steps.fetch_issue.outputs.issue_title || github.event.issue.title }}
-          ISSUE_BODY: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && steps.fetch_issue.outputs.issue_body || github.event.issue.body }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          ISSUE_TITLE: ${{ steps.fetch_issue.outputs.issue_title }}
+          ISSUE_BODY: ${{ steps.fetch_issue.outputs.issue_body }}
           TARGET: ${{ steps.extract.outputs.target }}
           CRASH_FILE: ${{ steps.extract.outputs.crash_file }}
           CRASH_FILE_PATH: ${{ steps.download.outputs.crash_file_path }}
@@ -379,7 +366,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ISSUE_NUM="${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.issue_number || github.event.issue.number }}"
+          ISSUE_NUM="${{ inputs.issue_number }}"
 
           # Check for comments from claude-code[bot]
           COMMENT_COUNT=$(gh api "repos/${{ github.repository }}/issues/$ISSUE_NUM/comments" \
