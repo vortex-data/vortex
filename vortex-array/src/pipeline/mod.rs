@@ -86,17 +86,17 @@ pub trait Kernel: Send {
         &mut self,
         ctx: &KernelCtx,
         selection: &BitView,
-        out: &mut VectorMut,
-    ) -> VortexResult<()>;
+        out: VectorMut,
+    ) -> VortexResult<Vector>;
 }
 
 /// The context provided to kernels during execution to access input vectors.
 pub struct KernelCtx {
-    vectors: Vec<Option<VectorMut>>,
+    vectors: Vec<Option<Vector>>,
 }
 
 impl KernelCtx {
-    fn new(vectors: Vec<VectorMut>) -> Self {
+    fn new(vectors: Vec<Vector>) -> Self {
         Self {
             vectors: vectors.into_iter().map(Some).collect(),
         }
@@ -112,21 +112,21 @@ impl KernelCtx {
     ///
     /// If the input vector at the given index is not available (typically because the vector
     /// happens to be currently borrowed as an output vector!).
-    pub fn input(&mut self, id: VectorId) -> &VectorMut {
+    pub fn input(&mut self, id: VectorId) -> &Vector {
         self.vectors[id.0]
             .as_ref()
             .vortex_expect("Input vector at index is not available")
     }
 
     #[inline]
-    fn take_output(&mut self, id: &VectorId) -> VectorMut {
+    fn take_output(&mut self, id: &VectorId) -> Vector {
         self.vectors[id.0]
             .take()
             .vortex_expect("Output vector at index is not available")
     }
 
     #[inline]
-    fn replace_output(&mut self, id: &VectorId, vec: VectorMut) {
+    fn replace_output(&mut self, id: &VectorId, vec: Vector) {
         self.vectors[id.0] = Some(vec);
     }
 }

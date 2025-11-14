@@ -10,16 +10,16 @@ use std::hash::{BuildHasher, Hash, Hasher};
 
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_ensure};
+use vortex_error::{vortex_ensure, VortexResult};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
-use vortex_vector::{Vector, VectorMut, VectorMutOps};
+use vortex_vector::{Vector, VectorMut, VectorMutOps, VectorOps};
 
 use crate::pipeline::bit_view::{BitView, BitViewExt};
-use crate::pipeline::driver::allocation::{OutputTarget, allocate_vectors};
+use crate::pipeline::driver::allocation::{allocate_vectors, OutputTarget};
 use crate::pipeline::driver::bind::bind_kernels;
 use crate::pipeline::driver::toposort::topological_sort;
-use crate::pipeline::{Kernel, KernelCtx, N, PipelineInputs};
+use crate::pipeline::{Kernel, KernelCtx, PipelineInputs, N};
 use crate::{Array, ArrayEq, ArrayHash, ArrayOperator, ArrayRef, ArrayVisitor, Precision};
 
 /// A pipeline driver takes a Vortex array and executes it into a canonical vector.
@@ -279,10 +279,10 @@ impl Pipeline {
             match &self.output_targets[node_idx] {
                 OutputTarget::ExternalOutput => {
                     // We split off the next N elements of capacity from the external output vector.
-                    let mut tail = output.split_off(output.len());
-                    assert!(tail.is_empty());
+                    let tail = output.split_off(output.len());
+                    debug_assert!(tail.is_empty());
 
-                    kernel.step(&self.ctx, selection, &mut tail)?;
+                    let tail = kernel.step(&self.ctx, selection, tail)?;
 
                     let len = tail.len();
                     vortex_ensure!(
@@ -292,23 +292,31 @@ impl Pipeline {
                         selection.true_count(),
                     );
 
-                    // Since we are writing to the final vector, there are no other kernels who we
-                    // can delegate filtering the selection mask out to, so check if we need to do
-                    // a final filter before we return.
-                    if selection.true_count() < N && len == N {
-                        // tail.filter(selection_mask)
-                        todo!("Filter via a bit mask")
-                    }
+                    // // Since we are writing to the final vector, there are no other kernels who we
+                    // // can delegate filtering the selection mask out to, so check if we need to do
+                    // // a final filter before we return.
+                    // if selection.true_count() < N && len == N {
+                    //     // tail.filter(selection_mask)
+                    //     let mut indices = Vec::with_capacity(selection.true_count());
+                    //     selection.iter_ones(|i| indices.push(i));
+                    //     let mask_indices = unsafe { MaskIndices::new_unchecked(&indices) };
+                    //     tail.filter(&mask_indices);
+                    // }
 
                     // Now we join the produced output back to the main output vector.
+                    // TODO(ngates): we should be able to `output.extend(tail)` and try unsplit,
+                    //  and if not, copy directly. Rather than into_mut which is two copies.
+
+                    // FIXME(ngates): this into_mut will always fail, so it copies, then the
+                    //  unsplit copies again... We cannot freeze/into_mut a split_off BytesMut.
+                    let tail = tail.into_mut();
                     output.unsplit(tail);
                 }
                 OutputTarget::IntermediateVector(vector_id) => {
                     let mut out_vector = self.ctx.take_output(vector_id);
                     out_vector.clear();
-                    debug_assert!(out_vector.is_empty());
 
-                    kernel.step(&self.ctx, selection, &mut out_vector)?;
+                    let out_vector = kernel.step(&self.ctx, selection, out_vector.into_mut())?;
 
                     let len = out_vector.len();
                     vortex_ensure!(
@@ -341,3 +349,16 @@ impl PartialEq for ArrayKey {
     }
 }
 impl Eq for ArrayKey {}
+
+#[cfg(test)]
+mod test {
+    use bytes::BytesMut;
+
+    #[test]
+    fn it_works() {
+        let mut bytes = BytesMut::from_iter([0, 1, 2, 3, 4, 5]);
+        let tail = bytes.split_off(4);
+        assert!(bytes.freeze().is_unique());
+        assert!(tail.freeze().is_unique());
+    }
+}

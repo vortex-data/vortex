@@ -7,7 +7,7 @@ use std::fmt::Debug;
 use std::ops::RangeBounds;
 use std::sync::Arc;
 
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use crate::fixed_size_list::{FixedSizeListScalar, FixedSizeListVectorMut};
@@ -150,6 +150,12 @@ impl VectorOps for FixedSizeListVector {
 
     fn len(&self) -> usize {
         self.len
+    }
+
+    fn clear(&mut self) {
+        self.elements = Arc::new(self.elements.slice(0..0));
+        self.validity.clear();
+        self.len = 0;
     }
 
     fn validity(&self) -> &Mask {

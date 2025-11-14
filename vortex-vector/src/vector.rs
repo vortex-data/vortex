@@ -19,7 +19,7 @@ use crate::listview::ListViewVector;
 use crate::null::NullVector;
 use crate::primitive::PrimitiveVector;
 use crate::struct_::StructVector;
-use crate::{Scalar, VectorMut, VectorOps, match_each_vector};
+use crate::{match_each_vector, Scalar, VectorMut, VectorOps};
 
 /// An enum over all kinds of immutable vectors, which represent fully decompressed (canonical)
 /// array data.
@@ -67,6 +67,10 @@ impl VectorOps for Vector {
 
     fn len(&self) -> usize {
         match_each_vector!(self, |v| { v.len() })
+    }
+
+    fn clear(&mut self) {
+        match_each_vector!(self, |v| { v.clear() })
     }
 
     fn validity(&self) -> &vortex_mask::Mask {
@@ -156,7 +160,75 @@ impl Vector {
         }
         vortex_panic!("Expected StructVector, got {self:?}");
     }
+}
 
+impl Vector {
+    /// Returns a reference to the inner [`NullVector`] if `self` is of that variant.
+    pub fn as_null_mut(&mut self) -> &mut NullVector {
+        if let Vector::Null(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected NullVector, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`BoolVector`] if `self` is of that variant.
+    pub fn as_bool_mut(&mut self) -> &mut BoolVector {
+        if let Vector::Bool(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected BoolVector, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`PrimitiveVector`] if `self` is of that variant.
+    pub fn as_primitive_mut(&mut self) -> &mut PrimitiveVector {
+        if let Vector::Primitive(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVector, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`StringVector`] if `self` is of that variant.
+    pub fn as_string_mut(&mut self) -> &mut StringVector {
+        if let Vector::String(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected StringVector, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`BinaryVector`] if `self` is of that variant.
+    pub fn as_binary_mut(&mut self) -> &mut BinaryVector {
+        if let Vector::Binary(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected BinaryVector, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`ListViewVector`] if `self` is of that variant.
+    pub fn as_list_mut(&mut self) -> &mut ListViewVector {
+        if let Vector::List(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected ListViewVector, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`FixedSizeListVector`] if `self` is of that variant.
+    pub fn as_fixed_size_list_mut(&mut self) -> &mut FixedSizeListVector {
+        if let Vector::FixedSizeList(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected FixedSizeListVector, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`StructVector`] if `self` is of that variant.
+    pub fn as_struct_mut(&mut self) -> &mut StructVector {
+        if let Vector::Struct(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected StructVector, got {self:?}");
+    }
+}
+
+impl Vector {
     /// Consumes `self` and returns the inner [`NullVector`] if `self` is of that variant.
     pub fn into_null(self) -> NullVector {
         if let Vector::Null(v) = self {

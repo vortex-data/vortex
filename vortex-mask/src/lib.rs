@@ -20,8 +20,8 @@ use std::sync::{Arc, OnceLock};
 
 use itertools::Itertools;
 pub use mask_mut::*;
-use vortex_buffer::{BitBuffer, BitBufferMut, set_bit_unchecked};
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_buffer::{set_bit_unchecked, BitBuffer, BitBufferMut};
+use vortex_error::{vortex_panic, VortexResult};
 
 /// Represents a set of values that are all included, all excluded, or some mixture of both.
 pub enum AllOr<T> {
@@ -106,6 +106,12 @@ pub enum Mask {
     AllFalse(usize),
     /// Some values are included, represented as a [`BitBuffer`].
     Values(Arc<MaskValues>),
+}
+
+impl Default for Mask {
+    fn default() -> Self {
+        Self::new_true(0)
+    }
 }
 
 /// Represents the values of a [`Mask`] that contains some true and some false elements.
@@ -295,6 +301,12 @@ impl Mask {
             }
         }
         Self::from_indices(len, intersection)
+    }
+
+    /// Clear the mask, setting the length to zero.
+    #[inline(always)]
+    pub fn clear(&mut self) {
+        *self = Mask::AllTrue(0);
     }
 
     /// Returns the length of the mask (not the number of true values).

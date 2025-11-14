@@ -7,13 +7,13 @@ use std::fmt::Debug;
 use std::ops::RangeBounds;
 use std::sync::Arc;
 
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use super::{ListViewScalar, ListViewVectorMut};
 use crate::primitive::PrimitiveVector;
 use crate::vector_ops::{VectorMutOps, VectorOps};
-use crate::{Scalar, Vector, match_each_integer_pvector};
+use crate::{match_each_integer_pvector, Scalar, Vector};
 
 /// A vector of variable-width lists.
 ///
@@ -205,6 +205,13 @@ impl VectorOps for ListViewVector {
 
     fn len(&self) -> usize {
         self.len
+    }
+
+    fn clear(&mut self) {
+        self.offsets.clear();
+        self.sizes.clear();
+        self.validity.clear();
+        self.len = 0;
     }
 
     fn validity(&self) -> &Mask {

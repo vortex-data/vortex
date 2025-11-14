@@ -7,7 +7,7 @@ use std::fmt::Debug;
 use std::ops::RangeBounds;
 use std::sync::Arc;
 
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use crate::struct_::{StructScalar, StructVectorMut};
@@ -127,6 +127,13 @@ impl VectorOps for StructVector {
 
     fn len(&self) -> usize {
         self.len
+    }
+
+    fn clear(&mut self) {
+        self.len = 0;
+        self.validity.clear();
+        // TODO(ngates): is arc the right structure here?
+        self.fields = Arc::new(self.fields.iter().map(|f| f.slice(0..0)).collect())
     }
 
     fn validity(&self) -> &Mask {

@@ -8,7 +8,7 @@ use std::ops::RangeBounds;
 
 use vortex_buffer::Buffer;
 use vortex_dtype::NativePType;
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use crate::primitive::{PScalar, PVectorMut};
@@ -18,7 +18,7 @@ use crate::{Scalar, VectorOps};
 ///
 /// `T` is expected to be bound by [`NativePType`], which templates an internal [`Buffer<T>`] that
 /// stores the elements of the vector.
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct PVector<T> {
     /// The buffer representing the vector elements.
     pub(super) elements: Buffer<T>,
@@ -70,6 +70,15 @@ impl<T> PVector<T> {
         (self.elements, self.validity)
     }
 
+    /// Decomposes the primitive vector into its constituent parts by mutable reference.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that no other references to the internal parts exist while mutable
+    pub unsafe fn as_parts_mut(&mut self) -> (&mut Buffer<T>, &mut Mask) {
+        (&mut self.elements, &mut self.validity)
+    }
+
     /// Gets a nullable element at the given index, panicking on out-of-bounds.
     ///
     /// If the element at the given index is null, returns `None`. Otherwise, returns `Some(x)`,
@@ -116,6 +125,11 @@ impl<T: NativePType> VectorOps for PVector<T> {
 
     fn len(&self) -> usize {
         self.elements.len()
+    }
+
+    fn clear(&mut self) {
+        self.elements.clear();
+        self.validity.clear();
     }
 
     fn validity(&self) -> &Mask {

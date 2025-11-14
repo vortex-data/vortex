@@ -5,10 +5,10 @@ use std::ops::{BitAnd, BitOr, BitXor, Not, RangeBounds};
 
 use crate::bit::ops::{bitwise_binary_op, bitwise_unary_op};
 use crate::bit::{
-    BitChunks, BitIndexIterator, BitIterator, BitSliceIterator, UnalignedBitChunk,
-    get_bit_unchecked,
+    get_bit_unchecked, BitChunks, BitIndexIterator, BitIterator, BitSliceIterator,
+    UnalignedBitChunk,
 };
-use crate::{Alignment, BitBufferMut, Buffer, BufferMut, ByteBuffer, buffer};
+use crate::{buffer, Alignment, BitBufferMut, Buffer, BufferMut, ByteBuffer};
 
 /// An immutable bitset stored as a packed byte buffer.
 #[derive(Debug, Clone, Eq)]
@@ -68,6 +68,11 @@ impl BitBuffer {
 
         // BitBuffers make no assumptions on byte alignment, so we strip any alignment.
         let buffer = buffer.aligned(Alignment::none());
+
+        // Slice the buffer to ensure the offset is within the first byte
+        let byte_offset = offset / 8;
+        let offset = offset % 8;
+        let buffer = buffer.slice(byte_offset..);
 
         Self {
             buffer,
@@ -145,6 +150,13 @@ impl BitBuffer {
         buffer.truncate(len.div_ceil(8));
 
         Self::new(buffer.freeze().into_byte_buffer(), len)
+    }
+
+    /// Clear all bits in the buffer, preserving existing capacity.
+    pub fn clear(&mut self) {
+        self.buffer.clear();
+        self.len = 0;
+        self.offset = 0;
     }
 
     /// Get the logical length of this `BoolBuffer`.
@@ -483,7 +495,7 @@ mod tests {
     use rstest::rstest;
 
     use crate::bit::BitBuffer;
-    use crate::{ByteBuffer, buffer};
+    use crate::{buffer, ByteBuffer};
 
     #[test]
     fn test_bool() {
