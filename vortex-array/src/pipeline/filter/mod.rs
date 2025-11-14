@@ -5,6 +5,7 @@ mod buffer;
 
 use crate::pipeline::bit_view::BitView;
 use vortex_compute::filter::Filter;
+use vortex_dtype::NativePType;
 use vortex_mask::MaskMut;
 use vortex_vector::primitive::{PVectorMut, PrimitiveVectorMut};
 use vortex_vector::{match_each_pvector_mut, VectorMut, VectorMutOps};
@@ -37,11 +38,10 @@ impl Filter<BitView<'_>> for &mut PrimitiveVectorMut {
     }
 }
 
-impl<T> Filter<BitView<'_>> for &mut PVectorMut<T> {
+impl<T: NativePType> Filter<BitView<'_>> for &mut PVectorMut<T> {
     type Output = ();
 
     fn filter(self, selection: &BitView<'_>) -> Self::Output {
-        println!("SEL(): {:?}", selection);
         unsafe { self.elements_mut() }.as_mut().filter(selection);
         // FIXME(ngates): filter the validity...
         *unsafe { self.validity_mut() } = MaskMut::new_true(selection.true_count());
