@@ -10,7 +10,6 @@
 mod arrow;
 mod buf;
 mod buf_mut;
-mod buf_mut_split_tests;
 mod macros;
 mod ops;
 

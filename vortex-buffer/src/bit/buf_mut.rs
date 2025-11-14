@@ -7,7 +7,7 @@ use arrow_buffer::bit_chunk_iterator::{BitChunks, UnalignedBitChunk};
 use bitvec::view::BitView;
 
 use crate::bit::{get_bit_unchecked, ops, set_bit_unchecked, unset_bit_unchecked};
-use crate::{buffer_mut, BitBuffer, BufferMut, ByteBufferMut};
+use crate::{BitBuffer, BufferMut, ByteBufferMut, buffer_mut};
 
 /// A mutable bitset buffer that allows random access to individual bits for set and get.
 ///
@@ -601,7 +601,7 @@ impl FromIterator<bool> for BitBufferMut {
 #[cfg(test)]
 mod tests {
     use crate::bit::buf_mut::BitBufferMut;
-    use crate::{bitbuffer, bitbuffer_mut, buffer_mut, BufferMut};
+    use crate::{BufferMut, bitbuffer, bitbuffer_mut, buffer_mut};
 
     #[test]
     fn test_bits_mut() {
