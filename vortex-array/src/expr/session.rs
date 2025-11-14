@@ -24,7 +24,7 @@ use crate::expr::exprs::pack::Pack;
 use crate::expr::exprs::root::Root;
 use crate::expr::exprs::select::Select;
 use crate::expr::exprs::select::transform::RemoveSelectRule;
-use crate::expr::transform::traits::{
+use crate::expr::transform::rules::{
     ChildReduceRule, ParentReduceRule, ReduceRule, RewriteContext,
 };
 use crate::expr::{ExprId, ExprVTable, Expression, VTable};

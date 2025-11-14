@@ -6,7 +6,7 @@ use vortex_error::{VortexResult, vortex_err};
 use crate::expr::exprs::get_item::get_item;
 use crate::expr::exprs::pack::pack;
 use crate::expr::exprs::select::Select;
-use crate::expr::transform::traits::{ReduceRule, RewriteContext};
+use crate::expr::transform::rules::{ReduceRule, RewriteContext};
 use crate::expr::{Expression, ExpressionView};
 
 /// Rule that removes Select expressions by converting them to Pack + GetItem.
@@ -61,7 +61,7 @@ mod tests {
     use crate::expr::exprs::pack::Pack;
     use crate::expr::exprs::root::root;
     use crate::expr::exprs::select::{Select, select};
-    use crate::expr::transform::traits::{ReduceRule, SimpleRewriteContext};
+    use crate::expr::transform::rules::{ReduceRule, SimpleRewriteContext};
 
     #[test]
     fn test_remove_select_rule() {

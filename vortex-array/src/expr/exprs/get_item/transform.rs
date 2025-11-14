@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 
 use crate::expr::exprs::get_item::GetItem;
 use crate::expr::exprs::pack::Pack;
-use crate::expr::transform::traits::{ChildReduceRule, RewriteContext};
+use crate::expr::transform::rules::{ChildReduceRule, RewriteContext};
 use crate::expr::{Expression, ExpressionView};
 
 /// Rewrite rule: `pack(l_1: e_1, ..., l_i: e_i, ..., l_n: e_n).get_item(l_i) = e_i`
