@@ -43,8 +43,16 @@ impl PrimitiveArray {
         PrimitiveArray::from_byte_buffer(self.byte_buffer().clone(), ptype, self.validity().clone())
     }
 
-    /// Narrow the array to the smallest possible integer type that can represent all values.
-    pub fn narrow(&self) -> VortexResult<PrimitiveArray> {
+    /// Narrow the array to the smallest possible integer type that can represent all values,
+    /// with a minimum byte size constraint.
+    ///
+    /// This method will narrow to the smallest type that can hold the values and has at least
+    /// `min_size` bytes. For example, if values fit in U8 but `min_size` is 2, the result
+    /// will be U16.
+    ///
+    /// # Arguments
+    /// * `min_size` - Minimum byte width for the result type (0 means no constraint)
+    pub fn narrow_min(&self, min_size: usize) -> VortexResult<PrimitiveArray> {
         if !self.ptype().is_int() {
             return Ok(self.clone());
         }
@@ -67,7 +75,7 @@ impl PrimitiveArray {
 
         if min < 0 || max < 0 {
             // Signed
-            if min >= i8::MIN as i64 && max <= i8::MAX as i64 {
+            if min >= i8::MIN as i64 && max <= i8::MAX as i64 && min_size <= 1 {
                 return Ok(cast(
                     self.as_ref(),
                     &DType::Primitive(PType::I8, self.dtype().nullability()),
@@ -75,7 +83,7 @@ impl PrimitiveArray {
                 .to_primitive());
             }
 
-            if min >= i16::MIN as i64 && max <= i16::MAX as i64 {
+            if min >= i16::MIN as i64 && max <= i16::MAX as i64 && min_size <= 2 {
                 return Ok(cast(
                     self.as_ref(),
                     &DType::Primitive(PType::I16, self.dtype().nullability()),
@@ -83,7 +91,7 @@ impl PrimitiveArray {
                 .to_primitive());
             }
 
-            if min >= i32::MIN as i64 && max <= i32::MAX as i64 {
+            if min >= i32::MIN as i64 && max <= i32::MAX as i64 && min_size <= 4 {
                 return Ok(cast(
                     self.as_ref(),
                     &DType::Primitive(PType::I32, self.dtype().nullability()),
@@ -92,7 +100,7 @@ impl PrimitiveArray {
             }
         } else {
             // Unsigned
-            if max <= u8::MAX as i64 {
+            if max <= u8::MAX as i64 && min_size <= 1 {
                 return Ok(cast(
                     self.as_ref(),
                     &DType::Primitive(PType::U8, self.dtype().nullability()),
@@ -100,7 +108,7 @@ impl PrimitiveArray {
                 .to_primitive());
             }
 
-            if max <= u16::MAX as i64 {
+            if max <= u16::MAX as i64 && min_size <= 2 {
                 return Ok(cast(
                     self.as_ref(),
                     &DType::Primitive(PType::U16, self.dtype().nullability()),
@@ -108,7 +116,7 @@ impl PrimitiveArray {
                 .to_primitive());
             }
 
-            if max <= u32::MAX as i64 {
+            if max <= u32::MAX as i64 && min_size <= 4 {
                 return Ok(cast(
                     self.as_ref(),
                     &DType::Primitive(PType::U32, self.dtype().nullability()),
@@ -118,6 +126,11 @@ impl PrimitiveArray {
         }
 
         Ok(self.clone())
+    }
+
+    /// Narrow the array to the smallest possible integer type that can represent all values.
+    pub fn narrow(&self) -> VortexResult<PrimitiveArray> {
+        self.narrow_min(0)
     }
 }
 
@@ -227,5 +240,69 @@ mod tests {
         // Empty arrays should not have their validity changed
         assert_eq!(result.validity, Validity::AllInvalid);
         assert_eq!(result2.validity, Validity::NonNullable);
+    }
+
+    #[rstest]
+    #[case(vec![0_i64, 255], 0, PType::U8)] // No constraint, fits in U8
+    #[case(vec![0_i64, 255], 1, PType::U8)] // Min 1 byte, fits in U8
+    #[case(vec![0_i64, 255], 2, PType::U16)] // Min 2 bytes, needs U16
+    #[case(vec![0_i64, 255], 4, PType::U32)] // Min 4 bytes, needs U32
+    #[case(vec![0_i64, 100], 2, PType::U16)] // Min 2 bytes, even though values fit in U8
+    #[case(vec![0_i64, 127], 0, PType::U8)] // No constraint, unsigned U8
+    #[case(vec![-1_i64, 127], 0, PType::I8)] // No constraint, signed I8
+    #[case(vec![-1_i64, 127], 2, PType::I16)] // Min 2 bytes, needs I16
+    #[case(vec![0_i64, 256], 1, PType::U16)] // Naturally needs U16, min 1 byte
+    #[case(vec![0_i64, 256], 2, PType::U16)] // Naturally needs U16, min 2 bytes
+    fn test_narrow_min(
+        #[case] values: Vec<i64>,
+        #[case] min_size: usize,
+        #[case] expected_ptype: PType,
+    ) {
+        let array = PrimitiveArray::from_iter(values);
+        let result = array.narrow_min(min_size).unwrap();
+        assert_eq!(
+            result.ptype(),
+            expected_ptype,
+            "narrow_min({}) failed",
+            min_size
+        );
+    }
+
+    #[test]
+    fn test_narrow_min_preserves_values() {
+        // Values fit in U8 but we request minimum 2 bytes
+        let values = vec![0_u32, 100, 200];
+        let array = PrimitiveArray::from_iter(values);
+        let result = array.narrow_min(2).unwrap();
+
+        // Should be U16
+        assert_eq!(result.ptype(), PType::U16);
+        // Values should be preserved
+        let result_values: Vec<u16> = result.as_slice::<u16>().to_vec();
+        assert_eq!(result_values, vec![0_u16, 100, 200]);
+    }
+
+    #[test]
+    fn test_narrow_min_signed() {
+        // Values fit in I8 but we request minimum 4 bytes
+        let values = vec![-50_i64, 0, 50];
+        let array = PrimitiveArray::from_iter(values);
+        let result = array.narrow_min(4).unwrap();
+
+        // Should be I32
+        assert_eq!(result.ptype(), PType::I32);
+        let result_values: Vec<i32> = result.as_slice::<i32>().to_vec();
+        assert_eq!(result_values, vec![-50_i32, 0, 50]);
+    }
+
+    #[test]
+    fn test_narrow_min_respects_natural_size() {
+        // Values naturally need U32, requesting min 2 bytes shouldn't downgrade
+        let values = vec![0_u64, u32::MAX as u64];
+        let array = PrimitiveArray::from_iter(values);
+        let result = array.narrow_min(2).unwrap();
+
+        // Should stay U32 (can't fit in U16)
+        assert_eq!(result.ptype(), PType::U32);
     }
 }

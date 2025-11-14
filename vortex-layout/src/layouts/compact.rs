@@ -138,28 +138,18 @@ impl CompactCompressor {
                 // Note that since the type of our offsets and sizes is not encoded in our `DType`,
                 // we can narrow the widths. However, we must ensure that the size type can fit
                 // within the offset type, so we need to determine compatible types.
-                let narrowed_offsets = listview.offsets().to_primitive().narrow()?;
+                // First narrow sizes to find the minimum size needed
                 let narrowed_sizes = listview.sizes().to_primitive().narrow()?;
+                let sizes_byte_width = narrowed_sizes.ptype().byte_width();
 
-                // Ensure compatible types: if sizes have a larger type than offsets,
-                // we need to cast offsets to match
-                let sizes_ptype = narrowed_sizes.ptype();
-                let offsets_ptype = narrowed_offsets.ptype();
+                // Then narrow offsets to at least the same width as sizes
+                let narrowed_offsets = listview
+                    .offsets()
+                    .to_primitive()
+                    .narrow_min(sizes_byte_width)?;
 
-                let (final_offsets, final_sizes) =
-                    if sizes_ptype.byte_width() > offsets_ptype.byte_width() {
-                        // Cast offsets to match sizes type
-                        let casted_offsets = vortex_array::compute::cast(
-                            &narrowed_offsets.into_array(),
-                            narrowed_sizes.dtype(),
-                        )?;
-                        (casted_offsets, narrowed_sizes.into_array())
-                    } else {
-                        (narrowed_offsets.into_array(), narrowed_sizes.into_array())
-                    };
-
-                let compressed_offsets = self.compress(&final_offsets)?;
-                let compressed_sizes = self.compress(&final_sizes)?;
+                let compressed_offsets = self.compress(&narrowed_offsets.into_array())?;
+                let compressed_sizes = self.compress(&narrowed_sizes.into_array())?;
 
                 // SAFETY: Since compression does not change the logical values of arrays, this is
                 // effectively the same array but represented differently, so all invariants that
