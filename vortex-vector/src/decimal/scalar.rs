@@ -4,8 +4,8 @@
 use vortex_dtype::{DecimalTypeUpcast, NativeDecimalType, PrecisionScale, i256};
 use vortex_error::VortexExpect;
 
-use crate::decimal::DVectorMut;
-use crate::{Scalar, ScalarOps, VectorMut, VectorMutOps};
+use crate::decimal::DVector;
+use crate::{Scalar, ScalarOps, Vector, VectorOps};
 
 /// Represents a decimal scalar value.
 #[derive(Debug)]
@@ -36,7 +36,7 @@ impl ScalarOps for DecimalScalar {
         }
     }
 
-    fn repeat(&self, n: usize) -> VectorMut {
+    fn repeat(&self, n: usize) -> Vector {
         match self {
             DecimalScalar::I8(v) => v.repeat(n),
             DecimalScalar::I16(v) => v.repeat(n),
@@ -92,8 +92,8 @@ impl<D: NativeDecimalType> ScalarOps for DScalar<D> {
         self.value.is_some()
     }
 
-    fn repeat(&self, n: usize) -> VectorMut {
-        let mut vec = DVectorMut::with_capacity(self.ps, n);
+    fn repeat(&self, n: usize) -> Vector {
+        let mut vec = DVector::with_capacity(self.ps, n);
         match &self.value {
             None => vec.append_nulls(n),
             Some(v) => vec.try_append_n(*v, n).vortex_expect("known to fit"),

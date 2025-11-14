@@ -7,10 +7,10 @@ use std::fmt::Debug;
 use std::ops::RangeBounds;
 use std::sync::Arc;
 
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
-use crate::fixed_size_list::{FixedSizeListScalar, FixedSizeListVectorMut};
+use crate::fixed_size_list::{FixedSizeListScalar, FixedSizeListVector};
 use crate::{Scalar, Vector, VectorOps};
 
 /// An immutable vector of fixed-size lists.
@@ -146,7 +146,7 @@ impl FixedSizeListVector {
 }
 
 impl VectorOps for FixedSizeListVector {
-    type Mutable = FixedSizeListVectorMut;
+    type Mutable = FixedSizeListVector;
 
     fn len(&self) -> usize {
         self.len
@@ -165,7 +165,7 @@ impl VectorOps for FixedSizeListVector {
         todo!()
     }
 
-    fn try_into_mut(self) -> Result<FixedSizeListVectorMut, Self> {
+    fn try_into_mut(self) -> Result<FixedSizeListVector, Self> {
         let len = self.len;
         let list_size = self.list_size;
 
@@ -190,7 +190,7 @@ impl VectorOps for FixedSizeListVector {
 
         // Try to make the elements mutable.
         match elements.try_into_mut() {
-            Ok(mutable_elements) => Ok(FixedSizeListVectorMut {
+            Ok(mutable_elements) => Ok(FixedSizeListVector {
                 elements: Box::new(mutable_elements),
                 list_size,
                 validity,
@@ -205,7 +205,7 @@ impl VectorOps for FixedSizeListVector {
         }
     }
 
-    fn into_mut(self) -> FixedSizeListVectorMut {
+    fn into_mut(self) -> FixedSizeListVector {
         let len = self.len;
         let list_size = self.list_size;
         let validity = self.validity.into_mut();
@@ -214,7 +214,7 @@ impl VectorOps for FixedSizeListVector {
         // just a **different** reference count increment).
         let elements = Arc::try_unwrap(self.elements).unwrap_or_else(|arc| (*arc).clone());
 
-        FixedSizeListVectorMut {
+        FixedSizeListVector {
             elements: Box::new(elements.into_mut()),
             list_size,
             validity,
@@ -230,14 +230,14 @@ mod tests {
     use vortex_mask::Mask;
 
     use super::*;
-    use crate::primitive::PVectorMut;
-    use crate::{Vector, VectorMutOps};
+    use crate::primitive::PVector;
+    use crate::{Vector, VectorOps};
 
     #[test]
     fn test_constructor_and_validation() {
         // Valid construction with new().
         let elements: Arc<Vector> = Arc::new(
-            PVectorMut::<i32>::from_iter([1, 2, 3, 4, 5, 6])
+            PVector::<i32>::from_iter([1, 2, 3, 4, 5, 6])
                 .freeze()
                 .into(),
         );
@@ -257,11 +257,8 @@ mod tests {
         assert!(result.is_err());
 
         // Degenerate case (list_size = 0) with empty elements is valid.
-        let empty_elements: Arc<Vector> = Arc::new(
-            PVectorMut::<i32>::from_iter(Vec::<i32>::new())
-                .freeze()
-                .into(),
-        );
+        let empty_elements: Arc<Vector> =
+            Arc::new(PVector::<i32>::from_iter(Vec::<i32>::new()).freeze().into());
         let validity = Mask::new_true(5);
         let result = FixedSizeListVector::try_new(empty_elements, 0, validity);
         assert!(result.is_ok());
@@ -275,7 +272,7 @@ mod tests {
 
         // Test unsafe new_unchecked in debug mode (it should still validate).
         let elements: Arc<Vector> =
-            Arc::new(PVectorMut::<i32>::from_iter([1, 2, 3, 4]).freeze().into());
+            Arc::new(PVector::<i32>::from_iter([1, 2, 3, 4]).freeze().into());
         let validity = Mask::new_true(2);
         let vec = unsafe { FixedSizeListVector::new_unchecked(elements, 2, validity) };
         assert_eq!(vec.len(), 2);
@@ -286,7 +283,7 @@ mod tests {
     fn test_try_into_mut_conversion() {
         // Create a vector that we solely own.
         let elements: Arc<Vector> = Arc::new(
-            PVectorMut::<i32>::from_iter([1, 2, 3, 4, 5, 6])
+            PVector::<i32>::from_iter([1, 2, 3, 4, 5, 6])
                 .freeze()
                 .into(),
         );
@@ -307,7 +304,7 @@ mod tests {
 
         // Test failed conversion with shared ownership.
         let elements: Arc<Vector> =
-            Arc::new(PVectorMut::<i32>::from_iter([1, 2, 3, 4]).freeze().into());
+            Arc::new(PVector::<i32>::from_iter([1, 2, 3, 4]).freeze().into());
         let validity = Mask::new_true(2);
         let vec = FixedSizeListVector::new(elements, 2, validity);
 
@@ -327,7 +324,7 @@ mod tests {
     #[test]
     fn test_accessors_and_parts() {
         let elements: Arc<Vector> = Arc::new(
-            PVectorMut::<i32>::from_iter([1, 2, 3, 4, 5, 6])
+            PVector::<i32>::from_iter([1, 2, 3, 4, 5, 6])
                 .freeze()
                 .into(),
         );

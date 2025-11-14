@@ -1,39 +1,39 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Definition and implementation of [`PVectorMut<T>`].
+//! Definition and implementation of [`PVector<T>`].
 
-use vortex_buffer::BufferMut;
+use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::NativePType;
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
-use vortex_mask::MaskMut;
+use vortex_mask::{Mask, MaskMut};
 
 use crate::primitive::PVector;
-use crate::{VectorMutOps, VectorOps};
+use crate::{Cow, VectorOps, VectorOps};
 
 /// A mutable vector of generic primitive values.
 ///
 /// `T` is expected to be bound by [`NativePType`], which templates an internal [`BufferMut<T>`]
 /// that stores the elements of the vector.
-#[derive(Debug, Clone)]
-pub struct PVectorMut<T> {
+#[derive(Debug)]
+pub struct PVector<T> {
     /// The mutable buffer representing the vector elements.
-    pub(super) elements: BufferMut<T>,
+    pub(super) elements: Cow<Buffer<T>>,
     /// The validity mask (where `true` represents an element is **not** null).
-    pub(super) validity: MaskMut,
+    pub(super) validity: Cow<Mask>,
 }
 
-impl<T> PVectorMut<T> {
-    /// Creates a new [`PVectorMut<T>`] from the given elements buffer and validity mask.
+impl<T> PVector<T> {
+    /// Creates a new [`PVector<T>`] from the given elements buffer and validity mask.
     ///
     /// # Panics
     ///
     /// Panics if the length of the validity mask does not match the length of the elements buffer.
     pub fn new(elements: BufferMut<T>, validity: MaskMut) -> Self {
-        Self::try_new(elements, validity).vortex_expect("Failed to create `PVectorMut`")
+        Self::try_new(elements, validity).vortex_expect("Failed to create `PVector`")
     }
 
-    /// Tries to create a new [`PVectorMut<T>`] from the given elements buffer and validity mask.
+    /// Tries to create a new [`PVector<T>`] from the given elements buffer and validity mask.
     ///
     /// # Errors
     ///
@@ -42,13 +42,13 @@ impl<T> PVectorMut<T> {
     pub fn try_new(elements: BufferMut<T>, validity: MaskMut) -> VortexResult<Self> {
         vortex_ensure!(
             validity.len() == elements.len(),
-            "`PVectorMut` validity mask must have the same length as elements"
+            "`PVector` validity mask must have the same length as elements"
         );
 
         Ok(Self { elements, validity })
     }
 
-    /// Creates a new [`PVectorMut<T>`] from the given elements buffer and validity mask without
+    /// Creates a new [`PVector<T>`] from the given elements buffer and validity mask without
     /// validation.
     ///
     /// # Safety
@@ -123,7 +123,7 @@ impl<T> PVectorMut<T> {
     }
 }
 
-impl<T: NativePType> VectorMutOps for PVectorMut<T> {
+impl<T: NativePType> VectorOps for PVector<T> {
     type Immutable = PVector<T>;
 
     fn len(&self) -> usize {

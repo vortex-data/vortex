@@ -2,10 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Helper macros for working with the different variants of [`PrimitiveVector`] and
-//! [`PrimitiveVectorMut`].
+//! [`PrimitiveVector`].
 //!
 //! [`PrimitiveVector`]: crate::primitive::PrimitiveVector
-//! [`PrimitiveVectorMut`]: crate::primitive::PrimitiveVectorMut
+//! [`PrimitiveVector`]: crate::primitive::PrimitiveVector
 
 /// Matches on all primitive type variants of [`PrimitiveVector`] and executes the same code for
 /// each variant branch.
@@ -17,21 +17,21 @@
 /// # Examples
 ///
 /// ```
-/// use vortex_vector::primitive::{PrimitiveVector, PVectorMut};
-/// use vortex_vector::{VectorOps, VectorMutOps, match_each_pvector};
+/// use vortex_vector::primitive::{PrimitiveVector, PVector};
+/// use vortex_vector::{VectorOps, match_each_pvector};
 ///
 /// fn get_primitive_len(vector: &PrimitiveVector) -> usize {
 ///     match_each_pvector!(vector, |v| { v.len() })
 /// }
 ///
 /// // Works with `I32` primitive vectors.
-/// let i32_vec: PrimitiveVector = PVectorMut::<i32>::from_iter([1, 2, 3].map(Some))
+/// let i32_vec: PrimitiveVector = PVector::<i32>::from_iter([1, 2, 3].map(Some))
 ///     .freeze()
 ///     .into();
 /// assert_eq!(get_primitive_len(&i32_vec), 3);
 ///
 /// // Works with `F64` primitive vectors.
-/// let f64_vec: PrimitiveVector = PVectorMut::<f64>::from_iter([1.0, 2.5].map(Some))
+/// let f64_vec: PrimitiveVector = PVector::<f64>::from_iter([1.0, 2.5].map(Some))
 ///     .freeze()
 ///     .into();
 /// assert_eq!(get_primitive_len(&f64_vec), 2);
@@ -97,7 +97,7 @@ macro_rules! match_each_integer_pvector {
     }};
 }
 
-/// Matches on all primitive type variants of [`PrimitiveVectorMut`] and executes the same code
+/// Matches on all primitive type variants of [`PrimitiveVector`] and executes the same code
 /// for each variant branch.
 ///
 /// This macro eliminates repetitive match statements when implementing mutable operations that need
@@ -107,48 +107,48 @@ macro_rules! match_each_integer_pvector {
 /// # Examples
 ///
 /// ```
-/// use vortex_vector::primitive::{PrimitiveVectorMut, PVectorMut};
-/// use vortex_vector::{VectorMutOps, match_each_pvector_mut};
+/// use vortex_vector::primitive::{PrimitiveVector, PVector};
+/// use vortex_vector::{VectorOps, match_each_pvector_mut};
 ///
-/// fn reserve_primitive_space(vector: &mut PrimitiveVectorMut, additional: usize) {
+/// fn reserve_primitive_space(vector: &mut PrimitiveVector, additional: usize) {
 ///     match_each_pvector_mut!(vector, |v| { v.reserve(additional) })
 /// }
 ///
 /// // Works with `U8` mutable primitive vectors.
-/// let mut u8_vec: PrimitiveVectorMut = PVectorMut::<u8>::from_iter([1, 2].map(Some)).into();
+/// let mut u8_vec: PrimitiveVector = PVector::<u8>::from_iter([1, 2].map(Some)).into();
 /// reserve_primitive_space(&mut u8_vec, 10);
 /// assert!(u8_vec.capacity() >= 12);
 ///
 /// // Works with `I64` mutable primitive vectors.
-/// let mut i64_vec: PrimitiveVectorMut = PVectorMut::<i64>::from_iter([100].map(Some)).into();
+/// let mut i64_vec: PrimitiveVector = PVector::<i64>::from_iter([100].map(Some)).into();
 /// reserve_primitive_space(&mut i64_vec, 5);
 /// assert!(i64_vec.capacity() >= 6);
 /// ```
 ///
-/// Note: The `reserve` method is already provided by the [`VectorMutOps`] trait implementation.
+/// Note: The `reserve` method is already provided by the [`VectorOps`] trait implementation.
 ///
-/// [`PrimitiveVectorMut`]: crate::primitive::PrimitiveVectorMut
-/// [`VectorMutOps`]: crate::VectorMutOps
+/// [`PrimitiveVector`]: crate::primitive::PrimitiveVector
+/// [`VectorOps`]: crate::VectorOps
 #[macro_export]
 macro_rules! match_each_pvector_mut {
     ($self:expr, | $vec:ident | $body:block) => {{
         match $self {
-            $crate::primitive::PrimitiveVectorMut::U8($vec) => $body,
-            $crate::primitive::PrimitiveVectorMut::U16($vec) => $body,
-            $crate::primitive::PrimitiveVectorMut::U32($vec) => $body,
-            $crate::primitive::PrimitiveVectorMut::U64($vec) => $body,
-            $crate::primitive::PrimitiveVectorMut::I8($vec) => $body,
-            $crate::primitive::PrimitiveVectorMut::I16($vec) => $body,
-            $crate::primitive::PrimitiveVectorMut::I32($vec) => $body,
-            $crate::primitive::PrimitiveVectorMut::I64($vec) => $body,
-            $crate::primitive::PrimitiveVectorMut::F16($vec) => $body,
-            $crate::primitive::PrimitiveVectorMut::F32($vec) => $body,
-            $crate::primitive::PrimitiveVectorMut::F64($vec) => $body,
+            $crate::primitive::PrimitiveVector::U8($vec) => $body,
+            $crate::primitive::PrimitiveVector::U16($vec) => $body,
+            $crate::primitive::PrimitiveVector::U32($vec) => $body,
+            $crate::primitive::PrimitiveVector::U64($vec) => $body,
+            $crate::primitive::PrimitiveVector::I8($vec) => $body,
+            $crate::primitive::PrimitiveVector::I16($vec) => $body,
+            $crate::primitive::PrimitiveVector::I32($vec) => $body,
+            $crate::primitive::PrimitiveVector::I64($vec) => $body,
+            $crate::primitive::PrimitiveVector::F16($vec) => $body,
+            $crate::primitive::PrimitiveVector::F32($vec) => $body,
+            $crate::primitive::PrimitiveVector::F64($vec) => $body,
         }
     }};
 }
 
-/// Matches on all integer type variants of [`PrimitiveVectorMut`] and executes the same code for
+/// Matches on all integer type variants of [`PrimitiveVector`] and executes the same code for
 /// each of the integer variant branches.
 ///
 /// This macro eliminates repetitive match statements when implementing operations that need to work
@@ -157,7 +157,7 @@ macro_rules! match_each_pvector_mut {
 ///
 /// See [`match_each_pvector_mut`] for similar usage.
 ///
-/// [`PrimitiveVectorMut`]: crate::primitive::PrimitiveVectorMut
+/// [`PrimitiveVector`]: crate::primitive::PrimitiveVector
 ///
 /// # Panics
 ///
@@ -166,17 +166,17 @@ macro_rules! match_each_pvector_mut {
 macro_rules! match_each_integer_pvector_mut {
     ($self:expr, | $vec:ident | $body:block) => {{
         match $self {
-            $crate::primitive::PrimitiveVectorMut::U8($vec) => $body,
-            $crate::primitive::PrimitiveVectorMut::U16($vec) => $body,
-            $crate::primitive::PrimitiveVectorMut::U32($vec) => $body,
-            $crate::primitive::PrimitiveVectorMut::U64($vec) => $body,
-            $crate::primitive::PrimitiveVectorMut::I8($vec) => $body,
-            $crate::primitive::PrimitiveVectorMut::I16($vec) => $body,
-            $crate::primitive::PrimitiveVectorMut::I32($vec) => $body,
-            $crate::primitive::PrimitiveVectorMut::I64($vec) => $body,
-            $crate::primitive::PrimitiveVectorMut::F16(_)
-            | $crate::primitive::PrimitiveVectorMut::F32(_)
-            | $crate::primitive::PrimitiveVectorMut::F64(_) => {
+            $crate::primitive::PrimitiveVector::U8($vec) => $body,
+            $crate::primitive::PrimitiveVector::U16($vec) => $body,
+            $crate::primitive::PrimitiveVector::U32($vec) => $body,
+            $crate::primitive::PrimitiveVector::U64($vec) => $body,
+            $crate::primitive::PrimitiveVector::I8($vec) => $body,
+            $crate::primitive::PrimitiveVector::I16($vec) => $body,
+            $crate::primitive::PrimitiveVector::I32($vec) => $body,
+            $crate::primitive::PrimitiveVector::I64($vec) => $body,
+            $crate::primitive::PrimitiveVector::F16(_)
+            | $crate::primitive::PrimitiveVector::F32(_)
+            | $crate::primitive::PrimitiveVector::F64(_) => {
                 ::vortex_error::vortex_panic!(
                     "Tried to match a mutable float vector in an integer match statement"
                 )

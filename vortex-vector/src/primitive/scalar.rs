@@ -6,8 +6,8 @@ use std::ops::Deref;
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PTypeUpcast};
 
-use crate::primitive::{PVectorMut, PrimitiveVectorMut};
-use crate::{Scalar, ScalarOps, VectorMut, VectorMutOps};
+use crate::primitive::{PVector, PrimitiveVector};
+use crate::{Scalar, ScalarOps, Vector, VectorOps};
 
 /// Represents a primitive scalar value.
 #[derive(Debug)]
@@ -53,7 +53,7 @@ impl ScalarOps for PrimitiveScalar {
         }
     }
 
-    fn repeat(&self, _n: usize) -> VectorMut {
+    fn repeat(&self, _n: usize) -> Vector {
         todo!()
     }
 }
@@ -86,13 +86,13 @@ impl<T: NativePType> ScalarOps for PScalar<T> {
         self.0.is_some()
     }
 
-    fn repeat(&self, n: usize) -> VectorMut {
-        let mut vec = PVectorMut::<T>::with_capacity(n);
+    fn repeat(&self, n: usize) -> Vector {
+        let mut vec = PVector::<T>::with_capacity(n);
         match self.0 {
             None => vec.append_nulls(n),
             Some(v) => vec.append_values(v, n),
         }
-        PrimitiveVectorMut::from(vec).into()
+        PrimitiveVector::from(vec).into()
     }
 }
 

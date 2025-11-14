@@ -11,7 +11,7 @@ use crate::listview::ListViewScalar;
 use crate::null::NullScalar;
 use crate::primitive::PrimitiveScalar;
 use crate::struct_::StructScalar;
-use crate::{ScalarOps, VectorMut, match_each_scalar};
+use crate::{ScalarOps, Vector, match_each_scalar};
 
 /// Represents a scalar value of any supported type.
 #[derive(Debug)]
@@ -41,7 +41,7 @@ impl ScalarOps for Scalar {
         match_each_scalar!(self, |v| { v.is_valid() })
     }
 
-    fn repeat(&self, n: usize) -> VectorMut {
+    fn repeat(&self, n: usize) -> Vector {
         match_each_scalar!(self, |v| { v.repeat(n) })
     }
 }

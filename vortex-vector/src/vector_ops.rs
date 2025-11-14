@@ -1,21 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Definition and implementation of [`VectorOps`] and [`VectorMutOps`] for [`Vector`] and
-//! [`VectorMut`], respectively.
+//! Definition and implementation of [`VectorOps`] and [`VectorOps`] for [`Vector`] and
+//! [`Vector`], respectively.
 
 use std::fmt::Debug;
 use std::ops::RangeBounds;
 
-use vortex_mask::{Mask, MaskMut};
+use vortex_mask::Mask;
 
-use crate::{Scalar, Vector, VectorMut, private};
+use crate::cow::Cow;
+use crate::{private, Scalar, Vector};
 
-/// Common operations for immutable vectors (all the variants of [`Vector`]).
+/// Common operations for mutable vectors (all the variants of [`Vector`]).
 pub trait VectorOps: private::Sealed + Into<Vector> + Sized {
-    /// The mutable equivalent of this immutable vector.
-    type Mutable: VectorMutOps<Immutable = Self>;
-
     /// Returns the number of elements in the vector, also referred to as its "length".
     fn len(&self) -> usize;
 
@@ -26,16 +24,11 @@ pub trait VectorOps: private::Sealed + Into<Vector> + Sized {
 
     /// Returns the validity mask of the vector, where `true` represents a _valid_ element and
     /// `false` represents a `null` element.
-    ///
-    /// Note that vectors are **always** considered nullable. "Non-nullable" data will simply have a
-    /// [`Mask`] of [`AllTrue(len)`](Mask::AllTrue). It is on the caller to ensure that they do not
-    /// add nullable data to a vector they want to keep as non-nullable.
-    fn validity(&self) -> &Mask;
+    fn validity(&self) -> &Cow<Mask>;
 
-    /// Returns the null count of the vector.
-    fn null_count(&self) -> usize {
-        self.validity().false_count()
-    }
+    /// Returns the mutable validity mask of the vector, where `true` represents a _valid_ element
+    /// and `false` represents a `null` element.
+    fn validity_mut(&mut self) -> &mut Cow<Mask>;
 
     /// Return the scalar at the given index.
     ///
@@ -46,51 +39,6 @@ pub trait VectorOps: private::Sealed + Into<Vector> + Sized {
 
     /// Slice the vector from `start` to `end` (exclusive).
     fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self;
-
-    /// Tries to convert `self` into a mutable vector (implementing [`VectorMutOps`]).
-    ///
-    /// This method will only succeed if `self` is the only unique strong reference (it effectively
-    /// "owns" the buffer). If this is true, this method will return a mutable vector with the
-    /// contents of `self` **without** any copying of data.
-    ///
-    /// # Errors
-    ///
-    /// If `self` is not unique, this will fail and return `self` back to the caller.
-    fn try_into_mut(self) -> Result<Self::Mutable, Self>;
-
-    /// Converts `self` into a mutable vector (implementing [`VectorMutOps`]).
-    ///
-    /// This method uses "clone-on-write" semantics, meaning it will clone any underlying data that
-    /// has multiple references (preventing mutable access). `into_mut` can be more efficient than
-    /// [`try_into_mut()`] when mutations are infrequent.
-    ///
-    /// The semantics of `into_mut` are somewhat similar to that of [`Arc::make_mut()`], but instead
-    /// of working with references, this works with owned immutable / mutable types.
-    ///
-    /// [`try_into_mut()`]: Self::try_into_mut
-    /// [`Arc::make_mut()`]: std::sync::Arc::make_mut
-    fn into_mut(self) -> Self::Mutable;
-}
-
-/// Common operations for mutable vectors (all the variants of [`VectorMut`]).
-pub trait VectorMutOps: private::Sealed + Into<VectorMut> + Sized {
-    /// The immutable equivalent of this mutable vector.
-    type Immutable: VectorOps<Mutable = Self>;
-
-    /// Returns the number of elements in the vector, also referred to as its "length".
-    fn len(&self) -> usize;
-
-    /// Returns `true` if the vector contains no elements.
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Returns the validity mask of the vector, where `true` represents a _valid_ element and
-    /// `false` represents a `null` element.
-    ///
-    /// Note that while this returns a [`MaskMut`] (which is typically an owned type), the caller is
-    /// only allowed to inspect it via the shared reference.
-    fn validity(&self) -> &MaskMut;
 
     /// Returns the total number of elements the vector can hold without reallocating.
     fn capacity(&self) -> usize;
@@ -121,7 +69,7 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> + Sized {
     ///
     /// Panics if the `other` vector has the wrong type (for example, a
     /// [`StructVector`](crate::struct_::StructVector) might have incorrect fields).
-    fn extend_from_vector(&mut self, other: &Self::Immutable);
+    fn extend_from_vector(&mut self, other: &Self);
 
     /// Appends `n` null elements to the vector.
     ///
@@ -129,8 +77,8 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> + Sized {
     /// elements in addition to adding nulls to their validity mask.
     fn append_nulls(&mut self, n: usize);
 
-    /// Converts `self` into an immutable vector.
-    fn freeze(self) -> Self::Immutable;
+    /// Converts `self` into an immutable vector by recursively calling [`Cow::freeze`].
+    fn freeze(self) -> Self;
 
     /// Splits the vector into two at the given index.
     ///

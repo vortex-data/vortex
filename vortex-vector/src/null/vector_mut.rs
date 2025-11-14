@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Definition and implementation of [`NullVectorMut`].
+//! Definition and implementation of [`NullVector`].
 
-use vortex_mask::MaskMut;
+use vortex_mask::{Mask, MaskMut};
 
-use crate::VectorMutOps;
 use crate::null::NullVector;
+use crate::{Cow, VectorOps};
 
 /// A mutable vector of null values.
 ///
@@ -14,16 +14,16 @@ use crate::null::NullVector;
 /// single `length` counter.
 ///
 /// The immutable equivalent of this type is [`NullVector`].
-#[derive(Debug, Clone)]
-pub struct NullVectorMut {
+#[derive(Debug)]
+pub struct NullVector {
     /// The total number of nulls.
     pub(super) len: usize,
     /// The validity mask. We only store this in order to implement the
     /// [`validity()`](Self::validity) method.
-    pub(super) validity: MaskMut,
+    pub(super) validity: Cow<Mask>,
 }
 
-impl NullVectorMut {
+impl NullVector {
     /// Creates a new mutable vector of nulls with the given length.
     pub fn new(len: usize) -> Self {
         Self {
@@ -33,7 +33,7 @@ impl NullVectorMut {
     }
 }
 
-impl VectorMutOps for NullVectorMut {
+impl VectorOps for NullVector {
     type Immutable = NullVector;
 
     fn len(&self) -> usize {
@@ -82,7 +82,7 @@ impl VectorMutOps for NullVectorMut {
 
         let new_len = self.len.saturating_sub(at);
         self.len = std::cmp::min(self.len, at);
-        NullVectorMut {
+        NullVector {
             len: new_len,
             validity: MaskMut::new_false(new_len),
         }

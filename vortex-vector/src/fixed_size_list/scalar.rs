@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::fixed_size_list::FixedSizeListVector;
-use crate::{Scalar, ScalarOps, VectorMut, VectorOps};
+use crate::{Scalar, ScalarOps, Vector, VectorOps};
 
 /// A scalar value for fixed-size list types.
 ///
@@ -30,7 +30,7 @@ impl ScalarOps for FixedSizeListScalar {
         self.0.validity().value(0)
     }
 
-    fn repeat(&self, _n: usize) -> VectorMut {
+    fn repeat(&self, _n: usize) -> Vector {
         // TODO(ngates): add "repeat(n)" to the vector ops trait
         todo!()
     }

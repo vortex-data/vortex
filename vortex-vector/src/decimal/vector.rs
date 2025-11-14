@@ -10,7 +10,7 @@ use vortex_dtype::{DecimalType, DecimalTypeDowncast, DecimalTypeUpcast, NativeDe
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
-use crate::decimal::{DVector, DecimalVectorMut};
+use crate::decimal::{DVector, DecimalVector};
 use crate::{Scalar, VectorOps, match_each_dvector};
 
 /// An enum over all supported decimal mutable vector types.
@@ -55,7 +55,7 @@ impl DecimalVector {
 }
 
 impl VectorOps for DecimalVector {
-    type Mutable = DecimalVectorMut;
+    type Mutable = DecimalVector;
 
     fn len(&self) -> usize {
         match_each_dvector!(self, |v| { v.len() })
@@ -73,16 +73,16 @@ impl VectorOps for DecimalVector {
         match_each_dvector!(self, |v| { DecimalVector::from(v.slice(range)) })
     }
 
-    fn try_into_mut(self) -> Result<DecimalVectorMut, Self> {
+    fn try_into_mut(self) -> Result<DecimalVector, Self> {
         match_each_dvector!(self, |v| {
             v.try_into_mut()
-                .map(DecimalVectorMut::from)
+                .map(DecimalVector::from)
                 .map_err(Self::from)
         })
     }
 
-    fn into_mut(self) -> DecimalVectorMut {
-        match_each_dvector!(self, |v| { DecimalVectorMut::from(v.into_mut()) })
+    fn into_mut(self) -> DecimalVector {
+        match_each_dvector!(self, |v| { DecimalVector::from(v.into_mut()) })
     }
 }
 

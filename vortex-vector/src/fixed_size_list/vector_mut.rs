@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Definition and implementation of [`FixedSizeListVectorMut`].
+//! Definition and implementation of [`FixedSizeListVector`].
 
 use std::sync::Arc;
 
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
-use vortex_mask::MaskMut;
+use vortex_mask::{Mask, MaskMut};
 
 use crate::fixed_size_list::FixedSizeListVector;
-use crate::{VectorMut, VectorMutOps, match_vector_pair};
+use crate::{Cow, Vector, VectorOps, match_vector_pair};
 
 /// A mutable vector of fixed-size lists.
 ///
@@ -18,7 +18,7 @@ use crate::{VectorMut, VectorMutOps, match_vector_pair};
 /// a fixed number of elements together for each list scalar.
 ///
 /// More specifically, each list scalar in the vector has the same number of elements (fixed size),
-/// with all list elements stored contiguously in a child [`VectorMut`].
+/// with all list elements stored contiguously in a child [`Vector`].
 ///
 /// Note that the validity mask tracks which lists are null, not which individual elements are null.
 ///
@@ -28,10 +28,10 @@ use crate::{VectorMut, VectorMutOps, match_vector_pair};
 /// - The `elements` vector has length `n * list_size`
 /// - The `validity` mask has length `n`
 /// - Each list `i` occupies `elements[i * list_size..(i+1) * list_size]
-#[derive(Debug, Clone)]
-pub struct FixedSizeListVectorMut {
+#[derive(Debug)]
+pub struct FixedSizeListVector {
     /// The mutable child vector of elements.
-    pub(super) elements: Box<VectorMut>,
+    pub(super) elements: Box<Vector>,
 
     /// The size of every list in the vector.
     pub(super) list_size: u32,
@@ -40,7 +40,7 @@ pub struct FixedSizeListVectorMut {
     ///
     /// Note that the `elements` vector will have its own internal validity, denoting if individual
     /// list elements are null.
-    pub(super) validity: MaskMut,
+    pub(super) validity: Cow<Mask>,
 
     /// The length of the vector (which is the same as the length of the validity mask).
     ///
@@ -48,8 +48,8 @@ pub struct FixedSizeListVectorMut {
     pub(super) len: usize,
 }
 
-impl FixedSizeListVectorMut {
-    /// Creates a new [`FixedSizeListVectorMut`] from the given `elements` vector, size of each
+impl FixedSizeListVector {
+    /// Creates a new [`FixedSizeListVector`] from the given `elements` vector, size of each
     /// list, and validity mask.
     ///
     /// # Panics
@@ -59,12 +59,12 @@ impl FixedSizeListVectorMut {
     ///
     /// Put another way, the length of the `elements` vector divided by the `list_size` must be
     /// equal to the length of the validity, or this function will panic.
-    pub fn new(elements: Box<VectorMut>, list_size: u32, validity: MaskMut) -> Self {
+    pub fn new(elements: Box<Vector>, list_size: u32, validity: MaskMut) -> Self {
         Self::try_new(elements, list_size, validity)
-            .vortex_expect("Failed to create `FixedSizeListVectorMut`")
+            .vortex_expect("Failed to create `FixedSizeListVector`")
     }
 
-    /// Tries to create a new [`FixedSizeListVectorMut`] from the given `elements` vector, size of
+    /// Tries to create a new [`FixedSizeListVector`] from the given `elements` vector, size of
     /// each list, and validity mask.
     ///
     /// # Errors
@@ -74,23 +74,19 @@ impl FixedSizeListVectorMut {
     ///
     /// Put another way, the length of the `elements` vector divided by the `list_size` must be
     /// equal to the length of the validity.
-    pub fn try_new(
-        elements: Box<VectorMut>,
-        list_size: u32,
-        validity: MaskMut,
-    ) -> VortexResult<Self> {
+    pub fn try_new(elements: Box<Vector>, list_size: u32, validity: MaskMut) -> VortexResult<Self> {
         let len = validity.len();
         let elements_len = elements.len();
 
         if list_size == 0 {
             vortex_ensure!(
                 elements.is_empty(),
-                "A degenerate (`list_size == 0`) `FixedSizeListVectorMut` should have no underlying elements",
+                "A degenerate (`list_size == 0`) `FixedSizeListVector` should have no underlying elements",
             );
         } else {
             vortex_ensure!(
                 list_size as usize * len == elements_len,
-                "Tried to create a `FixedSizeListVectorMut` of length {len} and list_size {list_size} \
+                "Tried to create a `FixedSizeListVector` of length {len} and list_size {list_size} \
                 with an child vector of size {elements_len} ({list_size} * {len} != {elements_len})",
             );
         }
@@ -103,18 +99,14 @@ impl FixedSizeListVectorMut {
         })
     }
 
-    /// Tries to create a new [`FixedSizeListVectorMut`] from the given `elements` vector, size of
+    /// Tries to create a new [`FixedSizeListVector`] from the given `elements` vector, size of
     /// each list, and validity mask without validation.
     ///
     /// # Safety
     ///
     /// The caller must ensure that the length of the `validity` mask multiplied by the `list_size`
     /// is exactly equal to the length of the `elements` vector.
-    pub unsafe fn new_unchecked(
-        elements: Box<VectorMut>,
-        list_size: u32,
-        validity: MaskMut,
-    ) -> Self {
+    pub unsafe fn new_unchecked(elements: Box<Vector>, list_size: u32, validity: MaskMut) -> Self {
         let len = validity.len();
 
         if cfg!(debug_assertions) {
@@ -129,9 +121,9 @@ impl FixedSizeListVectorMut {
         }
     }
 
-    /// Creates a new [`FixedSizeListVectorMut`] with given element type, list size, and capacity.
+    /// Creates a new [`FixedSizeListVector`] with given element type, list size, and capacity.
     pub fn with_capacity(elem_dtype: &DType, list_size: u32, capacity: usize) -> Self {
-        let elements = Box::new(VectorMut::with_capacity(
+        let elements = Box::new(Vector::with_capacity(
             elem_dtype,
             capacity * list_size as usize,
         ));
@@ -149,13 +141,13 @@ impl FixedSizeListVectorMut {
 
     /// Decomposes the `FixedSizeListVector` into its constituent parts (child elements, list size,
     /// and validity).
-    pub fn into_parts(self) -> (Box<VectorMut>, u32, MaskMut) {
+    pub fn into_parts(self) -> (Box<Vector>, u32, MaskMut) {
         (self.elements, self.list_size, self.validity)
     }
 
     /// Returns the child vector of elements, which represents the contiguous fixed-size lists of
     /// the `FixedSizeListVector`.
-    pub fn elements(&self) -> &VectorMut {
+    pub fn elements(&self) -> &Vector {
         &self.elements
     }
 
@@ -165,7 +157,7 @@ impl FixedSizeListVectorMut {
     }
 }
 
-impl VectorMutOps for FixedSizeListVectorMut {
+impl VectorOps for FixedSizeListVector {
     type Immutable = FixedSizeListVector;
 
     fn len(&self) -> usize {
@@ -206,7 +198,7 @@ impl VectorMutOps for FixedSizeListVectorMut {
         match_vector_pair!(
             self.elements.as_mut(),
             other.elements.as_ref(),
-            |a: VectorMut, b: Vector| {
+            |a: Vector, b: Vector| {
                 // This will panic if `other.elements` is not the correct type of vector.
                 a.extend_from_vector(b);
             }
@@ -282,20 +274,20 @@ mod tests {
 
     use super::*;
     use crate::VectorOps;
-    use crate::primitive::PVectorMut;
+    use crate::primitive::PVector;
 
     #[test]
     fn test_core_operations() {
         // Test with_capacity constructor.
         let dtype = DType::Primitive(PType::I32, vortex_dtype::Nullability::Nullable);
-        let mut vec = FixedSizeListVectorMut::with_capacity(&dtype, 3, 10);
+        let mut vec = FixedSizeListVector::with_capacity(&dtype, 3, 10);
         assert_eq!(vec.len(), 0);
         assert_eq!(vec.list_size(), 3);
         assert!(vec.capacity() >= 10);
 
         // Create a vector to extend from.
         let elements = Arc::new(
-            PVectorMut::<i32>::from_iter([1, 2, 3, 4, 5, 6])
+            PVector::<i32>::from_iter([1, 2, 3, 4, 5, 6])
                 .freeze()
                 .into(),
         );
@@ -322,7 +314,7 @@ mod tests {
     #[test]
     fn test_split_unsplit_operations() {
         // Create a vector with 6 lists, each containing 2 elements.
-        let elements = PVectorMut::<i32>::from_iter([
+        let elements = PVector::<i32>::from_iter([
             1, 2, // List 0
             3, 4, // List 1
             5, 6, // List 2
@@ -330,8 +322,7 @@ mod tests {
             9, 10, // List 4
             11, 12, // List 5
         ]);
-        let mut vec =
-            FixedSizeListVectorMut::new(Box::new(elements.into()), 2, MaskMut::new_true(6));
+        let mut vec = FixedSizeListVector::new(Box::new(elements.into()), 2, MaskMut::new_true(6));
 
         // Test split at different positions.
 
@@ -369,11 +360,11 @@ mod tests {
     #[test]
     fn test_null_handling() {
         // Test nullable lists with non-null elements.
-        let elements = PVectorMut::<i32>::from_iter([1, 2, 3, 4, 5, 6]);
+        let elements = PVector::<i32>::from_iter([1, 2, 3, 4, 5, 6]);
         let validity = MaskMut::new_true(3);
         // We can't directly set individual validity, but we can create vectors with nulls.
 
-        let mut vec = FixedSizeListVectorMut::new(Box::new(elements.into()), 2, validity);
+        let mut vec = FixedSizeListVector::new(Box::new(elements.into()), 2, validity);
 
         // Append null lists.
         vec.append_nulls(2);
@@ -385,7 +376,7 @@ mod tests {
         assert_eq!(frozen.validity().true_count(), 3); // First 3 are valid.
 
         // Test non-null lists with nullable elements.
-        let elements_with_nulls = PVectorMut::<i32>::from_iter([
+        let elements_with_nulls = PVector::<i32>::from_iter([
             Some(1),
             None,
             Some(3), // First list has a null element.
@@ -395,8 +386,7 @@ mod tests {
         ]);
         let validity = MaskMut::new_true(2); // Both lists are valid.
 
-        let mut vec =
-            FixedSizeListVectorMut::new(Box::new(elements_with_nulls.into()), 3, validity);
+        let mut vec = FixedSizeListVector::new(Box::new(elements_with_nulls.into()), 3, validity);
 
         assert_eq!(vec.len(), 2);
         assert_eq!(vec.elements().len(), 6);
@@ -413,9 +403,9 @@ mod tests {
     #[test]
     fn test_edge_cases() {
         // Test empty vector (0 lists).
-        let elements = PVectorMut::<i32>::from_iter(Vec::<i32>::new());
+        let elements = PVector::<i32>::from_iter(Vec::<i32>::new());
         let validity = MaskMut::new_true(0);
-        let mut vec = FixedSizeListVectorMut::new(Box::new(elements.into()), 3, validity);
+        let mut vec = FixedSizeListVector::new(Box::new(elements.into()), 3, validity);
         assert_eq!(vec.len(), 0);
         assert_eq!(vec.list_size(), 3);
         assert_eq!(vec.elements().len(), 0);
@@ -425,9 +415,9 @@ mod tests {
         assert_eq!(vec.len(), 1);
 
         // Test single element list.
-        let elements = PVectorMut::<i32>::from_iter([42]);
+        let elements = PVector::<i32>::from_iter([42]);
         let validity = MaskMut::new_true(1);
-        let vec = FixedSizeListVectorMut::new(
+        let vec = FixedSizeListVector::new(
             Box::new(elements.into()),
             1, // List size of 1.
             validity,
@@ -437,9 +427,9 @@ mod tests {
 
         // Test large list size.
         let large_elements: Vec<i32> = (0..1000).collect();
-        let elements = PVectorMut::<i32>::from_iter(large_elements);
+        let elements = PVector::<i32>::from_iter(large_elements);
         let validity = MaskMut::new_true(1); // Single list with 1000 elements.
-        let vec = FixedSizeListVectorMut::new(Box::new(elements.into()), 1000, validity);
+        let vec = FixedSizeListVector::new(Box::new(elements.into()), 1000, validity);
         assert_eq!(vec.len(), 1);
         assert_eq!(vec.list_size(), 1000);
         assert_eq!(vec.elements().len(), 1000);
@@ -455,7 +445,7 @@ mod tests {
         let dtype = DType::Primitive(PType::I32, vortex_dtype::Nullability::Nullable);
 
         // Test initial capacity from with_capacity.
-        let mut vec = FixedSizeListVectorMut::with_capacity(&dtype, 3, 10);
+        let mut vec = FixedSizeListVector::with_capacity(&dtype, 3, 10);
         assert!(vec.capacity() >= 10);
         assert!(vec.elements().capacity() >= 30); // At least 10 lists * 3 elements.
 
@@ -467,17 +457,17 @@ mod tests {
         assert!(vec.capacity() >= 100);
 
         // Test capacity calculation with different list sizes.
-        let vec2 = FixedSizeListVectorMut::with_capacity(&dtype, 5, 20);
+        let vec2 = FixedSizeListVector::with_capacity(&dtype, 5, 20);
         assert!(vec2.capacity() >= 20);
         assert!(vec2.elements().capacity() >= 100); // At least 20 lists * 5 elements.
 
         // Edge case: capacity when list_size = 0.
         // Based on the documentation, capacity is infinite (usize::MAX) for degenerate case.
-        let vec3 = FixedSizeListVectorMut::with_capacity(&dtype, 0, 10);
+        let vec3 = FixedSizeListVector::with_capacity(&dtype, 0, 10);
         assert_eq!(vec3.capacity(), usize::MAX); // Infinite capacity for degenerate case.
 
         // Test that capacity is preserved through operations.
-        let elements = PVectorMut::<i32>::from_iter([1, 2, 3, 4, 5, 6]);
+        let elements = PVector::<i32>::from_iter([1, 2, 3, 4, 5, 6]);
         vec.elements = Box::new(elements.into());
         vec.validity = MaskMut::new_true(2);
         vec.len = 2;

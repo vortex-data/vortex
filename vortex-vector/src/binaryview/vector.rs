@@ -11,7 +11,7 @@ use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 
-use crate::binaryview::vector_mut::BinaryViewVectorMut;
+use crate::binaryview::vector_mut::BinaryViewVector;
 use crate::binaryview::view::{BinaryView, validate_views};
 use crate::binaryview::{BinaryViewScalar, BinaryViewType};
 use crate::{Scalar, VectorOps};
@@ -192,7 +192,7 @@ impl<T: BinaryViewType> BinaryViewVector<T> {
 }
 
 impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
-    type Mutable = BinaryViewVectorMut<T>;
+    type Mutable = BinaryViewVector<T>;
 
     fn len(&self) -> usize {
         self.views.len()
@@ -211,7 +211,7 @@ impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
         todo!()
     }
 
-    fn try_into_mut(self) -> Result<BinaryViewVectorMut<T>, Self> {
+    fn try_into_mut(self) -> Result<BinaryViewVector<T>, Self> {
         let views_mut = match self.views.try_into_mut() {
             Ok(views_mut) => views_mut,
             Err(views) => {
@@ -245,9 +245,9 @@ impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
         };
 
         // SAFETY: the BinaryViewVector maintains the same invariants that are
-        //  otherwise checked in the safe BinaryViewVectorMut constructor.
+        //  otherwise checked in the safe BinaryViewVector constructor.
         unsafe {
-            Ok(BinaryViewVectorMut::new_unchecked(
+            Ok(BinaryViewVector::new_unchecked(
                 views_mut,
                 validity_mut,
                 buffers_mut,
@@ -255,7 +255,7 @@ impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
         }
     }
 
-    fn into_mut(self) -> BinaryViewVectorMut<T> {
+    fn into_mut(self) -> BinaryViewVector<T> {
         let views_mut = self.views.into_mut();
         let validity_mut = self.validity.into_mut();
 
@@ -267,7 +267,7 @@ impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
 
         // SAFETY: The BinaryViewVector maintains the exact same invariants as the immutable
         // version, so all invariants are still upheld.
-        unsafe { BinaryViewVectorMut::new_unchecked(views_mut, validity_mut, buffers_mut) }
+        unsafe { BinaryViewVector::new_unchecked(views_mut, validity_mut, buffers_mut) }
     }
 }
 
@@ -279,8 +279,8 @@ mod tests {
     use vortex_mask::Mask;
 
     use crate::binaryview::view::BinaryView;
-    use crate::binaryview::{StringVector, StringVectorMut};
-    use crate::{VectorMutOps, VectorOps};
+    use crate::binaryview::{StringVector, StringVector};
+    use crate::{VectorOps, VectorOps};
 
     #[test]
     #[should_panic(expected = "views buffer length 1 != validity length 100")]
@@ -343,7 +343,7 @@ mod tests {
 
     #[test]
     fn test_try_into_mut() {
-        let mut shared_vec = StringVectorMut::with_capacity(5);
+        let mut shared_vec = StringVector::with_capacity(5);
         shared_vec.append_nulls(2);
         shared_vec.append_values("an example value", 2);
         shared_vec.append_values("another example value", 1);

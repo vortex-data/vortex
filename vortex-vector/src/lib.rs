@@ -22,19 +22,23 @@ pub mod struct_;
 mod datum;
 mod scalar;
 mod scalar_ops;
-mod vector;
 mod vector_mut;
 mod vector_ops;
 
 pub use datum::Datum;
 pub use scalar::Scalar;
 pub use scalar_ops::ScalarOps;
-pub use vector::Vector;
-pub use vector_mut::VectorMut;
-pub use vector_ops::{VectorMutOps, VectorOps};
+use std::fmt::Debug;
+use std::ops::Deref;
+pub use vector_mut::Vector;
+pub use vector_ops::VectorOps;
 use vortex_dtype::DType;
 
+mod bitbuffer;
+mod buffer;
+mod cow;
 mod macros;
+mod mask;
 mod private;
 mod scalar_macros;
 

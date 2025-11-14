@@ -1,36 +1,36 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Definition and implementation of [`DecimalVectorMut`].
+//! Definition and implementation of [`DecimalVector`].
 
 use vortex_dtype::{
-    DecimalDType, DecimalType, DecimalTypeDowncast, DecimalTypeUpcast, NativeDecimalType,
-    PrecisionScale, i256, match_each_decimal_value_type,
+    i256, match_each_decimal_value_type, DecimalDType, DecimalType, DecimalTypeDowncast,
+    DecimalTypeUpcast, NativeDecimalType, PrecisionScale,
 };
 use vortex_error::vortex_panic;
-use vortex_mask::MaskMut;
+use vortex_mask::Mask;
 
-use crate::decimal::{DVectorMut, DecimalVector};
-use crate::{VectorMutOps, match_each_dvector_mut};
+use crate::decimal::DVector;
+use crate::{match_each_dvector_mut, Cow, VectorOps};
 
 /// An enum over all supported decimal mutable vector types.
-#[derive(Clone, Debug)]
-pub enum DecimalVectorMut {
+#[derive(Debug)]
+pub enum DecimalVector {
     /// A decimal vector with 8-bit integer representation.
-    D8(DVectorMut<i8>),
+    D8(DVector<i8>),
     /// A decimal vector with 16-bit integer representation.
-    D16(DVectorMut<i16>),
+    D16(DVector<i16>),
     /// A decimal vector with 32-bit integer representation.
-    D32(DVectorMut<i32>),
+    D32(DVector<i32>),
     /// A decimal vector with 64-bit integer representation.
-    D64(DVectorMut<i64>),
+    D64(DVector<i64>),
     /// A decimal vector with 128-bit integer representation.
-    D128(DVectorMut<i128>),
+    D128(DVector<i128>),
     /// A decimal vector with 256-bit integer representation.
-    D256(DVectorMut<i256>),
+    D256(DVector<i256>),
 }
 
-impl DecimalVectorMut {
+impl DecimalVector {
     /// Returns the [`DecimalType`] of the decimal vector.
     pub fn decimal_type(&self) -> DecimalType {
         match self {
@@ -48,19 +48,17 @@ impl DecimalVectorMut {
         let decimal_type = DecimalType::smallest_decimal_value_type(decimal_dtype);
         match_each_decimal_value_type!(decimal_type, |D| {
             let ps = PrecisionScale::<D>::new(decimal_dtype.precision(), decimal_dtype.scale());
-            DVectorMut::<D>::with_capacity(ps, capacity).into()
+            DVector::<D>::with_capacity(ps, capacity).into()
         })
     }
 }
 
-impl VectorMutOps for DecimalVectorMut {
-    type Immutable = DecimalVector;
-
+impl VectorOps for DecimalVector {
     fn len(&self) -> usize {
         match_each_dvector_mut!(self, |d| { d.len() })
     }
 
-    fn validity(&self) -> &MaskMut {
+    fn validity(&self) -> &Cow<Mask> {
         match_each_dvector_mut!(self, |d| { d.validity() })
     }
 
@@ -117,54 +115,54 @@ impl VectorMutOps for DecimalVectorMut {
     }
 }
 
-impl DecimalTypeDowncast for DecimalVectorMut {
-    type Output<T: NativeDecimalType> = DVectorMut<T>;
+impl DecimalTypeDowncast for DecimalVector {
+    type Output<T: NativeDecimalType> = DVector<T>;
 
     fn into_i8(self) -> Self::Output<i8> {
         if let Self::D8(vec) = self {
             return vec;
         }
-        vortex_panic!("DecimalVectorMut is not of type D8");
+        vortex_panic!("DecimalVector is not of type D8");
     }
 
     fn into_i16(self) -> Self::Output<i16> {
         if let Self::D16(vec) = self {
             return vec;
         }
-        vortex_panic!("DecimalVectorMut is not of type D16");
+        vortex_panic!("DecimalVector is not of type D16");
     }
 
     fn into_i32(self) -> Self::Output<i32> {
         if let Self::D32(vec) = self {
             return vec;
         }
-        vortex_panic!("DecimalVectorMut is not of type D32");
+        vortex_panic!("DecimalVector is not of type D32");
     }
 
     fn into_i64(self) -> Self::Output<i64> {
         if let Self::D64(vec) = self {
             return vec;
         }
-        vortex_panic!("DecimalVectorMut is not of type D64");
+        vortex_panic!("DecimalVector is not of type D64");
     }
 
     fn into_i128(self) -> Self::Output<i128> {
         if let Self::D128(vec) = self {
             return vec;
         }
-        vortex_panic!("DecimalVectorMut is not of type D128");
+        vortex_panic!("DecimalVector is not of type D128");
     }
 
     fn into_i256(self) -> Self::Output<i256> {
         if let Self::D256(vec) = self {
             return vec;
         }
-        vortex_panic!("DecimalVectorMut is not of type D256");
+        vortex_panic!("DecimalVector is not of type D256");
     }
 }
 
-impl DecimalTypeUpcast for DecimalVectorMut {
-    type Input<T: NativeDecimalType> = DVectorMut<T>;
+impl DecimalTypeUpcast for DecimalVector {
+    type Input<T: NativeDecimalType> = DVector<T>;
 
     fn from_i8(input: Self::Input<i8>) -> Self {
         Self::D8(input)

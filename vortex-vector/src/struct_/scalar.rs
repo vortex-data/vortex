@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::struct_::StructVector;
-use crate::{Scalar, ScalarOps, VectorMut, VectorOps};
+use crate::{Scalar, ScalarOps, Vector, VectorOps};
 
 /// Represents a struct scalar value.
 ///
@@ -27,7 +27,7 @@ impl ScalarOps for StructScalar {
         self.0.validity().value(0)
     }
 
-    fn repeat(&self, _n: usize) -> VectorMut {
+    fn repeat(&self, _n: usize) -> Vector {
         todo!()
     }
 }

@@ -5,14 +5,13 @@
 
 use std::sync::Arc;
 
-use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
-use vortex_mask::MaskMut;
+use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
+use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
+use vortex_mask::{Mask, MaskMut};
 
+use crate::binaryview::view::{validate_views, BinaryView};
 use crate::binaryview::BinaryViewType;
-use crate::binaryview::vector::BinaryViewVector;
-use crate::binaryview::view::{BinaryView, validate_views};
-use crate::{VectorMutOps, VectorOps};
+use crate::{Cow, VectorOps};
 
 // Default capacity for new string data buffers of 2MiB.
 const BUFFER_CAPACITY: usize = 2 * 1024 * 1024;
@@ -20,12 +19,12 @@ const BUFFER_CAPACITY: usize = 2 * 1024 * 1024;
 /// A mutable vector of binary view data.
 ///
 /// The immutable equivalent of this type is [`BinaryViewVector`].
-#[derive(Clone, Debug)]
-pub struct BinaryViewVectorMut<T: BinaryViewType> {
+#[derive(Debug)]
+pub struct BinaryViewVector<T: BinaryViewType> {
     /// Views into the binary data.
-    views: BufferMut<BinaryView>,
+    views: Cow<Buffer<BinaryView>>,
     /// Validity mask for the vector.
-    validity: MaskMut,
+    validity: Cow<Mask>,
 
     /// The completed buffers holding referenced binary data.
     buffers: Vec<ByteBuffer>,
@@ -36,19 +35,18 @@ pub struct BinaryViewVectorMut<T: BinaryViewType> {
     _marker: std::marker::PhantomData<T>,
 }
 
-impl<T: BinaryViewType> BinaryViewVectorMut<T> {
-    /// Create a new [`BinaryViewVectorMut`] from its components, panicking if validation fails.
+impl<T: BinaryViewType> BinaryViewVector<T> {
+    /// Create a new [`BinaryViewVector`] from its components, panicking if validation fails.
     ///
     /// # Errors
     ///
     /// This function will panic if any of the validation checks performed by [`try_new`][Self::try_new]
     /// fails.
     pub fn new(views: BufferMut<BinaryView>, buffers: Vec<ByteBuffer>, validity: MaskMut) -> Self {
-        Self::try_new(views, buffers, validity)
-            .vortex_expect("Failed to create `BinaryViewVectorMut`")
+        Self::try_new(views, buffers, validity).vortex_expect("Failed to create `BinaryViewVector`")
     }
 
-    /// Create a new empty [`BinaryViewVectorMut`], pre-allocated to hold the specified number
+    /// Create a new empty [`BinaryViewVector`], pre-allocated to hold the specified number
     /// of items. This does not reserve any memory for string data itself, only for the binary views
     /// and the validity bits.
     pub fn with_capacity(capacity: usize) -> Self {
@@ -59,7 +57,7 @@ impl<T: BinaryViewType> BinaryViewVectorMut<T> {
         )
     }
 
-    /// Tries to create a new [`BinaryViewVectorMut`] from its components.
+    /// Tries to create a new [`BinaryViewVector`] from its components.
     ///
     /// # Errors
     ///
@@ -89,7 +87,7 @@ impl<T: BinaryViewType> BinaryViewVectorMut<T> {
         })
     }
 
-    /// Creates a new [`BinaryViewVectorMut`] from the given bits and validity mask without validation.
+    /// Creates a new [`BinaryViewVector`] from the given bits and validity mask without validation.
     ///
     /// # Safety
     ///
@@ -122,16 +120,6 @@ impl<T: BinaryViewType> BinaryViewVectorMut<T> {
         &mut self.views
     }
 
-    /// Get a mutable handle to the validity mask of the vector.
-    ///
-    /// # Safety
-    ///
-    /// Caller must make sure that the length of the validity mask
-    /// always matches the length of the views
-    pub unsafe fn validity_mut(&mut self) -> &mut MaskMut {
-        &mut self.validity
-    }
-
     /// Get a mutable handle to the vector of buffers backing the string data of the vector.
     pub fn buffers(&mut self) -> &mut Vec<ByteBuffer> {
         &mut self.buffers
@@ -140,9 +128,9 @@ impl<T: BinaryViewType> BinaryViewVectorMut<T> {
     /// Append a repeated sequence of binary data to a vector.
     ///
     /// ```
-    /// # use vortex_vector::binaryview::StringVectorMut;
-    /// # use vortex_vector::VectorMutOps;
-    /// let mut strings = StringVectorMut::with_capacity(4);
+    /// # use vortex_vector::binaryview::StringVector;
+    /// # use vortex_vector::VectorOps;
+    /// let mut strings = StringVector::with_capacity(4);
     /// strings.append_values("inlined", 2);
     /// strings.append_nulls(1);
     /// strings.append_values("large not inlined", 1);
@@ -205,14 +193,12 @@ impl<T: BinaryViewType> BinaryViewVectorMut<T> {
     }
 }
 
-impl<T: BinaryViewType> VectorMutOps for BinaryViewVectorMut<T> {
-    type Immutable = BinaryViewVector<T>;
-
+impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
     fn len(&self) -> usize {
         self.views.len()
     }
 
-    fn validity(&self) -> &MaskMut {
+    fn validity(&self) -> &Cow<Mask> {
         &self.validity
     }
 
@@ -296,16 +282,16 @@ mod tests {
     use std::ops::Deref;
     use std::sync::Arc;
 
-    use vortex_buffer::{ByteBuffer, buffer, buffer_mut};
+    use vortex_buffer::{buffer, buffer_mut, ByteBuffer};
     use vortex_mask::{Mask, MaskMut};
 
     use crate::binaryview::view::BinaryView;
-    use crate::binaryview::{StringVector, StringVectorMut};
-    use crate::{VectorMutOps, VectorOps};
+    use crate::binaryview::{StringVector, StringVector};
+    use crate::{VectorOps, VectorOps};
 
     #[test]
     fn test_basic() {
-        let strings_mut = StringVectorMut::new(
+        let strings_mut = StringVector::new(
             buffer_mut![
                 BinaryView::new_inlined(b"inlined1"),
                 BinaryView::make_view(b"long string 1", 0, 0),
@@ -338,7 +324,7 @@ mod tests {
             b"a really very quite long string 3a really very quite long string 4",
         );
 
-        let mut strings_mut = StringVectorMut::new(
+        let mut strings_mut = StringVector::new(
             buffer_mut![
                 BinaryView::new_inlined(b"inlined0"),
                 BinaryView::new_inlined(b"inlined1"),
@@ -403,7 +389,7 @@ mod tests {
         mask1.append_n(false, 2);
         mask1.append_n(true, 2);
 
-        let mut strings_mut = StringVectorMut::new(
+        let mut strings_mut = StringVector::new(
             buffer_mut![
                 BinaryView::empty_view(),
                 BinaryView::empty_view(),

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::bool::BoolVectorMut;
-use crate::{Scalar, ScalarOps, VectorMut, VectorMutOps};
+use crate::bool::BoolVector;
+use crate::{Scalar, ScalarOps, Vector, VectorOps};
 
 /// A scalar value for boolean types.
 #[derive(Debug)]
@@ -19,8 +19,8 @@ impl ScalarOps for BoolScalar {
         self.0.is_some()
     }
 
-    fn repeat(&self, n: usize) -> VectorMut {
-        let mut vec = BoolVectorMut::with_capacity(n);
+    fn repeat(&self, n: usize) -> Vector {
+        let mut vec = BoolVector::with_capacity(n);
         match self.0 {
             None => vec.append_nulls(n),
             Some(value) => vec.append_values(value, n),

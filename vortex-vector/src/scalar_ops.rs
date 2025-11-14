@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::{Scalar, VectorMut, private};
+use crate::{Scalar, Vector, private};
 
 /// Trait for scalar operations.
 pub trait ScalarOps: private::Sealed + Sized + Into<Scalar> {
@@ -14,5 +14,5 @@ pub trait ScalarOps: private::Sealed + Sized + Into<Scalar> {
     }
 
     /// Creates a new vector with n repetitions of this scalar.
-    fn repeat(&self, n: usize) -> VectorMut;
+    fn repeat(&self, n: usize) -> Vector;
 }

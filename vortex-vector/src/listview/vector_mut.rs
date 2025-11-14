@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Definition and implementation of [`ListViewVectorMut`].
+//! Definition and implementation of [`ListViewVector`].
 
 use std::sync::Arc;
 
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
-use vortex_mask::MaskMut;
+use vortex_mask::{Mask, MaskMut};
 
 use super::ListViewVector;
-use crate::primitive::{PrimitiveVector, PrimitiveVectorMut};
-use crate::vector_ops::VectorMutOps;
-use crate::{VectorMut, VectorOps, match_each_integer_pvector, match_each_integer_pvector_mut};
+use crate::primitive::PrimitiveVector;
+use crate::vector_ops::VectorOps;
+use crate::{Cow, Vector, VectorOps, match_each_integer_pvector, match_each_integer_pvector_mut};
 
 /// A mutable vector of variable-width lists.
 ///
@@ -25,31 +25,31 @@ use crate::{VectorMut, VectorOps, match_each_integer_pvector, match_each_integer
 ///
 /// # Structure
 ///
-/// - `elements`: The child vector of all list elements, stored as a [`Box<VectorMut>`].
-/// - `offsets`: A [`PrimitiveVectorMut`] containing the starting offset of each list in the
+/// - `elements`: The child vector of all list elements, stored as a [`Box<Vector>`].
+/// - `offsets`: A [`PrimitiveVector`] containing the starting offset of each list in the
 ///   `elements` vector.
-/// - `sizes`: A [`PrimitiveVectorMut`] containing the size (number of elements) of each list.
+/// - `sizes`: A [`PrimitiveVector`] containing the size (number of elements) of each list.
 /// - `validity`: A [`MaskMut`] indicating which lists are null.
-#[derive(Debug, Clone)]
-pub struct ListViewVectorMut {
+#[derive(Debug)]
+pub struct ListViewVector {
     /// The mutable child vector of elements.
-    pub(super) elements: Box<VectorMut>,
+    pub(super) elements: Box<Vector>,
 
     /// Mutable offsets for each list into the elements array.
     ///
     /// Offsets are always integers, and always non-negative (even if the type is signed).
-    pub(super) offsets: PrimitiveVectorMut,
+    pub(super) offsets: PrimitiveVector,
 
     /// Mutable sizes (lengths) of each list.
     ///
     /// Sizes are always integers, and always non-negative (even if the type is signed).
-    pub(super) sizes: PrimitiveVectorMut,
+    pub(super) sizes: PrimitiveVector,
 
     /// The validity mask (where `true` represents a list is **not** null).
     ///
     /// Note that the `elements` vector will have its own internal validity, denoting if individual
     /// list elements are null.
-    pub(super) validity: MaskMut,
+    pub(super) validity: Cow<Mask>,
 
     /// The length of the vector (which is the same as the length of the validity mask).
     ///
@@ -57,8 +57,8 @@ pub struct ListViewVectorMut {
     pub(super) len: usize,
 }
 
-impl ListViewVectorMut {
-    /// Creates a new [`ListViewVectorMut`] from its components.
+impl ListViewVector {
+    /// Creates a new [`ListViewVector`] from its components.
     ///
     /// # Panics
     ///
@@ -72,16 +72,16 @@ impl ListViewVectorMut {
     ///   `elements.len()` (even if the corresponding view is defined as null by the validity
     ///   array).
     pub fn new(
-        elements: Box<VectorMut>,
-        offsets: PrimitiveVectorMut,
-        sizes: PrimitiveVectorMut,
+        elements: Box<Vector>,
+        offsets: PrimitiveVector,
+        sizes: PrimitiveVector,
         validity: MaskMut,
     ) -> Self {
         Self::try_new(elements, offsets, sizes, validity)
-            .vortex_expect("Failed to create `ListViewVectorMut`")
+            .vortex_expect("Failed to create `ListViewVector`")
     }
 
-    /// Attempts to create a new [`ListViewVectorMut`] from its components.
+    /// Attempts to create a new [`ListViewVector`] from its components.
     ///
     /// # Errors
     ///
@@ -95,9 +95,9 @@ impl ListViewVectorMut {
     ///   `elements.len()` (even if the corresponding view is defined as null by the validity
     ///   array).
     pub fn try_new(
-        elements: Box<VectorMut>,
-        offsets: PrimitiveVectorMut,
-        sizes: PrimitiveVectorMut,
+        elements: Box<Vector>,
+        offsets: PrimitiveVector,
+        sizes: PrimitiveVector,
         validity: MaskMut,
     ) -> VortexResult<Self> {
         let len = validity.len();
@@ -142,7 +142,7 @@ impl ListViewVectorMut {
         })
     }
 
-    /// Creates a new [`ListViewVectorMut`] without validation.
+    /// Creates a new [`ListViewVector`] without validation.
     ///
     /// # Safety
     ///
@@ -154,9 +154,9 @@ impl ListViewVectorMut {
     /// - For each `i`, `offsets[i] + sizes[i]` must not overflow and must be `<= elements.len()`
     ///   (even if the corresponding view is defined as null by the validity array).
     pub unsafe fn new_unchecked(
-        elements: Box<VectorMut>,
-        offsets: PrimitiveVectorMut,
-        sizes: PrimitiveVectorMut,
+        elements: Box<Vector>,
+        offsets: PrimitiveVector,
+        sizes: PrimitiveVector,
         validity: MaskMut,
     ) -> Self {
         let len = validity.len();
@@ -174,38 +174,31 @@ impl ListViewVectorMut {
         }
     }
 
-    /// Creates a new [`ListViewVectorMut`] with the specified capacity.
+    /// Creates a new [`ListViewVector`] with the specified capacity.
     pub fn with_capacity(element_dtype: &DType, capacity: usize) -> Self {
         unsafe {
             Self::new_unchecked(
-                Box::new(VectorMut::with_capacity(element_dtype, 0)),
-                PrimitiveVectorMut::with_capacity(PType::U64, capacity),
-                PrimitiveVectorMut::with_capacity(PType::U32, capacity),
+                Box::new(Vector::with_capacity(element_dtype, 0)),
+                PrimitiveVector::with_capacity(PType::U64, capacity),
+                PrimitiveVector::with_capacity(PType::U32, capacity),
                 MaskMut::with_capacity(capacity),
             )
         }
     }
 
-    /// Decomposes the [`ListViewVectorMut`] into its constituent parts (child elements, offsets,
+    /// Decomposes the [`ListViewVector`] into its constituent parts (child elements, offsets,
     /// sizes, and validity).
-    pub fn into_parts(
-        self,
-    ) -> (
-        Box<VectorMut>,
-        PrimitiveVectorMut,
-        PrimitiveVectorMut,
-        MaskMut,
-    ) {
+    pub fn into_parts(self) -> (Box<Vector>, PrimitiveVector, PrimitiveVector, MaskMut) {
         (self.elements, self.offsets, self.sizes, self.validity)
     }
 
     /// Returns a reference to the elements vector.
-    pub fn elements(&self) -> &VectorMut {
+    pub fn elements(&self) -> &Vector {
         &self.elements
     }
 
     /// Returns a reference to the offsets vector.
-    pub fn offsets(&self) -> &PrimitiveVectorMut {
+    pub fn offsets(&self) -> &PrimitiveVector {
         &self.offsets
     }
 
@@ -217,12 +210,12 @@ impl ListViewVectorMut {
     /// the elements.
     ///
     /// Caller must also ensure that offsets and sizes continue to be of same length.
-    pub unsafe fn offsets_mut(&mut self) -> &mut PrimitiveVectorMut {
+    pub unsafe fn offsets_mut(&mut self) -> &mut PrimitiveVector {
         &mut self.offsets
     }
 
     /// Returns a reference to the sizes vector.
-    pub fn sizes(&self) -> &PrimitiveVectorMut {
+    pub fn sizes(&self) -> &PrimitiveVector {
         &self.sizes
     }
 
@@ -234,7 +227,7 @@ impl ListViewVectorMut {
     /// address valid ranges of elements.
     ///
     /// Caller must also ensure that offsets and sizes continue to be of same length.
-    pub unsafe fn sizes_mut(&mut self) -> &mut PrimitiveVectorMut {
+    pub unsafe fn sizes_mut(&mut self) -> &mut PrimitiveVector {
         &mut self.sizes
     }
 
@@ -249,7 +242,7 @@ impl ListViewVectorMut {
     }
 }
 
-impl VectorMutOps for ListViewVectorMut {
+impl VectorOps for ListViewVector {
     type Immutable = ListViewVector;
 
     fn len(&self) -> usize {
@@ -388,8 +381,8 @@ impl VectorMutOps for ListViewVectorMut {
 #[allow(clippy::cognitive_complexity)]
 fn validate_views_bound(
     elements_len: u64,
-    offsets: &PrimitiveVectorMut,
-    sizes: &PrimitiveVectorMut,
+    offsets: &PrimitiveVector,
+    sizes: &PrimitiveVector,
 ) -> VortexResult<()> {
     let len = offsets.len();
 
@@ -415,7 +408,7 @@ fn validate_views_bound(
 /// Checks that all views are `<= elements_len`.
 #[allow(clippy::cognitive_complexity)]
 fn adjust_and_extend_offsets(
-    our_offsets: &mut PrimitiveVectorMut,
+    our_offsets: &mut PrimitiveVector,
     other: &PrimitiveVector,
     old_elements_len: u64,
 ) {

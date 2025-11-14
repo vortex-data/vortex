@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Iterator implementations for [`PVectorMut`].
+//! Iterator implementations for [`PVector`].
 
 use vortex_dtype::NativePType;
 
-use crate::VectorMutOps;
-use crate::primitive::PVectorMut;
+use crate::VectorOps;
+use crate::primitive::PVector;
 
-impl<T: NativePType> Extend<Option<T>> for PVectorMut<T> {
+impl<T: NativePType> Extend<Option<T>> for PVector<T> {
     /// Extends the vector from an iterator of optional values.
     ///
     /// `None` values will be marked as null in the validity mask.
@@ -16,10 +16,10 @@ impl<T: NativePType> Extend<Option<T>> for PVectorMut<T> {
     /// # Examples
     ///
     /// ```
-    /// use vortex_vector::primitive::PVectorMut;
-    /// use vortex_vector::{VectorMutOps, VectorOps};
+    /// use vortex_vector::primitive::PVector;
+    /// use vortex_vector::{VectorOps, VectorOps};
     ///
-    /// let mut vec = PVectorMut::from_iter([Some(1i32), None]);
+    /// let mut vec = PVector::from_iter([Some(1i32), None]);
     /// vec.extend([Some(3), None, Some(5)]);
     /// assert_eq!(vec.len(), 5);
     ///
@@ -52,8 +52,8 @@ impl<T: NativePType> Extend<Option<T>> for PVectorMut<T> {
     }
 }
 
-impl<T: NativePType> FromIterator<Option<T>> for PVectorMut<T> {
-    /// Creates a new [`PVectorMut<T>`] from an iterator of `Option<T>` values.
+impl<T: NativePType> FromIterator<Option<T>> for PVector<T> {
+    /// Creates a new [`PVector<T>`] from an iterator of `Option<T>` values.
     ///
     /// `None` values will be marked as invalid in the validity mask.
     ///
@@ -71,7 +71,7 @@ impl<T: NativePType> FromIterator<Option<T>> for PVectorMut<T> {
     }
 }
 
-impl<T: NativePType> Extend<T> for PVectorMut<T> {
+impl<T: NativePType> Extend<T> for PVector<T> {
     /// Extends the vector from an iterator of values.
     ///
     /// All values from the iterator will be marked as non-null in the validity mask.
@@ -86,18 +86,18 @@ impl<T: NativePType> Extend<T> for PVectorMut<T> {
     }
 }
 
-impl<T: NativePType> FromIterator<T> for PVectorMut<T> {
-    /// Creates a new [`PVectorMut<T>`] from an iterator of `T` values.
+impl<T: NativePType> FromIterator<T> for PVector<T> {
+    /// Creates a new [`PVector<T>`] from an iterator of `T` values.
     ///
     /// All values will be treated as non-null.
     ///
     /// # Examples
     ///
     /// ```
-    /// use vortex_vector::primitive::PVectorMut;
-    /// use vortex_vector::VectorMutOps;
+    /// use vortex_vector::primitive::PVector;
+    /// use vortex_vector::VectorOps;
     ///
-    /// let mut vec = PVectorMut::from_iter([1i32, 2, 3, 4]);
+    /// let mut vec = PVector::from_iter([1i32, 2, 3, 4]);
     /// assert_eq!(vec.len(), 4);
     /// ```
     fn from_iter<I>(iter: I) -> Self
@@ -113,21 +113,21 @@ impl<T: NativePType> FromIterator<T> for PVectorMut<T> {
     }
 }
 
-/// Iterator over a [`PVectorMut<T>`] that yields [`Option<T>`] values.
+/// Iterator over a [`PVector<T>`] that yields [`Option<T>`] values.
 ///
-/// This iterator is created by calling [`IntoIterator::into_iter`] on a [`PVectorMut<T>`].
+/// This iterator is created by calling [`IntoIterator::into_iter`] on a [`PVector<T>`].
 ///
 /// It consumes the mutable vector and iterates over the elements, yielding `None` for null values
 /// and `Some(value)` for valid values.
 #[derive(Debug)]
-pub struct PVectorMutIterator<T: NativePType> {
+pub struct PVectorIterator<T: NativePType> {
     /// The vector being iterated over.
-    vector: PVectorMut<T>,
+    vector: PVector<T>,
     /// The current index into the vector.
     index: usize,
 }
 
-impl<T: NativePType> Iterator for PVectorMutIterator<T> {
+impl<T: NativePType> Iterator for PVectorIterator<T> {
     type Item = Option<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -148,26 +148,26 @@ impl<T: NativePType> Iterator for PVectorMutIterator<T> {
     }
 }
 
-impl<T: NativePType> IntoIterator for PVectorMut<T> {
+impl<T: NativePType> IntoIterator for PVector<T> {
     type Item = Option<T>;
-    type IntoIter = PVectorMutIterator<T>;
+    type IntoIter = PVectorIterator<T>;
 
     /// Converts the mutable vector into an iterator over [`Option<T>`] values.
     ///
-    /// This method consumes the [`PVectorMut<T>`] and returns an iterator that yields `None` for
+    /// This method consumes the [`PVector<T>`] and returns an iterator that yields `None` for
     /// null values and `Some(value)` for valid values.
     ///
     /// # Examples
     ///
     /// ```
-    /// use vortex_vector::primitive::PVectorMut;
+    /// use vortex_vector::primitive::PVector;
     ///
-    /// let vec = PVectorMut::<i32>::from_iter([Some(1), None, Some(3), Some(4)]);
+    /// let vec = PVector::<i32>::from_iter([Some(1), None, Some(3), Some(4)]);
     /// let collected: Vec<_> = vec.into_iter().collect();
     /// assert_eq!(collected, vec![Some(1), None, Some(3), Some(4)]);
     /// ```
     fn into_iter(self) -> Self::IntoIter {
-        PVectorMutIterator {
+        PVectorIterator {
             vector: self,
             index: 0,
         }

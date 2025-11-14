@@ -5,9 +5,9 @@ use std::sync::Arc;
 
 use vortex_mask::{Mask, MaskMut};
 
-use crate::listview::{ListViewVector, ListViewVectorMut};
-use crate::primitive::{PVectorMut, PrimitiveVector};
-use crate::{Vector, VectorMutOps, VectorOps};
+use crate::listview::{ListViewVector, ListViewVector};
+use crate::primitive::{PVector, PrimitiveVector};
+use crate::{Vector, VectorOps, VectorOps};
 
 // TODO(connor): This should probably be a method directly on the vector.
 // Helper function to get list values at index
@@ -49,11 +49,11 @@ fn test_basic_list_operations_with_values() {
     // List 1: [4, 5]
     // List 2: [6, 7, 8, 9]
 
-    let elements: PrimitiveVector = PVectorMut::from_iter([1i32, 2, 3, 4, 5, 6, 7, 8, 9])
+    let elements: PrimitiveVector = PVector::from_iter([1i32, 2, 3, 4, 5, 6, 7, 8, 9])
         .freeze()
         .into();
-    let offsets: PrimitiveVector = PVectorMut::from_iter([0u32, 3, 5]).freeze().into();
-    let sizes: PrimitiveVector = PVectorMut::from_iter([3u32, 2, 4]).freeze().into();
+    let offsets: PrimitiveVector = PVector::from_iter([0u32, 3, 5]).freeze().into();
+    let sizes: PrimitiveVector = PVector::from_iter([3u32, 2, 4]).freeze().into();
     let validity = Mask::new_true(3);
 
     let list = ListViewVector::new(Arc::new(elements.into()), offsets, sizes, validity);
@@ -75,11 +75,9 @@ fn test_overlapping_views() {
     // List 1: [20, 30, 40] (offset=1, size=3)
     // List 2: [30, 40, 50] (offset=2, size=3)
 
-    let elements: PrimitiveVector = PVectorMut::from_iter([10i32, 20, 30, 40, 50])
-        .freeze()
-        .into();
-    let offsets: PrimitiveVector = PVectorMut::from_iter([0u32, 1, 2]).freeze().into();
-    let sizes: PrimitiveVector = PVectorMut::from_iter([3u32, 3, 3]).freeze().into();
+    let elements: PrimitiveVector = PVector::from_iter([10i32, 20, 30, 40, 50]).freeze().into();
+    let offsets: PrimitiveVector = PVector::from_iter([0u32, 1, 2]).freeze().into();
+    let sizes: PrimitiveVector = PVector::from_iter([3u32, 3, 3]).freeze().into();
     let validity = Mask::new_true(3);
 
     let list = ListViewVector::new(Arc::new(elements.into()), offsets, sizes, validity);
@@ -98,11 +96,11 @@ fn test_non_contiguous_views() {
     // List 1: [5, 6] (offset=4, size=2)  -- skips 3, 4
     // List 2: [9, 10] (offset=8, size=2) -- skips 7, 8
 
-    let elements: PrimitiveVector = PVectorMut::from_iter([1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    let elements: PrimitiveVector = PVector::from_iter([1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10])
         .freeze()
         .into();
-    let offsets: PrimitiveVector = PVectorMut::from_iter([0u32, 4, 8]).freeze().into();
-    let sizes: PrimitiveVector = PVectorMut::from_iter([2u32, 2, 2]).freeze().into();
+    let offsets: PrimitiveVector = PVector::from_iter([0u32, 4, 8]).freeze().into();
+    let sizes: PrimitiveVector = PVector::from_iter([2u32, 2, 2]).freeze().into();
     let validity = Mask::new_true(3);
 
     let list = ListViewVector::new(Arc::new(elements.into()), offsets, sizes, validity);
@@ -121,11 +119,11 @@ fn test_unsorted_offsets() {
     // List 1: [100, 200] (offset=0, size=2)  -- out of order!
     // List 2: [500] (offset=4, size=1)
 
-    let elements: PrimitiveVector = PVectorMut::from_iter([100i32, 200, 300, 400, 500])
+    let elements: PrimitiveVector = PVector::from_iter([100i32, 200, 300, 400, 500])
         .freeze()
         .into();
-    let offsets: PrimitiveVector = PVectorMut::from_iter([2u32, 0, 4]).freeze().into();
-    let sizes: PrimitiveVector = PVectorMut::from_iter([2u32, 2, 1]).freeze().into();
+    let offsets: PrimitiveVector = PVector::from_iter([2u32, 0, 4]).freeze().into();
+    let sizes: PrimitiveVector = PVector::from_iter([2u32, 2, 1]).freeze().into();
     let validity = Mask::new_true(3);
 
     let list = ListViewVector::new(Arc::new(elements.into()), offsets, sizes, validity);
@@ -145,9 +143,9 @@ fn test_empty_lists() {
     // List 2: [] (offset=2, size=0)
     // List 3: [3] (offset=2, size=1)
 
-    let elements: PrimitiveVector = PVectorMut::from_iter([1i32, 2, 3]).freeze().into();
-    let offsets: PrimitiveVector = PVectorMut::from_iter([0u32, 0, 2, 2]).freeze().into();
-    let sizes: PrimitiveVector = PVectorMut::from_iter([0u32, 2, 0, 1]).freeze().into();
+    let elements: PrimitiveVector = PVector::from_iter([1i32, 2, 3]).freeze().into();
+    let offsets: PrimitiveVector = PVector::from_iter([0u32, 0, 2, 2]).freeze().into();
+    let sizes: PrimitiveVector = PVector::from_iter([0u32, 2, 0, 1]).freeze().into();
     let validity = Mask::new_true(4);
 
     let list = ListViewVector::new(Arc::new(elements.into()), offsets, sizes, validity);
@@ -162,17 +160,17 @@ fn test_empty_lists() {
 #[test]
 fn test_extend_with_offset_adjustment() {
     // Test that extend_from_vector properly adjusts offsets
-    let elements1 = PVectorMut::from_iter([10i32, 20, 30, 40]);
-    let offsets1 = PVectorMut::from_iter([0u32, 2]).into();
-    let sizes1 = PVectorMut::from_iter([2u32, 2]).into();
+    let elements1 = PVector::from_iter([10i32, 20, 30, 40]);
+    let offsets1 = PVector::from_iter([0u32, 2]).into();
+    let sizes1 = PVector::from_iter([2u32, 2]).into();
     let validity1 = MaskMut::new_true(2);
 
-    let mut list = ListViewVectorMut::new(Box::new(elements1.into()), offsets1, sizes1, validity1);
+    let mut list = ListViewVector::new(Box::new(elements1.into()), offsets1, sizes1, validity1);
 
     // Second vector with its own offsets
-    let elements2: PrimitiveVector = PVectorMut::from_iter([50i32, 60, 70]).freeze().into();
-    let offsets2: PrimitiveVector = PVectorMut::from_iter([0u32, 1]).freeze().into();
-    let sizes2: PrimitiveVector = PVectorMut::from_iter([1u32, 2]).freeze().into();
+    let elements2: PrimitiveVector = PVector::from_iter([50i32, 60, 70]).freeze().into();
+    let offsets2: PrimitiveVector = PVector::from_iter([0u32, 1]).freeze().into();
+    let sizes2: PrimitiveVector = PVector::from_iter([1u32, 2]).freeze().into();
     let validity2 = Mask::new_true(2);
 
     let list2 = ListViewVector::new(Arc::new(elements2.into()), offsets2, sizes2, validity2);
@@ -197,9 +195,9 @@ fn test_extend_with_offset_adjustment() {
 #[test]
 fn test_nulls_with_valid_metadata() {
     // Test that null entries still require valid offset/size bounds
-    let elements: PrimitiveVector = PVectorMut::from_iter([1i32, 2, 3, 4, 5]).freeze().into();
-    let offsets: PrimitiveVector = PVectorMut::from_iter([0u32, 2, 3]).freeze().into();
-    let sizes: PrimitiveVector = PVectorMut::from_iter([2u32, 1, 2]).freeze().into();
+    let elements: PrimitiveVector = PVector::from_iter([1i32, 2, 3, 4, 5]).freeze().into();
+    let offsets: PrimitiveVector = PVector::from_iter([0u32, 2, 3]).freeze().into();
+    let sizes: PrimitiveVector = PVector::from_iter([2u32, 1, 2]).freeze().into();
     // Mark the middle list as null
     let validity = Mask::from_indices(3, vec![0, 2]);
 
@@ -219,11 +217,11 @@ fn test_nulls_with_valid_metadata() {
 
 #[test]
 fn test_validation_errors() {
-    let elements: PrimitiveVector = PVectorMut::from_iter([1i32, 2, 3, 4, 5]).freeze().into();
+    let elements: PrimitiveVector = PVector::from_iter([1i32, 2, 3, 4, 5]).freeze().into();
 
     // Test length mismatch
-    let offsets: PrimitiveVector = PVectorMut::from_iter([0u32, 2, 3]).freeze().into();
-    let sizes: PrimitiveVector = PVectorMut::from_iter([2u32, 1]).freeze().into(); // Wrong length!
+    let offsets: PrimitiveVector = PVector::from_iter([0u32, 2, 3]).freeze().into();
+    let sizes: PrimitiveVector = PVector::from_iter([2u32, 1]).freeze().into(); // Wrong length!
     let validity = Mask::new_true(3);
 
     let result = ListViewVector::try_new(
@@ -235,8 +233,8 @@ fn test_validation_errors() {
     assert!(result.is_err());
 
     // Test bounds violation
-    let bad_offsets = PVectorMut::from_iter([0u32, 2, 4]).freeze().into();
-    let bad_sizes = PVectorMut::from_iter([2u32, 1, 2]).freeze().into(); // 4 + 2 = 6 > 5 elements
+    let bad_offsets = PVector::from_iter([0u32, 2, 4]).freeze().into();
+    let bad_sizes = PVector::from_iter([2u32, 1, 2]).freeze().into(); // 4 + 2 = 6 > 5 elements
     let result = ListViewVector::try_new(
         Arc::new(elements.clone().into()),
         bad_offsets,
@@ -246,10 +244,10 @@ fn test_validation_errors() {
     assert!(result.is_err());
 
     // Test nulls in metadata
-    let null_offsets = PVectorMut::from_iter([Some(0u32), None, Some(3)])
+    let null_offsets = PVector::from_iter([Some(0u32), None, Some(3)])
         .freeze()
         .into();
-    let sizes: PrimitiveVector = PVectorMut::from_iter([2u32, 1, 1]).freeze().into();
+    let sizes: PrimitiveVector = PVector::from_iter([2u32, 1, 1]).freeze().into();
     let result = ListViewVector::try_new(Arc::new(elements.into()), null_offsets, sizes, validity);
     assert!(result.is_err());
 }
@@ -257,13 +255,13 @@ fn test_validation_errors() {
 #[test]
 fn test_different_integer_types() {
     // Test various combinations of integer types
-    let elements: PrimitiveVector = PVectorMut::from_iter([10i32, 20, 30, 40, 50, 60])
+    let elements: PrimitiveVector = PVector::from_iter([10i32, 20, 30, 40, 50, 60])
         .freeze()
         .into();
 
     // u8/u8 combination
-    let offsets_u8: PrimitiveVector = PVectorMut::from_iter([0u8, 2, 4]).freeze().into();
-    let sizes_u8: PrimitiveVector = PVectorMut::from_iter([2u8, 2, 2]).freeze().into();
+    let offsets_u8: PrimitiveVector = PVector::from_iter([0u8, 2, 4]).freeze().into();
+    let sizes_u8: PrimitiveVector = PVector::from_iter([2u8, 2, 2]).freeze().into();
     let validity = Mask::new_true(3);
 
     let list = ListViewVector::new(
@@ -275,8 +273,8 @@ fn test_different_integer_types() {
     assert_eq!(list.len(), 3);
 
     // i64/i32 combination (signed types)
-    let offsets_i64: PrimitiveVector = PVectorMut::from_iter([0i64, 2, 4]).freeze().into();
-    let sizes_i32: PrimitiveVector = PVectorMut::from_iter([2i32, 2, 2]).freeze().into();
+    let offsets_i64: PrimitiveVector = PVector::from_iter([0i64, 2, 4]).freeze().into();
+    let sizes_i32: PrimitiveVector = PVector::from_iter([2i32, 2, 2]).freeze().into();
 
     let list2 = ListViewVector::new(Arc::new(elements.into()), offsets_i64, sizes_i32, validity);
     assert_eq!(list2.len(), 3);
@@ -286,12 +284,12 @@ fn test_different_integer_types() {
 fn test_list_of_lists() {
     // Create a 2-level nested structure
     // Inner level: multiple lists of i32
-    let inner_elements = PVectorMut::from_iter([1i32, 2, 3, 4, 5, 6, 7, 8, 9]);
-    let inner_offsets = PVectorMut::from_iter([0u32, 2, 3, 5, 7]).into();
-    let inner_sizes = PVectorMut::from_iter([2u32, 1, 2, 2, 2]).into();
+    let inner_elements = PVector::from_iter([1i32, 2, 3, 4, 5, 6, 7, 8, 9]);
+    let inner_offsets = PVector::from_iter([0u32, 2, 3, 5, 7]).into();
+    let inner_sizes = PVector::from_iter([2u32, 1, 2, 2, 2]).into();
     let inner_validity = MaskMut::new_true(5);
 
-    let inner_list = ListViewVectorMut::new(
+    let inner_list = ListViewVector::new(
         Box::new(inner_elements.into()),
         inner_offsets,
         inner_sizes,
@@ -301,11 +299,11 @@ fn test_list_of_lists() {
     // Outer level: lists that reference the inner lists
     // Outer list 0: inner lists [0,1,2] -> [[1,2], [3], [4,5]]
     // Outer list 1: inner lists [3,4] -> [[6,7], [8,9]]
-    let outer_offsets = PVectorMut::from_iter([0u32, 3]).into();
-    let outer_sizes = PVectorMut::from_iter([3u32, 2]).into();
+    let outer_offsets = PVector::from_iter([0u32, 3]).into();
+    let outer_sizes = PVector::from_iter([3u32, 2]).into();
     let outer_validity = MaskMut::new_true(2);
 
-    let outer_list = ListViewVectorMut::new(
+    let outer_list = ListViewVector::new(
         Box::new(inner_list.into()),
         outer_offsets,
         outer_sizes,
@@ -322,12 +320,12 @@ fn test_list_of_lists() {
 
 #[test]
 fn test_append_nulls() {
-    let elements = PVectorMut::from_iter([100i32, 200]);
-    let offsets = PVectorMut::from_iter([0u32]).into();
-    let sizes = PVectorMut::from_iter([2u32]).into();
+    let elements = PVector::from_iter([100i32, 200]);
+    let offsets = PVector::from_iter([0u32]).into();
+    let sizes = PVector::from_iter([2u32]).into();
     let validity = MaskMut::new_true(1);
 
-    let mut list = ListViewVectorMut::new(Box::new(elements.into()), offsets, sizes, validity);
+    let mut list = ListViewVector::new(Box::new(elements.into()), offsets, sizes, validity);
 
     assert_eq!(list.len(), 1);
     list.append_nulls(3);
@@ -351,9 +349,9 @@ fn test_try_into_mut() {
     // Note: try_into_mut may fail even when seemingly solely owned because
     // ALL components (elements, offsets, sizes, validity) must be convertible to mutable
 
-    let elements: PrimitiveVector = PVectorMut::from_iter([1i32, 2, 3, 4]).freeze().into();
-    let offsets: PrimitiveVector = PVectorMut::from_iter([0u32, 2]).freeze().into();
-    let sizes: PrimitiveVector = PVectorMut::from_iter([2u32, 2]).freeze().into();
+    let elements: PrimitiveVector = PVector::from_iter([1i32, 2, 3, 4]).freeze().into();
+    let offsets: PrimitiveVector = PVector::from_iter([0u32, 2]).freeze().into();
+    let sizes: PrimitiveVector = PVector::from_iter([2u32, 2]).freeze().into();
     let validity = Mask::new_true(2);
 
     let list = ListViewVector::new(Arc::new(elements.into()), offsets, sizes, validity);
@@ -383,9 +381,9 @@ fn test_try_into_mut() {
     }
 
     // Test explicit sharing - should definitely fail
-    let elements2: PrimitiveVector = PVectorMut::from_iter([10i32, 20, 30]).freeze().into();
-    let offsets2: PrimitiveVector = PVectorMut::from_iter([0u32, 2]).freeze().into();
-    let sizes2: PrimitiveVector = PVectorMut::from_iter([2u32, 1]).freeze().into();
+    let elements2: PrimitiveVector = PVector::from_iter([10i32, 20, 30]).freeze().into();
+    let offsets2: PrimitiveVector = PVector::from_iter([0u32, 2]).freeze().into();
+    let sizes2: PrimitiveVector = PVector::from_iter([2u32, 1]).freeze().into();
     let validity2 = Mask::new_true(2);
 
     let shared_elements: Arc<Vector> = Arc::new(elements2.into());

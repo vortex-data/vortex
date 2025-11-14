@@ -10,9 +10,9 @@ use std::sync::Arc;
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 
-use super::{ListViewScalar, ListViewVectorMut};
+use super::{ListViewScalar, ListViewVector};
 use crate::primitive::PrimitiveVector;
-use crate::vector_ops::{VectorMutOps, VectorOps};
+use crate::vector_ops::{VectorOps, VectorOps};
 use crate::{Scalar, Vector, match_each_integer_pvector};
 
 /// A vector of variable-width lists.
@@ -201,7 +201,7 @@ impl ListViewVector {
 }
 
 impl VectorOps for ListViewVector {
-    type Mutable = ListViewVectorMut;
+    type Mutable = ListViewVector;
 
     fn len(&self) -> usize {
         self.len
@@ -220,7 +220,7 @@ impl VectorOps for ListViewVector {
         todo!()
     }
 
-    fn try_into_mut(self) -> Result<ListViewVectorMut, Self> {
+    fn try_into_mut(self) -> Result<ListViewVector, Self> {
         // Try to unwrap the `Arc`.
         let elements = match Arc::try_unwrap(self.elements) {
             Ok(elements) => elements,
@@ -269,7 +269,7 @@ impl VectorOps for ListViewVector {
 
         // Try to make the elements mutable.
         match elements.try_into_mut() {
-            Ok(mut_elements) => Ok(ListViewVectorMut {
+            Ok(mut_elements) => Ok(ListViewVector {
                 offsets,
                 sizes,
                 elements: Box::new(mut_elements),
@@ -286,7 +286,7 @@ impl VectorOps for ListViewVector {
         }
     }
 
-    fn into_mut(self) -> ListViewVectorMut {
+    fn into_mut(self) -> ListViewVector {
         let len = self.len;
         let validity = self.validity.into_mut();
         let offsets = self.offsets.into_mut();
@@ -296,7 +296,7 @@ impl VectorOps for ListViewVector {
         // just a **different** reference count increment).
         let elements = Arc::try_unwrap(self.elements).unwrap_or_else(|arc| (*arc).clone());
 
-        ListViewVectorMut {
+        ListViewVector {
             offsets,
             sizes,
             elements: Box::new(elements.into_mut()),

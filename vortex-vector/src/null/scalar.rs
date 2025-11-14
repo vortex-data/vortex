@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::null::NullVectorMut;
-use crate::{Scalar, ScalarOps, VectorMut};
+use crate::null::NullVector;
+use crate::{Scalar, ScalarOps, Vector};
 
 /// Represents a null scalar value.
 #[derive(Debug)]
@@ -13,8 +13,8 @@ impl ScalarOps for NullScalar {
         false
     }
 
-    fn repeat(&self, n: usize) -> VectorMut {
-        NullVectorMut::new(n).into()
+    fn repeat(&self, n: usize) -> Vector {
+        NullVector::new(n).into()
     }
 }
 

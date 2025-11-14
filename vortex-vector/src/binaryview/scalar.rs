@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::binaryview::{
-    BinaryType, BinaryViewType, BinaryViewTypeUpcast, BinaryViewVectorMut, StringType,
+    BinaryType, BinaryViewType, BinaryViewTypeUpcast, BinaryViewVector, StringType,
 };
-use crate::{Scalar, ScalarOps, VectorMutOps};
+use crate::{Scalar, ScalarOps, VectorOps};
 
 /// A scalar value for types that implement [`BinaryViewType`].
 #[derive(Debug)]
@@ -28,8 +28,8 @@ impl<T: BinaryViewType> ScalarOps for BinaryViewScalar<T> {
         self.0.is_some()
     }
 
-    fn repeat(&self, n: usize) -> crate::VectorMut {
-        let mut vec = BinaryViewVectorMut::<T>::with_capacity(n);
+    fn repeat(&self, n: usize) -> crate::Vector {
+        let mut vec = BinaryViewVector::<T>::with_capacity(n);
         match self.value() {
             None => vec.append_nulls(n),
             Some(buf) => vec.append_owned_values(buf.clone(), n),
