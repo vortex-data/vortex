@@ -128,7 +128,7 @@ jobs:
   attempt-fix-io:
     name: "Attempt Fix for IO Fuzz Crash"
     needs: report-io-fuzz-failures
-    if: always() && needs.report-io-fuzz-failures.outputs.issue_number != ''
+    if: needs.report-io-fuzz-failures.outputs.issue_number != ''
     uses: ./.github/workflows/fuzzer-fix-automation.yml
     with:
       issue_number: ${{ needs.report-io-fuzz-failures.outputs.issue_number }}
