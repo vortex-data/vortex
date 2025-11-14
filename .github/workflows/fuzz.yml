@@ -129,6 +129,11 @@ jobs:
     name: "Attempt Fix for IO Fuzz Crash"
     needs: report-io-fuzz-failures
     if: needs.report-io-fuzz-failures.outputs.issue_number != ''
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
     uses: ./.github/workflows/fuzzer-fix-automation.yml
     with:
       issue_number: ${{ needs.report-io-fuzz-failures.outputs.issue_number }}
