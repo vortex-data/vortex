@@ -16,3 +16,12 @@ pub use partition::*;
 pub use replace::*;
 pub use simplify::*;
 pub use simplify_typed::*;
+
+use crate::expr::traversal::Transformed;
+use crate::expr::{ExprId, Expression};
+
+trait ExpressionParentTransformer {
+    fn id(&self) -> ExprId;
+
+    fn reduce_parent(&self, expr: &Expression, parent: &Expression) -> Transformed<Expression>;
+}
