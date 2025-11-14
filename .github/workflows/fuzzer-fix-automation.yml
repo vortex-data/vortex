@@ -359,7 +359,7 @@ jobs:
           claude_args: |
             --model claude-opus-4-20250514
             --max-turns 120
-            --allowedTools "Read,Write,Edit,Glob,Grep,Bash(cargo:*),Bash(gh issue comment:*),Bash(gh run download:*),Bash(curl:*),Bash(find:*),Bash(ls:*),Bash(cat:*),Bash(RUST_BACKTRACE=*:*)"
+            --allowedTools "Read,Write,Edit,Glob,Grep,Bash(cargo:*),Bash(gh issue comment:*),Bash(gh run download:*),Bash(curl:*),Bash(find:*),Bash(ls:*),Bash(cat:*),Bash(RUST_BACKTRACE=* cargo:*)"
 
       - name: Verify Claude posted comments
         if: steps.reproduce.outputs.crash_reproduced == 'true'
