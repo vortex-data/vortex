@@ -9,23 +9,21 @@
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::expr::{ExprId, Expression};
+use crate::expr::{Expression, ExpressionView, VTable};
 
 /// A rewrite rule that transforms expressions without needing context.
 ///
 /// Called during bottom-up traversal after children have been processed.
 /// This is useful for self-contained rewrites like: `select(...) -> pack(get_item(...))`
-pub trait ReduceRule: Send + Sync {
-    /// The expression ID this rule applies to.
-    ///
-    /// The rule will only be invoked for expressions with this ID.
-    /// This allows for efficient filtering of rules.
-    fn id(&self) -> ExprId;
-
+///
+/// # Type Parameters
+/// * `V` - The VTable type this rule applies to. The rule will only be invoked for expressions
+///   with this vtable type, providing compile-time type safety.
+pub trait ReduceRule<V: VTable>: Send + Sync {
     /// Try to rewrite an expression.
     ///
     /// # Arguments
-    /// * `expr` - The expression to potentially rewrite (will have ID matching `self.id()`)
+    /// * `expr` - The expression to potentially rewrite (already downcast to type V)
     /// * `ctx` - Context for the rewrite (dtype, etc.)
     ///
     /// # Returns
@@ -33,7 +31,7 @@ pub trait ReduceRule: Send + Sync {
     /// * `None` if the rule does not apply
     fn reduce(
         &self,
-        expr: &Expression,
+        expr: &ExpressionView<V>,
         ctx: &dyn RewriteContext,
     ) -> VortexResult<Option<Expression>>;
 }
@@ -42,17 +40,15 @@ pub trait ReduceRule: Send + Sync {
 ///
 /// Called during bottom-up traversal after children have been processed.
 /// This is useful for rules like: `pack(...).get_item(field) -> field_expr`
-pub trait ChildReduceRule: Send + Sync {
-    /// The expression ID this rule applies to.
-    ///
-    /// The rule will only be invoked for expressions with this ID.
-    /// This allows for efficient filtering of rules.
-    fn id(&self) -> ExprId;
-
+///
+/// # Type Parameters
+/// * `V` - The VTable type this rule applies to. The rule will only be invoked for expressions
+///   with this vtable type, providing compile-time type safety.
+pub trait ChildReduceRule<V: VTable>: Send + Sync {
     /// Try to rewrite an expression based on one of its children.
     ///
     /// # Arguments
-    /// * `expr` - The expression to potentially rewrite (will have ID matching `self.id()`)
+    /// * `expr` - The expression to potentially rewrite (already downcast to type V)
     /// * `child` - One of the expression's children
     /// * `child_idx` - The index of the child in the expression's children array
     /// * `ctx` - Context for the rewrite (dtype, etc.)
@@ -62,7 +58,7 @@ pub trait ChildReduceRule: Send + Sync {
     /// * `None` if the rule does not apply
     fn reduce_child(
         &self,
-        expr: &Expression,
+        expr: &ExpressionView<V>,
         child: &Expression,
         child_idx: usize,
         ctx: &dyn RewriteContext,
@@ -75,17 +71,15 @@ pub trait ChildReduceRule: Send + Sync {
 /// This is useful for rules that need to know about the parent expression.
 ///
 /// Note: This rule is only called for non-root expressions (i.e., when there is a parent).
-pub trait ParentReduceRule: Send + Sync {
-    /// The expression ID this rule applies to.
-    ///
-    /// The rule will only be invoked for expressions with this ID.
-    /// This allows for efficient filtering of rules.
-    fn id(&self) -> ExprId;
-
+///
+/// # Type Parameters
+/// * `V` - The VTable type this rule applies to. The rule will only be invoked for expressions
+///   with this vtable type, providing compile-time type safety.
+pub trait ParentReduceRule<V: VTable>: Send + Sync {
     /// Try to rewrite an expression based on its parent.
     ///
     /// # Arguments
-    /// * `expr` - The expression to potentially rewrite (will have ID matching `self.id()`)
+    /// * `expr` - The expression to potentially rewrite (already downcast to type V)
     /// * `parent` - The parent expression (always present - rule not called for root)
     /// * `ctx` - Context for the rewrite (dtype, etc.)
     ///
@@ -94,7 +88,7 @@ pub trait ParentReduceRule: Send + Sync {
     /// * `None` if the rule does not apply
     fn reduce_parent(
         &self,
-        expr: &Expression,
+        expr: &ExpressionView<V>,
         parent: &Expression,
         ctx: &dyn RewriteContext,
     ) -> VortexResult<Option<Expression>>;

@@ -9,7 +9,7 @@ use crate::expr::exprs::pack::pack;
 use crate::expr::exprs::select::Select;
 use crate::expr::transform::traits::{ReduceRule, RewriteContext};
 use crate::expr::traversal::{NodeExt, Transformed};
-use crate::expr::{ExprId, Expression};
+use crate::expr::{Expression, ExpressionView};
 
 /// Replaces [crate::SelectExpr] with combination of [crate::GetItem] and [crate::Pack] expressions.
 pub(crate) fn remove_select(e: Expression, ctx: &DType) -> VortexResult<Expression> {
@@ -60,20 +60,12 @@ fn remove_select_transformer(
 /// Transforms: `select(["a", "b"], expr)` → `pack(a: get_item("a", expr), b: get_item("b", expr))`
 pub struct RemoveSelectRule;
 
-impl ReduceRule for RemoveSelectRule {
-    fn id(&self) -> ExprId {
-        ExprId::new_ref("vortex.select")
-    }
-
+impl ReduceRule<Select> for RemoveSelectRule {
     fn reduce(
         &self,
-        expr: &Expression,
+        select: &ExpressionView<Select>,
         ctx: &dyn RewriteContext,
     ) -> VortexResult<Option<Expression>> {
-        let Some(select) = expr.as_opt::<Select>() else {
-            return Ok(None);
-        };
-
         let child = select.child();
         let child_dtype = child.return_dtype(ctx.dtype())?;
         let child_nullability = child_dtype.nullability();
@@ -114,7 +106,7 @@ mod tests {
     use super::{RemoveSelectRule, remove_select};
     use crate::expr::exprs::pack::Pack;
     use crate::expr::exprs::root::root;
-    use crate::expr::exprs::select::select;
+    use crate::expr::exprs::select::{Select, select};
     use crate::expr::session::ExprSession;
     use crate::expr::transform::simplify_typed::apply_child_rules;
     use crate::expr::transform::traits::{ReduceRule, SimpleRewriteContext};
@@ -142,7 +134,8 @@ mod tests {
 
         let rule = RemoveSelectRule;
         let ctx = SimpleRewriteContext { dtype: &dtype };
-        let result = rule.reduce(&e, &ctx).unwrap();
+        let select_view = e.as_::<Select>();
+        let result = rule.reduce(&select_view, &ctx).unwrap();
 
         assert!(result.is_some());
         let transformed = result.unwrap();

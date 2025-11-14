@@ -3,32 +3,32 @@
 
 use vortex_error::VortexResult;
 
-use crate::expr::Expression;
 use crate::expr::exprs::get_item::GetItem;
 use crate::expr::exprs::pack::Pack;
 use crate::expr::transform::match_between::find_between;
 use crate::expr::transform::traits::{ChildReduceRule, RewriteContext};
 use crate::expr::traversal::{NodeExt, Transformed};
+use crate::expr::{Expression, ExpressionView};
 
 /// Simplifies an expression into an equivalent expression which is faster and easier to analyze.
 ///
 /// If the scope dtype is known, see `simplify_typed` for a simplifier which uses dtype.
 pub fn simplify(e: Expression) -> VortexResult<Expression> {
+    // Apply pack/get_item simplification directly (no dtype context needed)
     let e = e
-        .transform_up(simplify_transformer)
+        .transform_up(|node| {
+            // pack(l_1: e_1, ..., l_i: e_i, ..., l_n: e_n).get_item(l_i) = e_i where 0 <= i <= n
+            if let Some(get_item) = node.as_opt::<GetItem>()
+                && let Some(pack) = get_item.child(0).as_opt::<Pack>()
+            {
+                let expr = pack.field(get_item.data())?;
+                return Ok(Transformed::yes(expr));
+            }
+            Ok(Transformed::no(node))
+        })
         .map(|e| e.into_inner())?;
-    Ok(find_between(e))
-}
 
-fn simplify_transformer(node: Expression) -> VortexResult<Transformed<Expression>> {
-    // pack(l_1: e_1, ..., l_i: e_i, ..., l_n: e_n).get_item(l_i) = e_i where 0 <= i <= n
-    if let Some(get_item) = node.as_opt::<GetItem>()
-        && let Some(pack) = get_item.child(0).as_opt::<Pack>()
-    {
-        let expr = pack.field(get_item.data())?;
-        return Ok(Transformed::yes(expr));
-    }
-    Ok(Transformed::no(node))
+    Ok(find_between(e))
 }
 
 /// Rewrite rule: `pack(l_1: e_1, ..., l_i: e_i, ..., l_n: e_n).get_item(l_i) = e_i`
@@ -45,15 +45,10 @@ fn simplify_transformer(node: Expression) -> VortexResult<Transformed<Expression
 /// ```
 pub struct PackGetItemRule;
 
-impl ChildReduceRule for PackGetItemRule {
-    fn id(&self) -> crate::expr::ExprId {
-        // Only apply to GetItem expressions
-        crate::expr::ExprId::new_ref("vortex.get_item")
-    }
-
+impl ChildReduceRule<GetItem> for PackGetItemRule {
     fn reduce_child(
         &self,
-        expr: &Expression,
+        get_item: &ExpressionView<GetItem>,
         child: &Expression,
         child_idx: usize,
         _ctx: &dyn RewriteContext,
@@ -63,10 +58,8 @@ impl ChildReduceRule for PackGetItemRule {
             return Ok(None);
         }
 
-        // Check if expr is GetItem and child is Pack
-        if let Some(get_item) = expr.as_opt::<GetItem>()
-            && let Some(pack) = child.as_opt::<Pack>()
-        {
+        // Check if child is Pack
+        if let Some(pack) = child.as_opt::<Pack>() {
             // Extract the field from the pack
             let field_expr = pack.field(get_item.data())?;
             return Ok(Some(field_expr));
@@ -82,7 +75,7 @@ mod tests {
     use vortex_dtype::{DType, PType};
 
     use super::{PackGetItemRule, simplify};
-    use crate::expr::exprs::get_item::get_item;
+    use crate::expr::exprs::get_item::{GetItem, get_item};
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::pack::pack;
     use crate::expr::transform::traits::{ChildReduceRule, SimpleRewriteContext};
@@ -106,9 +99,10 @@ mod tests {
         let dtype = DType::Primitive(PType::I32, NonNullable);
         let ctx = SimpleRewriteContext { dtype: &dtype };
 
-        // Apply the rule
+        // Apply the rule - need to downcast to GetItem view
+        let get_item_view = get_item_expr.as_::<GetItem>();
         let result = rule
-            .reduce_child(&get_item_expr, &pack_expr, 0, &ctx)
+            .reduce_child(&get_item_view, &pack_expr, 0, &ctx)
             .unwrap();
 
         // Should return Some(lit(2))
@@ -127,9 +121,10 @@ mod tests {
         let dtype = DType::Primitive(PType::I32, NonNullable);
         let ctx = SimpleRewriteContext { dtype: &dtype };
 
-        // Apply the rule
+        // Apply the rule - need to downcast to GetItem view
+        let get_item_view = get_item_expr.as_::<GetItem>();
         let result = rule
-            .reduce_child(&get_item_expr, &lit_expr, 0, &ctx)
+            .reduce_child(&get_item_view, &lit_expr, 0, &ctx)
             .unwrap();
 
         // Should return None (no match)
@@ -161,7 +156,7 @@ mod tests {
 
         let rule = &rules.unwrap()[0];
         let result = rule
-            .reduce_child(&get_item_expr, &pack_expr, 0, &ctx)
+            .reduce_child_dyn(&get_item_expr, &pack_expr, 0, &ctx)
             .unwrap();
 
         assert!(result.is_some());

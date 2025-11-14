@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use vortex_error::VortexResult;
 use vortex_session::registry::Registry;
 use vortex_session::{Ref, SessionExt};
 use vortex_utils::aliases::hash_map::HashMap;
@@ -22,11 +23,130 @@ use crate::expr::exprs::root::Root;
 use crate::expr::exprs::select::Select;
 use crate::expr::transform::remove_select::RemoveSelectRule;
 use crate::expr::transform::simplify::PackGetItemRule;
-use crate::expr::transform::traits::{ChildReduceRule, ParentReduceRule, ReduceRule};
-use crate::expr::{ExprId, ExprVTable};
+use crate::expr::transform::traits::{
+    ChildReduceRule, ParentReduceRule, ReduceRule, RewriteContext,
+};
+use crate::expr::{ExprId, ExprVTable, Expression, VTable};
 
 /// Registry of expression vtables.
 pub type ExprRegistry = Registry<ExprVTable>;
+
+/// Type-erased wrapper for ReduceRule that allows dynamic dispatch.
+pub(crate) trait DynReduceRule: Send + Sync {
+    fn reduce_dyn(
+        &self,
+        expr: &Expression,
+        ctx: &dyn RewriteContext,
+    ) -> VortexResult<Option<Expression>>;
+}
+
+/// Concrete wrapper that implements DynReduceRule for a specific VTable type.
+struct ReduceRuleAdapter<V: VTable, R: ReduceRule<V>> {
+    rule: R,
+    _phantom: std::marker::PhantomData<V>,
+}
+
+impl<V: VTable, R: ReduceRule<V>> ReduceRuleAdapter<V, R> {
+    fn new(rule: R) -> Self {
+        Self {
+            rule,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<V: VTable, R: ReduceRule<V>> DynReduceRule for ReduceRuleAdapter<V, R> {
+    fn reduce_dyn(
+        &self,
+        expr: &Expression,
+        ctx: &dyn RewriteContext,
+    ) -> VortexResult<Option<Expression>> {
+        let Some(view) = expr.as_opt::<V>() else {
+            return Ok(None);
+        };
+        self.rule.reduce(&view, ctx)
+    }
+}
+
+/// Type-erased wrapper for ChildReduceRule that allows dynamic dispatch.
+pub(crate) trait DynChildReduceRule: Send + Sync {
+    fn reduce_child_dyn(
+        &self,
+        expr: &Expression,
+        child: &Expression,
+        child_idx: usize,
+        ctx: &dyn RewriteContext,
+    ) -> VortexResult<Option<Expression>>;
+}
+
+/// Concrete wrapper that implements DynChildReduceRule for a specific VTable type.
+struct ChildReduceRuleAdapter<V: VTable, R: ChildReduceRule<V>> {
+    rule: R,
+    _phantom: std::marker::PhantomData<V>,
+}
+
+impl<V: VTable, R: ChildReduceRule<V>> ChildReduceRuleAdapter<V, R> {
+    fn new(rule: R) -> Self {
+        Self {
+            rule,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<V: VTable, R: ChildReduceRule<V>> DynChildReduceRule for ChildReduceRuleAdapter<V, R> {
+    fn reduce_child_dyn(
+        &self,
+        expr: &Expression,
+        child: &Expression,
+        child_idx: usize,
+        ctx: &dyn RewriteContext,
+    ) -> VortexResult<Option<Expression>> {
+        let Some(view) = expr.as_opt::<V>() else {
+            return Ok(None);
+        };
+        self.rule.reduce_child(&view, child, child_idx, ctx)
+    }
+}
+
+/// Type-erased wrapper for ParentReduceRule that allows dynamic dispatch.
+pub(crate) trait DynParentReduceRule: Send + Sync {
+    fn reduce_parent_dyn(
+        &self,
+        expr: &Expression,
+        parent: &Expression,
+        ctx: &dyn RewriteContext,
+    ) -> VortexResult<Option<Expression>>;
+}
+
+/// Concrete wrapper that implements DynParentReduceRule for a specific VTable type.
+struct ParentReduceRuleAdapter<V: VTable, R: ParentReduceRule<V>> {
+    rule: R,
+    _phantom: std::marker::PhantomData<V>,
+}
+
+impl<V: VTable, R: ParentReduceRule<V>> ParentReduceRuleAdapter<V, R> {
+    fn new(rule: R) -> Self {
+        Self {
+            rule,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<V: VTable, R: ParentReduceRule<V>> DynParentReduceRule for ParentReduceRuleAdapter<V, R> {
+    fn reduce_parent_dyn(
+        &self,
+        expr: &Expression,
+        parent: &Expression,
+        ctx: &dyn RewriteContext,
+    ) -> VortexResult<Option<Expression>> {
+        let Some(view) = expr.as_opt::<V>() else {
+            return Ok(None);
+        };
+        self.rule.reduce_parent(&view, parent, ctx)
+    }
+}
 
 /// Registry of expression rewrite rules.
 ///
@@ -34,11 +154,11 @@ pub type ExprRegistry = Registry<ExprVTable>;
 #[derive(Default)]
 pub struct RewriteRuleRegistry {
     /// Generic reduce rules (no context needed), indexed by expression ID
-    reduce_rules: HashMap<ExprId, Vec<Arc<dyn ReduceRule>>>,
+    reduce_rules: HashMap<ExprId, Vec<Arc<dyn DynReduceRule>>>,
     /// Child reduce rules, indexed by expression ID
-    child_rules: HashMap<ExprId, Vec<Arc<dyn ChildReduceRule>>>,
+    child_rules: HashMap<ExprId, Vec<Arc<dyn DynChildReduceRule>>>,
     /// Parent reduce rules, indexed by expression ID
-    parent_rules: HashMap<ExprId, Vec<Arc<dyn ParentReduceRule>>>,
+    parent_rules: HashMap<ExprId, Vec<Arc<dyn DynParentReduceRule>>>,
 }
 
 impl std::fmt::Debug for RewriteRuleRegistry {
@@ -57,35 +177,59 @@ impl RewriteRuleRegistry {
     }
 
     /// Register a generic reduce rule.
-    pub fn register_reduce_rule(&mut self, rule: Arc<dyn ReduceRule>) {
-        let id = rule.id();
-        self.reduce_rules.entry(id).or_default().push(rule);
+    pub fn register_reduce_rule<V: VTable, R: ReduceRule<V> + 'static>(
+        &mut self,
+        vtable: &'static V,
+        rule: R,
+    ) {
+        let id = vtable.id();
+        let adapter = ReduceRuleAdapter::new(rule);
+        self.reduce_rules
+            .entry(id)
+            .or_default()
+            .push(Arc::new(adapter));
     }
 
     /// Register a child reduce rule.
-    pub fn register_child_rule(&mut self, rule: Arc<dyn ChildReduceRule>) {
-        let id = rule.id();
-        self.child_rules.entry(id).or_default().push(rule);
+    pub fn register_child_rule<V: VTable, R: ChildReduceRule<V> + 'static>(
+        &mut self,
+        vtable: &'static V,
+        rule: R,
+    ) {
+        let id = vtable.id();
+        let adapter = ChildReduceRuleAdapter::new(rule);
+        self.child_rules
+            .entry(id)
+            .or_default()
+            .push(Arc::new(adapter));
     }
 
     /// Register a parent reduce rule.
-    pub fn register_parent_rule(&mut self, rule: Arc<dyn ParentReduceRule>) {
-        let id = rule.id();
-        self.parent_rules.entry(id).or_default().push(rule);
+    pub fn register_parent_rule<V: VTable, R: ParentReduceRule<V> + 'static>(
+        &mut self,
+        vtable: &'static V,
+        rule: R,
+    ) {
+        let id = vtable.id();
+        let adapter = ParentReduceRuleAdapter::new(rule);
+        self.parent_rules
+            .entry(id)
+            .or_default()
+            .push(Arc::new(adapter));
     }
 
     /// Get all generic reduce rules for a given expression ID.
-    pub fn reduce_rules_for(&self, id: &ExprId) -> Option<&[Arc<dyn ReduceRule>]> {
+    pub(crate) fn reduce_rules_for(&self, id: &ExprId) -> Option<&[Arc<dyn DynReduceRule>]> {
         self.reduce_rules.get(id).map(|v| v.as_slice())
     }
 
     /// Get all child reduce rules for a given expression ID.
-    pub fn child_rules_for(&self, id: &ExprId) -> Option<&[Arc<dyn ChildReduceRule>]> {
+    pub(crate) fn child_rules_for(&self, id: &ExprId) -> Option<&[Arc<dyn DynChildReduceRule>]> {
         self.child_rules.get(id).map(|v| v.as_slice())
     }
 
     /// Get all parent reduce rules for a given expression ID.
-    pub fn parent_rules_for(&self, id: &ExprId) -> Option<&[Arc<dyn ParentReduceRule>]> {
+    pub(crate) fn parent_rules_for(&self, id: &ExprId) -> Option<&[Arc<dyn DynParentReduceRule>]> {
         self.parent_rules.get(id).map(|v| v.as_slice())
     }
 }
@@ -118,18 +262,30 @@ impl ExprSession {
     }
 
     /// Register a generic reduce rule in the session.
-    pub fn register_reduce_rule(&mut self, rule: impl ReduceRule + 'static) {
-        self.rewrite_rules.register_reduce_rule(Arc::new(rule));
+    pub fn register_reduce_rule<V: VTable>(
+        &mut self,
+        vtable: &'static V,
+        rule: impl ReduceRule<V> + 'static,
+    ) {
+        self.rewrite_rules.register_reduce_rule(vtable, rule);
     }
 
     /// Register a child reduce rule in the session.
-    pub fn register_child_rule(&mut self, rule: impl ChildReduceRule + 'static) {
-        self.rewrite_rules.register_child_rule(Arc::new(rule));
+    pub fn register_child_rule<V: VTable>(
+        &mut self,
+        vtable: &'static V,
+        rule: impl ChildReduceRule<V> + 'static,
+    ) {
+        self.rewrite_rules.register_child_rule(vtable, rule);
     }
 
     /// Register a parent reduce rule in the session.
-    pub fn register_parent_rule(&mut self, rule: impl ParentReduceRule + 'static) {
-        self.rewrite_rules.register_parent_rule(Arc::new(rule));
+    pub fn register_parent_rule<V: VTable>(
+        &mut self,
+        vtable: &'static V,
+        rule: impl ParentReduceRule<V> + 'static,
+    ) {
+        self.rewrite_rules.register_parent_rule(vtable, rule);
     }
 }
 
@@ -156,8 +312,8 @@ impl Default for ExprSession {
 
         // Register built-in rewrite rules
         let mut rewrite_rules = RewriteRuleRegistry::new();
-        rewrite_rules.register_reduce_rule(Arc::new(RemoveSelectRule));
-        rewrite_rules.register_child_rule(Arc::new(PackGetItemRule));
+        rewrite_rules.register_reduce_rule(&Select, RemoveSelectRule);
+        rewrite_rules.register_child_rule(&GetItem, PackGetItemRule);
 
         Self {
             registry: expressions,

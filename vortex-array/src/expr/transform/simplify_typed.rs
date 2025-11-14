@@ -95,7 +95,7 @@ fn apply_child_rules_to_node(
     // First try generic reduce rules (no context needed)
     if let Some(rules) = session.rewrite_rules().reduce_rules_for(&expr_id) {
         for rule in rules {
-            if let Some(new_expr) = rule.reduce(&expr, ctx)? {
+            if let Some(new_expr) = rule.reduce_dyn(&expr, ctx)? {
                 return Ok(Transformed::yes(new_expr));
             }
         }
@@ -106,7 +106,7 @@ fn apply_child_rules_to_node(
         // Try each child and each rule
         for (child_idx, child) in expr.children().iter().enumerate() {
             for rule in rules {
-                if let Some(new_expr) = rule.reduce_child(&expr, child, child_idx, ctx)? {
+                if let Some(new_expr) = rule.reduce_child_dyn(&expr, child, child_idx, ctx)? {
                     return Ok(Transformed::yes(new_expr));
                 }
             }
@@ -138,7 +138,7 @@ fn apply_parent_rules_recursive(
         if let Some(rules) = session.rewrite_rules().parent_rules_for(&expr_id) {
             let mut current = expr;
             for rule in rules {
-                if let Some(new_expr) = rule.reduce_parent(&current, parent, ctx)? {
+                if let Some(new_expr) = rule.reduce_parent_dyn(&current, parent, ctx)? {
                     current = new_expr;
                 }
             }
