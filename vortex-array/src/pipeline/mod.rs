@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-pub mod bit_view;
 pub mod driver;
 
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_vector::{Vector, VectorMut};
 
-use crate::pipeline::bit_view::BitView;
+/// A view over a fixed-size `N`-bit vector used in Vortex pipeline execution.
+pub type BitView<'a> = vortex_buffer::BitView<'a, N_BYTES>;
 
 /// The number of elements in each step of a Vortex evaluation operator.
 pub const N: usize = 1024;

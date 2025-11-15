@@ -12,6 +12,7 @@ mod buf;
 mod buf_mut;
 mod macros;
 mod ops;
+mod view;
 
 pub use arrow_buffer::bit_chunk_iterator::{
     BitChunkIterator, BitChunks, UnalignedBitChunk, UnalignedBitChunkIterator,
@@ -19,6 +20,7 @@ pub use arrow_buffer::bit_chunk_iterator::{
 pub use arrow_buffer::bit_iterator::{BitIndexIterator, BitIterator, BitSliceIterator};
 pub use buf::*;
 pub use buf_mut::*;
+pub use view::*;
 
 /// Get the bit value at `index` out of `buf`.
 #[inline(always)]
