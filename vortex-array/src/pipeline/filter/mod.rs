@@ -7,7 +7,7 @@ use vortex_compute::filter::Filter;
 use vortex_dtype::NativePType;
 use vortex_mask::MaskMut;
 use vortex_vector::primitive::{PVectorMut, PrimitiveVectorMut};
-use vortex_vector::{VectorMut, match_each_pvector_mut};
+use vortex_vector::{match_each_pvector_mut, VectorMut};
 
 use crate::pipeline::bit_view::BitView;
 
@@ -15,6 +15,7 @@ impl Filter<BitView<'_>> for &mut VectorMut {
     type Output = ();
 
     fn filter(self, selection: &BitView<'_>) -> Self::Output {
+        // TODO(ngates): replace with macro when all vectors impl filter.
         match self {
             VectorMut::Null(_) => {}
             VectorMut::Bool(_) => {}
