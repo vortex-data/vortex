@@ -47,7 +47,7 @@ impl<const NB: usize> BitView<'static, NB> {
 
     /// Creates a [`BitView`] with all bits set to `false`.
     pub const fn all_false() -> Self {
-        unsafe { BitView::new_unchecked(&Self::ALL_FALSE, NB * 8) }
+        unsafe { BitView::new_unchecked(&Self::ALL_FALSE, 0) }
     }
 }
 
