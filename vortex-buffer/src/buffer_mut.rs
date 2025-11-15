@@ -391,6 +391,16 @@ impl<T> BufferMut<T> {
         self.length += other.length;
     }
 
+    /// Return the [`ByteBufferMut`] for this [`BufferMut`].
+    pub fn into_byte_buffer(self) -> ByteBufferMut {
+        ByteBufferMut {
+            bytes: self.bytes,
+            length: self.length * size_of::<T>(),
+            alignment: self.alignment,
+            _marker: Default::default(),
+        }
+    }
+
     /// Freeze the `BufferMut` into a `Buffer`.
     pub fn freeze(self) -> Buffer<T> {
         Buffer {

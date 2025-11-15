@@ -568,7 +568,9 @@ mod tests {
     fn test_slice_offset_calculation() {
         let buf = BitBuffer::collect_bool(16, |_| true);
         let sliced = buf.slice(10..16);
-        assert_eq!(sliced.offset(), 10);
+        assert_eq!(sliced.len(), 6);
+        // Ensure the offset is modulo 8
+        assert_eq!(sliced.offset(), 2);
     }
 
     #[rstest]

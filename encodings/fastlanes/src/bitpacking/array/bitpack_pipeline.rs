@@ -57,6 +57,8 @@ impl PipelinedNode for BitPackedArray {
             Ok(Box::new(AlignedBitPackedKernel::<T>::new(
                 packed_bit_width,
                 packed_buffer,
+                // FIXME(ngates): if we make sure the mask has offset zero, we know that split_off
+                //  inside the kernel is free.
                 self.validity.to_mask(self.len()).into_mut(),
             )) as Box<dyn Kernel>)
         })
@@ -180,7 +182,7 @@ impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<
             BitPacking::unchecked_unpack(
                 self.packed_bit_width,
                 packed_bytes,
-                transmute(elements.as_mut()),
+                transmute::<&mut [BP], &mut [BP::Physical]>(elements.as_mut()),
             );
         }
 
