@@ -52,8 +52,10 @@ impl<const NB: usize> BitView<'static, NB> {
 }
 
 impl<'a, const NB: usize> BitView<'a, NB> {
-    const N: usize = NB * 8;
-    const N_WORDS: usize = NB * 8 / (usize::BITS as usize);
+    /// The number of bits in the view.
+    pub const N: usize = NB * 8;
+    /// The number of machine words in the view.
+    pub const N_WORDS: usize = NB * 8 / (usize::BITS as usize);
 
     const _ASSERT_MULTIPLE_OF_8: () = assert!(
         NB % 8 == 0,
@@ -148,7 +150,7 @@ impl<'a, const NB: usize> BitView<'a, NB> {
     /// The words are loaded using unaligned loads to ensure correct bit ordering.
     /// For example, bit 0 is located in `word & 1 << 0`, bit 63 is located in `word & 1 << 63`,
     /// assuming the word size is 64 bits.
-    fn iter_words(&self) -> impl Iterator<Item = usize> + '_ {
+    pub fn iter_words(&self) -> impl Iterator<Item = usize> + '_ {
         let ptr = self.bits.as_ptr().cast::<usize>();
         // We use constant N_WORDS to trigger loop unrolling.
         (0..Self::N_WORDS).map(move |idx| unsafe { ptr.add(idx).read_unaligned() })

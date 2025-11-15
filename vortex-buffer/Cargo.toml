@@ -18,6 +18,7 @@ all-features = true
 
 [features]
 arrow = []
+bench = []
 memmap2 = ["dep:memmap2"]
 serde = ["dep:serde"]
 warn-copy = ["dep:log"]
@@ -43,7 +44,13 @@ workspace = true
 [dev-dependencies]
 arrow-buffer = { workspace = true }
 divan = { workspace = true }
+rand = { workspace = true }
 rstest = { workspace = true }
+vortex-buffer = { path = ".", features = ["bench"] }
+
+[[bench]]
+name = "bitview_filter"
+harness = false
 
 [[bench]]
 name = "vortex_buffer"

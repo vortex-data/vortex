@@ -67,6 +67,7 @@ mod r#const;
 #[cfg(gpu_unstable)]
 mod cuda;
 mod debug;
+mod filter;
 mod macros;
 #[cfg(feature = "memmap2")]
 mod memmap2;
@@ -83,3 +84,9 @@ pub type ByteBufferMut = BufferMut<u8>;
 
 /// A const-aligned buffer of u8.
 pub type ConstByteBuffer<const A: usize> = ConstBuffer<u8, A>;
+
+/// Functions exported for benchmarking purposes.
+#[cfg(feature = "bench")]
+pub mod bench {
+    pub use super::filter::scalar_in_place::bench_filter_in_place_scalar;
+}

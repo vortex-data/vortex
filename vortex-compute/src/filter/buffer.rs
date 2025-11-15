@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod scalar;
+
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_mask::{Mask, MaskIter};
 
@@ -202,7 +204,7 @@ mod tests {
         assert_eq!(result, buffer![1u32, 2, 5]);
     }
 
-    use vortex_buffer::{BufferMut, buffer_mut};
+    use vortex_buffer::{buffer_mut, BufferMut};
 
     #[test]
     fn test_filter_all_true() {
