@@ -1,17 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::BitView;
 use std::ptr;
+use vortex_buffer::BitView;
 
-/// Benchmark wrapper for [`filter_in_place_scalar`].
+/// Benchmark wrapper for [`filter_scalar`].
 #[doc(hidden)]
 #[cfg(feature = "bench")]
-pub fn bench_filter_in_place_scalar<const NB: usize, T: Copy>(
-    bit_view: &BitView<NB>,
-    items: &mut [T],
-) {
-    filter_in_place_scalar(bit_view, items);
+pub fn bench_filter_scalar<const NB: usize, T: Copy>(bit_view: &BitView<NB>, slice: &mut [T]) {
+    filter_scalar(slice, bit_view);
 }
 
 /// Filters the given slice of items in place according to the provided BitView using scalar
@@ -19,17 +16,14 @@ pub fn bench_filter_in_place_scalar<const NB: usize, T: Copy>(
 ///
 /// The caller *should* handle where the BitView has zero or full true counts to avoid unnecessary
 /// work.
-pub(crate) fn filter_in_place_scalar<const NB: usize, T: Copy>(
-    bit_view: &BitView<NB>,
-    items: &mut [T],
-) {
-    let mut read_ptr = items.as_ptr();
-    let mut write_ptr = items.as_mut_ptr();
+pub(super) fn filter_scalar<const NB: usize, T: Copy>(slice: &mut [T], mask: &BitView<NB>) {
+    let mut read_ptr = slice.as_ptr();
+    let mut write_ptr = slice.as_mut_ptr();
 
-    for mut word in bit_view.iter_words() {
+    for mut word in mask.iter_words() {
         match word {
             usize::MAX => {
-                // All items => copy usize::BITS items.
+                // All slice => copy usize::BITS slice.
                 unsafe {
                     // We cannot guarantee non-overlapping, so use ptr::copy rather than
                     // ptr::copy_nonoverlapping.

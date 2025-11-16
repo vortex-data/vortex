@@ -156,6 +156,17 @@ impl<'a, const NB: usize> BitView<'a, NB> {
         (0..Self::N_WORDS).map(move |idx| unsafe { ptr.add(idx).read_unaligned() })
     }
 
+    /// Iterate the [`BitView`] in fixed-size words.
+    ///
+    /// The words are loaded using unaligned loads to ensure correct bit ordering.
+    /// For example, bit 0 is located in `word & 1 << 0`, bit 63 is located in `word & 1 << 63`,
+    /// assuming the word size is 64 bits.
+    pub fn iter_sized<W: 'static>(&self) -> impl Iterator<Item = W> + '_ {
+        let ptr = self.bits.as_ptr().cast::<W>();
+        // We use constant N_WORDS to trigger loop unrolling.
+        (0..(NB / size_of::<W>())).map(move |idx| unsafe { ptr.add(idx).read_unaligned() })
+    }
+
     /// Runs the provided function `f` for each index of a `true` bit in the view.
     pub fn iter_ones<F>(&self, mut f: F)
     where

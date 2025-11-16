@@ -9,8 +9,8 @@ use std::iter::Iterator;
 use divan::Bencher;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
-use vortex_buffer::bench::bench_filter_in_place_scalar;
 use vortex_buffer::{buffer_mut, BitBuffer};
+use vortex_compute::bench;
 
 fn main() {
     divan::main();
@@ -19,6 +19,7 @@ fn main() {
 // Focus on benchmarking for our known vector length.
 const N: usize = 1024;
 type BitView<'a> = vortex_buffer::BitView<'a, 128>;
+
 const MASK_DENSITY: &[f64] = &[
     0.0, 0.01, 0.05, 0.1, 0.25, // 0.3,
     // 0.4,
@@ -28,11 +29,23 @@ const MASK_DENSITY: &[f64] = &[
     0.99, 1.00,
 ];
 
-#[divan::bench(
-    types = [u8, u16, u32, u64, u128],
-    args = MASK_DENSITY,
-)]
-fn filter_scalar_in_place<T: Default + Copy>(bencher: Bencher, mask_density: f64) {
+#[divan::bench(types = [u8, u16, u32, u64, u128],args = MASK_DENSITY)]
+fn filter_scalar<T: Default + Copy>(bencher: Bencher, mask_density: f64) {
+    bench_filter_fn(bencher, mask_density, bench::bench_filter_scalar::<_, T>)
+}
+
+#[cfg(target_arch = "aarch64")]
+#[divan::bench(types = [u8, u16, u32, u64, u128],args = MASK_DENSITY)]
+fn filter_neon<T: Default + Copy>(bencher: Bencher, mask_density: f64) {
+    if std::arch::is_aarch64_feature_detected!("neon") {
+        bench_filter_fn(bencher, mask_density, bench::bench_filter_neon::<_, T>)
+    }
+}
+
+fn bench_filter_fn<T: Default + Copy, F>(bencher: Bencher, mask_density: f64, f: F)
+where
+    F: Fn(&BitView, &mut [T]),
+{
     let mut buffer = buffer_mut![T::default(); N];
 
     let mut rng = StdRng::seed_from_u64(0);
@@ -42,7 +55,7 @@ fn filter_scalar_in_place<T: Default + Copy>(bencher: Bencher, mask_density: f64
 
     bencher.bench_local(|| {
         let view = BitView::new(mask.inner().as_ref().try_into().unwrap());
-        bench_filter_in_place_scalar(&view, &mut buffer);
+        f(&view, &mut buffer);
         black_box(&mut buffer);
     });
 }

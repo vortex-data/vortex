@@ -34,9 +34,16 @@ num-traits = { workspace = true }
 [features]
 default = ["arrow"]
 arrow = ["dep:arrow-array", "dep:arrow-buffer", "dep:arrow-schema"]
+bench = []
 
 [dev-dependencies]
 divan = { workspace = true }
+rand = { workspace = true }
+vortex-compute = { path = ".", features = ["bench"] }
+
+[[bench]]
+name = "filter_bitview"
+harness = false
 
 [[bench]]
 name = "filter_buffer_mut"

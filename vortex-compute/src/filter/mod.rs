@@ -8,6 +8,7 @@ use std::ops::Deref;
 mod bitbuffer;
 mod buffer;
 mod mask;
+pub(crate) mod slice;
 mod vector;
 
 /// Function for filtering based on a selection mask.
