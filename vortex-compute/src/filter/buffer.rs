@@ -202,7 +202,7 @@ mod tests {
         assert_eq!(result, buffer![1u32, 2, 5]);
     }
 
-    use vortex_buffer::{buffer_mut, BufferMut};
+    use vortex_buffer::{BufferMut, buffer_mut};
 
     #[test]
     fn test_filter_all_true() {

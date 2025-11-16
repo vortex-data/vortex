@@ -3,6 +3,7 @@
 
 #![allow(clippy::unwrap_used)]
 
+use std::arch;
 use std::hint::black_box;
 use std::iter::Iterator;
 
@@ -11,6 +12,7 @@ use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_buffer::{buffer_mut, BitBuffer};
 use vortex_compute::bench;
+use vortex_compute::filter::Filter;
 
 fn main() {
     divan::main();
@@ -19,6 +21,34 @@ fn main() {
 // Focus on benchmarking for our known vector length.
 const N: usize = 1024;
 type BitView<'a> = vortex_buffer::BitView<'a, 128>;
+
+trait FilterImpl {
+    fn filter<T: Copy>(bitview: &BitView, slice: &mut [T]);
+}
+
+/// The main entry point for the filter function that performs all the dispatch.
+struct ActualFilter;
+impl FilterImpl for ActualFilter {
+    fn filter<T: Copy>(bitview: &BitView, slice: &mut [T]) {
+        slice.filter(bitview)
+    }
+}
+
+struct ScalarFilter;
+impl FilterImpl for ScalarFilter {
+    fn filter<T: Copy>(bitview: &BitView, slice: &mut [T]) {
+        bench::bench_filter_scalar::<_, T>(bitview, slice)
+    }
+}
+
+struct NeonFilter;
+impl FilterImpl for NeonFilter {
+    fn filter<T: Copy>(bitview: &BitView, slice: &mut [T]) {
+        if arch::is_aarch64_feature_detected!("neon") {
+            bench::bench_filter_neon::<_, T>(bitview, slice)
+        }
+    }
+}
 
 const MASK_DENSITY: &[f64] = &[
     0.0, 0.01, 0.05, 0.1, 0.25, // 0.3,
@@ -29,23 +59,32 @@ const MASK_DENSITY: &[f64] = &[
     0.99, 1.00,
 ];
 
-#[divan::bench(types = [u8, u16, u32, u64, u128],args = MASK_DENSITY)]
-fn filter_scalar<T: Default + Copy>(bencher: Bencher, mask_density: f64) {
-    bench_filter_fn(bencher, mask_density, bench::bench_filter_scalar::<_, T>)
+#[divan::bench(types = [ScalarFilter, NeonFilter, ActualFilter], args = MASK_DENSITY)]
+fn filter_u8<F: FilterImpl>(bencher: Bencher, mask_density: f64) {
+    bench_filter_fn::<F, u8>(bencher, mask_density)
 }
 
-#[cfg(target_arch = "aarch64")]
-#[divan::bench(types = [u8, u16, u32, u64, u128],args = MASK_DENSITY)]
-fn filter_neon<T: Default + Copy>(bencher: Bencher, mask_density: f64) {
-    if std::arch::is_aarch64_feature_detected!("neon") {
-        bench_filter_fn(bencher, mask_density, bench::bench_filter_neon::<_, T>)
-    }
+#[divan::bench(types = [ScalarFilter, NeonFilter, ActualFilter], args = MASK_DENSITY)]
+fn filter_u16<F: FilterImpl>(bencher: Bencher, mask_density: f64) {
+    bench_filter_fn::<F, u16>(bencher, mask_density)
 }
 
-fn bench_filter_fn<T: Default + Copy, F>(bencher: Bencher, mask_density: f64, f: F)
-where
-    F: Fn(&BitView, &mut [T]),
-{
+#[divan::bench(types = [ScalarFilter, NeonFilter, ActualFilter], args = MASK_DENSITY)]
+fn filter_u32<F: FilterImpl>(bencher: Bencher, mask_density: f64) {
+    bench_filter_fn::<F, u32>(bencher, mask_density)
+}
+
+#[divan::bench(types = [ScalarFilter, NeonFilter, ActualFilter], args = MASK_DENSITY)]
+fn filter_u64<F: FilterImpl>(bencher: Bencher, mask_density: f64) {
+    bench_filter_fn::<F, u64>(bencher, mask_density)
+}
+
+#[divan::bench(types = [ScalarFilter, NeonFilter, ActualFilter], args = MASK_DENSITY)]
+fn filter_u128<F: FilterImpl>(bencher: Bencher, mask_density: f64) {
+    bench_filter_fn::<F, u128>(bencher, mask_density)
+}
+
+fn bench_filter_fn<F: FilterImpl, T: Default + Copy>(bencher: Bencher, mask_density: f64) {
     let mut buffer = buffer_mut![T::default(); N];
 
     let mut rng = StdRng::seed_from_u64(0);
@@ -55,7 +94,7 @@ where
 
     bencher.bench_local(|| {
         let view = BitView::new(mask.inner().as_ref().try_into().unwrap());
-        f(&view, &mut buffer);
+        F::filter(&view, &mut buffer);
         black_box(&mut buffer);
     });
 }
