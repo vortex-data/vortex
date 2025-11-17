@@ -11,7 +11,9 @@ use vortex_proto::expr as pb;
 
 use crate::compute::mask;
 use crate::expr::exprs::root::root;
-use crate::expr::{ChildName, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt};
+use crate::expr::{
+    ChildName, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt, is_root,
+};
 use crate::stats::Stat;
 use crate::{ArrayRef, ToCanonical};
 
@@ -105,9 +107,12 @@ impl VTable for GetItem {
         //  matching the nested DType such that we can write:
         //    `get_item(expr.child(0).stat_expression(...), expr.data().field_name())`
 
-        // TODO(ngates): For now, we maintain the existing *broken* behavior of assuming that
-        //  getitem refers to a field on the root scope.
-        catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), stat)
+        // For now, we check that the child is the root expression.
+        if is_root(expr.child(0)) {
+            catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), stat)
+        } else {
+            None
+        }
     }
 }
 

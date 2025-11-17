@@ -79,6 +79,11 @@ impl VTable for Literal {
         stat: Stat,
         _catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
+        // NOTE(ngates): we return incorrect `1` values for counts here since we don't have
+        //  row-count information. We could resolve this in the future by introducing a `count()`
+        //  expression that evaluates to the row count of the provided scope. But since this is
+        //  only currently used for pruning, it doesn't change the outcome.
+
         match stat {
             Stat::Min | Stat::Max => Some(lit(expr.data().clone())),
             Stat::IsConstant => Some(lit(true)),
@@ -91,23 +96,19 @@ impl VTable for Literal {
                 }
 
                 match_each_float_ptype!(value.ptype(), |T| {
-                    match value.typed_value::<T>() {
-                        None => Some(lit(0u64)),
-                        Some(value) if value.is_nan() => Some(lit(1u64)),
-                        _ => Some(lit(0u64)),
+                    if value.typed_value::<T>().is_some_and(|v| v.is_nan()) {
+                        Some(lit(1u64))
+                    } else {
+                        Some(lit(0u64))
                     }
                 })
             }
             Stat::NullCount => {
-                if expr.data().is_valid() {
-                    return Some(lit(0u64));
+                if expr.data().is_null() {
+                    Some(lit(1u64))
+                } else {
+                    Some(lit(0u64))
                 }
-                // TODO(ngates): this is really annoying. Stats (at least those used for pruning)
-                //  should represent bounds over the value of a single row. By referencing a
-                //  "count" we have no way to return a stats expression that would allow is_null
-                //  pruning. In practice, this might not be that important since most functionality
-                //  should be absorbed by some form of constant folding.
-                None
             }
             Stat::IsSorted | Stat::IsStrictSorted | Stat::Sum | Stat::UncompressedSizeInBytes => {
                 None
