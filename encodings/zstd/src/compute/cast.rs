@@ -2,46 +2,67 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::compute::{CastKernel, CastKernelAdapter};
-use vortex_array::{ArrayRef, IntoArray, register_kernel};
-use vortex_dtype::DType;
+use vortex_array::{ArrayRef, register_kernel};
+use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 
 use crate::{ZstdArray, ZstdVTable};
 
 impl CastKernel for ZstdVTable {
     fn cast(&self, array: &ZstdArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        if !dtype.is_nullable() || !array.all_valid() {
-            // We cannot cast to non-nullable since the validity containing nulls is used to decode
-            // the ZSTD array, this would require rewriting tables.
+        if !dtype.eq_ignore_nullability(array.dtype()) {
+            // Type changes can't be handled in ZSTD, need to decode and tweak.
+            // TODO(aduffy): handle trivial conversions like Binary -> UTF8, integer widening, etc.
             return Ok(None);
         }
-        // ZstdArray is a general-purpose compression encoding using Zstandard compression.
-        // It can handle nullability changes without decompression by updating the validity
-        // bitmap, but type changes require decompression since the compressed data is
-        // type-specific and Zstd operates on raw bytes.
-        if array.dtype().eq_ignore_nullability(dtype) {
-            // Create a new validity with the target nullability
-            let new_validity = array
-                .unsliced_validity
-                .clone()
-                .cast_nullability(dtype.nullability(), array.len())?;
 
-            return Ok(Some(
+        let src_nullability = array.dtype().nullability();
+        let target_nullability = dtype.nullability();
+
+        match (src_nullability, target_nullability) {
+            // Same type case. This should be handled in the layer above but for
+            // completeness of the match arms we also handle it here.
+            (Nullability::Nullable, Nullability::Nullable)
+            | (Nullability::NonNullable, Nullability::NonNullable) => Ok(Some(array.to_array())),
+            (Nullability::NonNullable, Nullability::Nullable) => Ok(Some(
+                // nonnull => null, trivial cast by altering the validity
                 ZstdArray::new(
                     array.dictionary.clone(),
                     array.frames.clone(),
                     dtype.clone(),
                     array.metadata.clone(),
                     array.unsliced_n_rows(),
-                    new_validity,
+                    array.unsliced_validity.clone(),
                 )
-                ._slice(array.slice_start(), array.slice_stop())
-                .into_array(),
-            ));
-        }
+                .slice(array.slice_start()..array.slice_stop()),
+            )),
+            (Nullability::Nullable, Nullability::NonNullable) => {
+                // null => non-null works if there are no nulls in the sliced range
+                let sliced_len = array.slice_stop() - array.slice_start();
+                let has_nulls = !array
+                    .unsliced_validity
+                    .slice(array.slice_start()..array.slice_stop())
+                    .all_valid(sliced_len);
 
-        // For other casts (e.g., type changes), decode to canonical and let the underlying array handle it
-        Ok(None)
+                // We don't attempt to handle casting when there are nulls.
+                if has_nulls {
+                    return Ok(None);
+                }
+
+                // If there are no nulls, the cast is trivial
+                Ok(Some(
+                    ZstdArray::new(
+                        array.dictionary.clone(),
+                        array.frames.clone(),
+                        dtype.clone(),
+                        array.metadata.clone(),
+                        array.unsliced_n_rows(),
+                        array.unsliced_validity.clone(),
+                    )
+                    .slice(array.slice_start()..array.slice_stop()),
+                ))
+            }
+        }
     }
 }
 
