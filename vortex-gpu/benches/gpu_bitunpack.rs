@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![allow(clippy::unwrap_used)]
+#![cfg(gpu_unstable)]
 
 use std::sync::Arc;
 use std::time::Duration;
