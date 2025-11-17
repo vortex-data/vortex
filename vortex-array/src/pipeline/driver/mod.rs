@@ -308,6 +308,11 @@ impl Pipeline {
                         if selection.true_count() == 0 {
                             tail.clear();
                         } else {
+                            // TODO(ngates): this is janky and forces us to filter validity also,
+                            //  but we need the tail.len() == N in order to invoke filter.
+                            if tail.len() != N {
+                                tail.append_nulls(N - tail.len());
+                            }
                             tail.filter(selection);
                             assert_eq!(tail.len(), selection.true_count());
                         }
