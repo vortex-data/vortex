@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_mask::Mask;
-use vortex_vector::{Vector, VectorMut, VectorMutOps, match_each_vector, match_each_vector_mut};
+use vortex_vector::{Vector, VectorMut, match_each_vector, match_each_vector_mut};
 
 use crate::filter::{Filter, MaskIndices};
 
@@ -17,40 +17,29 @@ mod primitive;
 mod pvector;
 mod struct_;
 
-impl Filter<Mask> for &Vector {
-    type Output = Vector;
+// To allow all vector types to implement filter generically over `M`, we must break the recursive
+// trait bounds (e.g. from StructVector requiring Vector: Filter<M> for its fields) by manually
+// implementing Filter for Vector and VectorMut for each concrete mask type here.
 
-    fn filter(self, selection: &Mask) -> Self::Output {
-        match_each_vector!(self, |v| { v.filter(selection).into() })
-    }
-}
+macro_rules! impl_vector_filter {
+    ($M:ty) => {
+        impl Filter<$M> for &Vector {
+            type Output = Vector;
 
-impl Filter<MaskIndices<'_>> for &Vector {
-    type Output = Vector;
-
-    fn filter(self, selection: &MaskIndices) -> Self::Output {
-        match_each_vector!(self, |v| { v.filter(selection).into() })
-    }
-}
-
-impl Filter<Mask> for &mut VectorMut {
-    type Output = ();
-
-    fn filter(self, selection_mask: &Mask) {
-        match selection_mask {
-            Mask::AllTrue(_) => {}
-            Mask::AllFalse(_) => self.clear(),
-            Mask::Values(_) => {
-                match_each_vector_mut!(self, |v| { v.filter(selection_mask) });
+            fn filter(self, selection: &$M) -> Self::Output {
+                match_each_vector!(self, |v| { v.filter(selection).into() })
             }
         }
-    }
+
+        impl Filter<$M> for &mut VectorMut {
+            type Output = ();
+
+            fn filter(self, selection: &$M) -> Self::Output {
+                match_each_vector_mut!(self, |v| { v.filter(selection) })
+            }
+        }
+    };
 }
 
-impl Filter<MaskIndices<'_>> for &mut VectorMut {
-    type Output = ();
-
-    fn filter(self, indices: &MaskIndices<'_>) -> Self::Output {
-        match_each_vector_mut!(self, |v| { v.filter(indices) })
-    }
-}
+impl_vector_filter!(Mask);
+impl_vector_filter!(MaskIndices<'_>);
