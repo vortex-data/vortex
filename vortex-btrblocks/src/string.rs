@@ -4,6 +4,7 @@
 use vortex_array::arrays::{
     ConstantArray, DictArray, MaskedArray, VarBinArray, VarBinViewArray, VarBinViewVTable,
 };
+use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
@@ -184,17 +185,25 @@ impl Scheme for VarBinScheme {
     fn expected_compression_ratio(
         &self,
         stats: &Self::StatsType,
-        is_sample: bool,
-        allowed_cascading: usize,
-        excludes: &[StringCode],
+        _is_sample: bool,
+        _allowed_cascading: usize,
+        _excludes: &[StringCode],
     ) -> VortexResult<f64> {
-        estimate_compression_ratio_with_sampling(
-            self,
-            stats,
-            is_sample,
-            allowed_cascading,
-            excludes,
-        )
+        if stats.src.is_empty() {
+            return Ok(1.0);
+        }
+
+        let src = stats.source();
+
+        // Calculate VarBinView size using nbytes()
+        let varbinview_size = src.as_ref().nbytes();
+
+        let string_bytes = src.buffers().iter().map(|b| b.len() as u64).sum::<u64>();
+        let offest_bytes = src.len() as u64 * 4;
+        let varbin_size = string_bytes + offest_bytes;
+        assert!(varbin_size > 0, "cannot be empty");
+
+        Ok(varbinview_size as f64 / varbin_size as f64)
     }
 
     fn compress(
@@ -204,8 +213,6 @@ impl Scheme for VarBinScheme {
         _allowed_cascading: usize,
         _excludes: &[StringCode],
     ) -> VortexResult<ArrayRef> {
-        use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
-
         let arrow_dtype = match stats.src.dtype() {
             DType::Utf8(..) => arrow_schema::DataType::Utf8,
             DType::Binary(..) => arrow_schema::DataType::Binary,
