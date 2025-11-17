@@ -137,12 +137,12 @@ pub struct NullDominated;
 pub struct StringCode(u8);
 
 const UNCOMPRESSED_SCHEME: StringCode = StringCode(0);
-const VARBIN_SCHEME: StringCode = StringCode(1);
-const DICT_SCHEME: StringCode = StringCode(2);
-const FSST_SCHEME: StringCode = StringCode(3);
-const CONSTANT_SCHEME: StringCode = StringCode(4);
+const DICT_SCHEME: StringCode = StringCode(1);
+const FSST_SCHEME: StringCode = StringCode(2);
+const CONSTANT_SCHEME: StringCode = StringCode(3);
 
-const SPARSE_SCHEME: StringCode = StringCode(5);
+const SPARSE_SCHEME: StringCode = StringCode(4);
+const VARBIN_SCHEME: StringCode = StringCode(5);
 
 impl Scheme for UncompressedScheme {
     type StatsType = StringStats;
