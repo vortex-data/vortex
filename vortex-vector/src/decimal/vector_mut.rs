@@ -64,6 +64,11 @@ impl VectorMutOps for DecimalVectorMut {
         match_each_dvector_mut!(self, |d| { d.validity() })
     }
 
+    unsafe fn validity_mut(&mut self) -> &mut MaskMut {
+        // SAFETY: enforced by the caller.
+        unsafe { match_each_dvector_mut!(self, |d| { d.validity_mut() }) }
+    }
+
     fn capacity(&self) -> usize {
         match_each_dvector_mut!(self, |d| { d.capacity() })
     }

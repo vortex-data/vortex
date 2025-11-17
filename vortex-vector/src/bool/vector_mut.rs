@@ -93,16 +93,6 @@ impl BoolVectorMut {
     pub unsafe fn bits_mut(&mut self) -> &mut BitBufferMut {
         &mut self.bits
     }
-
-    /// Get a mutable handle to the validity mask of the vector.
-    ///
-    /// # Safety
-    ///
-    /// Caller must ensure that length of the validity always matches
-    /// length of the bits.
-    pub unsafe fn validity_mut(&mut self) -> &mut MaskMut {
-        &mut self.validity
-    }
 }
 
 impl VectorMutOps for BoolVectorMut {
@@ -116,6 +106,10 @@ impl VectorMutOps for BoolVectorMut {
 
     fn validity(&self) -> &MaskMut {
         &self.validity
+    }
+
+    unsafe fn validity_mut(&mut self) -> &mut MaskMut {
+        &mut self.validity
     }
 
     fn capacity(&self) -> usize {

@@ -237,16 +237,6 @@ impl ListViewVectorMut {
     pub unsafe fn sizes_mut(&mut self) -> &mut PrimitiveVectorMut {
         &mut self.sizes
     }
-
-    /// Returns a mutable handle to the validity mask of the vector.
-    ///
-    /// # Safety
-    ///
-    /// Callers must ensure modifying the length of the validity mask is only done
-    /// with corresponding updates to length of the offsets and sizes.
-    pub unsafe fn validity_mut(&mut self) -> &mut MaskMut {
-        &mut self.validity
-    }
 }
 
 impl VectorMutOps for ListViewVectorMut {
@@ -258,6 +248,10 @@ impl VectorMutOps for ListViewVectorMut {
 
     fn validity(&self) -> &MaskMut {
         &self.validity
+    }
+
+    unsafe fn validity_mut(&mut self) -> &mut MaskMut {
+        &mut self.validity
     }
 
     fn capacity(&self) -> usize {

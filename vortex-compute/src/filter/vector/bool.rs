@@ -3,8 +3,8 @@
 
 use vortex_buffer::{BitBuffer, BitBufferMut};
 use vortex_mask::{Mask, MaskMut};
-use vortex_vector::VectorOps;
 use vortex_vector::bool::{BoolVector, BoolVectorMut};
+use vortex_vector::{VectorMutOps, VectorOps};
 
 use crate::filter::Filter;
 

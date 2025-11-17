@@ -134,17 +134,6 @@ impl StructVectorMut {
         self.fields.as_mut()
     }
 
-    /// Returns a mutable handle to the validity mask of the vector.
-    ///
-    /// # Safety
-    ///
-    /// Callers must ensure that if the length of the mask is modified, the lengths
-    /// of all of the field vectors should be updated accordingly to continue meeting
-    /// the invariants of the type.
-    pub unsafe fn validity_mut(&mut self) -> &mut MaskMut {
-        &mut self.validity
-    }
-
     /// Finds the minimum capacity of all field vectors.
     ///
     /// This is equal to the maximum amount of scalars we can add before we need to reallocate at
@@ -171,6 +160,10 @@ impl VectorMutOps for StructVectorMut {
 
     fn validity(&self) -> &MaskMut {
         &self.validity
+    }
+
+    unsafe fn validity_mut(&mut self) -> &mut MaskMut {
+        &mut self.validity
     }
 
     fn capacity(&self) -> usize {

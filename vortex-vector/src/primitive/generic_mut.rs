@@ -98,16 +98,6 @@ impl<T> PVectorMut<T> {
         &mut self.elements
     }
 
-    /// Returns a mutable reference to the validity mask.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that any mutations to the validity mask do not violate the
-    /// invariants of the vector (e.g., the length must remain consistent with the elements buffer).
-    pub unsafe fn validity_mut(&mut self) -> &mut MaskMut {
-        &mut self.validity
-    }
-
     /// Decomposes the primitive vector into its constituent parts (buffer and validity).
     pub fn into_parts(self) -> (BufferMut<T>, MaskMut) {
         (self.elements, self.validity)
@@ -132,6 +122,10 @@ impl<T: NativePType> VectorMutOps for PVectorMut<T> {
 
     fn validity(&self) -> &MaskMut {
         &self.validity
+    }
+
+    unsafe fn validity_mut(&mut self) -> &mut MaskMut {
+        &mut self.validity
     }
 
     fn capacity(&self) -> usize {

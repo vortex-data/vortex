@@ -92,6 +92,11 @@ impl VectorMutOps for PrimitiveVectorMut {
         match_each_pvector_mut!(self, |v| { v.validity() })
     }
 
+    unsafe fn validity_mut(&mut self) -> &mut MaskMut {
+        // SAFETY: enforced by caller
+        unsafe { match_each_pvector_mut!(self, |v| { v.validity_mut() }) }
+    }
+
     fn capacity(&self) -> usize {
         match_each_pvector_mut!(self, |v| { v.capacity() })
     }

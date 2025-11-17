@@ -3,13 +3,13 @@
 
 use fastlanes::{BitPacking, FastLanes};
 use static_assertions::const_assert_eq;
+use vortex_array::pipeline::validity::ValidityKernel;
 use vortex_array::pipeline::{
     BindContext, BitView, Kernel, KernelCtx, N, PipelineInputs, PipelinedNode,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{PTypeDowncastExt, PhysicalPType, match_each_integer_ptype};
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 use vortex_vector::primitive::PVectorMut;
 use vortex_vector::{VectorMut, VectorMutOps};
 
@@ -53,11 +53,10 @@ impl PipelinedNode for BitPackedArray {
                 )
             }
 
-            Ok(Box::new(AlignedBitPackedKernel::<T>::new(
-                packed_bit_width,
-                packed_buffer,
-                self.validity.to_mask(self.len()),
-            )) as Box<dyn Kernel>)
+            let inner = AlignedBitPackedKernel::<T>::new(packed_bit_width, packed_buffer);
+            let kernel = ValidityKernel::new(inner, self.validity_mask());
+
+            Ok(Box::new(kernel) as Box<dyn Kernel>)
         })
     }
 }
@@ -84,19 +83,12 @@ pub struct AlignedBitPackedKernel<BP: PhysicalPType<Physical: BitPacking>> {
     /// The buffer containing the bitpacked values.
     packed_buffer: Buffer<BP::Physical>,
 
-    /// The validity mask for the bitpacked array.
-    validity: Mask,
-
     /// The total number of bitpacked chunks we have unpacked.
     num_chunks_unpacked: usize,
 }
 
 impl<BP: PhysicalPType<Physical: BitPacking>> AlignedBitPackedKernel<BP> {
-    pub fn new(
-        packed_bit_width: usize,
-        packed_buffer: Buffer<BP::Physical>,
-        validity: Mask,
-    ) -> Self {
+    pub fn new(packed_bit_width: usize, packed_buffer: Buffer<BP::Physical>) -> Self {
         let packed_stride =
             packed_bit_width * <<BP as PhysicalPType>::Physical as FastLanes>::LANES;
 
@@ -110,7 +102,6 @@ impl<BP: PhysicalPType<Physical: BitPacking>> AlignedBitPackedKernel<BP> {
             packed_bit_width,
             packed_stride,
             packed_buffer,
-            validity,
             num_chunks_unpacked: 0,
         }
     }
@@ -130,9 +121,6 @@ impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<
         let not_yet_unpacked_values = &self.packed_buffer.as_slice()[packed_offset..];
 
         let true_count = selection.true_count();
-        let chunk_offset = self.num_chunks_unpacked * N;
-        let array_len = self.validity.len();
-        debug_assert!(chunk_offset < array_len);
 
         // If the true count is very small (the selection is sparse), we can unpack individual
         // elements directly into the output vector.
@@ -141,26 +129,21 @@ impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<
             debug_assert!(true_count <= output_vector.capacity());
 
             selection.iter_ones(|idx| {
-                let absolute_idx = chunk_offset + idx;
-                if self.validity.value(absolute_idx) {
-                    // SAFETY:
-                    // - The documentation for `packed_bit_width` explains that the size is valid.
-                    // - We know that the size of the `next_packed_chunk` we provide is equal to
-                    //   `self.packed_stride`, and we explain why this is correct in its
-                    //   documentation.
-                    let unpacked_value = unsafe {
-                        BitPacking::unchecked_unpack_single(
-                            self.packed_bit_width,
-                            not_yet_unpacked_values,
-                            idx,
-                        )
-                    };
+                // SAFETY:
+                // - The documentation for `packed_bit_width` explains that the size is valid.
+                // - We know that the size of the `next_packed_chunk` we provide is equal to
+                //   `self.packed_stride`, and we explain why this is correct in its
+                //   documentation.
+                let unpacked_value = unsafe {
+                    BitPacking::unchecked_unpack_single(
+                        self.packed_bit_width,
+                        not_yet_unpacked_values,
+                        idx,
+                    )
+                };
 
-                    // SAFETY: We just reserved enough capacity to push these values.
-                    unsafe { output_vector.push_unchecked(unpacked_value) };
-                } else {
-                    output_vector.append_nulls(1);
-                }
+                // SAFETY: We just reserved enough capacity to push these values.
+                unsafe { output_vector.elements_mut().push_unchecked(unpacked_value) };
             });
         } else {
             // Otherwise if the mask is dense, it is faster to fully unpack the entire 1024
@@ -191,26 +174,6 @@ impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<
                     next_packed_chunk,
                     output_vector.as_mut(),
                 );
-            }
-
-            if array_len < chunk_offset + N {
-                let vector_len = array_len - chunk_offset;
-                debug_assert!(vector_len < N, "math is broken");
-
-                // SAFETY: This must be less than `N` so this is just a truncate.
-                unsafe { output_vector.elements_mut().set_len(vector_len) };
-
-                let chunk_mask = self.validity.slice(chunk_offset..array_len);
-
-                // SAFETY: We have just set the elements length to N, and the validity buffer has
-                // capacity for N elements.
-                unsafe { output_vector.validity_mut() }.append_mask(&chunk_mask);
-            } else {
-                let chunk_mask = self.validity.slice(chunk_offset..chunk_offset + N);
-
-                // SAFETY: We have just set the elements length to N, and the validity buffer has
-                // capacity for N elements.
-                unsafe { output_vector.validity_mut() }.append_mask(&chunk_mask);
             }
         }
 

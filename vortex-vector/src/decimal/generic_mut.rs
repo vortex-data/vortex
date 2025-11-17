@@ -146,16 +146,6 @@ impl<D: NativeDecimalType> DVectorMut<D> {
         &mut self.elements
     }
 
-    /// Returns a mutable reference to the underlying validity mask of the vector.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that when the length of the validity changes, the length
-    /// of the elements is changed to match it.
-    pub unsafe fn validity_mut(&mut self) -> &mut MaskMut {
-        &mut self.validity
-    }
-
     /// Gets a nullable element at the given index, panicking on out-of-bounds.
     ///
     /// If the element at the given index is null, returns `None`. Otherwise, returns `Some(x)`,
@@ -212,6 +202,10 @@ impl<D: NativeDecimalType> VectorMutOps for DVectorMut<D> {
 
     fn validity(&self) -> &MaskMut {
         &self.validity
+    }
+
+    unsafe fn validity_mut(&mut self) -> &mut MaskMut {
+        &mut self.validity
     }
 
     fn capacity(&self) -> usize {

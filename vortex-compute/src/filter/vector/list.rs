@@ -4,9 +4,9 @@
 use std::sync::Arc;
 
 use vortex_mask::{Mask, MaskMut};
-use vortex_vector::VectorOps;
 use vortex_vector::listview::{ListViewVector, ListViewVectorMut};
 use vortex_vector::primitive::{PrimitiveVector, PrimitiveVectorMut};
+use vortex_vector::{VectorMutOps, VectorOps};
 
 use crate::filter::Filter;
 

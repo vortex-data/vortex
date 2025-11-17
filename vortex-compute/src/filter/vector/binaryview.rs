@@ -3,10 +3,10 @@
 
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_mask::{Mask, MaskMut};
-use vortex_vector::VectorOps;
 use vortex_vector::binaryview::{
     BinaryView, BinaryViewType, BinaryViewVector, BinaryViewVectorMut,
 };
+use vortex_vector::{VectorMutOps, VectorOps};
 
 use crate::filter::Filter;
 

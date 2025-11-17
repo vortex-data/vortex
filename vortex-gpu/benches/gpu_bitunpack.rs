@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![cfg(gpu_unstable)]
 #![allow(clippy::unwrap_used)]
 
 use std::sync::Arc;

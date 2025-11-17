@@ -44,6 +44,10 @@ impl VectorMutOps for NullVectorMut {
         &self.validity
     }
 
+    unsafe fn validity_mut(&mut self) -> &mut MaskMut {
+        &mut self.validity
+    }
+
     fn capacity(&self) -> usize {
         usize::MAX
     }

@@ -92,6 +92,14 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> + Sized {
     /// only allowed to inspect it via the shared reference.
     fn validity(&self) -> &MaskMut;
 
+    /// Returns a mutable handle to the validity mask of the vector.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the validity mask length always matches the length
+    /// of the vector's values.
+    unsafe fn validity_mut(&mut self) -> &mut MaskMut;
+
     /// Returns the total number of elements the vector can hold without reallocating.
     fn capacity(&self) -> usize;
 

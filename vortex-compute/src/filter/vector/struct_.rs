@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use vortex_mask::{Mask, MaskMut};
 use vortex_vector::struct_::{StructVector, StructVectorMut};
-use vortex_vector::{Vector, VectorMut, VectorOps};
+use vortex_vector::{Vector, VectorMut, VectorMutOps, VectorOps};
 
 use crate::filter::Filter;
 

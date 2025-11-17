@@ -4,8 +4,8 @@
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::NativeDecimalType;
 use vortex_mask::{Mask, MaskMut};
-use vortex_vector::VectorOps;
 use vortex_vector::decimal::{DVector, DVectorMut};
+use vortex_vector::{VectorMutOps, VectorOps};
 
 use crate::filter::Filter;
 
