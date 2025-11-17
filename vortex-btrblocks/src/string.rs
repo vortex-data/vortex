@@ -7,6 +7,7 @@ use vortex_array::arrays::{
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
+use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_fsst::{FSSTArray, fsst_compress, fsst_train_compressor};
 use vortex_scalar::Scalar;
@@ -205,8 +206,14 @@ impl Scheme for VarBinScheme {
     ) -> VortexResult<ArrayRef> {
         use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
 
-        // Convert VarBinView -> Arrow -> VarBin using the canonical Arrow conversion path
-        let arrow_array = stats.source().to_array().into_arrow_preferred()?;
+        let arrow_dtype = match stats.src.dtype() {
+            DType::Utf8(..) => arrow_schema::DataType::Utf8,
+            DType::Binary(..) => arrow_schema::DataType::Binary,
+            _ => unreachable!("VarBinView must be Utf8 or Binary"),
+        };
+
+        // Convert VarBinView -> Arrow VarBin -> Vortex VarBin
+        let arrow_array = stats.source().to_array().into_arrow(&arrow_dtype)?;
         let nullable = stats.source().dtype().is_nullable();
 
         Ok(ArrayRef::from_arrow(arrow_array.as_ref(), nullable))
