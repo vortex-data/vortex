@@ -13,8 +13,10 @@ use crate::expr::transform::reducer::simplify_typed_with_session;
 ///
 /// NOTE: After typed simplification, returned expressions is "bound" to the scope DType.
 ///     Applying the returned expression to a different DType may produce wrong results.
-pub fn simplify_typed(e: Expression, ctx: &DType) -> VortexResult<Expression> {
-    // Apply all registered rules (PackGetItemRule, RemoveSelectRule, RemoveMergeRule)
-    let session = ExprSession::default();
-    simplify_typed_with_session(e, ctx, &session)
+pub fn simplify_typed(
+    e: Expression,
+    ctx: &DType,
+    session: &ExprSession,
+) -> VortexResult<Expression> {
+    simplify_typed_with_session(e, ctx, session)
 }
