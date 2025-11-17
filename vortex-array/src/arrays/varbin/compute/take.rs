@@ -17,15 +17,16 @@ impl TakeKernel for VarBinVTable {
         let offsets = array.offsets().to_primitive();
         let data = array.bytes();
         let indices = indices.to_primitive();
+        let dtype = array
+            .dtype()
+            .clone()
+            .union_nullability(indices.dtype().nullability());
         let array = match_each_integer_ptype!(indices.ptype(), |I| {
             // On take, offsets get widened to either 32- or 64-bit based on the original type,
             // to avoid overflow issues.
             match offsets.ptype() {
                 PType::U8 => take::<I, u8, u32>(
-                    array
-                        .dtype()
-                        .clone()
-                        .union_nullability(indices.dtype().nullability()),
+                    dtype,
                     offsets.as_slice::<u8>(),
                     data.as_slice(),
                     indices.as_slice::<I>(),
@@ -33,10 +34,7 @@ impl TakeKernel for VarBinVTable {
                     indices.validity_mask(),
                 ),
                 PType::U16 => take::<I, u16, u32>(
-                    array
-                        .dtype()
-                        .clone()
-                        .union_nullability(indices.dtype().nullability()),
+                    dtype,
                     offsets.as_slice::<u16>(),
                     data.as_slice(),
                     indices.as_slice::<I>(),
@@ -44,10 +42,7 @@ impl TakeKernel for VarBinVTable {
                     indices.validity_mask(),
                 ),
                 PType::U32 => take::<I, u32, u32>(
-                    array
-                        .dtype()
-                        .clone()
-                        .union_nullability(indices.dtype().nullability()),
+                    dtype,
                     offsets.as_slice::<u32>(),
                     data.as_slice(),
                     indices.as_slice::<I>(),
@@ -55,10 +50,7 @@ impl TakeKernel for VarBinVTable {
                     indices.validity_mask(),
                 ),
                 PType::U64 => take::<I, u64, u64>(
-                    array
-                        .dtype()
-                        .clone()
-                        .union_nullability(indices.dtype().nullability()),
+                    dtype,
                     offsets.as_slice::<u64>(),
                     data.as_slice(),
                     indices.as_slice::<I>(),
@@ -66,10 +58,7 @@ impl TakeKernel for VarBinVTable {
                     indices.validity_mask(),
                 ),
                 PType::I8 => take::<I, i8, i32>(
-                    array
-                        .dtype()
-                        .clone()
-                        .union_nullability(indices.dtype().nullability()),
+                    dtype,
                     offsets.as_slice::<i8>(),
                     data.as_slice(),
                     indices.as_slice::<I>(),
@@ -77,10 +66,7 @@ impl TakeKernel for VarBinVTable {
                     indices.validity_mask(),
                 ),
                 PType::I16 => take::<I, i16, i32>(
-                    array
-                        .dtype()
-                        .clone()
-                        .union_nullability(indices.dtype().nullability()),
+                    dtype,
                     offsets.as_slice::<i16>(),
                     data.as_slice(),
                     indices.as_slice::<I>(),
@@ -88,10 +74,7 @@ impl TakeKernel for VarBinVTable {
                     indices.validity_mask(),
                 ),
                 PType::I32 => take::<I, i32, i32>(
-                    array
-                        .dtype()
-                        .clone()
-                        .union_nullability(indices.dtype().nullability()),
+                    dtype,
                     offsets.as_slice::<i32>(),
                     data.as_slice(),
                     indices.as_slice::<I>(),
@@ -99,10 +82,7 @@ impl TakeKernel for VarBinVTable {
                     indices.validity_mask(),
                 ),
                 PType::I64 => take::<I, i64, i64>(
-                    array
-                        .dtype()
-                        .clone()
-                        .union_nullability(indices.dtype().nullability()),
+                    dtype,
                     offsets.as_slice::<i64>(),
                     data.as_slice(),
                     indices.as_slice::<I>(),
