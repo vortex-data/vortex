@@ -4,7 +4,10 @@
 use vortex_buffer::{BitView, Buffer, BufferMut};
 use vortex_mask::{Mask, MaskIter};
 
-use crate::filter::{Filter, MaskIndices};
+use crate::filter::Filter;
+
+// This is modeled after the constant with the equivalent name in arrow-rs.
+const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
 impl<M, T: Copy> Filter<M> for Buffer<T>
 where
@@ -26,9 +29,6 @@ where
     }
 }
 
-// This is modeled after the constant with the equivalent name in arrow-rs.
-const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
-
 impl<T: Copy> Filter<Mask> for &Buffer<T> {
     type Output = Buffer<T>;
 
@@ -49,14 +49,6 @@ impl<T: Copy> Filter<Mask> for &Buffer<T> {
                 }
             },
         }
-    }
-}
-
-impl<T: Copy> Filter<MaskIndices<'_>> for &Buffer<T> {
-    type Output = Buffer<T>;
-
-    fn filter(self, indices: &MaskIndices) -> Buffer<T> {
-        filter_indices(self, indices)
     }
 }
 

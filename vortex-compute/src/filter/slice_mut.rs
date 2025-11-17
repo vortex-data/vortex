@@ -12,18 +12,7 @@ use std::ptr;
 use vortex_buffer::BitView;
 use vortex_mask::Mask;
 
-use crate::filter::{Filter, MaskIndices};
-
-impl<T: Copy> Filter<MaskIndices<'_>> for &mut [T] {
-    type Output = Self;
-
-    fn filter(self, indices: &MaskIndices) -> Self::Output {
-        for (write_index, &read_index) in indices.iter().enumerate() {
-            self[write_index] = self[read_index];
-        }
-        &mut self[..indices.len()]
-    }
-}
+use crate::filter::Filter;
 
 impl<T: Copy> Filter<Mask> for &mut [T] {
     type Output = Self;

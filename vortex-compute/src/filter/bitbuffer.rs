@@ -7,7 +7,7 @@ use vortex_buffer::{
 };
 use vortex_mask::Mask;
 
-use crate::filter::{Filter, MaskIndices};
+use crate::filter::Filter;
 
 impl Filter<Mask> for &BitBuffer {
     type Output = BitBuffer;
@@ -46,22 +46,6 @@ impl Filter<Mask> for &mut BitBufferMut {
                 *self = filter_indices(self.inner().as_slice(), self.offset(), v.indices())
             }
         }
-    }
-}
-
-impl Filter<MaskIndices<'_>> for &BitBuffer {
-    type Output = BitBuffer;
-
-    fn filter(self, indices: &MaskIndices) -> BitBuffer {
-        filter_indices(self.inner().as_ref(), self.offset(), indices).freeze()
-    }
-}
-
-impl Filter<MaskIndices<'_>> for &mut BitBufferMut {
-    type Output = ();
-
-    fn filter(self, indices: &MaskIndices) {
-        *self = filter_indices(self.inner().as_ref(), self.offset(), indices)
     }
 }
 

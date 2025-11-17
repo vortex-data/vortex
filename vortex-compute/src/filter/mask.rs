@@ -5,7 +5,7 @@ use vortex_buffer::BitView;
 use vortex_error::VortexExpect;
 use vortex_mask::{Mask, MaskMut};
 
-use crate::filter::{Filter, MaskIndices};
+use crate::filter::Filter;
 
 impl Filter<Mask> for &Mask {
     type Output = Mask;
@@ -26,18 +26,6 @@ impl Filter<Mask> for &Mask {
             (Mask::Values(v1), Mask::Values(_)) => {
                 Mask::from(v1.bit_buffer().filter(selection_mask))
             }
-        }
-    }
-}
-
-impl Filter<MaskIndices<'_>> for &Mask {
-    type Output = Mask;
-
-    fn filter(self, indices: &MaskIndices<'_>) -> Mask {
-        match self {
-            Mask::AllTrue(_) => Mask::AllTrue(indices.len()),
-            Mask::AllFalse(_) => Mask::AllFalse(indices.len()),
-            Mask::Values(mask_values) => Mask::from(mask_values.bit_buffer().filter(indices)),
         }
     }
 }
@@ -66,16 +54,6 @@ impl Filter<Mask> for &mut MaskMut {
 
         // TODO(connor): There is definitely a better way to do this (in place).
         let filtered = self.clone().freeze().filter(selection_mask).into_mut();
-        *self = filtered;
-    }
-}
-
-impl Filter<MaskIndices<'_>> for &mut MaskMut {
-    type Output = ();
-
-    fn filter(self, indices: &MaskIndices<'_>) -> Self::Output {
-        // TODO(aduffy): Filter in-place
-        let filtered = self.clone().freeze().filter(indices).into_mut();
         *self = filtered;
     }
 }
