@@ -110,7 +110,7 @@ class VortexFile:
             57,
             null
           ]
-        -- child 1 type: string_view
+        -- child 1 type: string
           [
             "Joseph",
             null,
@@ -143,7 +143,7 @@ class VortexFile:
           [
             57
           ]
-        -- child 1 type: string_view
+        -- child 1 type: string
           [
             "Mikhail"
           ]

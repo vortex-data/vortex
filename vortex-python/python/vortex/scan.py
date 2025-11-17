@@ -55,7 +55,7 @@ class RepeatedScan:
             31,
             null
           ]
-        -- child 1 type: string_view
+        -- child 1 type: string
           [
             null,
             "Angela"

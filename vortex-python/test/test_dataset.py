@@ -230,5 +230,7 @@ def test_get_fragments(ds: vx.dataset.VortexDataset):
     assert ds_table == fragments_table
 
     ds_filtered_table = ds_filtered.to_table()
-    filtered_fragments_table = pa.concat_tables([f.to_table().cast(ds_filtered_table.schema) for f in ds_filtered.get_fragments()])
+    filtered_fragments_table = pa.concat_tables(
+        [f.to_table().cast(ds_filtered_table.schema) for f in ds_filtered.get_fragments()]
+    )
     assert ds_filtered_table == filtered_fragments_table
