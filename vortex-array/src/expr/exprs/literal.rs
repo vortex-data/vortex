@@ -4,13 +4,14 @@
 use std::fmt::Formatter;
 
 use prost::Message;
-use vortex_dtype::{match_each_float_ptype, DType};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_dtype::{DType, match_each_float_ptype};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantArray;
 use crate::expr::{ChildName, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt};
+use crate::stats::Stat;
 use crate::{Array, ArrayRef, IntoArray};
 
 /// Expression that represents a literal scalar value.
@@ -72,41 +73,46 @@ impl VTable for Literal {
         Ok(ConstantArray::new(expr.data().clone(), scope.len()).into_array())
     }
 
-    fn stat_max(
+    fn stat_expression(
         &self,
         expr: &ExpressionView<Self>,
+        stat: Stat,
         _catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
-        Some(lit(expr.data().clone()))
-    }
+        match stat {
+            Stat::Min | Stat::Max => Some(lit(expr.data().clone())),
+            Stat::IsConstant => Some(lit(true)),
+            Stat::NaNCount => {
+                // The NaNCount for a non-float literal is not defined.
+                // For floating point types, the NaNCount is 1 for lit(NaN), and 0 otherwise.
+                let value = expr.data().as_primitive_opt()?;
+                if !value.ptype().is_float() {
+                    return None;
+                }
 
-    fn stat_min(
-        &self,
-        expr: &ExpressionView<Self>,
-        _catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        Some(lit(expr.data().clone()))
-    }
-
-    fn stat_nan_count(
-        &self,
-        expr: &ExpressionView<Self>,
-        _catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        // The NaNCount for a non-float literal is not defined.
-        // For floating point types, the NaNCount is 1 for lit(NaN), and 0 otherwise.
-        let value = expr.data().as_primitive_opt()?;
-        if !value.ptype().is_float() {
-            return None;
-        }
-
-        match_each_float_ptype!(value.ptype(), |T| {
-            match value.typed_value::<T>() {
-                None => Some(lit(0u64)),
-                Some(value) if value.is_nan() => Some(lit(1u64)),
-                _ => Some(lit(0u64)),
+                match_each_float_ptype!(value.ptype(), |T| {
+                    match value.typed_value::<T>() {
+                        None => Some(lit(0u64)),
+                        Some(value) if value.is_nan() => Some(lit(1u64)),
+                        _ => Some(lit(0u64)),
+                    }
+                })
             }
-        })
+            Stat::NullCount => {
+                if expr.data().is_valid() {
+                    return Some(lit(0u64));
+                }
+                // TODO(ngates): this is really annoying. Stats (at least those used for pruning)
+                //  should represent bounds over the value of a single row. By referencing a
+                //  "count" we have no way to return a stats expression that would allow is_null
+                //  pruning. In practice, this might not be that important since most functionality
+                //  should be absorbed by some form of constant folding.
+                None
+            }
+            Stat::IsSorted | Stat::IsStrictSorted | Stat::Sum | Stat::UncompressedSizeInBytes => {
+                None
+            }
+        }
     }
 }
 

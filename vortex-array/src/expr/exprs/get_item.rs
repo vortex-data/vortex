@@ -6,7 +6,7 @@ use std::ops::Not;
 
 use prost::Message;
 use vortex_dtype::{DType, FieldName, FieldPath, Nullability};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 
 use crate::compute::mask;
@@ -94,34 +94,20 @@ impl VTable for GetItem {
         }
     }
 
-    fn stat_max(
+    fn stat_expression(
         &self,
         expr: &ExpressionView<Self>,
+        stat: Stat,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
-        catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), Stat::Max)
-    }
+        // TODO(ngates): I think we can do better here and support stats over nested fields.
+        //  It would be nice if delegating to our child would return a struct of statistics
+        //  matching the nested DType such that we can write:
+        //    `get_item(expr.child(0).stat_expression(...), expr.data().field_name())`
 
-    fn stat_min(
-        &self,
-        expr: &ExpressionView<Self>,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), Stat::Min)
-    }
-
-    fn stat_nan_count(
-        &self,
-        expr: &ExpressionView<Self>,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), Stat::NaNCount)
-    }
-
-    fn stat_field_path(&self, expr: &ExpressionView<Self>) -> Option<FieldPath> {
-        expr.children()[0]
-            .stat_field_path()
-            .map(|fp| fp.push(expr.data().clone()))
+        // TODO(ngates): For now, we maintain the existing *broken* behavior of assuming that
+        //  getitem refers to a field on the root scope.
+        catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), stat)
     }
 }
 

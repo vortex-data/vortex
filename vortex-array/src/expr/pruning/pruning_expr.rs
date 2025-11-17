@@ -27,7 +27,7 @@ impl TrackingStatsCatalog {
     /// Consume the catalog, yielding a map of field statistics that were required
     /// for each expression.
     fn into_usages(self) -> HashMap<(FieldPath, Stat), Expression> {
-        self.usage
+        self.usage.into_inner()
     }
 }
 
@@ -54,7 +54,9 @@ impl StatsCatalog for TrackingStatsCatalog {
         let mut expr = root();
         let name = field_path_stat_field_name(field_path, stat);
         expr = get_item(name, expr);
-        self.usage.insert((field_path.clone(), stat), expr.clone());
+        self.usage
+            .borrow_mut()
+            .insert((field_path.clone(), stat), expr.clone());
         Some(expr)
     }
 }
@@ -86,12 +88,12 @@ pub fn checked_pruning_expr(
     expr: &Expression,
     available_stats: &FieldPathSet,
 ) -> Option<(Expression, RequiredStats)> {
-    let mut catalog = ScopeStatsCatalog {
+    let catalog = ScopeStatsCatalog {
         any_catalog: Default::default(),
         available_stats,
     };
 
-    let expr = expr.stat_falsification(&mut catalog)?;
+    let expr = expr.stat_falsification(&catalog)?;
 
     // TODO(joe): filter access by used exprs
     let mut relation: Relation<FieldPath, Stat> = Relation::new();

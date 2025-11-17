@@ -4,12 +4,12 @@
 use std::fmt::Formatter;
 
 use vortex_dtype::{DType, FieldPath};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
+use crate::ArrayRef;
 use crate::expr::expression::Expression;
 use crate::expr::{ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt};
 use crate::stats::Stat;
-use crate::ArrayRef;
 
 /// An expression that returns the full scope of the expression evaluation.
 // TODO(ngates): rename to "Scope"
@@ -59,32 +59,13 @@ impl VTable for Root {
         Ok(scope.clone())
     }
 
-    fn stat_max(
+    fn stat_expression(
         &self,
-        expr: &ExpressionView<Root>,
+        _expr: &ExpressionView<Self>,
+        stat: Stat,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
-        catalog.stats_ref(&self.stat_field_path(expr)?, Stat::Max)
-    }
-
-    fn stat_min(
-        &self,
-        expr: &ExpressionView<Root>,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        catalog.stats_ref(&self.stat_field_path(expr)?, Stat::Min)
-    }
-
-    fn stat_nan_count(
-        &self,
-        expr: &ExpressionView<Root>,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        catalog.stats_ref(&self.stat_field_path(expr)?, Stat::NaNCount)
-    }
-
-    fn stat_field_path(&self, _expr: &ExpressionView<Root>) -> Option<FieldPath> {
-        Some(FieldPath::root())
+        catalog.stats_ref(&FieldPath::root(), stat)
     }
 }
 

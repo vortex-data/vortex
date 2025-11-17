@@ -5,7 +5,7 @@ use std::fmt::Formatter;
 use std::ops::Not;
 
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::arrays::{BoolArray, ConstantArray};
@@ -74,9 +74,7 @@ impl VTable for IsNull {
         expr: &ExpressionView<Self>,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
-        expr.child(0).stat_nan_count(catalog);
-        let field_path = expr.children()[0].stat_field_path()?;
-        let null_count_expr = catalog.stats_ref(&field_path, Stat::NullCount)?;
+        let null_count_expr = expr.child(0).stat_expression(Stat::NullCount, catalog)?;
         Some(eq(null_count_expr, lit(0u64)))
     }
 }
@@ -103,6 +101,7 @@ mod tests {
     use vortex_utils::aliases::hash_set::HashSet;
 
     use super::is_null;
+    use crate::IntoArray;
     use crate::arrays::{PrimitiveArray, StructArray};
     use crate::expr::exprs::binary::eq;
     use crate::expr::exprs::get_item::{col, get_item};
@@ -111,7 +110,6 @@ mod tests {
     use crate::expr::pruning::checked_pruning_expr;
     use crate::expr::test_harness;
     use crate::stats::Stat;
-    use crate::IntoArray;
 
     #[test]
     fn dtype() {

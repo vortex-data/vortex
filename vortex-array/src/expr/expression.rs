@@ -10,10 +10,10 @@ use std::sync::Arc;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
+use crate::ArrayRef;
 use crate::expr::display::DisplayTreeExpr;
 use crate::expr::{ChildName, ExprId, ExprVTable, ExpressionView, StatsCatalog, VTable};
 use crate::stats::Stat;
-use crate::ArrayRef;
 
 /// A node in a Vortex expression tree.
 ///
@@ -168,8 +168,25 @@ impl Expression {
     /// The [`StatsCatalog`] returns expressions that can be evaluated using the zone map as a
     /// scope. Expressions can implement this function to propagate such statistics through the
     /// expression tree. For example, the `a + 10` expression could propagate `min: min(a) + 10`.
+    ///
+    /// NOTE(gatesn): we currently cannot represent statistics over nested fields. Please file an
+    /// issue to discuss a solution to this.
     pub fn stat_expression(&self, stat: Stat, catalog: &dyn StatsCatalog) -> Option<Expression> {
         self.vtable.as_dyn().stat_expression(self, stat, catalog)
+    }
+
+    /// Returns an expression representing the zoned maximum statistic, if available.
+    ///
+    /// See [`Self::stat_expression`] for details.
+    pub fn stat_min(&self, catalog: &dyn StatsCatalog) -> Option<Expression> {
+        self.stat_expression(Stat::Min, catalog)
+    }
+
+    /// Returns an expression representing the zoned maximum statistic, if available.
+    ///
+    /// See [`Self::stat_expression`] for details.
+    pub fn stat_max(&self, catalog: &dyn StatsCatalog) -> Option<Expression> {
+        self.stat_expression(Stat::Max, catalog)
     }
 
     /// Format the expression as a compact string.

@@ -5,7 +5,7 @@ use std::fmt::Formatter;
 
 use prost::Message;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 
 use crate::compute::{add, and_kleene, compare, div, mul, or_kleene, sub};
@@ -13,7 +13,8 @@ use crate::expr::expression::Expression;
 use crate::expr::exprs::literal::lit;
 use crate::expr::exprs::operators::Operator;
 use crate::expr::{ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt};
-use crate::{compute, ArrayRef};
+use crate::stats::Stat;
+use crate::{ArrayRef, compute};
 
 pub struct Binary;
 
@@ -127,9 +128,9 @@ impl VTable for Binary {
             catalog: &dyn StatsCatalog,
         ) -> Expression {
             let nan_predicate = lhs
-                .stat_nan_count(catalog)
+                .stat_expression(Stat::NaNCount, catalog)
                 .into_iter()
-                .chain(rhs.stat_nan_count(catalog))
+                .chain(rhs.stat_expression(Stat::NaNCount, catalog))
                 .map(|nans| eq(nans, lit(0u64)))
                 .reduce(and);
 
@@ -510,7 +511,7 @@ mod tests {
     use super::{and, and_collect, and_collect_right, eq, gt, gt_eq, lt, lt_eq, not_eq, or};
     use crate::expr::exprs::get_item::col;
     use crate::expr::exprs::literal::lit;
-    use crate::expr::{test_harness, Expression};
+    use crate::expr::{Expression, test_harness};
 
     #[test]
     fn and_collect_left_assoc() {

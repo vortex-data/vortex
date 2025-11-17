@@ -5,14 +5,15 @@ use std::fmt::Formatter;
 use std::ops::Deref;
 
 use prost::Message;
-use vortex_dtype::{DType, FieldPath};
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_dtype::DType;
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 
+use crate::ArrayRef;
 use crate::compute::cast as compute_cast;
 use crate::expr::expression::Expression;
 use crate::expr::{ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt};
-use crate::ArrayRef;
+use crate::stats::Stat;
 
 /// A cast expression that converts values to a target data type.
 pub struct Cast;
@@ -86,32 +87,32 @@ impl VTable for Cast {
         })
     }
 
-    fn stat_max(
+    fn stat_expression(
         &self,
         expr: &ExpressionView<Self>,
+        stat: Stat,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
-        expr.children()[0].stat_max(catalog)
-    }
-
-    fn stat_min(
-        &self,
-        expr: &ExpressionView<Self>,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        expr.children()[0].stat_min(catalog)
-    }
-
-    fn stat_nan_count(
-        &self,
-        expr: &ExpressionView<Self>,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        expr.children()[0].stat_nan_count(catalog)
-    }
-
-    fn stat_field_path(&self, expr: &ExpressionView<Self>) -> Option<FieldPath> {
-        expr.children()[0].stat_field_path()
+        match stat {
+            Stat::IsConstant
+            | Stat::IsSorted
+            | Stat::IsStrictSorted
+            | Stat::Max
+            | Stat::Min
+            | Stat::NaNCount
+            | Stat::Sum
+            | Stat::UncompressedSizeInBytes => expr.child(0).stat_expression(stat, catalog),
+            Stat::NullCount => {
+                // if !expr.data().is_nullable() {
+                // NOTE(ngates): we should decide on the semantics here. In theory, the null
+                //  count of something cast to non-nullable will be zero. But if we return
+                //  that we know this to be zero, then a pruning predicate may eliminate data
+                //  that would otherwise have caused the cast to error.
+                // return Some(lit(0u64));
+                // }
+                None
+            }
+        }
     }
 }
 
@@ -136,11 +137,11 @@ mod tests {
     use vortex_error::VortexUnwrap as _;
 
     use super::cast;
+    use crate::IntoArray;
     use crate::arrays::StructArray;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::root::root;
-    use crate::expr::{test_harness, Expression};
-    use crate::IntoArray;
+    use crate::expr::{Expression, test_harness};
 
     #[test]
     fn dtype() {
