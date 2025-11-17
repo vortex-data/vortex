@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::BitBuffer;
+use vortex_buffer::{BitBuffer, BitBufferMut};
 use vortex_mask::{Mask, MaskMut};
 use vortex_vector::VectorOps;
 use vortex_vector::bool::{BoolVector, BoolVectorMut};
@@ -28,18 +28,15 @@ where
 
 impl<M> Filter<M> for &mut BoolVectorMut
 where
-    for<'a> &'a BitBuffer: Filter<M, Output = BitBuffer>,
+    for<'a> &'a mut BitBufferMut: Filter<M, Output = ()>,
     for<'a> &'a mut MaskMut: Filter<M, Output = ()>,
 {
     type Output = ();
 
     fn filter(self, selection: &M) -> Self::Output {
         // TODO(aduffy): how can we do this faster in-place?
-        unsafe {
-            let bits = self.bits_mut();
-            *bits = (*bits).clone().freeze().filter(selection).into_mut();
-            self.validity_mut().filter(selection);
-        }
+        unsafe { self.bits_mut().filter(selection) };
+        unsafe { self.validity_mut().filter(selection) };
     }
 }
 
