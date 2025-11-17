@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::arrays::builder::VarBinBuilder;
 use vortex_array::arrays::{
     ConstantArray, DictArray, MaskedArray, VarBinArray, VarBinViewArray, VarBinViewVTable,
 };
@@ -204,18 +203,13 @@ impl Scheme for VarBinScheme {
         _allowed_cascading: usize,
         _excludes: &[StringCode],
     ) -> VortexResult<ArrayRef> {
-        use vortex_array::accessor::ArrayAccessor;
+        use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
 
-        let src = stats.source();
-        let mut builder = VarBinBuilder::<i32>::with_capacity(src.len());
+        // Convert VarBinView -> Arrow -> VarBin using the canonical Arrow conversion path
+        let arrow_array = stats.source().to_array().into_arrow_preferred()?;
+        let nullable = stats.source().dtype().is_nullable();
 
-        src.with_iterator(|iter| {
-            for value in iter {
-                builder.append(value);
-            }
-        });
-
-        Ok(builder.finish(src.dtype().clone()).into_array())
+        Ok(ArrayRef::from_arrow(arrow_array.as_ref(), nullable))
     }
 }
 
