@@ -1,41 +1,51 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_mask::Mask;
-use vortex_vector::primitive::{PrimitiveVector, PrimitiveVectorMut};
+use vortex_dtype::half::f16;
+use vortex_vector::primitive::{PVector, PVectorMut, PrimitiveVector, PrimitiveVectorMut};
 use vortex_vector::{match_each_pvector, match_each_pvector_mut};
 
-use crate::filter::{Filter, MaskIndices};
+use crate::filter::Filter;
 
-impl Filter<Mask> for &PrimitiveVector {
+impl<M> Filter<M> for &PrimitiveVector
+where
+    for<'a> &'a PVector<i8>: Filter<M, Output = PVector<i8>>,
+    for<'a> &'a PVector<i16>: Filter<M, Output = PVector<i16>>,
+    for<'a> &'a PVector<i32>: Filter<M, Output = PVector<i32>>,
+    for<'a> &'a PVector<i64>: Filter<M, Output = PVector<i64>>,
+    for<'a> &'a PVector<u8>: Filter<M, Output = PVector<u8>>,
+    for<'a> &'a PVector<u16>: Filter<M, Output = PVector<u16>>,
+    for<'a> &'a PVector<u32>: Filter<M, Output = PVector<u32>>,
+    for<'a> &'a PVector<u64>: Filter<M, Output = PVector<u64>>,
+    for<'a> &'a PVector<f16>: Filter<M, Output = PVector<f16>>,
+    for<'a> &'a PVector<f32>: Filter<M, Output = PVector<f32>>,
+    for<'a> &'a PVector<f64>: Filter<M, Output = PVector<f64>>,
+{
     type Output = PrimitiveVector;
 
-    fn filter(self, selection_mask: &Mask) -> PrimitiveVector {
-        match_each_pvector!(self, |v| { v.filter(selection_mask).into() })
+    fn filter(self, selection: &M) -> Self::Output {
+        match_each_pvector!(self, |v| { v.filter(selection).into() })
     }
 }
 
-impl Filter<MaskIndices<'_>> for &PrimitiveVector {
-    type Output = PrimitiveVector;
-
-    fn filter(self, indices: &MaskIndices<'_>) -> Self::Output {
-        match_each_pvector!(self, |v| { v.filter(indices).into() })
-    }
-}
-
-impl Filter<Mask> for &mut PrimitiveVectorMut {
+impl<M> Filter<M> for &mut PrimitiveVectorMut
+where
+    for<'a> &'a mut PVectorMut<i8>: Filter<M, Output = ()>,
+    for<'a> &'a mut PVectorMut<i16>: Filter<M, Output = ()>,
+    for<'a> &'a mut PVectorMut<i32>: Filter<M, Output = ()>,
+    for<'a> &'a mut PVectorMut<i64>: Filter<M, Output = ()>,
+    for<'a> &'a mut PVectorMut<u8>: Filter<M, Output = ()>,
+    for<'a> &'a mut PVectorMut<u16>: Filter<M, Output = ()>,
+    for<'a> &'a mut PVectorMut<u32>: Filter<M, Output = ()>,
+    for<'a> &'a mut PVectorMut<u64>: Filter<M, Output = ()>,
+    for<'a> &'a mut PVectorMut<f16>: Filter<M, Output = ()>,
+    for<'a> &'a mut PVectorMut<f32>: Filter<M, Output = ()>,
+    for<'a> &'a mut PVectorMut<f64>: Filter<M, Output = ()>,
+{
     type Output = ();
 
-    fn filter(self, selection_mask: &Mask) {
-        match_each_pvector_mut!(self, |v| { v.filter(selection_mask) })
-    }
-}
-
-impl Filter<MaskIndices<'_>> for &mut PrimitiveVectorMut {
-    type Output = ();
-
-    fn filter(self, indices: &MaskIndices<'_>) -> Self::Output {
-        match_each_pvector_mut!(self, |v| { v.filter(indices) })
+    fn filter(self, selection: &M) -> Self::Output {
+        match_each_pvector_mut!(self, |v| { v.filter(selection) })
     }
 }
 
@@ -47,6 +57,7 @@ mod tests {
     use vortex_vector::{VectorMutOps, VectorOps};
 
     use super::*;
+    use crate::filter::MaskIndices;
 
     #[test]
     fn test_filter_primitive_vector_with_mask() {
