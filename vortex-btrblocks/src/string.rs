@@ -199,7 +199,12 @@ impl Scheme for VarBinScheme {
         let varbinview_size = src.as_ref().nbytes();
 
         let string_bytes = src.buffers().iter().map(|b| b.len() as u64).sum::<u64>();
-        let offset_bytes = src.len() as u64 * 4;
+
+        // Determine offset type size based on total string bytes
+        // Arrow/Vortex uses i32 offsets if total size < u32::MAX, otherwise i64
+        let offset_type_size = if string_bytes < u32::MAX as u64 { 4 } else { 8 };
+        let offset_bytes = (src.len() as u64 + 1) * offset_type_size;
+
         let varbin_size = string_bytes + offset_bytes;
         assert!(varbin_size > 0, "cannot be empty");
 
