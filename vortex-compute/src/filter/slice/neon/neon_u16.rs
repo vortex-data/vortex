@@ -3,10 +3,12 @@
 
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use crate::filter::slice::neon::neon_u8::SHUFFLE_MASKS;
 use std::arch::aarch64::*;
 use std::ptr;
+
 use vortex_buffer::BitView;
+
+use crate::filter::slice::neon::neon_u8::SHUFFLE_MASKS;
 
 /// For u16 types, we perform a similar strategy to u8 with a few key differences.
 ///
@@ -57,10 +59,10 @@ pub(super) unsafe fn filter_neon_u16<const NB: usize>(data: *mut u16, mask: &Bit
                             let count = byte.count_ones() as usize;
                             let shuffle_vec = vld1_u8(SHUFFLE_MASKS[byte as usize].as_ptr());
                             // Shuffle both lower and higher byte vectors separately.
-                            let compressed = uint8x8x2_t {
-                                0: vtbl1_u8(values.0, shuffle_vec),
-                                1: vtbl1_u8(values.1, shuffle_vec),
-                            };
+                            let compressed = uint8x8x2_t(
+                                vtbl1_u8(values.0, shuffle_vec),
+                                vtbl1_u8(values.1, shuffle_vec),
+                            );
 
                             // Store all compressed values, and only increment write_ptr by count.
                             vst2_u8(write_ptr.cast(), compressed);

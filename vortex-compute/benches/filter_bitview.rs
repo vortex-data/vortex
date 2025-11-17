@@ -10,7 +10,7 @@ use std::iter::Iterator;
 use divan::Bencher;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
-use vortex_buffer::{buffer_mut, BitBuffer};
+use vortex_buffer::{BitBuffer, buffer_mut};
 use vortex_compute::bench;
 use vortex_compute::filter::Filter;
 

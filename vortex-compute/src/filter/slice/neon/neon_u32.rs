@@ -3,10 +3,12 @@
 
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use crate::filter::slice::neon::neon_u8::SHUFFLE_MASKS;
 use std::arch::aarch64::*;
 use std::ptr;
+
 use vortex_buffer::BitView;
+
+use crate::filter::slice::neon::neon_u8::SHUFFLE_MASKS;
 
 /// For u32 values we can only look at 4 values at a time (128 bits).
 /// Therefore, we have a very manageable 16 possible bitmask combinations (0..15) and therefore
@@ -43,12 +45,12 @@ pub(super) unsafe fn filter_neon_u32<const NB: usize>(data: *mut u32, mask: &Bit
                     let shuffle_vec = vld1_u8(SHUFFLE_MASKS[byte as usize].as_ptr());
 
                     // Shuffle all four byte vectors separately.
-                    let compressed = uint8x8x4_t {
-                        0: vtbl1_u8(values.0, shuffle_vec),
-                        1: vtbl1_u8(values.1, shuffle_vec),
-                        2: vtbl1_u8(values.2, shuffle_vec),
-                        3: vtbl1_u8(values.3, shuffle_vec),
-                    };
+                    let compressed = uint8x8x4_t(
+                        vtbl1_u8(values.0, shuffle_vec),
+                        vtbl1_u8(values.1, shuffle_vec),
+                        vtbl1_u8(values.2, shuffle_vec),
+                        vtbl1_u8(values.3, shuffle_vec),
+                    );
 
                     // Store all compressed values, and only increment write_ptr by count.
                     vst4_u8(write_ptr.cast(), compressed);

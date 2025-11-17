@@ -5,6 +5,7 @@
 
 use std::arch::aarch64::*;
 use std::ptr;
+
 use vortex_buffer::BitView;
 
 /// For u8 types, we use NEON's tbl lookup instruction to perform a shuffle based on a pre-computed

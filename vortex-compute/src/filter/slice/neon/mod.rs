@@ -12,19 +12,19 @@ mod neon_u32;
 mod neon_u8;
 
 use std::arch::is_aarch64_feature_detected;
+
 use vortex_buffer::BitView;
 use vortex_error::vortex_panic;
 
 /// Benchmark wrapper for [`filter_neon`].
 #[doc(hidden)]
 #[cfg(feature = "bench")]
-#[cfg(target_arch = "aarch64")]
 #[inline(never)]
 pub fn bench_filter_neon<const NB: usize, T: Copy>(bit_view: &BitView<NB>, slice: &mut [T]) {
-    if !is_aarch64_feature_detected!("neon") {
-        vortex_panic!("NEON not detected on this CPU");
+    if is_aarch64_feature_detected!("neon") {
+        unsafe { filter_neon(slice, bit_view) }
     }
-    unsafe { filter_neon(slice, bit_view) }
+    vortex_panic!("NEON not detected on this CPU");
 }
 
 /// Filters the given slice of items in place according to the provided BitView using neon
@@ -52,6 +52,7 @@ pub(super) unsafe fn filter_neon<const NB: usize, T: Copy>(slice: &mut [T], mask
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
 mod tests {
     use super::*;
 

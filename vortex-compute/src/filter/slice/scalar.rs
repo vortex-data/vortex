@@ -45,7 +45,7 @@ pub(super) fn filter_scalar<const NB: usize, T: Copy>(slice: &mut [T], mask: &Bi
                     let bit_pos = word.trailing_zeros();
                     word &= word - 1; // Clear the bit at `bit_pos`
                     let span = word.trailing_ones();
-                    word = word >> span;
+                    word >>= span;
                     unsafe {
                         ptr::copy(read_ptr.add(bit_pos as usize), write_ptr, span as usize);
                         write_ptr = write_ptr.add(span as usize);
