@@ -92,7 +92,7 @@ fn filter_slices<T>(values: &[T], output_len: usize, slices: &[(usize, usize)]) 
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::{BufferMut, buffer, buffer_mut};
+    use vortex_buffer::{buffer, buffer_mut, BufferMut};
     use vortex_mask::Mask;
 
     use super::*;
@@ -236,7 +236,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Selection mask length must equal the buffer length")]
+    #[should_panic(expected = "Mask length must equal the slice length")]
     fn test_filter_length_mismatch() {
         let mut buf = buffer_mut![1u32, 2, 3];
         let mask = Mask::new_true(5); // Wrong length.
