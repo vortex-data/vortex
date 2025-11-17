@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod driver;
-mod filter;
 
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_vector::{Vector, VectorMut};

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::BitView;
+use vortex_error::VortexExpect;
 use vortex_mask::{Mask, MaskMut};
 
 use crate::filter::{Filter, MaskIndices};
@@ -40,6 +42,18 @@ impl Filter<MaskIndices<'_>> for &Mask {
     }
 }
 
+impl<const NB: usize> Filter<BitView<'_, NB>> for &Mask {
+    type Output = Mask;
+
+    fn filter(self, selection: &BitView<'_, NB>) -> Self::Output {
+        match self {
+            Mask::AllTrue(_) => Mask::AllTrue(selection.true_count()),
+            Mask::AllFalse(_) => Mask::AllFalse(selection.true_count()),
+            Mask::Values(v) => Mask::from(v.bit_buffer().filter(selection)),
+        }
+    }
+}
+
 impl Filter<Mask> for &mut MaskMut {
     type Output = ();
 
@@ -63,5 +77,23 @@ impl Filter<MaskIndices<'_>> for &mut MaskMut {
         // TODO(aduffy): Filter in-place
         let filtered = self.clone().freeze().filter(indices).into_mut();
         *self = filtered;
+    }
+}
+
+impl<const NB: usize> Filter<BitView<'_, NB>> for &mut MaskMut {
+    type Output = ();
+
+    fn filter(self, selection: &BitView<'_, NB>) -> Self::Output {
+        if self.all_true() {
+            *self = MaskMut::new_true(selection.true_count());
+            return;
+        }
+        if self.all_false() {
+            *self = MaskMut::new_false(selection.true_count());
+            return;
+        }
+        self.as_bit_buffer_mut()
+            .vortex_expect("Checked all-true and all-false cases; should have bit buffer")
+            .filter(selection);
     }
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::BitView;
 use vortex_mask::Mask;
 use vortex_vector::null::{NullVector, NullVectorMut};
 
@@ -22,6 +23,14 @@ impl Filter<MaskIndices<'_>> for &NullVector {
     }
 }
 
+impl<const NB: usize> Filter<BitView<'_, NB>> for &NullVector {
+    type Output = NullVector;
+
+    fn filter(self, selection: &BitView<'_, NB>) -> Self::Output {
+        NullVector::new(selection.true_count())
+    }
+}
+
 impl Filter<Mask> for &mut NullVectorMut {
     type Output = ();
 
@@ -35,6 +44,14 @@ impl Filter<MaskIndices<'_>> for &mut NullVectorMut {
 
     fn filter(self, indices: &MaskIndices) -> Self::Output {
         *self = NullVectorMut::new(indices.len())
+    }
+}
+
+impl<const NB: usize> Filter<BitView<'_, NB>> for &mut NullVectorMut {
+    type Output = ();
+
+    fn filter(self, selection: &BitView<'_, NB>) -> Self::Output {
+        *self = NullVectorMut::new(selection.true_count())
     }
 }
 

@@ -34,7 +34,6 @@ where
     type Output = ();
 
     fn filter(self, selection: &M) -> Self::Output {
-        // TODO(aduffy): how can we do this faster in-place?
         unsafe { self.bits_mut().filter(selection) };
         unsafe { self.validity_mut().filter(selection) };
     }

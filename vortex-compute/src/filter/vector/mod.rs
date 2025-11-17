@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::BitView;
 use vortex_mask::Mask;
 use vortex_vector::{Vector, VectorMut, match_each_vector, match_each_vector_mut};
 
@@ -43,3 +44,19 @@ macro_rules! impl_vector_filter {
 
 impl_vector_filter!(Mask);
 impl_vector_filter!(MaskIndices<'_>);
+
+impl<const NB: usize> Filter<BitView<'_, NB>> for &Vector {
+    type Output = Vector;
+
+    fn filter(self, selection: &BitView<'_, NB>) -> Self::Output {
+        match_each_vector!(self, |v| { v.filter(selection).into() })
+    }
+}
+
+impl<const NB: usize> Filter<BitView<'_, NB>> for &mut VectorMut {
+    type Output = ();
+
+    fn filter(self, selection: &BitView<'_, NB>) -> Self::Output {
+        match_each_vector_mut!(self, |v| { v.filter(selection) })
+    }
+}

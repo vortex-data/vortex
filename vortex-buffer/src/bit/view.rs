@@ -52,8 +52,10 @@ impl<const NB: usize> BitView<'static, NB> {
 }
 
 impl<'a, const NB: usize> BitView<'a, NB> {
-    const N: usize = NB * 8;
-    const N_WORDS: usize = NB * 8 / (usize::BITS as usize);
+    /// The number of bits in the view.
+    pub const N: usize = NB * 8;
+    /// The number of machine words in the view.
+    pub const N_WORDS: usize = NB * 8 / (usize::BITS as usize);
 
     const _ASSERT_MULTIPLE_OF_8: () = assert!(
         NB % 8 == 0,

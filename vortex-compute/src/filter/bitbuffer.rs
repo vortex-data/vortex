@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::{BitBuffer, BitBufferMut, get_bit};
+use vortex_buffer::{
+    BitBuffer, BitBufferMut, BitView, get_bit, get_bit_unchecked, set_bit_unchecked,
+    unset_bit_unchecked,
+};
 use vortex_mask::Mask;
 
 use crate::filter::{Filter, MaskIndices};
@@ -68,6 +71,56 @@ fn filter_indices(bools: &[u8], bit_offset: usize, indices: &[usize]) -> BitBuff
         let idx = *unsafe { indices.get_unchecked(idx) };
         get_bit(bools, bit_offset + idx)
     })
+}
+
+impl<const NB: usize> Filter<BitView<'_, NB>> for &BitBuffer {
+    type Output = BitBuffer;
+
+    fn filter(self, selection: &BitView<'_, NB>) -> BitBuffer {
+        let bits = self.inner().as_ptr();
+        let mut out = BitBufferMut::with_capacity(selection.true_count());
+        let mut out_idx = 0;
+        selection.iter_ones(|idx| {
+            let value = unsafe { get_bit_unchecked(bits, self.offset() + idx) };
+            unsafe { out.set_to_unchecked(out_idx, value) };
+            out_idx += 1;
+        });
+        out.freeze()
+    }
+}
+
+impl<const NB: usize> Filter<BitView<'_, NB>> for &mut BitBufferMut {
+    type Output = ();
+
+    fn filter(self, selection: &BitView<'_, NB>) {
+        assert_eq!(
+            self.len(),
+            BitView::<NB>::N,
+            "Selection mask length must equal the mask length"
+        );
+
+        let this = std::mem::take(self);
+
+        let offset = this.offset();
+        let mut buffer = this.into_inner();
+
+        let buffer_ptr = buffer.as_mut_ptr();
+        let mut out_idx = 0;
+        selection.iter_ones(|idx| {
+            let value = unsafe { get_bit_unchecked(buffer_ptr, offset + idx) };
+
+            // NOTE(ngates): we don't call out.set_bit_unchecked here because it's nice that we
+            //  can shift away any non-zero offset by writing directly into the bits buffer.
+            if value {
+                unsafe { set_bit_unchecked(buffer_ptr, out_idx) };
+            } else {
+                unsafe { unset_bit_unchecked(buffer_ptr, out_idx) };
+            }
+            out_idx += 1;
+        });
+
+        *self = BitBufferMut::from_buffer(buffer, 0, selection.true_count());
+    }
 }
 
 #[cfg(test)]
