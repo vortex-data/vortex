@@ -92,7 +92,7 @@ fn filter_slices<T>(values: &[T], output_len: usize, slices: &[(usize, usize)]) 
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::{buffer, buffer_mut, BufferMut};
+    use vortex_buffer::{BufferMut, buffer, buffer_mut};
     use vortex_mask::Mask;
 
     use super::*;
