@@ -74,7 +74,6 @@ vortex-scalar = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 vortex-vector = { workspace = true }
-bytes = "1.10.1"
 
 [features]
 arbitrary = [

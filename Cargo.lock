@@ -8552,7 +8552,6 @@ dependencies = [
  "arrow-string",
  "async-trait",
  "bitvec",
- "bytes",
  "cfg-if",
  "codspeed-divan-compat",
  "enum-iterator",
