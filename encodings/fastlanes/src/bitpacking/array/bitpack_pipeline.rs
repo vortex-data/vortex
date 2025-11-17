@@ -3,8 +3,9 @@
 
 use fastlanes::{BitPacking, FastLanes};
 use static_assertions::const_assert_eq;
-use vortex_array::pipeline::bit_view::BitView;
-use vortex_array::pipeline::{BindContext, Kernel, KernelCtx, N, PipelineInputs, PipelinedNode};
+use vortex_array::pipeline::{
+    BindContext, BitView, Kernel, KernelCtx, N, PipelineInputs, PipelinedNode,
+};
 use vortex_buffer::Buffer;
 use vortex_dtype::{PTypeDowncastExt, PhysicalPType, match_each_integer_ptype};
 use vortex_error::VortexResult;

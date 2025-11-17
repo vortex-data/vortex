@@ -6,7 +6,7 @@ mod driver;
 #[cfg(feature = "object_store")]
 pub mod object_store;
 mod read;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(unix, not(target_arch = "wasm32")))]
 mod std_file;
 
 pub(crate) use driver::*;

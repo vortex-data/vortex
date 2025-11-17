@@ -29,7 +29,6 @@ jobs:
           REQUIRED_LABELS=(
             "chore"
             "documentation"
-            "bug"
             "feature"
             "fix"
             "performance"
