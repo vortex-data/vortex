@@ -9,7 +9,7 @@ use vortex_mask::MaskMut;
 use vortex_vector::primitive::{PVectorMut, PrimitiveVectorMut};
 use vortex_vector::{match_each_pvector_mut, VectorMut};
 
-use crate::pipeline::bit_view::BitView;
+use crate::pipeline::BitView;
 
 impl Filter<BitView<'_>> for &mut VectorMut {
     type Output = ();

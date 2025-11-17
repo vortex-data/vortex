@@ -4,8 +4,7 @@
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_vector::{VectorMut, VectorMutOps, VectorOps};
 
-use crate::pipeline::bit_view::BitView;
-use crate::pipeline::{Kernel, KernelCtx, N};
+use crate::pipeline::{BitView, Kernel, KernelCtx, N};
 
 /// A kernel that feeds a batch vector into the pipeline in chunks of size `N` with zero-copy.
 pub(super) struct InputKernel {

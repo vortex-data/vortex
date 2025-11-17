@@ -84,11 +84,6 @@ impl BitBufferMut {
         }
     }
 
-    /// Consumes the buffer and return the underlying byte buffer.
-    pub fn into_inner(self) -> ByteBufferMut {
-        self.buffer
-    }
-
     /// Create a new mutable buffer with requested `len` and all bits set to `true`.
     pub fn new_set(len: usize) -> Self {
         Self {
@@ -122,6 +117,16 @@ impl BitBufferMut {
         }
     }
 
+    /// Return the underlying byte buffer.
+    pub fn inner(&self) -> &ByteBufferMut {
+        &self.buffer
+    }
+
+    /// Consumes the buffer and return the underlying byte buffer.
+    pub fn into_inner(self) -> ByteBufferMut {
+        self.buffer
+    }
+
     /// Get the current populated length of the buffer.
     #[inline(always)]
     pub fn len(&self) -> usize {
@@ -132,6 +137,12 @@ impl BitBufferMut {
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
         self.len == 0
+    }
+
+    /// Get the current bit offset of the buffer.
+    #[inline(always)]
+    pub fn offset(&self) -> usize {
+        self.offset
     }
 
     /// Get the value at the requested index.

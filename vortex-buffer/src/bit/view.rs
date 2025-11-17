@@ -3,53 +3,67 @@
 
 use std::borrow::Cow;
 use std::fmt::{Debug, Formatter};
+use std::marker::PhantomData;
 
-use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
 
-use crate::pipeline::{N, N_BYTES, N_WORDS};
+use crate::{BitBuffer, BitBufferMut};
 
-/// A borrowed fixed-size bit vector of length `N` bits, represented as an array of usize words.
+/// A borrowed fixed-size mask of length `N` bits.
 ///
-/// This struct is designed to provide a view over a Vortex [`vortex_buffer::BitBuffer`], therefore
-/// the bit-ordering is LSB0 (least-significant-bit first).
+/// Since const generic expressions are not yet stable, we instead define the type over the
+/// number of bytes `NB`, and compute `N` as `NB * 8`.
+///
+/// This struct is designed to provide a view over a Vortex [`BitBuffer`], therefore the
+/// bit-ordering is LSB0 (least-significant-bit first).
 ///
 /// Note that [`BitView`] does not support an offset. Therefore, bits are assumed to start at
 /// index and end at index `N - 1`.
-pub struct BitView<'a> {
-    bits: Cow<'a, [u8; N_BYTES]>,
+pub struct BitView<'a, const NB: usize> {
+    bits: Cow<'a, [u8; NB]>,
     // TODO(ngates): we may want to expose this for optimizations.
     // If set to Selection::Prefix, then all true bits are at the start of the array.
     // selection: Selection,
     true_count: usize,
 }
 
-impl Debug for BitView<'_> {
+impl<const NB: usize> Debug for BitView<'_, NB> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BitView")
+        f.debug_struct(&format!("BitView[{}]", NB * 8))
             .field("true_count", &self.true_count)
             .field("bits", &self.as_raw())
             .finish()
     }
 }
 
-impl BitView<'static> {
-    pub fn all_true() -> Self {
-        static ALL_TRUE: [u8; N_BYTES] = [u8::MAX; N_BYTES];
-        unsafe { BitView::new_unchecked(&ALL_TRUE, N) }
+impl<const NB: usize> BitView<'static, NB> {
+    const ALL_TRUE: [u8; NB] = [u8::MAX; NB];
+    const ALL_FALSE: [u8; NB] = [0; NB];
+
+    /// Creates a [`BitView`] with all bits set to `true`.
+    pub const fn all_true() -> Self {
+        unsafe { BitView::new_unchecked(&Self::ALL_TRUE, NB * 8) }
     }
 
-    pub fn all_false() -> Self {
-        static ALL_FALSE: [u8; N_BYTES] = [0; N_BYTES];
-        unsafe { BitView::new_unchecked(&ALL_FALSE, 0) }
+    /// Creates a [`BitView`] with all bits set to `false`.
+    pub const fn all_false() -> Self {
+        unsafe { BitView::new_unchecked(&Self::ALL_FALSE, 0) }
     }
 }
 
-impl<'a> BitView<'a> {
+impl<'a, const NB: usize> BitView<'a, NB> {
+    const N: usize = NB * 8;
+    const N_WORDS: usize = NB * 8 / (usize::BITS as usize);
+
+    const _ASSERT_MULTIPLE_OF_8: () = assert!(
+        NB % 8 == 0,
+        "NB must be a multiple of 8 for N to be a multiple of 64"
+    );
+
     /// Creates a [`BitView`] from raw bits, computing the true count.
-    pub fn new(bits: &'a [u8; N_BYTES]) -> Self {
+    pub fn new(bits: &'a [u8; NB]) -> Self {
         let ptr = bits.as_ptr().cast::<usize>();
-        let true_count = (0..N_WORDS)
+        let true_count = (0..Self::N_WORDS)
             .map(|idx| unsafe { ptr.add(idx).read_unaligned().count_ones() as usize })
             .sum();
         BitView {
@@ -59,9 +73,9 @@ impl<'a> BitView<'a> {
     }
 
     /// Creates a [`BitView`] from owned raw bits.
-    pub fn new_owned(bits: [u8; N_BYTES]) -> Self {
+    pub fn new_owned(bits: [u8; NB]) -> Self {
         let ptr = bits.as_ptr().cast::<usize>();
-        let true_count = (0..N_WORDS)
+        let true_count = (0..Self::N_WORDS)
             .map(|idx| unsafe { ptr.add(idx).read_unaligned().count_ones() as usize })
             .sum();
         BitView {
@@ -75,7 +89,7 @@ impl<'a> BitView<'a> {
     /// # Safety
     ///
     /// The caller must ensure that `true_count` is correct for the provided `bits`.
-    pub(crate) unsafe fn new_unchecked(bits: &'a [u8; N_BYTES], true_count: usize) -> Self {
+    pub(crate) const unsafe fn new_unchecked(bits: &'a [u8; NB], true_count: usize) -> Self {
         BitView {
             bits: Cow::Borrowed(bits),
             true_count,
@@ -86,20 +100,20 @@ impl<'a> BitView<'a> {
     ///
     /// # Panics
     ///
-    /// If the length of the slice is not equal to `N_BYTES`.
+    /// If the length of the slice is not equal to `NB`.
     pub fn from_slice(bits: &'a [u8]) -> Self {
-        assert_eq!(bits.len(), N_BYTES);
-        let bits_array = unsafe { &*(bits.as_ptr() as *const [u8; N_BYTES]) };
+        assert_eq!(bits.len(), NB);
+        let bits_array = unsafe { &*(bits.as_ptr() as *const [u8; NB]) };
         BitView::new(bits_array)
     }
 
     /// Creates a [`BitView`] from a mutable byte array, populating it with the requested prefix
     /// of `true` bits.
     pub fn with_prefix(n_true: usize) -> Self {
-        assert!(n_true <= N);
+        assert!(n_true <= Self::N);
 
         // We're going to own our own array of bits
-        let mut bits = [0u8; N_BYTES];
+        let mut bits = [0u8; NB];
 
         // All-true words first
         let n_full_words = n_true / (usize::BITS as usize);
@@ -134,10 +148,10 @@ impl<'a> BitView<'a> {
     /// The words are loaded using unaligned loads to ensure correct bit ordering.
     /// For example, bit 0 is located in `word & 1 << 0`, bit 63 is located in `word & 1 << 63`,
     /// assuming the word size is 64 bits.
-    fn iter_words(&self) -> impl Iterator<Item = usize> + '_ {
+    pub fn iter_words(&self) -> impl Iterator<Item = usize> + '_ {
         let ptr = self.bits.as_ptr().cast::<usize>();
         // We use constant N_WORDS to trigger loop unrolling.
-        (0..N_WORDS).map(move |idx| unsafe { ptr.add(idx).read_unaligned() })
+        (0..Self::N_WORDS).map(move |idx| unsafe { ptr.add(idx).read_unaligned() })
     }
 
     /// Runs the provided function `f` for each index of a `true` bit in the view.
@@ -147,7 +161,7 @@ impl<'a> BitView<'a> {
     {
         match self.true_count {
             0 => {}
-            N => (0..N).for_each(&mut f),
+            n if n == Self::N => (0..Self::N).for_each(&mut f),
             _ => {
                 let mut bit_idx = 0;
                 for mut raw in self.iter_words() {
@@ -169,8 +183,8 @@ impl<'a> BitView<'a> {
     {
         match self.true_count {
             0 => Ok(()),
-            N => {
-                for i in 0..N {
+            n if n == Self::N => {
+                for i in 0..Self::N {
                     f(i)?;
                 }
                 Ok(())
@@ -196,8 +210,8 @@ impl<'a> BitView<'a> {
         F: FnMut(usize),
     {
         match self.true_count {
-            0 => (0..N).for_each(&mut f),
-            N => {}
+            0 => (0..Self::N).for_each(&mut f),
+            n if n == Self::N => {}
             _ => {
                 let mut bit_idx = 0;
                 for mut raw in self.iter_words() {
@@ -301,7 +315,8 @@ impl<'a> BitView<'a> {
         }
     }
 
-    pub fn as_raw(&self) -> &[u8; N_BYTES] {
+    /// Returns the raw bits of the view.
+    pub fn as_raw(&self) -> &[u8; NB] {
         self.bits.as_ref()
     }
 }
@@ -310,41 +325,62 @@ impl<'a> BitView<'a> {
 ///
 /// We use this struct to avoid a common mistake of assuming the slices represent (start, end) ranges,
 pub struct BitSlice {
+    /// The starting bit index of the slice.
     pub start: usize,
+    /// The length of the slice in bits.
     pub len: usize,
 }
 
-pub trait BitViewExt {
-    /// Iterate the [`BitBuffer`] in fixed-size chunks of [`BitView`].
+impl BitBuffer {
+    /// Iterate the buffer as [`BitView`]s of size `NB` where the number of bits in each view
+    /// is `NB * 8`.
     ///
     /// The final chunk will be filled with unset padding bits if the bit buffer's length is not
     /// a multiple of `N`.
     ///
+    /// The number of bits `N` must be a multiple of 64.
+    ///
     /// # Panics
     ///
-    /// If the bit buffer's bit-offset is not zero.
-    fn iter_bit_views(&self) -> impl Iterator<Item = (BitView<'_>, usize)> + '_;
-}
-
-impl BitViewExt for BitBuffer {
-    fn iter_bit_views(&self) -> impl Iterator<Item = (BitView<'_>, usize)> + '_ {
+    /// If the bit offset is not zero
+    pub fn iter_bit_views<const NB: usize>(
+        &self,
+    ) -> impl Iterator<Item = (BitView<'_, NB>, usize)> + '_ {
         assert_eq!(
             self.offset(),
             0,
             "BitView iteration requires zero bit offset"
         );
-        let n_views = self.len().div_ceil(N);
-        let final_view_len = self.len() % N;
-        BitViewIterator {
-            bits: self.inner().as_ref(),
-            view_idx: 0,
-            n_views,
-            final_view_len,
-        }
+        BitViewIterator::new(self.inner().as_ref(), self.len())
     }
 }
 
-struct BitViewIterator<'a> {
+impl BitBufferMut {
+    /// Iterate the buffer as [`BitView`]s of size `NB` where the number of bits in each view
+    /// is `NB * 8`.
+    ///
+    /// The final chunk will be filled with unset padding bits if the bit buffer's length is not
+    /// a multiple of `N`.
+    ///
+    /// The number of bits `N` must be a multiple of 64.
+    ///
+    /// # Panics
+    ///
+    /// If the bit offset is not zero
+    pub fn iter_bit_views<const NB: usize>(
+        &self,
+    ) -> impl Iterator<Item = (BitView<'_, NB>, usize)> + '_ {
+        assert_eq!(
+            self.offset(),
+            0,
+            "BitView iteration requires zero bit offset"
+        );
+        BitViewIterator::new(self.inner().as_ref(), self.len())
+    }
+}
+
+/// Iterator over fixed-size [`BitView`]s within a byte slice.
+pub(super) struct BitViewIterator<'a, const NB: usize> {
     bits: &'a [u8],
     // The index of the view to be returned next
     view_idx: usize,
@@ -352,26 +388,47 @@ struct BitViewIterator<'a> {
     n_views: usize,
     // Final view len
     final_view_len: usize,
+    // Phantom to capture `NB`
+    _phantom: PhantomData<[u8; NB]>,
 }
 
-impl<'a> Iterator for BitViewIterator<'a> {
-    type Item = (BitView<'a>, usize);
+impl<'a, const NB: usize> BitViewIterator<'a, NB> {
+    /// Create a new [`BitViewIterator`].
+    fn new(bits: &'a [u8], len: usize) -> Self {
+        debug_assert_eq!(len.div_ceil(8), bits.len());
+        let final_view_len = len % (NB * 8);
+        let n_views = bits.len().div_ceil(NB);
+        BitViewIterator {
+            bits,
+            view_idx: 0,
+            n_views,
+            final_view_len,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<'a, const NB: usize> Iterator for BitViewIterator<'a, NB> {
+    type Item = (BitView<'a, NB>, usize);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.view_idx == self.n_views {
             return None;
         }
 
-        let start_byte = self.view_idx * N_BYTES;
-        let end_byte = start_byte + N_BYTES;
+        let start_byte = self.view_idx * NB;
+        let end_byte = start_byte + NB;
 
         let bits = if end_byte <= self.bits.len() {
             // Full view from the original bits
-            (BitView::from_slice(&self.bits[start_byte..end_byte]), N)
+            (
+                BitView::from_slice(&self.bits[start_byte..end_byte]),
+                BitView::<NB>::N,
+            )
         } else {
             // Partial view, copy to scratch
             let remaining_bytes = self.bits.len() - start_byte;
-            let mut remaining = [0u8; N_BYTES];
+            let mut remaining = [0u8; NB];
             remaining[..remaining_bytes].copy_from_slice(&self.bits[start_byte..]);
             (BitView::new_owned(remaining), self.final_view_len)
         };
@@ -385,10 +442,13 @@ impl<'a> Iterator for BitViewIterator<'a> {
 mod tests {
     use super::*;
 
+    const NB: usize = 128; // Number of bytes
+    const N: usize = NB * 8; // Number of bits
+
     #[test]
     fn test_iter_ones_empty() {
-        let bits = [0; N_BYTES];
-        let view = BitView::new(&bits);
+        let bits = [0; NB];
+        let view = BitView::<NB>::new(&bits);
 
         let mut ones = Vec::new();
         view.iter_ones(|idx| ones.push(idx));
@@ -399,7 +459,7 @@ mod tests {
 
     #[test]
     fn test_iter_ones_all_set() {
-        let view = BitView::all_true();
+        let view = BitView::<NB>::all_true();
 
         let mut ones = Vec::new();
         view.iter_ones(|idx| ones.push(idx));
@@ -411,8 +471,8 @@ mod tests {
 
     #[test]
     fn test_iter_zeros_empty() {
-        let bits = [0; N_BYTES];
-        let view = BitView::new(&bits);
+        let bits = [0; NB];
+        let view = BitView::<NB>::new(&bits);
 
         let mut zeros = Vec::new();
         view.iter_zeros(|idx| zeros.push(idx));
@@ -423,7 +483,7 @@ mod tests {
 
     #[test]
     fn test_iter_zeros_all_set() {
-        let view = BitView::all_true();
+        let view = BitView::<NB>::all_true();
 
         let mut zeros = Vec::new();
         view.iter_zeros(|idx| zeros.push(idx));
@@ -433,7 +493,7 @@ mod tests {
 
     #[test]
     fn test_iter_ones_single_bit() {
-        let mut bits = [0; N_BYTES];
+        let mut bits = [0; NB];
         bits[0] = 1; // Set bit 0 (LSB)
         let view = BitView::new(&bits);
 
@@ -446,7 +506,7 @@ mod tests {
 
     #[test]
     fn test_iter_zeros_single_bit_unset() {
-        let mut bits = [u8::MAX; N_BYTES];
+        let mut bits = [u8::MAX; NB];
         bits[0] = u8::MAX ^ 1; // Clear bit 0 (LSB)
         let view = BitView::new(&bits);
 
@@ -458,7 +518,7 @@ mod tests {
 
     #[test]
     fn test_iter_ones_multiple_bits_first_word() {
-        let mut bits = [0; N_BYTES];
+        let mut bits = [0; NB];
         bits[0] = 0b1010101; // Set bits 0, 2, 4, 6
         let view = BitView::new(&bits);
 
@@ -471,7 +531,7 @@ mod tests {
 
     #[test]
     fn test_iter_zeros_multiple_bits_first_word() {
-        let mut bits = [u8::MAX; N_BYTES];
+        let mut bits = [u8::MAX; NB];
         bits[0] = !0b1010101; // Clear bits 0, 2, 4, 6
         let view = BitView::new(&bits);
 
@@ -483,7 +543,7 @@ mod tests {
 
     #[test]
     fn test_lsb_bit_ordering() {
-        let mut bits = [0; N_BYTES];
+        let mut bits = [0; NB];
         bits[0] = 0b11111111; // Set bits 0-7 (LSB ordering)
         let view = BitView::new(&bits);
 
@@ -496,7 +556,7 @@ mod tests {
 
     #[test]
     fn test_all_false_static() {
-        let view = BitView::all_false();
+        let view = BitView::<NB>::all_false();
 
         let mut ones = Vec::new();
         let mut zeros = Vec::new();
@@ -511,7 +571,7 @@ mod tests {
     #[test]
     fn test_compatibility_with_mask_all_true() {
         // Create corresponding BitView
-        let view = BitView::all_true();
+        let view = BitView::<NB>::all_true();
 
         // Collect ones from BitView
         let mut bitview_ones = Vec::new();
@@ -527,7 +587,7 @@ mod tests {
     #[test]
     fn test_compatibility_with_mask_all_false() {
         // Create corresponding BitView
-        let view = BitView::all_false();
+        let view = BitView::<NB>::all_false();
 
         // Collect ones from BitView
         let mut bitview_ones = Vec::new();
@@ -548,7 +608,7 @@ mod tests {
         let indices = vec![0, 10, 20, 63, 64, 100, 500, 1023];
 
         // Create corresponding BitView
-        let mut bits = [0; N_BYTES];
+        let mut bits = [0; NB];
         for idx in &indices {
             let word_idx = idx / 8;
             let bit_idx = idx % 8;
@@ -570,7 +630,7 @@ mod tests {
         let slices = vec![(0, 10), (100, 110), (500, 510)];
 
         // Create corresponding BitView
-        let mut bits = [0; N_BYTES];
+        let mut bits = [0; NB];
         for (start, end) in &slices {
             for idx in *start..*end {
                 let word_idx = idx / 8;
@@ -596,11 +656,11 @@ mod tests {
 
     #[test]
     fn test_with_prefix() {
-        assert_eq!(BitView::with_prefix(0).true_count(), 0);
+        assert_eq!(BitView::<NB>::with_prefix(0).true_count(), 0);
 
         // May as well test all the possible prefix lengths!
         for i in 1..N {
-            let view = BitView::with_prefix(i);
+            let view = BitView::<NB>::with_prefix(i);
 
             // Collect slices (there should be one slice from 0 to n_true)
             let mut slices = vec![];

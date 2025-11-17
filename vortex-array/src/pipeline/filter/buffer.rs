@@ -1,64 +1,50 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ptr;
 use vortex_compute::filter::Filter;
 
-use crate::pipeline::N;
-use crate::pipeline::bit_view::BitView;
+use crate::pipeline::BitView;
 
 impl<'a, T: Copy> Filter<BitView<'a>> for &'a mut [T] {
     type Output = ();
 
-    fn filter(self, selection: &BitView<'a>) -> Self::Output {
-        match selection.true_count() {
-            0 => {
-                // If the mask has no true bits, we set the length to 0.
-            }
-            N => {
-                // If the mask has N true bits, we copy all elements.
-            }
-            n if n > 3 * N / 4 => {
-                // High density: use iter_zeros to compact by removing gaps
-                let mut write_idx = 0;
-                let mut read_idx = 0;
+    fn filter(self, mask: &BitView<'a>) -> Self::Output {
+        let mut read_ptr = self.as_ptr();
+        let mut write_ptr = self.as_mut_ptr();
 
-                selection.iter_zeros(|zero_idx| {
-                    // Copy elements from read_idx to zero_idx (exclusive) to write_idx
-                    let count = zero_idx - read_idx;
+        // First we loop 64 elements at a time (usize::BITS)
+        for mut word in mask.iter_words() {
+            match word {
+                0usize => {
+                    // No bits set => skip usize::BITS slice.
                     unsafe {
-                        // SAFETY: We assume that the elements are of type E and that the view is valid.
-                        // Using memmove for potentially overlapping regions
-                        std::ptr::copy(
-                            self.as_ptr().add(read_idx),
-                            self.as_mut_ptr().add(write_idx),
-                            count,
-                        );
-                        write_idx += count;
+                        read_ptr = read_ptr.add(usize::BITS as usize);
                     }
-                    read_idx = zero_idx + 1;
-                });
-
-                // Copy any remaining elements after the last zero
-                unsafe {
-                    std::ptr::copy(
-                        self.as_ptr().add(read_idx),
-                        self.as_mut_ptr().add(write_idx),
-                        N - read_idx,
-                    );
                 }
-            }
-            _ => {
-                let mut offset = 0;
-                selection.iter_ones(|idx| {
+                usize::MAX => {
+                    // All slice => copy usize::BITS slice.
                     unsafe {
-                        // SAFETY: We assume that the elements are of type E and that the view is valid.
-                        let value = *self.get_unchecked(idx);
-                        // TODO(joe): use ptr increment (not offset).
-                        *self.get_unchecked_mut(offset) = value;
-
-                        offset += 1;
+                        // We cannot guarantee non-overlapping, so use ptr::copy rather than
+                        // ptr::copy_nonoverlapping.
+                        ptr::copy(read_ptr, write_ptr, usize::BITS as usize);
+                        read_ptr = read_ptr.add(usize::BITS as usize);
+                        write_ptr = write_ptr.add(usize::BITS as usize);
                     }
-                });
+                }
+                _ => {
+                    while word != 0 {
+                        let bit_pos = word.trailing_zeros();
+                        word &= word - 1; // Clear the bit at `bit_pos`
+                        let span = word.trailing_ones();
+                        word >>= span;
+                        unsafe {
+                            ptr::copy(read_ptr.add(bit_pos as usize), write_ptr, span as usize);
+                            write_ptr = write_ptr.add(span as usize);
+                        }
+                    }
+                    unsafe { read_ptr = read_ptr.add(usize::BITS as usize) };
+                }
             }
         }
     }
