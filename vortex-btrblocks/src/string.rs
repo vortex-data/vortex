@@ -189,11 +189,26 @@ impl Scheme for VarBinScheme {
         _allowed_cascading: usize,
         _excludes: &[StringCode],
     ) -> VortexResult<f64> {
-        // VarBinScheme doesn't provide compression - it's a format conversion.
-        // VarBinView is generally more efficient than VarBin for most workloads
-        // (especially with small strings that can be inlined).
-        // Return 0.0 to indicate this scheme should not be selected by the compressor.
-        Ok(0.0)
+        if stats.src.is_empty() {
+            return Ok(1.0);
+        }
+
+        let src = stats.source();
+
+        // Calculate VarBinView size using nbytes()
+        let varbinview_size = src.as_ref().nbytes();
+
+        let string_bytes = src.buffers().iter().map(|b| b.len() as u64).sum::<u64>();
+
+        // Determine offset type size based on total string bytes
+        // Arrow/Vortex uses i32 offsets if total size < u32::MAX, otherwise i64
+        let offset_type_size = if string_bytes < u32::MAX as u64 { 4 } else { 8 };
+        let offset_bytes = (src.len() as u64 + 1) * offset_type_size;
+
+        let varbin_size = string_bytes + offset_bytes;
+        assert!(varbin_size > 0, "cannot be empty");
+
+        Ok(varbinview_size as f64 / varbin_size as f64)
     }
 
     fn compress(
