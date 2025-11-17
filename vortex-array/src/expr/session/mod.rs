@@ -1,0 +1,156 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+mod rewrite;
+
+pub use rewrite::RewriteRuleRegistry;
+use vortex_session::registry::Registry;
+use vortex_session::{Ref, SessionExt};
+
+use crate::expr::exprs::between::Between;
+use crate::expr::exprs::binary::Binary;
+use crate::expr::exprs::cast::Cast;
+use crate::expr::exprs::get_item::GetItem;
+use crate::expr::exprs::get_item::transform::PackGetItemRule;
+use crate::expr::exprs::is_null::IsNull;
+use crate::expr::exprs::like::Like;
+use crate::expr::exprs::list_contains::ListContains;
+use crate::expr::exprs::literal::Literal;
+use crate::expr::exprs::merge::Merge;
+use crate::expr::exprs::merge::transform::RemoveMergeRule;
+use crate::expr::exprs::not::Not;
+use crate::expr::exprs::pack::Pack;
+use crate::expr::exprs::root::Root;
+use crate::expr::exprs::select::Select;
+use crate::expr::exprs::select::transform::RemoveSelectRule;
+use crate::expr::transform::rules::{
+    ChildReduceRule, ParentReduceRule, ReduceRule, RewriteContext,
+};
+use crate::expr::{ExprVTable, VTable};
+
+/// Registry of expression vtables.
+pub type ExprRegistry = Registry<ExprVTable>;
+
+/// Session state for expression vtables and rewrite rules.
+#[derive(Debug)]
+pub struct ExprSession {
+    registry: ExprRegistry,
+    rewrite_rules: RewriteRuleRegistry,
+}
+
+impl ExprSession {
+    pub fn registry(&self) -> &ExprRegistry {
+        &self.registry
+    }
+
+    /// Get the rewrite rule registry.
+    pub fn rewrite_rules(&self) -> &RewriteRuleRegistry {
+        &self.rewrite_rules
+    }
+
+    /// Register an expression vtable in the session, replacing any existing vtable with the same ID.
+    pub fn register(&self, expr: ExprVTable) {
+        self.registry.register(expr)
+    }
+
+    /// Register expression vtables in the session, replacing any existing vtables with the same IDs.
+    pub fn register_many(&self, exprs: impl IntoIterator<Item = ExprVTable>) {
+        self.registry.register_many(exprs);
+    }
+
+    /// Register a generic reduce rule that uses TypedRewriteContext.
+    /// Use this for rules that need access to dtype information.
+    pub fn register_typed_reduce_rule<V, R>(&mut self, vtable: &'static V, rule: R)
+    where
+        V: VTable,
+        R: 'static,
+        for<'a> R: ReduceRule<V, &'a dyn crate::expr::transform::TypedRewriteContext>,
+    {
+        self.rewrite_rules.register_typed_reduce_rule(vtable, rule);
+    }
+
+    /// Register a generic reduce rule that only uses RewriteContext (non-typed).
+    /// Use this for rules that don't need access to dtype information.
+    pub fn register_reduce_rule<V, R>(&mut self, vtable: &'static V, rule: R)
+    where
+        V: VTable,
+        R: 'static,
+        for<'a> R: ReduceRule<V, &'a dyn RewriteContext>,
+    {
+        self.rewrite_rules.register_reduce_rule(vtable, rule);
+    }
+
+    /// Register a child reduce rule that uses TypedRewriteContext.
+    /// Use this for rules that need access to dtype information.
+    pub fn register_typed_child_rule<V, R>(&mut self, vtable: &'static V, rule: R)
+    where
+        V: VTable,
+        R: 'static,
+        for<'a> R: ChildReduceRule<V, &'a dyn crate::expr::transform::TypedRewriteContext>,
+    {
+        self.rewrite_rules.register_typed_child_rule(vtable, rule);
+    }
+
+    /// Register a child reduce rule that only uses RewriteContext (non-typed).
+    /// Use this for rules that don't need access to dtype information.
+    pub fn register_child_rule<V, R>(&mut self, vtable: &'static V, rule: R)
+    where
+        V: VTable,
+        R: 'static,
+        for<'a> R: ChildReduceRule<V, &'a dyn RewriteContext>,
+    {
+        self.rewrite_rules.register_child_rule(vtable, rule);
+    }
+
+    /// Register a parent reduce rule in the session.
+    pub fn register_parent_rule<V: VTable>(
+        &mut self,
+        vtable: &'static V,
+        rule: impl ParentReduceRule<V> + 'static,
+    ) {
+        self.rewrite_rules.register_parent_rule(vtable, rule);
+    }
+}
+
+impl Default for ExprSession {
+    fn default() -> Self {
+        let expressions = ExprRegistry::default();
+
+        // Register built-in expressions here if needed.
+        expressions.register_many([
+            ExprVTable::from_static(&Between),
+            ExprVTable::from_static(&Binary),
+            ExprVTable::from_static(&Cast),
+            ExprVTable::from_static(&GetItem),
+            ExprVTable::from_static(&IsNull),
+            ExprVTable::from_static(&Like),
+            ExprVTable::from_static(&ListContains),
+            ExprVTable::from_static(&Literal),
+            ExprVTable::from_static(&Merge),
+            ExprVTable::from_static(&Not),
+            ExprVTable::from_static(&Pack),
+            ExprVTable::from_static(&Root),
+            ExprVTable::from_static(&Select),
+        ]);
+
+        // Register built-in rewrite rules
+        let mut rewrite_rules = RewriteRuleRegistry::new();
+        rewrite_rules.register_typed_reduce_rule(&Select, RemoveSelectRule);
+        rewrite_rules.register_typed_reduce_rule(&Merge, RemoveMergeRule);
+        rewrite_rules.register_child_rule(&GetItem, PackGetItemRule);
+
+        Self {
+            registry: expressions,
+            rewrite_rules,
+        }
+    }
+}
+
+/// Extension trait for accessing expression session data.
+pub trait ExprSessionExt: SessionExt {
+    /// Returns the expression vtable registry.
+    fn expressions(&self) -> Ref<'_, ExprSession> {
+        self.get::<ExprSession>()
+    }
+}
+impl<S: SessionExt> ExprSessionExt for S {}

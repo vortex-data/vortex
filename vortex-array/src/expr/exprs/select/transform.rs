@@ -6,7 +6,8 @@ use vortex_error::{VortexResult, vortex_err};
 use crate::expr::exprs::get_item::get_item;
 use crate::expr::exprs::pack::pack;
 use crate::expr::exprs::select::Select;
-use crate::expr::transform::rules::{ReduceRule, RewriteContext};
+use crate::expr::transform::TypedRewriteContext;
+use crate::expr::transform::rules::ReduceRule;
 use crate::expr::{Expression, ExpressionView};
 
 /// Rule that removes Select expressions by converting them to Pack + GetItem.
@@ -14,11 +15,11 @@ use crate::expr::{Expression, ExpressionView};
 /// Transforms: `select(["a", "b"], expr)` → `pack(a: get_item("a", expr), b: get_item("b", expr))`
 pub struct RemoveSelectRule;
 
-impl ReduceRule<Select> for RemoveSelectRule {
+impl ReduceRule<Select, &dyn TypedRewriteContext> for RemoveSelectRule {
     fn reduce(
         &self,
         select: &ExpressionView<Select>,
-        ctx: &dyn RewriteContext,
+        ctx: &dyn TypedRewriteContext,
     ) -> VortexResult<Option<Expression>> {
         let child = select.child();
         let child_dtype = child.return_dtype(ctx.dtype())?;

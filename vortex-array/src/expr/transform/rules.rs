@@ -19,7 +19,7 @@ use crate::expr::{Expression, ExpressionView, VTable};
 /// # Type Parameters
 /// * `V` - The VTable type this rule applies to. The rule will only be invoked for expressions
 ///   with this vtable type, providing compile-time type safety.
-pub trait ReduceRule<V: VTable>: Send + Sync {
+pub trait ReduceRule<V: VTable, C: Context>: Send + Sync {
     /// Try to rewrite an expression.
     ///
     /// # Arguments
@@ -29,11 +29,7 @@ pub trait ReduceRule<V: VTable>: Send + Sync {
     /// # Returns
     /// * `Some(new_expr)` if the rule applies and produces a rewritten expression
     /// * `None` if the rule does not apply
-    fn reduce(
-        &self,
-        expr: &ExpressionView<V>,
-        ctx: &dyn RewriteContext,
-    ) -> VortexResult<Option<Expression>>;
+    fn reduce(&self, expr: &ExpressionView<V>, ctx: C) -> VortexResult<Option<Expression>>;
 }
 
 /// A rewrite rule that can transform expressions based on child context.
@@ -44,7 +40,7 @@ pub trait ReduceRule<V: VTable>: Send + Sync {
 /// # Type Parameters
 /// * `V` - The VTable type this rule applies to. The rule will only be invoked for expressions
 ///   with this vtable type, providing compile-time type safety.
-pub trait ChildReduceRule<V: VTable>: Send + Sync {
+pub trait ChildReduceRule<V: VTable, C: Context>: Send + Sync {
     /// Try to rewrite an expression based on one of its children.
     ///
     /// # Arguments
@@ -61,7 +57,7 @@ pub trait ChildReduceRule<V: VTable>: Send + Sync {
         expr: &ExpressionView<V>,
         child: &Expression,
         child_idx: usize,
-        ctx: &dyn RewriteContext,
+        ctx: C,
     ) -> VortexResult<Option<Expression>>;
 }
 
@@ -94,19 +90,41 @@ pub trait ParentReduceRule<V: VTable>: Send + Sync {
     ) -> VortexResult<Option<Expression>>;
 }
 
+pub trait Context {}
+
+// Blanket implementation: all references to Context implementors also implement Context
+impl<T: Context + ?Sized> Context for &T {}
+
+/// Base context for rewrite rules.
+pub trait RewriteContext: Context {}
+
 /// Context available to rewrite rules during expression optimization.
-pub trait RewriteContext {
-    /// The dtype of the expression scope (root array).
+/// Extends `RewriteContext` and provides access to dtype information.
+///
+/// Any `TypedRewriteContext` can be used as a `RewriteContext`, but not vice versa.
+pub trait TypedRewriteContext: RewriteContext {
     fn dtype(&self) -> &DType;
 }
 
-/// Simple implementation of RewriteContext.
+/// Empty context for untyped rewrite rules that don't need any context.
+#[derive(Debug, Default)]
+pub struct EmptyRewriteContext;
+
+impl Context for EmptyRewriteContext {}
+
+impl RewriteContext for EmptyRewriteContext {}
+
+/// Simple implementation that supports both RewriteContext and TypedRewriteContext.
 #[derive(Debug)]
 pub struct SimpleRewriteContext<'a> {
     pub dtype: &'a DType,
 }
 
-impl<'a> RewriteContext for SimpleRewriteContext<'a> {
+impl<'a> Context for SimpleRewriteContext<'a> {}
+
+impl<'a> RewriteContext for SimpleRewriteContext<'a> {}
+
+impl<'a> TypedRewriteContext for SimpleRewriteContext<'a> {
     fn dtype(&self) -> &DType {
         self.dtype
     }

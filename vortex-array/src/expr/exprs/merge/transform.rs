@@ -8,7 +8,8 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::expr::exprs::get_item::get_item;
 use crate::expr::exprs::merge::{DuplicateHandling, Merge};
 use crate::expr::exprs::pack::pack;
-use crate::expr::transform::rules::{ReduceRule, RewriteContext};
+use crate::expr::transform::TypedRewriteContext;
+use crate::expr::transform::rules::ReduceRule;
 use crate::expr::{Expression, ExpressionView};
 
 /// Rule that removes Merge expressions by converting them to Pack + GetItem.
@@ -16,11 +17,11 @@ use crate::expr::{Expression, ExpressionView};
 /// Transforms: `merge([struct1, struct2])` → `pack(field1: get_item("field1", struct1), field2: get_item("field2", struct2), ...)`
 pub struct RemoveMergeRule;
 
-impl ReduceRule<Merge> for RemoveMergeRule {
+impl ReduceRule<Merge, &dyn TypedRewriteContext> for RemoveMergeRule {
     fn reduce(
         &self,
         merge: &ExpressionView<Merge>,
-        ctx: &dyn RewriteContext,
+        ctx: &dyn TypedRewriteContext,
     ) -> VortexResult<Option<Expression>> {
         let merge_dtype = merge.return_dtype(ctx.dtype())?;
         let mut names = Vec::with_capacity(merge.children().len() * 2);
@@ -67,5 +68,49 @@ impl ReduceRule<Merge> for RemoveMergeRule {
         );
 
         Ok(Some(expr))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::PType::{I32, I64, U32, U64};
+
+    use super::RemoveMergeRule;
+    use crate::expr::exprs::get_item::get_item;
+    use crate::expr::exprs::merge::{DuplicateHandling, Merge, merge_opts};
+    use crate::expr::exprs::pack::Pack;
+    use crate::expr::exprs::root::root;
+    use crate::expr::transform::SimpleRewriteContext;
+    use crate::expr::transform::rules::ReduceRule;
+
+    #[test]
+    fn test_remove_merge() {
+        let dtype = DType::struct_(
+            [
+                ("0", DType::struct_([("a", I32), ("b", I64)], NonNullable)),
+                ("1", DType::struct_([("b", U32), ("c", U64)], NonNullable)),
+            ],
+            NonNullable,
+        );
+
+        let e = merge_opts(
+            [get_item("0", root()), get_item("1", root())],
+            DuplicateHandling::RightMost,
+        );
+
+        let ctx = SimpleRewriteContext { dtype: &dtype };
+        let rule = RemoveMergeRule;
+        let merge_view = e.as_::<Merge>();
+        let result = rule.reduce(&merge_view, &ctx).unwrap();
+
+        assert!(result.is_some());
+        let result = result.unwrap();
+        assert!(result.is::<Pack>());
+        assert_eq!(
+            result.return_dtype(&dtype).unwrap(),
+            DType::struct_([("a", I32), ("b", U32), ("c", U64)], NonNullable)
+        );
     }
 }

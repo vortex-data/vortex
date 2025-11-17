@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 
 use crate::expr::Expression;
 use crate::expr::session::ExprSession;
-use crate::expr::transform::reducer::apply_child_rules;
+use crate::expr::transform::reducer::simplify_typed_with_session;
 
 /// Unlike `simplify`, this function simplifies an expression under the assumption that scope is
 /// a known DType. Simplification is applied first and then additional dtype-aware rules.
@@ -16,7 +16,5 @@ use crate::expr::transform::reducer::apply_child_rules;
 pub fn simplify_typed(e: Expression, ctx: &DType) -> VortexResult<Expression> {
     // Apply all registered rules (PackGetItemRule, RemoveSelectRule, RemoveMergeRule)
     let session = ExprSession::default();
-    let e = apply_child_rules(e, ctx, &session)?;
-
-    Ok(e)
+    simplify_typed_with_session(e, ctx, &session)
 }
