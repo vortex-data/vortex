@@ -4,13 +4,13 @@
 use std::fmt::Formatter;
 
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 
-use crate::ArrayRef;
 use crate::compute::list_contains as compute_list_contains;
 use crate::expr::exprs::binary::{and, gt, lt, or};
-use crate::expr::exprs::literal::{Literal, lit};
+use crate::expr::exprs::literal::{lit, Literal};
 use crate::expr::{ChildName, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt};
+use crate::ArrayRef;
 
 pub struct ListContains;
 
@@ -84,7 +84,7 @@ impl VTable for ListContains {
     fn stat_falsification(
         &self,
         expr: &ExpressionView<Self>,
-        catalog: &mut dyn StatsCatalog,
+        catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         // falsification(contains([1,2,5], x)) =>
         //   falsification(x != 1) and falsification(x != 2) and falsification(x != 5)

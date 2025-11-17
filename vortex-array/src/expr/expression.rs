@@ -7,12 +7,13 @@ use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use vortex_dtype::{DType, FieldPath};
+use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::ArrayRef;
 use crate::expr::display::DisplayTreeExpr;
 use crate::expr::{ChildName, ExprId, ExprVTable, ExpressionView, StatsCatalog, VTable};
+use crate::stats::Stat;
+use crate::ArrayRef;
 
 /// A node in a Vortex expression tree.
 ///
@@ -158,39 +159,17 @@ impl Expression {
     ///
     /// Some expressions, in theory, have falsifications but this function does not support them
     /// such as `x < (y < z)` or `x LIKE "needle%"`.
-    pub fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
+    pub fn stat_falsification(&self, catalog: &dyn StatsCatalog) -> Option<Expression> {
         self.vtable.as_dyn().stat_falsification(self, catalog)
     }
 
-    /// An expression for the upper non-null bound of this expression, if available.
+    /// Returns an expression representing the zoned statistic for the given stat, if available.
     ///
-    /// This function returns None if there is no upper bound, or it is difficult to compute.
-    ///
-    /// The returned expression evaluates to null if the maximum value is unknown. In that case, you
-    /// _must not_ assume the array is empty _nor_ may you assume the array only contains non-null
-    /// values.
-    pub fn stat_max(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
-        self.vtable.as_dyn().stat_max(self, catalog)
-    }
-
-    /// An expression for the lower non-null bound of this expression, if available.
-    ///
-    /// See [`Expression::stat_max`] for important details.
-    pub fn stat_min(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
-        self.vtable.as_dyn().stat_min(self, catalog)
-    }
-
-    /// An expression for the NaN count for a column, if available.
-    ///
-    /// This method returns `None` if the NaNCount stat is unknown.
-    pub fn stat_nan_count(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
-        self.vtable.as_dyn().stat_nan_count(self, catalog)
-    }
-
-    // TODO(ngates): I'm not sure what this is really for? We need to clean up stats compute for
-    //  expressions.
-    pub fn stat_field_path(&self) -> Option<FieldPath> {
-        self.vtable.as_dyn().stat_field_path(self)
+    /// The [`StatsCatalog`] returns expressions that can be evaluated using the zone map as a
+    /// scope. Expressions can implement this function to propagate such statistics through the
+    /// expression tree. For example, the `a + 10` expression could propagate `min: min(a) + 10`.
+    pub fn stat_expression(&self, stat: Stat, catalog: &dyn StatsCatalog) -> Option<Expression> {
+        self.vtable.as_dyn().stat_expression(self, stat, catalog)
     }
 
     /// Format the expression as a compact string.

@@ -6,15 +6,15 @@ use std::fmt::Formatter;
 use prost::Message;
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_proto::expr as pb;
 
-use crate::ArrayRef;
-use crate::compute::{BetweenOptions, between as between_compute};
+use crate::compute::{between as between_compute, BetweenOptions};
 use crate::expr::expression::Expression;
 use crate::expr::exprs::binary::Binary;
 use crate::expr::exprs::operators::Operator;
 use crate::expr::{ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt};
+use crate::ArrayRef;
 
 /// An optimized scalar expression to compute whether values fall between two bounds.
 ///
@@ -139,7 +139,7 @@ impl VTable for Between {
     fn stat_falsification(
         &self,
         expr: &ExpressionView<Self>,
-        catalog: &mut dyn StatsCatalog,
+        catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         expr.to_binary_expr().stat_falsification(catalog)
     }

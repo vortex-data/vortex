@@ -6,7 +6,7 @@ use std::ops::Not;
 
 use prost::Message;
 use vortex_dtype::{DType, FieldName, FieldPath, Nullability};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_proto::expr as pb;
 
 use crate::compute::mask;
@@ -97,7 +97,7 @@ impl VTable for GetItem {
     fn stat_max(
         &self,
         expr: &ExpressionView<Self>,
-        catalog: &mut dyn StatsCatalog,
+        catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), Stat::Max)
     }
@@ -105,7 +105,7 @@ impl VTable for GetItem {
     fn stat_min(
         &self,
         expr: &ExpressionView<Self>,
-        catalog: &mut dyn StatsCatalog,
+        catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), Stat::Min)
     }
@@ -113,7 +113,7 @@ impl VTable for GetItem {
     fn stat_nan_count(
         &self,
         expr: &ExpressionView<Self>,
-        catalog: &mut dyn StatsCatalog,
+        catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), Stat::NaNCount)
     }

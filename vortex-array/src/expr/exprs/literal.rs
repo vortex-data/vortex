@@ -4,8 +4,8 @@
 use std::fmt::Formatter;
 
 use prost::Message;
-use vortex_dtype::{DType, match_each_float_ptype};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::{match_each_float_ptype, DType};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 
@@ -75,7 +75,7 @@ impl VTable for Literal {
     fn stat_max(
         &self,
         expr: &ExpressionView<Self>,
-        _catalog: &mut dyn StatsCatalog,
+        _catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         Some(lit(expr.data().clone()))
     }
@@ -83,7 +83,7 @@ impl VTable for Literal {
     fn stat_min(
         &self,
         expr: &ExpressionView<Self>,
-        _catalog: &mut dyn StatsCatalog,
+        _catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         Some(lit(expr.data().clone()))
     }
@@ -91,7 +91,7 @@ impl VTable for Literal {
     fn stat_nan_count(
         &self,
         expr: &ExpressionView<Self>,
-        _catalog: &mut dyn StatsCatalog,
+        _catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         // The NaNCount for a non-float literal is not defined.
         // For floating point types, the NaNCount is 1 for lit(NaN), and 0 otherwise.

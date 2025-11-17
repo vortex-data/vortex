@@ -5,7 +5,7 @@ use std::fmt::Formatter;
 
 use prost::Message;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_proto::expr as pb;
 
 use crate::compute::{add, and_kleene, compare, div, mul, or_kleene, sub};
@@ -13,7 +13,7 @@ use crate::expr::expression::Expression;
 use crate::expr::exprs::literal::lit;
 use crate::expr::exprs::operators::Operator;
 use crate::expr::{ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt};
-use crate::{ArrayRef, compute};
+use crate::{compute, ArrayRef};
 
 pub struct Binary;
 
@@ -104,7 +104,7 @@ impl VTable for Binary {
     fn stat_falsification(
         &self,
         expr: &ExpressionView<Self>,
-        catalog: &mut dyn StatsCatalog,
+        catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         // Wrap another predicate with an optional NaNCount check, if the stat is available.
         //
@@ -124,7 +124,7 @@ impl VTable for Binary {
             lhs: &Expression,
             rhs: &Expression,
             value_predicate: Expression,
-            catalog: &mut dyn StatsCatalog,
+            catalog: &dyn StatsCatalog,
         ) -> Expression {
             let nan_predicate = lhs
                 .stat_nan_count(catalog)
@@ -510,7 +510,7 @@ mod tests {
     use super::{and, and_collect, and_collect_right, eq, gt, gt_eq, lt, lt_eq, not_eq, or};
     use crate::expr::exprs::get_item::col;
     use crate::expr::exprs::literal::lit;
-    use crate::expr::{Expression, test_harness};
+    use crate::expr::{test_harness, Expression};
 
     #[test]
     fn and_collect_left_assoc() {

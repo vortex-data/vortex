@@ -7,11 +7,11 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::arrays::ConstantArray;
-use crate::compute::{Operator, compare};
+use crate::compute::{compare, Operator};
 use crate::expr::traversal::{NodeExt, NodeVisitor, TraversalOrder};
 use crate::expr::{ChildName, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt};
 use crate::{Array, ArrayRef, IntoArray};
@@ -91,7 +91,7 @@ impl VTable for DynamicComparison {
     fn stat_falsification(
         &self,
         expr: &ExpressionView<DynamicComparison>,
-        catalog: &mut dyn StatsCatalog,
+        catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         match expr.data().operator {
             Operator::Gt => Some(DynamicComparison.new_expr(

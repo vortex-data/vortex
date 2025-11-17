@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cell::RefCell;
 use std::iter;
 
 use itertools::Itertools;
@@ -19,7 +20,7 @@ pub type RequiredStats = Relation<FieldPath, Stat>;
 // stats and returning them later.
 #[derive(Default)]
 struct TrackingStatsCatalog {
-    usage: HashMap<(FieldPath, Stat), Expression>,
+    usage: RefCell<HashMap<(FieldPath, Stat), Expression>>,
 }
 
 impl TrackingStatsCatalog {
@@ -37,7 +38,7 @@ struct ScopeStatsCatalog<'a> {
 }
 
 impl StatsCatalog for ScopeStatsCatalog<'_> {
-    fn stats_ref(&mut self, field_path: &FieldPath, stat: Stat) -> Option<Expression> {
+    fn stats_ref(&self, field_path: &FieldPath, stat: Stat) -> Option<Expression> {
         let stat_path = field_path.clone().push(stat.name());
 
         if self.available_stats.contains(&stat_path) {
@@ -49,7 +50,7 @@ impl StatsCatalog for ScopeStatsCatalog<'_> {
 }
 
 impl StatsCatalog for TrackingStatsCatalog {
-    fn stats_ref(&mut self, field_path: &FieldPath, stat: Stat) -> Option<Expression> {
+    fn stats_ref(&self, field_path: &FieldPath, stat: Stat) -> Option<Expression> {
         let mut expr = root();
         let name = field_path_stat_field_name(field_path, stat);
         expr = get_item(name, expr);
