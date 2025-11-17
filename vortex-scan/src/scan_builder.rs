@@ -8,6 +8,7 @@ use futures::Stream;
 use futures::future::BoxFuture;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
+use vortex_array::expr::session::ExprSessionExt;
 use vortex_array::expr::transform::immediate_access::immediate_scope_access;
 use vortex_array::expr::transform::simplify_typed;
 use vortex_array::expr::{Expression, root};
@@ -212,10 +213,14 @@ impl<A: 'static + Send> ScanBuilder<A> {
         layout_reader = Arc::new(RowIdxLayoutReader::new(self.row_offset, layout_reader));
 
         // Normalize and simplify the expressions.
-        let projection = simplify_typed(self.projection, layout_reader.dtype())?;
+        let projection = simplify_typed(
+            self.projection,
+            layout_reader.dtype(),
+            &self.session.expressions(),
+        )?;
         let filter = self
             .filter
-            .map(|f| simplify_typed(f, layout_reader.dtype()))
+            .map(|f| simplify_typed(f, layout_reader.dtype(), &self.session.expressions()))
             .transpose()?;
 
         // Construct field masks and compute the row splits of the scan.

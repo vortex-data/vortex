@@ -12,6 +12,7 @@ use crate::expr::Expression;
 use crate::expr::exprs::get_item::get_item;
 use crate::expr::exprs::pack::pack;
 use crate::expr::exprs::root::root;
+use crate::expr::session::ExprSession;
 use crate::expr::transform::annotations::{
     Annotation, AnnotationFn, Annotations, descendent_annotations,
 };
@@ -33,6 +34,7 @@ pub fn partition<A: AnnotationFn>(
     expr: Expression,
     scope: &DType,
     annotate_fn: A,
+    session: &ExprSession,
 ) -> VortexResult<PartitionedExpr<A::Annotation>>
 where
     A::Annotation: Display,
@@ -62,7 +64,7 @@ where
             Nullability::NonNullable,
         );
 
-        let expr = simplify_typed(expr.clone(), scope)?;
+        let expr = simplify_typed(expr.clone(), scope, session)?;
         let expr_dtype = expr.return_dtype(scope)?;
 
         partitions.push(expr);
@@ -80,7 +82,7 @@ where
     );
 
     Ok(PartitionedExpr {
-        root: simplify_typed(root, &root_scope)?,
+        root: simplify_typed(root, &root_scope, session)?,
         partitions: partitions.into_boxed_slice(),
         partition_names,
         partition_dtypes: partition_dtypes.into_boxed_slice(),
@@ -234,7 +236,13 @@ mod tests {
         let fields = dtype.as_struct_fields_opt().unwrap();
 
         let expr = root();
-        let partitioned = partition(expr.clone(), &dtype, annotate_scope_access(fields)).unwrap();
+        let partitioned = partition(
+            expr.clone(),
+            &dtype,
+            annotate_scope_access(fields),
+            &VortexSessionDefault::default().expressions(),
+        )
+        .unwrap();
 
         // An un-expanded root expression is annotated by all fields, but since it is a single node
         assert_eq!(partitioned.partitions.len(), 0);
@@ -242,7 +250,13 @@ mod tests {
 
         // Instead, callers must expand the root expression themselves.
         let expr = replace_root_fields(expr, fields);
-        let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
+        let partitioned = partition(
+            expr,
+            &dtype,
+            annotate_scope_access(fields),
+            &VortexSessionDefault::default().expressions(),
+        )
+        .unwrap();
 
         assert_eq!(partitioned.partitions.len(), fields.names().len());
     }
@@ -269,7 +283,13 @@ mod tests {
             ],
             NonNullable,
         );
-        let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
+        let partitioned = partition(
+            expr,
+            &dtype,
+            annotate_scope_access(fields),
+            &VortexSessionDefault::default().expressions(),
+        )
+        .unwrap();
 
         let split_a = partitioned.find_partition(&"a".into()).unwrap();
         assert_eq!(
