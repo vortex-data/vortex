@@ -28,6 +28,7 @@ jobs:
         run: |
           REQUIRED_LABELS=(
             "chore"
+            "documentation"
             "feature"
             "fix"
             "performance"
