@@ -311,6 +311,11 @@ impl BitBufferMut {
             new_len <= self.capacity(),
             "`set_len` requires that new_len <= capacity()"
         );
+
+        // Calculate the new byte length required to hold the bits
+        let bytes_len = (self.offset + new_len).div_ceil(8);
+        unsafe { self.buffer.set_len(bytes_len) };
+
         self.len = new_len;
     }
 

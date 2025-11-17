@@ -18,6 +18,11 @@ impl<T: Copy> Filter<Mask> for &mut [T] {
     type Output = Self;
 
     fn filter(self, selection: &Mask) -> Self::Output {
+        assert_eq!(
+            self.len(),
+            selection.len(),
+            "Mask length must equal the slice length"
+        );
         match selection {
             Mask::AllTrue(_) => self,
             Mask::AllFalse(_) => &mut self[..0],
