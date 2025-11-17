@@ -8,6 +8,7 @@ use std::sync::Arc;
 use futures::try_join;
 use itertools::Itertools;
 use vortex_array::arrays::StructArray;
+use vortex_array::expr::session::ExprSessionExt;
 use vortex_array::expr::transform::immediate_access::annotate_scope_access;
 use vortex_array::expr::transform::{
     PartitionedExpr, partition, replace, replace_root_fields, simplify_typed,
@@ -134,7 +135,7 @@ impl StructReader {
                 // First, we expand the root scope into the fields of the struct to ensure
                 // that partitioning works correctly.
                 let expr = replace(expr.clone(), &root(), self.expanded_root_expr.clone());
-                let expr = simplify_typed(expr, self.dtype())
+                let expr = simplify_typed(expr, self.dtype(), &self.layout.session.expressions())
                     .vortex_expect("We should not fail to simplify expression over struct fields");
 
                 // Partition the expression into expressions that can be evaluated over individual fields
@@ -146,6 +147,7 @@ impl StructReader {
                             .as_struct_fields_opt()
                             .vortex_expect("We know it's a struct DType"),
                     ),
+                    &self.layout.session.expressions(),
                 )
                 .vortex_expect("We should not fail to partition expression over struct fields");
 
@@ -344,11 +346,13 @@ mod tests {
     use crate::layouts::struct_::writer::StructStrategy;
     use crate::segments::{SegmentSource, TestSegments};
     use crate::sequence::{SequenceId, SequentialArrayStreamExt};
+    use crate::test::SESSION;
     use crate::{LayoutRef, LayoutStrategy};
 
     #[fixture]
     fn empty_struct() -> (Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
+
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
         let strategy =
@@ -356,6 +360,7 @@ mod tests {
         let layout = block_on(|handle| {
             strategy.write_stream(
                 ctx,
+                &SESSION,
                 segments.clone(),
                 StructArray::try_new(
                     Vec::<FieldName>::new().into(),
@@ -387,6 +392,7 @@ mod tests {
         let layout = block_on(|handle| {
             strategy.write_stream(
                 ctx,
+                &SESSION,
                 segments.clone(),
                 StructArray::from_fields(
                     [
@@ -413,6 +419,7 @@ mod tests {
     /// Create a chunked layout with three chunks of primitive arrays.
     fn null_struct_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
+
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
         let strategy =
@@ -420,6 +427,7 @@ mod tests {
         let layout = block_on(|handle| {
             strategy.write_stream(
                 ctx,
+                &SESSION,
                 segments.clone(),
                 StructArray::try_from_iter_with_validity(
                     [
@@ -459,6 +467,7 @@ mod tests {
         let layout = block_on(|handle| {
             strategy.write_stream(
                 ctx,
+                &SESSION,
                 segments.clone(),
                 StructArray::try_from_iter_with_validity(
                     [(

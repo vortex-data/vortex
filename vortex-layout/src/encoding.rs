@@ -8,6 +8,7 @@ use arcref::ArcRef;
 use vortex_array::{ArrayContext, DeserializeMetadata};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_session::VortexSession;
 
 use crate::segments::SegmentId;
 use crate::{IntoLayout, LayoutChildren, LayoutRef, VTable};
@@ -20,6 +21,7 @@ pub trait LayoutEncoding: 'static + Send + Sync + Debug + private::Sealed {
 
     fn id(&self) -> LayoutEncodingId;
 
+    #[allow(clippy::too_many_arguments)]
     fn build(
         &self,
         dtype: &DType,
@@ -28,6 +30,7 @@ pub trait LayoutEncoding: 'static + Send + Sync + Debug + private::Sealed {
         segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
         ctx: ArrayContext,
+        session: &VortexSession,
     ) -> VortexResult<LayoutRef>;
 }
 
@@ -51,6 +54,7 @@ impl<V: VTable> LayoutEncoding for LayoutEncodingAdapter<V> {
         segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
         ctx: ArrayContext,
+        session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
         let metadata = <V::Metadata as DeserializeMetadata>::deserialize(metadata)?;
         let layout = V::build(
@@ -61,6 +65,7 @@ impl<V: VTable> LayoutEncoding for LayoutEncodingAdapter<V> {
             segment_ids,
             children,
             ctx,
+            session,
         )?;
 
         // Validate that the builder function returned the expected values.

@@ -13,6 +13,7 @@ use vortex_array::arrays::{
     ChunkedArray, ConstantArray, DecimalArray, DictEncoding, DictVTable, ListArray, PrimitiveArray,
     StructArray, VarBinArray, VarBinViewArray,
 };
+use vortex_array::expr::session::ExprSession;
 use vortex_array::expr::{
     Pack, PackOptions, VTableExt, and, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root, select,
 };
@@ -40,6 +41,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .with::<VortexMetrics>()
         .with::<ArraySession>()
         .with::<LayoutSession>()
+        .with::<ExprSession>()
         .with::<RuntimeSession>();
 
     crate::register_default_encodings(&session);

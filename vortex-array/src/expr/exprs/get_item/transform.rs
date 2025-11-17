@@ -50,7 +50,6 @@ impl ChildReduceRule<GetItem, &dyn RewriteContext> for PackGetItemRule {
 mod tests {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
-    use vortex_session::VortexSession;
 
     use super::PackGetItemRule;
     use crate::expr::ExprId;
@@ -138,12 +137,7 @@ mod tests {
 
         let dtype = DType::Primitive(PType::I32, NonNullable);
 
-        let result = simplify_typed(
-            get_z,
-            &dtype,
-            &VortexSessionDefault::default().expressions(),
-        )
-        .unwrap();
+        let result = simplify_typed(get_z, &dtype, &ExprSession::default()).unwrap();
 
         assert_eq!(&result, &lit(4));
     }
@@ -164,12 +158,7 @@ mod tests {
 
         let dtype = DType::Primitive(PType::I32, NonNullable);
 
-        let result = simplify_typed(
-            get_final,
-            &dtype,
-            &VortexSessionDefault::default().expressions(),
-        )
-        .unwrap();
+        let result = simplify_typed(get_final, &dtype, &ExprSession::default()).unwrap();
 
         assert_eq!(&result, &lit(42));
     }
@@ -185,12 +174,7 @@ mod tests {
 
         let dtype = DType::Primitive(PType::I32, NonNullable);
 
-        let result = simplify_typed(
-            get_result,
-            &dtype,
-            &VortexSessionDefault::default().expressions(),
-        )
-        .unwrap();
+        let result = simplify_typed(get_result, &dtype, &ExprSession::default()).unwrap();
 
         let expected = checked_add(lit(1), lit(10));
         assert_eq!(&result, &expected);

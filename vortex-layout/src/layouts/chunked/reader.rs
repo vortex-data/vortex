@@ -300,18 +300,21 @@ mod test {
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::{SegmentSource, TestSegments};
     use crate::sequence::{SequenceId, SequentialStreamAdapter, SequentialStreamExt as _};
+    use crate::test::SESSION;
     use crate::{LayoutRef, LayoutStrategy};
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
     fn chunked_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
+
         let segments = Arc::new(TestSegments::default());
         let strategy = ChunkedLayoutStrategy::new(FlatLayoutStrategy::default());
         let (mut sequence_id, eof) = SequenceId::root().split();
         let layout = block_on(|handle| {
             strategy.write_stream(
                 ctx,
+                &SESSION,
                 segments.clone(),
                 SequentialStreamAdapter::new(
                     DType::Primitive(PType::I32, NonNullable),

@@ -217,6 +217,7 @@ mod tests {
     use crate::sequence::{
         SequenceId, SequentialArrayStreamExt, SequentialStreamAdapter, SequentialStreamExt,
     };
+    use crate::test::SESSION;
     use crate::{LayoutId, LayoutRef, LayoutStrategy};
 
     #[test]
@@ -251,6 +252,7 @@ mod tests {
             let layout: LayoutRef = strategy
                 .write_stream(
                     ctx,
+                    &SESSION,
                     segments.clone(),
                     SequentialStreamAdapter::new(
                         DType::Utf8(Nullability::Nullable),
@@ -328,13 +330,13 @@ mod tests {
             );
 
             let array = VarBinArray::from_iter(data, DType::Utf8(Nullability::Nullable)).to_array();
-
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let layout: LayoutRef = strategy
                 .write_stream(
                     ctx,
+                    &SESSION,
                     segments.clone(),
                     SequentialStreamAdapter::new(
                         DType::Utf8(Nullability::Nullable),
@@ -393,11 +395,14 @@ mod tests {
             .to_array();
             let array_to_write = array.clone();
             let ctx = ArrayContext::empty();
+            let session = &SESSION;
+
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let layout: LayoutRef = strategy
                 .write_stream(
                     ctx,
+                    &session,
                     segments.clone(),
                     SequentialStreamAdapter::new(
                         DType::Utf8(Nullability::Nullable),

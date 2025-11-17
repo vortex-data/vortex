@@ -10,6 +10,7 @@ use reader::DictReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_session::VortexSession;
 
 use crate::children::LayoutChildren;
 use crate::segments::{SegmentId, SegmentSource};
@@ -101,6 +102,7 @@ impl VTable for DictVTable {
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
         _ctx: ArrayContext,
+        session: &VortexSession,
     ) -> VortexResult<Self::Layout> {
         let values = children.child(0, dtype)?;
         let codes_nullable = metadata
@@ -111,7 +113,11 @@ impl VTable for DictVTable {
             // see [`SerdeVTable<DictVTable>::build`].
             .unwrap_or_else(|| dtype.nullability());
         let codes = children.child(1, &DType::Primitive(metadata.codes_ptype(), codes_nullable))?;
-        Ok(DictLayout { values, codes })
+        Ok(DictLayout {
+            values,
+            codes,
+            session: session.clone(),
+        })
     }
 }
 
@@ -122,11 +128,21 @@ pub struct DictLayoutEncoding;
 pub struct DictLayout {
     values: LayoutRef,
     codes: LayoutRef,
+    session: VortexSession,
 }
 
 impl DictLayout {
-    pub(super) fn new(values: LayoutRef, codes: LayoutRef) -> Self {
-        Self { values, codes }
+    pub(super) fn new(values: LayoutRef, codes: LayoutRef, session: VortexSession) -> Self {
+        Self {
+            values,
+            codes,
+            session,
+        }
+    }
+
+    #[inline]
+    pub fn session(&self) -> &VortexSession {
+        &self.session
     }
 }
 

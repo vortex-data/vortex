@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use vortex_array::ArrayContext;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
+use vortex_session::VortexSession;
 
 use crate::LayoutRef;
 use crate::segments::SegmentSinkRef;
@@ -48,6 +49,7 @@ pub trait LayoutStrategy: 'static + Send + Sync {
     async fn write_stream(
         &self,
         ctx: ArrayContext,
+        session: &VortexSession,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         eof: SequencePointer,

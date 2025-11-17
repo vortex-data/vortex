@@ -12,6 +12,7 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexError, VortexResult, vortex_bail};
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::Handle;
+use vortex_session::VortexSession;
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -44,6 +45,7 @@ impl LayoutStrategy for StructStrategy {
     async fn write_stream(
         &self,
         ctx: ArrayContext,
+        session: &VortexSession,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         mut eof: SequencePointer,
@@ -53,7 +55,7 @@ impl LayoutStrategy for StructStrategy {
         let Some(struct_dtype) = stream.dtype().as_struct_fields_opt().cloned() else {
             return self
                 .child
-                .write_stream(ctx, segment_sink, stream, eof, handle)
+                .write_stream(ctx, session, segment_sink, stream, eof, handle)
                 .await;
         };
 
@@ -75,7 +77,7 @@ impl LayoutStrategy for StructStrategy {
                     |acc, (_, arr)| async move { Ok(acc + arr.len() as u64) },
                 )
                 .await?;
-            return Ok(StructLayout::new(row_count, dtype, vec![]).into_layout());
+            return Ok(StructLayout::new(row_count, dtype, vec![], session.clone()).into_layout());
         }
 
         // stream<struct_chunk> -> stream<vec<column_chunk>>
@@ -156,23 +158,45 @@ impl LayoutStrategy for StructStrategy {
                     let validity = self.validity.clone();
                     let this = self.clone();
                     let ctx = ctx.clone();
+                    let session = session.clone();
                     let dtype = dtype.clone();
                     let segment_sink = segment_sink.clone();
                     async move {
                         // Write validity stream
                         if index == 0 && is_nullable {
                             validity
-                                .write_stream(ctx, segment_sink, column_stream, child_eof, h)
+                                .write_stream(
+                                    ctx,
+                                    &session,
+                                    segment_sink,
+                                    column_stream,
+                                    child_eof,
+                                    h,
+                                )
                                 .await
                         } else {
                             // Build recursive StructLayout for nested struct fields
                             // TODO(aduffy): add branch for ListLayout once that's implemented
                             if dtype.is_struct() {
-                                this.write_stream(ctx, segment_sink, column_stream, child_eof, h)
-                                    .await
+                                this.write_stream(
+                                    ctx,
+                                    &session,
+                                    segment_sink,
+                                    column_stream,
+                                    child_eof,
+                                    h,
+                                )
+                                .await
                             } else {
                                 child
-                                    .write_stream(ctx, segment_sink, column_stream, child_eof, h)
+                                    .write_stream(
+                                        ctx,
+                                        &session,
+                                        segment_sink,
+                                        column_stream,
+                                        child_eof,
+                                        h,
+                                    )
                                     .await
                             }
                         }
@@ -185,7 +209,7 @@ impl LayoutStrategy for StructStrategy {
         // TODO(os): transposed stream could count row counts as well,
         // This must hold though, all columns must have the same row count of the struct layout
         let row_count = column_layouts.first().map(|l| l.row_count()).unwrap_or(0);
-        Ok(StructLayout::new(row_count, dtype, column_layouts).into_layout())
+        Ok(StructLayout::new(row_count, dtype, column_layouts, session.clone()).into_layout())
     }
 
     fn buffered_bytes(&self) -> u64 {
@@ -208,6 +232,7 @@ mod tests {
     use crate::layouts::struct_::writer::StructStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::{SequenceId, SequentialArrayStreamExt};
+    use crate::test::SESSION;
 
     #[test]
     #[should_panic]
@@ -216,10 +241,13 @@ mod tests {
             StructStrategy::new(FlatLayoutStrategy::default(), FlatLayoutStrategy::default());
         let (ptr, eof) = SequenceId::root().split();
         let ctx = ArrayContext::empty();
+        let session = &SESSION;
+
         let segments = Arc::new(TestSegments::default());
         block_on(|handle| {
             strategy.write_stream(
                 ctx,
+                session,
                 segments,
                 Canonical::empty(&DType::Struct(
                     [
@@ -246,10 +274,13 @@ mod tests {
             StructStrategy::new(FlatLayoutStrategy::default(), FlatLayoutStrategy::default());
         let (ptr, eof) = SequenceId::root().split();
         let ctx = ArrayContext::empty();
+        let session = &SESSION;
+
         let segments = Arc::new(TestSegments::default());
         let res = block_on(|handle| {
             strategy.write_stream(
                 ctx,
+                session,
                 segments,
                 ChunkedArray::from_iter([
                     StructArray::try_new(FieldNames::default(), vec![], 3, Validity::NonNullable)

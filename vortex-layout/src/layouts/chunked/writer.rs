@@ -9,6 +9,7 @@ use futures::{StreamExt, TryStreamExt, stream};
 use vortex_array::ArrayContext;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_io::runtime::Handle;
+use vortex_session::VortexSession;
 
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
@@ -37,6 +38,7 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
     async fn write_stream(
         &self,
         ctx: ArrayContext,
+        session: &VortexSession,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         mut eof: SequencePointer,
@@ -54,6 +56,7 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
 
                 let chunk_strategy = chunk_strategy.clone();
                 let ctx = ctx.clone();
+                let session = session.clone();
                 let segment_sink = segment_sink.clone();
                 let dtype = dtype2.clone();
 
@@ -61,6 +64,7 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
                     chunk_strategy
                         .write_stream(
                             ctx,
+                            &session,
                             segment_sink,
                             SequentialStreamAdapter::new(
                                 dtype,

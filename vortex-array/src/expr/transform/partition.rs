@@ -240,7 +240,7 @@ mod tests {
             expr.clone(),
             &dtype,
             annotate_scope_access(fields),
-            &VortexSessionDefault::default().expressions(),
+            &ExprSession::default(),
         )
         .unwrap();
 
@@ -254,7 +254,7 @@ mod tests {
             expr,
             &dtype,
             annotate_scope_access(fields),
-            &VortexSessionDefault::default().expressions(),
+            &ExprSession::default(),
         )
         .unwrap();
 
@@ -267,7 +267,13 @@ mod tests {
 
         let expr = get_item("y", get_item("a", root()));
 
-        let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
+        let partitioned = partition(
+            expr,
+            &dtype,
+            annotate_scope_access(fields),
+            &ExprSession::default(),
+        )
+        .unwrap();
         assert_eq!(&partitioned.root, &get_item("a_0", get_item("a", root())));
     }
 
@@ -287,13 +293,13 @@ mod tests {
             expr,
             &dtype,
             annotate_scope_access(fields),
-            &VortexSessionDefault::default().expressions(),
+            &ExprSession::default(),
         )
         .unwrap();
 
         let split_a = partitioned.find_partition(&"a".into()).unwrap();
         assert_eq!(
-            &simplify_typed(split_a.clone(), &dtype).unwrap(),
+            &simplify_typed(split_a.clone(), &dtype, &ExprSession::default(),).unwrap(),
             &pack(
                 [
                     ("a_0", get_item("x", get_item("a", root()))),
@@ -309,7 +315,13 @@ mod tests {
         let fields = dtype.as_struct_fields_opt().unwrap();
 
         let expr = and(get_item("y", get_item("a", root())), lit(1));
-        let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
+        let partitioned = partition(
+            expr,
+            &dtype,
+            annotate_scope_access(fields),
+            &ExprSession::default(),
+        )
+        .unwrap();
 
         // Whole expr is a single split
         assert_eq!(partitioned.partitions.len(), 1);
@@ -320,7 +332,13 @@ mod tests {
         let fields = dtype.as_struct_fields_opt().unwrap();
 
         let expr = and(get_item("y", get_item("a", root())), get_item("b", root()));
-        let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
+        let partitioned = partition(
+            expr,
+            &dtype,
+            annotate_scope_access(fields),
+            &ExprSession::default(),
+        )
+        .unwrap();
 
         // One for id.a and id.b
         assert_eq!(partitioned.partitions.len(), 2);
@@ -335,8 +353,14 @@ mod tests {
             get_item("y", get_item("a", root())),
             select(["a", "b"], root()),
         );
-        let expr = simplify_typed(expr, &dtype).unwrap();
-        let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
+        let expr = simplify_typed(expr, &dtype, &ExprSession::default()).unwrap();
+        let partitioned = partition(
+            expr,
+            &dtype,
+            annotate_scope_access(fields),
+            &ExprSession::default(),
+        )
+        .unwrap();
 
         // One for id.a and id.b
         assert_eq!(partitioned.partitions.len(), 2);
@@ -373,7 +397,13 @@ mod tests {
 
         let expr = merge([col("a"), pack([("b", col("b"))], NonNullable)]);
 
-        let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
+        let partitioned = partition(
+            expr,
+            &dtype,
+            annotate_scope_access(fields),
+            &ExprSession::default(),
+        )
+        .unwrap();
         let expected = pack(
             [
                 ("x", get_item("x", get_item("a_0", col("a")))),

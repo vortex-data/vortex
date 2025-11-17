@@ -363,6 +363,7 @@ mod test {
     use crate::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
     use crate::segments::{SegmentSource, TestSegments};
     use crate::sequence::{SequenceId, SequentialArrayStreamExt};
+    use crate::test::SESSION;
     use crate::{LayoutRef, LayoutStrategy};
 
     #[fixture]
@@ -388,7 +389,7 @@ mod test {
         .to_array_stream()
         .sequenced(ptr);
         let layout = block_on(|handle| {
-            strategy.write_stream(ctx, segments.clone(), array_stream, eof, handle)
+            strategy.write_stream(ctx, &SESSION, segments.clone(), array_stream, eof, handle)
         })
         .unwrap();
         (segments, layout)

@@ -11,6 +11,7 @@ use vortex_array::{ArrayContext, DeserializeMetadata, ProstMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_panic};
+use vortex_session::VortexSession;
 
 use crate::children::LayoutChildren;
 use crate::layouts::flat::reader::FlatReader;
@@ -102,6 +103,7 @@ impl VTable for FlatVTable {
         segment_ids: Vec<SegmentId>,
         _children: &dyn LayoutChildren,
         ctx: ArrayContext,
+        session: &VortexSession,
     ) -> VortexResult<Self::Layout> {
         if segment_ids.len() != 1 {
             vortex_bail!("Flat layout must have exactly one segment ID");
@@ -111,6 +113,7 @@ impl VTable for FlatVTable {
             dtype.clone(),
             segment_ids[0],
             ctx,
+            session.clone(),
             metadata
                 .array_encoding_tree
                 .as_ref()
@@ -128,16 +131,24 @@ pub struct FlatLayout {
     dtype: DType,
     segment_id: SegmentId,
     ctx: ArrayContext,
+    session: VortexSession,
     array_tree: Option<ByteBuffer>,
 }
 
 impl FlatLayout {
-    pub fn new(row_count: u64, dtype: DType, segment_id: SegmentId, ctx: ArrayContext) -> Self {
+    pub fn new(
+        row_count: u64,
+        dtype: DType,
+        segment_id: SegmentId,
+        ctx: ArrayContext,
+        session: VortexSession,
+    ) -> Self {
         Self {
             row_count,
             dtype,
             segment_id,
             ctx,
+            session,
             array_tree: None,
         }
     }
@@ -147,6 +158,7 @@ impl FlatLayout {
         dtype: DType,
         segment_id: SegmentId,
         ctx: ArrayContext,
+        session: VortexSession,
         metadata: Option<ByteBuffer>,
     ) -> Self {
         Self {
@@ -154,6 +166,7 @@ impl FlatLayout {
             dtype,
             segment_id,
             ctx,
+            session,
             array_tree: metadata,
         }
     }
@@ -166,6 +179,11 @@ impl FlatLayout {
     #[inline]
     pub fn array_ctx(&self) -> &ArrayContext {
         &self.ctx
+    }
+
+    #[inline]
+    pub fn session(&self) -> &VortexSession {
+        &self.session
     }
 }
 

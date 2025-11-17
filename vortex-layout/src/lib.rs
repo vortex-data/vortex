@@ -26,6 +26,8 @@ pub mod segments;
 pub mod sequence;
 pub mod session;
 mod strategy;
+#[cfg(test)]
+mod test;
 pub mod vtable;
 
 pub type LayoutContext = VTableContext<LayoutEncodingRef>;

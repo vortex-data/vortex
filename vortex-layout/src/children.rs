@@ -10,6 +10,7 @@ use vortex_array::ArrayContext;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, layout as fbl};
+use vortex_session::VortexSession;
 
 use crate::segments::SegmentId;
 use crate::{LayoutContext, LayoutRef};
@@ -97,6 +98,7 @@ pub(crate) struct ViewedLayoutChildren {
     flatbuffer_loc: usize,
     array_ctx: ArrayContext,
     layout_ctx: LayoutContext,
+    session: VortexSession,
 }
 
 impl ViewedLayoutChildren {
@@ -110,12 +112,14 @@ impl ViewedLayoutChildren {
         flatbuffer_loc: usize,
         array_ctx: ArrayContext,
         layout_ctx: LayoutContext,
+        session: VortexSession,
     ) -> Self {
         Self {
             flatbuffer,
             flatbuffer_loc,
             array_ctx,
             layout_ctx,
+            session,
         }
     }
 
@@ -144,6 +148,7 @@ impl LayoutChildren for ViewedLayoutChildren {
             flatbuffer_loc: fb_child._tab.loc(),
             array_ctx: self.array_ctx.clone(),
             layout_ctx: self.layout_ctx.clone(),
+            session: self.session.clone(),
         };
         let encoding = self
             .layout_ctx
@@ -165,6 +170,7 @@ impl LayoutChildren for ViewedLayoutChildren {
                 .collect_vec(),
             &viewed_children,
             self.array_ctx.clone(),
+            &self.session,
         )
     }
 

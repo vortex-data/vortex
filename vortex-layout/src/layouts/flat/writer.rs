@@ -9,6 +9,7 @@ use vortex_array::{Array, ArrayContext};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_io::runtime::Handle;
+use vortex_session::VortexSession;
 
 use crate::layouts::flat::{FLAT_LAYOUT_INLINE_ARRAY_NODE, FlatLayout};
 use crate::layouts::zoned::{lower_bound, upper_bound};
@@ -38,6 +39,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
     async fn write_stream(
         &self,
         ctx: ArrayContext,
+        session: &VortexSession,
         segment_sink: SegmentSinkRef,
         mut stream: SendableSequentialStream,
         _eof: SequencePointer,
@@ -136,6 +138,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
             stream.dtype().clone(),
             segment_id,
             ctx.clone(),
+            session.clone(),
             array_node,
         )
         .into_layout())
@@ -167,6 +170,7 @@ mod tests {
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::{SequenceId, SequentialArrayStreamExt};
+    use crate::test::SESSION;
 
     // Currently, flat layouts do not force compute stats during write, they only retain
     // pre-computed stats.
@@ -181,6 +185,7 @@ mod tests {
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
+                    &SESSION,
                     segments.clone(),
                     array.to_array_stream().sequenced(ptr),
                     eof,
@@ -230,6 +235,7 @@ mod tests {
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
+                    &SESSION,
                     segments.clone(),
                     array.to_array_stream().sequenced(ptr),
                     eof,
@@ -298,6 +304,7 @@ mod tests {
                 let layout = FlatLayoutStrategy::default()
                     .write_stream(
                         ctx,
+                        &SESSION,
                         segments.clone(),
                         array.to_array_stream().sequenced(ptr),
                         eof,

@@ -214,6 +214,7 @@ mod test {
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::{SequenceId, SequentialArrayStreamExt};
+    use crate::test::SESSION;
 
     #[test]
     fn flat_identity() {
@@ -225,6 +226,7 @@ mod test {
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
+                    &SESSION,
                     segments.clone(),
                     array.to_array_stream().sequenced(ptr),
                     eof,
@@ -257,12 +259,14 @@ mod test {
     fn flat_expr() {
         block_on(|handle| async {
             let ctx = ArrayContext::empty();
+
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).to_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
+                    &SESSION,
                     segments.clone(),
                     array.to_array_stream().sequenced(ptr),
                     eof,
@@ -302,6 +306,7 @@ mod test {
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
+                    &SESSION,
                     segments.clone(),
                     array.to_array_stream().sequenced(ptr),
                     eof,
