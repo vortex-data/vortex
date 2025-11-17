@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::arrays::builder::VarBinBuilder;
 use vortex_array::arrays::{
     ConstantArray, DictArray, MaskedArray, VarBinArray, VarBinViewArray, VarBinViewVTable,
 };
@@ -93,6 +94,7 @@ impl Compressor for StringCompressor {
     fn schemes() -> &'static [&'static Self::SchemeType] {
         &[
             &UncompressedScheme,
+            &VarBinScheme,
             &DictScheme,
             &FSSTScheme,
             &ConstantScheme,
@@ -117,6 +119,9 @@ impl<T> StringScheme for T where T: Scheme<StatsType = StringStats, CodeType = S
 pub struct UncompressedScheme;
 
 #[derive(Debug, Copy, Clone)]
+pub struct VarBinScheme;
+
+#[derive(Debug, Copy, Clone)]
 pub struct DictScheme;
 
 #[derive(Debug, Copy, Clone)]
@@ -132,11 +137,12 @@ pub struct NullDominated;
 pub struct StringCode(u8);
 
 const UNCOMPRESSED_SCHEME: StringCode = StringCode(0);
-const DICT_SCHEME: StringCode = StringCode(1);
-const FSST_SCHEME: StringCode = StringCode(2);
-const CONSTANT_SCHEME: StringCode = StringCode(3);
+const VARBIN_SCHEME: StringCode = StringCode(1);
+const DICT_SCHEME: StringCode = StringCode(2);
+const FSST_SCHEME: StringCode = StringCode(3);
+const CONSTANT_SCHEME: StringCode = StringCode(4);
 
-const SPARSE_SCHEME: StringCode = StringCode(4);
+const SPARSE_SCHEME: StringCode = StringCode(5);
 
 impl Scheme for UncompressedScheme {
     type StatsType = StringStats;
@@ -164,6 +170,52 @@ impl Scheme for UncompressedScheme {
         _excludes: &[StringCode],
     ) -> VortexResult<ArrayRef> {
         Ok(stats.source().to_array())
+    }
+}
+
+impl Scheme for VarBinScheme {
+    type StatsType = StringStats;
+    type CodeType = StringCode;
+
+    fn code(&self) -> StringCode {
+        VARBIN_SCHEME
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        stats: &Self::StatsType,
+        is_sample: bool,
+        allowed_cascading: usize,
+        excludes: &[StringCode],
+    ) -> VortexResult<f64> {
+        estimate_compression_ratio_with_sampling(
+            self,
+            stats,
+            is_sample,
+            allowed_cascading,
+            excludes,
+        )
+    }
+
+    fn compress(
+        &self,
+        stats: &Self::StatsType,
+        _is_sample: bool,
+        _allowed_cascading: usize,
+        _excludes: &[StringCode],
+    ) -> VortexResult<ArrayRef> {
+        use vortex_array::accessor::ArrayAccessor;
+
+        let src = stats.source();
+        let mut builder = VarBinBuilder::<i32>::with_capacity(src.len());
+
+        src.with_iterator(|iter| {
+            for value in iter {
+                builder.append(value);
+            }
+        });
+
+        Ok(builder.finish(src.dtype().clone()).into_array())
     }
 }
 
