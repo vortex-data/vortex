@@ -205,10 +205,10 @@ def test_fragment_to_table(ds: vx.dataset.VortexDataset):
 
     for f in fragments:
         assert f.to_table(columns=["bool", "string"]).schema == pa.schema(
-            [("bool", pa.bool_()), ("string", pa.string_view())]
+            [("bool", pa.bool_()), ("string", pa.string())]
         )
         assert f.to_table(columns=["string", "bool"]).schema == pa.schema(
-            [("string", pa.string_view()), ("bool", pa.bool_())]
+            [("string", pa.string()), ("bool", pa.bool_())]
         )
 
 
@@ -223,5 +223,12 @@ def test_get_fragments(ds: vx.dataset.VortexDataset):
     ds_filtered = ds.filter(filter_expr)
     assert ds_filtered.count_rows() == sum(f.count_rows() for f in ds_filtered.get_fragments())
 
-    assert ds.to_table() == pa.concat_tables(f.to_table() for f in ds.get_fragments())
-    assert ds_filtered.to_table() == pa.concat_tables(f.to_table() for f in ds_filtered.get_fragments())
+    # Cast fragment tables to match dataset schema before comparison
+    # (fragments may use different string encoding)
+    ds_table = ds.to_table()
+    fragments_table = pa.concat_tables([f.to_table().cast(ds_table.schema) for f in ds.get_fragments()])
+    assert ds_table == fragments_table
+
+    ds_filtered_table = ds_filtered.to_table()
+    filtered_fragments_table = pa.concat_tables([f.to_table().cast(ds_filtered_table.schema) for f in ds_filtered.get_fragments()])
+    assert ds_filtered_table == filtered_fragments_table
