@@ -184,7 +184,7 @@ impl Scheme for VarBinScheme {
 
     fn expected_compression_ratio(
         &self,
-        _stats: &Self::StatsType,
+        stats: &Self::StatsType,
         _is_sample: bool,
         _allowed_cascading: usize,
         _excludes: &[StringCode],
