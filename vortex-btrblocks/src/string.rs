@@ -199,8 +199,8 @@ impl Scheme for VarBinScheme {
         let varbinview_size = src.as_ref().nbytes();
 
         let string_bytes = src.buffers().iter().map(|b| b.len() as u64).sum::<u64>();
-        let offest_bytes = src.len() as u64 * 4;
-        let varbin_size = string_bytes + offest_bytes;
+        let offset_bytes = src.len() as u64 * 4;
+        let varbin_size = string_bytes + offset_bytes;
         assert!(varbin_size > 0, "cannot be empty");
 
         Ok(varbinview_size as f64 / varbin_size as f64)
