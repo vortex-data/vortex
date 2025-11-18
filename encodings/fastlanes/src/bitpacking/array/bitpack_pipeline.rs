@@ -203,12 +203,15 @@ impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<
 
 #[cfg(test)]
 mod tests {
+    use itertools::Itertools;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_dtype::PTypeDowncast;
+    use vortex_dtype::{PTypeDowncast, PTypeDowncastExt};
     use vortex_mask::Mask;
     use vortex_vector::VectorOps;
 
     use crate::BitPackedArray;
+    use crate::bitpack_compress::bitpack_encode;
 
     #[test]
     fn test_bitpack_pipeline_basic() {
@@ -406,6 +409,26 @@ mod tests {
                     i
                 );
             }
+        }
+    }
+
+    #[test]
+    fn test_pipeline() {
+        let array = PrimitiveArray::from_iter(0u64..2048u64);
+        let packed = bitpack_encode(&array, 12, None).unwrap().into_array();
+
+        // Only select odd numbered elements
+        let select_indices = (0..2048).filter(|i| i % 2 == 1).collect_vec();
+        let selection = Mask::from_indices(2048, select_indices);
+
+        let result = packed.execute_with_selection(&selection).unwrap();
+        assert_eq!(result.len(), 1024);
+
+        let result = result.into_primitive().downcast::<u64>();
+
+        let slice = result.as_ref();
+        for i in 0..1024 {
+            assert_eq!(slice[i], (2 * i + 1) as u64);
         }
     }
 }

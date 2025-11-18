@@ -108,17 +108,41 @@ impl<'a, const NB: usize, T: Copy> Filter<BitView<'a, NB>> for &mut [T] {
                     }
                 }
                 _ => {
+                    // Iterate the bits in a word, attempting to copy contiguous runs of values.
+                    let mut read_pos = 0;
+                    let mut write_pos = 0;
                     while word != 0 {
-                        let bit_pos = word.trailing_zeros();
-                        word &= word - 1; // Clear the bit at `bit_pos`
-                        let span = word.trailing_ones();
-                        word >>= span;
-                        unsafe {
-                            ptr::copy(read_ptr.add(bit_pos as usize), write_ptr, span as usize);
-                            write_ptr = write_ptr.add(span as usize);
+                        let tz = word.trailing_zeros();
+                        if tz > 0 {
+                            // shift off the trailing zeros since they are unselected.
+                            // this advances the read head, but not the write head.
+                            read_pos += tz;
+                            word >>= tz;
+                            continue;
                         }
+
+                        // copy the next several values to our out pointer.
+                        let extent = word.trailing_ones();
+                        unsafe {
+                            ptr::copy(
+                                read_ptr.add(read_pos as usize),
+                                write_ptr.add(write_pos as usize),
+                                extent as usize,
+                            );
+                        }
+                        // Advance the reader and writer by the number of values
+                        // we just copied.
+                        read_pos += extent;
+                        write_pos += extent;
+
+                        // shift off the low bits of the word so we can copy the next run.
+                        word >>= extent;
                     }
-                    unsafe { read_ptr = read_ptr.add(usize::BITS as usize) };
+
+                    unsafe {
+                        read_ptr = read_ptr.add(usize::BITS as usize);
+                        write_ptr = write_ptr.add(write_pos as usize);
+                    };
                 }
             }
         }
