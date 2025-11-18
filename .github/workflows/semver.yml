@@ -18,6 +18,8 @@ jobs:
       - run:
           echo "BASELINE=$(gh release view --json tagName -t '{{.tagName}}')" >> $GITHUB_OUTPUT
         id: latest_release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Automatically provided token
       - name: Check semver
         uses: obi1kenobi/cargo-semver-checks-action@v2
         with:
