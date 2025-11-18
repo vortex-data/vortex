@@ -16,12 +16,10 @@ use vortex_vector::bool::BoolVector;
 use crate::execution::{BatchKernelRef, BindCtx, kernel};
 use crate::serde::ArrayChildren;
 use crate::stats::{ArrayStats, StatsSetRef};
-use crate::vtable::{
-    ArrayVTable, NotSupported, OperatorVTable, SerdeVTable, VTable, VisitorVTable,
-};
+use crate::vtable::{ArrayVTable, NotSupported, OperatorVTable, VTable, VisitorVTable};
 use crate::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef,
-    DeserializeMetadata, EmptyMetadata, EncodingId, EncodingRef, Precision, vtable,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, EmptyMetadata,
+    EncodingId, EncodingRef, Precision, vtable,
 };
 
 /// The set of operators supported by a logical array.
@@ -94,6 +92,8 @@ static ENCODINGS: LazyLock<EnumMap<LogicalOperator, EncodingRef>> = LazyLock::ne
 impl VTable for LogicalVTable {
     type Array = LogicalArray;
     type Encoding = LogicalEncoding;
+    type Metadata = EmptyMetadata;
+
     type ArrayVTable = Self;
     type CanonicalVTable = NotSupported;
     type OperationsVTable = NotSupported;
@@ -101,7 +101,6 @@ impl VTable for LogicalVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type SerdeVTable = Self;
     type OperatorVTable = Self;
 
     fn id(encoding: &Self::Encoding) -> EncodingId {
@@ -116,6 +115,34 @@ impl VTable for LogicalVTable {
 
     fn encoding(array: &Self::Array) -> EncodingRef {
         array.encoding.clone()
+    }
+
+    fn metadata(_array: &LogicalArray) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
+    }
+
+    fn deserialize(_buffer: &[u8]) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn build(
+        encoding: &LogicalEncoding,
+        dtype: &DType,
+        len: usize,
+        _metadata: &Self::Metadata,
+        buffers: &[ByteBuffer],
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<LogicalArray> {
+        assert!(buffers.is_empty());
+        Ok(LogicalArray::new(
+            children.get(0, dtype, len)?,
+            children.get(1, dtype, len)?,
+            encoding.operator,
+        ))
     }
 }
 
@@ -150,30 +177,6 @@ impl VisitorVTable<LogicalVTable> for LogicalVTable {
     fn visit_children(array: &LogicalArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("lhs", array.lhs.as_ref());
         visitor.visit_child("rhs", array.rhs.as_ref());
-    }
-}
-
-impl SerdeVTable<LogicalVTable> for LogicalVTable {
-    type Metadata = EmptyMetadata;
-
-    fn metadata(_array: &LogicalArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(EmptyMetadata))
-    }
-
-    fn build(
-        encoding: &LogicalEncoding,
-        dtype: &DType,
-        len: usize,
-        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        buffers: &[ByteBuffer],
-        children: &dyn ArrayChildren,
-    ) -> VortexResult<LogicalArray> {
-        assert!(buffers.is_empty());
-        Ok(LogicalArray::new(
-            children.get(0, dtype, len)?,
-            children.get(1, dtype, len)?,
-            encoding.operator,
-        ))
     }
 }
 

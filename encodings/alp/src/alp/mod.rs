@@ -11,7 +11,36 @@ mod array;
 mod compress;
 mod compute;
 mod ops;
-mod serde;
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::ProstMetadata;
+    use vortex_array::patches::PatchesMetadata;
+    use vortex_array::test_harness::check_metadata;
+    use vortex_dtype::PType;
+
+    use crate::alp::array::ALPMetadata;
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_alp_metadata() {
+        check_metadata(
+            "alp.metadata",
+            ProstMetadata(ALPMetadata {
+                patches: Some(PatchesMetadata::new(
+                    usize::MAX,
+                    usize::MAX,
+                    PType::U64,
+                    None,
+                    None,
+                    None,
+                )),
+                exp_e: u32::MAX,
+                exp_f: u32::MAX,
+            }),
+        );
+    }
+}
 
 pub use array::*;
 pub use compress::*;

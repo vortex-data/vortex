@@ -4,19 +4,21 @@
 use std::hash::Hasher;
 use std::ops::Not;
 
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_vector::VectorOps;
 use vortex_vector::bool::BoolVector;
 
 use crate::execution::{BatchKernelRef, BindCtx, kernel};
+use crate::serde::ArrayChildren;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::vtable::{ArrayVTable, NotSupported, OperatorVTable, VTable, VisitorVTable};
 use crate::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, EncodingId, EncodingRef,
-    Precision, vtable,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, EmptyMetadata, EncodingId,
+    EncodingRef, Precision, vtable,
 };
 
 vtable!(IsNull);
@@ -43,6 +45,8 @@ pub struct IsNullEncoding;
 impl VTable for IsNullVTable {
     type Array = IsNullArray;
     type Encoding = IsNullEncoding;
+    type Metadata = EmptyMetadata;
+
     type ArrayVTable = Self;
     type CanonicalVTable = NotSupported;
     type OperationsVTable = NotSupported;
@@ -50,7 +54,6 @@ impl VTable for IsNullVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type SerdeVTable = NotSupported;
     type OperatorVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -59,6 +62,29 @@ impl VTable for IsNullVTable {
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
         EncodingRef::from(IsNullEncoding.as_ref())
+    }
+
+    fn metadata(_array: &Self::Array) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(None)
+    }
+
+    fn deserialize(_buffer: &[u8]) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn build(
+        _encoding: &Self::Encoding,
+        _dtype: &DType,
+        _len: usize,
+        _metadata: &Self::Metadata,
+        _buffers: &[ByteBuffer],
+        _children: &dyn ArrayChildren,
+    ) -> VortexResult<Self::Array> {
+        vortex_bail!("IsNullArray cannot be deserialized")
     }
 }
 

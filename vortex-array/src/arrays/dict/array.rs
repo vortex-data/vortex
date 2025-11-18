@@ -4,22 +4,38 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use vortex_buffer::BitBuffer;
-use vortex_dtype::{DType, match_each_integer_ptype};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
+use vortex_buffer::{BitBuffer, ByteBuffer};
+use vortex_dtype::{DType, Nullability, PType, match_each_integer_ptype};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::{AllOr, Mask};
 
+use crate::builders::dict::dict_encode;
+use crate::serde::ArrayChildren;
 use crate::stats::{ArrayStats, StatsSetRef};
-use crate::vtable::{ArrayVTable, NotSupported, VTable, ValidityVTable};
+use crate::vtable::{ArrayVTable, EncodeVTable, NotSupported, VTable, ValidityVTable, VisitorVTable};
 use crate::{
-    Array, ArrayEq, ArrayHash, ArrayRef, EncodingId, EncodingRef, Precision, ToCanonical, vtable,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
+    DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata, SerializeMetadata,
+    ToCanonical, vtable,
 };
 
 vtable!(Dict);
 
+#[derive(Clone, prost::Message)]
+pub struct DictMetadata {
+    #[prost(uint32, tag = "1")]
+    pub(super) values_len: u32,
+    #[prost(enumeration = "PType", tag = "2")]
+    pub(super) codes_ptype: i32,
+    // nullable codes are optional since they were added after stabilisation
+    #[prost(optional, bool, tag = "3")]
+    pub(super) is_nullable_codes: Option<bool>,
+}
+
 impl VTable for DictVTable {
     type Array = DictArray;
     type Encoding = DictEncoding;
+    type Metadata = ProstMetadata<DictMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
@@ -28,7 +44,6 @@ impl VTable for DictVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type SerdeVTable = Self;
     type OperatorVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -37,6 +52,55 @@ impl VTable for DictVTable {
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
         EncodingRef::new_ref(DictEncoding.as_ref())
+    }
+
+    fn metadata(array: &DictArray) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(DictMetadata {
+            codes_ptype: PType::try_from(array.codes().dtype())? as i32,
+            values_len: u32::try_from(array.values().len()).map_err(|_| {
+                vortex_err!(
+                    "Dictionary values size {} overflowed u32",
+                    array.values().len()
+                )
+            })?,
+            is_nullable_codes: Some(array.codes().dtype().is_nullable()),
+        }))
+    }
+
+    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialize()))
+    }
+
+    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
+        let metadata = <Self::Metadata as DeserializeMetadata>::deserialize(buffer)?;
+        Ok(ProstMetadata(metadata))
+    }
+
+    fn build(
+        _encoding: &DictEncoding,
+        dtype: &DType,
+        len: usize,
+        metadata: &Self::Metadata,
+        _buffers: &[ByteBuffer],
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<DictArray> {
+        if children.len() != 2 {
+            vortex_bail!(
+                "Expected 2 children for dict encoding, found {}",
+                children.len()
+            )
+        }
+        let codes_nullable = metadata
+            .is_nullable_codes
+            .map(Nullability::from)
+            // If no `is_nullable_codes` metadata use the nullability of the values
+            // (and whole array) as before.
+            .unwrap_or_else(|| dtype.nullability());
+        let codes_dtype = DType::Primitive(metadata.codes_ptype(), codes_nullable);
+        let codes = children.get(0, &codes_dtype, len)?;
+        let values = children.get(1, dtype, metadata.values_len as usize)?;
+
+        DictArray::try_new(codes, values)
     }
 }
 
@@ -188,6 +252,25 @@ impl ValidityVTable<DictVTable> for DictVTable {
     }
 }
 
+impl EncodeVTable<DictVTable> for DictVTable {
+    fn encode(
+        _encoding: &DictEncoding,
+        canonical: &Canonical,
+        _like: Option<&DictArray>,
+    ) -> VortexResult<Option<DictArray>> {
+        Ok(Some(dict_encode(canonical.as_ref())?))
+    }
+}
+
+impl VisitorVTable<DictVTable> for DictVTable {
+    fn visit_buffers(_array: &DictArray, _visitor: &mut dyn ArrayBufferVisitor) {}
+
+    fn visit_children(array: &DictArray, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("codes", array.codes());
+        visitor.visit_child("values", array.values());
+    }
+}
+
 #[cfg(test)]
 mod test {
     #[allow(unused_imports)]
@@ -328,5 +411,22 @@ mod test {
         let prim_into = builder.finish_into_canonical().into_primitive();
 
         assert_arrays_eq!(into_prim, prim_into);
+    }
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_dict_metadata() {
+        use super::DictMetadata;
+        use crate::ProstMetadata;
+        use crate::test_harness::check_metadata;
+
+        check_metadata(
+            "dict.metadata",
+            ProstMetadata(DictMetadata {
+                codes_ptype: PType::U64 as i32,
+                values_len: u32::MAX,
+                is_nullable_codes: None,
+            }),
+        );
     }
 }

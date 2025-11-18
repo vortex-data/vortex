@@ -6,21 +6,23 @@ use std::hash::Hash;
 use std::ops::Range;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::vortex_panic;
+use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrow::FromArrowArray;
+use crate::serde::ArrayChildren;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityVTable,
     VisitorVTable,
 };
 use crate::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef,
-    IntoArray, Precision, vtable,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EmptyMetadata, EncodingId,
+    EncodingRef, IntoArray, Precision, vtable,
 };
 
 vtable!(Arrow);
@@ -28,6 +30,8 @@ vtable!(Arrow);
 impl VTable for ArrowVTable {
     type Array = ArrowArray;
     type Encoding = ArrowEncoding;
+    type Metadata = EmptyMetadata;
+
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
     type OperationsVTable = Self;
@@ -36,7 +40,6 @@ impl VTable for ArrowVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
     type OperatorVTable = NotSupported;
-    type SerdeVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.arrow")
@@ -44,6 +47,29 @@ impl VTable for ArrowVTable {
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
         EncodingRef::new_ref(ArrowEncoding.as_ref())
+    }
+
+    fn metadata(_array: &Self::Array) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(None)
+    }
+
+    fn deserialize(_buffer: &[u8]) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn build(
+        _encoding: &Self::Encoding,
+        _dtype: &DType,
+        _len: usize,
+        _metadata: &Self::Metadata,
+        _buffers: &[ByteBuffer],
+        _children: &dyn ArrayChildren,
+    ) -> VortexResult<Self::Array> {
+        vortex_bail!("ArrowArray cannot be deserialized")
     }
 }
 

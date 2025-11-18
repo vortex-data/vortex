@@ -6,31 +6,40 @@ use std::hash::Hash;
 
 use itertools::Itertools as _;
 use num_traits::AsPrimitive;
+use prost::Message as _;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{Operator, compare, fill_null, filter, sub_scalar};
-use vortex_array::patches::Patches;
+use vortex_array::patches::{Patches, PatchesMetadata};
+use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::{ArrayVTable, NotSupported, VTable, ValidityVTable};
+use vortex_array::vtable::{ArrayVTable, EncodeVTable, NotSupported, VTable, ValidityVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayEq, ArrayHash, ArrayRef, EncodingId, EncodingRef, IntoArray, Precision,
-    ToCanonical, vtable,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
+    EncodingId, EncodingRef, IntoArray, Precision, ProstMetadata, ToCanonical, vtable,
 };
-use vortex_buffer::{BitBufferMut, Buffer};
+use vortex_buffer::{BitBufferMut, Buffer, ByteBuffer, ByteBufferMut};
 use vortex_dtype::{DType, NativePType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_ensure};
 use vortex_mask::{AllOr, Mask};
-use vortex_scalar::Scalar;
+use vortex_scalar::{Scalar, ScalarValue};
 
 mod canonical;
 mod compute;
 mod ops;
-mod serde;
 
 vtable!(Sparse);
+
+#[derive(Clone, prost::Message)]
+#[repr(C)]
+pub struct SparseMetadata {
+    #[prost(message, required, tag = "1")]
+    patches: PatchesMetadata,
+}
 
 impl VTable for SparseVTable {
     type Array = SparseArray;
     type Encoding = SparseEncoding;
+    type Metadata = ProstMetadata<SparseMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
@@ -39,7 +48,6 @@ impl VTable for SparseVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type SerdeVTable = Self;
     type OperatorVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -48,6 +56,55 @@ impl VTable for SparseVTable {
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
         EncodingRef::new_ref(SparseEncoding.as_ref())
+    }
+
+    fn metadata(array: &SparseArray) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(SparseMetadata {
+            patches: array.patches().to_metadata(array.len(), array.dtype())?,
+        }))
+    }
+
+    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.0.encode_to_vec()))
+    }
+
+    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(SparseMetadata::decode(buffer)?))
+    }
+
+    fn build(
+        _encoding: &SparseEncoding,
+        dtype: &DType,
+        len: usize,
+        metadata: &Self::Metadata,
+        buffers: &[ByteBuffer],
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<SparseArray> {
+        if children.len() != 2 {
+            vortex_bail!(
+                "Expected 2 children for sparse encoding, found {}",
+                children.len()
+            )
+        }
+        assert_eq!(
+            metadata.0.patches.offset(),
+            0,
+            "Patches must start at offset 0"
+        );
+
+        let patch_indices = children.get(
+            0,
+            &metadata.0.patches.indices_dtype(),
+            metadata.0.patches.len(),
+        )?;
+        let patch_values = children.get(1, dtype, metadata.0.patches.len())?;
+
+        if buffers.len() != 1 {
+            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
+        }
+        let fill_value = Scalar::new(dtype.clone(), ScalarValue::from_protobytes(&buffers[0])?);
+
+        SparseArray::try_new(patch_indices, patch_values, len, fill_value)
     }
 }
 
@@ -351,6 +408,37 @@ fn patch_validity<I: NativePType + AsPrimitive<usize>>(
                 is_valid_buffer.set_to(index, is_valid);
             }
         }
+    }
+}
+
+impl EncodeVTable<SparseVTable> for SparseVTable {
+    fn encode(
+        _encoding: &SparseEncoding,
+        input: &Canonical,
+        like: Option<&SparseArray>,
+    ) -> VortexResult<Option<SparseArray>> {
+        // Try and cast the "like" fill value into the array's type. This is useful for cases where we narrow the arrays type.
+        let fill_value = like.and_then(|arr| arr.fill_scalar().cast(input.as_ref().dtype()).ok());
+
+        // TODO(ngates): encode should only handle arrays that _can_ be made sparse.
+        Ok(SparseArray::encode(input.as_ref(), fill_value)?
+            .as_opt::<SparseVTable>()
+            .cloned())
+    }
+}
+
+impl VisitorVTable<SparseVTable> for SparseVTable {
+    fn visit_buffers(array: &SparseArray, visitor: &mut dyn ArrayBufferVisitor) {
+        let fill_value_buffer = array
+            .fill_value
+            .value()
+            .to_protobytes::<ByteBufferMut>()
+            .freeze();
+        visitor.visit_buffer(&fill_value_buffer);
+    }
+
+    fn visit_children(array: &SparseArray, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_patches(array.patches())
     }
 }
 

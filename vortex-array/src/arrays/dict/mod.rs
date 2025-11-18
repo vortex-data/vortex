@@ -13,4 +13,3 @@ mod canonical;
 mod compute;
 mod display;
 mod ops;
-mod serde;

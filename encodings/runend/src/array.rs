@@ -6,13 +6,15 @@ use std::hash::Hash;
 
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::search_sorted::{SearchSorted, SearchSortedSide};
+use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTable};
 use vortex_array::{
-    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, Precision,
-    ToCanonical, vtable,
+    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, DeserializeMetadata, EncodingId, EncodingRef,
+    IntoArray, Precision, ProstMetadata, SerializeMetadata, ToCanonical, vtable,
 };
-use vortex_dtype::DType;
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_ensure, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
@@ -21,9 +23,20 @@ use crate::compress::{runend_decode_bools, runend_decode_primitive, runend_encod
 
 vtable!(RunEnd);
 
+#[derive(Clone, prost::Message)]
+pub struct RunEndMetadata {
+    #[prost(enumeration = "PType", tag = "1")]
+    pub ends_ptype: i32,
+    #[prost(uint64, tag = "2")]
+    pub num_runs: u64,
+    #[prost(uint64, tag = "3")]
+    pub offset: u64,
+}
+
 impl VTable for RunEndVTable {
     type Array = RunEndArray;
     type Encoding = RunEndEncoding;
+    type Metadata = ProstMetadata<RunEndMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
@@ -32,7 +45,6 @@ impl VTable for RunEndVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type SerdeVTable = Self;
     type OperatorVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -41,6 +53,46 @@ impl VTable for RunEndVTable {
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
         EncodingRef::new_ref(RunEndEncoding.as_ref())
+    }
+
+    fn metadata(array: &RunEndArray) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(RunEndMetadata {
+            ends_ptype: PType::try_from(array.ends().dtype()).vortex_expect("Must be a valid PType")
+                as i32,
+            num_runs: array.ends().len() as u64,
+            offset: array.offset() as u64,
+        }))
+    }
+
+    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialize()))
+    }
+
+    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
+        let inner = <ProstMetadata<RunEndMetadata> as DeserializeMetadata>::deserialize(buffer)?;
+        Ok(ProstMetadata(inner))
+    }
+
+    fn build(
+        _encoding: &RunEndEncoding,
+        dtype: &DType,
+        len: usize,
+        metadata: &Self::Metadata,
+        _buffers: &[ByteBuffer],
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<RunEndArray> {
+        let ends_dtype = DType::Primitive(metadata.ends_ptype(), Nullability::NonNullable);
+        let runs = usize::try_from(metadata.num_runs).vortex_expect("Must be a valid usize");
+        let ends = children.get(0, &ends_dtype, runs)?;
+
+        let values = children.get(1, dtype, runs)?;
+
+        RunEndArray::try_new_offset_length(
+            ends,
+            values,
+            usize::try_from(metadata.offset).vortex_expect("Offset must be a valid usize"),
+            len,
+        )
     }
 }
 

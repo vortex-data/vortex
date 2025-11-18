@@ -1,16 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::DType;
+use vortex_error::{VortexResult, vortex_bail};
+use vortex_scalar::{Scalar, ScalarValue};
+
 use crate::arrays::ConstantArray;
+use crate::serde::ArrayChildren;
 use crate::vtable::{NotSupported, VTable};
-use crate::{EncodingId, EncodingRef, vtable};
+use crate::{EmptyMetadata, EncodingId, EncodingRef, vtable};
 
 mod array;
 mod canonical;
 mod encode;
 mod operations;
 mod operator;
-mod serde;
 mod validity;
 mod visitor;
 
@@ -22,6 +27,7 @@ pub struct ConstantEncoding;
 impl VTable for ConstantVTable {
     type Array = ConstantArray;
     type Encoding = ConstantEncoding;
+    type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
@@ -32,7 +38,6 @@ impl VTable for ConstantVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type OperatorVTable = Self;
-    type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.constant")
@@ -40,5 +45,33 @@ impl VTable for ConstantVTable {
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
         EncodingRef::new_ref(ConstantEncoding.as_ref())
+    }
+
+    fn metadata(_array: &ConstantArray) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
+    }
+
+    fn deserialize(_buffer: &[u8]) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn build(
+        _encoding: &ConstantEncoding,
+        dtype: &DType,
+        len: usize,
+        _metadata: &Self::Metadata,
+        buffers: &[ByteBuffer],
+        _children: &dyn ArrayChildren,
+    ) -> VortexResult<ConstantArray> {
+        if buffers.len() != 1 {
+            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
+        }
+        let sv = ScalarValue::from_protobytes(&buffers[0])?;
+        let scalar = Scalar::new(dtype.clone(), sv);
+        Ok(ConstantArray::new(scalar, len))
     }
 }

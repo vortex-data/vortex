@@ -2,30 +2,41 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod compute;
-mod serde;
 
 use std::hash::Hash;
 use std::ops::Range;
 
+use prost::Message as _;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityChild,
-    ValidityHelper, ValidityVTableFromChild,
+    ValidityHelper, ValidityVTableFromChild, VisitorVTable,
 };
 use vortex_array::{
-    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, Precision,
-    ToCanonical, vtable,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, Precision, ProstMetadata,
+    SerializeMetadata, ToCanonical, vtable,
 };
-use vortex_dtype::{DType, DecimalDType, match_each_signed_integer_ptype};
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::{DType, DecimalDType, PType, match_each_signed_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::{DecimalValue, Scalar};
 
 vtable!(DecimalByteParts);
 
+#[derive(Clone, prost::Message)]
+pub struct DecimalBytesPartsMetadata {
+    #[prost(enumeration = "PType", tag = "1")]
+    zeroth_child_ptype: i32,
+    #[prost(uint32, tag = "2")]
+    lower_part_count: u32,
+}
+
 impl VTable for DecimalBytePartsVTable {
     type Array = DecimalBytePartsArray;
     type Encoding = DecimalBytePartsEncoding;
+    type Metadata = ProstMetadata<DecimalBytesPartsMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
@@ -34,7 +45,6 @@ impl VTable for DecimalBytePartsVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type SerdeVTable = Self;
     type OperatorVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -43,6 +53,45 @@ impl VTable for DecimalBytePartsVTable {
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
         EncodingRef::new_ref(DecimalBytePartsEncoding.as_ref())
+    }
+
+    fn metadata(array: &DecimalBytePartsArray) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(DecimalBytesPartsMetadata {
+            zeroth_child_ptype: PType::try_from(array.msp.dtype())? as i32,
+            lower_part_count: 0,
+        }))
+    }
+
+    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialize()))
+    }
+
+    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(DecimalBytesPartsMetadata::decode(buffer)?))
+    }
+
+    fn build(
+        _encoding: &DecimalBytePartsEncoding,
+        dtype: &DType,
+        len: usize,
+        metadata: &Self::Metadata,
+        _buffers: &[ByteBuffer],
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<DecimalBytePartsArray> {
+        let Some(decimal_dtype) = dtype.as_decimal_opt() else {
+            vortex_bail!("decoding decimal but given non decimal dtype {}", dtype)
+        };
+
+        let encoded_dtype = DType::Primitive(metadata.zeroth_child_ptype(), dtype.nullability());
+
+        let msp = children.get(0, &encoded_dtype, len)?;
+
+        assert_eq!(
+            metadata.lower_part_count, 0,
+            "lower_part_count > 0 not currently supported"
+        );
+
+        DecimalBytePartsArray::try_new(msp, *decimal_dtype)
     }
 }
 
@@ -179,6 +228,14 @@ impl ValidityChild<DecimalBytePartsVTable> for DecimalBytePartsVTable {
     fn validity_child(array: &DecimalBytePartsArray) -> &dyn Array {
         // validity stored in 0th child
         array.msp.as_ref()
+    }
+}
+
+impl VisitorVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
+    fn visit_buffers(_array: &DecimalBytePartsArray, _visitor: &mut dyn ArrayBufferVisitor) {}
+
+    fn visit_children(array: &DecimalBytePartsArray, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("msp", &array.msp);
     }
 }
 

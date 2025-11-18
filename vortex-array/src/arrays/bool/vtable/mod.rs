@@ -1,23 +1,38 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::DType;
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+
 use crate::arrays::BoolArray;
+use crate::serde::ArrayChildren;
+use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{EncodingId, EncodingRef, vtable};
+use crate::{
+    DeserializeMetadata, EncodingId, EncodingRef, ProstMetadata, SerializeMetadata, vtable,
+};
 
 mod array;
 mod canonical;
 mod operations;
 mod operator;
-mod serde;
 mod validity;
 mod visitor;
 
 vtable!(Bool);
 
+#[derive(prost::Message)]
+pub struct BoolMetadata {
+    // The offset in bits must be <8
+    #[prost(uint32, tag = "1")]
+    pub offset: u32,
+}
+
 impl VTable for BoolVTable {
     type Array = BoolArray;
     type Encoding = BoolEncoding;
+    type Metadata = ProstMetadata<BoolMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
@@ -27,7 +42,6 @@ impl VTable for BoolVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
     type OperatorVTable = Self;
-    type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.bool")
@@ -35,6 +49,47 @@ impl VTable for BoolVTable {
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
         EncodingRef::new_ref(BoolEncoding.as_ref())
+    }
+
+    fn metadata(array: &BoolArray) -> VortexResult<Self::Metadata> {
+        let bit_offset = array.bit_buffer().offset();
+        assert!(bit_offset < 8, "Offset must be <8, got {bit_offset}");
+        Ok(ProstMetadata(BoolMetadata {
+            offset: u32::try_from(bit_offset).vortex_expect("checked"),
+        }))
+    }
+
+    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialize()))
+    }
+
+    fn deserialize(bytes: &[u8]) -> VortexResult<Self::Metadata> {
+        let metadata = <Self::Metadata as DeserializeMetadata>::deserialize(bytes)?;
+        Ok(ProstMetadata(metadata))
+    }
+
+    fn build(
+        _encoding: &Self::Encoding,
+        dtype: &DType,
+        len: usize,
+        metadata: &Self::Metadata,
+        buffers: &[ByteBuffer],
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<BoolArray> {
+        if buffers.len() != 1 {
+            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
+        }
+
+        let validity = if children.is_empty() {
+            Validity::from(dtype.nullability())
+        } else if children.len() == 1 {
+            let validity = children.get(0, &Validity::DTYPE, len)?;
+            Validity::Array(validity)
+        } else {
+            vortex_bail!("Expected 0 or 1 child, got {}", children.len());
+        };
+
+        BoolArray::try_new(buffers[0].clone(), metadata.offset as usize, len, validity)
     }
 }
 

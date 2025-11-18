@@ -1,15 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::{DType, Nullability, PType};
+use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
+
 use crate::arrays::ListViewArray;
+use crate::serde::ArrayChildren;
+use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{EncodingId, EncodingRef, vtable};
+use crate::{
+    DeserializeMetadata, EncodingId, EncodingRef, ProstMetadata, SerializeMetadata, vtable,
+};
 
 mod array;
 mod canonical;
 mod operations;
 mod operator;
-mod serde;
 mod validity;
 mod visitor;
 
@@ -18,9 +25,20 @@ vtable!(ListView);
 #[derive(Clone, Debug)]
 pub struct ListViewEncoding;
 
+#[derive(Clone, prost::Message)]
+pub struct ListViewMetadata {
+    #[prost(uint64, tag = "1")]
+    elements_len: u64,
+    #[prost(enumeration = "PType", tag = "2")]
+    offset_ptype: i32,
+    #[prost(enumeration = "PType", tag = "3")]
+    size_ptype: i32,
+}
+
 impl VTable for ListViewVTable {
     type Array = ListViewArray;
     type Encoding = ListViewEncoding;
+    type Metadata = ProstMetadata<ListViewMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
@@ -30,7 +48,6 @@ impl VTable for ListViewVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
     type OperatorVTable = Self;
-    type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.listview")
@@ -38,5 +55,75 @@ impl VTable for ListViewVTable {
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
         EncodingRef::new_ref(ListViewEncoding.as_ref())
+    }
+
+    fn metadata(array: &ListViewArray) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(ListViewMetadata {
+            elements_len: array.elements().len() as u64,
+            offset_ptype: PType::try_from(array.offsets().dtype())? as i32,
+            size_ptype: PType::try_from(array.sizes().dtype())? as i32,
+        }))
+    }
+
+    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialize()))
+    }
+
+    fn deserialize(bytes: &[u8]) -> VortexResult<Self::Metadata> {
+        let metadata = <Self::Metadata as DeserializeMetadata>::deserialize(bytes)?;
+        Ok(ProstMetadata(metadata))
+    }
+
+    fn build(
+        _encoding: &ListViewEncoding,
+        dtype: &DType,
+        len: usize,
+        metadata: &Self::Metadata,
+        buffers: &[ByteBuffer],
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<ListViewArray> {
+        vortex_ensure!(
+            buffers.is_empty(),
+            "`ListViewArray::build` expects no buffers"
+        );
+
+        let DType::List(element_dtype, _) = dtype else {
+            vortex_bail!("Expected List dtype, got {:?}", dtype);
+        };
+
+        let validity = if children.len() == 3 {
+            Validity::from(dtype.nullability())
+        } else if children.len() == 4 {
+            let validity = children.get(3, &Validity::DTYPE, len)?;
+            Validity::Array(validity)
+        } else {
+            vortex_bail!(
+                "`ListViewArray::build` expects 3 or 4 children, got {}",
+                children.len()
+            );
+        };
+
+        // Get elements with the correct length from metadata.
+        let elements = children.get(
+            0,
+            element_dtype.as_ref(),
+            usize::try_from(metadata.0.elements_len)?,
+        )?;
+
+        // Get offsets with proper type from metadata.
+        let offsets = children.get(
+            1,
+            &DType::Primitive(metadata.0.offset_ptype(), Nullability::NonNullable),
+            len,
+        )?;
+
+        // Get sizes with proper type from metadata.
+        let sizes = children.get(
+            2,
+            &DType::Primitive(metadata.0.size_ptype(), Nullability::NonNullable),
+            len,
+        )?;
+
+        ListViewArray::try_new(elements, offsets, sizes, validity)
     }
 }

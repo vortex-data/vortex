@@ -4,28 +4,47 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use itertools::Itertools;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::patches::Patches;
+use vortex_array::patches::{Patches, PatchesMetadata};
+use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
+    ArrayVTable, CanonicalVTable, EncodeVTable, NotSupported, VTable, ValidityChild,
+    ValidityVTableFromChild, VisitorVTable,
 };
 use vortex_array::{
-    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, Precision,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
+    DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata, SerializeMetadata,
     ToCanonical, vtable,
 };
-use vortex_buffer::Buffer;
-use vortex_dtype::{DType, PType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_buffer::{Buffer, ByteBuffer};
+use vortex_dtype::{DType, Nullability, PType};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::alp_rd::alp_rd_decode;
 
 vtable!(ALPRD);
 
+#[derive(Clone, prost::Message)]
+pub struct ALPRDMetadata {
+    #[prost(uint32, tag = "1")]
+    right_bit_width: u32,
+    #[prost(uint32, tag = "2")]
+    dict_len: u32,
+    #[prost(uint32, repeated, tag = "3")]
+    dict: Vec<u32>,
+    #[prost(enumeration = "PType", tag = "4")]
+    left_parts_ptype: i32,
+    #[prost(message, tag = "5")]
+    patches: Option<PatchesMetadata>,
+}
+
 impl VTable for ALPRDVTable {
     type Array = ALPRDArray;
     type Encoding = ALPRDEncoding;
+    type Metadata = ProstMetadata<ALPRDMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
@@ -34,7 +53,6 @@ impl VTable for ALPRDVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type SerdeVTable = Self;
     type OperatorVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -43,6 +61,106 @@ impl VTable for ALPRDVTable {
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
         EncodingRef::new_ref(ALPRDEncoding.as_ref())
+    }
+
+    fn metadata(array: &ALPRDArray) -> VortexResult<Self::Metadata> {
+        let dict = array
+            .left_parts_dictionary()
+            .iter()
+            .map(|&i| i as u32)
+            .collect::<Vec<_>>();
+
+        Ok(ProstMetadata(ALPRDMetadata {
+            right_bit_width: array.right_bit_width() as u32,
+            dict_len: array.left_parts_dictionary().len() as u32,
+            dict,
+            left_parts_ptype: PType::try_from(array.left_parts().dtype())
+                .vortex_expect("Must be a valid PType") as i32,
+            patches: array
+                .left_parts_patches()
+                .map(|p| p.to_metadata(array.len(), array.left_parts().dtype()))
+                .transpose()?,
+        }))
+    }
+
+    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialize()))
+    }
+
+    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(
+            <ProstMetadata<ALPRDMetadata> as DeserializeMetadata>::deserialize(buffer)?,
+        ))
+    }
+
+    fn build(
+        _encoding: &ALPRDEncoding,
+        dtype: &DType,
+        len: usize,
+        metadata: &Self::Metadata,
+        _buffers: &[ByteBuffer],
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<ALPRDArray> {
+        if children.len() < 2 {
+            vortex_bail!(
+                "Expected at least 2 children for ALPRD encoding, found {}",
+                children.len()
+            );
+        }
+
+        let left_parts_dtype = DType::Primitive(metadata.0.left_parts_ptype(), dtype.nullability());
+        let left_parts = children.get(0, &left_parts_dtype, len)?;
+        let left_parts_dictionary: Buffer<u16> = metadata.0.dict.as_slice()
+            [0..metadata.0.dict_len as usize]
+            .iter()
+            .map(|&i| {
+                u16::try_from(i)
+                    .map_err(|_| vortex_err!("left_parts_dictionary code {i} does not fit in u16"))
+            })
+            .try_collect()?;
+
+        let right_parts_dtype = match &dtype {
+            DType::Primitive(PType::F32, _) => {
+                DType::Primitive(PType::U32, Nullability::NonNullable)
+            }
+            DType::Primitive(PType::F64, _) => {
+                DType::Primitive(PType::U64, Nullability::NonNullable)
+            }
+            _ => vortex_bail!("Expected f32 or f64 dtype, got {:?}", dtype),
+        };
+        let right_parts = children.get(1, &right_parts_dtype, len)?;
+
+        let left_parts_patches = metadata
+            .0
+            .patches
+            .map(|p| {
+                let indices = children.get(2, &p.indices_dtype(), p.len())?;
+                let values = children.get(3, &left_parts_dtype, p.len())?;
+
+                Ok::<_, VortexError>(Patches::new(
+                    len,
+                    p.offset(),
+                    indices,
+                    values,
+                    // TODO(0ax1): handle chunk offsets
+                    None,
+                ))
+            })
+            .transpose()?;
+
+        ALPRDArray::try_new(
+            dtype.clone(),
+            left_parts,
+            left_parts_dictionary,
+            right_parts,
+            u8::try_from(metadata.0.right_bit_width).map_err(|_| {
+                vortex_err!(
+                    "right_bit_width {} out of u8 range",
+                    metadata.0.right_bit_width
+                )
+            })?,
+            left_parts_patches,
+        )
     }
 }
 
@@ -262,12 +380,58 @@ impl CanonicalVTable<ALPRDVTable> for ALPRDVTable {
     }
 }
 
+impl EncodeVTable<ALPRDVTable> for ALPRDVTable {
+    fn encode(
+        _encoding: &ALPRDEncoding,
+        canonical: &Canonical,
+        like: Option<&ALPRDArray>,
+    ) -> VortexResult<Option<ALPRDArray>> {
+        let parray = canonical.clone().into_primitive();
+
+        let alprd_array = match like {
+            None => {
+                let encoder = match parray.ptype() {
+                    PType::F32 => crate::alp_rd::RDEncoder::new(parray.as_slice::<f32>()),
+                    PType::F64 => crate::alp_rd::RDEncoder::new(parray.as_slice::<f64>()),
+                    ptype => vortex_bail!("cannot ALPRD compress ptype {ptype}"),
+                };
+                encoder.encode(&parray)
+            }
+            Some(like) => {
+                let encoder = crate::alp_rd::RDEncoder::from_parts(
+                    like.right_bit_width(),
+                    like.left_parts_dictionary().to_vec(),
+                );
+                encoder.encode(&parray)
+            }
+        };
+
+        Ok(Some(alprd_array))
+    }
+}
+
+impl VisitorVTable<ALPRDVTable> for ALPRDVTable {
+    fn visit_buffers(_array: &ALPRDArray, _visitor: &mut dyn ArrayBufferVisitor) {}
+
+    fn visit_children(array: &ALPRDArray, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("left_parts", array.left_parts());
+        visitor.visit_child("right_parts", array.right_parts());
+        if let Some(patches) = array.left_parts_patches() {
+            visitor.visit_patches(patches);
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::{ToCanonical, assert_arrays_eq};
+    use vortex_array::patches::PatchesMetadata;
+    use vortex_array::test_harness::check_metadata;
+    use vortex_array::{ProstMetadata, ToCanonical, assert_arrays_eq};
+    use vortex_dtype::PType;
 
+    use super::ALPRDMetadata;
     use crate::{ALPRDFloat, alp_rd};
 
     #[rstest]
@@ -295,5 +459,27 @@ mod test {
         let decoded = rd_array.to_primitive();
 
         assert_arrays_eq!(decoded, PrimitiveArray::from_option_iter(reals));
+    }
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_alprd_metadata() {
+        check_metadata(
+            "alprd.metadata",
+            ProstMetadata(ALPRDMetadata {
+                right_bit_width: u32::MAX,
+                patches: Some(PatchesMetadata::new(
+                    usize::MAX,
+                    usize::MAX,
+                    PType::U64,
+                    None,
+                    None,
+                    None,
+                )),
+                dict: Vec::new(),
+                left_parts_ptype: PType::U64 as i32,
+                dict_len: 8,
+            }),
+        );
     }
 }

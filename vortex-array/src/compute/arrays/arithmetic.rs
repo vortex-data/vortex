@@ -18,12 +18,10 @@ use crate::arrays::ConstantArray;
 use crate::execution::{BatchKernelRef, BindCtx, kernel};
 use crate::serde::ArrayChildren;
 use crate::stats::{ArrayStats, StatsSetRef};
-use crate::vtable::{
-    ArrayVTable, NotSupported, OperatorVTable, SerdeVTable, VTable, VisitorVTable,
-};
+use crate::vtable::{ArrayVTable, NotSupported, OperatorVTable, VTable, VisitorVTable};
 use crate::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef,
-    DeserializeMetadata, EmptyMetadata, EncodingId, EncodingRef, IntoArray, Precision, vtable,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, EmptyMetadata,
+    EncodingId, EncodingRef, IntoArray, Precision, vtable,
 };
 
 /// The set of operators supported by an arithmetic array.
@@ -94,6 +92,8 @@ static ENCODINGS: LazyLock<EnumMap<ArithmeticOperator, EncodingRef>> = LazyLock:
 impl VTable for ArithmeticVTable {
     type Array = ArithmeticArray;
     type Encoding = ArithmeticEncoding;
+    type Metadata = EmptyMetadata;
+
     type ArrayVTable = Self;
     type CanonicalVTable = NotSupported;
     type OperationsVTable = NotSupported;
@@ -101,7 +101,6 @@ impl VTable for ArithmeticVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type SerdeVTable = Self;
     type OperatorVTable = Self;
 
     fn id(encoding: &Self::Encoding) -> EncodingId {
@@ -115,6 +114,35 @@ impl VTable for ArithmeticVTable {
 
     fn encoding(array: &Self::Array) -> EncodingRef {
         array.encoding.clone()
+    }
+
+    fn metadata(_array: &ArithmeticArray) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
+    }
+
+    fn deserialize(_buffer: &[u8]) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn build(
+        encoding: &ArithmeticEncoding,
+        dtype: &DType,
+        len: usize,
+        _metadata: &Self::Metadata,
+        buffers: &[ByteBuffer],
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<ArithmeticArray> {
+        assert!(buffers.is_empty());
+
+        Ok(ArithmeticArray::new(
+            children.get(0, dtype, len)?,
+            children.get(1, dtype, len)?,
+            encoding.operator,
+        ))
     }
 }
 
@@ -149,31 +177,6 @@ impl VisitorVTable<ArithmeticVTable> for ArithmeticVTable {
     fn visit_children(array: &ArithmeticArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("lhs", array.lhs.as_ref());
         visitor.visit_child("rhs", array.rhs.as_ref());
-    }
-}
-
-impl SerdeVTable<ArithmeticVTable> for ArithmeticVTable {
-    type Metadata = EmptyMetadata;
-
-    fn metadata(_array: &ArithmeticArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(EmptyMetadata))
-    }
-
-    fn build(
-        encoding: &ArithmeticEncoding,
-        dtype: &DType,
-        len: usize,
-        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        buffers: &[ByteBuffer],
-        children: &dyn ArrayChildren,
-    ) -> VortexResult<ArithmeticArray> {
-        assert!(buffers.is_empty());
-
-        Ok(ArithmeticArray::new(
-            children.get(0, dtype, len)?,
-            children.get(1, dtype, len)?,
-            encoding.operator,
-        ))
     }
 }
 
