@@ -350,7 +350,7 @@ impl PruningResult {
         let next_mask = self.zone_map.prune(&self.predicate).map_err(|err| {
             err.with_context(format!(
                 "While evaluating pruning predicate {}",
-                predicate, expr
+                self.predicate
             ))
         })?;
         *guard = (version, next_mask.clone());
