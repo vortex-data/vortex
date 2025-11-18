@@ -6,7 +6,7 @@ use vortex_mask::Mask;
 
 use super::{DictArray, DictVTable};
 use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult, mask, min_max};
-use crate::{Array as _, ToCanonical, register_kernel};
+use crate::{Array as _, register_kernel};
 
 impl MinMaxKernel for DictVTable {
     fn min_max(&self, array: &DictArray) -> VortexResult<Option<MinMaxResult>> {

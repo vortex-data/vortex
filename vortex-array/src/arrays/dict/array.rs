@@ -132,6 +132,8 @@ impl DictArray {
             AllOr::Some(buf) => {
                 match_each_integer_ptype!(codes_primitive.ptype(), |P| {
                     let codes = codes_primitive.as_slice::<P>();
+
+                    #[allow(clippy::cast_possible_truncation)]
                     buf.set_indices().for_each(|idx| {
                         unreferenced_vec[codes[idx] as usize] = false;
                     })

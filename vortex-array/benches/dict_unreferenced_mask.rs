@@ -7,9 +7,8 @@ use divan::Bencher;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::IntoArray;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::{DictArray, PrimitiveArray};
 use vortex_array::compute::warm_up_vtables;
-use vortex_dict::DictArray;
 
 fn main() {
     warm_up_vtables();
