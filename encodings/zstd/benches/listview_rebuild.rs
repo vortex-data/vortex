@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![allow(clippy::unwrap_used)]
+
 use divan::Bencher;
 use vortex_array::IntoArray;
 use vortex_array::arrays::{ListViewArray, ListViewRebuildMode, VarBinViewArray};

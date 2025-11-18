@@ -36,5 +36,4 @@ vortex-array = { workspace = true, features = ["test-harness"] }
 
 [[bench]]
 name = "listview_rebuild"
-path = "benches/listiew_rebuild.rs"
 harness = false
