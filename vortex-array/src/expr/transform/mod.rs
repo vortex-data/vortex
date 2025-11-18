@@ -16,5 +16,5 @@ pub use optimizer::*;
 pub use partition::*;
 pub use replace::*;
 pub use rules::*;
-pub use simplify::*;
-pub use simplify_typed::*;
+pub(crate) use simplify::*;
+pub(crate) use simplify_typed::*;

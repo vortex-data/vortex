@@ -33,8 +33,6 @@ pub struct StructReader {
     name: Arc<str>,
     lazy_children: LazyReaderChildren,
 
-    session: VortexSession,
-
     /// A `pack` expression that holds each individual field of the root DType. This expansion
     /// ensures we can correctly partition expressions over the fields of the struct.
     expanded_root_expr: Expression,
@@ -42,7 +40,7 @@ pub struct StructReader {
     field_lookup: Option<HashMap<FieldName, usize>>,
     partitioned_expr_cache: DashMap<ExactExpr, Partitioned>,
 
-    optimizer: ExprOptimizer,
+    session: VortexSession,
 }
 
 impl StructReader {
@@ -92,12 +90,11 @@ impl StructReader {
         Ok(Self {
             layout,
             name,
-            session,
             expanded_root_expr,
             lazy_children,
             field_lookup,
             partitioned_expr_cache: Default::default(),
-            optimizer: ExprOptimizer::new(*session.expressions()),
+            session,
         })
     }
 
@@ -144,8 +141,9 @@ impl StructReader {
                 // First, we expand the root scope into the fields of the struct to ensure
                 // that partitioning works correctly.
                 let expr = replace(expr.clone(), &root(), self.expanded_root_expr.clone());
-                let expr = self
-                    .optimizer
+                let exprs = self.session.expressions();
+                let opt = ExprOptimizer::new(&exprs);
+                let expr = opt
                     .optimize_typed(expr, self.dtype())
                     .vortex_expect("We should not fail to simplify expression over struct fields");
 
@@ -158,7 +156,7 @@ impl StructReader {
                             .as_struct_fields_opt()
                             .vortex_expect("We know it's a struct DType"),
                     ),
-                    &self.session.expressions(),
+                    &opt,
                 )
                 .vortex_expect("We should not fail to partition expression over struct fields");
 

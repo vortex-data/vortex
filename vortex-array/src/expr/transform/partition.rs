@@ -234,7 +234,8 @@ mod tests {
     #[rstest]
     fn test_expr_top_level_ref(dtype: DType) {
         let fields = dtype.as_struct_fields_opt().unwrap();
-        let optimizer = ExprOptimizer::new(ExprSession::default());
+        let session = ExprSession::default();
+        let optimizer = ExprOptimizer::new(&session);
 
         let expr = root();
         let partitioned = partition(
@@ -260,7 +261,8 @@ mod tests {
     #[rstest]
     fn test_expr_top_level_ref_get_item_and_split(dtype: DType) {
         let fields = dtype.as_struct_fields_opt().unwrap();
-        let optimizer = ExprOptimizer::new(ExprSession::default());
+        let session = ExprSession::default();
+        let optimizer = ExprOptimizer::new(&session);
 
         let expr = get_item("y", get_item("a", root()));
 
@@ -272,7 +274,8 @@ mod tests {
     #[rstest]
     fn test_expr_top_level_ref_get_item_and_split_pack(dtype: DType) {
         let fields = dtype.as_struct_fields_opt().unwrap();
-        let optimizer = ExprOptimizer::new(ExprSession::default());
+        let session = ExprSession::default();
+        let optimizer = ExprOptimizer::new(&session);
 
         let expr = pack(
             [
@@ -301,7 +304,8 @@ mod tests {
     #[rstest]
     fn test_expr_top_level_ref_get_item_add(dtype: DType) {
         let fields = dtype.as_struct_fields_opt().unwrap();
-        let optimizer = ExprOptimizer::new(ExprSession::default());
+        let session = ExprSession::default();
+        let optimizer = ExprOptimizer::new(&session);
 
         let expr = and(get_item("y", get_item("a", root())), lit(1));
         let partitioned =
@@ -314,7 +318,8 @@ mod tests {
     #[rstest]
     fn test_expr_top_level_ref_get_item_add_cannot_split(dtype: DType) {
         let fields = dtype.as_struct_fields_opt().unwrap();
-        let optimizer = ExprOptimizer::new(ExprSession::default());
+        let session = ExprSession::default();
+        let optimizer = ExprOptimizer::new(&session);
 
         let expr = and(get_item("y", get_item("a", root())), get_item("b", root()));
         let partitioned =
@@ -328,7 +333,8 @@ mod tests {
     #[rstest]
     fn test_expr_partition_many_occurrences_of_field(dtype: DType) {
         let fields = dtype.as_struct_fields_opt().unwrap();
-        let optimizer = ExprOptimizer::new(ExprSession::default());
+        let session = ExprSession::default();
+        let optimizer = ExprOptimizer::new(&session);
 
         let expr = and(
             get_item("y", get_item("a", root())),
@@ -370,7 +376,8 @@ mod tests {
     #[rstest]
     fn test_expr_merge(dtype: DType) {
         let fields = dtype.as_struct_fields_opt().unwrap();
-        let optimizer = ExprOptimizer::new(ExprSession::default());
+        let session = ExprSession::default();
+        let optimizer = ExprOptimizer::new(&session);
 
         let expr = merge([col("a"), pack([("b", col("b"))], NonNullable)]);
 

@@ -216,10 +216,11 @@ impl<A: 'static + Send> ScanBuilder<A> {
             &self.session,
         ));
 
-        let optimizer = ExprOptimizer::new(*self.session.expressions());
+        let exprs = self.session.expressions();
+        let optimizer = ExprOptimizer::new(&exprs);
 
         // Normalize and simplify the expressions.
-        let projection = optimizer.optimize_typed(self.projection, layout_reader.as_ref())?;
+        let projection = optimizer.optimize_typed(self.projection, layout_reader.dtype())?;
 
         let filter = self
             .filter

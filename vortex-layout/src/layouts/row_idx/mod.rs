@@ -14,7 +14,7 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::compute::filter;
 use vortex_array::expr::session::ExprSessionExt;
-use vortex_array::expr::transform::{PartitionedExpr, partition, replace};
+use vortex_array::expr::transform::{ExprOptimizer, PartitionedExpr, partition, replace};
 use vortex_array::expr::{ExactExpr, Expression, is_root, root};
 use vortex_array::{ArrayRef, IntoArray, MaskFuture};
 use vortex_dtype::{DType, FieldMask, FieldName, Nullability, PType};
@@ -32,8 +32,8 @@ pub struct RowIdxLayoutReader {
     name: Arc<str>,
     row_offset: u64,
     child: Arc<dyn LayoutReader>,
-    session: VortexSession,
     partition_cache: DashMap<ExactExpr, Partitioning>,
+    session: VortexSession,
 }
 
 impl RowIdxLayoutReader {
@@ -64,7 +64,7 @@ impl RowIdxLayoutReader {
                             vec![]
                         }
                     },
-                    &self.session.expressions(),
+                    &ExprOptimizer::new(&self.session.expressions()),
                 )
                 .vortex_expect("We should not fail to partition expression over struct fields");
 
