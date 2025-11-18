@@ -5,6 +5,7 @@ pub(crate) mod builtins;
 pub(crate) mod compressed;
 pub(crate) mod fastlanes;
 pub(crate) mod from_arrow;
+pub mod into_array;
 mod native;
 pub(crate) mod py;
 mod range_to_sequence;
