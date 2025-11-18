@@ -9371,6 +9371,7 @@ dependencies = [
 name = "vortex-zstd"
 version = "0.1.0"
 dependencies = [
+ "codspeed-divan-compat",
  "itertools 0.14.0",
  "prost 0.14.1",
  "rstest",

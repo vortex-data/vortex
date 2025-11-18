@@ -8,7 +8,6 @@ use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{ChunkedArray, ListViewArray};
-use crate::builders::ArrayBuilder;
 use crate::vtable::ValidityHelper;
 use crate::{Array, IntoArray, ToCanonical, compute};
 
@@ -92,7 +91,7 @@ impl ListViewArray {
         // slicing with them.
         let elements_canonical = self.elements().to_canonical().into_array();
         let offsets_canonical = self.offsets().to_primitive();
-        let sizes_canonical = self.offsets().to_primitive();
+        let sizes_canonical = self.sizes().to_primitive();
 
         let offsets_canonical = offsets_canonical.as_slice::<O>();
         let sizes_canonical = sizes_canonical.as_slice::<S>();
