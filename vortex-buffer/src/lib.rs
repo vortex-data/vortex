@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![deny(missing_docs)]
-#![allow(clippy::same_name_method)]
 
 //! A library for working with custom aligned buffers of sized values.
 //!
