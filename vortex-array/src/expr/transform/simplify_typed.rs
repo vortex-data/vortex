@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 
 use crate::expr::Expression;
 use crate::expr::session::ExprSession;
-use crate::expr::transform::{RootRewriteContext, TypedRewriteContext};
+use crate::expr::transform::rules::TypedRuleContext;
 use crate::expr::traversal::{NodeExt, Transformed};
 
 /// Unlike `simplify`, this function simplifies an expression under the assumption that scope is
@@ -19,7 +19,7 @@ pub fn simplify_typed(
     dtype: &DType,
     session: &ExprSession,
 ) -> VortexResult<Expression> {
-    let ctx = RootRewriteContext { dtype };
+    let ctx = TypedRuleContext::new(dtype.clone());
 
     let expr = apply_parent_rules_impl_typed(expr, &ctx, session)?;
     let expr = apply_child_rules_impl_typed(expr, &ctx, session)?;
@@ -29,12 +29,12 @@ pub fn simplify_typed(
 
 fn apply_child_rules_impl_typed(
     expr: Expression,
-    ctx: &dyn TypedRewriteContext,
+    ctx: &TypedRuleContext,
     session: &ExprSession,
 ) -> VortexResult<Expression> {
     fn rewrite(
         node: Expression,
-        ctx: &dyn TypedRewriteContext,
+        ctx: &TypedRuleContext,
         session: &ExprSession,
     ) -> VortexResult<Transformed<Expression>> {
         for rule in session.rewrite_rules().typed_reduce_rules_for(&node.id()) {
@@ -42,8 +42,10 @@ fn apply_child_rules_impl_typed(
                 return Ok(Transformed::yes(new_expr));
             }
         }
+        // Typed rules can also be applied with untyped context
+        let untyped_ctx = crate::expr::transform::rules::RuleContext;
         for rule in session.rewrite_rules().reduce_rules_for(&node.id()) {
-            if let Some(new_expr) = rule.reduce(&node, ctx)? {
+            if let Some(new_expr) = rule.reduce(&node, &untyped_ctx)? {
                 return Ok(Transformed::yes(new_expr));
             }
         }
@@ -58,7 +60,7 @@ fn apply_child_rules_impl_typed(
 
 fn apply_parent_rules_impl_typed(
     expr: Expression,
-    ctx: &dyn TypedRewriteContext,
+    ctx: &TypedRuleContext,
     session: &ExprSession,
 ) -> VortexResult<Expression> {
     expr.transform_up(|node| {
@@ -68,8 +70,10 @@ fn apply_parent_rules_impl_typed(
                     return Ok(Transformed::yes(new_expr));
                 }
             }
+            // Typed rules can also be applied with untyped context
+            let untyped_ctx = crate::expr::transform::rules::RuleContext;
             for rule in session.rewrite_rules().parent_rules_for(&child.id()) {
-                if let Some(new_expr) = rule.reduce_parent(child, &node, idx, ctx)? {
+                if let Some(new_expr) = rule.reduce_parent(child, &node, idx, &untyped_ctx)? {
                     return Ok(Transformed::yes(new_expr));
                 }
             }

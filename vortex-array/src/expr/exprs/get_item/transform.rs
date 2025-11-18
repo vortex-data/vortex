@@ -5,8 +5,7 @@ use vortex_error::VortexResult;
 
 use crate::expr::exprs::get_item::GetItem;
 use crate::expr::exprs::pack::Pack;
-use crate::expr::transform::ReduceRule;
-use crate::expr::transform::rules::RewriteContext;
+use crate::expr::transform::rules::{ReduceRule, RuleContext};
 use crate::expr::{Expression, ExpressionView};
 
 /// Rewrite rule: `pack(l_1: e_1, ..., l_i: e_i, ..., l_n: e_n).get_item(l_i) = e_i`
@@ -15,11 +14,11 @@ use crate::expr::{Expression, ExpressionView};
 /// expression instead of materializing the pack.
 pub struct PackGetItemRule;
 
-impl ReduceRule<GetItem, &dyn RewriteContext> for PackGetItemRule {
+impl ReduceRule<GetItem, RuleContext> for PackGetItemRule {
     fn reduce(
         &self,
         get_item: &ExpressionView<GetItem>,
-        _ctx: &dyn RewriteContext,
+        _ctx: &RuleContext,
     ) -> VortexResult<Option<Expression>> {
         if let Some(pack) = get_item.child(0).as_opt::<Pack>() {
             let field_expr = pack.field(get_item.data())?;
@@ -41,8 +40,8 @@ mod tests {
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::pack::pack;
     use crate::expr::session::ExprSession;
-    use crate::expr::transform::rules::RootRewriteContext;
-    use crate::expr::transform::{ReduceRule, simplify_typed};
+    use crate::expr::transform::rules::{ReduceRule, RuleContext};
+    use crate::expr::transform::simplify_typed;
 
     #[test]
     fn test_pack_get_item_rule() {
@@ -52,12 +51,8 @@ mod tests {
         let pack_expr = pack([("a", lit(1)), ("b", lit(2))], NonNullable);
         let get_item_expr = get_item("b", pack_expr);
 
-        // Create a dummy context
-        let dtype = DType::Primitive(PType::I32, NonNullable);
-        let ctx = RootRewriteContext { dtype: &dtype };
-
         let get_item_view = get_item_expr.as_::<GetItem>();
-        let result = rule.reduce(&get_item_view, &ctx).unwrap();
+        let result = rule.reduce(&get_item_view, &RuleContext).unwrap();
 
         assert!(result.is_some());
         assert_eq!(&result.unwrap(), &lit(2));
@@ -71,11 +66,8 @@ mod tests {
         let lit_expr = lit(42);
         let get_item_expr = get_item("x", lit_expr);
 
-        let dtype = DType::Primitive(PType::I32, NonNullable);
-        let ctx = RootRewriteContext { dtype: &dtype };
-
         let get_item_view = get_item_expr.as_::<GetItem>();
-        let result = rule.reduce(&get_item_view, &ctx).unwrap();
+        let result = rule.reduce(&get_item_view, &RuleContext).unwrap();
 
         assert!(result.is_none());
     }

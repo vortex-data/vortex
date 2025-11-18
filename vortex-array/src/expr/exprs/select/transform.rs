@@ -6,8 +6,7 @@ use vortex_error::{VortexResult, vortex_err};
 use crate::expr::exprs::get_item::get_item;
 use crate::expr::exprs::pack::pack;
 use crate::expr::exprs::select::Select;
-use crate::expr::transform::TypedRewriteContext;
-use crate::expr::transform::rules::ReduceRule;
+use crate::expr::transform::rules::{ReduceRule, TypedRuleContext};
 use crate::expr::{Expression, ExpressionView};
 
 /// Rule that removes Select expressions by converting them to Pack + GetItem.
@@ -15,11 +14,11 @@ use crate::expr::{Expression, ExpressionView};
 /// Transforms: `select(["a", "b"], expr)` → `pack(a: get_item("a", expr), b: get_item("b", expr))`
 pub struct RemoveSelectRule;
 
-impl ReduceRule<Select, &dyn TypedRewriteContext> for RemoveSelectRule {
+impl ReduceRule<Select, TypedRuleContext> for RemoveSelectRule {
     fn reduce(
         &self,
         select: &ExpressionView<Select>,
-        ctx: &dyn TypedRewriteContext,
+        ctx: &TypedRuleContext,
     ) -> VortexResult<Option<Expression>> {
         let child = select.child();
         let child_dtype = child.return_dtype(ctx.dtype())?;
@@ -62,7 +61,7 @@ mod tests {
     use crate::expr::exprs::pack::Pack;
     use crate::expr::exprs::root::root;
     use crate::expr::exprs::select::{Select, select};
-    use crate::expr::transform::rules::{ReduceRule, RootRewriteContext};
+    use crate::expr::transform::rules::{ReduceRule, TypedRuleContext};
 
     #[test]
     fn test_remove_select_rule() {
@@ -73,7 +72,7 @@ mod tests {
         let e = select(["a", "b"], root());
 
         let rule = RemoveSelectRule;
-        let ctx = RootRewriteContext { dtype: &dtype };
+        let ctx = TypedRuleContext::new(dtype.clone());
         let select_view = e.as_::<Select>();
         let result = rule.reduce(&select_view, &ctx).unwrap();
 
@@ -97,7 +96,7 @@ mod tests {
         let e = select_exclude(["c"], root());
 
         let rule = RemoveSelectRule;
-        let ctx = RootRewriteContext { dtype: &dtype };
+        let ctx = TypedRuleContext::new(dtype.clone());
         let select_view = e.as_::<Select>();
         let result = rule.reduce(&select_view, &ctx).unwrap();
 

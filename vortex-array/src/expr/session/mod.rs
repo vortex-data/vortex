@@ -23,8 +23,7 @@ use crate::expr::exprs::pack::Pack;
 use crate::expr::exprs::root::Root;
 use crate::expr::exprs::select::Select;
 use crate::expr::exprs::select::transform::RemoveSelectRule;
-use crate::expr::transform::TypedRewriteContext;
-use crate::expr::transform::rules::{ParentReduceRule, ReduceRule, RewriteContext};
+use crate::expr::transform::rules::{ParentReduceRule, ReduceRule, RuleContext, TypedRuleContext};
 use crate::expr::{ExprVTable, VTable};
 
 /// Registry of expression vtables.
@@ -57,24 +56,24 @@ impl ExprSession {
         self.registry.register_many(exprs);
     }
 
-    /// Register a generic reduce rule that uses TypedRewriteContext.
+    /// Register a generic reduce rule that uses Typed context.
     /// Use this for rules that need access to dtype information.
     pub fn register_typed_reduce_rule<V, R>(&mut self, vtable: &'static V, rule: R)
     where
         V: VTable,
         R: 'static,
-        for<'a> R: ReduceRule<V, &'a dyn TypedRewriteContext>,
+        R: ReduceRule<V, TypedRuleContext>,
     {
         self.rewrite_rules.register_typed_reduce_rule(vtable, rule);
     }
 
-    /// Register a reduce rule that doesn't use TypedRewriteContext.
+    /// Register a reduce rule that uses Untyped context.
     /// Use this for rules that don't need access to dtype information.
     pub fn register_reduce_rule<V, R>(&mut self, vtable: &'static V, rule: R)
     where
         V: VTable,
         R: 'static,
-        for<'a> R: ReduceRule<V, &'a dyn RewriteContext>,
+        R: ReduceRule<V, RuleContext>,
     {
         self.rewrite_rules.register_reduce_rule(vtable, rule);
     }
@@ -84,7 +83,7 @@ impl ExprSession {
     where
         V: VTable,
         R: 'static,
-        for<'a> R: ParentReduceRule<V, &'a dyn RewriteContext>,
+        R: ParentReduceRule<V, RuleContext>,
     {
         self.rewrite_rules.register_parent_rule(vtable, rule);
     }
@@ -94,7 +93,7 @@ impl ExprSession {
     where
         V: VTable,
         R: 'static,
-        for<'a> R: ParentReduceRule<V, &'a dyn TypedRewriteContext>,
+        R: ParentReduceRule<V, TypedRuleContext>,
     {
         self.rewrite_rules.register_typed_parent_rule(vtable, rule);
     }

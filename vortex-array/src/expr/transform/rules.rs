@@ -29,7 +29,7 @@ pub trait ReduceRule<V: VTable, C: RewriteContext>: Send + Sync {
     /// # Returns
     /// * `Some(new_expr)` if the rule applies and produces a rewritten expression
     /// * `None` if the rule does not apply
-    fn reduce(&self, expr: &ExpressionView<V>, ctx: C) -> VortexResult<Option<Expression>>;
+    fn reduce(&self, expr: &ExpressionView<V>, ctx: &C) -> VortexResult<Option<Expression>>;
 }
 
 /// A rewrite rule that can transform expressions based on parent context.
@@ -59,59 +59,62 @@ pub trait ParentReduceRule<V: VTable, C: RewriteContext>: Send + Sync {
         expr: &ExpressionView<V>,
         parent: &Expression,
         child_idx: usize,
-        ctx: C,
+        ctx: &C,
     ) -> VortexResult<Option<Expression>>;
 }
 
-/// Base context for rewrite rules.
-pub trait RewriteContext {}
-
-// Blanket implementation: all references to RewriteContext implementors also implement RewriteContext
-impl<T: RewriteContext + ?Sized> RewriteContext for &T {}
-
-/// Context available to rewrite rules during expression optimization.
-/// Extends `RewriteContext` and provides access to dtype information.
+/// Sealed trait for rewrite rule contexts.
 ///
-/// Any `TypedRewriteContext` can be used as a `RewriteContext`, but not vice versa.
-pub trait TypedRewriteContext: RewriteContext {
-    fn dtype(&self) -> &DType;
+/// This trait cannot be implemented outside this module. Only `Typed` and `Untyped`
+/// implement this trait.
+pub trait RewriteContext: private::Sealed {}
+
+mod private {
+    /// Sealing trait to prevent external implementations of `RewriteContext`.
+    pub trait Sealed {}
 }
 
-/// Context for untyped rewrite rules.
-#[derive(Debug, Default)]
-pub struct EmptyRewriteContext;
-
-impl RewriteContext for EmptyRewriteContext {}
-
-/// Simple implementation that supports both RewriteContext and TypedRewriteContext.
-#[derive(Debug)]
-pub struct RootRewriteContext<'a> {
-    pub dtype: &'a DType,
+/// Typed context for rewrite rules that need access to dtype information.
+#[derive(Debug, Clone)]
+pub struct TypedRuleContext {
+    /// This is the root dtype of the expression
+    dtype: DType,
 }
 
-impl<'a> RewriteContext for RootRewriteContext<'a> {}
+impl TypedRuleContext {
+    pub fn new(dtype: DType) -> Self {
+        Self { dtype }
+    }
 
-impl<'a> TypedRewriteContext for RootRewriteContext<'a> {
-    fn dtype(&self) -> &DType {
-        self.dtype
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
     }
 }
 
+impl private::Sealed for TypedRuleContext {}
+impl RewriteContext for TypedRuleContext {}
+
+impl private::Sealed for &TypedRuleContext {}
+impl RewriteContext for &TypedRuleContext {}
+
+/// A context for rewrite rules that don't need dtype information.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RuleContext;
+
+impl private::Sealed for RuleContext {}
+impl RewriteContext for RuleContext {}
+
+impl private::Sealed for &RuleContext {}
+impl RewriteContext for &RuleContext {}
+
 /// Type-erased wrappers that allows dynamic dispatch.
 pub(crate) trait DynReduceRule: Send + Sync {
-    fn reduce(
-        &self,
-        expr: &Expression,
-        ctx: &dyn RewriteContext,
-    ) -> VortexResult<Option<Expression>>;
+    fn reduce(&self, expr: &Expression, ctx: &RuleContext) -> VortexResult<Option<Expression>>;
 }
 
 pub(crate) trait DynTypedReduceRule: Send + Sync {
-    fn reduce(
-        &self,
-        expr: &Expression,
-        ctx: &dyn TypedRewriteContext,
-    ) -> VortexResult<Option<Expression>>;
+    fn reduce(&self, expr: &Expression, ctx: &TypedRuleContext)
+    -> VortexResult<Option<Expression>>;
 }
 
 pub(crate) trait DynParentReduceRule: Send + Sync {
@@ -120,7 +123,7 @@ pub(crate) trait DynParentReduceRule: Send + Sync {
         expr: &Expression,
         parent: &Expression,
         child_idx: usize,
-        ctx: &dyn RewriteContext,
+        ctx: &RuleContext,
     ) -> VortexResult<Option<Expression>>;
 }
 
@@ -130,6 +133,6 @@ pub(crate) trait DynTypedParentReduceRule: Send + Sync {
         expr: &Expression,
         parent: &Expression,
         child_idx: usize,
-        ctx: &dyn TypedRewriteContext,
+        ctx: &TypedRuleContext,
     ) -> VortexResult<Option<Expression>>;
 }

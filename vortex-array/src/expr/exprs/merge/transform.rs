@@ -8,8 +8,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::expr::exprs::get_item::get_item;
 use crate::expr::exprs::merge::{DuplicateHandling, Merge};
 use crate::expr::exprs::pack::pack;
-use crate::expr::transform::TypedRewriteContext;
-use crate::expr::transform::rules::ReduceRule;
+use crate::expr::transform::rules::{ReduceRule, TypedRuleContext};
 use crate::expr::{Expression, ExpressionView};
 
 /// Rule that removes Merge expressions by converting them to Pack + GetItem.
@@ -17,11 +16,11 @@ use crate::expr::{Expression, ExpressionView};
 /// Transforms: `merge([struct1, struct2])` → `pack(field1: get_item("field1", struct1), field2: get_item("field2", struct2), ...)`
 pub struct RemoveMergeRule;
 
-impl ReduceRule<Merge, &dyn TypedRewriteContext> for RemoveMergeRule {
+impl ReduceRule<Merge, TypedRuleContext> for RemoveMergeRule {
     fn reduce(
         &self,
         merge: &ExpressionView<Merge>,
-        ctx: &dyn TypedRewriteContext,
+        ctx: &TypedRuleContext,
     ) -> VortexResult<Option<Expression>> {
         let merge_dtype = merge.return_dtype(ctx.dtype())?;
         let mut names = Vec::with_capacity(merge.children().len() * 2);
@@ -82,8 +81,7 @@ mod tests {
     use crate::expr::exprs::merge::{DuplicateHandling, Merge, merge_opts};
     use crate::expr::exprs::pack::Pack;
     use crate::expr::exprs::root::root;
-    use crate::expr::transform::RootRewriteContext;
-    use crate::expr::transform::rules::ReduceRule;
+    use crate::expr::transform::rules::{ReduceRule, TypedRuleContext};
 
     #[test]
     fn test_remove_merge() {
@@ -100,7 +98,7 @@ mod tests {
             DuplicateHandling::RightMost,
         );
 
-        let ctx = RootRewriteContext { dtype: &dtype };
+        let ctx = TypedRuleContext::new(dtype.clone());
         let rule = RemoveMergeRule;
         let merge_view = e.as_::<Merge>();
         let result = rule.reduce(&merge_view, &ctx).unwrap();

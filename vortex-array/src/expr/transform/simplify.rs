@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 use crate::expr::Expression;
 use crate::expr::session::ExprSession;
 use crate::expr::transform::match_between::find_between;
-use crate::expr::transform::{EmptyRewriteContext, RewriteContext};
+use crate::expr::transform::rules::RuleContext;
 use crate::expr::traversal::{NodeExt, Transformed};
 
 /// Simplifies an expression into an equivalent expression which is faster and easier to analyze.
@@ -14,7 +14,7 @@ use crate::expr::traversal::{NodeExt, Transformed};
 /// This applies only untyped rewrite rules registered in the default session.
 /// If the scope dtype is known, see `simplify_typed` for a simplifier which uses dtype.
 pub fn simplify(e: Expression, session: &ExprSession) -> VortexResult<Expression> {
-    let ctx = EmptyRewriteContext;
+    let ctx = RuleContext;
 
     let e = apply_parent_rules(e, &ctx, session)?;
     let e = apply_child_rules_impl(e, &ctx, session)?;
@@ -25,7 +25,7 @@ pub fn simplify(e: Expression, session: &ExprSession) -> VortexResult<Expression
 
 fn apply_parent_rules(
     expr: Expression,
-    ctx: &dyn RewriteContext,
+    ctx: &RuleContext,
     session: &ExprSession,
 ) -> VortexResult<Expression> {
     expr.transform_up(|node| {
@@ -43,12 +43,12 @@ fn apply_parent_rules(
 
 pub(crate) fn apply_child_rules_impl(
     expr: Expression,
-    ctx: &dyn RewriteContext,
+    ctx: &RuleContext,
     session: &ExprSession,
 ) -> VortexResult<Expression> {
     fn rewrite(
         node: Expression,
-        ctx: &dyn RewriteContext,
+        ctx: &RuleContext,
         session: &ExprSession,
     ) -> VortexResult<Transformed<Expression>> {
         for rule in session.rewrite_rules().reduce_rules_for(&node.id()) {
@@ -74,19 +74,19 @@ mod tests {
     use crate::expr::exprs::literal::{Literal, lit};
     use crate::expr::exprs::operators::Operator;
     use crate::expr::session::ExprSession;
-    use crate::expr::transform::rules::ParentReduceRule;
+    use crate::expr::transform::rules::{ParentReduceRule, RuleContext};
     use crate::expr::{Expression, ExpressionView, col};
 
     /// Test rule: simplifies addition with zero: 0 + x -> x when literal zero is a child of an Add
     struct AddZeroRule;
 
-    impl ParentReduceRule<Literal, &dyn RewriteContext> for AddZeroRule {
+    impl ParentReduceRule<Literal, RuleContext> for AddZeroRule {
         fn reduce_parent(
             &self,
             expr: &ExpressionView<Literal>,
             parent: &Expression,
             child_idx: usize,
-            _ctx: &dyn RewriteContext,
+            _ctx: &RuleContext,
         ) -> VortexResult<Option<Expression>> {
             // Only apply if the parent is an Add operation
             let Some(bin) = parent.as_opt::<Binary>() else {
