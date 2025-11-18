@@ -46,6 +46,7 @@ pub struct Inlined {
 
 impl Inlined {
     /// Creates a new inlined representation from the provided value of constant size.
+    #[inline]
     fn new<const N: usize>(value: &[u8]) -> Self {
         debug_assert_eq!(value.len(), N);
         let mut inlined = Self {

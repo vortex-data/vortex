@@ -110,6 +110,16 @@ impl<T> BufferMut<T> {
         buffer
     }
 
+    /// Return the [`ByteBufferMut`] for this [`BufferMut<T>`].
+    pub fn into_byte_buffer(self) -> ByteBufferMut {
+        ByteBufferMut {
+            bytes: self.bytes,
+            length: self.length * size_of::<T>(),
+            alignment: self.alignment,
+            _marker: Default::default(),
+        }
+    }
+
     /// Get the alignment of the buffer.
     #[inline(always)]
     pub fn alignment(&self) -> Alignment {

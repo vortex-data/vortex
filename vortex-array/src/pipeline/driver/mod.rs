@@ -15,11 +15,10 @@ use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
 use vortex_vector::{Vector, VectorMut, VectorMutOps};
 
-use crate::pipeline::bit_view::{BitView, BitViewExt};
 use crate::pipeline::driver::allocation::{OutputTarget, allocate_vectors};
 use crate::pipeline::driver::bind::bind_kernels;
 use crate::pipeline::driver::toposort::topological_sort;
-use crate::pipeline::{Kernel, KernelCtx, N, PipelineInputs};
+use crate::pipeline::{BitView, Kernel, KernelCtx, N, PipelineInputs};
 use crate::{Array, ArrayEq, ArrayHash, ArrayOperator, ArrayRef, ArrayVisitor, Precision};
 
 /// A pipeline driver takes a Vortex array and executes it into a canonical vector.

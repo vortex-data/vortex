@@ -8,6 +8,7 @@
 //! ```shell
 //! RUSTFLAGS="--cfg gpu_unstable" cargo build -p ...
 //! ```
+#![cfg(gpu_unstable)]
 
 pub mod bit_unpack;
 pub mod for_;

@@ -159,6 +159,8 @@ impl PyExpr {
         py_binary_operator(self_, Operator::Or, coerce_expr(right)?)
     }
 
+    // Special methods docstrings cannot be defined in Rust. Write a docstring in the corresponding
+    // rST file. https://github.com/PyO3/pyo3/issues/4326
     fn __getitem__(self_: PyRef<'_, Self>, field: String) -> PyResult<PyExpr> {
         get_item(field, self_.clone())
     }
@@ -236,6 +238,10 @@ pub fn root() -> PyExpr {
 /// >>> ve.column("age")
 /// <vortex.Expr object at ...>
 /// ```
+///
+/// .. seealso::
+///
+///    Use :meth:`.vortex.expr.Expr.__getitem__` to retrieve a field of a struct array.
 #[pyfunction]
 pub fn column<'py>(name: &Bound<'py, PyString>) -> PyResult<Bound<'py, PyExpr>> {
     let py = name.py();

@@ -454,9 +454,31 @@ impl ZstdArray {
 
         let decompressed = decompressed.freeze();
         // Last, we slice the exact values requested out of the decompressed data.
-        let slice_validity = self
+        let mut slice_validity = self
             .unsliced_validity
             .slice(self.slice_start..self.slice_stop);
+
+        // NOTE: this block handles setting the output type when the validity and DType disagree.
+        //
+        // ZSTD is a compact block compressor, meaning that null values are not stored inline in
+        // the data frames. A ZSTD Array that was initialized must always hold onto its full
+        // validity bitmap, even if sliced to only include non-null values.
+        //
+        // We ensure that the validity of the decompressed array ALWAYS matches the validity
+        // implied by the DType.
+        if !self.dtype().is_nullable() && slice_validity != Validity::NonNullable {
+            assert!(
+                slice_validity.all_valid(slice_n_rows),
+                "ZSTD array expects to be non-nullable but there are nulls after decompression"
+            );
+
+            slice_validity = Validity::NonNullable;
+        } else if self.dtype.is_nullable() && slice_validity == Validity::NonNullable {
+            slice_validity = Validity::AllValid;
+        }
+        //
+        // END OF IMPORTANT BLOCK
+        //
 
         match &self.dtype {
             DType::Primitive(..) => {
@@ -531,6 +553,21 @@ impl ZstdArray {
     }
 
     pub(crate) fn _slice(&self, start: usize, stop: usize) -> ZstdArray {
+        let new_start = self.slice_start + start;
+        let new_stop = self.slice_start + stop;
+
+        assert!(
+            new_start <= self.slice_stop,
+            "new slice start {new_start} exceeds end {}",
+            self.slice_stop
+        );
+
+        assert!(
+            new_stop <= self.slice_stop,
+            "new slice stop {new_stop} exceeds end {}",
+            self.slice_stop
+        );
+
         ZstdArray {
             slice_start: self.slice_start + start,
             slice_stop: self.slice_start + stop,
