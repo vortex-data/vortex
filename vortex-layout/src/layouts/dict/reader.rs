@@ -190,7 +190,10 @@ impl LayoutReader for DictReader {
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         let values_eval = self.values_eval(root());
-        let codes_eval = self.codes.projection_evaluation(row_range, &root(), mask)?;
+        let codes_eval = self
+            .codes
+            .projection_evaluation(row_range, &root(), mask)
+            .map_err(|err| err.with_context("While evaluating projection on codes"))?;
         let expr = expr.clone();
 
         Ok(async move {

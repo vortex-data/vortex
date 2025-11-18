@@ -199,8 +199,13 @@ impl LayoutReader for ChunkedReader {
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.chunk_reader(chunk_idx)?;
-            let chunk_eval =
-                chunk_reader.pruning_evaluation(&chunk_range, expr, mask.slice(mask_range))?;
+            let chunk_eval = chunk_reader
+                .pruning_evaluation(&chunk_range, expr, mask.slice(mask_range))
+                .map_err(|err| {
+                    err.with_context(format!(
+                        "While evaluating pruning filter on chunk {chunk_idx}"
+                    ))
+                })?;
 
             chunk_evals.push(chunk_eval);
         }
@@ -236,8 +241,11 @@ impl LayoutReader for ChunkedReader {
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.chunk_reader(chunk_idx)?;
-            let chunk_eval =
-                chunk_reader.filter_evaluation(&chunk_range, expr, mask.slice(mask_range))?;
+            let chunk_eval = chunk_reader
+                .filter_evaluation(&chunk_range, expr, mask.slice(mask_range))
+                .map_err(|err| {
+                    err.with_context(format!("While evaluating filter on chunk {chunk_idx}"))
+                })?;
             chunk_evals.push(chunk_eval);
         }
 
@@ -269,8 +277,11 @@ impl LayoutReader for ChunkedReader {
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.chunk_reader(chunk_idx)?;
-            let chunk_eval =
-                chunk_reader.projection_evaluation(&chunk_range, expr, mask.slice(mask_range))?;
+            let chunk_eval = chunk_reader
+                .projection_evaluation(&chunk_range, expr, mask.slice(mask_range))
+                .map_err(|err| {
+                    err.with_context(format!("While evaluating projection on chunk {chunk_idx}"))
+                })?;
             chunk_evals.push(chunk_eval);
         }
 

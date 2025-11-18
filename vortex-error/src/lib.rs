@@ -181,7 +181,7 @@ impl Display for VortexError {
                 write!(f, "{msg}\nBacktrace:\n{backtrace}")
             }
             VortexError::Context(msg, inner) => {
-                write!(f, "{msg}: {inner}")
+                write!(f, "{msg}:\n  {inner}")
             }
             VortexError::Shared(inner) => Display::fmt(inner, f),
             VortexError::ArrowError(err, backtrace) => {

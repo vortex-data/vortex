@@ -238,7 +238,10 @@ impl LayoutReader for StructReader {
         match &self.partition_expr(expr.clone()) {
             Partitioned::Single(name, partition) => self
                 .field_reader(name)?
-                .pruning_evaluation(row_range, partition, mask),
+                .pruning_evaluation(row_range, partition, mask)
+                .map_err(|err| {
+                    err.with_context(format!("While evaluating pruning filter partition {name}"))
+                }),
             Partitioned::Multi(_) => {
                 // TODO(ngates): if all partitions are boolean, we can use a pruning evaluation. Otherwise
                 //  there's not much we can do? Maybe... it's complicated...
@@ -257,16 +260,27 @@ impl LayoutReader for StructReader {
         match &self.partition_expr(expr.clone()) {
             Partitioned::Single(name, partition) => self
                 .field_reader(name)?
-                .filter_evaluation(row_range, partition, mask),
+                .filter_evaluation(row_range, partition, mask)
+                .map_err(|err| {
+                    err.with_context(format!("While evaluating filter partition {name}"))
+                }),
             Partitioned::Multi(partitioned) => partitioned.clone().into_mask_future(
                 mask,
                 |name, expr, mask| {
                     self.field_reader(name)?
                         .filter_evaluation(row_range, expr, mask)
+                        .map_err(|err| {
+                            err.with_context(format!("While evaluating filter partition {name}"))
+                        })
                 },
                 |name, expr, mask| {
                     self.field_reader(name)?
                         .projection_evaluation(row_range, expr, mask)
+                        .map_err(|err| {
+                            err.with_context(format!(
+                                "While evaluating projection partition {name}"
+                            ))
+                        })
                 },
             ),
         }
@@ -287,7 +301,10 @@ impl LayoutReader for StructReader {
         let (projected, is_pack_merge) = match &self.partition_expr(expr.clone()) {
             Partitioned::Single(name, partition) => (
                 self.field_reader(name)?
-                    .projection_evaluation(row_range, partition, mask_fut)?,
+                    .projection_evaluation(row_range, partition, mask_fut)
+                    .map_err(|err| {
+                        err.with_context(format!("While evaluating projection partition {name}"))
+                    })?,
                 partition.is::<Pack>() || partition.is::<Merge>(),
             ),
 
@@ -297,6 +314,11 @@ impl LayoutReader for StructReader {
                     .into_array_future(mask_fut, |name, expr, mask| {
                         self.field_reader(name)?
                             .projection_evaluation(row_range, expr, mask)
+                            .map_err(|err| {
+                                err.with_context(format!(
+                                    "While evaluating projection partition {name}"
+                                ))
+                            })
                     })?,
                 partitioned.root.is::<Pack>() || partitioned.root.is::<Merge>(),
             ),

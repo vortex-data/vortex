@@ -139,7 +139,13 @@ impl ZoneMap {
     /// All zones where the predicate evaluates to `true` can be skipped entirely.
     pub fn prune(&self, predicate: &Expression) -> VortexResult<Mask> {
         predicate
-            .evaluate(&self.array.to_array())?
+            .evaluate(&self.array.to_array())
+            .map_err(|err| {
+                err.with_context(format!(
+                    "While evaluating ZoneMap pruning filter {}",
+                    predicate
+                ))
+            })?
             .try_to_mask_fill_null_false()
     }
 }

@@ -137,11 +137,16 @@ impl LayoutReader for FlatReader {
                 // TODO(joe): fixme casting null to false is *VERY* unsound, if the expression in the filter
                 // can inspect nulls (e.g. `is_null`).
                 // you will need to call the array evaluation instead of the mask evaluation.
-                let array_mask = expr.evaluate(&array)?.try_to_mask_fill_null_false()?;
+                let array_mask = expr
+                    .evaluate(&array)
+                    .map_err(|err| err.with_context(format!("While evaluating filter {}", expr)))?
+                    .try_to_mask_fill_null_false()?;
                 mask.intersect_by_rank(&array_mask)
             } else {
                 // Evaluate all rows, avoiding the more expensive rank intersection.
-                array = expr.evaluate(&array)?;
+                array = expr
+                    .evaluate(&array)
+                    .map_err(|err| err.with_context(format!("While evaluating filter {}", expr)))?;
                 let array_mask = array.try_to_mask_fill_null_false()?;
                 mask.bitand(&array_mask)
             };
@@ -190,7 +195,9 @@ impl LayoutReader for FlatReader {
 
             // Evaluate the projection expression.
             if !is_root(&expr) {
-                array = expr.evaluate(&array)?;
+                array = expr.evaluate(&array).map_err(|err| {
+                    err.with_context(format!("While evaluating projection {}", expr))
+                })?;
             }
 
             Ok(array)
