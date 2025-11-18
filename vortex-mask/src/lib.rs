@@ -303,12 +303,6 @@ impl Mask {
         Self::from_indices(len, intersection)
     }
 
-    /// Clear the mask, setting the length to zero.
-    #[inline(always)]
-    pub fn clear(&mut self) {
-        *self = Mask::AllTrue(0);
-    }
-
     /// Returns the length of the mask (not the number of true values).
     #[inline]
     pub fn len(&self) -> usize {
