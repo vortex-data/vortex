@@ -26,24 +26,83 @@ const T: usize = 32;
 const S: usize = N * W / T;
 
 fn main() {
-    let size = 1024;
+    let size = 1024 * 1024;
+    let mut setup_data = setup(size);
 
+    decompress(
+        &setup_data.bitpacked,
+        setup_data.reference,
+        setup_data.exponents,
+        &mut setup_data.for_decoded,
+        &mut setup_data.alp_decoded,
+    );
+
+    println!("Decompression completed");
+
+    verify(
+        &setup_data.for_decoded,
+        &setup_data.alp_decoded,
+        &setup_data.alp_encoded,
+        &setup_data.original,
+        &setup_data.patches,
+    );
+}
+
+struct SetupData {
+    original: Vec<f32>,
+    bitpacked: Vec<u32>,
+    reference: i32,
+    exponents: Exponents,
+    patches: Patches,
+    alp_encoded: Vec<i32>,
+    for_decoded: Vec<i32>,
+    alp_decoded: Vec<f32>,
+}
+
+fn setup(size: usize) -> SetupData {
     let original = create_random_values(size);
+    println!("Created random values");
     let (alp_encoded, exponents, patches) = alp_compress(&original);
+    println!("ALP compression completed");
     let (for_encoded, reference) = for_compress(&alp_encoded);
+    println!("FoR compression completed");
     let bitpacked = bitpack_10(cast_i32_as_u32(&for_encoded));
+    println!("Bitpacking completed");
 
-    let mut for_decoded: Vec<i32> = vec![0i32; size];
-    let mut alp_decoded: Vec<f32> = vec![0.0f32; size];
+    let for_decoded: Vec<i32> = vec![0i32; size];
+    let alp_decoded: Vec<f32> = vec![0.0f32; size];
 
-    // Begin decompression
-    {
-        let unpacked = unpack_10(&bitpacked);
-        for_decompress(cast_u32_as_i32(&unpacked), reference, &mut for_decoded);
-        alp_decompress(&for_decoded, exponents, &mut alp_decoded);
+    SetupData {
+        original,
+        bitpacked,
+        reference,
+        exponents,
+        patches,
+        alp_encoded,
+        for_decoded,
+        alp_decoded,
     }
-    // End decompression
+}
 
+fn decompress(
+    bitpacked: &[u32],
+    reference: i32,
+    exponents: Exponents,
+    for_decoded: &mut [i32],
+    alp_decoded: &mut [f32],
+) {
+    let unpacked = unpack_10(bitpacked);
+    for_decompress(cast_u32_as_i32(&unpacked), reference, for_decoded);
+    alp_decompress(for_decoded, exponents, alp_decoded);
+}
+
+fn verify(
+    for_decoded: &[i32],
+    alp_decoded: &[f32],
+    alp_encoded: &[i32],
+    original: &[f32],
+    patches: &Patches,
+) {
     // Verification
 
     for i in 0..for_decoded.len() {
