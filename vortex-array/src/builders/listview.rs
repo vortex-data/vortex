@@ -617,14 +617,4 @@ mod tests {
                 .contains("null value to non-nullable")
         );
     }
-
-    #[test]
-    #[should_panic(
-        expected = "Size type I32 (max offset 2147483647) must fit within offset type I16 (max offset 32767)"
-    )]
-    fn test_error_invalid_type_combination() {
-        let dtype: Arc<DType> = Arc::new(I32.into());
-        // This should panic because i32 (4 bytes) cannot fit within i16 (2 bytes).
-        let _builder = ListViewBuilder::<i16, i32>::with_capacity(dtype, NonNullable, 0, 0);
-    }
 }

@@ -74,14 +74,26 @@ impl ListViewArray {
         let offsets_ptype = self.offsets().dtype().as_ptype();
         let sizes_ptype = self.sizes().dtype().as_ptype();
 
-        match_each_integer_ptype!(offsets_ptype, |O| {
-            match_each_integer_ptype!(sizes_ptype, |S| { self.naive_rebuild::<O, S>() })
+        match_each_integer_ptype!(sizes_ptype, |S| {
+            match offsets_ptype {
+                PType::U8 => self.naive_rebuild::<u8, u32, S>(),
+                PType::U16 => self.naive_rebuild::<u16, u32, S>(),
+                PType::U32 => self.naive_rebuild::<u32, u32, S>(),
+                PType::U64 => self.naive_rebuild::<u64, u64, S>(),
+                PType::I8 => self.naive_rebuild::<i8, i32, S>(),
+                PType::I16 => self.naive_rebuild::<i16, i32, S>(),
+                PType::I32 => self.naive_rebuild::<i32, i32, S>(),
+                PType::I64 => self.naive_rebuild::<i64, i64, S>(),
+                _ => unreachable!("invalid offsets PType"),
+            }
         })
     }
 
     /// The inner function for `rebuild_zero_copy_to_list`, which naively rebuilds a `ListViewArray`
     /// via `append_scalar`.
-    fn naive_rebuild<O: IntegerPType, S: IntegerPType>(&self) -> ListViewArray {
+    fn naive_rebuild<O: IntegerPType, NewOffset: IntegerPType, S: IntegerPType>(
+        &self,
+    ) -> ListViewArray {
         let element_dtype = self
             .dtype()
             .as_list_element_opt()
@@ -96,12 +108,12 @@ impl ListViewArray {
         let offsets_canonical = offsets_canonical.as_slice::<O>();
         let sizes_canonical = sizes_canonical.as_slice::<S>();
 
-        let mut offsets = BufferMut::<u32>::with_capacity(self.len());
+        let mut offsets = BufferMut::<NewOffset>::with_capacity(self.len());
         let mut sizes = BufferMut::<S>::with_capacity(self.len());
 
         let mut chunks = Vec::with_capacity(self.len());
 
-        let mut n_elements = 0u32;
+        let mut n_elements = NewOffset::zero();
 
         for index in 0..self.len() {
             if !self.is_valid(index) {
@@ -120,7 +132,7 @@ impl ListViewArray {
             offsets.push(n_elements);
             sizes.push(size);
 
-            n_elements += size.to_u32().vortex_expect("to_u32");
+            n_elements += num_traits::cast(size).vortex_expect("cast");
         }
 
         let offsets = offsets.into_array();
