@@ -14,6 +14,7 @@ use vortex_array::{Array, ArrayRef, IntoArray, MaskFuture};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexError, VortexExpect, VortexResult};
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use super::DictLayout;
@@ -42,14 +43,18 @@ impl DictReader {
         layout: DictLayout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        session: &VortexSession,
     ) -> VortexResult<Self> {
         let values_len = usize::try_from(layout.values.row_count())?;
-        let values = layout
-            .values
-            .new_reader(format!("{name}.values").into(), segment_source.clone())?;
-        let codes = layout
-            .codes
-            .new_reader(format!("{name}.codes").into(), segment_source)?;
+        let values = layout.values.new_reader(
+            format!("{name}.values").into(),
+            segment_source.clone(),
+            session,
+        )?;
+        let codes =
+            layout
+                .codes
+                .new_reader(format!("{name}.codes").into(), segment_source, session)?;
 
         Ok(Self {
             layout,
@@ -252,7 +257,6 @@ mod tests {
             let layout: LayoutRef = strategy
                 .write_stream(
                     ctx,
-                    &SESSION,
                     segments.clone(),
                     SequentialStreamAdapter::new(
                         DType::Utf8(Nullability::Nullable),
@@ -274,7 +278,7 @@ mod tests {
             );
             assert!(layout.encoding_id() == LayoutId::new_ref("vortex.dict"));
             let actual = layout
-                .new_reader("".into(), segments)
+                .new_reader("".into(), segments, &SESSION)
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -336,7 +340,6 @@ mod tests {
             let layout: LayoutRef = strategy
                 .write_stream(
                     ctx,
-                    &SESSION,
                     segments.clone(),
                     SequentialStreamAdapter::new(
                         DType::Utf8(Nullability::Nullable),
@@ -357,7 +360,7 @@ mod tests {
                 )),
             );
             let mask = layout
-                .new_reader("".into(), segments)
+                .new_reader("".into(), segments, &SESSION)
                 .unwrap()
                 .filter_evaluation(&(0..3), &filter, MaskFuture::new_true(3))
                 .unwrap()
@@ -395,14 +398,12 @@ mod tests {
             .to_array();
             let array_to_write = array.clone();
             let ctx = ArrayContext::empty();
-            let session = &SESSION;
 
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let layout: LayoutRef = strategy
                 .write_stream(
                     ctx,
-                    &session,
                     segments.clone(),
                     SequentialStreamAdapter::new(
                         DType::Utf8(Nullability::Nullable),
@@ -418,7 +419,7 @@ mod tests {
             let expression = not(is_null(root())); // easier to test not_is_null b/c that's the validity array
             assert!(layout.encoding_id() == LayoutId::new_ref("vortex.dict"));
             let actual = layout
-                .new_reader("".into(), segments)
+                .new_reader("".into(), segments, &SESSION)
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),

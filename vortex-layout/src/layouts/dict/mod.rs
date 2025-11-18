@@ -76,11 +76,13 @@ impl VTable for DictVTable {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        session: &VortexSession,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(DictReader::try_new(
             layout.clone(),
             name,
             segment_source,
+            session,
         )?))
     }
 
@@ -102,7 +104,6 @@ impl VTable for DictVTable {
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
         _ctx: ArrayContext,
-        session: &VortexSession,
     ) -> VortexResult<Self::Layout> {
         let values = children.child(0, dtype)?;
         let codes_nullable = metadata
@@ -113,11 +114,7 @@ impl VTable for DictVTable {
             // see [`SerdeVTable<DictVTable>::build`].
             .unwrap_or_else(|| dtype.nullability());
         let codes = children.child(1, &DType::Primitive(metadata.codes_ptype(), codes_nullable))?;
-        Ok(DictLayout {
-            values,
-            codes,
-            session: session.clone(),
-        })
+        Ok(DictLayout { values, codes })
     }
 }
 
@@ -128,21 +125,11 @@ pub struct DictLayoutEncoding;
 pub struct DictLayout {
     values: LayoutRef,
     codes: LayoutRef,
-    session: VortexSession,
 }
 
 impl DictLayout {
-    pub(super) fn new(values: LayoutRef, codes: LayoutRef, session: VortexSession) -> Self {
-        Self {
-            values,
-            codes,
-            session,
-        }
-    }
-
-    #[inline]
-    pub fn session(&self) -> &VortexSession {
-        &self.session
+    pub(super) fn new(values: LayoutRef, codes: LayoutRef) -> Self {
+        Self { values, codes }
     }
 }
 

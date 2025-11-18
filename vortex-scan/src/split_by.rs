@@ -74,7 +74,6 @@ mod test {
             FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
-                    &SESSION,
                     segments.clone(),
                     buffer![1_i32; 10]
                         .into_array()
@@ -87,7 +86,7 @@ mod test {
         })
         .unwrap();
 
-        layout.new_reader("".into(), segments).unwrap()
+        layout.new_reader("".into(), segments, &SESSION).unwrap()
     }
 
     #[test]

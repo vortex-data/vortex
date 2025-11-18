@@ -289,7 +289,6 @@ mod tests {
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
-                    &SESSION,
                     segments.clone(),
                     array.to_array_stream().sequenced(ptr),
                     eof,
@@ -301,7 +300,7 @@ mod tests {
             let expr = eq(root(), lit(3i32));
             let result = RowIdxLayoutReader::new(
                 0,
-                layout.new_reader("".into(), segments).unwrap(),
+                layout.new_reader("".into(), segments, &SESSION).unwrap(),
                 &SESSION,
             )
             .projection_evaluation(
@@ -331,7 +330,6 @@ mod tests {
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
-                    &SESSION,
                     segments.clone(),
                     array.to_array_stream().sequenced(ptr),
                     eof,
@@ -343,7 +341,7 @@ mod tests {
             let expr = gt(row_idx(), lit(3u64));
             let result = RowIdxLayoutReader::new(
                 0,
-                layout.new_reader("".into(), segments).unwrap(),
+                layout.new_reader("".into(), segments, &SESSION).unwrap(),
                 &SESSION,
             )
             .projection_evaluation(
@@ -373,7 +371,6 @@ mod tests {
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
-                    &SESSION,
                     segments.clone(),
                     array.to_array_stream().sequenced(ptr),
                     eof,
@@ -389,7 +386,7 @@ mod tests {
 
             let result = RowIdxLayoutReader::new(
                 0,
-                layout.new_reader("".into(), segments).unwrap(),
+                layout.new_reader("".into(), segments, &SESSION).unwrap(),
                 &SESSION,
             )
             .projection_evaluation(

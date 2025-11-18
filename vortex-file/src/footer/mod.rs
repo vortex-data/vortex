@@ -86,8 +86,7 @@ impl Footer {
             .map(|encoding| encoding.id());
         let array_ctx = ArrayContext::try_from_registry(session.arrays().registry(), array_ids)?;
 
-        let root_layout =
-            layout_from_flatbuffer(layout_bytes, &dtype, &layout_ctx, &array_ctx, session)?;
+        let root_layout = layout_from_flatbuffer(layout_bytes, &dtype, &layout_ctx, &array_ctx)?;
 
         let segments: Arc<[SegmentSpec]> = fb_footer
             .segment_specs()

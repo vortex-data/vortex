@@ -9,7 +9,6 @@ use vortex_array::ArrayContext;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, layout};
-use vortex_session::VortexSession;
 
 use crate::children::ViewedLayoutChildren;
 use crate::segments::SegmentId;
@@ -38,7 +37,6 @@ pub fn layout_from_flatbuffer(
     dtype: &DType,
     layout_ctx: &LayoutContext,
     array_ctx: &ArrayContext,
-    session: &VortexSession,
 ) -> VortexResult<LayoutRef> {
     let fb_layout = root_with_opts::<layout::Layout>(&LAYOUT_VERIFIER, &flatbuffer)?;
     let encoding = layout_ctx
@@ -52,7 +50,6 @@ pub fn layout_from_flatbuffer(
             fb_layout._tab.loc(),
             array_ctx.clone(),
             layout_ctx.clone(),
-            session.clone(),
         )
     };
 
@@ -71,7 +68,6 @@ pub fn layout_from_flatbuffer(
             .collect(),
         &viewed_children,
         array_ctx.clone(),
-        session,
     )?;
 
     Ok(layout)

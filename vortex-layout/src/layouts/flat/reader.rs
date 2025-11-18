@@ -226,7 +226,6 @@ mod test {
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
-                    &SESSION,
                     segments.clone(),
                     array.to_array_stream().sequenced(ptr),
                     eof,
@@ -236,7 +235,7 @@ mod test {
                 .unwrap();
 
             let result = layout
-                .new_reader("".into(), segments)
+                .new_reader("".into(), segments, &SESSION)
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -266,7 +265,6 @@ mod test {
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
-                    &SESSION,
                     segments.clone(),
                     array.to_array_stream().sequenced(ptr),
                     eof,
@@ -277,7 +275,7 @@ mod test {
 
             let expr = gt(root(), lit(3i32));
             let result = layout
-                .new_reader("".into(), segments)
+                .new_reader("".into(), segments, &SESSION)
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -306,7 +304,6 @@ mod test {
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
-                    &SESSION,
                     segments.clone(),
                     array.to_array_stream().sequenced(ptr),
                     eof,
@@ -316,7 +313,7 @@ mod test {
                 .unwrap();
 
             let result = layout
-                .new_reader("".into(), segments)
+                .new_reader("".into(), segments, &SESSION)
                 .unwrap()
                 .projection_evaluation(&(2..4), &root(), MaskFuture::new_true(2))
                 .unwrap()
