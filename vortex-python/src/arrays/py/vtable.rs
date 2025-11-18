@@ -20,8 +20,8 @@ use vortex::vtable::{
     VTable, ValidityVTable, VisitorVTable,
 };
 use vortex::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId,
-    EncodingRef, Precision, RawMetadata, SerializeMetadata, vtable,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef, Precision,
+    RawMetadata, SerializeMetadata, vtable,
 };
 
 use crate::arrays::py::{PythonArray, PythonEncoding};
@@ -51,11 +51,11 @@ impl VTable for PythonVTable {
     }
 
     fn metadata(array: &PythonArray) -> VortexResult<Self::Metadata> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let obj = array.object.bind(py);
             if !obj.hasattr(intern!(py, "metadata"))? {
                 // The class does not have a metadata attribute so does not support serialization.
-                vortex_bail!("Array does not support serialization");
+                return Ok(None);
             }
 
             let bytes = obj
@@ -65,7 +65,7 @@ impl VTable for PythonVTable {
                 .as_bytes()
                 .to_vec();
 
-            Ok(RawMetadata(bytes))
+            Ok(Some(RawMetadata(bytes)))
         })
     }
 
