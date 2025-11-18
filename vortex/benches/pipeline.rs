@@ -39,6 +39,8 @@ struct SetupData {
     exponents: Exponents,
     for_decoded: Vec<i32>,
     alp_decoded: Vec<f32>,
+    alp_decoded_inplace_batch: Vec<f32>,
+    alp_decoded_inplace_pipeline: Vec<f32>,
 }
 
 fn setup(size: usize) -> SetupData {
@@ -49,6 +51,8 @@ fn setup(size: usize) -> SetupData {
 
     let for_decoded: Vec<i32> = vec![0i32; size];
     let alp_decoded: Vec<f32> = vec![0.0f32; size];
+    let alp_decoded_inplace_batch: Vec<f32> = vec![0.0f32; size];
+    let alp_decoded_inplace_pipeline: Vec<f32> = vec![0.0f32; size];
 
     SetupData {
         bitpacked,
@@ -56,6 +60,8 @@ fn setup(size: usize) -> SetupData {
         exponents,
         for_decoded,
         alp_decoded,
+        alp_decoded_inplace_batch,
+        alp_decoded_inplace_pipeline,
     }
 }
 
@@ -72,9 +78,42 @@ fn decompress_batch(
     alp_decompress(for_decoded, exponents, alp_decoded);
 }
 
+/// In-place batch decompression that reuses a single buffer for all stages.
+fn decompress_in_place_batch(
+    bitpacked: &[u32],
+    reference: i32,
+    exponents: Exponents,
+    output: &mut [f32],
+) {
+    // Reinterpret the output buffer as u32 for the first stage.
+    // SAFETY: f32 and u32 have the same size (4 bytes) and alignment.
+    let buffer_u32 =
+        unsafe { std::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut u32, output.len()) };
+
+    // Stage 1: Unpack bitpacked data into buffer (as u32).
+    unpack_10(bitpacked, buffer_u32);
+
+    // Stage 2: FoR decode in-place (reinterpret as i32).
+    // SAFETY: u32 and i32 have the same size and alignment.
+    let buffer_i32 = cast_u32_as_i32_mut(buffer_u32);
+    for_decompress_inplace(buffer_i32, reference);
+
+    // Stage 3: ALP decode in-place (transmute i32 → f32).
+    // This transforms the buffer from i32 to f32 in-place.
+    f32::decode_slice_inplace(buffer_i32, exponents);
+
+    // The output buffer now contains the final f32 values.
+    // No copy needed since we've been operating in-place on the output buffer.
+}
+
 /// Inlined version of decompress that processes data chunk by chunk without intermediate
 /// allocations.
-fn decompress_inlined(bitpacked: &[u32], reference: i32, exponents: Exponents, output: &mut [f32]) {
+fn decompress_pipeline(
+    bitpacked: &[u32],
+    reference: i32,
+    exponents: Exponents,
+    output: &mut [f32],
+) {
     debug_assert!(bitpacked.len().is_multiple_of(S));
     debug_assert_eq!(output.len(), bitpacked.len() * T / W);
 
@@ -123,6 +162,62 @@ fn decompress_inlined(bitpacked: &[u32], reference: i32, exponents: Exponents, o
     }
 }
 
+/// In-place pipeline decompression that processes data chunk by chunk directly in the output buffer.
+fn decompress_in_place_pipeline(
+    bitpacked: &[u32],
+    reference: i32,
+    exponents: Exponents,
+    output: &mut [f32],
+) {
+    debug_assert!(bitpacked.len().is_multiple_of(S));
+    debug_assert_eq!(output.len(), bitpacked.len() * T / W);
+
+    let mut input_offset = 0;
+    let mut output_offset = 0;
+
+    while input_offset < bitpacked.len() {
+        // Get the current chunk of the output buffer to work on.
+        // SAFETY: We've verified output.len() matches bitpacked data.
+        let output_chunk = unsafe { output.get_unchecked_mut(output_offset..output_offset + N) };
+
+        // Reinterpret the output chunk as u32 for unpacking.
+        // SAFETY: f32 and u32 have the same size (4 bytes) and alignment.
+        let chunk_u32 =
+            unsafe { std::slice::from_raw_parts_mut(output_chunk.as_mut_ptr() as *mut u32, N) };
+
+        // Stage 1: Unpack directly into the output buffer (as u32).
+        // SAFETY: We've verified that bitpacked.len() is a multiple of S.
+        unsafe {
+            let input = bitpacked.get_unchecked(input_offset..input_offset + S);
+            BitPacking::unchecked_unpack(W, input, chunk_u32);
+        }
+
+        // Stages 2 & 3: Fused FoR and ALP decode in single pass.
+        // Process each element through both transformations to minimize memory traffic.
+        // SAFETY: We've verified that chunk_u32 has N elements and output_chunk has N elements.
+        unsafe {
+            for i in 0..N {
+                // Read once from buffer (as u32, interpret as i32).
+                let unpacked = *chunk_u32.get_unchecked(i) as i32;
+
+                // Apply FoR decompression (add reference).
+                let for_decoded = unpacked.wrapping_add(reference);
+
+                // Apply ALP decompression (convert to f32 with exponent scaling).
+                let alp_decoded = f32::decode_single(for_decoded, exponents);
+
+                // Write once to output.
+                *output_chunk.get_unchecked_mut(i) = alp_decoded;
+            }
+        }
+
+        // The output chunk now contains the final f32 values.
+
+        input_offset += S;
+        output_offset += N;
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Benchmarks
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -133,16 +228,16 @@ mod decompress_benchmarks {
 
     /// Benchmark sizes to test: 1K, 16K, 64K, 256K, 1M, 4M.
     const BENCHMARK_SIZES: [usize; 6] = [
-        1024,    // 1K
-        16384,   // 16K
-        65536,   // 64K
-        262144,  // 256K
-        1048576, // 1M
-        4194304, // 4M
+        1024,   // 1K
+        8192,   // 8K
+        16384,  // 16K
+        65536,  // 64K
+        100352, // 100K
+        262144, // 256K
     ];
 
     #[divan::bench(consts = BENCHMARK_SIZES)]
-    fn decompress_original<const SIZE: usize>(bencher: Bencher) {
+    fn batch<const SIZE: usize>(bencher: Bencher) {
         let mut data = setup(SIZE);
         let mut bitpacked_output = vec![0u32; SIZE];
 
@@ -159,12 +254,40 @@ mod decompress_benchmarks {
     }
 
     #[divan::bench(consts = BENCHMARK_SIZES)]
-    fn decompress_pipeline<const SIZE: usize>(bencher: Bencher) {
+    fn pipeline<const SIZE: usize>(bencher: Bencher) {
         let data = setup(SIZE);
         let mut output = vec![0f32; SIZE];
 
         bencher.bench_local(|| {
-            decompress_inlined(&data.bitpacked, data.reference, data.exponents, &mut output);
+            decompress_pipeline(&data.bitpacked, data.reference, data.exponents, &mut output);
+        });
+    }
+
+    #[divan::bench(consts = BENCHMARK_SIZES)]
+    fn in_place_batch<const SIZE: usize>(bencher: Bencher) {
+        let mut data = setup(SIZE);
+
+        bencher.bench_local(|| {
+            decompress_in_place_batch(
+                &data.bitpacked,
+                data.reference,
+                data.exponents,
+                &mut data.alp_decoded_inplace_batch,
+            );
+        });
+    }
+
+    #[divan::bench(consts = BENCHMARK_SIZES)]
+    fn in_place_pipeline<const SIZE: usize>(bencher: Bencher) {
+        let mut data = setup(SIZE);
+
+        bencher.bench_local(|| {
+            decompress_in_place_pipeline(
+                &data.bitpacked,
+                data.reference,
+                data.exponents,
+                &mut data.alp_decoded_inplace_pipeline,
+            );
         });
     }
 }
@@ -292,6 +415,19 @@ fn cast_i32_as_u32(slice: &[i32]) -> &[u32] {
 fn cast_u32_as_i32(slice: &[u32]) -> &[i32] {
     // SAFETY: i32 and u32 have the same size and alignment, so this transmute is safe.
     unsafe { std::slice::from_raw_parts(slice.as_ptr() as *const i32, slice.len()) }
+}
+
+/// Cast a mutable u32 slice to a mutable i32 slice.
+fn cast_u32_as_i32_mut(slice: &mut [u32]) -> &mut [i32] {
+    // SAFETY: i32 and u32 have the same size and alignment, so this transmute is safe.
+    unsafe { std::slice::from_raw_parts_mut(slice.as_mut_ptr() as *mut i32, slice.len()) }
+}
+
+/// In-place FoR decompression.
+fn for_decompress_inplace(values: &mut [i32], reference: i32) {
+    for i in 0..values.len() {
+        values[i] = values[i].wrapping_add(reference);
+    }
 }
 
 #[allow(dead_code)]
