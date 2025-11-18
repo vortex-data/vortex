@@ -254,7 +254,7 @@ fn arrow_numeric(
     let len = lhs.len();
 
     let left = Datum::try_new(lhs)?;
-    let right = Datum::try_new(rhs)?;
+    let right = Datum::try_new_with_target_datatype(rhs, left.data_type())?;
 
     let array = match operator {
         NumericOperator::Add => arrow_arith::numeric::add(&left, &right)?,
