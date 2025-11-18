@@ -175,17 +175,20 @@ impl PyExpr {
     /// ```python
     /// >>> import vortex.expr as ve
     /// >>> import vortex as vx
-    /// >>> ve.column("a").evaluate(vx.array([{"a": 0, "b": "hello"}, {"a": 1, "b": "goodbye"}]))
-    /// [0, 1]
+    /// >>> array = ve.column("a").evaluate(vx.array([{"a": 0, "b": "hello"}, {"a": 1, "b": "goodbye"}]))
+    /// >>> array.to_arrow_array()
+    /// <pyarrow.lib.Int64Array object at ...>
+    /// [
+    ///  0,
+    ///  1
+    /// ]
     /// ```
     ///
     /// See also
     /// --------
-    ///
-    /// To evaluate expressions on on-disk arrays, see:
-    /// - `vortex.file.open`,
-    /// - `vortex.file.VortexFile`, and
-    /// - `vortex.file.VortexFile.scan`
+    /// vortex.open : Open an on-disk Vortex array for scanning with an expression.
+    /// vortex.VortexFile : An on-disk Vortex array ready to scan with an expression.
+    /// vortex.VortexFile.scan : Scan an on-disk Vortex array with an expression.
     fn evaluate(self_: PyRef<'_, Self>, array: PyArrayRef) -> PyResult<PyArrayRef> {
         Ok(PyArrayRef::from(self_.evaluate(array.inner())?))
     }
