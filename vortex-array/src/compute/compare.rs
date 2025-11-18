@@ -206,6 +206,20 @@ impl ComputeFnVTable for Compare {
         let CompareArgs { lhs, rhs, .. } = CompareArgs::try_from(args)?;
 
         if !lhs.dtype().eq_ignore_nullability(rhs.dtype()) {
+            if lhs.dtype().is_float() && rhs.dtype().is_float() {
+                vortex_bail!(
+                    "Cannot compare different floating-point types ({}, {}). Consider using cast.",
+                    lhs.dtype(),
+                    rhs.dtype(),
+                );
+            }
+            if lhs.dtype().is_int() && rhs.dtype().is_int() {
+                vortex_bail!(
+                    "Cannot compare different fixed-width types ({}, {}). Consider using cast.",
+                    lhs.dtype(),
+                    rhs.dtype()
+                );
+            }
             vortex_bail!(
                 "Cannot compare different DTypes {} and {}",
                 lhs.dtype(),
@@ -371,6 +385,7 @@ mod tests {
         BoolArray, ConstantArray, ListArray, ListViewArray, PrimitiveArray, StructArray,
         VarBinArray, VarBinViewArray,
     };
+    use crate::expr::{get_item, lt, root};
     use crate::test_harness::to_int_indices;
     use crate::validity::Validity;
 
@@ -612,5 +627,59 @@ mod tests {
         assert!(result.scalar_at(0).is_valid());
         assert!(result.scalar_at(1).is_valid());
         assert!(result.scalar_at(2).is_valid());
+    }
+
+    #[test]
+    fn test_different_floats_error_messages() {
+        let result = compare(
+            &buffer![0.0f32].into_array(),
+            &buffer![0.0f64].into_array(),
+            Operator::Lt,
+        );
+        assert!(result.as_ref().is_err_and(|err| {
+            err.to_string()
+                .contains("Cannot compare different floating-point types")
+        }));
+
+        let expr = lt(get_item("l", root()), get_item("r", root()));
+        let result = expr.evaluate(
+            &StructArray::from_fields(&[
+                ("l", buffer![0.0f32].into_array()),
+                ("r", buffer![0.0f64].into_array()),
+            ])
+            .unwrap()
+            .into_array(),
+        );
+        assert!(result.as_ref().is_err_and(|err| {
+            err.to_string()
+                .contains("Cannot compare different floating-point types")
+        }));
+    }
+
+    #[test]
+    fn test_different_ints_error_messages() {
+        let result = compare(
+            &buffer![0u8].into_array(),
+            &buffer![0u16].into_array(),
+            Operator::Lt,
+        );
+        assert!(result.as_ref().is_err_and(|err| {
+            err.to_string()
+                .contains("Cannot compare different fixed-width types")
+        }));
+
+        let expr = lt(get_item("l", root()), get_item("r", root()));
+        let result = expr.evaluate(
+            &StructArray::from_fields(&[
+                ("l", buffer![0u8].into_array()),
+                ("r", buffer![0u16].into_array()),
+            ])
+            .unwrap()
+            .into_array(),
+        );
+        assert!(result.as_ref().is_err_and(|err| {
+            err.to_string()
+                .contains("Cannot compare different fixed-width types")
+        }));
     }
 }
