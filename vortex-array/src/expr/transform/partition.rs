@@ -12,11 +12,10 @@ use crate::expr::Expression;
 use crate::expr::exprs::get_item::get_item;
 use crate::expr::exprs::pack::pack;
 use crate::expr::exprs::root::root;
-use crate::expr::session::ExprSession;
+use crate::expr::transform::ExprOptimizer;
 use crate::expr::transform::annotations::{
     Annotation, AnnotationFn, Annotations, descendent_annotations,
 };
-use crate::expr::transform::simplify_typed::simplify_typed;
 use crate::expr::traversal::{NodeExt, NodeRewriter, Transformed, TraversalOrder};
 
 /// Partition an expression into sub-expressions that are uniquely associated with an annotation.
@@ -34,7 +33,7 @@ pub fn partition<A: AnnotationFn>(
     expr: Expression,
     scope: &DType,
     annotate_fn: A,
-    session: &ExprSession,
+    optimizer: &ExprOptimizer,
 ) -> VortexResult<PartitionedExpr<A::Annotation>>
 where
     A::Annotation: Display,
@@ -64,7 +63,7 @@ where
             Nullability::NonNullable,
         );
 
-        let expr = simplify_typed(expr.clone(), scope, session)?;
+        let expr = optimizer.optimize_typed(expr.clone(), scope)?;
         let expr_dtype = expr.return_dtype(scope)?;
 
         partitions.push(expr);
@@ -82,7 +81,7 @@ where
     );
 
     Ok(PartitionedExpr {
-        root: simplify_typed(root, &root_scope, session)?,
+        root: optimizer.optimize_typed(root, &root_scope)?,
         partitions: partitions.into_boxed_slice(),
         partition_names,
         partition_dtypes: partition_dtypes.into_boxed_slice(),

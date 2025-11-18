@@ -14,7 +14,7 @@ use crate::expr::traversal::{NodeExt, Transformed};
 ///
 /// NOTE: After typed simplification, returned expressions is "bound" to the scope DType.
 ///     Applying the returned expression to a different DType may produce wrong results.
-pub fn simplify_typed(
+pub(crate) fn simplify_typed(
     expr: Expression,
     dtype: &DType,
     session: &ExprSession,

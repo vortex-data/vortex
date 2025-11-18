@@ -13,7 +13,7 @@ use crate::expr::traversal::{NodeExt, Transformed};
 ///
 /// This applies only untyped rewrite rules registered in the default session.
 /// If the scope dtype is known, see `simplify_typed` for a simplifier which uses dtype.
-pub fn simplify(e: Expression, session: &ExprSession) -> VortexResult<Expression> {
+pub(crate) fn simplify(e: Expression, session: &ExprSession) -> VortexResult<Expression> {
     let ctx = RuleContext;
 
     let e = apply_parent_rules(e, &ctx, session)?;

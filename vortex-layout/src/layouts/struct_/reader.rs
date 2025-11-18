@@ -11,7 +11,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::expr::session::ExprSessionExt;
 use vortex_array::expr::transform::immediate_access::annotate_scope_access;
 use vortex_array::expr::transform::{
-    PartitionedExpr, partition, replace, replace_root_fields, simplify_typed,
+    ExprOptimizer, PartitionedExpr, partition, replace, replace_root_fields,
 };
 use vortex_array::expr::{ExactExpr, Expression, Merge, Pack, col, root};
 use vortex_array::vtable::ValidityHelper;
@@ -41,6 +41,8 @@ pub struct StructReader {
 
     field_lookup: Option<HashMap<FieldName, usize>>,
     partitioned_expr_cache: DashMap<ExactExpr, Partitioned>,
+
+    optimizer: ExprOptimizer,
 }
 
 impl StructReader {
@@ -95,6 +97,7 @@ impl StructReader {
             lazy_children,
             field_lookup,
             partitioned_expr_cache: Default::default(),
+            optimizer: ExprOptimizer::new(*session.expressions()),
         })
     }
 
@@ -141,7 +144,9 @@ impl StructReader {
                 // First, we expand the root scope into the fields of the struct to ensure
                 // that partitioning works correctly.
                 let expr = replace(expr.clone(), &root(), self.expanded_root_expr.clone());
-                let expr = simplify_typed(expr, self.dtype(), &self.session.expressions())
+                let expr = self
+                    .optimizer
+                    .optimize_typed(expr, self.dtype())
                     .vortex_expect("We should not fail to simplify expression over struct fields");
 
                 // Partition the expression into expressions that can be evaluated over individual fields
