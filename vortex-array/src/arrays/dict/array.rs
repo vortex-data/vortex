@@ -12,7 +12,9 @@ use vortex_mask::{AllOr, Mask};
 use crate::builders::dict::dict_encode;
 use crate::serde::ArrayChildren;
 use crate::stats::{ArrayStats, StatsSetRef};
-use crate::vtable::{ArrayVTable, EncodeVTable, NotSupported, VTable, ValidityVTable, VisitorVTable};
+use crate::vtable::{
+    ArrayVTable, EncodeVTable, NotSupported, VTable, ValidityVTable, VisitorVTable,
+};
 use crate::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
     DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata, SerializeMetadata,

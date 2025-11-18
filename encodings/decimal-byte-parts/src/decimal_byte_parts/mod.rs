@@ -15,8 +15,9 @@ use vortex_array::vtable::{
     ValidityHelper, ValidityVTableFromChild, VisitorVTable,
 };
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, Precision, ProstMetadata,
-    SerializeMetadata, ToCanonical, vtable,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
+    EncodingId, EncodingRef, IntoArray, Precision, ProstMetadata, SerializeMetadata, ToCanonical,
+    vtable,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, DecimalDType, PType, match_each_signed_integer_ptype};

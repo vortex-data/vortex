@@ -85,8 +85,7 @@ impl VTable for DeltaVTable {
     ) -> VortexResult<DeltaArray> {
         assert_eq!(children.len(), 2);
         let ptype = PType::try_from(dtype)?;
-        let lanes =
-            match_each_unsigned_integer_ptype!(ptype, |T| { <T as FastLanes>::LANES });
+        let lanes = match_each_unsigned_integer_ptype!(ptype, |T| { <T as FastLanes>::LANES });
 
         // Compute the length of the bases array
         let deltas_len = usize::try_from(metadata.0.deltas_len)

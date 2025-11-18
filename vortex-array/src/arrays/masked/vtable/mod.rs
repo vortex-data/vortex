@@ -15,7 +15,9 @@ use crate::arrays::masked::MaskedArray;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper, VisitorVTable};
-use crate::{ArrayBufferVisitor, ArrayChildVisitor, EmptyMetadata, EncodingId, EncodingRef, vtable};
+use crate::{
+    ArrayBufferVisitor, ArrayChildVisitor, EmptyMetadata, EncodingId, EncodingRef, vtable,
+};
 
 vtable!(Masked);
 

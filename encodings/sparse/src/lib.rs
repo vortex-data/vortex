@@ -12,7 +12,9 @@ use vortex_array::compute::{Operator, compare, fill_null, filter, sub_scalar};
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::{ArrayVTable, EncodeVTable, NotSupported, VTable, ValidityVTable, VisitorVTable};
+use vortex_array::vtable::{
+    ArrayVTable, EncodeVTable, NotSupported, VTable, ValidityVTable, VisitorVTable,
+};
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
     EncodingId, EncodingRef, IntoArray, Precision, ProstMetadata, ToCanonical, vtable,

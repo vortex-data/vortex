@@ -18,12 +18,10 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
-
-use crate::zigzag_encode;
 use zigzag::ZigZag as ExternalZigZag;
 
 use crate::compute::ZigZagEncoded;
-use crate::zigzag_decode;
+use crate::{zigzag_decode, zigzag_encode};
 
 vtable!(ZigZag);
 
