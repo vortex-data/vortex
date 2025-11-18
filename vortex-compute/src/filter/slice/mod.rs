@@ -14,7 +14,7 @@ pub(crate) mod neon;
 pub(crate) mod scalar;
 
 impl<'a, const NB: usize, T: Copy> Filter<BitView<'a, NB>> for &mut [T] {
-    type Output = ();
+    type Output = Self;
 
     fn filter(self, mask: &BitView<'a, NB>) -> Self::Output {
         #[cfg(target_arch = "aarch64")]
@@ -24,21 +24,25 @@ impl<'a, const NB: usize, T: Copy> Filter<BitView<'a, NB>> for &mut [T] {
                 match size_of::<T>() {
                     1 | 2 if mask.true_count() < (BitView::<NB>::N / 4) => {
                         // For u8 and u16, the threshold is ~0.25
-                        return scalar::filter_scalar(self, mask);
+                        scalar::filter_scalar(self, mask);
+                        return &mut self[..mask.true_count()];
                     }
                     4 if mask.true_count() < (3 * BitView::<NB>::N / 4) => {
                         // For u32, the threshold is ~0.75
-                        return scalar::filter_scalar(self, mask);
+                        scalar::filter_scalar(self, mask);
+                        return &mut self[..mask.true_count()];
                     }
                     _ => {}
                 }
 
-                return unsafe { neon::filter_neon(self, mask) };
+                unsafe { neon::filter_neon(self, mask) }
+                return &mut self[..mask.true_count()];
             }
         }
 
         // Otherwise, fall back to scalar implementation
         scalar::filter_scalar(self, mask);
+        &mut self[..mask.true_count()]
     }
 }
 
