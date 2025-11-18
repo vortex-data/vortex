@@ -1,0 +1,24 @@
+name: Semver check
+on:
+  pull_request: { }
+  push:
+    branches: [ "develop" ]
+
+jobs:
+  semver:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - run:
+          echo "BASELINE=$(gh release view --json tagName -t '{{.tagName}}')" >> $GITHUB_OUTPUT
+        id: latest_release
+      - name: Check semver
+        uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          baseline-version: '${{ steps.latest_release.outputs.BASELINE}}'
