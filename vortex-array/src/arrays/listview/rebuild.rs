@@ -2,14 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::FromPrimitive;
+use vortex_buffer::BufferMut;
 use vortex_dtype::{IntegerPType, Nullability, match_each_integer_ptype};
 use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
 
-use crate::arrays::ListViewArray;
-use crate::builders::{ArrayBuilder, ListViewBuilder};
+use crate::arrays::{ChunkedArray, ListViewArray};
+use crate::builders::ArrayBuilder;
 use crate::vtable::ValidityHelper;
-use crate::{Array, compute};
+use crate::{Array, IntoArray, ToCanonical, compute};
 
 /// Modes for rebuilding a [`ListViewArray`].
 pub enum ListViewRebuildMode {
@@ -87,22 +88,55 @@ impl ListViewArray {
             .as_list_element_opt()
             .vortex_expect("somehow had a canonical list that was not a list");
 
-        let mut builder = ListViewBuilder::<O, S>::with_capacity(
-            element_dtype.clone(),
-            self.dtype().nullability(),
-            self.elements().len(),
-            self.len(),
-        );
+        // Upfront canonicalize the list elements, we're going to be doing a lot of
+        // slicing with them.
+        let elements_canonical = self.elements().to_canonical().into_array();
+        let offsets_canonical = self.offsets().to_primitive();
+        let sizes_canonical = self.offsets().to_primitive();
 
-        for i in 0..self.len() {
-            let list = self.scalar_at(i);
+        let offsets_canonical = offsets_canonical.as_slice::<O>();
+        let sizes_canonical = sizes_canonical.as_slice::<S>();
 
-            builder
-                .append_scalar(&list)
-                .vortex_expect("was unable to extend the `ListViewBuilder`")
+        let mut offsets = BufferMut::<u32>::with_capacity(self.len());
+        let mut sizes = BufferMut::<S>::with_capacity(self.len());
+
+        let mut chunks = Vec::with_capacity(self.len());
+
+        let mut n_elements = 0u32;
+
+        for index in 0..self.len() {
+            if !self.is_valid(index) {
+                offsets.push(offsets.last().copied().unwrap_or_default());
+                sizes.push(S::zero());
+                continue;
+            }
+
+            let offset = offsets_canonical[index];
+            let size = sizes_canonical[index];
+
+            let start = offset.as_();
+            let stop = start + size.as_();
+
+            chunks.push(elements_canonical.slice(start..stop));
+            offsets.push(n_elements);
+            sizes.push(size);
+
+            n_elements += size.to_u32().vortex_expect("to_u32");
         }
 
-        builder.finish_into_listview()
+        let offsets = offsets.into_array();
+        let sizes = sizes.into_array();
+
+        // SAFETY: all chunks were sliced from the same array so have same DType.
+        let elements =
+            unsafe { ChunkedArray::new_unchecked(chunks, element_dtype.as_ref().clone()) };
+
+        ListViewArray::new(
+            elements.to_canonical().into_array(),
+            offsets,
+            sizes,
+            self.validity.clone(),
+        )
     }
 
     /// Rebuilds a [`ListViewArray`] by trimming any unused / unreferenced leading and trailing
