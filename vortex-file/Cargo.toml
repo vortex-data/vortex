@@ -76,6 +76,3 @@ tokio = [
 ]
 zstd = ["dep:vortex-zstd", "vortex-layout/zstd"]
 
-[target.'cfg(gpu_unstable)'.dependencies]
-cudarc = { workspace = true }
-vortex-gpu = { workspace = true, features = ["cuda"] }
