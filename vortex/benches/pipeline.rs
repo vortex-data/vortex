@@ -63,11 +63,12 @@ fn decompress_batch(
     bitpacked: &[u32],
     reference: i32,
     exponents: Exponents,
+    bitpacked_output: &mut [u32],
     for_decoded: &mut [i32],
     alp_decoded: &mut [f32],
 ) {
-    let unpacked = unpack_10(bitpacked);
-    for_decompress(cast_u32_as_i32(&unpacked), reference, for_decoded);
+    unpack_10(bitpacked, bitpacked_output);
+    for_decompress(cast_u32_as_i32(bitpacked_output), reference, for_decoded);
     alp_decompress(for_decoded, exponents, alp_decoded);
 }
 
@@ -77,17 +78,16 @@ fn decompress_inlined(bitpacked: &[u32], reference: i32, exponents: Exponents, o
     debug_assert!(bitpacked.len().is_multiple_of(S));
     debug_assert_eq!(output.len(), bitpacked.len() * T / W);
 
-    let num_chunks = bitpacked.len() / S;
+    // let num_chunks = bitpacked.len() / S;
 
     // Stack-allocated buffer for one chunk of unpacked values.
     let mut chunk_buffer: [u32; N] = [0; N];
 
-    // Process each 1024-element chunk.
-    for chunk in 0..num_chunks {
-        // Stage 1: Unpack bits for this chunk.
-        let input_offset = chunk * S;
-        let output_offset = chunk * N;
+    let mut input_offset = 0;
+    let mut output_offset = 0;
 
+    // Process each 1024-element chunk.
+    while input_offset < bitpacked.len() {
         // SAFETY: We've verified:
         // - bitpacked.len() is a multiple of S
         // - input_offset + S <= bitpacked.len() (by loop bounds)
@@ -98,11 +98,12 @@ fn decompress_inlined(bitpacked: &[u32], reference: i32, exponents: Exponents, o
         }
 
         // Stages 2 & 3: Apply FoR and ALP decompression in a single pass.
-        // SAFETY: We've verified output.len() == num_chunks * N and chunk < num_chunks
+        // SAFETY: We've verified output.len() matches bitpacked data
         unsafe {
             let output_chunk = output.get_unchecked_mut(output_offset..output_offset + N);
 
-            for i in 0..N {
+            let mut i = 0;
+            while i < N {
                 // SAFETY: i < N and chunk_buffer has N elements
                 let unpacked = *chunk_buffer.get_unchecked(i) as i32;
 
@@ -112,8 +113,13 @@ fn decompress_inlined(bitpacked: &[u32], reference: i32, exponents: Exponents, o
                 // Apply ALP decompression (convert to float with exponent scaling).
                 // SAFETY: i < N and output_chunk.len() == N
                 *output_chunk.get_unchecked_mut(i) = f32::decode_single(for_decoded, exponents);
+
+                i += 1;
             }
         }
+
+        input_offset += S;
+        output_offset += N;
     }
 }
 
@@ -121,7 +127,7 @@ fn decompress_inlined(bitpacked: &[u32], reference: i32, exponents: Exponents, o
 // Benchmarks
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#[divan::bench_group(min_time = Duration::from_secs(5))]
+#[divan::bench_group(min_time = Duration::from_secs(1))]
 mod decompress_benchmarks {
     use super::*;
 
@@ -137,34 +143,29 @@ mod decompress_benchmarks {
 
     #[divan::bench(consts = BENCHMARK_SIZES)]
     fn decompress_original<const SIZE: usize>(bencher: Bencher) {
-        bencher
-            .with_inputs(|| setup(SIZE))
-            .bench_values(|mut data| {
-                decompress_batch(
-                    &data.bitpacked,
-                    data.reference,
-                    data.exponents,
-                    &mut data.for_decoded,
-                    &mut data.alp_decoded,
-                );
-            });
+        let mut data = setup(SIZE);
+        let mut bitpacked_output = vec![0u32; SIZE];
+
+        bencher.bench_local(|| {
+            decompress_batch(
+                &data.bitpacked,
+                data.reference,
+                data.exponents,
+                &mut bitpacked_output,
+                &mut data.for_decoded,
+                &mut data.alp_decoded,
+            );
+        });
     }
 
     #[divan::bench(consts = BENCHMARK_SIZES)]
     fn decompress_pipeline<const SIZE: usize>(bencher: Bencher) {
-        bencher
-            .with_inputs(|| {
-                let data = setup(SIZE);
-                (
-                    data.bitpacked,
-                    data.reference,
-                    data.exponents,
-                    vec![0.0f32; SIZE],
-                )
-            })
-            .bench_values(|(bitpacked, reference, exponents, mut output)| {
-                decompress_inlined(&bitpacked, reference, exponents, &mut output);
-            });
+        let data = setup(SIZE);
+        let mut output = vec![0f32; SIZE];
+
+        bencher.bench_local(|| {
+            decompress_inlined(&data.bitpacked, data.reference, data.exponents, &mut output);
+        });
     }
 }
 
@@ -174,45 +175,55 @@ mod decompress_benchmarks {
 
 fn bitpack_10(values: &[u32]) -> Vec<u32> {
     let len = values.len();
+    debug_assert!(len.is_multiple_of(N));
 
     let mut bitpacked = Vec::with_capacity(len * W / T);
-    // SAFETY: TODO
+    // SAFETY: We're setting the length to the exact capacity we just allocated
     unsafe { bitpacked.set_len(len * W / T) };
 
-    for chunk in 0..len / N {
-        let input_offset = chunk * N;
-        let input = &values[input_offset..][..N];
+    let mut input_offset = 0;
+    let mut output_offset = 0;
 
-        let output_offset = chunk * S;
-        let output = &mut bitpacked[output_offset..][..S];
+    while input_offset < len {
+        // SAFETY: We've verified that:
+        // - len is a multiple of N
+        // - bitpacked.len() == len * W / T
+        // - input_offset < len ensures we have at least N elements left
+        unsafe {
+            let input = values.get_unchecked(input_offset..input_offset + N);
+            let output = bitpacked.get_unchecked_mut(output_offset..output_offset + S);
+            BitPacking::unchecked_pack(W, input, output);
+        }
 
-        // SAFETY: TODO
-        unsafe { BitPacking::unchecked_pack(W, input, output) };
+        input_offset += N;
+        output_offset += S;
     }
 
     bitpacked
 }
 
-fn unpack_10(bitpacked: &[u32]) -> Vec<u32> {
-    assert!(bitpacked.len().is_multiple_of(S));
+fn unpack_10(bitpacked: &[u32], unpacked: &mut [u32]) {
+    debug_assert!(bitpacked.len().is_multiple_of(S));
     let len = bitpacked.len() * T / W;
+    debug_assert_eq!(unpacked.len(), len);
 
-    let mut unpacked = Vec::with_capacity(len);
-    // SAFETY: TODO
-    unsafe { unpacked.set_len(len) };
+    let mut input_offset = 0;
+    let mut output_offset = 0;
 
-    for chunk in 0..len / N {
-        let input_offset = chunk * S;
-        let input = &bitpacked[input_offset..][..S];
+    while output_offset < len {
+        // SAFETY: We've verified that:
+        // - bitpacked.len() is a multiple of S
+        // - unpacked.len() == bitpacked.len() * T / W
+        // - output_offset < len ensures we have at least N elements left
+        unsafe {
+            let input = bitpacked.get_unchecked(input_offset..input_offset + S);
+            let output = unpacked.get_unchecked_mut(output_offset..output_offset + N);
+            BitPacking::unchecked_unpack(W, input, output);
+        }
 
-        let output_offset = chunk * N;
-        let output = &mut unpacked[output_offset..][..N];
-
-        // SAFETY: TODO
-        unsafe { BitPacking::unchecked_unpack(W, input, output) };
+        input_offset += S;
+        output_offset += N;
     }
-
-    unpacked
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -247,11 +258,16 @@ fn for_compress(values: &[i32]) -> (Vec<i32>, i32) {
     (values.iter().map(|x| x.wrapping_sub(min)).collect(), min)
 }
 
+#[inline(never)]
 fn for_decompress(for_values: &[i32], reference: i32, output: &mut [i32]) {
-    assert_eq!(for_values.len(), output.len());
+    debug_assert_eq!(for_values.len(), output.len());
+    let len = for_values.len();
 
-    for i in 0..for_values.len() {
-        output[i] = for_values[i].wrapping_add(reference);
+    // SAFETY: We've verified that for_values.len() == output.len()
+    unsafe {
+        for i in 0..len {
+            *output.get_unchecked_mut(i) = for_values.get_unchecked(i).wrapping_add(reference);
+        }
     }
 }
 
