@@ -1,13 +1,33 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::{Buffer, BufferMut};
+use vortex_buffer::{BitView, Buffer, BufferMut};
 use vortex_mask::{Mask, MaskIter};
 
-use crate::filter::{Filter, MaskIndices};
+use crate::filter::Filter;
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
+
+impl<M, T: Copy> Filter<M> for Buffer<T>
+where
+    for<'a> &'a Buffer<T>: Filter<M, Output = Buffer<T>>,
+    for<'a> &'a mut BufferMut<T>: Filter<M, Output = ()>,
+{
+    type Output = Self;
+
+    fn filter(self, selection_mask: &M) -> Self {
+        // If we have exclusive access, we can perform the filter in place.
+        match self.try_into_mut() {
+            Ok(mut buffer_mut) => {
+                (&mut buffer_mut).filter(selection_mask);
+                buffer_mut.freeze()
+            }
+            // Otherwise, allocate a new buffer and fill it in (delegate to the `&Buffer` impl).
+            Err(buffer) => (&buffer).filter(selection_mask),
+        }
+    }
+}
 
 impl<T: Copy> Filter<Mask> for &Buffer<T> {
     type Output = Buffer<T>;
@@ -32,80 +52,29 @@ impl<T: Copy> Filter<Mask> for &Buffer<T> {
     }
 }
 
-impl<T: Copy> Filter<MaskIndices<'_>> for &Buffer<T> {
+impl<const NB: usize, T: Copy> Filter<BitView<'_, NB>> for &Buffer<T> {
     type Output = Buffer<T>;
 
-    fn filter(self, indices: &MaskIndices) -> Buffer<T> {
-        filter_indices(self, indices)
+    fn filter(self, selection: &BitView<'_, NB>) -> Self::Output {
+        // TODO(ngates): this is very very slow!
+        let elems = self.as_slice();
+        let mut out = BufferMut::<T>::with_capacity(selection.true_count());
+        selection.iter_ones(|idx| {
+            unsafe { out.push_unchecked(elems[idx]) };
+        });
+        out.freeze()
     }
 }
 
-impl<T: Copy> Filter<Mask> for &mut BufferMut<T> {
-    type Output = ();
-
-    fn filter(self, selection_mask: &Mask) {
-        assert_eq!(
-            selection_mask.len(),
-            self.len(),
-            "Selection mask length must equal the buffer length"
-        );
-
-        match selection_mask {
-            Mask::AllTrue(_) => {}
-            Mask::AllFalse(_) => self.clear(),
-            Mask::Values(values) => {
-                // We choose to _always_ use slices here because iterating over indices will have
-                // strictly more loop iterations than slices, and the overhead over batched
-                // `ptr::copy(len)` is not worth it.
-                let slices = values.slices();
-
-                // SAFETY: We checked above that the selection mask has the same length as the
-                // buffer.
-                let new_len = unsafe { filter_slices_in_place(self.as_mut_slice(), slices) };
-
-                debug_assert!(
-                    new_len <= self.len(),
-                    "The new length was somehow larger after filter"
-                );
-
-                // Truncate the buffer to the new length.
-                // SAFETY: The new length cannot be larger than the old length, so all values must
-                // be initialized.
-                unsafe { self.set_len(new_len) };
-            }
-        }
-    }
-}
-
-impl<T: Copy> Filter<MaskIndices<'_>> for &mut BufferMut<T> {
-    type Output = ();
-
-    fn filter(self, indices: &MaskIndices) -> Self::Output {
-        for (write_index, &read_index) in indices.iter().enumerate() {
-            self[write_index] = self[read_index];
-        }
-
-        self.truncate(indices.len());
-    }
-}
-
-impl<M, T: Copy> Filter<M> for Buffer<T>
+impl<M, T> Filter<M> for &mut BufferMut<T>
 where
-    for<'a> &'a Buffer<T>: Filter<M, Output = Buffer<T>>,
-    for<'a> &'a mut BufferMut<T>: Filter<M, Output = ()>,
+    for<'a> &'a mut [T]: Filter<M, Output = &'a mut [T]>,
 {
-    type Output = Self;
+    type Output = ();
 
-    fn filter(self, selection_mask: &M) -> Self {
-        // If we have exclusive access, we can perform the filter in place.
-        match self.try_into_mut() {
-            Ok(mut buffer_mut) => {
-                (&mut buffer_mut).filter(selection_mask);
-                buffer_mut.freeze()
-            }
-            // Otherwise, allocate a new buffer and fill it in (delegate to the `&Buffer` impl).
-            Err(buffer) => (&buffer).filter(selection_mask),
-        }
+    fn filter(self, selection_mask: &M) -> Self::Output {
+        let true_count = self.as_mut_slice().filter(selection_mask).len();
+        self.truncate(true_count);
     }
 }
 
@@ -121,42 +90,9 @@ fn filter_slices<T>(values: &[T], output_len: usize, slices: &[(usize, usize)]) 
     out.freeze()
 }
 
-/// Filters a buffer in-place using slice ranges to determine which values to keep.
-///
-/// Returns the new length of the buffer.
-///
-/// # Safety
-///
-/// The slice ranges must be in the range of the `buffer`.
-#[must_use = "The caller should set the new length of the buffer"]
-unsafe fn filter_slices_in_place<T: Copy>(buffer: &mut [T], slices: &[(usize, usize)]) -> usize {
-    let mut write_pos = 0;
-
-    // For each range in the selection, copy all of the elements to the current write position.
-    for &(start, end) in slices {
-        // Note that we could add an if statement here that checks `if read_idx != write_idx`, but
-        // it's probably better to just avoid the branch misprediction.
-
-        let len = end - start;
-
-        // SAFETY: The safety contract enforces that all ranges are within bounds.
-        unsafe {
-            core::ptr::copy(
-                buffer.as_ptr().add(start),
-                buffer.as_mut_ptr().add(write_pos),
-                len,
-            )
-        };
-
-        write_pos += len;
-    }
-
-    write_pos
-}
-
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::buffer;
+    use vortex_buffer::{BufferMut, buffer, buffer_mut};
     use vortex_mask::Mask;
 
     use super::*;
@@ -201,8 +137,6 @@ mod tests {
         let result = filter_slices(buf.as_slice(), 3, &[(0, 2), (4, 5)]);
         assert_eq!(result, buffer![1u32, 2, 5]);
     }
-
-    use vortex_buffer::{BufferMut, buffer_mut};
 
     #[test]
     fn test_filter_all_true() {
@@ -302,7 +236,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Selection mask length must equal the buffer length")]
+    #[should_panic(expected = "Mask length must equal the slice length")]
     fn test_filter_length_mismatch() {
         let mut buf = buffer_mut![1u32, 2, 3];
         let mask = Mask::new_true(5); // Wrong length.

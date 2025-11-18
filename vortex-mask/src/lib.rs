@@ -108,6 +108,12 @@ pub enum Mask {
     Values(Arc<MaskValues>),
 }
 
+impl Default for Mask {
+    fn default() -> Self {
+        Self::new_true(0)
+    }
+}
+
 /// Represents the values of a [`Mask`] that contains some true and some false elements.
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

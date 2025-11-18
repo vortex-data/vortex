@@ -69,6 +69,11 @@ impl BitBuffer {
         // BitBuffers make no assumptions on byte alignment, so we strip any alignment.
         let buffer = buffer.aligned(Alignment::none());
 
+        // Slice the buffer to ensure the offset is within the first byte
+        let byte_offset = offset / 8;
+        let offset = offset % 8;
+        let buffer = buffer.slice(byte_offset..);
+
         Self {
             buffer,
             offset,
@@ -117,6 +122,13 @@ impl BitBuffer {
     /// Invokes `f` with indexes `0..len` collecting the boolean results into a new [`BitBuffer`].
     pub fn collect_bool<F: FnMut(usize) -> bool>(len: usize, f: F) -> Self {
         BitBufferMut::collect_bool(len, f).freeze()
+    }
+
+    /// Clear all bits in the buffer, preserving existing capacity.
+    pub fn clear(&mut self) {
+        self.buffer.clear();
+        self.len = 0;
+        self.offset = 0;
     }
 
     /// Get the logical length of this `BoolBuffer`.
@@ -528,7 +540,9 @@ mod tests {
     fn test_slice_offset_calculation() {
         let buf = BitBuffer::collect_bool(16, |_| true);
         let sliced = buf.slice(10..16);
-        assert_eq!(sliced.offset(), 10);
+        assert_eq!(sliced.len(), 6);
+        // Ensure the offset is modulo 8
+        assert_eq!(sliced.offset(), 2);
     }
 
     #[rstest]

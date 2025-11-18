@@ -22,10 +22,10 @@ impl InputKernel {
 impl Kernel for InputKernel {
     fn step(
         &mut self,
-        _ctx: &KernelCtx,
+        _ctx: &mut KernelCtx,
         selection: &BitView,
-        out: &mut VectorMut,
-    ) -> VortexResult<()> {
+        mut out: VectorMut,
+    ) -> VortexResult<VectorMut> {
         let mut batch = self
             .batch
             .take()
@@ -47,7 +47,7 @@ impl Kernel for InputKernel {
             selection.iter_ones(|idx| {
                 out.extend_from_vector(&immutable.slice(idx..idx + 1));
             });
-            return Ok(());
+            return Ok(out);
         }
 
         // We split off from our owned batch vector in chunks of size N, and then unsplit onto the
@@ -66,7 +66,7 @@ impl Kernel for InputKernel {
 
         self.batch = Some(batch);
 
-        Ok(())
+        Ok(out)
     }
 }
 

@@ -84,10 +84,10 @@ pub trait Kernel: Send {
     /// Perform a single step of the kernel.
     fn step(
         &mut self,
-        ctx: &KernelCtx,
+        ctx: &mut KernelCtx,
         selection: &BitView,
-        out: &mut VectorMut,
-    ) -> VortexResult<()>;
+        out: VectorMut,
+    ) -> VortexResult<VectorMut>;
 }
 
 /// The context provided to kernels during execution to access input vectors.
@@ -105,16 +105,16 @@ impl KernelCtx {
     /// Returns the input vector at the given index.
     ///
     /// Note that a [`VectorMut`] is returned here, indicating that this is the only instance of
-    /// the data. It does not imply that the caller is able to mutate the data (it is returned
-    /// as an immutable reference).
+    /// the data. Kernels are encouraged to use [`std::mem::swap`] or similar to propagate data
+    /// from input vectors to output vectors without unnecessary copies.
     ///
     /// # Panics
     ///
     /// If the input vector at the given index is not available (typically because the vector
     /// happens to be currently borrowed as an output vector!).
-    pub fn input(&mut self, id: VectorId) -> &VectorMut {
+    pub fn input(&mut self, id: VectorId) -> &mut VectorMut {
         self.vectors[id.0]
-            .as_ref()
+            .as_mut()
             .vortex_expect("Input vector at index is not available")
     }
 

@@ -18,7 +18,7 @@ use crate::{Scalar, VectorOps};
 ///
 /// `T` is expected to be bound by [`NativePType`], which templates an internal [`Buffer<T>`] that
 /// stores the elements of the vector.
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct PVector<T> {
     /// The buffer representing the vector elements.
     pub(super) elements: Buffer<T>,
@@ -68,6 +68,15 @@ impl<T> PVector<T> {
     /// Decomposes the primitive vector into its constituent parts (buffer and validity).
     pub fn into_parts(self) -> (Buffer<T>, Mask) {
         (self.elements, self.validity)
+    }
+
+    /// Decomposes the primitive vector into its constituent parts by mutable reference.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that no other references to the internal parts exist while mutable
+    pub unsafe fn as_parts_mut(&mut self) -> (&mut Buffer<T>, &mut Mask) {
+        (&mut self.elements, &mut self.validity)
     }
 
     /// Gets a nullable element at the given index, panicking on out-of-bounds.

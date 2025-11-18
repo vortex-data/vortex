@@ -52,8 +52,10 @@ impl<const NB: usize> BitView<'static, NB> {
 }
 
 impl<'a, const NB: usize> BitView<'a, NB> {
-    const N: usize = NB * 8;
-    const N_WORDS: usize = NB * 8 / (usize::BITS as usize);
+    /// The number of bits in the view.
+    pub const N: usize = NB * 8;
+    /// The number of machine words in the view.
+    pub const N_WORDS: usize = NB * 8 / (usize::BITS as usize);
 
     const _ASSERT_MULTIPLE_OF_8: () = assert!(
         NB % 8 == 0,
@@ -148,7 +150,7 @@ impl<'a, const NB: usize> BitView<'a, NB> {
     /// The words are loaded using unaligned loads to ensure correct bit ordering.
     /// For example, bit 0 is located in `word & 1 << 0`, bit 63 is located in `word & 1 << 63`,
     /// assuming the word size is 64 bits.
-    fn iter_words(&self) -> impl Iterator<Item = usize> + '_ {
+    pub fn iter_words(&self) -> impl Iterator<Item = usize> + '_ {
         let ptr = self.bits.as_ptr().cast::<usize>();
         // We use constant N_WORDS to trigger loop unrolling.
         (0..Self::N_WORDS).map(move |idx| unsafe { ptr.add(idx).read_unaligned() })
@@ -343,13 +345,15 @@ impl BitBuffer {
     /// # Panics
     ///
     /// If the bit offset is not zero
-    pub fn iter_bit_views<const NB: usize>(&self) -> impl Iterator<Item = BitView<'_, NB>> + '_ {
+    pub fn iter_bit_views<const NB: usize>(
+        &self,
+    ) -> impl Iterator<Item = (BitView<'_, NB>, usize)> + '_ {
         assert_eq!(
             self.offset(),
             0,
             "BitView iteration requires zero bit offset"
         );
-        BitViewIterator::new(self.inner().as_ref())
+        BitViewIterator::new(self.inner().as_ref(), self.len())
     }
 }
 
@@ -365,13 +369,15 @@ impl BitBufferMut {
     /// # Panics
     ///
     /// If the bit offset is not zero
-    pub fn iter_bit_views<const NB: usize>(&self) -> impl Iterator<Item = BitView<'_, NB>> + '_ {
+    pub fn iter_bit_views<const NB: usize>(
+        &self,
+    ) -> impl Iterator<Item = (BitView<'_, NB>, usize)> + '_ {
         assert_eq!(
             self.offset(),
             0,
             "BitView iteration requires zero bit offset"
         );
-        BitViewIterator::new(self.inner().as_ref())
+        BitViewIterator::new(self.inner().as_ref(), self.len())
     }
 }
 
@@ -382,25 +388,30 @@ pub(super) struct BitViewIterator<'a, const NB: usize> {
     view_idx: usize,
     // The total number of views
     n_views: usize,
-    /// Phantom to capture `NB`
+    // Final view len
+    final_view_len: usize,
+    // Phantom to capture `NB`
     _phantom: PhantomData<[u8; NB]>,
 }
 
 impl<'a, const NB: usize> BitViewIterator<'a, NB> {
     /// Create a new [`BitViewIterator`].
-    pub fn new(bits: &'a [u8]) -> Self {
+    fn new(bits: &'a [u8], len: usize) -> Self {
+        debug_assert_eq!(len.div_ceil(8), bits.len());
+        let final_view_len = len % (NB * 8);
         let n_views = bits.len().div_ceil(NB);
         BitViewIterator {
             bits,
             view_idx: 0,
             n_views,
+            final_view_len,
             _phantom: PhantomData,
         }
     }
 }
 
 impl<'a, const NB: usize> Iterator for BitViewIterator<'a, NB> {
-    type Item = BitView<'a, NB>;
+    type Item = (BitView<'a, NB>, usize);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.view_idx == self.n_views {
@@ -412,13 +423,16 @@ impl<'a, const NB: usize> Iterator for BitViewIterator<'a, NB> {
 
         let bits = if end_byte <= self.bits.len() {
             // Full view from the original bits
-            BitView::from_slice(&self.bits[start_byte..end_byte])
+            (
+                BitView::from_slice(&self.bits[start_byte..end_byte]),
+                BitView::<NB>::N,
+            )
         } else {
             // Partial view, copy to scratch
             let remaining_bytes = self.bits.len() - start_byte;
             let mut remaining = [0u8; NB];
             remaining[..remaining_bytes].copy_from_slice(&self.bits[start_byte..]);
-            BitView::new_owned(remaining)
+            (BitView::new_owned(remaining), self.final_view_len)
         };
 
         self.view_idx += 1;
