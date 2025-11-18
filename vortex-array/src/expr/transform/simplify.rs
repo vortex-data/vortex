@@ -16,140 +16,45 @@ use crate::expr::traversal::{NodeExt, Transformed};
 pub fn simplify(e: Expression, session: &ExprSession) -> VortexResult<Expression> {
     let ctx = EmptyRewriteContext;
 
-    // First bottom-up (child rules)
+    let e = apply_parent_rules(e, &ctx, session)?;
     let e = apply_child_rules_impl(e, &ctx, session)?;
-
-    let e = apply_parent_rules_impl(e, &ctx, session)?;
-
     let e = find_between(e);
 
     Ok(e)
 }
 
-/// Internal implementation: Apply parent rules in a top-down manner.
-pub(crate) fn apply_parent_rules_impl(
+fn apply_parent_rules(
     expr: Expression,
     ctx: &dyn RewriteContext,
     session: &ExprSession,
 ) -> VortexResult<Expression> {
-    apply_parent_rules_recursive(expr, None, ctx, session)
-}
-
-/// Recursive helper for applying parent rules.
-///
-/// This applies parent rules bottom-up:
-/// 1. First recursively process all children
-/// 2. Rebuild expression with new children
-/// 3. Apply parent rules to each child with the rebuilt parent
-/// 4. If any child changes, recursively apply again
-fn apply_parent_rules_recursive(
-    expr: Expression,
-    _parent: Option<&Expression>,
-    ctx: &dyn RewriteContext,
-    session: &ExprSession,
-) -> VortexResult<Expression> {
-    // First, recursively process all children bottom-up
-    let mut new_children = Vec::with_capacity(expr.children().len());
-    let mut children_changed = false;
-
-    for child in expr.children().iter() {
-        // Recursively process this child first
-        let new_child = apply_parent_rules_recursive(child.clone(), Some(&expr), ctx, session)?;
-
-        new_children.push(new_child);
-    }
-
-    // Rebuild the expression with new children if any changed
-    let mut expr = if children_changed {
-        expr.with_children(new_children)?
-    } else {
-        expr
-    };
-
-    // Now apply parent rules to each child using the rebuilt parent
-    loop {
-        let mut any_child_changed = false;
-        let mut updated_children = Vec::with_capacity(expr.children().len());
-
-        for (child_idx, child) in expr.children().iter().enumerate() {
-            // Try to apply parent rules to this child given that expr is its parent
-            let new_child =
-                apply_parent_rules_to_child(child.clone(), &expr, child_idx, ctx, session)?;
-
-            if child != &new_child {
-                any_child_changed = true;
-            }
-
-            updated_children.push(new_child);
-        }
-
-        if any_child_changed {
-            expr = expr.with_children(updated_children)?;
-        } else {
-            break;
-        }
-    }
-
-    Ok(expr)
-}
-
-/// Apply parent rules to a child expression given its parent and child index.
-fn apply_parent_rules_to_child(
-    child: Expression,
-    parent: &Expression,
-    child_idx: usize,
-    ctx: &dyn RewriteContext,
-    session: &ExprSession,
-) -> VortexResult<Expression> {
-    let child_id = child.id();
-    if let Some(rules) = session.rewrite_rules().parent_rules_for(&child_id) {
-        let mut current = child;
-        for rule in rules {
-            if let Some(new_expr) = rule.reduce_parent_dyn(&current, parent, child_idx, ctx)? {
-                current = new_expr;
+    expr.transform_up(|node| {
+        for (idx, child) in node.children().iter().enumerate() {
+            for rule in session.rewrite_rules().parent_rules_for(&child.id()) {
+                if let Some(new_expr) = rule.reduce_parent_dyn(&child, &node, idx, ctx)? {
+                    return Ok(Transformed::yes(new_expr));
+                }
             }
         }
-        Ok(current)
-    } else {
-        Ok(child)
-    }
+        Ok(Transformed::no(node))
+    })
+    .map(|t| t.into_inner())
 }
 
-/// Internal implementation: Apply child rules in a bottom-up manner with RewriteContext.
 pub(crate) fn apply_child_rules_impl(
     expr: Expression,
     ctx: &dyn RewriteContext,
     session: &ExprSession,
 ) -> VortexResult<Expression> {
-    expr.transform_up(|node| apply_reduce_rules_node(node, ctx, session))
-        .map(|t| t.into_inner())
-}
-
-/// Apply child rules to a single node with RewriteContext.
-fn apply_reduce_rules_node(
-    expr: Expression,
-    ctx: &dyn RewriteContext,
-    session: &ExprSession,
-) -> VortexResult<Transformed<Expression>> {
-    let expr_id = expr.id();
-    let mut current = expr;
-    let mut changed = false;
-
-    // Apply untyped generic reduce rules
-    if let Some(rules) = session.rewrite_rules().reduce_rules_for(&expr_id) {
-        for rule in rules {
-            if let Some(new_expr) = rule.reduce_dyn(&current, ctx)? {
-                current = new_expr;
-                changed = true;
+    expr.transform_down(|node| {
+        for rule in session.rewrite_rules().reduce_rules_for(&node.id()) {
+            if let Some(new_expr) = rule.reduce_dyn(&node, ctx)? {
+                return Ok(Transformed::yes(new_expr));
             }
         }
-    }
-
-    if changed {
-        Ok(Transformed::yes(current))
-    } else {
-        Ok(Transformed::no(current))
-    }
+        Ok(Transformed::no(node))
+    })
+    .map(|t| t.into_inner())
 }
 
 #[cfg(test)]

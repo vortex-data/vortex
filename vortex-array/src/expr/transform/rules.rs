@@ -42,7 +42,7 @@ pub trait ReduceRule<V: VTable, C: Context>: Send + Sync {
 /// # Type Parameters
 /// * `V` - The VTable type this rule applies to. The rule will only be invoked for expressions
 ///   with this vtable type, providing compile-time type safety.
-pub trait ParentReduceRule<V: VTable>: Send + Sync {
+pub trait ParentReduceRule<V: VTable, C: Context>: Send + Sync {
     /// Try to rewrite an expression based on its parent.
     ///
     /// # Arguments
