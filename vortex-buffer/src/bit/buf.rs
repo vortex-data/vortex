@@ -8,7 +8,7 @@ use crate::bit::{
     BitChunks, BitIndexIterator, BitIterator, BitSliceIterator, UnalignedBitChunk,
     get_bit_unchecked,
 };
-use crate::{Alignment, BitBufferMut, Buffer, BufferMut, ByteBuffer, buffer};
+use crate::{Alignment, BitBufferMut, Buffer, ByteBuffer, buffer};
 
 /// An immutable bitset stored as a packed byte buffer.
 #[derive(Debug, Clone, Eq)]
@@ -69,6 +69,11 @@ impl BitBuffer {
         // BitBuffers make no assumptions on byte alignment, so we strip any alignment.
         let buffer = buffer.aligned(Alignment::none());
 
+        // Slice the buffer to ensure the offset is within the first byte
+        let byte_offset = offset / 8;
+        let offset = offset % 8;
+        let buffer = buffer.slice(byte_offset..);
+
         Self {
             buffer,
             offset,
@@ -114,37 +119,16 @@ impl BitBuffer {
         }
     }
 
-    /// Invokes `f` with indexes `0..len` collecting the boolean results into a new `BitBuffer`
-    pub fn collect_bool<F: FnMut(usize) -> bool>(len: usize, mut f: F) -> Self {
-        let mut buffer = BufferMut::with_capacity(len.div_ceil(64) * 8);
+    /// Invokes `f` with indexes `0..len` collecting the boolean results into a new [`BitBuffer`].
+    pub fn collect_bool<F: FnMut(usize) -> bool>(len: usize, f: F) -> Self {
+        BitBufferMut::collect_bool(len, f).freeze()
+    }
 
-        let chunks = len / 64;
-        let remainder = len % 64;
-        for chunk in 0..chunks {
-            let mut packed = 0;
-            for bit_idx in 0..64 {
-                let i = bit_idx + chunk * 64;
-                packed |= (f(i) as u64) << bit_idx;
-            }
-
-            // SAFETY: Already allocated sufficient capacity
-            unsafe { buffer.push_unchecked(packed) }
-        }
-
-        if remainder != 0 {
-            let mut packed = 0;
-            for bit_idx in 0..remainder {
-                let i = bit_idx + chunks * 64;
-                packed |= (f(i) as u64) << bit_idx;
-            }
-
-            // SAFETY: Already allocated sufficient capacity
-            unsafe { buffer.push_unchecked(packed) }
-        }
-
-        buffer.truncate(len.div_ceil(8));
-
-        Self::new(buffer.freeze().into_byte_buffer(), len)
+    /// Clear all bits in the buffer, preserving existing capacity.
+    pub fn clear(&mut self) {
+        self.buffer.clear();
+        self.len = 0;
+        self.offset = 0;
     }
 
     /// Get the logical length of this `BoolBuffer`.
@@ -556,7 +540,9 @@ mod tests {
     fn test_slice_offset_calculation() {
         let buf = BitBuffer::collect_bool(16, |_| true);
         let sliced = buf.slice(10..16);
-        assert_eq!(sliced.offset(), 10);
+        assert_eq!(sliced.len(), 6);
+        // Ensure the offset is modulo 8
+        assert_eq!(sliced.offset(), 2);
     }
 
     #[rstest]
