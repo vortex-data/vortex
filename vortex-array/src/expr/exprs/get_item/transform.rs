@@ -5,39 +5,23 @@ use vortex_error::VortexResult;
 
 use crate::expr::exprs::get_item::GetItem;
 use crate::expr::exprs::pack::Pack;
-use crate::expr::transform::rules::{ChildReduceRule, RewriteContext};
+use crate::expr::transform::ReduceRule;
+use crate::expr::transform::rules::RewriteContext;
 use crate::expr::{Expression, ExpressionView};
 
 /// Rewrite rule: `pack(l_1: e_1, ..., l_i: e_i, ..., l_n: e_n).get_item(l_i) = e_i`
 ///
 /// Simplifies accessing a field from a pack expression by directly returning the field's
 /// expression instead of materializing the pack.
-///
-/// # Example
-/// ```
-/// # use vortex_array::expr::exprs::{get_item::get_item, literal::lit, pack::pack};
-/// # use vortex_dtype::Nullability::NonNullable;
-/// let e = get_item("b", pack([("a", lit(1)), ("b", lit(2))], NonNullable));
-/// // After applying PackGetItemRule, this becomes: lit(2)
-/// ```
 pub struct PackGetItemRule;
 
-impl ChildReduceRule<GetItem, &dyn RewriteContext> for PackGetItemRule {
-    fn reduce_child(
+impl ReduceRule<GetItem, &dyn RewriteContext> for PackGetItemRule {
+    fn reduce(
         &self,
         get_item: &ExpressionView<GetItem>,
-        child: &Expression,
-        child_idx: usize,
         _ctx: &dyn RewriteContext,
     ) -> VortexResult<Option<Expression>> {
-        // Only consider the first child (child_idx == 0) of GetItem expressions
-        if child_idx != 0 {
-            return Ok(None);
-        }
-
-        // Check if child is Pack
-        if let Some(pack) = child.as_opt::<Pack>() {
-            // Extract the field from the pack
+        if let Some(pack) = get_item.child(0).as_opt::<Pack>() {
             let field_expr = pack.field(get_item.data())?;
             return Ok(Some(field_expr));
         }
@@ -52,14 +36,13 @@ mod tests {
     use vortex_dtype::{DType, PType};
 
     use super::PackGetItemRule;
-    use crate::expr::ExprId;
     use crate::expr::exprs::binary::checked_add;
     use crate::expr::exprs::get_item::{GetItem, get_item};
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::pack::pack;
     use crate::expr::session::ExprSession;
-    use crate::expr::transform::rules::{ChildReduceRule, SimpleRewriteContext};
-    use crate::expr::transform::simplify_typed;
+    use crate::expr::transform::rules::SimpleRewriteContext;
+    use crate::expr::transform::{ReduceRule, simplify_typed};
 
     #[test]
     fn test_pack_get_item_rule() {
@@ -67,16 +50,14 @@ mod tests {
 
         // Create: pack(a: lit(1), b: lit(2)).get_item("b")
         let pack_expr = pack([("a", lit(1)), ("b", lit(2))], NonNullable);
-        let get_item_expr = get_item("b", pack_expr.clone());
+        let get_item_expr = get_item("b", pack_expr);
 
         // Create a dummy context
         let dtype = DType::Primitive(PType::I32, NonNullable);
         let ctx = SimpleRewriteContext { dtype: &dtype };
 
         let get_item_view = get_item_expr.as_::<GetItem>();
-        let result = rule
-            .reduce_child(&get_item_view, &pack_expr, 0, &ctx)
-            .unwrap();
+        let result = rule.reduce(&get_item_view, &ctx).unwrap();
 
         assert!(result.is_some());
         assert_eq!(&result.unwrap(), &lit(2));
@@ -94,37 +75,9 @@ mod tests {
         let ctx = SimpleRewriteContext { dtype: &dtype };
 
         let get_item_view = get_item_expr.as_::<GetItem>();
-        let result = rule
-            .reduce_child(&get_item_view, &lit_expr, 0, &ctx)
-            .unwrap();
+        let result = rule.reduce(&get_item_view, &ctx).unwrap();
 
         assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_pack_get_item_rule_from_session() {
-        let session = ExprSession::default();
-
-        let get_item_id = ExprId::new_ref("vortex.get_item");
-        let rules = session.rewrite_rules().child_rules_for(&get_item_id);
-
-        // Should have at least one rule registered (PackGetItemRule)
-        assert!(rules.is_some());
-        assert_eq!(rules.unwrap().len(), 1);
-
-        let pack_expr = pack([("a", lit(1)), ("b", lit(2))], NonNullable);
-        let get_item_expr = get_item("b", pack_expr.clone());
-
-        let dtype = DType::Primitive(PType::I32, NonNullable);
-        let ctx = SimpleRewriteContext { dtype: &dtype };
-
-        let rule = &rules.unwrap()[0];
-        let result = rule
-            .reduce_child_dyn(&get_item_expr, &pack_expr, 0, &ctx)
-            .unwrap();
-
-        assert!(result.is_some());
-        assert_eq!(&result.unwrap(), &lit(2));
     }
 
     #[test]

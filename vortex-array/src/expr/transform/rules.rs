@@ -32,35 +32,6 @@ pub trait ReduceRule<V: VTable, C: Context>: Send + Sync {
     fn reduce(&self, expr: &ExpressionView<V>, ctx: C) -> VortexResult<Option<Expression>>;
 }
 
-/// A rewrite rule that can transform expressions based on child context.
-///
-/// Called during bottom-up traversal after children have been processed.
-/// This is useful for rules like: `pack(...).get_item(field) -> field_expr`
-///
-/// # Type Parameters
-/// * `V` - The VTable type this rule applies to. The rule will only be invoked for expressions
-///   with this vtable type, providing compile-time type safety.
-pub trait ChildReduceRule<V: VTable, C: Context>: Send + Sync {
-    /// Try to rewrite an expression based on one of its children.
-    ///
-    /// # Arguments
-    /// * `expr` - The expression to potentially rewrite (already downcast to type V)
-    /// * `child` - One of the expression's children
-    /// * `child_idx` - The index of the child in the expression's children array
-    /// * `ctx` - Context for the rewrite (dtype, etc.)
-    ///
-    /// # Returns
-    /// * `Some(new_expr)` if the rule applies and produces a rewritten expression
-    /// * `None` if the rule does not apply
-    fn reduce_child(
-        &self,
-        expr: &ExpressionView<V>,
-        child: &Expression,
-        child_idx: usize,
-        ctx: C,
-    ) -> VortexResult<Option<Expression>>;
-}
-
 /// A rewrite rule that can transform expressions based on parent context.
 ///
 /// Called during top-down traversal from the root.
@@ -77,6 +48,7 @@ pub trait ParentReduceRule<V: VTable>: Send + Sync {
     /// # Arguments
     /// * `expr` - The expression to potentially rewrite (already downcast to type V)
     /// * `parent` - The parent expression (always present - rule not called for root)
+    /// * `child_idx` - The index of the child expression within the parent.
     /// * `ctx` - Context for the rewrite (dtype, etc.)
     ///
     /// # Returns
@@ -86,6 +58,7 @@ pub trait ParentReduceRule<V: VTable>: Send + Sync {
         &self,
         expr: &ExpressionView<V>,
         parent: &Expression,
+        child_idx: usize,
         ctx: &dyn RewriteContext,
     ) -> VortexResult<Option<Expression>>;
 }

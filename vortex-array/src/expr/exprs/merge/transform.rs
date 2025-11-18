@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools as _;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::expr::exprs::get_item::get_item;
@@ -31,10 +31,10 @@ impl ReduceRule<Merge, &dyn TypedRewriteContext> for RemoveMergeRule {
         for child in merge.children().iter() {
             let child_dtype = child.return_dtype(ctx.dtype())?;
             if !child_dtype.is_struct() {
-                return Err(vortex_err!(
+                vortex_bail!(
                     "Merge child must return a non-nullable struct dtype, got {}",
                     child_dtype
-                ));
+                )
             }
 
             let child_dtype = child_dtype

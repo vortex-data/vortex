@@ -6,14 +6,12 @@ pub mod annotations;
 pub mod immediate_access;
 pub(crate) mod match_between;
 mod partition;
-pub mod reducer;
 mod replace;
 pub mod rules;
 mod simplify;
 mod simplify_typed;
 
 pub use partition::*;
-pub use reducer::*;
 pub use replace::*;
 pub use rules::*;
 pub use simplify::*;
