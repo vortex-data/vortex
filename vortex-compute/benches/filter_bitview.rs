@@ -3,14 +3,13 @@
 
 #![allow(clippy::unwrap_used)]
 
-use std::arch;
 use std::hint::black_box;
 use std::iter::Iterator;
 
 use divan::Bencher;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
-use vortex_buffer::{BitBuffer, buffer_mut};
+use vortex_buffer::{buffer_mut, BitBuffer};
 use vortex_compute::bench;
 use vortex_compute::filter::Filter;
 
@@ -46,11 +45,13 @@ impl FilterImpl for NeonFilter {
     fn filter<'a, T: Copy>(bitview: &BitView, slice: &'a mut [T]) -> &'a mut [T] {
         #[cfg(target_arch = "aarch64")]
         {
-            if arch::is_aarch64_feature_detected!("neon") {
+            if std::arch::is_aarch64_feature_detected!("neon") {
                 return bench::bench_filter_neon::<_, T>(bitview, slice);
             }
         }
+
         // Otherwise, do nothing.
+        let _ = bitview;
         slice
     }
 }
