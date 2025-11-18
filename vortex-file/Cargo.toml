@@ -75,4 +75,3 @@ tokio = [
     "vortex-scan/tokio",
 ]
 zstd = ["dep:vortex-zstd", "vortex-layout/zstd"]
-
