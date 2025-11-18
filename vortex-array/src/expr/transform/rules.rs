@@ -19,7 +19,7 @@ use crate::expr::{Expression, ExpressionView, VTable};
 /// # Type Parameters
 /// * `V` - The VTable type this rule applies to. The rule will only be invoked for expressions
 ///   with this vtable type, providing compile-time type safety.
-pub trait ReduceRule<V: VTable, C: Context>: Send + Sync {
+pub trait ReduceRule<V: VTable, C: RewriteContext>: Send + Sync {
     /// Try to rewrite an expression.
     ///
     /// # Arguments
@@ -42,7 +42,7 @@ pub trait ReduceRule<V: VTable, C: Context>: Send + Sync {
 /// # Type Parameters
 /// * `V` - The VTable type this rule applies to. The rule will only be invoked for expressions
 ///   with this vtable type, providing compile-time type safety.
-pub trait ParentReduceRule<V: VTable, C: Context>: Send + Sync {
+pub trait ParentReduceRule<V: VTable, C: RewriteContext>: Send + Sync {
     /// Try to rewrite an expression based on its parent.
     ///
     /// # Arguments
@@ -63,13 +63,8 @@ pub trait ParentReduceRule<V: VTable, C: Context>: Send + Sync {
     ) -> VortexResult<Option<Expression>>;
 }
 
-pub trait Context {}
-
-// Blanket implementation: all references to Context implementors also implement Context
-impl<T: Context + ?Sized> Context for &T {}
-
 /// Base context for rewrite rules.
-pub trait RewriteContext: Context {}
+pub trait RewriteContext {}
 
 // Blanket implementation: all references to RewriteContext implementors also implement RewriteContext
 impl<T: RewriteContext + ?Sized> RewriteContext for &T {}
@@ -86,8 +81,6 @@ pub trait TypedRewriteContext: RewriteContext {
 #[derive(Debug, Default)]
 pub struct EmptyRewriteContext;
 
-impl Context for EmptyRewriteContext {}
-
 impl RewriteContext for EmptyRewriteContext {}
 
 /// Simple implementation that supports both RewriteContext and TypedRewriteContext.
@@ -95,8 +88,6 @@ impl RewriteContext for EmptyRewriteContext {}
 pub struct RootRewriteContext<'a> {
     pub dtype: &'a DType,
 }
-
-impl<'a> Context for RootRewriteContext<'a> {}
 
 impl<'a> RewriteContext for RootRewriteContext<'a> {}
 
