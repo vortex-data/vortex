@@ -10,7 +10,7 @@ use pyo3::{Python, intern};
 use vortex::buffer::ByteBuffer;
 use vortex::compute::{ComputeFn, InvocationArgs, Output};
 use vortex::dtype::DType;
-use vortex::error::{VortexResult, vortex_bail, vortex_err};
+use vortex::error::{VortexResult, vortex_err};
 use vortex::mask::Mask;
 use vortex::scalar::Scalar;
 use vortex::serde::ArrayChildren;
@@ -55,7 +55,7 @@ impl VTable for PythonVTable {
             let obj = array.object.bind(py);
             if !obj.hasattr(intern!(py, "metadata"))? {
                 // The class does not have a metadata attribute so does not support serialization.
-                return Ok(None);
+                return Ok(RawMetadata(vec![]));
             }
 
             let bytes = obj
@@ -65,7 +65,7 @@ impl VTable for PythonVTable {
                 .as_bytes()
                 .to_vec();
 
-            Ok(Some(RawMetadata(bytes)))
+            Ok(RawMetadata(bytes))
         })
     }
 
