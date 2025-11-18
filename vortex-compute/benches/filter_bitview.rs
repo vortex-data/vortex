@@ -23,13 +23,13 @@ const N: usize = 1024;
 type BitView<'a> = vortex_buffer::BitView<'a, 128>;
 
 trait FilterImpl {
-    fn filter<T: Copy>(bitview: &BitView, slice: &mut [T]);
+    fn filter<'a, T: Copy>(bitview: &BitView, slice: &'a mut [T]) -> &'a mut [T];
 }
 
 /// The main entry point for the filter function that performs all the dispatch.
 struct ActualFilter;
 impl FilterImpl for ActualFilter {
-    fn filter<T: Copy>(bitview: &BitView, slice: &mut [T]) {
+    fn filter<'a, T: Copy>(bitview: &BitView, slice: &'a mut [T]) -> &'a mut [T] {
         slice.filter(bitview)
     }
 }
@@ -44,8 +44,11 @@ impl FilterImpl for ScalarFilter {
 struct NeonFilter;
 impl FilterImpl for NeonFilter {
     fn filter<T: Copy>(bitview: &BitView, slice: &mut [T]) {
-        if arch::is_aarch64_feature_detected!("neon") {
-            bench::bench_filter_neon::<_, T>(bitview, slice)
+        #[cfg(target_arch = "aarch64")]
+        {
+            if arch::is_aarch64_feature_detected!("neon") {
+                bench::bench_filter_neon::<_, T>(bitview, slice)
+            }
         }
     }
 }
@@ -94,7 +97,6 @@ fn bench_filter_fn<F: FilterImpl, T: Default + Copy>(bencher: Bencher, mask_dens
 
     bencher.bench_local(|| {
         let view = BitView::new(mask.inner().as_ref().try_into().unwrap());
-        F::filter(&view, &mut buffer);
-        black_box(&mut buffer);
+        black_box(F::filter(&view, &mut buffer));
     });
 }
