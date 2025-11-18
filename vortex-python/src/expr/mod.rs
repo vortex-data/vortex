@@ -9,6 +9,7 @@ use pyo3::types::*;
 use vortex::dtype::{DType, Nullability, PType};
 use vortex::expr::{self, Binary, Expression, GetItem, Operator, VTableExt, and, lit, not};
 
+use crate::arrays::PyArrayRef;
 use crate::dtype::PyDType;
 use crate::install_module;
 use crate::scalar::factory::scalar_helper;
@@ -164,6 +165,29 @@ impl PyExpr {
     // rST file. https://github.com/PyO3/pyo3/issues/4326
     fn __getitem__(self_: PyRef<'_, Self>, field: String) -> PyResult<PyExpr> {
         get_item(field, self_.clone())
+    }
+
+    /// Evaluate this expression on an in-memory array.
+    ///
+    /// Examples
+    /// --------
+    ///
+    /// ```python
+    /// >>> import vortex.expr as ve
+    /// >>> import vortex as vx
+    /// >>> ve.column("a").evaluate(vx.array([{"a": 0, "b": "hello"}, {"a": 1, "b": "goodbye"}]))
+    /// [0, 1]
+    /// ```
+    ///
+    /// See also
+    /// --------
+    ///
+    /// To evaluate expressions on on-disk arrays, see:
+    /// - `vortex.file.open`,
+    /// - `vortex.file.VortexFile`, and
+    /// - `vortex.file.VortexFile.scan`
+    fn evaluate(self_: PyRef<'_, Self>, array: PyArrayRef) -> PyResult<PyArrayRef> {
+        Ok(PyArrayRef::from(self_.evaluate(array.inner())?))
     }
 }
 

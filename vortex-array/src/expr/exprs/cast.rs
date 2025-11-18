@@ -79,8 +79,9 @@ impl VTable for Cast {
         let array = expr.children()[0].evaluate(scope)?;
         compute_cast(&array, expr.data()).map_err(|e| {
             e.with_context(format!(
-                "Failed to cast array of dtype {} to {}",
+                "Failed to cast array of dtype {} to {} in {}.",
                 array.dtype(),
+                expr.data(),
                 expr.deref()
             ))
         })
@@ -91,7 +92,9 @@ impl VTable for Cast {
         expr: &ExpressionView<Self>,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
-        expr.children()[0].stat_max(catalog)
+        expr.child(0)
+            .stat_max(catalog)
+            .map(|x| cast(x, expr.data().clone()))
     }
 
     fn stat_min(
@@ -99,7 +102,9 @@ impl VTable for Cast {
         expr: &ExpressionView<Self>,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
-        expr.children()[0].stat_min(catalog)
+        expr.child(0)
+            .stat_min(catalog)
+            .map(|x| cast(x, expr.data().clone()))
     }
 
     fn stat_nan_count(
@@ -107,7 +112,9 @@ impl VTable for Cast {
         expr: &ExpressionView<Self>,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
-        expr.children()[0].stat_nan_count(catalog)
+        expr.child(0)
+            .stat_nan_count(catalog)
+            .map(|x| cast(x, expr.data().clone()))
     }
 
     fn stat_field_path(&self, expr: &ExpressionView<Self>) -> Option<FieldPath> {
