@@ -55,6 +55,10 @@ vortex-session = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 vortex-zstd = { workspace = true, optional = true }
 
+[target.'cfg(gpu_unstable)'.dependencies]
+cudarc = { workspace = true }
+vortex-gpu = { workspace = true, features = ["cuda"] }
+
 [dev-dependencies]
 futures = { workspace = true, features = ["executor"] }
 rstest = { workspace = true }

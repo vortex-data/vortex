@@ -140,9 +140,9 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Docs
         run: |
-          RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
+          RUSTFLAGS="--cfg gpu_unstable" RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
           # nextest doesn't support doc tests, so we run it here
-          cargo test --doc --workspace --all-features --exclude vortex-cxx --exclude vortex-jni --exclude vortex-ffi --exclude xtask --no-fail-fast
+          RUSTFLAGS="--cfg gpu_unstable" cargo test --doc --workspace --all-features --exclude vortex-cxx --exclude vortex-jni --exclude vortex-ffi --exclude xtask --no-fail-fast
 
   build-rust:
     name: "Rust build (${{matrix.config.name}})"
@@ -156,7 +156,7 @@ jobs:
       - tag=${{ matrix.config.name }}
     env:
       # disable lints for build, they will be caught in Rust lint job.
-      RUSTFLAGS: "-A warnings"
+      RUSTFLAGS: "-A warnings --cfg gpu_unstable"
     strategy:
       fail-fast: false
       matrix:
@@ -175,7 +175,7 @@ jobs:
             target: wasm32-unknown-unknown
             env:
               rustflags: "RUSTFLAGS='-A warnings --cfg getrandom_backend=\"wasm_js\"'"
-            args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd"
+            args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd --exclude vortex-gpu"
     steps:
       - uses: runs-on/action@v2
         with:
@@ -199,6 +199,8 @@ jobs:
   check-min-deps:
     name: "Check build with minimal dependencies"
     timeout-minutes: 120
+    env:
+      RUSTFLAGS: "--cfg gpu_unstable"
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
@@ -221,6 +223,8 @@ jobs:
   rust-lint:
     name: "Rust (lint)"
     timeout-minutes: 120
+    env:
+      RUSTFLAGS: "--cfg gpu_unstable"
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
@@ -249,6 +253,8 @@ jobs:
   rust-lint-no-default:
     name: "Rust (lint, no default)"
     timeout-minutes: 120
+    env:
+      RUSTFLAGS: "--cfg gpu_unstable"
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
@@ -313,7 +319,7 @@ jobs:
       - name: Rust Tests
         if: ${{ matrix.suite == 'tests' }}
         run: |
-          cargo +nightly nextest run --locked --workspace --all-features --no-fail-fast
+          cargo +nightly nextest run --locked --workspace --exclude vortex-gpu --all-features --no-fail-fast
       - name: Run TPC-H
         if: ${{ matrix.suite == 'tpc-h' }}
         # We use i2 to ensure that restarting the duckdb connection succeeds
@@ -333,6 +339,7 @@ jobs:
             --ignore 'vortex-python/*' --ignore 'vortex-jni/*' --ignore 'vortex-flatbuffers/*' \
             --ignore 'vortex-proto/*' --ignore 'vortex-tui/*' --ignore 'vortex-datafusion/examples/*' \
             --ignore 'vortex-ffi/examples/*' --ignore '*/arbitrary/*' --ignore '*/arbitrary.rs' --ignore 'vortex-cxx/*' \
+            --ignore 'vortex-gpu/*' \
             -o ${{ env.GRCOV_OUTPUT_FILE }}
       - name: Codecov
         uses: codecov/codecov-action@v5
@@ -389,15 +396,64 @@ jobs:
       - name: Rust Tests
         run: |
           # Build with full debug info first (helps with caching)
-          cargo +nightly build --locked --workspace --all-features --target x86_64-unknown-linux-gnu
+          cargo +nightly build --locked --workspace --exclude vortex-gpu --all-features --target x86_64-unknown-linux-gnu
           # Run tests with sanitizers and debug output
           cargo +nightly nextest run \
             --locked \
             --workspace \
+            --exclude vortex-gpu \
             --all-features \
             --no-fail-fast \
             --target x86_64-unknown-linux-gnu \
             --verbose
+
+  gpu-test:
+    name: "GPU tests"
+    timeout-minutes: 120
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=g5
+      - cpu=8
+      - image=ubuntu24-gpu-x64
+      - extras=s3-cache
+      - tag=cuda-tests
+    env:
+      # Keep frame pointers for better stack traces
+      CARGO_PROFILE_DEV_DEBUG: "true"
+      CARGO_PROFILE_TEST_DEBUG: "true"
+      RUSTFLAGS: "--cfg gpu_unstable"
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - name: Display NVIDIA SMI details
+        run: |
+          nvidia-smi
+          nvidia-smi -L
+          nvidia-smi -q -d Memory
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          toolchain: nightly
+          components: "rust-src, rustfmt, clippy, llvm-tools-preview"
+      - name: Install nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+      - name: Rust Tests
+        run: |
+          # Build with full debug info first (helps with caching)
+          cargo +nightly build --locked -p vortex-gpu --all-features --target x86_64-unknown-linux-gnu
+          # Run tests with sanitizers and debug output
+          cargo +nightly nextest run \
+            --locked \
+            -p vortex-gpu \
+            --all-features \
+            --no-fail-fast \
+            --target x86_64-unknown-linux-gnu \
+            --verbose
+
 
   build-java:
     name: "Java"
@@ -462,6 +518,7 @@ jobs:
             --exclude vortex-datafusion \
             --exclude vortex-duckdb \
             --exclude vortex-fuzz \
+            --exclude vortex-gpu \
             --exclude vortex-python \
             --exclude vortex-tui \
             --exclude xtask \
