@@ -3,8 +3,10 @@
 
 use std::arch::is_aarch64_feature_detected;
 use std::ptr;
+
 use vortex_buffer::BitView;
 use vortex_mask::Mask;
+
 use crate::filter::Filter;
 
 #[cfg(target_arch = "aarch64")]

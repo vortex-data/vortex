@@ -19,6 +19,7 @@ pub mod mask;
 /// Functions exported for benchmarking purposes.
 #[cfg(feature = "bench")]
 pub mod bench {
+    #[cfg(target_arch = "aarch64")]
     pub use crate::filter::slice::neon::bench_filter_neon;
     pub use crate::filter::slice::scalar::bench_filter_scalar;
 }

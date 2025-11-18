@@ -19,7 +19,6 @@ use vortex_error::vortex_panic;
 /// Benchmark wrapper for [`filter_neon`].
 #[doc(hidden)]
 #[cfg(feature = "bench")]
-#[inline(never)]
 pub fn bench_filter_neon<const NB: usize, T: Copy>(bit_view: &BitView<NB>, slice: &mut [T]) {
     if is_aarch64_feature_detected!("neon") {
         unsafe { filter_neon(slice, bit_view) }
