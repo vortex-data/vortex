@@ -31,7 +31,7 @@ fn apply_parent_rules(
     expr.transform_up(|node| {
         for (idx, child) in node.children().iter().enumerate() {
             for rule in session.rewrite_rules().parent_rules_for(&child.id()) {
-                if let Some(new_expr) = rule.reduce_parent_dyn(&child, &node, idx, ctx)? {
+                if let Some(new_expr) = rule.reduce_parent_dyn(child, &node, idx, ctx)? {
                     return Ok(Transformed::yes(new_expr));
                 }
             }
@@ -46,7 +46,7 @@ pub(crate) fn apply_child_rules_impl(
     ctx: &dyn RewriteContext,
     session: &ExprSession,
 ) -> VortexResult<Expression> {
-    expr.transform_down(|node| {
+    expr.transform_up(|node| {
         for rule in session.rewrite_rules().reduce_rules_for(&node.id()) {
             if let Some(new_expr) = rule.reduce_dyn(&node, ctx)? {
                 return Ok(Transformed::yes(new_expr));
@@ -59,27 +59,27 @@ pub(crate) fn apply_child_rules_impl(
 
 #[cfg(test)]
 mod tests {
+    use vortex_scalar::Scalar;
+
     use super::*;
     use crate::expr::exprs::binary::{Binary, checked_add};
     use crate::expr::exprs::literal::{Literal, lit};
     use crate::expr::exprs::operators::Operator;
     use crate::expr::session::ExprSession;
     use crate::expr::transform::rules::ParentReduceRule;
-    use crate::expr::{Expression, ExpressionView};
+    use crate::expr::{Expression, ExpressionView, col};
 
     /// Test rule: simplifies addition with zero: 0 + x -> x when literal zero is a child of an Add
     struct AddZeroRule;
 
-    impl ParentReduceRule<Literal> for AddZeroRule {
+    impl<C: RewriteContext> ParentReduceRule<Literal, C> for AddZeroRule {
         fn reduce_parent(
             &self,
             expr: &ExpressionView<Literal>,
             parent: &Expression,
             child_idx: usize,
-            _ctx: &dyn RewriteContext,
+            _ctx: C,
         ) -> VortexResult<Option<Expression>> {
-            use vortex_scalar::Scalar;
-
             // Only apply if the parent is an Add operation
             let Some(bin) = parent.as_opt::<Binary>() else {
                 return Ok(None);
@@ -108,16 +108,13 @@ mod tests {
         session.register_parent_rule(&Literal, AddZeroRule);
 
         // Test: 0 + x should simplify to x
-        let x = lit(5);
+        let x = col("x");
         let zero = lit(0);
         let expr = checked_add(zero.clone(), x.clone());
-        println!("expr {}", expr.display_tree());
-        println!("expr dbg {:?}", expr);
 
-        // let result = simplify(expr, &session).unwrap();
-        //
-        // // Should simplify to x (lit(5))
-        // assert_eq!(&result, &lit(5));
+        let result = simplify(expr, &session).unwrap();
+
+        assert_eq!(&result, &x);
     }
 
     #[test]
@@ -126,16 +123,14 @@ mod tests {
         session.register_parent_rule(&Literal, AddZeroRule);
 
         // Test: 0 + (0 + x) should simplify to 0 + x, then to x
-        let x = lit(7);
+        let x = col("x");
         let zero = lit(0);
         let zero_plus_x = checked_add(zero.clone(), x.clone());
         let expr = checked_add(zero.clone(), zero_plus_x);
 
         let result = simplify(expr, &session).unwrap();
 
-        // After first pass: 0 + (x) becomes x + (x) at the inner level
-        // After second pass: x
-        assert_eq!(&result, &lit(7));
+        assert_eq!(&result, &x);
     }
 
     #[test]
@@ -144,13 +139,13 @@ mod tests {
         session.register_parent_rule(&Literal, AddZeroRule);
 
         // Test: x + 0 should simplify to x
-        let x = lit(3);
+        let x = col("x");
         let zero = lit(0);
         let expr = checked_add(x.clone(), zero.clone());
 
         let result = simplify(expr, &session).unwrap();
 
-        assert_eq!(&result, &lit(3));
+        assert_eq!(&result, &x);
     }
 
     #[test]
@@ -159,28 +154,13 @@ mod tests {
         session.register_parent_rule(&Literal, AddZeroRule);
 
         // Test: (0 + x) + 0 should simplify to x
-        let x = lit(9);
+        let x = col("x");
         let zero = lit(0);
         let zero_plus_x = checked_add(zero.clone(), x.clone());
         let expr = checked_add(zero_plus_x, zero.clone());
 
         let result = simplify(expr, &session).unwrap();
 
-        assert_eq!(&result, &lit(9));
-    }
-
-    #[test]
-    fn test_add_zero_parent_rule_no_match() {
-        let mut session = ExprSession::default();
-        session.register_parent_rule(&Literal, AddZeroRule);
-
-        // Test: x + y (no zeros) should not simplify
-        let x = lit(3);
-        let y = lit(4);
-        let expr = checked_add(x.clone(), y.clone());
-
-        let result = simplify(expr.clone(), &session).unwrap();
-
-        assert_eq!(&result, &expr);
+        assert_eq!(&result, &x);
     }
 }

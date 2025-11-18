@@ -199,9 +199,23 @@ pub trait NodeExt: Node {
         self,
         f: F,
     ) -> VortexResult<Transformed<Self>> {
-        let mut rewriter = FnRewriter {
+        let mut rewriter = FnRewriter::<F, F, _> {
             f_down: Some(f),
             f_up: None,
+            _data: PhantomData,
+        };
+
+        self.rewrite(&mut rewriter)
+    }
+
+    fn transform<F, G>(self, down: F, up: G) -> VortexResult<Transformed<Self>>
+    where
+        F: FnMut(Self) -> VortexResult<Transformed<Self>>,
+        G: FnMut(Self) -> VortexResult<Transformed<Self>>,
+    {
+        let mut rewriter = FnRewriter {
+            f_down: Some(down),
+            f_up: Some(up),
             _data: PhantomData,
         };
 
@@ -213,7 +227,7 @@ pub trait NodeExt: Node {
         self,
         f: F,
     ) -> VortexResult<Transformed<Self>> {
-        let mut rewriter = FnRewriter {
+        let mut rewriter = FnRewriter::<F, F, _> {
             f_down: None,
             f_up: Some(f),
             _data: PhantomData,
@@ -272,16 +286,17 @@ pub trait NodeExt: Node {
 
 impl<T: Node> NodeExt for T {}
 
-struct FnRewriter<F, T> {
+struct FnRewriter<F, G, T> {
     f_down: Option<F>,
-    f_up: Option<F>,
+    f_up: Option<G>,
     _data: PhantomData<T>,
 }
 
-impl<F, T> NodeRewriter for FnRewriter<F, T>
+impl<F, G, T> NodeRewriter for FnRewriter<F, G, T>
 where
     T: Node,
     F: FnMut(T) -> VortexResult<Transformed<T>>,
+    G: FnMut(T) -> VortexResult<Transformed<T>>,
 {
     type NodeTy = T;
 

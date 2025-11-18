@@ -59,7 +59,7 @@ pub trait ParentReduceRule<V: VTable, C: Context>: Send + Sync {
         expr: &ExpressionView<V>,
         parent: &Expression,
         child_idx: usize,
-        ctx: &dyn RewriteContext,
+        ctx: C,
     ) -> VortexResult<Option<Expression>>;
 }
 
@@ -70,6 +70,9 @@ impl<T: Context + ?Sized> Context for &T {}
 
 /// Base context for rewrite rules.
 pub trait RewriteContext: Context {}
+
+// Blanket implementation: all references to RewriteContext implementors also implement RewriteContext
+impl<T: RewriteContext + ?Sized> RewriteContext for &T {}
 
 /// Context available to rewrite rules during expression optimization.
 /// Extends `RewriteContext` and provides access to dtype information.
