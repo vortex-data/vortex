@@ -19,7 +19,6 @@ use vortex_dtype::{DType, PType};
 use vortex_error::{VortexError, VortexResult, vortex_err};
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::Handle;
-use vortex_session::VortexSession;
 
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::dict::DictLayout;
@@ -94,7 +93,6 @@ impl LayoutStrategy for DictStrategy {
     async fn write_stream(
         &self,
         ctx: ArrayContext,
-        session: &VortexSession,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         mut eof: SequencePointer,
@@ -104,7 +102,7 @@ impl LayoutStrategy for DictStrategy {
         if !dict_layout_supported(stream.dtype()) {
             return self
                 .fallback
-                .write_stream(ctx, session, segment_sink, stream, eof, handle)
+                .write_stream(ctx, segment_sink, stream, eof, handle)
                 .await;
         }
 
@@ -126,7 +124,7 @@ impl LayoutStrategy for DictStrategy {
             // first chunk did not compress to dict, or did not exist. Skip dict layout
             return self
                 .fallback
-                .write_stream(ctx, session, segment_sink, stream, eof, handle)
+                .write_stream(ctx, segment_sink, stream, eof, handle)
                 .await;
         }
 
@@ -147,12 +145,10 @@ impl LayoutStrategy for DictStrategy {
                 let codes = self.codes.clone();
                 let codes_eof = eof.split_off();
                 let ctx2 = ctx.clone();
-                let session2 = session.clone();
                 let segment_sink2 = segment_sink.clone();
                 let codes_fut = handle.spawn_nested(move |h| async move {
                     codes.write_stream(
                         ctx2,
-                        &session2,
                         segment_sink2,
                         codes_stream.sendable(),
                         codes_eof,
@@ -163,13 +159,11 @@ impl LayoutStrategy for DictStrategy {
                 let values = self.values.clone();
                 let values_eof = eof.split_off();
                 let ctx2 = ctx.clone();
-                let session2 = session.clone();
                 let segment_sink2 = segment_sink.clone();
                 let dtype2 = dtype2.clone();
                 let values_layout = handle.spawn_nested(move |h| async move {
                     values.write_stream(
                         ctx2,
-                        &session2,
                         segment_sink2,
                         SequentialStreamAdapter::new(dtype2, once(values_fut)).sendable(),
                         values_eof,
@@ -187,9 +181,7 @@ impl LayoutStrategy for DictStrategy {
             .buffered(usize::MAX)
             .map(|result| {
                 let (codes_layout, values_layout) = result?;
-                Ok::<_, VortexError>(
-                    DictLayout::new(values_layout, codes_layout, session.clone()).into_layout(),
-                )
+                Ok::<_, VortexError>(DictLayout::new(values_layout, codes_layout).into_layout())
             })
             .try_collect::<Vec<_>>()
             .await?;

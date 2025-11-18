@@ -65,11 +65,13 @@ impl VTable for ChunkedVTable {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        session: &VortexSession,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(ChunkedReader::new(
             layout.clone(),
             name,
             segment_source,
+            session,
         )))
     }
 
@@ -98,7 +100,6 @@ impl VTable for ChunkedVTable {
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
         _ctx: ArrayContext,
-        _session: &VortexSession,
     ) -> VortexResult<Self::Layout> {
         Ok(ChunkedLayout::new(
             row_count,

@@ -4,7 +4,6 @@
 #![allow(clippy::unwrap_used)]
 #![allow(dead_code)]
 
-
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_alp::{ALPArray, Exponents};

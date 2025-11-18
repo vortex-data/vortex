@@ -150,7 +150,7 @@ impl VortexWriteOptions {
         let layout_fut = self.session.handle().spawn_nested(|h| async move {
             let layout = self
                 .strategy
-                .write_stream(ctx2, &self.session, segments.clone(), stream, eof, h)
+                .write_stream(ctx2, segments.clone(), stream, eof, h)
                 .await?;
             Ok::<_, VortexError>((layout, segments.segment_specs()))
         });

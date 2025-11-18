@@ -85,7 +85,7 @@ impl VortexFile {
         self.footer
             .layout()
             // TODO(ngates): we may want to allow the user pass in a name here?
-            .new_reader("".into(), segment_source)
+            .new_reader("".into(), segment_source, &self.session)
     }
 
     /// Initiate a scan of the file, returning a builder for configuring the scan.

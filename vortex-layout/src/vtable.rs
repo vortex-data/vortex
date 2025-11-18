@@ -54,6 +54,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        session: &VortexSession,
     ) -> VortexResult<LayoutReaderRef>;
 
     #[cfg(gpu_unstable)]
@@ -75,7 +76,6 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
         ctx: ArrayContext,
-        session: &VortexSession,
     ) -> VortexResult<Self::Layout>;
 }
 

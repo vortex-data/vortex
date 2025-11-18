@@ -10,7 +10,7 @@ use reader::StructReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::{DType, Field, FieldMask, Nullability, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_err};
-use vortex_session::VortexSession;
+use vortex_session::{SessionExt, VortexSession};
 
 use crate::children::{LayoutChildren, OwnedLayoutChildren};
 use crate::segments::{SegmentId, SegmentSource};
@@ -97,11 +97,13 @@ impl VTable for StructVTable {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        session: &VortexSession,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(StructReader::try_new(
             layout.clone(),
             name,
             segment_source,
+            session.session(),
         )?))
     }
 
@@ -130,7 +132,6 @@ impl VTable for StructVTable {
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
         _ctx: ArrayContext,
-        session: &VortexSession,
     ) -> VortexResult<Self::Layout> {
         let struct_dt = dtype
             .as_struct_fields_opt()
@@ -148,7 +149,6 @@ impl VTable for StructVTable {
             row_count,
             dtype: dtype.clone(),
             children: children.to_arc(),
-            session: session.clone(),
         })
     }
 }
@@ -161,21 +161,14 @@ pub struct StructLayout {
     row_count: u64,
     dtype: DType,
     children: Arc<dyn LayoutChildren>,
-    session: VortexSession,
 }
 
 impl StructLayout {
-    pub fn new(
-        row_count: u64,
-        dtype: DType,
-        children: Vec<LayoutRef>,
-        session: VortexSession,
-    ) -> Self {
+    pub fn new(row_count: u64, dtype: DType, children: Vec<LayoutRef>) -> Self {
         Self {
             row_count,
             dtype,
             children: OwnedLayoutChildren::layout_children(children),
-            session,
         }
     }
 
@@ -183,11 +176,6 @@ impl StructLayout {
         self.dtype
             .as_struct_fields_opt()
             .vortex_expect("Struct layout dtype must be a struct")
-    }
-
-    #[inline]
-    pub fn session(&self) -> &VortexSession {
-        &self.session
     }
 
     #[inline]

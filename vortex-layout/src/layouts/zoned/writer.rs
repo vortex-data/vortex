@@ -10,7 +10,6 @@ use vortex_array::ArrayContext;
 use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
-use vortex_session::VortexSession;
 
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::StatsAccumulator;
@@ -70,7 +69,6 @@ impl LayoutStrategy for ZonedStrategy {
     async fn write_stream(
         &self,
         ctx: ArrayContext,
-        session: &VortexSession,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         mut eof: SequencePointer,
@@ -125,7 +123,6 @@ impl LayoutStrategy for ZonedStrategy {
             .child
             .write_stream(
                 ctx.clone(),
-                session,
                 segment_sink.clone(),
                 stream,
                 data_eof,
@@ -147,14 +144,7 @@ impl LayoutStrategy for ZonedStrategy {
             .sequenced(eof.split_off());
         let zones_layout = self
             .stats
-            .write_stream(
-                ctx,
-                session,
-                segment_sink.clone(),
-                stats_stream,
-                eof,
-                handle,
-            )
+            .write_stream(ctx, segment_sink.clone(), stats_stream, eof, handle)
             .await?;
 
         Ok(ZonedLayout::new(
@@ -162,7 +152,6 @@ impl LayoutStrategy for ZonedStrategy {
             zones_layout,
             block_size,
             stats_table.present_stats().clone(),
-            session.clone(),
         )
         .into_layout())
     }

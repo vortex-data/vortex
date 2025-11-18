@@ -84,11 +84,13 @@ impl VTable for ZonedVTable {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        session: &VortexSession,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(ZonedReader::try_new(
             layout.clone(),
             name,
             segment_source,
+            session.clone(),
         )?))
     }
 
@@ -114,14 +116,12 @@ impl VTable for ZonedVTable {
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
         _ctx: ArrayContext,
-        session: &VortexSession,
     ) -> VortexResult<Self::Layout> {
         Ok(ZonedLayout {
             dtype: dtype.clone(),
             children: children.to_arc(),
             zone_len: metadata.zone_len as usize,
             present_stats: metadata.present_stats.clone(),
-            session: session.clone(),
         })
     }
 }
@@ -135,7 +135,6 @@ pub struct ZonedLayout {
     children: Arc<dyn LayoutChildren>,
     zone_len: usize,
     present_stats: Arc<[Stat]>,
-    session: VortexSession,
 }
 
 impl ZonedLayout {
@@ -144,7 +143,6 @@ impl ZonedLayout {
         zones: LayoutRef,
         zone_len: usize,
         present_stats: Arc<[Stat]>,
-        session: VortexSession,
     ) -> Self {
         if zone_len == 0 {
             vortex_panic!("Zone length must be greater than 0");
@@ -158,7 +156,6 @@ impl ZonedLayout {
             children: OwnedLayoutChildren::layout_children(vec![data, zones]),
             zone_len,
             present_stats,
-            session,
         }
     }
 
@@ -169,11 +166,6 @@ impl ZonedLayout {
     /// Returns an array of stats that exist in the layout's data, must be sorted.
     pub fn present_stats(&self) -> &Arc<[Stat]> {
         &self.present_stats
-    }
-
-    #[inline]
-    pub fn session(&self) -> &VortexSession {
-        &self.session
     }
 }
 

@@ -20,6 +20,7 @@ use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
 use vortex::{Array, ArrayRef, MaskFuture, ToCanonical};
 
+use crate::SESSION;
 use crate::browse::app::{AppState, LayoutCursor};
 
 /// Render the Layouts tab.
@@ -101,7 +102,7 @@ fn render_array(app: &AppState<'_>, area: Rect, buf: &mut Buffer, is_stats_table
     let reader = app
         .cursor
         .layout()
-        .new_reader("".into(), app.vxf.segment_source())
+        .new_reader("".into(), app.vxf.segment_source(), &SESSION)
         .vortex_expect("Failed to create reader");
 
     // FIXME(ngates): our TUI app should never perform I/O in the render loop...
