@@ -225,6 +225,14 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
         encoded.map_each_in_place(move |encoded| Self::decode_single(encoded, exponents))
     }
 
+    fn decode_into(encoded: &[Self::ALPInt], exponents: Exponents, output: &mut [Self]) {
+        assert_eq!(encoded.len(), output.len());
+
+        for i in 0..encoded.len() {
+            output[i] = Self::decode_single(encoded[i], exponents)
+        }
+    }
+
     fn decode_slice_inplace(encoded: &mut [Self::ALPInt], exponents: Exponents) {
         let decoded: &mut [Self] = unsafe { transmute(encoded) };
         decoded.iter_mut().for_each(|v| {
