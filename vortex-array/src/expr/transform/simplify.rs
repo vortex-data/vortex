@@ -31,7 +31,7 @@ fn apply_parent_rules(
     expr.transform_up(|node| {
         for (idx, child) in node.children().iter().enumerate() {
             for rule in session.rewrite_rules().parent_rules_for(&child.id()) {
-                if let Some(new_expr) = rule.reduce_parent_dyn(child, &node, idx, ctx)? {
+                if let Some(new_expr) = rule.reduce_parent(child, &node, idx, ctx)? {
                     return Ok(Transformed::yes(new_expr));
                 }
             }
@@ -46,14 +46,22 @@ pub(crate) fn apply_child_rules_impl(
     ctx: &dyn RewriteContext,
     session: &ExprSession,
 ) -> VortexResult<Expression> {
-    expr.transform_up(|node| {
+    fn rewrite(
+        node: Expression,
+        ctx: &dyn RewriteContext,
+        session: &ExprSession,
+    ) -> VortexResult<Transformed<Expression>> {
         for rule in session.rewrite_rules().reduce_rules_for(&node.id()) {
-            if let Some(new_expr) = rule.reduce_dyn(&node, ctx)? {
+            if let Some(new_expr) = rule.reduce(&node, ctx)? {
                 return Ok(Transformed::yes(new_expr));
             }
         }
         Ok(Transformed::no(node))
-    })
+    }
+    expr.transform(
+        |node| rewrite(node, ctx, session),
+        |node| rewrite(node, ctx, session),
+    )
     .map(|t| t.into_inner())
 }
 
@@ -72,13 +80,13 @@ mod tests {
     /// Test rule: simplifies addition with zero: 0 + x -> x when literal zero is a child of an Add
     struct AddZeroRule;
 
-    impl<C: RewriteContext> ParentReduceRule<Literal, C> for AddZeroRule {
+    impl ParentReduceRule<Literal, &dyn RewriteContext> for AddZeroRule {
         fn reduce_parent(
             &self,
             expr: &ExpressionView<Literal>,
             parent: &Expression,
             child_idx: usize,
-            _ctx: C,
+            _ctx: &dyn RewriteContext,
         ) -> VortexResult<Option<Expression>> {
             // Only apply if the parent is an Add operation
             let Some(bin) = parent.as_opt::<Binary>() else {

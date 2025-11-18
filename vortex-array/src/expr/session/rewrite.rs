@@ -8,8 +8,11 @@ use std::sync::Arc;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::expr::transform::TypedRewriteContext;
 use crate::expr::transform::rules::{ParentReduceRule, ReduceRule, RewriteContext};
+use crate::expr::transform::{
+    DynParentReduceRule, DynReduceRule, DynTypedParentReduceRule, DynTypedReduceRule,
+    TypedRewriteContext,
+};
 use crate::expr::{ExprId, Expression, VTable};
 
 /// Universal adapter for both ReduceRule and ParentReduceRule with any context type.
@@ -32,7 +35,7 @@ where
     V: VTable,
     for<'a> R: ReduceRule<V, &'a dyn RewriteContext>,
 {
-    fn reduce_dyn(
+    fn reduce(
         &self,
         expr: &Expression,
         ctx: &dyn RewriteContext,
@@ -49,7 +52,7 @@ where
     V: VTable,
     for<'a> R: ReduceRule<V, &'a dyn TypedRewriteContext>,
 {
-    fn reduce_dyn_typed(
+    fn reduce(
         &self,
         expr: &Expression,
         ctx: &dyn TypedRewriteContext,
@@ -66,7 +69,7 @@ where
     V: VTable,
     for<'a> R: ParentReduceRule<V, &'a dyn RewriteContext>,
 {
-    fn reduce_parent_dyn(
+    fn reduce_parent(
         &self,
         expr: &Expression,
         parent: &Expression,
@@ -85,7 +88,7 @@ where
     V: VTable,
     for<'a> R: ParentReduceRule<V, &'a dyn TypedRewriteContext>,
 {
-    fn reduce_parent_dyn_typed(
+    fn reduce_parent(
         &self,
         expr: &Expression,
         parent: &Expression,

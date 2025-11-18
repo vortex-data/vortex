@@ -108,7 +108,7 @@ impl<'a> TypedRewriteContext for RootRewriteContext<'a> {
 
 /// Type-erased wrappers that allows dynamic dispatch.
 pub(crate) trait DynReduceRule: Send + Sync {
-    fn reduce_dyn(
+    fn reduce(
         &self,
         expr: &Expression,
         ctx: &dyn RewriteContext,
@@ -116,7 +116,7 @@ pub(crate) trait DynReduceRule: Send + Sync {
 }
 
 pub(crate) trait DynTypedReduceRule: Send + Sync {
-    fn reduce_dyn_typed(
+    fn reduce(
         &self,
         expr: &Expression,
         ctx: &dyn TypedRewriteContext,
@@ -124,7 +124,7 @@ pub(crate) trait DynTypedReduceRule: Send + Sync {
 }
 
 pub(crate) trait DynParentReduceRule: Send + Sync {
-    fn reduce_parent_dyn(
+    fn reduce_parent(
         &self,
         expr: &Expression,
         parent: &Expression,
@@ -134,7 +134,7 @@ pub(crate) trait DynParentReduceRule: Send + Sync {
 }
 
 pub(crate) trait DynTypedParentReduceRule: Send + Sync {
-    fn reduce_parent_dyn_typed(
+    fn reduce_parent(
         &self,
         expr: &Expression,
         parent: &Expression,
