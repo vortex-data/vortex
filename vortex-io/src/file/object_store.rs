@@ -98,6 +98,7 @@ impl ReadSource for ObjectStoreIoSource {
         requests: BoxStream<'static, IoRequest>,
     ) -> BoxFuture<'static, ()> {
         let self2 = self.clone();
+        let concurrency = self.io.concurrency;
         requests
             .map(move |req| {
                 let handle = self.handle.clone();
@@ -170,7 +171,7 @@ impl ReadSource for ObjectStoreIoSource {
                 async move { req.resolve(Compat::new(read).await) }
             })
             .map(move |f| self2.handle.spawn(f))
-            .buffer_unordered(CONCURRENCY)
+            .buffer_unordered(concurrency)
             .collect::<()>()
             .boxed()
     }
