@@ -5,6 +5,7 @@ from datetime import date, datetime
 from typing import TypeAlias, final
 
 from typing_extensions import override
+
 from vortex.type_aliases import IntoArray
 
 from .arrays import Array
