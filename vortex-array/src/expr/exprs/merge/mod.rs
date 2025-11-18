@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+pub mod transform;
+
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::sync::Arc;

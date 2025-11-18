@@ -8,8 +8,9 @@ use futures::Stream;
 use futures::future::BoxFuture;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
+use vortex_array::expr::session::ExprSessionExt;
+use vortex_array::expr::transform::ExprOptimizer;
 use vortex_array::expr::transform::immediate_access::immediate_scope_access;
-use vortex_array::expr::transform::simplify_typed;
 use vortex_array::expr::{Expression, root};
 use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
 use vortex_array::stats::StatsSet;
@@ -209,13 +210,21 @@ impl<A: 'static + Send> ScanBuilder<A> {
         // Enrich the layout reader to support RowIdx expressions.
         // Note that this is applied below the filter layout reader since it can perform
         // better over individual conjunctions.
-        layout_reader = Arc::new(RowIdxLayoutReader::new(self.row_offset, layout_reader));
+        layout_reader = Arc::new(RowIdxLayoutReader::new(
+            self.row_offset,
+            layout_reader,
+            &self.session,
+        ));
+
+        let exprs = self.session.expressions();
+        let optimizer = ExprOptimizer::new(&exprs);
 
         // Normalize and simplify the expressions.
-        let projection = simplify_typed(self.projection, layout_reader.dtype())?;
+        let projection = optimizer.optimize_typed(self.projection, layout_reader.dtype())?;
+
         let filter = self
             .filter
-            .map(|f| simplify_typed(f, layout_reader.dtype()))
+            .map(|f| optimizer.optimize_typed(f, layout_reader.dtype()))
             .transpose()?;
 
         // Construct field masks and compute the row splits of the scan.

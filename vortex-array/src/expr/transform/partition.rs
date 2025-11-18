@@ -12,10 +12,10 @@ use crate::expr::Expression;
 use crate::expr::exprs::get_item::get_item;
 use crate::expr::exprs::pack::pack;
 use crate::expr::exprs::root::root;
+use crate::expr::transform::ExprOptimizer;
 use crate::expr::transform::annotations::{
     Annotation, AnnotationFn, Annotations, descendent_annotations,
 };
-use crate::expr::transform::simplify_typed::simplify_typed;
 use crate::expr::traversal::{NodeExt, NodeRewriter, Transformed, TraversalOrder};
 
 /// Partition an expression into sub-expressions that are uniquely associated with an annotation.
@@ -33,6 +33,7 @@ pub fn partition<A: AnnotationFn>(
     expr: Expression,
     scope: &DType,
     annotate_fn: A,
+    optimizer: &ExprOptimizer,
 ) -> VortexResult<PartitionedExpr<A::Annotation>>
 where
     A::Annotation: Display,
@@ -62,7 +63,7 @@ where
             Nullability::NonNullable,
         );
 
-        let expr = simplify_typed(expr.clone(), scope)?;
+        let expr = optimizer.optimize_typed(expr.clone(), scope)?;
         let expr_dtype = expr.return_dtype(scope)?;
 
         partitions.push(expr);
@@ -80,7 +81,7 @@ where
     );
 
     Ok(PartitionedExpr {
-        root: simplify_typed(root, &root_scope)?,
+        root: optimizer.optimize_typed(root, &root_scope)?,
         partitions: partitions.into_boxed_slice(),
         partition_names,
         partition_dtypes: partition_dtypes.into_boxed_slice(),
@@ -207,9 +208,9 @@ mod tests {
     use crate::expr::exprs::pack::pack;
     use crate::expr::exprs::root::root;
     use crate::expr::exprs::select::select;
+    use crate::expr::session::ExprSession;
     use crate::expr::transform::immediate_access::annotate_scope_access;
     use crate::expr::transform::replace::replace_root_fields;
-    use crate::expr::transform::simplify::simplify;
     use crate::expr::transform::simplify_typed::simplify_typed;
 
     #[fixture]
@@ -233,9 +234,17 @@ mod tests {
     #[rstest]
     fn test_expr_top_level_ref(dtype: DType) {
         let fields = dtype.as_struct_fields_opt().unwrap();
+        let session = ExprSession::default();
+        let optimizer = ExprOptimizer::new(&session);
 
         let expr = root();
-        let partitioned = partition(expr.clone(), &dtype, annotate_scope_access(fields)).unwrap();
+        let partitioned = partition(
+            expr.clone(),
+            &dtype,
+            annotate_scope_access(fields),
+            &optimizer,
+        )
+        .unwrap();
 
         // An un-expanded root expression is annotated by all fields, but since it is a single node
         assert_eq!(partitioned.partitions.len(), 0);
@@ -243,7 +252,8 @@ mod tests {
 
         // Instead, callers must expand the root expression themselves.
         let expr = replace_root_fields(expr, fields);
-        let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
+        let partitioned =
+            partition(expr, &dtype, annotate_scope_access(fields), &optimizer).unwrap();
 
         assert_eq!(partitioned.partitions.len(), fields.names().len());
     }
@@ -251,16 +261,21 @@ mod tests {
     #[rstest]
     fn test_expr_top_level_ref_get_item_and_split(dtype: DType) {
         let fields = dtype.as_struct_fields_opt().unwrap();
+        let session = ExprSession::default();
+        let optimizer = ExprOptimizer::new(&session);
 
         let expr = get_item("y", get_item("a", root()));
 
-        let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
+        let partitioned =
+            partition(expr, &dtype, annotate_scope_access(fields), &optimizer).unwrap();
         assert_eq!(&partitioned.root, &get_item("a_0", get_item("a", root())));
     }
 
     #[rstest]
     fn test_expr_top_level_ref_get_item_and_split_pack(dtype: DType) {
         let fields = dtype.as_struct_fields_opt().unwrap();
+        let session = ExprSession::default();
+        let optimizer = ExprOptimizer::new(&session);
 
         let expr = pack(
             [
@@ -270,11 +285,12 @@ mod tests {
             ],
             NonNullable,
         );
-        let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
+        let partitioned =
+            partition(expr, &dtype, annotate_scope_access(fields), &optimizer).unwrap();
 
         let split_a = partitioned.find_partition(&"a".into()).unwrap();
         assert_eq!(
-            &simplify(split_a.clone()).unwrap(),
+            &simplify_typed(split_a.clone(), &dtype, &ExprSession::default()).unwrap(),
             &pack(
                 [
                     ("a_0", get_item("x", get_item("a", root()))),
@@ -288,9 +304,12 @@ mod tests {
     #[rstest]
     fn test_expr_top_level_ref_get_item_add(dtype: DType) {
         let fields = dtype.as_struct_fields_opt().unwrap();
+        let session = ExprSession::default();
+        let optimizer = ExprOptimizer::new(&session);
 
         let expr = and(get_item("y", get_item("a", root())), lit(1));
-        let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
+        let partitioned =
+            partition(expr, &dtype, annotate_scope_access(fields), &optimizer).unwrap();
 
         // Whole expr is a single split
         assert_eq!(partitioned.partitions.len(), 1);
@@ -299,9 +318,12 @@ mod tests {
     #[rstest]
     fn test_expr_top_level_ref_get_item_add_cannot_split(dtype: DType) {
         let fields = dtype.as_struct_fields_opt().unwrap();
+        let session = ExprSession::default();
+        let optimizer = ExprOptimizer::new(&session);
 
         let expr = and(get_item("y", get_item("a", root())), get_item("b", root()));
-        let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
+        let partitioned =
+            partition(expr, &dtype, annotate_scope_access(fields), &optimizer).unwrap();
 
         // One for id.a and id.b
         assert_eq!(partitioned.partitions.len(), 2);
@@ -311,13 +333,16 @@ mod tests {
     #[rstest]
     fn test_expr_partition_many_occurrences_of_field(dtype: DType) {
         let fields = dtype.as_struct_fields_opt().unwrap();
+        let session = ExprSession::default();
+        let optimizer = ExprOptimizer::new(&session);
 
         let expr = and(
             get_item("y", get_item("a", root())),
             select(["a", "b"], root()),
         );
-        let expr = simplify_typed(expr, &dtype).unwrap();
-        let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
+        let expr = simplify_typed(expr, &dtype, &ExprSession::default()).unwrap();
+        let partitioned =
+            partition(expr, &dtype, annotate_scope_access(fields), &optimizer).unwrap();
 
         // One for id.a and id.b
         assert_eq!(partitioned.partitions.len(), 2);
@@ -351,10 +376,13 @@ mod tests {
     #[rstest]
     fn test_expr_merge(dtype: DType) {
         let fields = dtype.as_struct_fields_opt().unwrap();
+        let session = ExprSession::default();
+        let optimizer = ExprOptimizer::new(&session);
 
         let expr = merge([col("a"), pack([("b", col("b"))], NonNullable)]);
 
-        let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
+        let partitioned =
+            partition(expr, &dtype, annotate_scope_access(fields), &optimizer).unwrap();
         let expected = pack(
             [
                 ("x", get_item("x", get_item("a_0", col("a")))),

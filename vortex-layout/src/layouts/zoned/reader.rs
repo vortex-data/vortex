@@ -16,6 +16,7 @@ use vortex_buffer::BitBufferMut;
 use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::layouts::zoned::ZonedLayout;
@@ -48,6 +49,7 @@ impl ZonedReader {
         layout: ZonedLayout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        session: VortexSession,
     ) -> VortexResult<Self> {
         let dtypes = vec![
             layout.dtype.clone(),
@@ -59,6 +61,7 @@ impl ZonedReader {
             dtypes,
             names,
             segment_source.clone(),
+            session,
         );
 
         Ok(Self {
@@ -363,6 +366,7 @@ mod test {
     use crate::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
     use crate::segments::{SegmentSource, TestSegments};
     use crate::sequence::{SequenceId, SequentialArrayStreamExt};
+    use crate::test::SESSION;
     use crate::{LayoutRef, LayoutStrategy};
 
     #[fixture]
@@ -400,7 +404,7 @@ mod test {
     ) {
         block_on(|_| async {
             let result = layout
-                .new_reader("".into(), segments)
+                .new_reader("".into(), segments, &SESSION)
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -423,7 +427,7 @@ mod test {
     ) {
         block_on(|_| async {
             let row_count = layout.row_count();
-            let reader = layout.new_reader("".into(), segments).unwrap();
+            let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
 
             // Choose a prune-able expression
             let expr = gt(root(), lit(7));

@@ -13,6 +13,7 @@ use vortex_array::stats::{Stat, as_stat_bitset_bytes, stats_from_bitset_bytes};
 use vortex_array::{ArrayContext, DeserializeMetadata, SerializeMetadata};
 use vortex_dtype::{DType, TryFromBytes};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_session::VortexSession;
 
 use crate::children::{LayoutChildren, OwnedLayoutChildren};
 use crate::layouts::zoned::reader::ZonedReader;
@@ -83,11 +84,13 @@ impl VTable for ZonedVTable {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        session: &VortexSession,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(ZonedReader::try_new(
             layout.clone(),
             name,
             segment_source,
+            session.clone(),
         )?))
     }
 

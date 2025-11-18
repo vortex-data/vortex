@@ -10,6 +10,7 @@ use reader::DictReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_session::VortexSession;
 
 use crate::children::LayoutChildren;
 use crate::segments::{SegmentId, SegmentSource};
@@ -75,11 +76,13 @@ impl VTable for DictVTable {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        session: &VortexSession,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(DictReader::try_new(
             layout.clone(),
             name,
             segment_source,
+            session,
         )?))
     }
 

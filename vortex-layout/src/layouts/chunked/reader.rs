@@ -15,6 +15,7 @@ use vortex_array::{ArrayRef, MaskFuture};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
@@ -35,6 +36,7 @@ impl ChunkedReader {
         layout: ChunkedLayout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        session: &VortexSession,
     ) -> Self {
         let nchildren = layout.nchildren();
 
@@ -48,8 +50,13 @@ impl ChunkedReader {
         let names = (0..nchildren)
             .map(|idx| Arc::from(format!("{name}.[{idx}]")))
             .collect();
-        let lazy_children =
-            LazyReaderChildren::new(layout.children.clone(), dtypes, names, segment_source);
+        let lazy_children = LazyReaderChildren::new(
+            layout.children.clone(),
+            dtypes,
+            names,
+            segment_source,
+            session.clone(),
+        );
 
         Self {
             layout,
@@ -300,12 +307,14 @@ mod test {
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::{SegmentSource, TestSegments};
     use crate::sequence::{SequenceId, SequentialStreamAdapter, SequentialStreamExt as _};
+    use crate::test::SESSION;
     use crate::{LayoutRef, LayoutStrategy};
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
     fn chunked_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
+
         let segments = Arc::new(TestSegments::default());
         let strategy = ChunkedLayoutStrategy::new(FlatLayoutStrategy::default());
         let (mut sequence_id, eof) = SequenceId::root().split();
@@ -337,7 +346,7 @@ mod test {
     ) {
         block_on(|_h| async {
             let result = layout
-                .new_reader("".into(), segments)
+                .new_reader("".into(), segments, &SESSION)
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),

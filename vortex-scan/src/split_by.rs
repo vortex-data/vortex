@@ -58,15 +58,15 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::FieldPath;
     use vortex_io::runtime::single::block_on;
-    use vortex_layout::LayoutStrategy;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     use vortex_layout::segments::TestSegments;
     use vortex_layout::sequence::{SequenceId, SequentialArrayStreamExt};
+    use vortex_layout::{LayoutReaderRef, LayoutStrategy};
 
     use super::*;
+    use crate::test::SESSION;
 
-    #[test]
-    fn test_layout_splits_flat() {
+    fn reader() -> LayoutReaderRef {
         let ctx = ArrayContext::empty();
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
@@ -86,7 +86,12 @@ mod test {
         })
         .unwrap();
 
-        let reader = layout.new_reader("".into(), segments).unwrap();
+        layout.new_reader("".into(), segments, &SESSION).unwrap()
+    }
+
+    #[test]
+    fn test_layout_splits_flat() {
+        let reader = reader();
 
         let splits = SplitBy::Layout
             .splits(
@@ -100,26 +105,7 @@ mod test {
 
     #[test]
     fn test_row_count_splits() {
-        let ctx = ArrayContext::empty();
-        let segments = Arc::new(TestSegments::default());
-        let (ptr, eof) = SequenceId::root().split();
-        let layout = block_on(|handle| async {
-            FlatLayoutStrategy::default()
-                .write_stream(
-                    ctx,
-                    segments.clone(),
-                    buffer![1_i32; 10]
-                        .into_array()
-                        .to_array_stream()
-                        .sequenced(ptr),
-                    eof,
-                    handle,
-                )
-                .await
-        })
-        .unwrap();
-
-        let reader = layout.new_reader("".into(), segments).unwrap();
+        let reader = reader();
 
         let splits = SplitBy::RowCount(3)
             .splits(
