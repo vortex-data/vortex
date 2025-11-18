@@ -69,7 +69,7 @@ mod tests {
 
         // Create: get_item("x", lit(42)) - not a pack child
         let lit_expr = lit(42);
-        let get_item_expr = get_item("x", lit_expr.clone());
+        let get_item_expr = get_item("x", lit_expr);
 
         let dtype = DType::Primitive(PType::I32, NonNullable);
         let ctx = SimpleRewriteContext { dtype: &dtype };

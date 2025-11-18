@@ -110,7 +110,7 @@ mod tests {
         // Test: 0 + x should simplify to x
         let x = col("x");
         let zero = lit(0);
-        let expr = checked_add(zero.clone(), x.clone());
+        let expr = checked_add(zero, x.clone());
 
         let result = simplify(expr, &session).unwrap();
 
@@ -125,8 +125,8 @@ mod tests {
         // Test: 0 + (0 + x) should simplify to 0 + x, then to x
         let x = col("x");
         let zero = lit(0);
-        let zero_plus_x = checked_add(zero.clone(), x.clone());
-        let expr = checked_add(zero.clone(), zero_plus_x);
+        let zero_plus_x = checked_add(lit(0), x.clone());
+        let expr = checked_add(zero, zero_plus_x);
 
         let result = simplify(expr, &session).unwrap();
 
@@ -141,7 +141,7 @@ mod tests {
         // Test: x + 0 should simplify to x
         let x = col("x");
         let zero = lit(0);
-        let expr = checked_add(x.clone(), zero.clone());
+        let expr = checked_add(x.clone(), zero);
 
         let result = simplify(expr, &session).unwrap();
 
@@ -156,8 +156,8 @@ mod tests {
         // Test: (0 + x) + 0 should simplify to x
         let x = col("x");
         let zero = lit(0);
-        let zero_plus_x = checked_add(zero.clone(), x.clone());
-        let expr = checked_add(zero_plus_x, zero.clone());
+        let zero_plus_x = checked_add(lit(0), x.clone());
+        let expr = checked_add(zero_plus_x, zero);
 
         let result = simplify(expr, &session).unwrap();
 

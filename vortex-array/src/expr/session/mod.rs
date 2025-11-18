@@ -23,6 +23,7 @@ use crate::expr::exprs::pack::Pack;
 use crate::expr::exprs::root::Root;
 use crate::expr::exprs::select::Select;
 use crate::expr::exprs::select::transform::RemoveSelectRule;
+use crate::expr::transform::TypedRewriteContext;
 use crate::expr::transform::rules::{ParentReduceRule, ReduceRule, RewriteContext};
 use crate::expr::{ExprVTable, VTable};
 
@@ -62,7 +63,7 @@ impl ExprSession {
     where
         V: VTable,
         R: 'static,
-        for<'a> R: ReduceRule<V, &'a dyn crate::expr::transform::TypedRewriteContext>,
+        for<'a> R: ReduceRule<V, &'a dyn TypedRewriteContext>,
     {
         self.rewrite_rules.register_typed_reduce_rule(vtable, rule);
     }
@@ -93,7 +94,7 @@ impl ExprSession {
     where
         V: VTable,
         R: 'static,
-        for<'a> R: ParentReduceRule<V, &'a dyn crate::expr::transform::TypedRewriteContext>,
+        for<'a> R: ParentReduceRule<V, &'a dyn TypedRewriteContext>,
     {
         self.rewrite_rules.register_typed_parent_rule(vtable, rule);
     }

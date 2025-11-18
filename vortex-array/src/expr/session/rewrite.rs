@@ -28,21 +28,34 @@ pub(crate) trait DynTypedReduceRule: Send + Sync {
     ) -> VortexResult<Option<Expression>>;
 }
 
-/// Concrete wrapper that implements DynReduceRule for rules with `&dyn RewriteContext` context.
-struct ReduceRuleAdapter<V, R>
-where
-    V: VTable,
-    for<'a> R: ReduceRule<V, &'a dyn RewriteContext>,
-{
+/// Type-erased wrapper for ParentReduceRule that allows dynamic dispatch.
+pub(crate) trait DynParentReduceRule: Send + Sync {
+    fn reduce_parent_dyn(
+        &self,
+        expr: &Expression,
+        parent: &Expression,
+        child_idx: usize,
+        ctx: &dyn RewriteContext,
+    ) -> VortexResult<Option<Expression>>;
+}
+
+pub(crate) trait DynTypedParentReduceRule: Send + Sync {
+    fn reduce_parent_dyn_typed(
+        &self,
+        expr: &Expression,
+        parent: &Expression,
+        child_idx: usize,
+        ctx: &dyn TypedRewriteContext,
+    ) -> VortexResult<Option<Expression>>;
+}
+
+/// Universal adapter for both ReduceRule and ParentReduceRule with any context type.
+struct RuleAdapter<V: VTable, R> {
     rule: R,
     _phantom: PhantomData<V>,
 }
 
-impl<V, R> ReduceRuleAdapter<V, R>
-where
-    V: VTable,
-    for<'a> R: ReduceRule<V, &'a dyn RewriteContext>,
-{
+impl<V: VTable, R> RuleAdapter<V, R> {
     fn new(rule: R) -> Self {
         Self {
             rule,
@@ -51,7 +64,8 @@ where
     }
 }
 
-impl<V, R> DynReduceRule for ReduceRuleAdapter<V, R>
+// Implement DynReduceRule for any ReduceRule with RewriteContext
+impl<V, R> DynReduceRule for RuleAdapter<V, R>
 where
     V: VTable,
     for<'a> R: ReduceRule<V, &'a dyn RewriteContext>,
@@ -68,30 +82,8 @@ where
     }
 }
 
-/// Concrete wrapper that implements DynReduceRule for rules with `&dyn TypedRewriteContext` context.
-struct TypedReduceRuleAdapter<V, R>
-where
-    V: VTable,
-    for<'a> R: ReduceRule<V, &'a dyn TypedRewriteContext>,
-{
-    rule: R,
-    _phantom: PhantomData<V>,
-}
-
-impl<V, R> TypedReduceRuleAdapter<V, R>
-where
-    V: VTable,
-    for<'a> R: ReduceRule<V, &'a dyn TypedRewriteContext>,
-{
-    fn new(rule: R) -> Self {
-        Self {
-            rule,
-            _phantom: PhantomData,
-        }
-    }
-}
-
-impl<V, R> DynTypedReduceRule for TypedReduceRuleAdapter<V, R>
+// Implement DynTypedReduceRule for any ReduceRule with TypedRewriteContext
+impl<V, R> DynTypedReduceRule for RuleAdapter<V, R>
 where
     V: VTable,
     for<'a> R: ReduceRule<V, &'a dyn TypedRewriteContext>,
@@ -108,41 +100,8 @@ where
     }
 }
 
-/// Type-erased wrapper for ParentReduceRule that allows dynamic dispatch.
-pub(crate) trait DynParentReduceRule: Send + Sync {
-    fn reduce_parent_dyn(
-        &self,
-        expr: &Expression,
-        parent: &Expression,
-        child_idx: usize,
-        ctx: &dyn RewriteContext,
-    ) -> VortexResult<Option<Expression>>;
-}
-
-/// Concrete wrapper that implements DynParentReduceRule for a specific VTable type.
-struct ParentReduceRuleAdapter<V, R>
-where
-    V: VTable,
-    for<'a> R: ParentReduceRule<V, &'a dyn RewriteContext>,
-{
-    rule: R,
-    _phantom: PhantomData<V>,
-}
-
-impl<V, R> ParentReduceRuleAdapter<V, R>
-where
-    V: VTable,
-    for<'a> R: ParentReduceRule<V, &'a dyn RewriteContext>,
-{
-    fn new(rule: R) -> Self {
-        Self {
-            rule,
-            _phantom: PhantomData,
-        }
-    }
-}
-
-impl<V, R> DynParentReduceRule for ParentReduceRuleAdapter<V, R>
+// Implement DynParentReduceRule for any ParentReduceRule with RewriteContext
+impl<V, R> DynParentReduceRule for RuleAdapter<V, R>
 where
     V: VTable,
     for<'a> R: ParentReduceRule<V, &'a dyn RewriteContext>,
@@ -161,39 +120,8 @@ where
     }
 }
 
-pub(crate) trait DynTypedParentReduceRule: Send + Sync {
-    fn reduce_parent_dyn_typed(
-        &self,
-        expr: &Expression,
-        parent: &Expression,
-        child_idx: usize,
-        ctx: &dyn TypedRewriteContext,
-    ) -> VortexResult<Option<Expression>>;
-}
-
-struct TypedParentReduceRuleAdapter<V: VTable, R>
-where
-    V: VTable,
-    for<'a> R: ParentReduceRule<V, &'a dyn TypedRewriteContext>,
-{
-    rule: R,
-    _phantom: PhantomData<V>,
-}
-
-impl<V, R> TypedParentReduceRuleAdapter<V, R>
-where
-    V: VTable,
-    for<'a> R: ParentReduceRule<V, &'a dyn TypedRewriteContext>,
-{
-    fn new(rule: R) -> Self {
-        Self {
-            rule,
-            _phantom: PhantomData,
-        }
-    }
-}
-
-impl<V, R> DynTypedParentReduceRule for TypedParentReduceRuleAdapter<V, R>
+// Implement DynTypedParentReduceRule for any ParentReduceRule with TypedRewriteContext
+impl<V, R> DynTypedParentReduceRule for RuleAdapter<V, R>
 where
     V: VTable,
     for<'a> R: ParentReduceRule<V, &'a dyn TypedRewriteContext>,
@@ -252,7 +180,7 @@ impl RewriteRuleRegistry {
         for<'a> R: ReduceRule<V, &'a dyn TypedRewriteContext>,
     {
         let id = vtable.id();
-        let adapter = TypedReduceRuleAdapter::new(rule);
+        let adapter = RuleAdapter::new(rule);
         self.typed_reduce_rules
             .entry(id)
             .or_default()
@@ -268,7 +196,7 @@ impl RewriteRuleRegistry {
         for<'a> R: ReduceRule<V, &'a dyn RewriteContext>,
     {
         let id = vtable.id();
-        let adapter = ReduceRuleAdapter::new(rule);
+        let adapter = RuleAdapter::new(rule);
         self.reduce_rules
             .entry(id)
             .or_default()
@@ -282,7 +210,7 @@ impl RewriteRuleRegistry {
         for<'a> R: ParentReduceRule<V, &'a dyn RewriteContext>,
     {
         let id = vtable.id();
-        let adapter = ParentReduceRuleAdapter::new(rule);
+        let adapter = RuleAdapter::new(rule);
         self.parent_rules
             .entry(id)
             .or_default()
@@ -297,7 +225,7 @@ impl RewriteRuleRegistry {
         for<'a> R: ParentReduceRule<V, &'a dyn TypedRewriteContext>,
     {
         let id = vtable.id();
-        let adapter = TypedParentReduceRuleAdapter::new(rule);
+        let adapter = RuleAdapter::new(rule);
         self.typed_parent_rules
             .entry(id)
             .or_default()
