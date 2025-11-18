@@ -1,16 +1,21 @@
-use crate::PyVortex;
-use crate::arrays::py::PyPythonArray;
-use crate::arrays::{PyArrayRef, native::PyNativeArray};
-use crate::arrow::FromPyArrow;
 use arrow_array::ffi_stream::ArrowArrayStreamReader;
 use arrow_array::{RecordBatchReader as _, make_array};
 use arrow_data::ArrayData;
-use pyo3::{Bound, FromPyObject, PyAny, PyResult, exceptions::PyTypeError, types::PyAnyMethods};
+use pyo3::exceptions::PyTypeError;
+use pyo3::types::PyAnyMethods;
+use pyo3::{Bound, FromPyObject, PyAny, PyResult};
+use vortex::ArrayRef;
+use vortex::arrow::FromArrowArray as _;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType as _;
 use vortex::error::VortexResult;
 use vortex::iter::{ArrayIteratorAdapter, ArrayIteratorExt};
-use vortex::{ArrayRef, arrow::FromArrowArray as _};
+
+use crate::PyVortex;
+use crate::arrays::PyArrayRef;
+use crate::arrays::native::PyNativeArray;
+use crate::arrays::py::PyPythonArray;
+use crate::arrow::FromPyArrow;
 
 /// Conversion type for converting Python objects into a [`vortex::Array`].
 pub struct PyIntoArray(PyArrayRef);
