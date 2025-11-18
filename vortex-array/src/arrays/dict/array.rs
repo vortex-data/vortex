@@ -4,16 +4,7 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-<<<<<<< HEAD:vortex-array/src/arrays/dict/array.rs
 use vortex_buffer::BitBuffer;
-=======
-use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::{ArrayVTable, NotSupported, VTable, ValidityVTable};
-use vortex_array::{
-    Array, ArrayEq, ArrayHash, ArrayRef, EncodingId, EncodingRef, Precision, ToCanonical, vtable,
-};
-use vortex_buffer::{BitBuffer, BitBufferMut};
->>>>>>> 541544af8 (perf[dict]: unreferenced mask Vec<bool>):encodings/dict/src/array.rs
 use vortex_dtype::{DType, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_mask::{AllOr, Mask};
@@ -128,23 +119,24 @@ impl DictArray {
         let values_len = self.values().len();
 
         let mut unreferenced_vec = vec![true; values_len];
-        if codes_validity.all_true() {
-            match_each_integer_ptype!(codes_primitive.ptype(), |P| {
-                #[allow(clippy::cast_possible_truncation)]
-                for &code in codes_primitive.as_slice::<P>().iter() {
-                    unreferenced_vec[code as usize] = false;
-                }
-            });
-        } else {
-            match_each_integer_ptype!(codes_primitive.ptype(), |P| {
-                let codes = codes_primitive.as_slice::<P>();
-                codes_validity
-                    .to_bit_buffer()
-                    .set_indices()
-                    .for_each(|idx| {
+        match codes_validity.bit_buffer() {
+            AllOr::All => {
+                match_each_integer_ptype!(codes_primitive.ptype(), |P| {
+                    #[allow(clippy::cast_possible_truncation)]
+                    for &code in codes_primitive.as_slice::<P>().iter() {
+                        unreferenced_vec[code as usize] = false;
+                    }
+                });
+            }
+            AllOr::None => {}
+            AllOr::Some(buf) => {
+                match_each_integer_ptype!(codes_primitive.ptype(), |P| {
+                    let codes = codes_primitive.as_slice::<P>();
+                    buf.set_indices().for_each(|idx| {
                         unreferenced_vec[codes[idx] as usize] = false;
-                    });
-            })
+                    })
+                });
+            }
         }
 
         Ok(BitBuffer::collect_bool(values_len, |idx| {
