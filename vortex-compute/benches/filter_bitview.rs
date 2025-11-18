@@ -36,20 +36,22 @@ impl FilterImpl for ActualFilter {
 
 struct ScalarFilter;
 impl FilterImpl for ScalarFilter {
-    fn filter<T: Copy>(bitview: &BitView, slice: &mut [T]) {
+    fn filter<'a, T: Copy>(bitview: &BitView, slice: &'a mut [T]) -> &'a mut [T] {
         bench::bench_filter_scalar::<_, T>(bitview, slice)
     }
 }
 
 struct NeonFilter;
 impl FilterImpl for NeonFilter {
-    fn filter<T: Copy>(bitview: &BitView, slice: &mut [T]) {
+    fn filter<'a, T: Copy>(bitview: &BitView, slice: &'a mut [T]) -> &'a mut [T] {
         #[cfg(target_arch = "aarch64")]
         {
             if arch::is_aarch64_feature_detected!("neon") {
-                bench::bench_filter_neon::<_, T>(bitview, slice)
+                return bench::bench_filter_neon::<_, T>(bitview, slice);
             }
         }
+        // Otherwise, do nothing.
+        slice
     }
 }
 

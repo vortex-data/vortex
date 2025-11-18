@@ -8,8 +8,11 @@ use vortex_buffer::BitView;
 /// Benchmark wrapper for [`filter_scalar`].
 #[doc(hidden)]
 #[cfg(feature = "bench")]
-pub fn bench_filter_scalar<const NB: usize, T: Copy>(bit_view: &BitView<NB>, slice: &mut [T]) {
-    filter_scalar(slice, bit_view);
+pub fn bench_filter_scalar<'a, const NB: usize, T: Copy>(
+    bit_view: &BitView<NB>,
+    slice: &'a mut [T],
+) -> &'a mut [T] {
+    filter_scalar(slice, bit_view)
 }
 
 /// Filters the given slice of items in place according to the provided BitView using scalar
@@ -17,7 +20,10 @@ pub fn bench_filter_scalar<const NB: usize, T: Copy>(bit_view: &BitView<NB>, sli
 ///
 /// The caller *should* handle where the BitView has zero or full true counts to avoid unnecessary
 /// work.
-pub(super) fn filter_scalar<const NB: usize, T: Copy>(slice: &mut [T], mask: &BitView<NB>) {
+pub(super) fn filter_scalar<'a, const NB: usize, T: Copy>(
+    slice: &'a mut [T],
+    mask: &BitView<NB>,
+) -> &'a mut [T] {
     let mut read_ptr = slice.as_ptr();
     let mut write_ptr = slice.as_mut_ptr();
 
@@ -55,4 +61,6 @@ pub(super) fn filter_scalar<const NB: usize, T: Copy>(slice: &mut [T], mask: &Bi
             }
         }
     }
+
+    &mut slice[..mask.true_count()]
 }

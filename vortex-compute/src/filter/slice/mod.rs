@@ -23,25 +23,21 @@ impl<'a, const NB: usize, T: Copy> Filter<BitView<'a, NB>> for &mut [T] {
                 match size_of::<T>() {
                     1 | 2 if mask.true_count() < (BitView::<NB>::N / 4) => {
                         // For u8 and u16, the threshold is ~0.25
-                        scalar::filter_scalar(self, mask);
-                        return &mut self[..mask.true_count()];
+                        return scalar::filter_scalar(self, mask);
                     }
                     4 if mask.true_count() < (3 * BitView::<NB>::N / 4) => {
                         // For u32, the threshold is ~0.75
-                        scalar::filter_scalar(self, mask);
-                        return &mut self[..mask.true_count()];
+                        return scalar::filter_scalar(self, mask);
                     }
                     _ => {}
                 }
 
-                unsafe { neon::filter_neon(self, mask) }
-                return &mut self[..mask.true_count()];
+                return unsafe { neon::filter_neon(self, mask) };
             }
         }
 
         // Otherwise, fall back to scalar implementation
-        scalar::filter_scalar(self, mask);
-        &mut self[..mask.true_count()]
+        scalar::filter_scalar(self, mask)
     }
 }
 

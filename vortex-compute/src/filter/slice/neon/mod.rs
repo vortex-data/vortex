@@ -16,11 +16,14 @@ use vortex_buffer::BitView;
 /// Benchmark wrapper for [`filter_neon`].
 #[doc(hidden)]
 #[cfg(feature = "bench")]
-pub fn bench_filter_neon<const NB: usize, T: Copy>(bit_view: &BitView<NB>, slice: &mut [T]) {
-    if std::arch::is_aarch64_feature_detected!("neon") {
-        unsafe { filter_neon(slice, bit_view) }
+pub fn bench_filter_neon<'a, const NB: usize, T: Copy>(
+    bit_view: &BitView<NB>,
+    slice: &'a mut [T],
+) -> &'a mut [T] {
+    if !std::arch::is_aarch64_feature_detected!("neon") {
+        vortex_error::vortex_panic!("NEON not detected on this CPU");
     }
-    vortex_error::vortex_panic!("NEON not detected on this CPU");
+    unsafe { filter_neon(slice, bit_view) }
 }
 
 /// Filters the given slice of items in place according to the provided BitView using neon
@@ -30,7 +33,10 @@ pub fn bench_filter_neon<const NB: usize, T: Copy>(bit_view: &BitView<NB>, slice
 /// work.
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon")]
-pub(super) unsafe fn filter_neon<const NB: usize, T: Copy>(slice: &mut [T], mask: &BitView<NB>) {
+pub(super) unsafe fn filter_neon<'a, const NB: usize, T: Copy>(
+    slice: &'a mut [T],
+    mask: &BitView<NB>,
+) -> &'a mut [T] {
     assert_eq!(
         slice.len(),
         BitView::<NB>::N,
@@ -42,9 +48,11 @@ pub(super) unsafe fn filter_neon<const NB: usize, T: Copy>(slice: &mut [T], mask
         4 => neon_u32::filter_neon_u32(slice.as_mut_ptr() as *mut u32, mask),
         _ => {
             // Fallback to scalar for wider sizes
-            super::scalar::filter_scalar(slice, mask)
+            return super::scalar::filter_scalar(slice, mask);
         }
     }
+
+    &mut slice[..mask.true_count()]
 }
 
 #[cfg(test)]
