@@ -91,7 +91,9 @@ impl VTable for Cast {
         expr: &ExpressionView<Self>,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
-        expr.children()[0].stat_max(catalog)
+        expr.child(0)
+            .stat_max(catalog)
+            .map(|x| cast(x, expr.data().clone()))
     }
 
     fn stat_min(
@@ -99,7 +101,9 @@ impl VTable for Cast {
         expr: &ExpressionView<Self>,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
-        expr.children()[0].stat_min(catalog)
+        expr.child(0)
+            .stat_min(catalog)
+            .map(|x| cast(x, expr.data().clone()))
     }
 
     fn stat_nan_count(
@@ -107,7 +111,7 @@ impl VTable for Cast {
         expr: &ExpressionView<Self>,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
-        expr.children()[0].stat_nan_count(catalog)
+        expr.child(0).stat_nan_count(catalog)
     }
 
     fn stat_field_path(&self, expr: &ExpressionView<Self>) -> Option<FieldPath> {
