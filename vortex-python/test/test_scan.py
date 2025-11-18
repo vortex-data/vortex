@@ -8,6 +8,7 @@ import pyarrow as pa
 import pytest
 
 import vortex as vx
+import vortex.expr as ve
 from vortex.scan import RepeatedScan
 
 
@@ -20,14 +21,19 @@ def record(x: int, columns: list[str] | set[str] | None = None) -> dict[str, int
 
 
 @pytest.fixture(scope="session")
-def vxscan(tmpdir_factory) -> vx.RepeatedScan:  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
+def vxscan(vxfile: vx.VortexFile) -> vx.RepeatedScan:
+    return vxfile.to_repeated_scan()
+
+
+@pytest.fixture(scope="session")
+def vxfile(tmpdir_factory) -> vx.VortexFile:  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
     fname = tmpdir_factory.mktemp("data") / "foo.vortex"  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
 
     if not os.path.exists(fname):  # pyright: ignore[reportUnknownArgumentType]
         a = pa.array([record(x) for x in range(1_000)])
         arr = vx.compress(vx.array(a))
         vx.io.write(arr, str(fname))  # pyright: ignore[reportUnknownArgumentType]
-    return vx.open(str(fname)).to_repeated_scan()  # pyright: ignore[reportUnknownArgumentType]
+    return vx.open(str(fname))  # pyright: ignore[reportUnknownArgumentType]
 
 
 def test_execute(vxscan: RepeatedScan):
@@ -50,3 +56,11 @@ def test_scalar_at(vxscan: RepeatedScan):
         "bool": True,
         "float": math.sqrt(10),
     }
+
+
+def test_scan_with_cast(vxfile: vx.VortexFile):
+    actual = vxfile.scan(expr=ve.cast(ve.column("index"), vx.int_(16)) == ve.literal(vx.int_(16), 1)).read_all()
+    expected = pa.array(
+        [{"index": 1, "string": pa.scalar("1", pa.string_view()), "bool": False, "float": math.sqrt(1)}]
+    )
+    assert str(actual.to_arrow_array()) == str(expected)

@@ -7,6 +7,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
 use vortex::dtype::{DType, Nullability, PType};
+use vortex::expr;
 use vortex::expr::{Binary, Expression, GetItem, Operator, VTableExt, and, lit, not};
 
 use crate::dtype::PyDType;
@@ -23,6 +24,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(literal, &m)?)?;
     m.add_function(wrap_pyfunction!(not_, &m)?)?;
     m.add_function(wrap_pyfunction!(and_, &m)?)?;
+    m.add_function(wrap_pyfunction!(cast, &m)?)?;
     m.add_class::<PyExpr>()?;
 
     Ok(())
@@ -215,7 +217,7 @@ pub fn literal<'py>(
 #[pyfunction]
 pub fn root() -> PyExpr {
     PyExpr {
-        inner: vortex::expr::root(),
+        inner: expr::root(),
     }
 }
 
@@ -249,7 +251,7 @@ pub fn column<'py>(name: &Bound<'py, PyString>) -> PyResult<Bound<'py, PyExpr>> 
     Bound::new(
         py,
         PyExpr {
-            inner: vortex::expr::get_item(name, vortex::expr::root()),
+            inner: expr::get_item(name, expr::root()),
         },
     )
 }
@@ -301,7 +303,10 @@ pub fn not_(child: PyExpr) -> PyResult<PyExpr> {
 ///
 /// Parameters
 /// ----------
-/// child : :class:`Any`
+/// left : :class:`Expr`
+///     A boolean expression.
+///
+/// right : :class:`Expr`
 ///     A boolean expression.
 ///
 /// Returns
@@ -321,5 +326,43 @@ pub fn not_(child: PyExpr) -> PyResult<PyExpr> {
 pub fn and_(left: PyExpr, right: PyExpr) -> PyResult<PyExpr> {
     Ok(PyExpr {
         inner: and(left.inner, right.inner),
+    })
+}
+
+/// Cast an expression to a compatible type.
+///
+/// Parameters
+/// ----------
+/// child : :class:`Expr`
+///     The expression to cast.
+///
+/// Returns
+/// -------
+/// :class:`vortex.Expr`
+///
+/// Examples
+/// --------
+///
+/// Cast to a wider integer type:
+///
+/// ```python
+/// >>> import vortex.expr as ve
+/// >>> import vortex as vx
+/// >>> ve.cast(ve.literal(vx.int_(8), 1), vx.int_(16))
+/// <vortex.Expr object at ...>
+/// ```
+///
+/// Cast to a wider floating-point type:
+///
+/// ```python
+/// >>> import vortex.expr as ve
+/// >>> import vortex as vx
+/// >>> ve.cast(ve.literal(vx.float_(16), 3.145), vx.float_(64))
+/// <vortex.Expr object at ...>
+/// ```
+#[pyfunction]
+pub fn cast(child: PyExpr, dtype: PyDType) -> PyResult<PyExpr> {
+    Ok(PyExpr {
+        inner: expr::cast(child.into_inner(), dtype.into_inner()),
     })
 }
