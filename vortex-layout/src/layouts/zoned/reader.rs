@@ -146,7 +146,12 @@ impl ZonedReader {
                     Some(
                         async move {
                             let zone_map = zone_map.await?;
-                            let initial_mask = zone_map.prune(&predicate)?;
+                            let initial_mask = zone_map.prune(&predicate).map_err(|err| {
+                                err.with_context(format!(
+                                    "While evaluating pruning predicate {} (derived from {})",
+                                    predicate, expr
+                                ))
+                            })?;
                             Ok(Arc::new(PruningResult {
                                 zone_map,
                                 predicate,
@@ -342,7 +347,12 @@ impl PruningResult {
             self.predicate
         );
 
-        let next_mask = self.zone_map.prune(&self.predicate)?;
+        let next_mask = self.zone_map.prune(&self.predicate).map_err(|err| {
+            err.with_context(format!(
+                "While evaluating pruning predicate {}",
+                predicate, expr
+            ))
+        })?;
         *guard = (version, next_mask.clone());
 
         Ok(next_mask)
