@@ -1,8 +1,8 @@
 name: Semver check
 on:
-  pull_request: { }
+  pull_request: {}
   push:
-    branches: [ "develop" ]
+    branches: ["develop"]
 
 jobs:
   semver:
@@ -23,4 +23,5 @@ jobs:
       - name: Check semver
         uses: obi1kenobi/cargo-semver-checks-action@v2
         with:
-          baseline-version: '${{ steps.latest_release.outputs.BASELINE}}'
+          baseline-version: ${{ steps.latest_release.outputs.BASELINE}}
+          feature-group: default-features
