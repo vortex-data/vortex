@@ -46,9 +46,5 @@ default = []
 roaring = ["dep:roaring"]
 tokio = ["dep:tokio"]
 
-[target.'cfg(gpu_unstable)'.dependencies]
-cudarc = { workspace = true }
-vortex-gpu = { workspace = true, features = ["cuda"] }
-
 [lints]
 workspace = true
