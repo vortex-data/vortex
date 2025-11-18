@@ -402,7 +402,7 @@ mod tests {
             let layout: LayoutRef = strategy
                 .write_stream(
                     ctx,
-                    &session,
+                    session,
                     segments.clone(),
                     SequentialStreamAdapter::new(
                         DType::Utf8(Nullability::Nullable),

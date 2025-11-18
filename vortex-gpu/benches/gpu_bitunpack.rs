@@ -4,15 +4,11 @@
 #![allow(clippy::unwrap_used)]
 #![allow(dead_code)]
 
-use std::sync::Arc;
-use std::time::Duration;
 
-use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use cudarc::driver::CudaContext;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_alp::{ALPArray, Exponents};
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
 use vortex_error::VortexUnwrap;
