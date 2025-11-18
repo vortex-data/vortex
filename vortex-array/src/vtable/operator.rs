@@ -70,16 +70,16 @@ pub trait OperatorVTable<V: VTable> {
         )
     }
 
-    /// Attempt to optimize this array by analyzing its children.
+    /// Attempt to optimize this array tree looking at itself and its children.
     ///
     /// For example, if all the children are constant, this function should perform constant
     /// folding and return a constant operator.
     ///
     /// This function should typically be implemented only for self-contained optimizations based
-    /// on child properties.
+    /// Self and child properties.
     ///
     /// Returns `None` if no optimization is possible.
-    fn reduce_children(_array: &V::Array) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(_array: &V::Array) -> VortexResult<Option<ArrayRef>> {
         Ok(None)
     }
 
