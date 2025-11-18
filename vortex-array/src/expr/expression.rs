@@ -3,7 +3,7 @@
 
 use std::any::Any;
 use std::fmt;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -18,7 +18,7 @@ use crate::expr::{ChildName, ExprId, ExprVTable, ExpressionView, StatsCatalog, V
 ///
 /// Expressions represent scalar computations that can be performed on data. Each
 /// expression consists of an encoding (vtable), heap-allocated metadata, and child expressions.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Expression {
     /// The vtable for this expression.
     vtable: ExprVTable,
@@ -267,6 +267,33 @@ impl Expression {
 impl Display for Expression {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.fmt_sql(f)
+    }
+}
+
+struct FormatExpressionData<'a> {
+    vtable: &'a ExprVTable,
+    data: &'a Arc<dyn Any + Send + Sync>,
+}
+
+impl<'a> Debug for FormatExpressionData<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.vtable.as_dyn().fmt_data(self.data.as_ref(), f)
+    }
+}
+
+impl Debug for Expression {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Expression")
+            .field("vtable", &self.vtable)
+            .field(
+                "data",
+                &FormatExpressionData {
+                    vtable: &self.vtable,
+                    data: &self.data,
+                },
+            )
+            .field("children", &self.children)
+            .finish()
     }
 }
 

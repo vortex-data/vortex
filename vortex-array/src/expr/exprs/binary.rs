@@ -587,4 +587,19 @@ mod tests {
             DType::Bool(Nullability::Nullable)
         );
     }
+
+    #[test]
+    fn test_debug_print() {
+        let expr = gt(lit(1), lit(2));
+        assert_eq!(
+            format!("{expr:?}"),
+            "Expression { vtable: vortex.binary, data: >, children: [Expression { vtable: vortex.literal, data: 1i32, children: [] }, Expression { vtable: vortex.literal, data: 2i32, children: [] }] }"
+        );
+    }
+
+    #[test]
+    fn test_display_print() {
+        let expr = gt(lit(1), lit(2));
+        assert_eq!(format!("{expr}"), "(1i32 > 2i32)");
+    }
 }
