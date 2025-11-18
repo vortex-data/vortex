@@ -34,6 +34,9 @@ serde = { workspace = true, optional = true }
 simdutf8 = { workspace = true }
 vortex-error = { workspace = true }
 
+[target.'cfg(gpu_unstable)'.dependencies]
+cudarc = { workspace = true }
+
 [lints]
 workspace = true
 

@@ -88,6 +88,14 @@ clap = "4.5"
 crossbeam-deque = "0.8.6"
 crossbeam-queue = "0.3.12"
 crossterm = "0.29"
+cudarc = { version = "0.17.3", features = [
+    "std",
+    "driver",
+    "cuda-12080",
+    "dynamic-loading",
+    "f16",
+    "nvrtc",
+], default-features = false }
 dashmap = "6.1.0"
 datafusion = { version = "50", default-features = false }
 datafusion-catalog = { version = "50" }
@@ -246,7 +254,6 @@ vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features =
 vortex-cxx = { path = "./vortex-cxx", default-features = false }
 vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
 vortex-ffi = { path = "./vortex-ffi", default-features = false }
-
 xshell = "0.2.6"
 zigzag = "0.1.0"
 zstd = { version = "0.13.3", default-features = false, features = [
@@ -269,6 +276,7 @@ unexpected_cfgs = { level = "deny", check-cfg = [
     "cfg(codspeed)",
     "cfg(disable_loom)",
     "cfg(vortex_nightly)",
+    "cfg(gpu_unstable)",
 ] }
 warnings = "warn"
 
