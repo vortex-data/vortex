@@ -77,17 +77,6 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
         elements_capacity: usize,
         capacity: usize,
     ) -> Self {
-        // Validate that size type's maximum value fits within offset type's maximum value.
-        // Since offsets are non-negative, we only need to check max values.
-        assert!(
-            S::max_value_as_u64() <= O::max_value_as_u64(),
-            "Size type {:?} (max offset {}) must fit within offset type {:?} (max offset {})",
-            S::PTYPE,
-            S::max_value_as_u64(),
-            O::PTYPE,
-            O::max_value_as_u64()
-        );
-
         let elements_builder = builder_with_capacity(&element_dtype, elements_capacity);
 
         let offsets_builder =
