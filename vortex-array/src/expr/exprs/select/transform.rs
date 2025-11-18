@@ -62,7 +62,7 @@ mod tests {
     use crate::expr::exprs::pack::Pack;
     use crate::expr::exprs::root::root;
     use crate::expr::exprs::select::{Select, select};
-    use crate::expr::transform::rules::{ReduceRule, SimpleRewriteContext};
+    use crate::expr::transform::rules::{ReduceRule, RootRewriteContext};
 
     #[test]
     fn test_remove_select_rule() {
@@ -73,7 +73,7 @@ mod tests {
         let e = select(["a", "b"], root());
 
         let rule = RemoveSelectRule;
-        let ctx = SimpleRewriteContext { dtype: &dtype };
+        let ctx = RootRewriteContext { dtype: &dtype };
         let select_view = e.as_::<Select>();
         let result = rule.reduce(&select_view, &ctx).unwrap();
 
@@ -97,7 +97,7 @@ mod tests {
         let e = select_exclude(["c"], root());
 
         let rule = RemoveSelectRule;
-        let ctx = SimpleRewriteContext { dtype: &dtype };
+        let ctx = RootRewriteContext { dtype: &dtype };
         let select_view = e.as_::<Select>();
         let result = rule.reduce(&select_view, &ctx).unwrap();
 

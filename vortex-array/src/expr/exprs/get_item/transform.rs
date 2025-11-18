@@ -41,7 +41,7 @@ mod tests {
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::pack::pack;
     use crate::expr::session::ExprSession;
-    use crate::expr::transform::rules::SimpleRewriteContext;
+    use crate::expr::transform::rules::RootRewriteContext;
     use crate::expr::transform::{ReduceRule, simplify_typed};
 
     #[test]
@@ -54,7 +54,7 @@ mod tests {
 
         // Create a dummy context
         let dtype = DType::Primitive(PType::I32, NonNullable);
-        let ctx = SimpleRewriteContext { dtype: &dtype };
+        let ctx = RootRewriteContext { dtype: &dtype };
 
         let get_item_view = get_item_expr.as_::<GetItem>();
         let result = rule.reduce(&get_item_view, &ctx).unwrap();
@@ -72,7 +72,7 @@ mod tests {
         let get_item_expr = get_item("x", lit_expr);
 
         let dtype = DType::Primitive(PType::I32, NonNullable);
-        let ctx = SimpleRewriteContext { dtype: &dtype };
+        let ctx = RootRewriteContext { dtype: &dtype };
 
         let get_item_view = get_item_expr.as_::<GetItem>();
         let result = rule.reduce(&get_item_view, &ctx).unwrap();

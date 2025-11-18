@@ -82,7 +82,7 @@ mod tests {
     use crate::expr::exprs::merge::{DuplicateHandling, Merge, merge_opts};
     use crate::expr::exprs::pack::Pack;
     use crate::expr::exprs::root::root;
-    use crate::expr::transform::SimpleRewriteContext;
+    use crate::expr::transform::RootRewriteContext;
     use crate::expr::transform::rules::ReduceRule;
 
     #[test]
@@ -100,7 +100,7 @@ mod tests {
             DuplicateHandling::RightMost,
         );
 
-        let ctx = SimpleRewriteContext { dtype: &dtype };
+        let ctx = RootRewriteContext { dtype: &dtype };
         let rule = RemoveMergeRule;
         let merge_view = e.as_::<Merge>();
         let result = rule.reduce(&merge_view, &ctx).unwrap();

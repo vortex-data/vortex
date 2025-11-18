@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 
 use crate::expr::Expression;
 use crate::expr::session::ExprSession;
-use crate::expr::transform::{SimpleRewriteContext, TypedRewriteContext};
+use crate::expr::transform::{RootRewriteContext, TypedRewriteContext};
 use crate::expr::traversal::{NodeExt, Transformed};
 
 /// Unlike `simplify`, this function simplifies an expression under the assumption that scope is
@@ -19,7 +19,7 @@ pub fn simplify_typed(
     dtype: &DType,
     session: &ExprSession,
 ) -> VortexResult<Expression> {
-    let ctx = SimpleRewriteContext { dtype };
+    let ctx = RootRewriteContext { dtype };
 
     let expr = apply_parent_rules_impl_typed(expr, &ctx, session)?;
     let expr = apply_child_rules_impl_typed(expr, &ctx, session)?;

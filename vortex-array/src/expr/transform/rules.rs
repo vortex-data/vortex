@@ -82,7 +82,7 @@ pub trait TypedRewriteContext: RewriteContext {
     fn dtype(&self) -> &DType;
 }
 
-/// Empty context for untyped rewrite rules that don't need any context.
+/// Context for untyped rewrite rules.
 #[derive(Debug, Default)]
 pub struct EmptyRewriteContext;
 
@@ -92,16 +92,53 @@ impl RewriteContext for EmptyRewriteContext {}
 
 /// Simple implementation that supports both RewriteContext and TypedRewriteContext.
 #[derive(Debug)]
-pub struct SimpleRewriteContext<'a> {
+pub struct RootRewriteContext<'a> {
     pub dtype: &'a DType,
 }
 
-impl<'a> Context for SimpleRewriteContext<'a> {}
+impl<'a> Context for RootRewriteContext<'a> {}
 
-impl<'a> RewriteContext for SimpleRewriteContext<'a> {}
+impl<'a> RewriteContext for RootRewriteContext<'a> {}
 
-impl<'a> TypedRewriteContext for SimpleRewriteContext<'a> {
+impl<'a> TypedRewriteContext for RootRewriteContext<'a> {
     fn dtype(&self) -> &DType {
         self.dtype
     }
+}
+
+/// Type-erased wrappers that allows dynamic dispatch.
+pub(crate) trait DynReduceRule: Send + Sync {
+    fn reduce_dyn(
+        &self,
+        expr: &Expression,
+        ctx: &dyn RewriteContext,
+    ) -> VortexResult<Option<Expression>>;
+}
+
+pub(crate) trait DynTypedReduceRule: Send + Sync {
+    fn reduce_dyn_typed(
+        &self,
+        expr: &Expression,
+        ctx: &dyn TypedRewriteContext,
+    ) -> VortexResult<Option<Expression>>;
+}
+
+pub(crate) trait DynParentReduceRule: Send + Sync {
+    fn reduce_parent_dyn(
+        &self,
+        expr: &Expression,
+        parent: &Expression,
+        child_idx: usize,
+        ctx: &dyn RewriteContext,
+    ) -> VortexResult<Option<Expression>>;
+}
+
+pub(crate) trait DynTypedParentReduceRule: Send + Sync {
+    fn reduce_parent_dyn_typed(
+        &self,
+        expr: &Expression,
+        parent: &Expression,
+        child_idx: usize,
+        ctx: &dyn TypedRewriteContext,
+    ) -> VortexResult<Option<Expression>>;
 }
