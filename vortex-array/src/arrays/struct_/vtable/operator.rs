@@ -8,8 +8,11 @@ use vortex_vector::Vector;
 use vortex_vector::struct_::StructVector;
 
 use crate::ArrayRef;
+use crate::arrays::expr::ExprVTable;
+use crate::arrays::struct_::vtable::reduce::{apply_partitioned_expr, partition_struct_expr};
 use crate::arrays::{StructArray, StructVTable};
 use crate::execution::{BatchKernelRef, BindCtx, kernel};
+use crate::expr::session::ExprSession;
 use crate::vtable::{OperatorVTable, ValidityHelper};
 
 impl OperatorVTable<StructVTable> for StructVTable {
@@ -37,17 +40,49 @@ impl OperatorVTable<StructVTable> for StructVTable {
             Ok(StructVector::try_new(Arc::new(fields.into_boxed_slice()), validity_mask)?.into())
         }))
     }
+
+    fn reduce_parent(
+        array: &StructArray,
+        parent: &ArrayRef,
+        _child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if array.dtype().is_nullable() {
+            // TODO(joe): cannot handle nullable struct pushdown yet.
+            return Ok(None);
+        }
+        // Check if the parent is an ExprArray wrapping this struct
+        // If so, we can partition the expression over the struct fields
+        if let Some(expr_array) = parent.as_opt::<ExprVTable>() {
+            let session = ExprSession::default();
+
+            // Partition the expression over the struct fields
+            let partitioned = partition_struct_expr(array, expr_array.expr().clone(), &session)?;
+
+            // Apply the partitioned expression to create a new struct with ExprArrays
+            let result = apply_partitioned_expr(array, partitioned)?;
+
+            return Ok(Some(result));
+        }
+
+        Ok(None)
+    }
 }
 
 #[cfg(test)]
 mod tests {
+
+    use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{FieldNames, PTypeDowncast};
+    use vortex_error::VortexExpect;
     use vortex_mask::Mask;
     use vortex_vector::VectorOps;
 
-    use crate::IntoArray;
-    use crate::arrays::{BoolArray, PrimitiveArray, StructArray};
+    use super::*;
+    use crate::arrays::expr::ExprVTable;
+    use crate::arrays::{BoolArray, ExprArray, PrimitiveArray, StructArray};
+    use crate::expr::{and, col, eq, get_item, gt, lit, lt, pack, root};
     use crate::validity::Validity;
+    use crate::{Array, IntoArray, assert_arrays_eq};
 
     #[test]
     fn test_struct_operator_basic() {
@@ -182,5 +217,193 @@ mod tests {
         let validity_mask = struct_vector.validity();
         let struct_validity_values: Vec<bool> = (0..5).map(|i| validity_mask.value(i)).collect();
         assert_eq!(struct_validity_values, vec![true, false, true, false, true]);
+    }
+
+    fn test_struct_array() -> ArrayRef {
+        let a_field = PrimitiveArray::from_iter([1i32, 3, 5, 7, 9]);
+        let b_field = PrimitiveArray::from_iter([2i32, 4, 6, 8, 10]);
+
+        StructArray::new(
+            FieldNames::from(["a", "b"]),
+            vec![a_field.into_array(), b_field.into_array()],
+            5,
+            Validity::NonNullable,
+        )
+        .into_array()
+    }
+
+    #[test]
+    fn test_struct_reduce_parent_single_field_simple() -> VortexResult<()> {
+        let struct_array = test_struct_array();
+
+        let expr = gt(get_item("a", root()), lit(5));
+        let expr_array =
+            ExprArray::new_with_root_dtype(struct_array.clone().into_array(), expr.clone())?;
+
+        let actual = expr_array.to_canonical().into_array();
+        let expected = (0..5)
+            .map(|i| (i * 2 + 1) > 5)
+            .collect::<BoolArray>()
+            .into_array();
+
+        assert_arrays_eq!(expected, actual);
+
+        let parent: ArrayRef = expr_array.into_array();
+        let result = struct_array
+            .reduce_parent(&parent, 0)?
+            .vortex_expect("does reduce");
+
+        let result = result.as_::<ExprVTable>();
+        assert_eq!(&gt(root(), lit(5i32)), result.expr());
+
+        let actual = result.to_canonical().into_array();
+        assert_arrays_eq!(expected, actual);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_struct_reduce_parent_single_field_compound() -> VortexResult<()> {
+        let struct_array = test_struct_array();
+
+        let expr = and(
+            gt(get_item("a", root()), lit(5)),
+            lt(get_item("a", root()), lit(10)),
+        );
+        let expr_array = ExprArray::new_with_root_dtype(struct_array.clone().into_array(), expr)?;
+
+        let actual = expr_array.to_canonical().into_array();
+        let expected = (0..5)
+            .map(|i| (i * 2 + 1) > 5 && (i * 2 + 1) < 10)
+            .collect::<BoolArray>()
+            .into_array();
+        assert_arrays_eq!(expected, actual);
+
+        let parent: ArrayRef = expr_array.into_array();
+        let result = struct_array
+            .reduce_parent(&parent, 0)?
+            .vortex_expect("does reduce");
+
+        let result = result.as_::<ExprVTable>();
+        assert_eq!(
+            &and(gt(root(), lit(5i32)), lt(root(), lit(10i32))),
+            result.expr()
+        );
+
+        let actual = result.to_canonical().into_array();
+        assert_arrays_eq!(expected, actual);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_struct_reduce_parent_multi_field() -> VortexResult<()> {
+        let struct_array = test_struct_array();
+
+        let expr = and(
+            and(gt(col("a"), lit(5)), lt(col("b"), lit(4))),
+            gt(col("a"), lit(6)),
+        );
+        let expr_array = ExprArray::new_with_root_dtype(struct_array.clone().into_array(), expr)?;
+        let parent: ArrayRef = expr_array.into_array();
+        let result = struct_array
+            .reduce_parent(&parent, 0)?
+            .vortex_expect("does reduce");
+
+        // Assert the result is an ExprArray wrapping a StructArray
+        let result_expr = result
+            .as_opt::<ExprVTable>()
+            .vortex_expect("should be an ExprArray");
+
+        println!("expr {}", result_expr.display_tree());
+
+        // The field name can change.
+        assert_eq!(
+            result_expr.expr(),
+            &and(
+                and(get_item("a_0", col("a")), get_item("b_0", col("b"))),
+                get_item("a_1", col("a")),
+            ),
+        );
+
+        let result_struct = result_expr
+            .child()
+            .as_opt::<StructVTable>()
+            .vortex_expect("child should be a struct");
+        assert_eq!(
+            result_struct.fields().len(),
+            2,
+            "Should have 2 fields (a and b)"
+        );
+        assert_eq!(result_struct.names()[0], "a");
+        assert_eq!(result_struct.names()[1], "b");
+
+        // Assert field 'a' is an ExprArray with a pack expression
+        let field_a = &result_struct.fields()[0];
+        let field_a_expr = field_a
+            .as_opt::<ExprVTable>()
+            .vortex_expect("field 'a' should be ExprArray");
+
+        assert_eq!(
+            &pack(
+                [
+                    ("a_0", gt(root(), lit(5i32))),
+                    ("a_1", gt(root(), lit(6i32)))
+                ],
+                NonNullable
+            ),
+            field_a_expr.expr()
+        );
+
+        assert!(Arc::ptr_eq(
+            &struct_array.as_::<StructVTable>().fields()[0],
+            field_a_expr.child()
+        ));
+
+        let field_b = &result_struct.fields()[1];
+        let field_b_expr = field_b
+            .as_opt::<ExprVTable>()
+            .vortex_expect("field 'b' should be ExprArray");
+
+        assert_eq!(
+            &pack([("b_0", lt(root(), lit(4i32)))], NonNullable),
+            field_b_expr.expr()
+        );
+        assert!(Arc::ptr_eq(
+            &struct_array.as_::<StructVTable>().fields()[1],
+            field_b_expr.child()
+        ));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_struct_reduce_parent_constant_expr() -> VortexResult<()> {
+        let struct_array = test_struct_array();
+
+        let expr = eq(lit(1), lit(0));
+        let expr_array =
+            ExprArray::new_with_root_dtype(struct_array.clone().into_array(), expr.clone())?;
+
+        let actual = expr_array.to_canonical().into_array();
+        let expected = (0..5).map(|_| false).collect::<BoolArray>().into_array();
+        assert_arrays_eq!(expected, actual);
+
+        let parent: ArrayRef = expr_array.into_array();
+        let result = struct_array
+            .reduce_parent(&parent, 0)?
+            .vortex_expect("should be reduced");
+        let actual = result.to_canonical().into_array();
+        assert_arrays_eq!(expected, actual);
+
+        let result_struct = result.as_::<ExprVTable>();
+
+        assert_eq!(result_struct.expr(), &expr);
+        assert_arrays_eq!(
+            result_struct.child(),
+            StructArray::new(FieldNames::empty(), vec![], 5, Validity::NonNullable)
+        );
+
+        Ok(())
     }
 }

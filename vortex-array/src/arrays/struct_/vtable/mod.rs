@@ -16,6 +16,7 @@ mod array;
 mod canonical;
 mod operations;
 mod operator;
+pub mod reduce;
 mod validity;
 mod visitor;
 
