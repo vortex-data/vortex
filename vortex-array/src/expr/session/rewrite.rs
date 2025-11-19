@@ -14,22 +14,19 @@ use crate::expr::transform::{
 };
 use crate::expr::{ExprId, Expression, VTable};
 
-/// Universal adapter for both ReduceRule and ParentReduceRule with any context type.
-struct RuleAdapter<V: VTable, R> {
+/// Adapter for ReduceRule
+struct ReduceRuleAdapter<V: VTable, R> {
     rule: R,
     _phantom: PhantomData<V>,
 }
 
-impl<V: VTable, R> RuleAdapter<V, R> {
-    fn new(rule: R) -> Self {
-        Self {
-            rule,
-            _phantom: PhantomData,
-        }
-    }
+/// Adapter for ParentReduceRule
+struct ReduceParentRuleAdapter<Child: VTable, Parent: VTable, R> {
+    rule: R,
+    _phantom: PhantomData<(Child, Parent)>,
 }
 
-impl<V, R> DynReduceRule for RuleAdapter<V, R>
+impl<V, R> DynReduceRule for ReduceRuleAdapter<V, R>
 where
     V: VTable,
     R: ReduceRule<V, RuleContext>,
@@ -42,7 +39,7 @@ where
     }
 }
 
-impl<V, R> DynTypedReduceRule for RuleAdapter<V, R>
+impl<V, R> DynTypedReduceRule for ReduceRuleAdapter<V, R>
 where
     V: VTable,
     R: ReduceRule<V, TypedRuleContext>,
@@ -59,10 +56,11 @@ where
     }
 }
 
-impl<V, R> DynParentReduceRule for RuleAdapter<V, R>
+impl<Child, Parent, R> DynParentReduceRule for ReduceParentRuleAdapter<Child, Parent, R>
 where
-    V: VTable,
-    R: ParentReduceRule<V, RuleContext>,
+    Child: VTable,
+    Parent: VTable,
+    R: ParentReduceRule<Child, Parent, RuleContext>,
 {
     fn reduce_parent(
         &self,
@@ -71,17 +69,21 @@ where
         child_idx: usize,
         ctx: &RuleContext,
     ) -> VortexResult<Option<Expression>> {
-        let Some(view) = expr.as_opt::<V>() else {
+        let Some(view) = expr.as_opt::<Child>() else {
             return Ok(None);
         };
-        self.rule.reduce_parent(&view, parent, child_idx, ctx)
+        let Some(parent_view) = parent.as_opt::<Parent>() else {
+            return Ok(None);
+        };
+        self.rule.reduce_parent(&view, &parent_view, child_idx, ctx)
     }
 }
 
-impl<V, R> DynTypedParentReduceRule for RuleAdapter<V, R>
+impl<Child, Parent, R> DynTypedParentReduceRule for ReduceParentRuleAdapter<Child, Parent, R>
 where
-    V: VTable,
-    R: ParentReduceRule<V, TypedRuleContext>,
+    Child: VTable,
+    Parent: VTable,
+    R: ParentReduceRule<Child, Parent, TypedRuleContext>,
 {
     fn reduce_parent(
         &self,
@@ -90,14 +92,18 @@ where
         child_idx: usize,
         ctx: &TypedRuleContext,
     ) -> VortexResult<Option<Expression>> {
-        let Some(view) = expr.as_opt::<V>() else {
+        let Some(view) = expr.as_opt::<Child>() else {
             return Ok(None);
         };
-        self.rule.reduce_parent(&view, parent, child_idx, ctx)
+        let Some(parent_view) = parent.as_opt::<Parent>() else {
+            return Ok(None);
+        };
+        self.rule.reduce_parent(&view, &parent_view, child_idx, ctx)
     }
 }
 
 type RuleRegistry<Rule> = HashMap<ExprId, Vec<Arc<Rule>>>;
+type ParentRuleRegistry<Rule> = HashMap<(ExprId, ExprId), Vec<Arc<Rule>>>;
 
 /// Registry of expression rewrite rules.
 ///
@@ -109,10 +115,10 @@ pub struct RewriteRuleRegistry {
     typed_reduce_rules: RuleRegistry<dyn DynTypedReduceRule>,
     /// Untyped reduce rules (require only RewriteContext), indexed by expression ID
     reduce_rules: RuleRegistry<dyn DynReduceRule>,
-    /// Parent reduce rules, indexed by expression ID
-    typed_parent_rules: RuleRegistry<dyn DynTypedParentReduceRule>,
-    /// Parent reduce rules, indexed by expression ID
-    parent_rules: RuleRegistry<dyn DynParentReduceRule>,
+    /// Parent reduce rules, indexed by (child_id, parent_id)
+    typed_parent_rules: ParentRuleRegistry<dyn DynTypedParentReduceRule>,
+    /// Parent reduce rules, indexed by (child_id, parent_id)
+    parent_rules: ParentRuleRegistry<dyn DynParentReduceRule>,
 }
 
 // TODO(joe): follow up with rule debug info.
@@ -140,7 +146,10 @@ impl RewriteRuleRegistry {
         R: 'static,
         R: ReduceRule<V, TypedRuleContext>,
     {
-        let adapter = RuleAdapter::new(rule);
+        let adapter = ReduceRuleAdapter {
+            rule,
+            _phantom: PhantomData,
+        };
         self.typed_reduce_rules
             .entry(vtable.id())
             .or_default()
@@ -155,36 +164,62 @@ impl RewriteRuleRegistry {
         R: 'static,
         R: ReduceRule<V, RuleContext>,
     {
-        let adapter = RuleAdapter::new(rule);
+        let adapter = ReduceRuleAdapter {
+            rule,
+            _phantom: PhantomData,
+        };
         self.reduce_rules
             .entry(vtable.id())
             .or_default()
             .push(Arc::new(adapter));
     }
 
-    pub fn register_parent_rule<V, R>(&mut self, vtable: &'static V, rule: R)
-    where
-        V: VTable,
+    pub fn register_parent_rule<Child, Parent, R>(
+        &mut self,
+        child_vtable: &'static Child,
+        parent_vtable: &'static Parent,
+        rule: R,
+    ) where
+        Child: VTable,
+        Parent: VTable,
         R: 'static,
-        R: ParentReduceRule<V, RuleContext>,
+        R: ParentReduceRule<Child, Parent, RuleContext>,
     {
-        let adapter = RuleAdapter::new(rule);
+        let adapter = ReduceParentRuleAdapter {
+            rule,
+            _phantom: PhantomData,
+        };
         self.parent_rules
-            .entry(vtable.id())
+            .entry((child_vtable.id(), parent_vtable.id()))
             .or_default()
             .push(Arc::new(adapter));
     }
 
-    /// Register a parent reduce rule.
-    pub fn register_typed_parent_rule<V, R>(&mut self, vtable: &'static V, rule: R)
-    where
-        V: VTable,
+    /// Register a typed parent reduce rule.
+    ///
+    /// # Type Parameters
+    /// * `Child` - The child expression VTable type
+    /// * `Parent` - The parent expression VTable type
+    /// * `R` - The rule implementation
+    ///
+    /// The rule will only be invoked when both the child has type Child and the parent has type Parent.
+    pub fn register_typed_parent_rule<Child, Parent, R>(
+        &mut self,
+        child_vtable: &'static Child,
+        parent_vtable: &'static Parent,
+        rule: R,
+    ) where
+        Child: VTable,
+        Parent: VTable,
         R: 'static,
-        R: ParentReduceRule<V, TypedRuleContext>,
+        R: ParentReduceRule<Child, Parent, TypedRuleContext>,
     {
-        let adapter = RuleAdapter::new(rule);
+        let adapter = ReduceParentRuleAdapter {
+            rule,
+            _phantom: PhantomData,
+        };
         self.typed_parent_rules
-            .entry(vtable.id())
+            .entry((child_vtable.id(), parent_vtable.id()))
             .or_default()
             .push(Arc::new(adapter));
     }
@@ -205,21 +240,26 @@ impl RewriteRuleRegistry {
             .unwrap_or_default()
     }
 
-    /// Get all untyped parent reduce rules for a given expression ID.
-    pub(crate) fn parent_rules_for(&self, id: &ExprId) -> &[Arc<dyn DynParentReduceRule>] {
+    /// Get all untyped parent reduce rules for a given child and parent expression ID pair.
+    pub(crate) fn parent_rules_for(
+        &self,
+        child_id: &ExprId,
+        parent_id: &ExprId,
+    ) -> &[Arc<dyn DynParentReduceRule>] {
         self.parent_rules
-            .get(id)
+            .get(&(child_id.clone(), parent_id.clone()))
             .map(|v| v.as_slice())
             .unwrap_or_default()
     }
 
-    /// Get all the typed parent reduce rules for a given expression ID.
+    /// Get all the typed parent reduce rules for a given child and parent expression ID pair.
     pub(crate) fn typed_parent_rules_for(
         &self,
-        id: &ExprId,
+        child_id: &ExprId,
+        parent_id: &ExprId,
     ) -> &[Arc<dyn DynTypedParentReduceRule>] {
         self.typed_parent_rules
-            .get(id)
+            .get(&(child_id.clone(), parent_id.clone()))
             .map(|v| v.as_slice())
             .unwrap_or_default()
     }

@@ -40,14 +40,17 @@ pub trait ReduceRule<V: VTable, C: RewriteContext>: Send + Sync {
 /// Note: This rule is only called for non-root expressions (i.e., when there is a parent).
 ///
 /// # Type Parameters
-/// * `V` - The VTable type this rule applies to. The rule will only be invoked for expressions
-///   with this vtable type, providing compile-time type safety.
-pub trait ParentReduceRule<V: VTable, C: RewriteContext>: Send + Sync {
+/// * `Child` - The VTable type this rule applies to (the child expression type). The rule will only
+///   be invoked for expressions with this vtable type, providing compile-time type safety.
+/// * `Parent` - The VTable type of the parent expression. The rule will only be invoked when
+///   the parent has this vtable type, providing compile-time type safety.
+/// * `C` - The rewrite context type (RuleContext or TypedRuleContext)
+pub trait ParentReduceRule<Child: VTable, Parent: VTable, C: RewriteContext>: Send + Sync {
     /// Try to rewrite an expression based on its parent.
     ///
     /// # Arguments
-    /// * `expr` - The expression to potentially rewrite (already downcast to type V)
-    /// * `parent` - The parent expression (always present - rule not called for root)
+    /// * `expr` - The expression to potentially rewrite (already downcast to type Child)
+    /// * `parent` - The parent expression (already downcast to type Parent)
     /// * `child_idx` - The index of the child expression within the parent.
     /// * `ctx` - Context for the rewrite (dtype, etc.)
     ///
@@ -56,8 +59,8 @@ pub trait ParentReduceRule<V: VTable, C: RewriteContext>: Send + Sync {
     /// * `None` if the rule does not apply
     fn reduce_parent(
         &self,
-        expr: &ExpressionView<V>,
-        parent: &Expression,
+        expr: &ExpressionView<Child>,
+        parent: &ExpressionView<Parent>,
         child_idx: usize,
         ctx: &C,
     ) -> VortexResult<Option<Expression>>;
@@ -93,9 +96,6 @@ impl TypedRuleContext {
 
 impl private::Sealed for TypedRuleContext {}
 impl RewriteContext for TypedRuleContext {}
-
-impl private::Sealed for &TypedRuleContext {}
-impl RewriteContext for &TypedRuleContext {}
 
 /// A context for rewrite rules that don't need dtype information.
 #[derive(Debug, Clone, Copy, Default)]

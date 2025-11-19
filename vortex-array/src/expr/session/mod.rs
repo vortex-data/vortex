@@ -79,23 +79,35 @@ impl ExprSession {
     }
 
     /// Register a parent reduce rule in the session.
-    pub fn register_parent_rule<V, R>(&mut self, vtable: &'static V, rule: R)
-    where
-        V: VTable,
+    pub fn register_parent_rule<Child, Parent, R>(
+        &mut self,
+        child_vtable: &'static Child,
+        parent_vtable: &'static Parent,
+        rule: R,
+    ) where
+        Child: VTable,
+        Parent: VTable,
         R: 'static,
-        R: ParentReduceRule<V, RuleContext>,
+        R: ParentReduceRule<Child, Parent, RuleContext>,
     {
-        self.rewrite_rules.register_parent_rule(vtable, rule);
+        self.rewrite_rules
+            .register_parent_rule(child_vtable, parent_vtable, rule);
     }
 
     /// Register a typed parent reduce rule in the session.
-    pub fn register_typed_parent_rule<V, R>(&mut self, vtable: &'static V, rule: R)
-    where
-        V: VTable,
+    pub fn register_typed_parent_rule<Child, Parent, R>(
+        &mut self,
+        child_vtable: &'static Child,
+        parent_vtable: &'static Parent,
+        rule: R,
+    ) where
+        Child: VTable,
+        Parent: VTable,
         R: 'static,
-        R: ParentReduceRule<V, TypedRuleContext>,
+        R: ParentReduceRule<Child, Parent, TypedRuleContext>,
     {
-        self.rewrite_rules.register_typed_parent_rule(vtable, rule);
+        self.rewrite_rules
+            .register_typed_parent_rule(child_vtable, parent_vtable, rule);
     }
 }
 

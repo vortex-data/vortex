@@ -65,14 +65,20 @@ fn apply_parent_rules_impl_typed(
 ) -> VortexResult<Expression> {
     expr.transform_up(|node| {
         for (idx, child) in node.children().iter().enumerate() {
-            for rule in session.rewrite_rules().typed_parent_rules_for(&child.id()) {
+            for rule in session
+                .rewrite_rules()
+                .typed_parent_rules_for(&child.id(), &node.id())
+            {
                 if let Some(new_expr) = rule.reduce_parent(child, &node, idx, ctx)? {
                     return Ok(Transformed::yes(new_expr));
                 }
             }
             // Typed rules can also be applied with untyped context
             let untyped_ctx = crate::expr::transform::rules::RuleContext;
-            for rule in session.rewrite_rules().parent_rules_for(&child.id()) {
+            for rule in session
+                .rewrite_rules()
+                .parent_rules_for(&child.id(), &node.id())
+            {
                 if let Some(new_expr) = rule.reduce_parent(child, &node, idx, &untyped_ctx)? {
                     return Ok(Transformed::yes(new_expr));
                 }
