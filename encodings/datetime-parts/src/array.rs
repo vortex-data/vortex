@@ -4,21 +4,58 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use vortex_array::arrays::TemporalArray;
+use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
-    ArrayVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
+    ArrayVTable, EncodeVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
+    VisitorVTable,
 };
 use vortex_array::{
-    Array, ArrayEq, ArrayHash, ArrayRef, EncodingId, EncodingRef, Precision, vtable,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
+    DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata, SerializeMetadata,
+    vtable,
 };
-use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::{DType, Nullability, PType};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 vtable!(DateTimeParts);
+
+#[derive(Clone, prost::Message)]
+#[repr(C)]
+pub struct DateTimePartsMetadata {
+    // Validity lives in the days array
+    // TODO(ngates): we should actually model this with a Tuple array when we have one.
+    #[prost(enumeration = "PType", tag = "1")]
+    pub days_ptype: i32,
+    #[prost(enumeration = "PType", tag = "2")]
+    pub seconds_ptype: i32,
+    #[prost(enumeration = "PType", tag = "3")]
+    pub subseconds_ptype: i32,
+}
+
+impl DateTimePartsMetadata {
+    pub fn get_days_ptype(&self) -> VortexResult<PType> {
+        PType::try_from(self.days_ptype)
+            .map_err(|_| vortex_err!("Invalid PType {}", self.days_ptype))
+    }
+
+    pub fn get_seconds_ptype(&self) -> VortexResult<PType> {
+        PType::try_from(self.seconds_ptype)
+            .map_err(|_| vortex_err!("Invalid PType {}", self.seconds_ptype))
+    }
+
+    pub fn get_subseconds_ptype(&self) -> VortexResult<PType> {
+        PType::try_from(self.subseconds_ptype)
+            .map_err(|_| vortex_err!("Invalid PType {}", self.subseconds_ptype))
+    }
+}
 
 impl VTable for DateTimePartsVTable {
     type Array = DateTimePartsArray;
     type Encoding = DateTimePartsEncoding;
+    type Metadata = ProstMetadata<DateTimePartsMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
@@ -27,7 +64,6 @@ impl VTable for DateTimePartsVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type SerdeVTable = Self;
     type OperatorVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -36,6 +72,58 @@ impl VTable for DateTimePartsVTable {
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
         EncodingRef::new_ref(DateTimePartsEncoding.as_ref())
+    }
+
+    fn metadata(array: &DateTimePartsArray) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(DateTimePartsMetadata {
+            days_ptype: PType::try_from(array.days().dtype())? as i32,
+            seconds_ptype: PType::try_from(array.seconds().dtype())? as i32,
+            subseconds_ptype: PType::try_from(array.subseconds().dtype())? as i32,
+        }))
+    }
+
+    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialize()))
+    }
+
+    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(
+            <ProstMetadata<DateTimePartsMetadata> as DeserializeMetadata>::deserialize(buffer)?,
+        ))
+    }
+
+    fn build(
+        _encoding: &DateTimePartsEncoding,
+        dtype: &DType,
+        len: usize,
+        metadata: &Self::Metadata,
+        _buffers: &[ByteBuffer],
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<DateTimePartsArray> {
+        if children.len() != 3 {
+            vortex_bail!(
+                "Expected 3 children for datetime-parts encoding, found {}",
+                children.len()
+            )
+        }
+
+        let days = children.get(
+            0,
+            &DType::Primitive(metadata.0.get_days_ptype()?, dtype.nullability()),
+            len,
+        )?;
+        let seconds = children.get(
+            1,
+            &DType::Primitive(metadata.0.get_seconds_ptype()?, Nullability::NonNullable),
+            len,
+        )?;
+        let subseconds = children.get(
+            2,
+            &DType::Primitive(metadata.0.get_subseconds_ptype()?, Nullability::NonNullable),
+            len,
+        )?;
+
+        DateTimePartsArray::try_new(dtype.clone(), days, seconds, subseconds)
     }
 }
 
@@ -158,5 +246,28 @@ impl ArrayVTable<DateTimePartsVTable> for DateTimePartsVTable {
 impl ValidityChild<DateTimePartsVTable> for DateTimePartsVTable {
     fn validity_child(array: &DateTimePartsArray) -> &dyn Array {
         array.days()
+    }
+}
+
+impl EncodeVTable<DateTimePartsVTable> for DateTimePartsVTable {
+    fn encode(
+        _encoding: &DateTimePartsEncoding,
+        canonical: &Canonical,
+        _like: Option<&DateTimePartsArray>,
+    ) -> VortexResult<Option<DateTimePartsArray>> {
+        let ext_array = canonical.clone().into_extension();
+        let temporal = TemporalArray::try_from(ext_array)?;
+
+        Ok(Some(DateTimePartsArray::try_from(temporal)?))
+    }
+}
+
+impl VisitorVTable<DateTimePartsVTable> for DateTimePartsVTable {
+    fn visit_buffers(_array: &DateTimePartsArray, _visitor: &mut dyn ArrayBufferVisitor) {}
+
+    fn visit_children(array: &DateTimePartsArray, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("days", array.days());
+        visitor.visit_child("seconds", array.seconds());
+        visitor.visit_child("subseconds", array.subseconds());
     }
 }

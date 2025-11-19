@@ -5,19 +5,24 @@ mod array;
 mod canonical;
 mod operations;
 mod operator;
-mod serde;
 mod validity;
 mod visitor;
 
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::DType;
+use vortex_error::{VortexResult, vortex_bail};
+
 use crate::arrays::extension::ExtensionArray;
+use crate::serde::ArrayChildren;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromChild};
-use crate::{EncodingId, EncodingRef, vtable};
+use crate::{EmptyMetadata, EncodingId, EncodingRef, vtable};
 
 vtable!(Extension);
 
 impl VTable for ExtensionVTable {
     type Array = ExtensionArray;
     type Encoding = ExtensionEncoding;
+    type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
@@ -27,7 +32,6 @@ impl VTable for ExtensionVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
     type OperatorVTable = NotSupported;
-    type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.ext")
@@ -35,6 +39,36 @@ impl VTable for ExtensionVTable {
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
         EncodingRef::new_ref(ExtensionEncoding.as_ref())
+    }
+
+    fn metadata(_array: &ExtensionArray) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
+    }
+
+    fn deserialize(_buffer: &[u8]) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn build(
+        _encoding: &ExtensionEncoding,
+        dtype: &DType,
+        len: usize,
+        _metadata: &Self::Metadata,
+        _buffers: &[ByteBuffer],
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<ExtensionArray> {
+        let DType::Extension(ext_dtype) = dtype else {
+            vortex_bail!("Not an extension DType");
+        };
+        if children.len() != 1 {
+            vortex_bail!("Expected 1 child, got {}", children.len());
+        }
+        let storage = children.get(0, ext_dtype.storage_dtype(), len)?;
+        Ok(ExtensionArray::new(ext_dtype.clone(), storage))
     }
 }
 

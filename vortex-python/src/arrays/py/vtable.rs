@@ -17,11 +17,11 @@ use vortex::serde::ArrayChildren;
 use vortex::stats::StatsSetRef;
 use vortex::vtable::{
     ArrayVTable, CanonicalVTable, ComputeVTable, EncodeVTable, NotSupported, OperationsVTable,
-    SerdeVTable, VTable, ValidityVTable, VisitorVTable,
+    VTable, ValidityVTable, VisitorVTable,
 };
 use vortex::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata, EncodingId,
-    EncodingRef, Precision, RawMetadata, vtable,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef, Precision,
+    RawMetadata, SerializeMetadata, vtable,
 };
 
 use crate::arrays::py::{PythonArray, PythonEncoding};
@@ -31,6 +31,7 @@ vtable!(Python);
 impl VTable for PythonVTable {
     type Array = PythonArray;
     type Encoding = PythonEncoding;
+    type Metadata = RawMetadata;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
@@ -39,7 +40,6 @@ impl VTable for PythonVTable {
     type VisitorVTable = Self;
     type ComputeVTable = Self;
     type EncodeVTable = Self;
-    type SerdeVTable = Self;
     type OperatorVTable = NotSupported;
 
     fn id(encoding: &Self::Encoding) -> EncodingId {
@@ -48,6 +48,44 @@ impl VTable for PythonVTable {
 
     fn encoding(array: &Self::Array) -> EncodingRef {
         array.encoding.clone()
+    }
+
+    fn metadata(array: &PythonArray) -> VortexResult<Self::Metadata> {
+        Python::attach(|py| {
+            let obj = array.object.bind(py);
+            if !obj.hasattr(intern!(py, "metadata"))? {
+                // The class does not have a metadata attribute so does not support serialization.
+                return Ok(RawMetadata(vec![]));
+            }
+
+            let bytes = obj
+                .call_method("__vx_metadata__", (), None)?
+                .downcast::<PyBytes>()
+                .map_err(|_| vortex_err!("Expected array metadata to be Python bytes"))?
+                .as_bytes()
+                .to_vec();
+
+            Ok(RawMetadata(bytes))
+        })
+    }
+
+    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialize()))
+    }
+
+    fn deserialize(bytes: &[u8]) -> VortexResult<Self::Metadata> {
+        Ok(RawMetadata(bytes.to_vec()))
+    }
+
+    fn build(
+        _encoding: &PythonEncoding,
+        _dtype: &DType,
+        _len: usize,
+        _metadata: &Self::Metadata,
+        _buffers: &[ByteBuffer],
+        _children: &dyn ArrayChildren,
+    ) -> VortexResult<PythonArray> {
+        todo!()
     }
 }
 
@@ -139,40 +177,6 @@ impl EncodeVTable<PythonVTable> for PythonVTable {
         _canonical: &Canonical,
         _like: Option<&PythonArray>,
     ) -> VortexResult<Option<PythonArray>> {
-        todo!()
-    }
-}
-
-impl SerdeVTable<PythonVTable> for PythonVTable {
-    type Metadata = RawMetadata;
-
-    fn metadata(array: &PythonArray) -> VortexResult<Option<Self::Metadata>> {
-        Python::attach(|py| {
-            let obj = array.object.bind(py);
-            if !obj.hasattr(intern!(py, "metadata"))? {
-                // The class does not have a metadata attribute so does not support serialization.
-                return Ok(None);
-            }
-
-            let bytes = obj
-                .call_method("__vx_metadata__", (), None)?
-                .downcast::<PyBytes>()
-                .map_err(|_| vortex_err!("Expected array metadata to be Python bytes"))?
-                .as_bytes()
-                .to_vec();
-
-            Ok(Some(RawMetadata(bytes)))
-        })
-    }
-
-    fn build(
-        _encoding: &PythonEncoding,
-        _dtype: &DType,
-        _len: usize,
-        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        _buffers: &[ByteBuffer],
-        _children: &dyn ArrayChildren,
-    ) -> VortexResult<PythonArray> {
         todo!()
     }
 }

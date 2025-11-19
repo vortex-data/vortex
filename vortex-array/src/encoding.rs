@@ -13,8 +13,8 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::serde::ArrayChildren;
-use crate::vtable::{EncodeVTable, SerdeVTable, VTable};
-use crate::{Array, ArrayRef, Canonical, DeserializeMetadata};
+use crate::vtable::{EncodeVTable, VTable};
+use crate::{Array, ArrayRef, Canonical};
 
 /// EncodingId is a globally unique name of the array's encoding.
 pub type EncodingId = ArcRef<str>;
@@ -76,17 +76,12 @@ impl<V: VTable> Encoding for EncodingAdapter<V> {
         &self,
         dtype: &DType,
         len: usize,
-        metadata: &[u8],
+        metadata_bytes: &[u8],
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ArrayRef> {
-        let metadata =
-            <<V::SerdeVTable as SerdeVTable<V>>::Metadata as DeserializeMetadata>::deserialize(
-                metadata,
-            )?;
-        let array = <V::SerdeVTable as SerdeVTable<V>>::build(
-            &self.0, dtype, len, &metadata, buffers, children,
-        )?;
+        let metadata = V::deserialize(metadata_bytes)?;
+        let array = V::build(&self.0, dtype, len, &metadata, buffers, children)?;
         assert_eq!(array.len(), len, "Array length mismatch after building");
         assert_eq!(array.dtype(), dtype, "Array dtype mismatch after building");
         Ok(array.to_array())

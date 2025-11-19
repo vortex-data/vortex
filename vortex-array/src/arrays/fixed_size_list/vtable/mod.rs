@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::DType;
+use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
+
 use crate::arrays::FixedSizeListArray;
+use crate::serde::ArrayChildren;
+use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{EncodingId, EncodingRef, vtable};
+use crate::{EmptyMetadata, EncodingId, EncodingRef, vtable};
 
 mod array;
 mod canonical;
 mod operations;
-mod serde;
 mod validity;
 mod visitor;
 
@@ -20,6 +25,7 @@ pub struct FixedSizeListEncoding;
 impl VTable for FixedSizeListVTable {
     type Array = FixedSizeListArray;
     type Encoding = FixedSizeListEncoding;
+    type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
@@ -29,7 +35,6 @@ impl VTable for FixedSizeListVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
     type OperatorVTable = NotSupported;
-    type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.fixed_size_list")
@@ -37,5 +42,57 @@ impl VTable for FixedSizeListVTable {
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
         EncodingRef::new_ref(FixedSizeListEncoding.as_ref())
+    }
+
+    fn metadata(_array: &FixedSizeListArray) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
+    }
+
+    fn deserialize(_buffer: &[u8]) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    /// Builds a [`FixedSizeListArray`].
+    ///
+    /// This method expects 1 or 2 children (a second child indicates a validity array).
+    fn build(
+        _encoding: &FixedSizeListEncoding,
+        dtype: &DType,
+        len: usize,
+        _metadata: &Self::Metadata,
+        buffers: &[ByteBuffer],
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<FixedSizeListArray> {
+        vortex_ensure!(
+            buffers.is_empty(),
+            "`FixedSizeListVTable::build` expects no buffers"
+        );
+
+        let DType::FixedSizeList(element_dtype, list_size, _) = &dtype else {
+            vortex_bail!("Expected `DType::FixedSizeList`, got {:?}", dtype);
+        };
+
+        let validity = {
+            if children.len() > 2 {
+                vortex_bail!("`FixedSizeListVTable::build` method expected 1 or 2 children")
+            }
+
+            if children.len() == 2 {
+                let validity = children.get(1, &Validity::DTYPE, len)?;
+                Validity::Array(validity)
+            } else {
+                debug_assert_eq!(children.len(), 1);
+                Validity::from(dtype.nullability())
+            }
+        };
+
+        let num_elements = len * (*list_size as usize);
+        let elements = children.get(0, element_dtype.as_ref(), num_elements)?;
+
+        FixedSizeListArray::try_new(elements, *list_size, validity, len)
     }
 }

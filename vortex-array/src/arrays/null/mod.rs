@@ -15,8 +15,8 @@ use crate::execution::{BatchKernelRef, BindCtx, kernel};
 use crate::serde::ArrayChildren;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, OperatorVTable, SerdeVTable,
-    VTable, ValidityVTable, VisitorVTable,
+    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, OperatorVTable, VTable,
+    ValidityVTable, VisitorVTable,
 };
 use crate::{
     ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EmptyMetadata, EncodingId,
@@ -30,6 +30,7 @@ vtable!(Null);
 impl VTable for NullVTable {
     type Array = NullArray;
     type Encoding = NullEncoding;
+    type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
@@ -38,7 +39,6 @@ impl VTable for NullVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type SerdeVTable = Self;
     type OperatorVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -47,6 +47,29 @@ impl VTable for NullVTable {
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
         EncodingRef::new_ref(NullEncoding.as_ref())
+    }
+
+    fn metadata(_array: &NullArray) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
+    }
+
+    fn deserialize(_buffer: &[u8]) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn build(
+        _encoding: &NullEncoding,
+        _dtype: &DType,
+        len: usize,
+        _metadata: &Self::Metadata,
+        _buffers: &[ByteBuffer],
+        _children: &dyn ArrayChildren,
+    ) -> VortexResult<NullArray> {
+        Ok(NullArray::new(len))
     }
 }
 
@@ -111,25 +134,6 @@ impl ArrayVTable<NullVTable> for NullVTable {
 
     fn array_eq(array: &NullArray, other: &NullArray, _precision: Precision) -> bool {
         array.len == other.len
-    }
-}
-
-impl SerdeVTable<NullVTable> for NullVTable {
-    type Metadata = EmptyMetadata;
-
-    fn metadata(_array: &NullArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(EmptyMetadata))
-    }
-
-    fn build(
-        _encoding: &NullEncoding,
-        _dtype: &DType,
-        len: usize,
-        _metadata: &Self::Metadata,
-        _buffers: &[ByteBuffer],
-        _children: &dyn ArrayChildren,
-    ) -> VortexResult<NullArray> {
-        Ok(NullArray::new(len))
     }
 }
 

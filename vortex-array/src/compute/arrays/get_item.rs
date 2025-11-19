@@ -3,17 +3,19 @@
 
 use std::hash::{Hash, Hasher};
 
+use vortex_buffer::ByteBuffer;
 use vortex_compute::mask::MaskValidity;
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_vector::VectorOps;
 
 use crate::execution::{BatchKernelRef, BindCtx, kernel};
+use crate::serde::ArrayChildren;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::vtable::{ArrayVTable, NotSupported, OperatorVTable, VTable, VisitorVTable};
 use crate::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, EncodingId,
-    EncodingRef, Precision, vtable,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, EmptyMetadata,
+    EncodingId, EncodingRef, Precision, vtable,
 };
 
 vtable!(GetItem);
@@ -61,6 +63,8 @@ pub struct GetItemEncoding;
 impl VTable for GetItemVTable {
     type Array = GetItemArray;
     type Encoding = GetItemEncoding;
+    type Metadata = EmptyMetadata;
+
     type ArrayVTable = Self;
     type CanonicalVTable = NotSupported;
     type OperationsVTable = NotSupported;
@@ -68,7 +72,6 @@ impl VTable for GetItemVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type SerdeVTable = NotSupported;
     type OperatorVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -77,6 +80,29 @@ impl VTable for GetItemVTable {
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
         EncodingRef::from(GetItemEncoding.as_ref())
+    }
+
+    fn metadata(_array: &Self::Array) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(None)
+    }
+
+    fn deserialize(_buffer: &[u8]) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn build(
+        _encoding: &Self::Encoding,
+        _dtype: &DType,
+        _len: usize,
+        _metadata: &Self::Metadata,
+        _buffers: &[ByteBuffer],
+        _children: &dyn ArrayChildren,
+    ) -> VortexResult<Self::Array> {
+        vortex_bail!("GetItemArray cannot be deserialized")
     }
 }
 

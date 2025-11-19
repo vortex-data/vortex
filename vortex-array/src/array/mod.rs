@@ -29,12 +29,11 @@ use crate::compute::{ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output, is
 use crate::serde::ArrayChildren;
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
 use crate::vtable::{
-    ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, SerdeVTable, VTable,
-    ValidityVTable, VisitorVTable,
+    ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, VTable, ValidityVTable,
+    VisitorVTable,
 };
 use crate::{
-    ArrayEq, ArrayHash, Canonical, DynArrayEq, DynArrayHash, EncodingId, EncodingRef,
-    SerializeMetadata, hash,
+    ArrayEq, ArrayHash, Canonical, DynArrayEq, DynArrayHash, EncodingId, EncodingRef, hash,
 };
 
 /// The public API trait for all Vortex arrays.
@@ -735,14 +734,13 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
     }
 
     fn metadata(&self) -> VortexResult<Option<Vec<u8>>> {
-        Ok(<V::SerdeVTable as SerdeVTable<V>>::metadata(&self.0)?.map(|m| m.serialize()))
+        V::serialize(V::metadata(&self.0)?)
     }
 
     fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match <V::SerdeVTable as SerdeVTable<V>>::metadata(&self.0) {
+        match V::metadata(&self.0) {
             Err(e) => write!(f, "<serde error: {e}>"),
-            Ok(None) => write!(f, "<serde not supported>"),
-            Ok(Some(metadata)) => Debug::fmt(&metadata, f),
+            Ok(metadata) => Debug::fmt(&metadata, f),
         }
     }
 }

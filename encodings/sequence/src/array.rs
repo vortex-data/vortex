@@ -6,16 +6,18 @@ use std::ops::Range;
 
 use num_traits::cast::FromPrimitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityVTable,
-    VisitorVTable,
+    ArrayVTable, CanonicalVTable, EncodeVTable, NotSupported, OperationsVTable, VTable,
+    ValidityVTable, VisitorVTable,
 };
 use vortex_array::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef, Precision,
-    vtable,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata, EncodingId,
+    EncodingRef, Precision, ProstMetadata, SerializeMetadata, vtable,
 };
-use vortex_buffer::BufferMut;
+use vortex_buffer::{BufferMut, ByteBuffer};
+use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{
     DType, NativePType, Nullability, PType, match_each_integer_ptype, match_each_native_ptype,
 };
@@ -24,6 +26,14 @@ use vortex_mask::Mask;
 use vortex_scalar::{PValue, Scalar, ScalarValue};
 
 vtable!(Sequence);
+
+#[derive(Clone, prost::Message)]
+pub struct SequenceMetadata {
+    #[prost(message, tag = "1")]
+    base: Option<vortex_proto::scalar::ScalarValue>,
+    #[prost(message, tag = "2")]
+    multiplier: Option<vortex_proto::scalar::ScalarValue>,
+}
 
 #[derive(Clone, Debug)]
 /// An array representing the equation `A[i] = base + i * multiplier`.
@@ -151,6 +161,7 @@ impl SequenceArray {
 impl VTable for SequenceVTable {
     type Array = SequenceArray;
     type Encoding = SequenceEncoding;
+    type Metadata = ProstMetadata<SequenceMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
@@ -159,7 +170,6 @@ impl VTable for SequenceVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type SerdeVTable = Self;
     type OperatorVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -168,6 +178,69 @@ impl VTable for SequenceVTable {
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
         EncodingRef::new_ref(SequenceEncoding.as_ref())
+    }
+
+    fn metadata(array: &SequenceArray) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(SequenceMetadata {
+            base: Some((&array.base()).into()),
+            multiplier: Some((&array.multiplier()).into()),
+        }))
+    }
+
+    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialize()))
+    }
+
+    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(
+            <ProstMetadata<SequenceMetadata> as DeserializeMetadata>::deserialize(buffer)?,
+        ))
+    }
+
+    fn build(
+        _encoding: &SequenceEncoding,
+        dtype: &DType,
+        len: usize,
+        metadata: &Self::Metadata,
+        _buffers: &[ByteBuffer],
+        _children: &dyn ArrayChildren,
+    ) -> VortexResult<SequenceArray> {
+        let ptype = dtype.as_ptype();
+
+        // We go via scalar to cast the scalar values into the correct PType
+        let base = Scalar::new(
+            DType::Primitive(ptype, NonNullable),
+            metadata
+                .0
+                .base
+                .as_ref()
+                .ok_or_else(|| vortex_err!("base required"))?
+                .try_into()?,
+        )
+        .as_primitive()
+        .pvalue()
+        .vortex_expect("non-nullable primitive");
+
+        let multiplier = Scalar::new(
+            DType::Primitive(ptype, NonNullable),
+            metadata
+                .0
+                .multiplier
+                .as_ref()
+                .ok_or_else(|| vortex_err!("base required"))?
+                .try_into()?,
+        )
+        .as_primitive()
+        .pvalue()
+        .vortex_expect("non-nullable primitive");
+
+        Ok(SequenceArray::unchecked_new(
+            base,
+            multiplier,
+            ptype,
+            dtype.nullability(),
+            len,
+        ))
     }
 }
 
@@ -267,6 +340,17 @@ impl VisitorVTable<SequenceVTable> for SequenceVTable {
 
 #[derive(Clone, Debug)]
 pub struct SequenceEncoding;
+
+impl EncodeVTable<SequenceVTable> for SequenceVTable {
+    fn encode(
+        _encoding: &SequenceEncoding,
+        _canonical: &Canonical,
+        _like: Option<&SequenceArray>,
+    ) -> VortexResult<Option<SequenceArray>> {
+        // TODO(joe): hook up compressor
+        Ok(None)
+    }
+}
 
 #[cfg(test)]
 mod tests {
