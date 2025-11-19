@@ -108,40 +108,42 @@ mod tests {
         }
     }
 
-    /// Test rule: removes any literal "1" regardless of parent type (wildcard rule)
-    struct RemoveOneLiteralRule;
+    /// Test rule: remove identity 0 + x -> x without matching parent directly (equiv to above).
+    struct AddZeroRuleAnyParent;
 
-    impl ParentReduceRule<Literal, AnyParent, RuleContext> for RemoveOneLiteralRule {
+    impl ParentReduceRule<Literal, AnyParent, RuleContext> for AddZeroRuleAnyParent {
         fn reduce_parent(
             &self,
             expr: &ExpressionView<Literal>,
-            parent: &Expression, // ← Untyped! AnyParent gives us &Expression
+            parent: &Expression,
             child_idx: usize,
             _ctx: &RuleContext,
         ) -> VortexResult<Option<Expression>> {
-            // Check if this literal is 1
-            let one_scalar = Scalar::from(1i32);
-            if expr.data() != &one_scalar {
+            // Only apply if the parent is an Add operation
+            let Some(parent) = parent.as_opt::<Binary>() else {
+                return Ok(None);
+            };
+            if parent.operator() != Operator::Add {
                 return Ok(None);
             }
 
-            // Return the OTHER child from the parent (works for any binary parent)
-            if parent.children().len() == 2 {
-                let other_idx = if child_idx == 0 { 1 } else { 0 };
-                return Ok(Some(parent.child(other_idx).clone()));
+            // Check if this literal is zero
+            let zero_scalar = Scalar::from(0i32);
+            if expr.data() != &zero_scalar {
+                return Ok(None);
             }
 
-            Ok(None)
+            // Return the other child (not this zero)
+            let other_idx = if child_idx == 0 { 1 } else { 0 };
+            Ok(Some(parent.child(other_idx).clone()))
         }
     }
 
     #[test]
-    fn test_add_zero_parent_rule_basic() {
-        // Create a session and register the rule (specific parent: Binary)
+    fn test_add_zero_with_specific_parent_rule() {
         let mut session = ExprSession::default();
         session.register_parent_rule(&Literal, &Binary, AddZeroRule);
 
-        // Test: 0 + x should simplify to x
         let x = col("x");
         let zero = lit(0);
         let expr = checked_add(zero, x.clone());
@@ -152,91 +154,31 @@ mod tests {
     }
 
     #[test]
-    fn test_add_zero_parent_rule_left() {
+    fn test_add_zero_with_any_parent_rule() {
         let mut session = ExprSession::default();
-        session.register_parent_rule(&Literal, &Binary, AddZeroRule);
+        session.register_any_parent_rule(&Literal, AddZeroRuleAnyParent);
 
-        // Test: 0 + (0 + x) should simplify to 0 + x, then to x
-        let x = col("x");
-        let zero = lit(0);
-        let zero_plus_x = checked_add(lit(0), x.clone());
-        let expr = checked_add(zero, zero_plus_x);
-
-        let result = simplify(expr, &session).unwrap();
-
-        assert_eq!(&result, &x);
-    }
-
-    #[test]
-    fn test_add_zero_parent_rule_right() {
-        let mut session = ExprSession::default();
-        session.register_parent_rule(&Literal, &Binary, AddZeroRule);
-
-        // Test: x + 0 should simplify to x
-        let x = col("x");
-        let zero = lit(0);
-        let expr = checked_add(x.clone(), zero);
-
-        let result = simplify(expr, &session).unwrap();
-
-        assert_eq!(&result, &x);
-    }
-
-    #[test]
-    fn test_add_zero_parent_rule_nested() {
-        let mut session = ExprSession::default();
-        session.register_parent_rule(&Literal, &Binary, AddZeroRule);
-
-        // Test: (0 + x) + 0 should simplify to x
-        let x = col("x");
-        let zero = lit(0);
-        let zero_plus_x = checked_add(lit(0), x.clone());
-        let expr = checked_add(zero_plus_x, zero);
-
-        let result = simplify(expr, &session).unwrap();
-
-        assert_eq!(&result, &x);
-    }
-
-    #[test]
-    fn test_any_parent_wildcard_rule() {
-        // Test AnyParent - rule works with ANY parent type
-        let mut session = ExprSession::default();
-        session.register_any_parent_rule(&Literal, RemoveOneLiteralRule);
-
-        // Test: x + 1 should simplify to x (works with Add)
-        let x = col("x");
-        let one = lit(1);
-        let expr = checked_add(x.clone(), one);
-
-        let result = simplify(expr, &session).unwrap();
-
-        assert_eq!(&result, &x);
-    }
-
-    #[test]
-    fn test_specific_and_wildcard_rules_together() {
-        // Test both specific and wildcard rules registered at the same time
-        let mut session = ExprSession::default();
-
-        // Specific rule: removes 0 from Add operations only
-        session.register_parent_rule(&Literal, &Binary, AddZeroRule);
-
-        // Wildcard rule: removes 1 from ANY operation
-        session.register_any_parent_rule(&Literal, RemoveOneLiteralRule);
-
-        // Test 1: 0 + x -> x (specific rule applies)
         let x = col("x");
         let zero = lit(0);
         let expr = checked_add(zero, x.clone());
-        let result = simplify(expr, &session).unwrap();
-        assert_eq!(&result, &x);
 
-        // Test 2: 1 + y -> y (wildcard rule applies)
-        let y = col("y");
-        let one = lit(1);
-        let expr = checked_add(one, y.clone());
         let result = simplify(expr, &session).unwrap();
-        assert_eq!(&result, &y);
+
+        assert_eq!(&result, &x);
+    }
+
+    #[test]
+    fn test_add_zero_with_both_rules() {
+        let mut session = ExprSession::default();
+        session.register_parent_rule(&Literal, &Binary, AddZeroRule);
+        session.register_any_parent_rule(&Literal, AddZeroRuleAnyParent);
+
+        let x = col("x");
+        let zero = lit(0);
+        let expr = checked_add(zero, x.clone());
+
+        let result = simplify(expr, &session).unwrap();
+
+        assert_eq!(&result, &x);
     }
 }

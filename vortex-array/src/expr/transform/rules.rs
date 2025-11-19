@@ -28,7 +28,7 @@ impl ParentMatcher for AnyParent {
     type View<'a> = &'a Expression;
 
     fn try_match(parent: &Expression) -> Option<Self::View<'_>> {
-        Some(parent) // Always matches!
+        Some(parent)
     }
 }
 
@@ -83,7 +83,7 @@ pub trait ParentReduceRule<Child: VTable, Parent: ParentMatcher, C: RewriteConte
     /// # Arguments
     /// * `expr` - The expression to potentially rewrite (already downcast to type Child)
     /// * `parent` - The parent view (type depends on Parent matcher - typed for specific VTables,
-    ///              untyped `&Expression` for `AnyParent`)
+    ///   untyped `&Expression` for `AnyParent`)
     /// * `child_idx` - The index of the child expression within the parent.
     /// * `ctx` - Context for the rewrite (dtype, etc.)
     ///

@@ -283,7 +283,8 @@ impl RewriteRuleRegistry {
     }
 
     /// Get all untyped parent reduce rules for a given child and parent expression ID pair.
-    /// Returns both specific parent rules AND wildcard "any parent" rules.
+    ///
+    /// Returns both specific parent rules and wildcard "any parent" rules.
     pub(crate) fn parent_rules_for(
         &self,
         child_id: &ExprId,
@@ -291,7 +292,6 @@ impl RewriteRuleRegistry {
     ) -> Vec<Arc<dyn DynParentReduceRule>> {
         let mut rules = Vec::new();
 
-        // Add specific parent rules first
         if let Some(specific) = self
             .parent_rules
             .get(&(child_id.clone(), parent_id.clone()))
@@ -299,7 +299,6 @@ impl RewriteRuleRegistry {
             rules.extend_from_slice(specific);
         }
 
-        // Add wildcard "any parent" rules
         if let Some(wildcard) = self.any_parent_rules.get(child_id) {
             rules.extend_from_slice(wildcard);
         }
@@ -308,7 +307,8 @@ impl RewriteRuleRegistry {
     }
 
     /// Get all the typed parent reduce rules for a given child and parent expression ID pair.
-    /// Returns both specific parent rules AND wildcard "any parent" rules.
+    ///
+    /// Returns both specific parent rules and wildcard "any parent" rules.
     pub(crate) fn typed_parent_rules_for(
         &self,
         child_id: &ExprId,
@@ -316,7 +316,6 @@ impl RewriteRuleRegistry {
     ) -> Vec<Arc<dyn DynTypedParentReduceRule>> {
         let mut rules = Vec::new();
 
-        // Add specific parent rules first
         if let Some(specific) = self
             .typed_parent_rules
             .get(&(child_id.clone(), parent_id.clone()))
@@ -324,7 +323,6 @@ impl RewriteRuleRegistry {
             rules.extend_from_slice(specific);
         }
 
-        // Add wildcard "any parent" rules
         if let Some(wildcard) = self.typed_any_parent_rules.get(child_id) {
             rules.extend_from_slice(wildcard);
         }
