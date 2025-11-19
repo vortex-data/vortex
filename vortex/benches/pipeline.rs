@@ -172,7 +172,7 @@ struct BenchmarkBuffers {
     /// Output buffer for batch decompression.
     alp_decoded: Vec<f32>,
     /// Output buffer for pipeline decompression.
-    alp_decoded_pipeline: Vec<f32>,
+    pipeline_output: Vec<f32>,
     /// Output buffer for in-place batch decompression.
     alp_decoded_inplace_batch: Vec<f32>,
     /// Output buffer for in-place pipeline decompression.
@@ -216,7 +216,7 @@ fn setup(size: usize) -> (InputData, BenchmarkBuffers) {
         bitpacked_output: vec![0u32; size],
         for_decoded: vec![0i32; size],
         alp_decoded: vec![0.0f32; size],
-        alp_decoded_pipeline: vec![0.0f32; size],
+        pipeline_output: vec![0.0f32; size],
         alp_decoded_inplace_batch: vec![0.0f32; size],
         alp_decoded_inplace_pipeline: vec![0.0f32; size],
     };
@@ -337,6 +337,70 @@ fn decompress_pipeline(
                 *output_chunk.get_unchecked_mut(i) = f32::decode_single(for_decoded, exponents);
             }
         }
+
+        input_offset += S;
+        output_offset += N;
+    }
+}
+
+/// Pipeline decompression that processes data chunk by chunk with an extra copy.
+///
+/// This version intentionally adds an extra copy step to measure the performance impact.
+/// It writes to an intermediate ALP buffer before copying to the final output.
+fn decompress_pipeline_extra_copy(
+    bitpacked: &[u32],
+    reference: i32,
+    exponents: Exponents,
+    unpack_buffer: &mut [u32],
+    for_buffer: &mut [i32],
+    alp_buffer: &mut [f32],
+    output: &mut [f32],
+) {
+    debug_assert!(bitpacked.len().is_multiple_of(S));
+    debug_assert_eq!(output.len(), bitpacked.len() * T / W);
+    debug_assert!(unpack_buffer.len() >= N);
+    debug_assert!(for_buffer.len() >= N);
+    debug_assert!(alp_buffer.len() >= N);
+
+    // Use only the first N elements of the pre-allocated buffers.
+    let unpack_chunk = &mut unpack_buffer[..N];
+    let for_chunk = &mut for_buffer[..N];
+    let alp_chunk = &mut alp_buffer[..N];
+
+    let mut input_offset = 0;
+    let mut output_offset = 0;
+
+    // Process each 1024-element chunk.
+    while input_offset < bitpacked.len() {
+        // Stage 1: Bitpacking decompression.
+        // SAFETY: Bounds are verified by debug_assert and loop conditions.
+        unsafe {
+            let input = bitpacked.get_unchecked(input_offset..input_offset + S);
+            BitPacking::unchecked_unpack(W, input, unpack_chunk);
+        }
+
+        // Stage 2: FoR decompression.
+        // SAFETY: Buffer sizes are verified to be N.
+        unsafe {
+            for i in 0..N {
+                let unpacked = *unpack_chunk.get_unchecked(i) as i32;
+                *for_chunk.get_unchecked_mut(i) = unpacked.wrapping_add(reference);
+            }
+        }
+
+        // Stage 3: ALP decompression into intermediate buffer.
+        // SAFETY: Buffer sizes are verified to be N.
+        unsafe {
+            for i in 0..N {
+                let for_decoded = *for_chunk.get_unchecked(i);
+                *alp_chunk.get_unchecked_mut(i) = f32::decode_single(for_decoded, exponents);
+            }
+        }
+
+        // Stage 4: Copy from intermediate ALP buffer to final output.
+        // SAFETY: Buffer sizes are verified to be N.
+        let output_chunk = unsafe { output.get_unchecked_mut(output_offset..output_offset + N) };
+        output_chunk.copy_from_slice(alp_chunk);
 
         input_offset += S;
         output_offset += N;
@@ -641,7 +705,24 @@ mod decompress_benchmarks {
                 input_data.exponents,
                 &mut buffers.bitpacked_output,
                 &mut buffers.for_decoded,
-                &mut buffers.alp_decoded_pipeline,
+                &mut buffers.pipeline_output,
+            );
+        });
+    }
+
+    #[divan::bench(consts = BENCHMARK_SIZES)]
+    fn pipeline_extra_copy<const SIZE: usize>(bencher: Bencher) {
+        let (input_data, mut buffers) = setup(SIZE);
+
+        bencher.bench_local(|| {
+            decompress_pipeline_extra_copy(
+                &input_data.bitpacked,
+                input_data.reference,
+                input_data.exponents,
+                &mut buffers.bitpacked_output,
+                &mut buffers.for_decoded,
+                &mut buffers.alp_decoded,
+                &mut buffers.pipeline_output,
             );
         });
     }
@@ -715,13 +796,9 @@ mod correctness_verification {
                 input_data.exponents,
                 &mut buffers.bitpacked_output,
                 &mut buffers.for_decoded,
-                &mut buffers.alp_decoded_pipeline,
+                &mut buffers.pipeline_output,
             );
-            compare_outputs(
-                "pipeline",
-                &buffers.alp_decoded,
-                &buffers.alp_decoded_pipeline,
-            );
+            compare_outputs("pipeline", &buffers.alp_decoded, &buffers.pipeline_output);
 
             // Run in-place batch decompression and compare with batch.
             decompress_in_place_batch(
