@@ -27,8 +27,7 @@ impl ExprOptimizer {
         simplify(expr, &self.rule_registry)
     }
 
-    /// Apply optimize rules to the expression, with a known dtype. This will also apply rules
-    /// in `optimize`.
+    /// Optimize the expression, with a known dtype. This will also apply rules in `optimize`.
     pub fn optimize_typed(&self, expr: Expression, dtype: &DType) -> VortexResult<Expression> {
         simplify_typed(expr, dtype, &self.rule_registry)
     }
