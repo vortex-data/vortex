@@ -4,7 +4,7 @@
 use vortex_error::VortexResult;
 
 use crate::expr::Expression;
-use crate::expr::session::ExprSession;
+use crate::expr::session::RewriteRuleRegistry;
 use crate::expr::transform::match_between::find_between;
 use crate::expr::transform::rules::RuleContext;
 use crate::expr::traversal::{NodeExt, Transformed};
@@ -13,11 +13,14 @@ use crate::expr::traversal::{NodeExt, Transformed};
 ///
 /// This applies only untyped rewrite rules registered in the default session.
 /// If the scope dtype is known, see `simplify_typed` for a simplifier which uses dtype.
-pub(crate) fn simplify(e: Expression, session: &ExprSession) -> VortexResult<Expression> {
+pub(super) fn simplify(
+    e: Expression,
+    rule_registry: &RewriteRuleRegistry,
+) -> VortexResult<Expression> {
     let ctx = RuleContext;
 
-    let e = apply_parent_rules(e, &ctx, session)?;
-    let e = apply_child_rules_impl(e, &ctx, session)?;
+    let e = apply_parent_rules(e, &ctx, rule_registry)?;
+    let e = apply_child_rules_impl(e, &ctx, rule_registry)?;
     let e = find_between(e);
 
     Ok(e)
@@ -26,17 +29,24 @@ pub(crate) fn simplify(e: Expression, session: &ExprSession) -> VortexResult<Exp
 fn apply_parent_rules(
     expr: Expression,
     ctx: &RuleContext,
-    session: &ExprSession,
+    rule_registry: &RewriteRuleRegistry,
 ) -> VortexResult<Expression> {
     expr.transform_up(|node| {
         for (idx, child) in node.children().iter().enumerate() {
-            for rule in session
-                .rewrite_rules()
-                .parent_rules_for(&child.id(), &node.id())
-            {
-                if let Some(new_expr) = rule.reduce_parent(child, &node, idx, ctx)? {
-                    return Ok(Transformed::yes(new_expr));
-                }
+            let result = rule_registry.with_parent_rules(
+                &child.id(),
+                Some(&node.id()),
+                |rules| -> VortexResult<Option<Expression>> {
+                    for rule in rules {
+                        if let Some(new_expr) = rule.reduce_parent(child, &node, idx, ctx)? {
+                            return Ok(Some(new_expr));
+                        }
+                    }
+                    Ok(None)
+                },
+            )?;
+            if let Some(new_expr) = result {
+                return Ok(Transformed::yes(new_expr));
             }
         }
         Ok(Transformed::no(node))
@@ -44,26 +54,35 @@ fn apply_parent_rules(
     .map(|t| t.into_inner())
 }
 
-pub(crate) fn apply_child_rules_impl(
+fn apply_child_rules_impl(
     expr: Expression,
     ctx: &RuleContext,
-    session: &ExprSession,
+    rule_registry: &RewriteRuleRegistry,
 ) -> VortexResult<Expression> {
     fn rewrite(
         node: Expression,
         ctx: &RuleContext,
-        session: &ExprSession,
+        rule_registry: &RewriteRuleRegistry,
     ) -> VortexResult<Transformed<Expression>> {
-        for rule in session.rewrite_rules().reduce_rules_for(&node.id()) {
-            if let Some(new_expr) = rule.reduce(&node, ctx)? {
-                return Ok(Transformed::yes(new_expr));
-            }
+        let result = rule_registry.with_reduce_rules(
+            &node.id(),
+            |rules| -> VortexResult<Option<Expression>> {
+                for rule in rules {
+                    if let Some(new_expr) = rule.reduce(&node, ctx)? {
+                        return Ok(Some(new_expr));
+                    }
+                }
+                Ok(None)
+            },
+        )?;
+        if let Some(new_expr) = result {
+            return Ok(Transformed::yes(new_expr));
         }
         Ok(Transformed::no(node))
     }
     expr.transform(
-        |node| rewrite(node, ctx, session),
-        |node| rewrite(node, ctx, session),
+        |node| rewrite(node, ctx, rule_registry),
+        |node| rewrite(node, ctx, rule_registry),
     )
     .map(|t| t.into_inner())
 }
@@ -148,7 +167,7 @@ mod tests {
         let zero = lit(0);
         let expr = checked_add(zero, x.clone());
 
-        let result = simplify(expr, &session).unwrap();
+        let result = simplify(expr, session.rewrite_rules()).unwrap();
 
         assert_eq!(&result, &x);
     }
@@ -162,7 +181,7 @@ mod tests {
         let zero = lit(0);
         let expr = checked_add(zero, x.clone());
 
-        let result = simplify(expr, &session).unwrap();
+        let result = simplify(expr, session.rewrite_rules()).unwrap();
 
         assert_eq!(&result, &x);
     }
@@ -175,9 +194,25 @@ mod tests {
 
         let x = col("x");
         let zero = lit(0);
-        let expr = checked_add(zero, x.clone());
+        let expr = checked_add(x.clone(), zero);
 
-        let result = simplify(expr, &session).unwrap();
+        let result = simplify(expr, session.rewrite_rules()).unwrap();
+
+        assert_eq!(&result, &x);
+    }
+
+    #[test]
+    fn test_add_zero_parent_rule_nested() {
+        let mut session = ExprSession::default();
+        session.register_parent_rule(&Literal, &Binary, AddZeroRule);
+
+        // Test: (0 + x) + 0 should simplify to x
+        let x = col("x");
+        let zero = lit(0);
+        let zero_plus_x = checked_add(lit(0), x.clone());
+        let expr = checked_add(zero_plus_x, zero);
+
+        let result = simplify(expr, session.rewrite_rules()).unwrap();
 
         assert_eq!(&result, &x);
     }

@@ -137,6 +137,12 @@ pub struct RuleContext;
 impl private::Sealed for RuleContext {}
 impl RewriteContext for RuleContext {}
 
+impl From<&TypedRuleContext> for RuleContext {
+    fn from(_value: &TypedRuleContext) -> Self {
+        RuleContext
+    }
+}
+
 /// Type-erased wrappers that allows dynamic dispatch.
 pub(crate) trait DynReduceRule: Send + Sync {
     fn reduce(&self, expr: &Expression, ctx: &RuleContext) -> VortexResult<Option<Expression>>;

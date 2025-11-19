@@ -33,17 +33,18 @@ pub struct RowIdxLayoutReader {
     row_offset: u64,
     child: Arc<dyn LayoutReader>,
     partition_cache: DashMap<ExactExpr, Partitioning>,
-    session: VortexSession,
+    expr_optimizer: ExprOptimizer,
 }
 
 impl RowIdxLayoutReader {
     pub fn new(row_offset: u64, child: Arc<dyn LayoutReader>, session: &VortexSession) -> Self {
+        let expr_optimizer = ExprOptimizer::new(&session.expressions());
         Self {
             name: child.name().clone(),
             row_offset,
             child,
             partition_cache: DashMap::with_hasher(Default::default()),
-            session: session.clone(),
+            expr_optimizer,
         }
     }
 
@@ -64,7 +65,7 @@ impl RowIdxLayoutReader {
                             vec![]
                         }
                     },
-                    &ExprOptimizer::new(&self.session.expressions()),
+                    &self.expr_optimizer,
                 )
                 .vortex_expect("We should not fail to partition expression over struct fields");
 

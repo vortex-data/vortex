@@ -40,7 +40,7 @@ pub struct StructReader {
     field_lookup: Option<HashMap<FieldName, usize>>,
     partitioned_expr_cache: DashMap<ExactExpr, Partitioned>,
 
-    session: VortexSession,
+    expr_optimizer: ExprOptimizer,
 }
 
 impl StructReader {
@@ -85,6 +85,9 @@ impl StructReader {
         // Create an expanded root expression that contains all fields of the struct.
         let expanded_root_expr = replace_root_fields(root(), struct_dt);
 
+        // Create the expression optimizer once during construction
+        let expr_optimizer = ExprOptimizer::new(&session.expressions());
+
         // This is where we need to do some complex things with the scan in order to split it into
         // different scans for different fields.
         Ok(Self {
@@ -94,7 +97,7 @@ impl StructReader {
             lazy_children,
             field_lookup,
             partitioned_expr_cache: Default::default(),
-            session,
+            expr_optimizer,
         })
     }
 
@@ -141,9 +144,8 @@ impl StructReader {
                 // First, we expand the root scope into the fields of the struct to ensure
                 // that partitioning works correctly.
                 let expr = replace(expr.clone(), &root(), self.expanded_root_expr.clone());
-                let exprs = self.session.expressions();
-                let opt = ExprOptimizer::new(&exprs);
-                let expr = opt
+                let expr = self
+                    .expr_optimizer
                     .optimize_typed(expr, self.dtype())
                     .vortex_expect("We should not fail to simplify expression over struct fields");
 
@@ -156,7 +158,7 @@ impl StructReader {
                             .as_struct_fields_opt()
                             .vortex_expect("We know it's a struct DType"),
                     ),
-                    &opt,
+                    &self.expr_optimizer,
                 )
                 .vortex_expect("We should not fail to partition expression over struct fields");
 

@@ -31,6 +31,7 @@ use crate::splits::{Splits, attempt_split_ranges};
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder<A> {
+    expr_optimizer: ExprOptimizer,
     session: VortexSession,
     layout_reader: LayoutReaderRef,
     projection: Expression,
@@ -60,7 +61,9 @@ pub struct ScanBuilder<A> {
 
 impl ScanBuilder<ArrayRef> {
     pub fn new(session: VortexSession, layout_reader: Arc<dyn LayoutReader>) -> Self {
+        let expr_optimizer = ExprOptimizer::new(&session.expressions());
         Self {
+            expr_optimizer,
             session,
             layout_reader,
             projection: root(),
@@ -179,6 +182,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
     ) -> ScanBuilder<B> {
         let old_map_fn = self.map_fn;
         ScanBuilder {
+            expr_optimizer: self.expr_optimizer,
             session: self.session,
             layout_reader: self.layout_reader,
             projection: self.projection,
@@ -216,15 +220,14 @@ impl<A: 'static + Send> ScanBuilder<A> {
             &self.session,
         ));
 
-        let exprs = self.session.expressions();
-        let optimizer = ExprOptimizer::new(&exprs);
-
         // Normalize and simplify the expressions.
-        let projection = optimizer.optimize_typed(self.projection, layout_reader.dtype())?;
+        let projection = self
+            .expr_optimizer
+            .optimize_typed(self.projection, layout_reader.dtype())?;
 
         let filter = self
             .filter
-            .map(|f| optimizer.optimize_typed(f, layout_reader.dtype()))
+            .map(|f| self.expr_optimizer.optimize_typed(f, layout_reader.dtype()))
             .transpose()?;
 
         // Construct field masks and compute the row splits of the scan.

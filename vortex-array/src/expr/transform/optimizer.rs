@@ -5,33 +5,31 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::expr::Expression;
-use crate::expr::session::ExprSession;
-use crate::expr::transform::{simplify, simplify_typed};
+use crate::expr::session::{ExprSession, RewriteRuleRegistry};
+use crate::expr::transform::simplify::simplify;
+use crate::expr::transform::simplify_typed::simplify_typed;
 
 /// A unified optimizer for expressions that can work with or without type information.
-pub struct ExprOptimizer<'a> {
-    session: &'a ExprSession,
+pub struct ExprOptimizer {
+    rule_registry: RewriteRuleRegistry,
 }
 
-impl<'a> ExprOptimizer<'a> {
-    /// Create a new untyped optimizer.
-    ///
-    /// This optimizer will use untyped simplification rules only.
-    pub fn new(session: &'a ExprSession) -> Self {
-        Self { session }
+impl ExprOptimizer {
+    /// Creates a new optimizer with the rules in `ExprSession`.
+    pub fn new(session: &ExprSession) -> Self {
+        Self {
+            rule_registry: session.rewrite_rules().clone(),
+        }
     }
 
-    /// Optimize the given expression.
-    ///
-    /// If this optimizer was created with a dtype, this will perform typed optimization.
-    /// Otherwise, it will perform untyped optimization.
+    /// Optimize the given expression without a dtype.
     pub fn optimize(&self, expr: Expression) -> VortexResult<Expression> {
-        simplify(expr, self.session)
+        simplify(expr, &self.rule_registry)
     }
 
     /// Apply optimize rules to the expression, with a known dtype. This will also apply rules
     /// in `optimize`.
     pub fn optimize_typed(&self, expr: Expression, dtype: &DType) -> VortexResult<Expression> {
-        simplify_typed(expr, dtype, self.session)
+        simplify_typed(expr, dtype, &self.rule_registry)
     }
 }
