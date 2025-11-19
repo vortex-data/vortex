@@ -693,9 +693,15 @@ mod tests {
         //      |- c: i32
         let mut schema = SchemaBuilder::new();
 
-        let c = Field::new("c", DataType::Int32, false);
-        let b = Field::new_struct("b", vec![c], false);
-        let a = Field::new_struct("a", vec![b], false);
+        let a = Field::new_struct(
+            "a",
+            vec![Field::new_struct(
+                "b",
+                vec![Field::new("c", DataType::Int32, false)],
+                false,
+            )],
+            false,
+        );
         schema.push(a);
 
         let schema = Arc::new(schema.finish());
@@ -752,9 +758,15 @@ mod tests {
         //      |- c: i32
         let mut schema = SchemaBuilder::new();
 
-        let c = Field::new("c", DataType::Int32, false);
-        let b = Field::new_struct("b", vec![c], false);
-        let a = Field::new_struct("a", vec![b], false);
+        let a = Field::new_struct(
+            "a",
+            vec![Field::new_struct(
+                "b",
+                vec![Field::new("c", DataType::Int32, false)],
+                false,
+            )],
+            false,
+        );
         schema.push(a);
 
         let schema = Arc::new(schema.finish());
@@ -785,6 +797,6 @@ mod tests {
         let session = VortexSession::default();
         let cache = VortexFileCache::new(1024, 1024, session.clone());
 
-        Arc::new(VortexSource::new(session.clone(), cache)).with_schema(schema.clone())
+        Arc::new(VortexSource::new(session, cache)).with_schema(schema.clone())
     }
 }
