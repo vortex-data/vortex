@@ -28,9 +28,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::serde::ArrayChildren;
-use crate::{
-    Array, DeserializeMetadata, Encoding, EncodingId, EncodingRef, IntoArray, SerializeMetadata,
-};
+use crate::{Array, Encoding, EncodingId, EncodingRef, IntoArray};
 
 /// The encoding [`VTable`] encapsulates logic for an Encoding type and associated Array type.
 /// The logic is split across several "VTable" traits to enable easier code organization than
