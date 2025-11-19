@@ -50,7 +50,7 @@ use crate::{
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type Array: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn Array> + IntoArray;
     type Encoding: 'static + Send + Sync + Clone + Deref<Target = dyn Encoding>;
-    type Metadata: Debug + SerializeMetadata + DeserializeMetadata;
+    type Metadata: Debug;
 
     type ArrayVTable: ArrayVTable<Self>;
     type CanonicalVTable: CanonicalVTable<Self>;
