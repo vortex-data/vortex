@@ -1,8 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Hand-rolled BP -> FoR -> ALP decode pipeline
-//! Divan benchmark comparing decompress and decompress_inlined implementations
+//! Benchmark suite for hand-rolled BP -> FoR -> ALP decode pipeline.
+//!
+//! This benchmark compares different decompression strategies:
+//! - Batch decompression with separate buffers for each stage
+//! - Pipeline decompression with chunked processing
+//! - In-place batch decompression reusing buffers
+//! - In-place pipeline decompression with minimal memory usage
+//!
+//! The pipeline consists of three stages:
+//! 1. Bitpacking decompression (10-bit values to 32-bit)
+//! 2. Frame of Reference (FoR) decompression
+//! 3. Adaptive Lossless Floating-point (ALP) decompression
 
 #![allow(
     clippy::unwrap_used,
@@ -17,6 +27,10 @@ use fastlanes::BitPacking;
 use rand::Rng;
 use vortex_alp::{ALPFloat, Exponents};
 
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Constants
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 /// Size of each chunk.
 const N: usize = 1024;
 
@@ -29,42 +43,136 @@ const T: usize = 32;
 /// The bitpacked stride that makes up 1024 bits.
 const S: usize = N * W / T;
 
+/// Benchmark sizes to test for performance benchmarks.
+const BENCHMARK_SIZES: [usize; 6] = [
+    1024,   // 1K
+    8192,   // 8K
+    16384,  // 16K
+    65536,  // 64K
+    100352, // 100K
+    262144, // 256K
+];
+
+/// Sizes to test for correctness verification.
+const VERIFICATION_SIZES: [usize; 2] = [
+    1024,  // 1K - minimum size
+    16384, // 16K - medium size
+];
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Main
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 fn main() {
     divan::main();
 }
 
-struct SetupData {
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Data Structures
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/// Input data for decompression benchmarks.
+///
+/// Contains the compressed data and metadata needed for decompression.
+struct InputData {
+    /// Bitpacked compressed data.
     bitpacked: Vec<u32>,
+    /// Reference value for FoR decompression.
     reference: i32,
+    /// Exponent values for ALP decompression.
     exponents: Exponents,
+    /// Original values for verification.
+    original: Vec<f32>,
+    /// ALP-encoded values for intermediate verification.
+    alp_encoded: Vec<i32>,
+    /// Patch information for ALP decompression verification.
+    patches: Patches,
+}
+
+/// Pre-allocated buffers for benchmark operations.
+///
+/// These buffers are allocated once and reused across benchmark iterations
+/// to avoid measuring allocation overhead.
+struct BenchmarkBuffers {
+    /// Intermediate buffer for unpacked bitpacked data.
+    bitpacked_output: Vec<u32>,
+    /// Intermediate buffer for FoR-decoded data.
     for_decoded: Vec<i32>,
+    /// Output buffer for batch decompression.
     alp_decoded: Vec<f32>,
+    /// Output buffer for pipeline decompression.
+    alp_decoded_pipeline: Vec<f32>,
+    /// Output buffer for in-place batch decompression.
     alp_decoded_inplace_batch: Vec<f32>,
+    /// Output buffer for in-place pipeline decompression.
     alp_decoded_inplace_pipeline: Vec<f32>,
 }
 
-fn setup(size: usize) -> SetupData {
+/// Patch information for ALP encoding.
+///
+/// Some values cannot be accurately represented in ALP encoding and require patches.
+pub struct Patches {
+    /// Indices of values that need patches.
+    indices: Vec<u64>,
+    /// Original values at the patch indices.
+    values: Vec<f32>,
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Setup Functions
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/// Set up test data and buffers for benchmarks.
+///
+/// Creates compressed data using the full pipeline (ALP -> FoR -> Bitpacking)
+/// and allocates all necessary buffers for decompression.
+fn setup(size: usize) -> (InputData, BenchmarkBuffers) {
     let original = create_random_values(size);
-    let (alp_encoded, exponents, _patches) = alp_compress(&original);
+    let (alp_encoded, exponents, patches) = alp_compress(&original);
     let (for_encoded, reference) = for_compress(&alp_encoded);
     let bitpacked = bitpack_10(cast_i32_as_u32(&for_encoded));
 
-    let for_decoded: Vec<i32> = vec![0i32; size];
-    let alp_decoded: Vec<f32> = vec![0.0f32; size];
-    let alp_decoded_inplace_batch: Vec<f32> = vec![0.0f32; size];
-    let alp_decoded_inplace_pipeline: Vec<f32> = vec![0.0f32; size];
-
-    SetupData {
+    let input_data = InputData {
         bitpacked,
         reference,
         exponents,
-        for_decoded,
-        alp_decoded,
-        alp_decoded_inplace_batch,
-        alp_decoded_inplace_pipeline,
-    }
+        original,
+        alp_encoded,
+        patches,
+    };
+
+    let benchmark_buffers = BenchmarkBuffers {
+        bitpacked_output: vec![0u32; size],
+        for_decoded: vec![0i32; size],
+        alp_decoded: vec![0.0f32; size],
+        alp_decoded_pipeline: vec![0.0f32; size],
+        alp_decoded_inplace_batch: vec![0.0f32; size],
+        alp_decoded_inplace_pipeline: vec![0.0f32; size],
+    };
+
+    (input_data, benchmark_buffers)
 }
 
+/// Create random float values for testing.
+///
+/// Generates values in the range [0.0, 10.24) which compress well with ALP.
+fn create_random_values(len: usize) -> Vec<f32> {
+    assert!(len.is_multiple_of(N));
+
+    let mut rng = rand::rng();
+    (0..len)
+        .map(|_| rng.random_range(0..1024))
+        .map(|x| x as f32 / 100.0)
+        .collect()
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Batch Decompression Functions
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/// Batch decompression with separate buffers for each stage.
+///
+/// This is the straightforward approach with clear separation between stages.
 fn decompress_batch(
     bitpacked: &[u32],
     reference: i32,
@@ -79,6 +187,8 @@ fn decompress_batch(
 }
 
 /// In-place batch decompression that reuses a single buffer for all stages.
+///
+/// Minimizes memory usage by reinterpreting the same buffer for different stages.
 fn decompress_in_place_batch(
     bitpacked: &[u32],
     reference: i32,
@@ -94,20 +204,21 @@ fn decompress_in_place_batch(
     unpack_10(bitpacked, buffer_u32);
 
     // Stage 2: FoR decode in-place (reinterpret as i32).
-    // SAFETY: u32 and i32 have the same size and alignment.
     let buffer_i32 = cast_u32_as_i32_mut(buffer_u32);
     for_decompress_inplace(buffer_i32, reference);
 
     // Stage 3: ALP decode in-place (transmute i32 → f32).
-    // This transforms the buffer from i32 to f32 in-place.
     f32::decode_slice_inplace(buffer_i32, exponents);
-
-    // The output buffer now contains the final f32 values.
-    // No copy needed since we've been operating in-place on the output buffer.
 }
 
-/// Inlined version of decompress that processes data chunk by chunk without intermediate
-/// allocations.
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Pipeline Decompression Functions
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/// Pipeline decompression that processes data chunk by chunk.
+///
+/// Processes data in chunks to improve cache locality while using separate buffers
+/// for each stage to maintain clarity.
 fn decompress_pipeline(
     bitpacked: &[u32],
     reference: i32,
@@ -131,37 +242,27 @@ fn decompress_pipeline(
     // Process each 1024-element chunk.
     while input_offset < bitpacked.len() {
         // Stage 1: Bitpacking decompression.
-        // SAFETY: We've verified:
-        // - bitpacked.len() is a multiple of S
-        // - input_offset + S <= bitpacked.len() (by loop bounds)
-        // - unpack_chunk has N elements
+        // SAFETY: Bounds are verified by debug_assert and loop conditions.
         unsafe {
             let input = bitpacked.get_unchecked(input_offset..input_offset + S);
             BitPacking::unchecked_unpack(W, input, unpack_chunk);
         }
 
         // Stage 2: FoR decompression.
-        // SAFETY: We've verified unpack_chunk and for_chunk both have N elements.
+        // SAFETY: Buffer sizes are verified to be N.
         unsafe {
             for i in 0..N {
-                // Read unpacked value as i32.
                 let unpacked = *unpack_chunk.get_unchecked(i) as i32;
-
-                // Apply FoR decompression (add reference).
                 *for_chunk.get_unchecked_mut(i) = unpacked.wrapping_add(reference);
             }
         }
 
         // Stage 3: ALP decompression.
-        // SAFETY: We've verified for_chunk has N elements and output.len() matches bitpacked data.
+        // SAFETY: Buffer sizes and output bounds are verified.
         unsafe {
             let output_chunk = output.get_unchecked_mut(output_offset..output_offset + N);
-
             for i in 0..N {
-                // Read FoR-decoded value.
                 let for_decoded = *for_chunk.get_unchecked(i);
-
-                // Apply ALP decompression (convert to float with exponent scaling).
                 *output_chunk.get_unchecked_mut(i) = f32::decode_single(for_decoded, exponents);
             }
         }
@@ -172,6 +273,8 @@ fn decompress_pipeline(
 }
 
 /// In-place pipeline decompression that processes data chunk by chunk directly in the output buffer.
+///
+/// Combines the benefits of pipeline processing with minimal memory usage.
 fn decompress_in_place_pipeline(
     bitpacked: &[u32],
     reference: i32,
@@ -186,50 +289,38 @@ fn decompress_in_place_pipeline(
 
     while input_offset < bitpacked.len() {
         // Get the current chunk of the output buffer to work on.
-        // SAFETY: We've verified output.len() matches bitpacked data.
+        // SAFETY: Output bounds are verified by debug_assert.
         let output_chunk = unsafe { output.get_unchecked_mut(output_offset..output_offset + N) };
 
         // Reinterpret the output chunk as u32 for unpacking.
-        // SAFETY: f32 and u32 have the same size (4 bytes) and alignment.
+        // SAFETY: f32 and u32 have the same size and alignment.
         let chunk_u32 =
             unsafe { std::slice::from_raw_parts_mut(output_chunk.as_mut_ptr() as *mut u32, N) };
 
         // Stage 1: Unpack directly into the output buffer (as u32).
-        // SAFETY: We've verified that bitpacked.len() is a multiple of S.
+        // SAFETY: Input bounds are verified.
         unsafe {
             let input = bitpacked.get_unchecked(input_offset..input_offset + S);
             BitPacking::unchecked_unpack(W, input, chunk_u32);
         }
 
         // Stage 2: FoR decompression in-place.
-        // Reinterpret buffer as i32 and add reference value.
-        // SAFETY: u32 and i32 have the same size and alignment.
         let chunk_i32 = cast_u32_as_i32_mut(chunk_u32);
         unsafe {
             for i in 0..N {
-                // Apply FoR decompression (add reference) in-place.
                 *chunk_i32.get_unchecked_mut(i) =
                     chunk_i32.get_unchecked(i).wrapping_add(reference);
             }
         }
 
         // Stage 3: ALP decompression.
-        // Read from i32 buffer and decode to f32 in output.
-        // SAFETY: We've verified that chunk_i32 has N elements and output_chunk has N elements.
+        // SAFETY: Buffer sizes are verified.
         unsafe {
             for i in 0..N {
-                // Read FoR-decoded value.
                 let for_decoded = *chunk_i32.get_unchecked(i);
-
-                // Apply ALP decompression (convert to f32 with exponent scaling).
-                let alp_decoded = f32::decode_single(for_decoded, exponents);
-
-                // Write to output.
-                *output_chunk.get_unchecked_mut(i) = alp_decoded;
+                *output_chunk.get_unchecked_mut(i) = f32::decode_single(for_decoded, exponents);
             }
         }
-
-        // The output chunk now contains the final f32 values.
 
         input_offset += S;
         output_offset += N;
@@ -237,107 +328,24 @@ fn decompress_in_place_pipeline(
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-// Benchmarks
+// Bitpacking Functions
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#[divan::bench_group(min_time = Duration::from_secs(1))]
-mod decompress_benchmarks {
-    use super::*;
-
-    /// Benchmark sizes to test: 1K, 16K, 64K, 256K, 1M, 4M.
-    const BENCHMARK_SIZES: [usize; 6] = [
-        1024,   // 1K
-        8192,   // 8K
-        16384,  // 16K
-        65536,  // 64K
-        100352, // 100K
-        262144, // 256K
-    ];
-
-    #[divan::bench(consts = BENCHMARK_SIZES)]
-    fn batch<const SIZE: usize>(bencher: Bencher) {
-        let mut data = setup(SIZE);
-        let mut bitpacked_output = vec![0u32; SIZE];
-
-        bencher.bench_local(|| {
-            decompress_batch(
-                &data.bitpacked,
-                data.reference,
-                data.exponents,
-                &mut bitpacked_output,
-                &mut data.for_decoded,
-                &mut data.alp_decoded,
-            );
-        });
-    }
-
-    #[divan::bench(consts = BENCHMARK_SIZES)]
-    fn pipeline<const SIZE: usize>(bencher: Bencher) {
-        let mut data = setup(SIZE);
-        let mut output = vec![0f32; SIZE];
-        let mut bitpacked_output = vec![0u32; SIZE];
-
-        bencher.bench_local(|| {
-            decompress_pipeline(
-                &data.bitpacked,
-                data.reference,
-                data.exponents,
-                &mut bitpacked_output,
-                &mut data.for_decoded,
-                &mut output,
-            );
-        });
-    }
-
-    #[divan::bench(consts = BENCHMARK_SIZES)]
-    fn in_place_batch<const SIZE: usize>(bencher: Bencher) {
-        let mut data = setup(SIZE);
-
-        bencher.bench_local(|| {
-            decompress_in_place_batch(
-                &data.bitpacked,
-                data.reference,
-                data.exponents,
-                &mut data.alp_decoded_inplace_batch,
-            );
-        });
-    }
-
-    #[divan::bench(consts = BENCHMARK_SIZES)]
-    fn in_place_pipeline<const SIZE: usize>(bencher: Bencher) {
-        let mut data = setup(SIZE);
-
-        bencher.bench_local(|| {
-            decompress_in_place_pipeline(
-                &data.bitpacked,
-                data.reference,
-                data.exponents,
-                &mut data.alp_decoded_inplace_pipeline,
-            );
-        });
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// Bitpacking
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// Pack 32-bit values into 10-bit bitpacked representation.
 fn bitpack_10(values: &[u32]) -> Vec<u32> {
     let len = values.len();
     debug_assert!(len.is_multiple_of(N));
 
     let mut bitpacked = Vec::with_capacity(len * W / T);
-    // SAFETY: We're setting the length to the exact capacity we just allocated
+    // SAFETY: We're setting the length to the exact capacity we just allocated.
+    // The memory will be immediately initialized by BitPacking::unchecked_pack.
     unsafe { bitpacked.set_len(len * W / T) };
 
     let mut input_offset = 0;
     let mut output_offset = 0;
 
     while input_offset < len {
-        // SAFETY: We've verified that:
-        // - len is a multiple of N
-        // - bitpacked.len() == len * W / T
-        // - input_offset < len ensures we have at least N elements left
+        // SAFETY: Loop bounds ensure we have N elements available.
         unsafe {
             let input = values.get_unchecked(input_offset..input_offset + N);
             let output = bitpacked.get_unchecked_mut(output_offset..output_offset + S);
@@ -351,6 +359,7 @@ fn bitpack_10(values: &[u32]) -> Vec<u32> {
     bitpacked
 }
 
+/// Unpack 10-bit bitpacked values into 32-bit representation.
 fn unpack_10(bitpacked: &[u32], unpacked: &mut [u32]) {
     debug_assert!(bitpacked.len().is_multiple_of(S));
     let len = bitpacked.len() * T / W;
@@ -360,10 +369,7 @@ fn unpack_10(bitpacked: &[u32], unpacked: &mut [u32]) {
     let mut output_offset = 0;
 
     while output_offset < len {
-        // SAFETY: We've verified that:
-        // - bitpacked.len() is a multiple of S
-        // - unpacked.len() == bitpacked.len() * T / W
-        // - output_offset < len ensures we have at least N elements left
+        // SAFETY: Loop bounds and assertions ensure valid indices.
         unsafe {
             let input = bitpacked.get_unchecked(input_offset..input_offset + S);
             let output = unpacked.get_unchecked_mut(output_offset..output_offset + N);
@@ -376,14 +382,50 @@ fn unpack_10(bitpacked: &[u32], unpacked: &mut [u32]) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-// ALP
+// FoR (Frame of Reference) Functions
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-pub struct Patches {
-    indices: Vec<u64>,
-    values: Vec<f32>,
+/// Compress values using Frame of Reference encoding.
+///
+/// Subtracts the minimum value from all values to reduce the range.
+fn for_compress(values: &[i32]) -> (Vec<i32>, i32) {
+    let min = values.iter().min().copied().unwrap();
+    (values.iter().map(|x| x.wrapping_sub(min)).collect(), min)
 }
 
+/// Decompress Frame of Reference encoded values.
+///
+/// Adds the reference value back to restore original values.
+/// Uses #[inline(never)] to ensure this shows up in profiling as a distinct function.
+#[inline(never)]
+fn for_decompress(for_values: &[i32], reference: i32, output: &mut [i32]) {
+    debug_assert_eq!(for_values.len(), output.len());
+    let len = for_values.len();
+
+    // SAFETY: Length equality is verified by debug_assert.
+    unsafe {
+        for i in 0..len {
+            *output.get_unchecked_mut(i) = for_values.get_unchecked(i).wrapping_add(reference);
+        }
+    }
+}
+
+/// In-place Frame of Reference decompression.
+///
+/// Modifies values in-place by adding the reference value.
+fn for_decompress_inplace(values: &mut [i32], reference: i32) {
+    for i in 0..values.len() {
+        values[i] = values[i].wrapping_add(reference);
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// ALP (Adaptive Lossless floating-Point) Functions
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/// Compress floating-point values using ALP encoding.
+///
+/// Returns the encoded integers, exponents, and patches for values that cannot be accurately encoded.
 fn alp_compress(values: &[f32]) -> (Vec<i32>, Exponents, Patches) {
     let (exponents, encoded, patch_indices, patch_values, _) = f32::encode(values, None);
 
@@ -394,119 +436,249 @@ fn alp_compress(values: &[f32]) -> (Vec<i32>, Exponents, Patches) {
     (alp_vec, exponents, Patches { indices, values })
 }
 
+/// Decompress ALP-encoded values back to floating-point.
 fn alp_decompress(encoded: &[i32], exponents: Exponents, output: &mut [f32]) {
     f32::decode_into(encoded, exponents, output)
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-// FoR
+// Utility Functions
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-fn for_compress(values: &[i32]) -> (Vec<i32>, i32) {
-    let min = values.iter().min().copied().unwrap();
-    (values.iter().map(|x| x.wrapping_sub(min)).collect(), min)
-}
-
-#[inline(never)]
-fn for_decompress(for_values: &[i32], reference: i32, output: &mut [i32]) {
-    debug_assert_eq!(for_values.len(), output.len());
-    let len = for_values.len();
-
-    // SAFETY: We've verified that for_values.len() == output.len()
-    unsafe {
-        for i in 0..len {
-            *output.get_unchecked_mut(i) = for_values.get_unchecked(i).wrapping_add(reference);
-        }
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
-fn create_random_values(len: usize) -> Vec<f32> {
-    assert!(len.is_multiple_of(N));
-
-    let mut rng = rand::rng();
-    (0..len)
-        .map(|_| rng.random_range(0..1024))
-        .map(|x| x as f32 / 100.0)
-        .collect()
-}
-
+/// Cast i32 slice to u32 slice.
+///
+/// This is safe because i32 and u32 have the same size and alignment.
 fn cast_i32_as_u32(slice: &[i32]) -> &[u32] {
     // SAFETY: i32 and u32 have the same size and alignment, so this transmute is safe.
     unsafe { std::slice::from_raw_parts(slice.as_ptr() as *const u32, slice.len()) }
 }
 
+/// Cast u32 slice to i32 slice.
+///
+/// This is safe because u32 and i32 have the same size and alignment.
 fn cast_u32_as_i32(slice: &[u32]) -> &[i32] {
     // SAFETY: i32 and u32 have the same size and alignment, so this transmute is safe.
     unsafe { std::slice::from_raw_parts(slice.as_ptr() as *const i32, slice.len()) }
 }
 
-/// Cast a mutable u32 slice to a mutable i32 slice.
+/// Cast mutable u32 slice to mutable i32 slice.
+///
+/// This is safe because u32 and i32 have the same size and alignment.
 fn cast_u32_as_i32_mut(slice: &mut [u32]) -> &mut [i32] {
     // SAFETY: i32 and u32 have the same size and alignment, so this transmute is safe.
     unsafe { std::slice::from_raw_parts_mut(slice.as_mut_ptr() as *mut i32, slice.len()) }
 }
 
-/// In-place FoR decompression.
-fn for_decompress_inplace(values: &mut [i32], reference: i32) {
-    for i in 0..values.len() {
-        values[i] = values[i].wrapping_add(reference);
-    }
-}
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Verification Functions
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#[allow(dead_code)]
+/// Verify that FoR and ALP decompression produced correct results.
+///
+/// Checks that FoR decoding matches expected values and ALP decoding (with patches) matches originals.
 fn verify(
+    function_name: &str,
     for_decoded: &[i32],
     alp_decoded: &[f32],
     alp_encoded: &[i32],
     original: &[f32],
     patches: &Patches,
 ) {
-    // Verification
-
+    // Verify FoR decompression.
     for i in 0..for_decoded.len() {
         assert_eq!(
             for_decoded[i], alp_encoded[i],
-            "FoR decode mismatch at index {}: decoded={}, expected={}",
-            i, for_decoded[i], alp_encoded[i]
+            "{}: FoR decode mismatch at index {}: decoded={}, expected={}",
+            function_name, i, for_decoded[i], alp_encoded[i]
         );
     }
 
+    // Verify ALP decompression.
+    // ALP may have patches for values that couldn't be accurately encoded.
     for i in 0..alp_decoded.len() {
         if let Some(patch_idx) = patches.indices.iter().position(|&idx| idx == i as u64) {
+            // This index has a patch - verify the patch value matches the original.
             assert_eq!(
                 patches.values[patch_idx], original[i],
-                "Patch value mismatch at index {}: patch={}, expected={}",
-                i, patches.values[patch_idx], original[i]
+                "{}: Patch value mismatch at index {}: patch={}, expected={}",
+                function_name, i, patches.values[patch_idx], original[i]
             );
         } else {
+            // For non-patched values, verify ALP decoding matches the original.
             assert_eq!(
                 alp_decoded[i], original[i],
-                "ALP decode mismatch at index {}: decoded={}, expected={}",
-                i, alp_decoded[i], original[i]
+                "{}: ALP decode mismatch at index {}: decoded={}, expected={}",
+                function_name, i, alp_decoded[i], original[i]
             );
         }
     }
 }
 
-/// Compare outputs from original and inlined decompress functions.
-#[allow(dead_code)]
-fn compare_outputs(original: &[f32], inlined: &[f32]) {
+/// Compare outputs from different decompression functions.
+///
+/// Ensures that all decompression strategies produce identical results.
+fn compare_outputs(function_name: &str, expected: &[f32], actual: &[f32]) {
     assert_eq!(
-        original.len(),
-        inlined.len(),
-        "Output length mismatch: original={}, inlined={}",
-        original.len(),
-        inlined.len()
+        expected.len(),
+        actual.len(),
+        "{}: Output length mismatch: expected={}, actual={}",
+        function_name,
+        expected.len(),
+        actual.len()
     );
 
-    for i in 0..original.len() {
+    for i in 0..expected.len() {
         assert_eq!(
-            original[i], inlined[i],
-            "Output mismatch at index {}: original={}, inlined={}",
-            i, original[i], inlined[i]
+            expected[i], actual[i],
+            "{}: Output mismatch at index {}: expected={}, actual={}",
+            function_name, i, expected[i], actual[i]
         );
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Benchmarks
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/// Performance benchmarks for decompression strategies.
+#[divan::bench_group(min_time = Duration::from_secs(1))]
+mod decompress_benchmarks {
+    use super::*;
+
+    #[divan::bench(consts = BENCHMARK_SIZES)]
+    fn batch<const SIZE: usize>(bencher: Bencher) {
+        let (input_data, mut buffers) = setup(SIZE);
+
+        bencher.bench_local(|| {
+            decompress_batch(
+                &input_data.bitpacked,
+                input_data.reference,
+                input_data.exponents,
+                &mut buffers.bitpacked_output,
+                &mut buffers.for_decoded,
+                &mut buffers.alp_decoded,
+            );
+        });
+    }
+
+    #[divan::bench(consts = BENCHMARK_SIZES)]
+    fn pipeline<const SIZE: usize>(bencher: Bencher) {
+        let (input_data, mut buffers) = setup(SIZE);
+
+        bencher.bench_local(|| {
+            decompress_pipeline(
+                &input_data.bitpacked,
+                input_data.reference,
+                input_data.exponents,
+                &mut buffers.bitpacked_output,
+                &mut buffers.for_decoded,
+                &mut buffers.alp_decoded_pipeline,
+            );
+        });
+    }
+
+    #[divan::bench(consts = BENCHMARK_SIZES)]
+    fn in_place_batch<const SIZE: usize>(bencher: Bencher) {
+        let (input_data, mut buffers) = setup(SIZE);
+
+        bencher.bench_local(|| {
+            decompress_in_place_batch(
+                &input_data.bitpacked,
+                input_data.reference,
+                input_data.exponents,
+                &mut buffers.alp_decoded_inplace_batch,
+            );
+        });
+    }
+
+    #[divan::bench(consts = BENCHMARK_SIZES)]
+    fn in_place_pipeline<const SIZE: usize>(bencher: Bencher) {
+        let (input_data, mut buffers) = setup(SIZE);
+
+        bencher.bench_local(|| {
+            decompress_in_place_pipeline(
+                &input_data.bitpacked,
+                input_data.reference,
+                input_data.exponents,
+                &mut buffers.alp_decoded_inplace_pipeline,
+            );
+        });
+    }
+}
+
+/// Correctness verification benchmarks.
+///
+/// These benchmarks verify that all decompression strategies produce identical
+/// and correct results. They run with smaller sizes for quick verification.
+#[divan::bench_group(min_time = Duration::from_millis(100))]
+mod correctness_verification {
+    use super::*;
+
+    #[divan::bench(consts = VERIFICATION_SIZES)]
+    fn verify_all_methods<const SIZE: usize>(bencher: Bencher) {
+        bencher.bench_local(|| {
+            let (input_data, mut buffers) = setup(SIZE);
+
+            // Run batch decompression (our reference implementation).
+            decompress_batch(
+                &input_data.bitpacked,
+                input_data.reference,
+                input_data.exponents,
+                &mut buffers.bitpacked_output,
+                &mut buffers.for_decoded,
+                &mut buffers.alp_decoded,
+            );
+
+            // Verify batch decompression is correct.
+            verify(
+                "batch",
+                &buffers.for_decoded,
+                &buffers.alp_decoded,
+                &input_data.alp_encoded,
+                &input_data.original,
+                &input_data.patches,
+            );
+
+            // Run pipeline decompression and compare with batch.
+            decompress_pipeline(
+                &input_data.bitpacked,
+                input_data.reference,
+                input_data.exponents,
+                &mut buffers.bitpacked_output,
+                &mut buffers.for_decoded,
+                &mut buffers.alp_decoded_pipeline,
+            );
+            compare_outputs(
+                "pipeline",
+                &buffers.alp_decoded,
+                &buffers.alp_decoded_pipeline,
+            );
+
+            // Run in-place batch decompression and compare with batch.
+            decompress_in_place_batch(
+                &input_data.bitpacked,
+                input_data.reference,
+                input_data.exponents,
+                &mut buffers.alp_decoded_inplace_batch,
+            );
+            compare_outputs(
+                "in_place_batch",
+                &buffers.alp_decoded,
+                &buffers.alp_decoded_inplace_batch,
+            );
+
+            // Run in-place pipeline decompression and compare with batch.
+            decompress_in_place_pipeline(
+                &input_data.bitpacked,
+                input_data.reference,
+                input_data.exponents,
+                &mut buffers.alp_decoded_inplace_pipeline,
+            );
+            compare_outputs(
+                "in_place_pipeline",
+                &buffers.alp_decoded,
+                &buffers.alp_decoded_inplace_pipeline,
+            );
+        });
     }
 }
