@@ -181,7 +181,7 @@ impl VisitorVTable<ArithmeticVTable> for ArithmeticVTable {
 }
 
 impl OperatorVTable<ArithmeticVTable> for ArithmeticVTable {
-    fn reduce_children(array: &ArithmeticArray) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(array: &ArithmeticArray) -> VortexResult<Option<ArrayRef>> {
         match (array.lhs.as_constant(), array.rhs.as_constant()) {
             // If both sides are constant, we compute the value now.
             (Some(lhs), Some(rhs)) => {
