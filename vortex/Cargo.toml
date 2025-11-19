@@ -20,6 +20,8 @@ all-features = true
 workspace = true
 
 [dependencies]
+fastlanes = { workspace = true }
+rand = { workspace = true }
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }
@@ -49,8 +51,6 @@ vortex-sparse = { workspace = true }
 vortex-utils = { workspace = true }
 vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
-fastlanes = { workspace = true }
-rand = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
