@@ -11,6 +11,36 @@ use vortex_error::VortexResult;
 
 use crate::expr::{Expression, ExpressionView, VTable};
 
+/// Trait that abstracts over parent matching - allows both specific and wildcard parent types.
+pub trait ParentMatcher: Send + Sync + 'static {
+    /// The view type returned when matching succeeds.
+    type View<'a>;
+
+    /// Try to match/downcast the parent expression.
+    /// Returns Some if the parent matches this matcher's criteria, None otherwise.
+    fn try_match(parent: &Expression) -> Option<Self::View<'_>>;
+}
+
+/// Marker type representing "any parent" - matches all parent expressions.
+pub struct AnyParent;
+
+impl ParentMatcher for AnyParent {
+    type View<'a> = &'a Expression;
+
+    fn try_match(parent: &Expression) -> Option<Self::View<'_>> {
+        Some(parent) // Always matches!
+    }
+}
+
+/// All VTable types can be used as specific parent matchers.
+impl<V: VTable> ParentMatcher for V {
+    type View<'a> = ExpressionView<'a, V>;
+
+    fn try_match(parent: &Expression) -> Option<Self::View<'_>> {
+        parent.as_opt::<V>()
+    }
+}
+
 /// A rewrite rule that transforms expressions without needing context.
 ///
 /// Called during bottom-up traversal after children have been processed.
@@ -42,15 +72,18 @@ pub trait ReduceRule<V: VTable, C: RewriteContext>: Send + Sync {
 /// # Type Parameters
 /// * `Child` - The VTable type this rule applies to (the child expression type). The rule will only
 ///   be invoked for expressions with this vtable type, providing compile-time type safety.
-/// * `Parent` - The VTable type of the parent expression. The rule will only be invoked when
-///   the parent has this vtable type, providing compile-time type safety.
+/// * `Parent` - The parent matcher. Can be a specific VTable type (e.g., `Binary`) for typed parent
+///   access, or `AnyParent` to match any parent type with untyped access.
 /// * `C` - The rewrite context type (RuleContext or TypedRuleContext)
-pub trait ParentReduceRule<Child: VTable, Parent: VTable, C: RewriteContext>: Send + Sync {
+pub trait ParentReduceRule<Child: VTable, Parent: ParentMatcher, C: RewriteContext>:
+    Send + Sync
+{
     /// Try to rewrite an expression based on its parent.
     ///
     /// # Arguments
     /// * `expr` - The expression to potentially rewrite (already downcast to type Child)
-    /// * `parent` - The parent expression (already downcast to type Parent)
+    /// * `parent` - The parent view (type depends on Parent matcher - typed for specific VTables,
+    ///              untyped `&Expression` for `AnyParent`)
     /// * `child_idx` - The index of the child expression within the parent.
     /// * `ctx` - Context for the rewrite (dtype, etc.)
     ///
@@ -60,7 +93,7 @@ pub trait ParentReduceRule<Child: VTable, Parent: VTable, C: RewriteContext>: Se
     fn reduce_parent(
         &self,
         expr: &ExpressionView<Child>,
-        parent: &ExpressionView<Parent>,
+        parent: Parent::View<'_>,
         child_idx: usize,
         ctx: &C,
     ) -> VortexResult<Option<Expression>>;
@@ -103,9 +136,6 @@ pub struct RuleContext;
 
 impl private::Sealed for RuleContext {}
 impl RewriteContext for RuleContext {}
-
-impl private::Sealed for &RuleContext {}
-impl RewriteContext for &RuleContext {}
 
 /// Type-erased wrappers that allows dynamic dispatch.
 pub(crate) trait DynReduceRule: Send + Sync {

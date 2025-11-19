@@ -77,7 +77,7 @@ mod tests {
     use crate::expr::exprs::literal::{Literal, lit};
     use crate::expr::exprs::operators::Operator;
     use crate::expr::session::ExprSession;
-    use crate::expr::transform::rules::{ParentReduceRule, RuleContext};
+    use crate::expr::transform::rules::{AnyParent, ParentReduceRule, RuleContext};
     use crate::expr::{Expression, ExpressionView, col};
 
     /// Test rule: simplifies addition with zero: 0 + x -> x when literal zero is a child of an Add
@@ -87,7 +87,7 @@ mod tests {
         fn reduce_parent(
             &self,
             expr: &ExpressionView<Literal>,
-            parent: &ExpressionView<Binary>,
+            parent: ExpressionView<Binary>,
             child_idx: usize,
             _ctx: &RuleContext,
         ) -> VortexResult<Option<Expression>> {
@@ -108,9 +108,36 @@ mod tests {
         }
     }
 
+    /// Test rule: removes any literal "1" regardless of parent type (wildcard rule)
+    struct RemoveOneLiteralRule;
+
+    impl ParentReduceRule<Literal, AnyParent, RuleContext> for RemoveOneLiteralRule {
+        fn reduce_parent(
+            &self,
+            expr: &ExpressionView<Literal>,
+            parent: &Expression, // ← Untyped! AnyParent gives us &Expression
+            child_idx: usize,
+            _ctx: &RuleContext,
+        ) -> VortexResult<Option<Expression>> {
+            // Check if this literal is 1
+            let one_scalar = Scalar::from(1i32);
+            if expr.data() != &one_scalar {
+                return Ok(None);
+            }
+
+            // Return the OTHER child from the parent (works for any binary parent)
+            if parent.children().len() == 2 {
+                let other_idx = if child_idx == 0 { 1 } else { 0 };
+                return Ok(Some(parent.child(other_idx).clone()));
+            }
+
+            Ok(None)
+        }
+    }
+
     #[test]
     fn test_add_zero_parent_rule_basic() {
-        // Create a session and register the rule
+        // Create a session and register the rule (specific parent: Binary)
         let mut session = ExprSession::default();
         session.register_parent_rule(&Literal, &Binary, AddZeroRule);
 
@@ -169,5 +196,47 @@ mod tests {
         let result = simplify(expr, &session).unwrap();
 
         assert_eq!(&result, &x);
+    }
+
+    #[test]
+    fn test_any_parent_wildcard_rule() {
+        // Test AnyParent - rule works with ANY parent type
+        let mut session = ExprSession::default();
+        session.register_any_parent_rule(&Literal, RemoveOneLiteralRule);
+
+        // Test: x + 1 should simplify to x (works with Add)
+        let x = col("x");
+        let one = lit(1);
+        let expr = checked_add(x.clone(), one);
+
+        let result = simplify(expr, &session).unwrap();
+
+        assert_eq!(&result, &x);
+    }
+
+    #[test]
+    fn test_specific_and_wildcard_rules_together() {
+        // Test both specific and wildcard rules registered at the same time
+        let mut session = ExprSession::default();
+
+        // Specific rule: removes 0 from Add operations only
+        session.register_parent_rule(&Literal, &Binary, AddZeroRule);
+
+        // Wildcard rule: removes 1 from ANY operation
+        session.register_any_parent_rule(&Literal, RemoveOneLiteralRule);
+
+        // Test 1: 0 + x -> x (specific rule applies)
+        let x = col("x");
+        let zero = lit(0);
+        let expr = checked_add(zero, x.clone());
+        let result = simplify(expr, &session).unwrap();
+        assert_eq!(&result, &x);
+
+        // Test 2: 1 + y -> y (wildcard rule applies)
+        let y = col("y");
+        let one = lit(1);
+        let expr = checked_add(one, y.clone());
+        let result = simplify(expr, &session).unwrap();
+        assert_eq!(&result, &y);
     }
 }

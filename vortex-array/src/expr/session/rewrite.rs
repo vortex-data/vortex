@@ -8,7 +8,9 @@ use std::sync::Arc;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::expr::transform::rules::{ParentReduceRule, ReduceRule, RuleContext, TypedRuleContext};
+use crate::expr::transform::rules::{
+    AnyParent, ParentMatcher, ParentReduceRule, ReduceRule, RuleContext, TypedRuleContext,
+};
 use crate::expr::transform::{
     DynParentReduceRule, DynReduceRule, DynTypedParentReduceRule, DynTypedReduceRule,
 };
@@ -21,7 +23,7 @@ struct ReduceRuleAdapter<V: VTable, R> {
 }
 
 /// Adapter for ParentReduceRule
-struct ReduceParentRuleAdapter<Child: VTable, Parent: VTable, R> {
+struct ReduceParentRuleAdapter<Child: VTable, Parent: ParentMatcher, R> {
     rule: R,
     _phantom: PhantomData<(Child, Parent)>,
 }
@@ -59,7 +61,7 @@ where
 impl<Child, Parent, R> DynParentReduceRule for ReduceParentRuleAdapter<Child, Parent, R>
 where
     Child: VTable,
-    Parent: VTable,
+    Parent: ParentMatcher,
     R: ParentReduceRule<Child, Parent, RuleContext>,
 {
     fn reduce_parent(
@@ -72,17 +74,17 @@ where
         let Some(view) = expr.as_opt::<Child>() else {
             return Ok(None);
         };
-        let Some(parent_view) = parent.as_opt::<Parent>() else {
+        let Some(parent_view) = Parent::try_match(parent) else {
             return Ok(None);
         };
-        self.rule.reduce_parent(&view, &parent_view, child_idx, ctx)
+        self.rule.reduce_parent(&view, parent_view, child_idx, ctx)
     }
 }
 
 impl<Child, Parent, R> DynTypedParentReduceRule for ReduceParentRuleAdapter<Child, Parent, R>
 where
     Child: VTable,
-    Parent: VTable,
+    Parent: ParentMatcher,
     R: ParentReduceRule<Child, Parent, TypedRuleContext>,
 {
     fn reduce_parent(
@@ -95,10 +97,10 @@ where
         let Some(view) = expr.as_opt::<Child>() else {
             return Ok(None);
         };
-        let Some(parent_view) = parent.as_opt::<Parent>() else {
+        let Some(parent_view) = Parent::try_match(parent) else {
             return Ok(None);
         };
-        self.rule.reduce_parent(&view, &parent_view, child_idx, ctx)
+        self.rule.reduce_parent(&view, parent_view, child_idx, ctx)
     }
 }
 
@@ -115,10 +117,14 @@ pub struct RewriteRuleRegistry {
     typed_reduce_rules: RuleRegistry<dyn DynTypedReduceRule>,
     /// Untyped reduce rules (require only RewriteContext), indexed by expression ID
     reduce_rules: RuleRegistry<dyn DynReduceRule>,
-    /// Parent reduce rules, indexed by (child_id, parent_id)
+    /// Parent reduce rules for specific parent types, indexed by (child_id, parent_id)
     typed_parent_rules: ParentRuleRegistry<dyn DynTypedParentReduceRule>,
-    /// Parent reduce rules, indexed by (child_id, parent_id)
+    /// Parent reduce rules for specific parent types, indexed by (child_id, parent_id)
     parent_rules: ParentRuleRegistry<dyn DynParentReduceRule>,
+    /// Wildcard parent rules (match any parent), indexed by child_id only
+    typed_any_parent_rules: RuleRegistry<dyn DynTypedParentReduceRule>,
+    /// Wildcard parent rules (match any parent), indexed by child_id only
+    any_parent_rules: RuleRegistry<dyn DynParentReduceRule>,
 }
 
 // TODO(joe): follow up with rule debug info.
@@ -129,6 +135,11 @@ impl Debug for RewriteRuleRegistry {
             .field("reduce_rules_count", &self.reduce_rules.len())
             .field("typed_parent_rules", &self.typed_parent_rules.len())
             .field("parent_rules_count", &self.parent_rules.len())
+            .field(
+                "typed_any_parent_rules_count",
+                &self.typed_any_parent_rules.len(),
+            )
+            .field("any_parent_rules_count", &self.any_parent_rules.len())
             .finish()
     }
 }
@@ -174,7 +185,8 @@ impl RewriteRuleRegistry {
             .push(Arc::new(adapter));
     }
 
-    pub fn register_parent_rule<Child, Parent, R>(
+    /// Register a parent rule for a specific parent type.
+    pub fn register_parent_rule_specific<Child, Parent, R>(
         &mut self,
         child_vtable: &'static Child,
         parent_vtable: &'static Parent,
@@ -195,15 +207,25 @@ impl RewriteRuleRegistry {
             .push(Arc::new(adapter));
     }
 
-    /// Register a typed parent reduce rule.
-    ///
-    /// # Type Parameters
-    /// * `Child` - The child expression VTable type
-    /// * `Parent` - The parent expression VTable type
-    /// * `R` - The rule implementation
-    ///
-    /// The rule will only be invoked when both the child has type Child and the parent has type Parent.
-    pub fn register_typed_parent_rule<Child, Parent, R>(
+    /// Register a parent rule that matches ANY parent type (wildcard).
+    pub fn register_parent_rule_any<Child, R>(&mut self, child_vtable: &'static Child, rule: R)
+    where
+        Child: VTable,
+        R: 'static,
+        R: ParentReduceRule<Child, AnyParent, RuleContext>,
+    {
+        let adapter = ReduceParentRuleAdapter {
+            rule,
+            _phantom: PhantomData,
+        };
+        self.any_parent_rules
+            .entry(child_vtable.id())
+            .or_default()
+            .push(Arc::new(adapter));
+    }
+
+    /// Register a typed parent rule for a specific parent type.
+    pub fn register_typed_parent_rule_specific<Child, Parent, R>(
         &mut self,
         child_vtable: &'static Child,
         parent_vtable: &'static Parent,
@@ -220,6 +242,26 @@ impl RewriteRuleRegistry {
         };
         self.typed_parent_rules
             .entry((child_vtable.id(), parent_vtable.id()))
+            .or_default()
+            .push(Arc::new(adapter));
+    }
+
+    /// Register a typed parent rule that matches ANY parent type (wildcard).
+    pub fn register_typed_parent_rule_any<Child, R>(
+        &mut self,
+        child_vtable: &'static Child,
+        rule: R,
+    ) where
+        Child: VTable,
+        R: 'static,
+        R: ParentReduceRule<Child, AnyParent, TypedRuleContext>,
+    {
+        let adapter = ReduceParentRuleAdapter {
+            rule,
+            _phantom: PhantomData,
+        };
+        self.typed_any_parent_rules
+            .entry(child_vtable.id())
             .or_default()
             .push(Arc::new(adapter));
     }
@@ -241,26 +283,52 @@ impl RewriteRuleRegistry {
     }
 
     /// Get all untyped parent reduce rules for a given child and parent expression ID pair.
+    /// Returns both specific parent rules AND wildcard "any parent" rules.
     pub(crate) fn parent_rules_for(
         &self,
         child_id: &ExprId,
         parent_id: &ExprId,
-    ) -> &[Arc<dyn DynParentReduceRule>] {
-        self.parent_rules
+    ) -> Vec<Arc<dyn DynParentReduceRule>> {
+        let mut rules = Vec::new();
+
+        // Add specific parent rules first
+        if let Some(specific) = self
+            .parent_rules
             .get(&(child_id.clone(), parent_id.clone()))
-            .map(|v| v.as_slice())
-            .unwrap_or_default()
+        {
+            rules.extend_from_slice(specific);
+        }
+
+        // Add wildcard "any parent" rules
+        if let Some(wildcard) = self.any_parent_rules.get(child_id) {
+            rules.extend_from_slice(wildcard);
+        }
+
+        rules
     }
 
     /// Get all the typed parent reduce rules for a given child and parent expression ID pair.
+    /// Returns both specific parent rules AND wildcard "any parent" rules.
     pub(crate) fn typed_parent_rules_for(
         &self,
         child_id: &ExprId,
         parent_id: &ExprId,
-    ) -> &[Arc<dyn DynTypedParentReduceRule>] {
-        self.typed_parent_rules
+    ) -> Vec<Arc<dyn DynTypedParentReduceRule>> {
+        let mut rules = Vec::new();
+
+        // Add specific parent rules first
+        if let Some(specific) = self
+            .typed_parent_rules
             .get(&(child_id.clone(), parent_id.clone()))
-            .map(|v| v.as_slice())
-            .unwrap_or_default()
+        {
+            rules.extend_from_slice(specific);
+        }
+
+        // Add wildcard "any parent" rules
+        if let Some(wildcard) = self.typed_any_parent_rules.get(child_id) {
+            rules.extend_from_slice(wildcard);
+        }
+
+        rules
     }
 }

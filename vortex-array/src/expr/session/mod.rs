@@ -78,7 +78,7 @@ impl ExprSession {
         self.rewrite_rules.register_reduce_rule(vtable, rule);
     }
 
-    /// Register a parent reduce rule in the session.
+    /// Register a parent reduce rule for a specific parent type.
     pub fn register_parent_rule<Child, Parent, R>(
         &mut self,
         child_vtable: &'static Child,
@@ -91,10 +91,21 @@ impl ExprSession {
         R: ParentReduceRule<Child, Parent, RuleContext>,
     {
         self.rewrite_rules
-            .register_parent_rule(child_vtable, parent_vtable, rule);
+            .register_parent_rule_specific(child_vtable, parent_vtable, rule);
     }
 
-    /// Register a typed parent reduce rule in the session.
+    /// Register a parent rule that matches ANY parent type (wildcard).
+    pub fn register_any_parent_rule<Child, R>(&mut self, child_vtable: &'static Child, rule: R)
+    where
+        Child: VTable,
+        R: 'static,
+        R: ParentReduceRule<Child, crate::expr::transform::rules::AnyParent, RuleContext>,
+    {
+        self.rewrite_rules
+            .register_parent_rule_any(child_vtable, rule);
+    }
+
+    /// Register a typed parent reduce rule for a specific parent type.
     pub fn register_typed_parent_rule<Child, Parent, R>(
         &mut self,
         child_vtable: &'static Child,
@@ -107,7 +118,21 @@ impl ExprSession {
         R: ParentReduceRule<Child, Parent, TypedRuleContext>,
     {
         self.rewrite_rules
-            .register_typed_parent_rule(child_vtable, parent_vtable, rule);
+            .register_typed_parent_rule_specific(child_vtable, parent_vtable, rule);
+    }
+
+    /// Register a typed parent rule that matches ANY parent type (wildcard).
+    pub fn register_typed_any_parent_rule<Child, R>(
+        &mut self,
+        child_vtable: &'static Child,
+        rule: R,
+    ) where
+        Child: VTable,
+        R: 'static,
+        R: ParentReduceRule<Child, crate::expr::transform::rules::AnyParent, TypedRuleContext>,
+    {
+        self.rewrite_rules
+            .register_typed_parent_rule_any(child_vtable, rule);
     }
 }
 
