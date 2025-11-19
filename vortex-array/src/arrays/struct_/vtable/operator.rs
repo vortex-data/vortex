@@ -237,8 +237,7 @@ mod tests {
         let struct_array = test_struct_array();
 
         let expr = gt(get_item("a", root()), lit(5));
-        let expr_array =
-            ExprArray::new_infer_dtype(struct_array.clone().into_array(), expr)?;
+        let expr_array = ExprArray::new_infer_dtype(struct_array.clone().into_array(), expr)?;
 
         let actual = expr_array.to_canonical().into_array();
         let expected = (0..5)
