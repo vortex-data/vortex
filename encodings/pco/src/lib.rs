@@ -3,6 +3,7 @@
 
 mod array;
 mod compute;
+mod pipeline;
 #[cfg(test)]
 mod test;
 
