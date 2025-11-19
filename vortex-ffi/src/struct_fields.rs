@@ -61,16 +61,11 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_field_dtype(
     let ptr = unsafe { dtype.as_ref() }.vortex_expect("null ptr");
     let struct_dtype = &ptr.0;
 
-    let idx_usize = match usize::try_from(idx) {
-        Ok(i) => i,
-        Err(_) => return ptr::null(),
-    };
-
-    if idx_usize >= struct_dtype.nfields() {
+    if idx >= struct_dtype.nfields() {
         return ptr::null();
     }
 
-    match struct_dtype.field_by_index(idx_usize) {
+    match struct_dtype.field_by_index(idx) {
         Some(field_dtype) => vx_dtype::new(Arc::new(field_dtype)),
         None => ptr::null(),
     }
