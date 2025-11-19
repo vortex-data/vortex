@@ -314,8 +314,6 @@ mod tests {
             .as_opt::<ExprVTable>()
             .vortex_expect("should be an ExprArray");
 
-        println!("expr {}", result_expr.display_tree());
-
         // The field name can change.
         assert_eq!(
             result_expr.expr(),
