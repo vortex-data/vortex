@@ -23,7 +23,9 @@ use crate::expr::exprs::pack::Pack;
 use crate::expr::exprs::root::Root;
 use crate::expr::exprs::select::Select;
 use crate::expr::exprs::select::transform::RemoveSelectRule;
-use crate::expr::transform::rules::{AnyParent, ParentReduceRule, ReduceRule, RuleContext, TypedRuleContext};
+use crate::expr::transform::rules::{
+    AnyParent, ParentReduceRule, ReduceRule, RuleContext, TypedRuleContext,
+};
 use crate::expr::{ExprVTable, VTable};
 
 /// Registry of expression vtables.
