@@ -27,21 +27,12 @@ impl ArrayVTable<ExprVTable> for ExprVTable {
     fn array_hash<H: std::hash::Hasher>(array: &ExprArray, state: &mut H, precision: Precision) {
         array.child.array_hash(state, precision);
         array.dtype.hash(state);
-        // TODO(joe): fixme
-        array
-            .expr
-            .serialize_metadata()
-            .unwrap_or(None)
-            .unwrap_or_default()
-            .hash(state)
-        // Note: Expression doesn't implement Hash, so we skip it
-        // This is acceptable since expressions are typically transient
+        array.expr.hash(state)
     }
 
     fn array_eq(array: &ExprArray, other: &ExprArray, precision: Precision) -> bool {
         array.child.array_eq(&other.child, precision)
             && array.dtype == other.dtype
-            // TODO(joe): fixme
-            && array.expr.serialize_metadata().unwrap_or(None) == other.expr.serialize_metadata().unwrap_or(None)
+            && array.expr == other.expr
     }
 }

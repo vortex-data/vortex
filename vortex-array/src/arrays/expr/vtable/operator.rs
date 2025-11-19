@@ -53,7 +53,7 @@ mod tests {
 
         let expr = get_item("a", pack([("a", root())], Nullability::NonNullable));
 
-        let expr_array = ExprArray::new_infer_dtype(array.clone().into_array(), expr.clone())?;
+        let expr_array = ExprArray::new_infer_dtype(array.into_array(), expr)?;
 
         // Call reduce - it should optimize pack(a: $).a to just $
         let reduced = expr_array.reduce()?.vortex_expect("reduce failed");
