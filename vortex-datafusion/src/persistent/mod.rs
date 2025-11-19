@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Persistent implementation of a Vortex table provider.
-mod cache;
+pub(crate) mod cache;
 mod format;
 pub mod metrics;
 mod opener;

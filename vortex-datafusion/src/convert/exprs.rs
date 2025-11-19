@@ -244,8 +244,11 @@ pub(crate) fn can_be_pushed_down(df_expr: &PhysicalExprRef, schema: &Schema) -> 
     } else if let Some(in_list) = expr.downcast_ref::<df_expr::InListExpr>() {
         can_be_pushed_down(in_list.expr(), schema)
             && in_list.list().iter().all(|e| can_be_pushed_down(e, schema))
-    } else if expr.downcast_ref::<ScalarFunctionExpr>().is_some() {
-        get_source_data_type(df_expr, schema).is_some()
+    } else if let Some(scalar_fn) = expr.downcast_ref::<ScalarFunctionExpr>() {
+        // Only get_field expressions should be pushed down. Note, we know that
+        // the GetFieldFunc call should be well-formed, because the DataFusion planner
+        // checks that for us before we even get to the DataSource.
+        ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn).is_some()
     } else {
         tracing::debug!(%df_expr, "DataFusion expression can't be pushed down");
         false
@@ -292,70 +295,46 @@ fn supported_data_types(dt: &DataType) -> bool {
     is_supported
 }
 
-/// Evaluate the source `expr` within the scope of `schema` and return its data type. If the source
-/// expression is not composed of valid field accesses that we can pushdown to Vortex, fail.
-fn get_source_data_type(expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> Option<DataType> {
-    if let Some(col) = expr.as_any().downcast_ref::<df_expr::Column>() {
-        // Column expression handler
-        let Ok(field) = schema.field_with_name(col.name()) else {
-            return None;
-        };
-
-        // Get back the data type here instead.
-        Some(field.data_type().clone())
-    } else if let Some(scalar_fn) = expr.as_any().downcast_ref::<ScalarFunctionExpr>() {
-        // Struct field access handler
-        let get_field_fn = ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn)?;
-
-        let args = get_field_fn.args();
-        if args.len() != 2 {
-            return None;
-        }
-
-        let source = &args[0];
-        let field_name_expr = &args[1];
-
-        let DataType::Struct(fields) = get_source_data_type(source, schema)? else {
-            return None;
-        };
-
-        let field_name = field_name_expr
-            .as_any()
-            .downcast_ref::<df_expr::Literal>()
-            .and_then(|l| l.value().try_as_str())
-            .flatten()?;
-
-        // Extract the named field from the struct type
-        fields
-            .find(field_name)
-            .map(|(_, dt)| dt.data_type().clone())
-    } else {
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::any::Any;
     use std::sync::Arc;
 
     use arrow_schema::DataType;
     use arrow_schema::Field;
-    use arrow_schema::Fields;
     use arrow_schema::Schema;
+    use arrow_schema::SchemaBuilder;
+    use arrow_schema::SchemaRef;
     use arrow_schema::TimeUnit as ArrowTimeUnit;
     use datafusion::functions::core::getfield::GetFieldFunc;
+    use datafusion::logical_expr::ColumnarValue;
+    use datafusion::logical_expr::Signature;
     use datafusion_common::ScalarValue;
+    use datafusion_common::ToDFSchema;
     use datafusion_common::config::ConfigOptions;
+    use datafusion_datasource::file::FileSource;
+    use datafusion_expr::Expr;
     use datafusion_expr::Operator as DFOperator;
+    use datafusion_expr::ScalarFunctionArgs;
     use datafusion_expr::ScalarUDF;
+    use datafusion_expr::ScalarUDFImpl;
+    use datafusion_expr::Volatility;
+    use datafusion_expr::col;
+    use datafusion_expr::execution_props::ExecutionProps;
+    use datafusion_expr::expr::ScalarFunction;
+    use datafusion_functions::expr_fn::get_field;
     use datafusion_physical_expr::PhysicalExpr;
+    use datafusion_physical_expr::create_physical_expr;
     use datafusion_physical_plan::expressions as df_expr;
+    use datafusion_physical_plan::filter_pushdown::PushedDown;
     use insta::assert_snapshot;
     use rstest::rstest;
     use vortex::expr::Expression;
     use vortex::expr::Operator;
 
     use super::*;
+    use crate::VortexSource;
+    use crate::persistent::cache::VortexFileCache;
 
     #[rstest::fixture]
     fn test_schema() -> Schema {
@@ -527,7 +506,8 @@ mod tests {
         DataType::List(Arc::new(Field::new("item", DataType::Int32, true))),
         false
     )]
-    #[case::struct_type(DataType::Struct(vec![Field::new("field", DataType::Int32, true)].into()), false)]
+    #[case::struct_type(DataType::Struct(vec![Field::new("field", DataType::Int32, true)].into()
+    ), false)]
     // Dictionary types - should be supported if value type is supported
     #[case::dict_utf8(
         DataType::Dictionary(Box::new(DataType::UInt32), Box::new(DataType::Utf8)),
@@ -669,33 +649,142 @@ mod tests {
         "#);
     }
 
-    #[rstest]
-    #[case::valid_field("field1", true)]
-    #[case::missing_field("nonexistent_field", false)]
-    fn test_can_be_pushed_down_get_field(#[case] field_name: &str, #[case] expected: bool) {
-        let struct_fields = Fields::from(vec![
-            Field::new("field1", DataType::Utf8, true),
-            Field::new("field2", DataType::Int32, true),
-        ]);
-        let schema = Schema::new(vec![Field::new(
-            "my_struct",
-            DataType::Struct(struct_fields),
-            true,
-        )]);
+    #[test]
+    fn test_pushdown_nested_filter() {
+        // schema:
+        // a: struct
+        //  |- one: i32
+        // b:struct
+        //  |- two: i32
+        let mut test_schema = SchemaBuilder::new();
+        test_schema.push(Field::new_struct(
+            "a",
+            vec![Field::new("one", DataType::Int32, false)],
+            false,
+        ));
+        test_schema.push(Field::new_struct(
+            "b",
+            vec![Field::new("two", DataType::Int32, false)],
+            false,
+        ));
 
-        let struct_col = Arc::new(df_expr::Column::new("my_struct", 0)) as Arc<dyn PhysicalExpr>;
-        let field_name_lit = Arc::new(df_expr::Literal::new(ScalarValue::Utf8(Some(
-            field_name.to_string(),
-        )))) as Arc<dyn PhysicalExpr>;
+        let test_schema = Arc::new(test_schema.finish());
+        // Make sure filter is pushed down
+        let filter = get_field(col("b"), "two").eq(datafusion_expr::lit(10i32));
 
-        let get_field_expr = Arc::new(ScalarFunctionExpr::new(
-            "get_field",
-            Arc::new(ScalarUDF::from(GetFieldFunc::new())),
-            vec![struct_col, field_name_lit],
-            Arc::new(Field::new(field_name, DataType::Utf8, true)),
-            Arc::new(ConfigOptions::new()),
-        )) as Arc<dyn PhysicalExpr>;
+        let df_schema = test_schema.clone().to_dfschema().unwrap();
 
-        assert_eq!(can_be_pushed_down(&get_field_expr, &schema), expected);
+        let physical_filter =
+            create_physical_expr(&filter, &df_schema, &ExecutionProps::default()).unwrap();
+
+        let source = vortex_source(&test_schema);
+
+        let prop = source
+            .try_pushdown_filters(vec![physical_filter], &ConfigOptions::default())
+            .unwrap();
+        assert!(matches!(prop.filters[0], PushedDown::Yes));
+    }
+
+    #[test]
+    fn test_pushdown_deeply_nested_filter() {
+        // schema:
+        // a: struct
+        //  |- b: struct
+        //      |- c: i32
+        let mut schema = SchemaBuilder::new();
+
+        let c = Field::new("c", DataType::Int32, false);
+        let b = Field::new_struct("b", vec![c], false);
+        let a = Field::new_struct("a", vec![b], false);
+        schema.push(a);
+
+        let schema = Arc::new(schema.finish());
+        let df_schema = schema.clone().to_dfschema().unwrap();
+
+        let source = vortex_source(&schema);
+
+        let deep_filter = get_field(get_field(col("a"), "b"), "c").eq(datafusion_expr::lit(10i32));
+
+        let physical_filter =
+            create_physical_expr(&deep_filter, &df_schema, &ExecutionProps::default()).unwrap();
+
+        let prop = source
+            .try_pushdown_filters(vec![physical_filter], &ConfigOptions::default())
+            .unwrap();
+        assert!(matches!(prop.filters[0], PushedDown::Yes));
+    }
+
+    #[test]
+    fn test_unknown_scalar_function() {
+        #[derive(Debug, PartialEq, Eq, Hash)]
+        pub struct UnknownImpl {
+            signature: Signature,
+        }
+
+        impl ScalarUDFImpl for UnknownImpl {
+            fn as_any(&self) -> &dyn Any {
+                self
+            }
+
+            fn name(&self) -> &str {
+                "unknown"
+            }
+
+            fn signature(&self) -> &Signature {
+                &self.signature
+            }
+
+            fn return_type(&self, _arg_types: &[DataType]) -> datafusion_common::Result<DataType> {
+                Ok(DataType::Int32)
+            }
+
+            fn invoke_with_args(
+                &self,
+                _args: ScalarFunctionArgs,
+            ) -> datafusion_common::Result<ColumnarValue> {
+                Ok(ColumnarValue::Scalar(ScalarValue::Int32(Some(1))))
+            }
+        }
+
+        // schema:
+        // a: struct
+        //  |- b: struct
+        //      |- c: i32
+        let mut schema = SchemaBuilder::new();
+
+        let c = Field::new("c", DataType::Int32, false);
+        let b = Field::new_struct("b", vec![c], false);
+        let a = Field::new_struct("a", vec![b], false);
+        schema.push(a);
+
+        let schema = Arc::new(schema.finish());
+        let df_schema = schema.clone().to_dfschema().unwrap();
+
+        let source = vortex_source(&schema);
+
+        let unknown_func = Expr::ScalarFunction(ScalarFunction {
+            func: Arc::new(ScalarUDF::new_from_impl(UnknownImpl {
+                signature: Signature::nullary(Volatility::Immutable),
+            })),
+            args: vec![],
+        });
+
+        // Another weird ScalarFunction that we can't push down
+        let deep_filter = unknown_func.eq(datafusion_expr::lit(10i32));
+
+        let physical_filter =
+            create_physical_expr(&deep_filter, &df_schema, &ExecutionProps::default()).unwrap();
+
+        let prop = source
+            .try_pushdown_filters(vec![physical_filter], &ConfigOptions::default())
+            .unwrap();
+        assert!(matches!(prop.filters[0], PushedDown::No));
+    }
+
+    fn vortex_source(schema: &SchemaRef) -> Arc<dyn FileSource> {
+        let session = VortexSession::default();
+        let cache = VortexFileCache::new(1024, 1024, session.clone());
+
+        Arc::new(VortexSource::new(session.clone(), cache)).with_schema(schema.clone())
     }
 }
