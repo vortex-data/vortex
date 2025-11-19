@@ -32,7 +32,7 @@ impl ArrayVTable<ExprVTable> for ExprVTable {
             .expr
             .serialize_metadata()
             .unwrap_or(None)
-            .unwrap_or(vec![])
+            .unwrap_or_default()
             .hash(state)
         // Note: Expression doesn't implement Hash, so we skip it
         // This is acceptable since expressions are typically transient
