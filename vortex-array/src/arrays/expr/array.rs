@@ -17,6 +17,7 @@ pub struct ExprArray {
 }
 
 impl ExprArray {
+    /// Creates a new ExprArray with the dtype validated to match the expression's return type.
     pub fn try_new(child: ArrayRef, expr: Expression, dtype: DType) -> VortexResult<Self> {
         assert_eq!(dtype, expr.return_dtype(child.dtype())?);
         Ok(unsafe { Self::unchecked_new(child, expr, dtype) })
@@ -37,7 +38,8 @@ impl ExprArray {
         }
     }
 
-    pub fn new_with_root_dtype(child: ArrayRef, expr: Expression) -> VortexResult<Self> {
+    /// Creates a new ExprArray with the dtype inferred from the expression and child.
+    pub fn new_infer_dtype(child: ArrayRef, expr: Expression) -> VortexResult<Self> {
         let dtype = expr.return_dtype(child.dtype())?;
         Ok(unsafe { Self::unchecked_new(child, expr, dtype) })
     }

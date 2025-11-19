@@ -152,7 +152,7 @@ pub(crate) fn apply_partitioned_expr(
             )?
             .into_array();
 
-            Ok(ExprArray::new_with_root_dtype(child, partitioned.root.clone())?.into_array())
+            Ok(ExprArray::new_infer_dtype(child, partitioned.root.clone())?.into_array())
         }
     }
 }

@@ -12,17 +12,6 @@ use crate::expr::transform::ExprOptimizer;
 use crate::vtable::OperatorVTable;
 
 impl OperatorVTable<ExprVTable> for ExprVTable {
-    fn bind(
-        array: &ExprArray,
-        selection: Option<&ArrayRef>,
-        ctx: &mut dyn BindCtx,
-    ) -> VortexResult<BatchKernelRef> {
-        // Canonicalize the ExprArray and bind the result
-        // This evaluates the expression and returns the result
-        let canonical = array.to_canonical();
-        ctx.bind(&ArrayRef::from(canonical), selection)
-    }
-
     fn reduce(array: &ExprArray) -> VortexResult<Option<ArrayRef>> {
         // Get the default expression session
         let session = ExprSession::default();
@@ -66,7 +55,7 @@ mod tests {
 
         let expr = get_item("a", pack([("a", root())], Nullability::NonNullable));
 
-        let expr_array = ExprArray::new_with_root_dtype(array.clone().into_array(), expr.clone())?;
+        let expr_array = ExprArray::new_infer_dtype(array.clone().into_array(), expr.clone())?;
 
         // Call reduce - it should optimize pack(a: $).a to just $
         let reduced = expr_array.reduce()?.vortex_expect("reduce failed");

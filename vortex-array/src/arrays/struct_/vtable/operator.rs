@@ -238,7 +238,7 @@ mod tests {
 
         let expr = gt(get_item("a", root()), lit(5));
         let expr_array =
-            ExprArray::new_with_root_dtype(struct_array.clone().into_array(), expr.clone())?;
+            ExprArray::new_infer_dtype(struct_array.clone().into_array(), expr.clone())?;
 
         let actual = expr_array.to_canonical().into_array();
         let expected = (0..5)
@@ -270,7 +270,7 @@ mod tests {
             gt(get_item("a", root()), lit(5)),
             lt(get_item("a", root()), lit(10)),
         );
-        let expr_array = ExprArray::new_with_root_dtype(struct_array.clone().into_array(), expr)?;
+        let expr_array = ExprArray::new_infer_dtype(struct_array.clone().into_array(), expr)?;
 
         let actual = expr_array.to_canonical().into_array();
         let expected = (0..5)
@@ -304,7 +304,7 @@ mod tests {
             and(gt(col("a"), lit(5)), lt(col("b"), lit(4))),
             gt(col("a"), lit(6)),
         );
-        let expr_array = ExprArray::new_with_root_dtype(struct_array.clone().into_array(), expr)?;
+        let expr_array = ExprArray::new_infer_dtype(struct_array.clone().into_array(), expr)?;
         let parent: ArrayRef = expr_array.into_array();
         let result = struct_array
             .reduce_parent(&parent, 0)?
@@ -383,7 +383,7 @@ mod tests {
 
         let expr = eq(lit(1), lit(0));
         let expr_array =
-            ExprArray::new_with_root_dtype(struct_array.clone().into_array(), expr.clone())?;
+            ExprArray::new_infer_dtype(struct_array.clone().into_array(), expr.clone())?;
 
         let actual = expr_array.to_canonical().into_array();
         let expected = (0..5).map(|_| false).collect::<BoolArray>().into_array();

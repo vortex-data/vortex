@@ -27,13 +27,16 @@ impl ArrayVTable<ExprVTable> for ExprVTable {
     fn array_hash<H: std::hash::Hasher>(array: &ExprArray, state: &mut H, precision: Precision) {
         array.child.array_hash(state, precision);
         array.dtype.hash(state);
+        // TODO(joe): fixme
+        array.expr.serialize_metadata().hash()
         // Note: Expression doesn't implement Hash, so we skip it
         // This is acceptable since expressions are typically transient
     }
 
     fn array_eq(array: &ExprArray, other: &ExprArray, precision: Precision) -> bool {
-        array.child.array_eq(&other.child, precision) && array.dtype == other.dtype
-        // Note: We don't compare expressions here as they don't implement Eq
-        // This is acceptable since ExprArray is typically transient
+        array.child.array_eq(&other.child, precision)
+            && array.dtype == other.dtype
+            // TODO(joe): fixme
+            && array.expr.serialize_metadata() == other.expr.serialize_metadata()
     }
 }
