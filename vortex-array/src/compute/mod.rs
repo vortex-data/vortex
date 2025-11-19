@@ -43,7 +43,6 @@ use crate::{Array, ArrayRef};
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
-pub mod arrays;
 mod between;
 mod boolean;
 mod cast;
