@@ -27,7 +27,7 @@ pub struct ExprEncoding;
 impl VTable for ExprVTable {
     type Array = ExprArray;
     type Encoding = ExprEncoding;
-    type Metadata = ExprDisplay;
+    type Metadata = ExprArrayMetadata;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
@@ -47,7 +47,7 @@ impl VTable for ExprVTable {
     }
 
     fn metadata(array: &ExprArray) -> VortexResult<Self::Metadata> {
-        Ok(ExprDisplay(array.expr.clone()))
+        Ok(ExprArrayMetadata((array.expr.clone(), array.dtype.clone())))
     }
 
     fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
@@ -62,7 +62,7 @@ impl VTable for ExprVTable {
         _encoding: &ExprEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &Self::Metadata,
+        ExprArrayMetadata((expr, root_dtype)): &Self::Metadata,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ExprArray> {
@@ -70,18 +70,19 @@ impl VTable for ExprVTable {
             vortex_bail!("Expected 0 buffers, got {}", buffers.len());
         }
 
-        let Ok(child) = children.get(0, dtype, len) else {
+        let Ok(child) = children.get(0, root_dtype, len) else {
             vortex_bail!("Expected 1 child, got {}", children.len());
         };
 
-        ExprArray::try_new(child, metadata.0.clone(), dtype.clone())
+        ExprArray::try_new(child, expr.clone(), dtype.clone())
     }
 }
 
-pub struct ExprDisplay(Expression);
+pub struct ExprArrayMetadata((Expression, DType));
 
-impl Debug for ExprDisplay {
+impl Debug for ExprArrayMetadata {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt_sql(f)
+        // Since this is used in display method we can omit the dtype.
+        self.0.0.fmt_sql(f)
     }
 }
