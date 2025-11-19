@@ -28,7 +28,7 @@ mod tests {
     use crate::expr::binary::checked_add;
     use crate::expr::literal::lit;
     use crate::validity::Validity;
-    use crate::{Array, IntoArray};
+    use crate::{Array, IntoArray, assert_arrays_eq};
 
     #[test]
     fn test_expr_array_canonicalize() {
@@ -43,6 +43,6 @@ mod tests {
         let actual = expr_array.to_canonical().into_array();
 
         let expect = (0..3).map(|_| 15i32).collect::<PrimitiveArray>();
-        assert_eq!(expect, actual);
+        assert_arrays_eq!(expect, actual);
     }
 }

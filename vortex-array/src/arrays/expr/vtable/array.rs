@@ -28,7 +28,12 @@ impl ArrayVTable<ExprVTable> for ExprVTable {
         array.child.array_hash(state, precision);
         array.dtype.hash(state);
         // TODO(joe): fixme
-        array.expr.serialize_metadata().hash()
+        array
+            .expr
+            .serialize_metadata()
+            .unwrap_or(None)
+            .unwrap_or(vec![])
+            .hash(state)
         // Note: Expression doesn't implement Hash, so we skip it
         // This is acceptable since expressions are typically transient
     }
@@ -37,6 +42,6 @@ impl ArrayVTable<ExprVTable> for ExprVTable {
         array.child.array_eq(&other.child, precision)
             && array.dtype == other.dtype
             // TODO(joe): fixme
-            && array.expr.serialize_metadata() == other.expr.serialize_metadata()
+            && array.expr.serialize_metadata().unwrap_or(None) == other.expr.serialize_metadata().unwrap_or(None)
     }
 }

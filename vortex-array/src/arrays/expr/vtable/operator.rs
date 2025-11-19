@@ -5,7 +5,6 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::arrays::expr::{ExprArray, ExprVTable};
-use crate::execution::{BatchKernelRef, BindCtx};
 use crate::expr::root;
 use crate::expr::session::ExprSession;
 use crate::expr::transform::ExprOptimizer;
