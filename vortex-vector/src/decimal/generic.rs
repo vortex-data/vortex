@@ -188,6 +188,11 @@ impl<D: NativeDecimalType> VectorOps for DVector<D> {
         }
     }
 
+    fn clear(&mut self) {
+        self.elements.clear();
+        self.validity.clear();
+    }
+
     fn try_into_mut(self) -> Result<DVectorMut<D>, Self> {
         let elements = match self.elements.try_into_mut() {
             Ok(elements) => elements,

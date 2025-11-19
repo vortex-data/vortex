@@ -303,6 +303,11 @@ impl Mask {
         Self::from_indices(len, intersection)
     }
 
+    /// Clears the mask of all data. Drops any allocated capacity.
+    pub fn clear(&mut self) {
+        *self = Self::new_false(0);
+    }
+
     /// Returns the length of the mask (not the number of true values).
     #[inline]
     pub fn len(&self) -> usize {

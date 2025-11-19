@@ -81,6 +81,10 @@ impl VectorOps for Vector {
         match_each_vector!(self, |v| { Vector::from(v.slice(range)) })
     }
 
+    fn clear(&mut self) {
+        match_each_vector!(self, |v| { v.clear() })
+    }
+
     fn try_into_mut(self) -> Result<VectorMut, Self> {
         match_each_vector!(self, |v| {
             v.try_into_mut().map(VectorMut::from).map_err(Vector::from)

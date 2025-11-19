@@ -86,6 +86,10 @@ impl VectorOps for PrimitiveVector {
         match_each_pvector!(self, |v| { v.slice(range).into() })
     }
 
+    fn clear(&mut self) {
+        match_each_pvector!(self, |v| { v.clear() })
+    }
+
     fn try_into_mut(self) -> Result<PrimitiveVectorMut, Self> {
         match_each_pvector!(self, |v| {
             v.try_into_mut()

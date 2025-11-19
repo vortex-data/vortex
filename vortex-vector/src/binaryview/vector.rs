@@ -211,6 +211,12 @@ impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
         todo!()
     }
 
+    fn clear(&mut self) {
+        self.views.clear();
+        self.validity = Mask::new_true(0);
+        self.buffers = Arc::new(Box::new([]));
+    }
+
     fn try_into_mut(self) -> Result<BinaryViewVectorMut<T>, Self> {
         let views_mut = match self.views.try_into_mut() {
             Ok(views_mut) => views_mut,

@@ -99,6 +99,11 @@ impl VectorOps for BoolVector {
         Self { bits, validity }
     }
 
+    fn clear(&mut self) {
+        self.bits.clear();
+        self.validity.clear();
+    }
+
     fn try_into_mut(self) -> Result<BoolVectorMut, Self> {
         let bits = match self.bits.try_into_mut() {
             Ok(bits) => bits,

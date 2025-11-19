@@ -142,6 +142,11 @@ impl<T: NativePType> VectorOps for PVector<T> {
         Self::new(elements, validity)
     }
 
+    fn clear(&mut self) {
+        self.elements.clear();
+        self.validity.clear();
+    }
+
     /// Try to convert self into a mutable vector.
     fn try_into_mut(self) -> Result<PVectorMut<T>, Self> {
         let elements = match self.elements.try_into_mut() {

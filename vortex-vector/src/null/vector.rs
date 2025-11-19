@@ -57,6 +57,11 @@ impl VectorOps for NullVector {
         Self::new(len)
     }
 
+    fn clear(&mut self) {
+        self.len = 0;
+        self.validity = Mask::AllFalse(0);
+    }
+
     fn try_into_mut(self) -> Result<NullVectorMut, Self> {
         Ok(NullVectorMut::new(self.len))
     }

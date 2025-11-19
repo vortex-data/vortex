@@ -220,6 +220,14 @@ impl VectorOps for ListViewVector {
         todo!()
     }
 
+    fn clear(&mut self) {
+        self.offsets.clear();
+        self.sizes.clear();
+        Arc::make_mut(&mut self.elements).clear();
+        self.validity.clear();
+        self.len = 0;
+    }
+
     fn try_into_mut(self) -> Result<ListViewVectorMut, Self> {
         // Try to unwrap the `Arc`.
         let elements = match Arc::try_unwrap(self.elements) {

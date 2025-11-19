@@ -47,6 +47,9 @@ pub trait VectorOps: private::Sealed + Into<Vector> + Sized {
     /// Slice the vector from `start` to `end` (exclusive).
     fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self;
 
+    /// Clears the vector of data, preserving any existing capacity where possible.
+    fn clear(&mut self);
+
     /// Tries to convert `self` into a mutable vector (implementing [`VectorMutOps`]).
     ///
     /// This method will only succeed if `self` is the only unique strong reference (it effectively
