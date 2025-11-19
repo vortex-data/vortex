@@ -56,7 +56,7 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_field_name(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_struct_fields_field_dtype(
     dtype: *const vx_struct_fields,
-    idx: u64,
+    idx: usize,
 ) -> *const vx_dtype {
     let ptr = unsafe { dtype.as_ref() }.vortex_expect("null ptr");
     let struct_dtype = &ptr.0;
