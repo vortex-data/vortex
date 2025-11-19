@@ -187,6 +187,7 @@ impl StructReader {
 
 /// When partitioning an expression, in the case it only has a single partition we can avoid
 /// some cost and just delegate to the child reader directly.
+// TODO(joe): this is a duplicate of the Partitioned enum in arrays/expr/vtable/operator.rs
 #[derive(Clone)]
 enum Partitioned {
     /// An expression which only operates over a single field

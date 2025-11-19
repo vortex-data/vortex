@@ -34,19 +34,15 @@ mod tests {
     fn test_expr_array_canonicalize() {
         let child = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable).into_array();
 
-        // Create an expression: lit(10) + lit(5) = 15
         // This expression doesn't use the child, but demonstrates the ExprArray mechanics
         let expr = checked_add(lit(10), lit(5));
 
-        // Create ExprArray with the expression
         let dtype = DType::Primitive(PType::I32, NonNullable);
         let expr_array = ExprArray::try_new(child, expr, dtype).unwrap();
-        let array = expr_array.into_array();
 
-        // Test canonicalize - should evaluate the expression
-        let canonical = array.to_canonical().into_array();
+        let actual = expr_array.to_canonical().into_array();
 
         let expect = (0..3).map(|_| 15i32).collect::<PrimitiveArray>();
-        assert_eq!(expect, canonical);
+        assert_eq!(expect, actual);
     }
 }

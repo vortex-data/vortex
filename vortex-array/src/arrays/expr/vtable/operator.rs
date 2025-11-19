@@ -39,7 +39,6 @@ impl OperatorVTable<ExprVTable> for ExprVTable {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::redundant_clone)]
 
     use vortex_dtype::Nullability;
     use vortex_error::VortexExpect;
