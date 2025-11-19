@@ -290,7 +290,12 @@ mod tests {
 
         let split_a = partitioned.find_partition(&"a".into()).unwrap();
         assert_eq!(
-            &simplify_typed(split_a.clone(), &dtype, &ExprSession::default()).unwrap(),
+            &simplify_typed(
+                split_a.clone(),
+                &dtype,
+                ExprSession::default().rewrite_rules()
+            )
+            .unwrap(),
             &pack(
                 [
                     ("a_0", get_item("x", get_item("a", root()))),
@@ -340,7 +345,7 @@ mod tests {
             get_item("y", get_item("a", root())),
             select(["a", "b"], root()),
         );
-        let expr = simplify_typed(expr, &dtype, &ExprSession::default()).unwrap();
+        let expr = simplify_typed(expr, &dtype, ExprSession::default().rewrite_rules()).unwrap();
         let partitioned =
             partition(expr, &dtype, annotate_scope_access(fields), &optimizer).unwrap();
 

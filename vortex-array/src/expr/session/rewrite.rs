@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
-use vortex_utils::aliases::hash_map::HashMap;
+use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::expr::transform::rules::{
     AnyParent, ParentMatcher, ParentReduceRule, ReduceRule, RuleContext, TypedRuleContext,
@@ -104,15 +104,13 @@ where
     }
 }
 
-type RuleRegistry<Rule> = HashMap<ExprId, Vec<Arc<Rule>>>;
-type ParentRuleRegistry<Rule> = HashMap<(ExprId, ExprId), Vec<Arc<Rule>>>;
+type RuleRegistry<Rule> = DashMap<ExprId, Vec<Arc<Rule>>>;
+type ParentRuleRegistry<Rule> = DashMap<ExprId, Vec<Arc<Rule>>>;
 
-/// Registry of expression rewrite rules.
-///
-/// Stores rewrite rules indexed by the expression ID they apply to.
-/// Typed and untyped rules are stored separately for better organization.
+/// Inner struct that holds all the rule registries.
+/// Wrapped in a single Arc by RewriteRuleRegistry for efficient cloning.
 #[derive(Default)]
-pub struct RewriteRuleRegistry {
+struct RewriteRuleRegistryInner {
     /// Typed reduce rules (require TypedRewriteContext), indexed by expression ID
     typed_reduce_rules: RuleRegistry<dyn DynTypedReduceRule>,
     /// Untyped reduce rules (require only RewriteContext), indexed by expression ID
@@ -127,19 +125,34 @@ pub struct RewriteRuleRegistry {
     any_parent_rules: RuleRegistry<dyn DynParentReduceRule>,
 }
 
+/// Registry of expression rewrite rules.
+///
+/// Stores rewrite rules indexed by the expression ID they apply to.
+/// Typed and untyped rules are stored separately for better organization.
+#[derive(Clone)]
+pub struct RewriteRuleRegistry {
+    inner: Arc<RewriteRuleRegistryInner>,
+}
+
+impl Default for RewriteRuleRegistry {
+    fn default() -> Self {
+        Self {
+            inner: Arc::new(RewriteRuleRegistryInner::default()),
+        }
+    }
+}
+
 // TODO(joe): follow up with rule debug info.
 impl Debug for RewriteRuleRegistry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RewriteRuleRegistry")
-            .field("typed_reduce_rules_count", &self.typed_reduce_rules.len())
-            .field("reduce_rules_count", &self.reduce_rules.len())
-            .field("typed_parent_rules", &self.typed_parent_rules.len())
-            .field("parent_rules_count", &self.parent_rules.len())
             .field(
-                "typed_any_parent_rules_count",
-                &self.typed_any_parent_rules.len(),
+                "typed_reduce_rules_count",
+                &self.inner.typed_reduce_rules.len(),
             )
-            .field("any_parent_rules_count", &self.any_parent_rules.len())
+            .field("reduce_rules_count", &self.inner.reduce_rules.len())
+            .field("typed_parent_rules", &self.inner.typed_parent_rules.len())
+            .field("parent_rules_count", &self.inner.parent_rules.len())
             .finish()
     }
 }
@@ -161,7 +174,8 @@ impl RewriteRuleRegistry {
             rule,
             _phantom: PhantomData,
         };
-        self.typed_reduce_rules
+        self.inner
+            .typed_reduce_rules
             .entry(vtable.id())
             .or_default()
             .push(Arc::new(adapter));
@@ -179,7 +193,8 @@ impl RewriteRuleRegistry {
             rule,
             _phantom: PhantomData,
         };
-        self.reduce_rules
+        self.inner
+            .reduce_rules
             .entry(vtable.id())
             .or_default()
             .push(Arc::new(adapter));
@@ -201,8 +216,9 @@ impl RewriteRuleRegistry {
             rule,
             _phantom: PhantomData,
         };
-        self.parent_rules
-            .entry((child_vtable.id(), parent_vtable.id()))
+        self.inner
+            .parent_rules
+            .entry(child_vtable.id())
             .or_default()
             .push(Arc::new(adapter));
     }
@@ -218,7 +234,8 @@ impl RewriteRuleRegistry {
             rule,
             _phantom: PhantomData,
         };
-        self.any_parent_rules
+        self.inner
+            .parent_rules
             .entry(child_vtable.id())
             .or_default()
             .push(Arc::new(adapter));
@@ -240,8 +257,9 @@ impl RewriteRuleRegistry {
             rule,
             _phantom: PhantomData,
         };
-        self.typed_parent_rules
-            .entry((child_vtable.id(), parent_vtable.id()))
+        self.inner
+            .typed_parent_rules
+            .entry(child_vtable.id())
             .or_default()
             .push(Arc::new(adapter));
     }
@@ -260,74 +278,58 @@ impl RewriteRuleRegistry {
             rule,
             _phantom: PhantomData,
         };
-        self.typed_any_parent_rules
+        self.inner
+            .typed_parent_rules
             .entry(child_vtable.id())
             .or_default()
             .push(Arc::new(adapter));
     }
 
-    /// Get all typed reduce rules for a given expression ID.
-    pub(crate) fn typed_reduce_rules_for(
-        &self,
-        id: &ExprId,
-    ) -> impl Iterator<Item = &Arc<dyn DynTypedReduceRule>> {
-        self.typed_reduce_rules
-            .get(id)
-            .into_iter()
-            .flat_map(|v| v.iter())
+    /// Execute a callback with all typed reduce rules for a given expression ID.
+    pub(crate) fn with_typed_reduce_rules<F, R>(&self, id: &ExprId, f: F) -> R
+    where
+        F: FnOnce(&[Arc<dyn DynTypedReduceRule>]) -> R,
+    {
+        if let Some(entry) = self.inner.typed_reduce_rules.get(id) {
+            f(entry.value())
+        } else {
+            f(&[])
+        }
     }
 
-    /// Get all untyped reduce rules for a given expression ID.
-    pub(crate) fn reduce_rules_for(
-        &self,
-        id: &ExprId,
-    ) -> impl Iterator<Item = &Arc<dyn DynReduceRule>> {
-        self.reduce_rules.get(id).into_iter().flat_map(|v| v.iter())
+    /// Execute a callback with all untyped reduce rules for a given expression ID.
+    pub(crate) fn with_reduce_rules<F, R>(&self, id: &ExprId, f: F) -> R
+    where
+        F: FnOnce(&[Arc<dyn DynReduceRule>]) -> R,
+    {
+        if let Some(entry) = self.inner.reduce_rules.get(id) {
+            f(entry.value())
+        } else {
+            f(&[])
+        }
     }
 
-    /// Get all untyped parent reduce rules for a given child and parent expression ID pair.
-    ///
-    /// Returns both specific parent rules and wildcard "any parent" rules.
-    pub(crate) fn parent_rules_for(
-        &self,
-        child_id: &ExprId,
-        parent_id: &ExprId,
-    ) -> impl Iterator<Item = &Arc<dyn DynParentReduceRule>> {
-        let specific = self
-            .parent_rules
-            .get(&(child_id.clone(), parent_id.clone()))
-            .into_iter()
-            .flat_map(|v| v.iter());
-
-        let wildcard = self
-            .any_parent_rules
-            .get(child_id)
-            .into_iter()
-            .flat_map(|v| v.iter());
-
-        specific.chain(wildcard)
+    /// Execute a callback with all untyped parent reduce rules for a given expression ID.
+    pub(crate) fn with_parent_rules<F, R>(&self, id: &ExprId, f: F) -> R
+    where
+        F: FnOnce(&[Arc<dyn DynParentReduceRule>]) -> R,
+    {
+        if let Some(entry) = self.inner.parent_rules.get(id) {
+            f(entry.value())
+        } else {
+            f(&[])
+        }
     }
 
-    /// Get all the typed parent reduce rules for a given child and parent expression ID pair.
-    ///
-    /// Returns both specific parent rules and wildcard "any parent" rules.
-    pub(crate) fn typed_parent_rules_for(
-        &self,
-        child_id: &ExprId,
-        parent_id: &ExprId,
-    ) -> impl Iterator<Item = &Arc<dyn DynTypedParentReduceRule>> {
-        let specific = self
-            .typed_parent_rules
-            .get(&(child_id.clone(), parent_id.clone()))
-            .into_iter()
-            .flat_map(|v| v.iter());
-
-        let wildcard = self
-            .typed_any_parent_rules
-            .get(child_id)
-            .into_iter()
-            .flat_map(|v| v.iter());
-
-        specific.chain(wildcard)
+    /// Execute a callback with all typed parent reduce rules for a given expression ID.
+    pub(crate) fn with_typed_parent_rules<F, R>(&self, id: &ExprId, f: F) -> R
+    where
+        F: FnOnce(&[Arc<dyn DynTypedParentReduceRule>]) -> R,
+    {
+        if let Some(entry) = self.inner.typed_parent_rules.get(id) {
+            f(entry.value())
+        } else {
+            f(&[])
+        }
     }
 }
