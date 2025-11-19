@@ -244,8 +244,8 @@ pub(crate) fn can_be_pushed_down(df_expr: &PhysicalExprRef, schema: &Schema) -> 
     } else if let Some(in_list) = expr.downcast_ref::<df_expr::InListExpr>() {
         can_be_pushed_down(in_list.expr(), schema)
             && in_list.list().iter().all(|e| can_be_pushed_down(e, schema))
-    } else if let Some(scalar_fn) = expr.downcast_ref::<ScalarFunctionExpr>() {
-        can_scalar_fn_be_pushed_down(scalar_fn, schema)
+    } else if expr.downcast_ref::<ScalarFunctionExpr>().is_some() {
+        get_source_data_type(df_expr, schema).is_some()
     } else {
         tracing::debug!(%df_expr, "DataFusion expression can't be pushed down");
         false
@@ -292,51 +292,46 @@ fn supported_data_types(dt: &DataType) -> bool {
     is_supported
 }
 
-/// Checks if a GetField scalar function can be pushed down.
-fn can_scalar_fn_be_pushed_down(scalar_fn: &ScalarFunctionExpr, schema: &Schema) -> bool {
-    let Some(get_field_fn) = ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn)
-    else {
-        // Only get_field pushdown is supported.
-        return false;
-    };
+/// Evaluate the source `expr` within the scope of `schema` and return its data type. If the source
+/// expression is not composed of valid field accesses that we can pushdown to Vortex, fail.
+fn get_source_data_type(expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> Option<DataType> {
+    if let Some(col) = expr.as_any().downcast_ref::<df_expr::Column>() {
+        // Column expression handler
+        let Ok(field) = schema.field_with_name(col.name()) else {
+            return None;
+        };
 
-    let args = get_field_fn.args();
-    if args.len() != 2 {
-        tracing::debug!(
-            "Expected 2 arguments for GetField, not pushing down {} arguments",
-            args.len()
-        );
-        return false;
+        // Get back the data type here instead.
+        Some(field.data_type().clone())
+    } else if let Some(scalar_fn) = expr.as_any().downcast_ref::<ScalarFunctionExpr>() {
+        // Struct field access handler
+        let get_field_fn = ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn)?;
+
+        let args = get_field_fn.args();
+        if args.len() != 2 {
+            return None;
+        }
+
+        let source = &args[0];
+        let field_name_expr = &args[1];
+
+        let DataType::Struct(fields) = get_source_data_type(source, schema)? else {
+            return None;
+        };
+
+        let field_name = field_name_expr
+            .as_any()
+            .downcast_ref::<df_expr::Literal>()
+            .and_then(|l| l.value().try_as_str())
+            .flatten()?;
+
+        // Extract the named field from the struct type
+        fields
+            .find(field_name)
+            .map(|(_, dt)| dt.data_type().clone())
+    } else {
+        None
     }
-    let source_expr = &args[0];
-    let field_name_expr = &args[1];
-    let Some(field_name) = field_name_expr
-        .as_any()
-        .downcast_ref::<df_expr::Literal>()
-        .and_then(|lit| lit.value().try_as_str().flatten())
-    else {
-        return false;
-    };
-
-    let Ok(source_dt) = source_expr.data_type(schema) else {
-        tracing::debug!(
-            field_name = field_name,
-            schema = ?schema,
-            source_expr = ?source_expr,
-            "Failed to get source type for GetField, not pushing down"
-        );
-        return false;
-    };
-    let DataType::Struct(fields) = source_dt else {
-        tracing::debug!(
-            field_name = field_name,
-            schema = ?schema,
-            source_expr = ?source_expr,
-            "Failed to get source type as struct for GetField, not pushing down"
-        );
-        return false;
-    };
-    fields.find(field_name).is_some()
 }
 
 #[cfg(test)]
