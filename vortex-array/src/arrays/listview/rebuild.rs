@@ -142,12 +142,17 @@ impl ListViewArray {
         let elements =
             unsafe { ChunkedArray::new_unchecked(chunks, element_dtype.as_ref().clone()) };
 
-        ListViewArray::new(
-            elements.to_canonical().into_array(),
-            offsets,
-            sizes,
-            self.validity.clone(),
-        )
+        // SAFETY: elements are contiguous, offsets and sizes hand-built to be zero copy
+        //  to list.
+        unsafe {
+            ListViewArray::new_unchecked(
+                elements.to_canonical().into_array(),
+                offsets,
+                sizes,
+                self.validity.clone(),
+            )
+            .with_zero_copy_to_list(true)
+        }
     }
 
     /// Rebuilds a [`ListViewArray`] by trimming any unused / unreferenced leading and trailing
