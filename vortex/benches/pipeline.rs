@@ -18,42 +18,67 @@
 //!
 //! ## Setup
 //!
-//! Benchmarks were run on an M4 Max MacBook (2024) with 128GB RAM. The M4 Max has 128KB L1 data
-//! cache (per performance core).
+//! Benchmarks were run on an AMD Ryzen 9 7950X (Zen 4) with 64GB RAM. The 7950X has 32KB L1 data
+//! cache per core and 1MB L2 cache per core.
 //!
-//! ## Benchmark Results
+//! ## Benchmark Results with Filtering
 //!
 //! Testing across multiple data sizes shows consistent performance patterns:
 //!
-//! | Size (elements) | Batch (us) | In-Place Batch (us) | Pipeline (us) | In-Place Pipeline (us) |
-//! | --------------- | ---------- | ------------------- | ------------- | ---------------------- |
-//! | 1,024           | 0.134      | 0.129               | 0.133         | 0.131                  |
-//! | 16,384          | 3.187      | 2.124               | 2.166         | 2.082                  |
-//! | 65,536          | 13.87      | 12.66               | 9.582         | 10.37                  |
-//! | 73,728          | 15.58      | 14.20               | 10.66         | 11.66                  |
-//! | 86,016          | 18.24      | 16.58               | 12.41         | 13.62                  |
-//! | 100,352         | 21.33      | 19.29               | 14.37         | 15.91                  |
-//!
-//! Pipeline processing achieves 33% better performance than batch at 100K elements. The
-//! performance gap emerges at 16K elements and remains stable for larger sizes.
+//! | Size (elements) | Batch (µs) | Pipeline (µs) | Pipeline+Copy (µs) | In-Place Batch (µs) | In-Place Pipeline (µs) |
+//! | --------------- | ---------- | ------------- | ------------------ | ------------------- | ---------------------- |
+//! | 1,024           | 0.229      | 0.215         | 0.215              | 0.219               | 0.215                  |
+//! | 16,384          | 3.708      | 3.535         | 3.386              | 3.559               | 3.375                  |
+//! | 65,536          | 15.30      | 13.42         | 13.62              | 14.21               | 13.38                  |
+//! | 73,728          | 18.02      | 15.05         | 15.08              | 15.94               | 15.04                  |
+//! | 86,016          | 20.97      | 17.65         | 17.55              | 19.32               | 17.54                  |
+//! | 100,352         | 25.12      | 21.42         | 20.48              | 22.03               | 20.48                  |
 //!
 //! ## Cache Locality Advantage
 //!
 //! The pipeline approach processes data in 1,024-element chunks (4KB). Each chunk fits entirely
-//! in L1 data cache on the M4 Max. L1 cache provides sub-nanosecond latency whereas L2 will have
-//! latency in the nanosecond range (it is not consistent because L2 is shared in Apple
-//! processors [1]).
+//! in the 32KB L1 data cache on Zen 4. L1 cache provides 4-cycle latency while L2 has 14-cycle
+//! latency [1].
 //!
 //! Processing all three stages while data resides in L1 eliminates cache misses. The batch
 //! approach must reload the entire dataset from L2/L3 for each stage. For 100K elements (400KB),
 //! batch processing performs three full passes through memory. Pipeline processing performs the
 //! same memory reads but maintains temporal locality within each 4KB chunk.
 //!
-//! Measured memory bandwidth utilization confirms this advantage. Pipeline processing achieves
-//! 26.0 GB/s effective bandwidth versus 17.8 GB/s for batch processing when processing 1MB of
-//! data. The 46% improvement comes from keeping data in L1 throughout the transformation chain.
+//! Measured memory bandwidth utilization shows the advantage. Pipeline processing achieves
+//! 19.8 GB/s effective bandwidth versus 16.5 GB/s for batch processing at 100K elements. The
+//! 20% bandwidth improvement comes from keeping data in L1 throughout the transformation chain.
 //!
-//! ## In-Place Performance Penalty
+//! ## Extra Copy Performance Advantage
+//!
+//! The pipeline with extra copy outperforms the regular pipeline despite doing more work. This
+//! counterintuitive result comes from better cache utilization during filtering.
+//!
+//! Regular pipeline writes ALP output directly to the final buffer then filters in place:
+//!
+//! ```text
+//! ALP decode -> Write to output[offset] -> Filter output[offset] in place
+//! ```
+//!
+//! Pipeline with extra copy uses an intermediate buffer:
+//!
+//! ```text
+//! ALP decode -> Write to temp[0:1024] -> Filter temp[0:1024] -> Copy kept elements to output
+//! ```
+//!
+//! The intermediate buffer (4KB) stays hot in L1 cache during filtering. Regular pipeline may
+//! evict output buffer data from L1 as it advances through chunks. When filtering accesses the
+//! output buffer, some data has moved to L2.
+//!
+//! The extra copy only moves kept elements after filtering. With the 0xDEADBEEF mask keeping
+//! about 50% of data, this reduces memory traffic. The cost of copying 512 elements from L1
+//! is less than the penalty of filtering data that has been evicted to L2.
+//!
+//! ## In-Place Performance Penalty with Filtering
+//!
+//! **Note that this section is only relevant to ARM processors, as we saw performance degradation
+//! for in-place processing only on ARM and not on x86.** This section is an archive from previous
+//! benchmarks we ran on an Apple M4 Max processor.
 //!
 //! In-place processing reuses the output buffer for all intermediate stages. This creates
 //! store-to-load forwarding delays. When the processor writes to an address and immediately reads
@@ -80,7 +105,7 @@
 //!
 //! ---
 //!
-//! [1] <https://www.reddit.com/r/hardware/comments/1gyh42k/david_huang_tests_apple_m4_pro/>
+//! [1] <https://chipsandcheese.com/2022/11/08/amds-zen-4-part-2-memory-subsystem-and-conclusion/>
 //! [2] <https://chipsandcheese.com/p/cortex-x2-arm-aims-high>
 
 #![allow(
@@ -95,6 +120,7 @@ use divan::Bencher;
 use fastlanes::BitPacking;
 use rand::Rng;
 use vortex_alp::{ALPFloat, Exponents};
+use vortex_error::vortex_panic;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Constants
@@ -255,6 +281,13 @@ fn decompress_batch(
     unpack_10(bitpacked, bitpacked_output);
     for_decompress(cast_u32_as_i32(bitpacked_output), reference, for_decoded);
     alp_decompress(for_decoded, exponents, alp_decoded);
+
+    // Cast f32 output to u32 for filtering.
+    // SAFETY: f32 and u32 have the same size and alignment.
+    let alp_as_u32 = unsafe {
+        std::slice::from_raw_parts_mut(alp_decoded.as_mut_ptr() as *mut u32, alp_decoded.len())
+    };
+    let _kept = filter_scalar(alp_as_u32);
 }
 
 /// In-place batch decompression that reuses a single buffer for all stages.
@@ -280,6 +313,12 @@ fn decompress_in_place_batch(
 
     // Stage 3: ALP decode in-place (transmute i32 → f32).
     f32::decode_slice_inplace(buffer_i32, exponents);
+
+    // Cast f32 output to u32 for filtering.
+    // SAFETY: f32 and u32 have the same size and alignment.
+    let output_as_u32 =
+        unsafe { std::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut u32, output.len()) };
+    let _kept = filter_scalar(output_as_u32);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -308,7 +347,7 @@ fn decompress_pipeline(
     let for_chunk = &mut for_buffer[..N];
 
     let mut input_offset = 0;
-    let mut output_offset = 0;
+    let mut output_write_offset = 0; // Track where to write filtered output.
 
     // Process each 1024-element chunk.
     while input_offset < bitpacked.len() {
@@ -328,18 +367,27 @@ fn decompress_pipeline(
             }
         }
 
-        // Stage 3: ALP decompression.
+        // Stage 3: ALP decompression directly into output buffer.
+        // We decompress into the output buffer starting at output_write_offset.
         // SAFETY: Buffer sizes and output bounds are verified.
         unsafe {
-            let output_chunk = output.get_unchecked_mut(output_offset..output_offset + N);
+            let output_chunk =
+                output.get_unchecked_mut(output_write_offset..output_write_offset + N);
             for i in 0..N {
                 let for_decoded = *for_chunk.get_unchecked(i);
                 *output_chunk.get_unchecked_mut(i) = f32::decode_single(for_decoded, exponents);
             }
         }
 
+        // Stage 4: Filter the chunk in the output buffer.
+        // Note: filter_scalar modifies the data in-place, compacting it.
+        let output_chunk =
+            unsafe { output.get_unchecked_mut(output_write_offset..output_write_offset + N) };
+        let kept_count = filter_scalar(output_chunk);
+
+        // The filtered data is now compacted at output_write_offset.
+        output_write_offset += kept_count;
         input_offset += S;
-        output_offset += N;
     }
 }
 
@@ -368,7 +416,7 @@ fn decompress_pipeline_extra_copy(
     let alp_chunk = &mut alp_buffer[..N];
 
     let mut input_offset = 0;
-    let mut output_offset = 0;
+    let mut output_write_offset = 0; // Track where to write filtered output.
 
     // Process each 1024-element chunk.
     while input_offset < bitpacked.len() {
@@ -397,13 +445,18 @@ fn decompress_pipeline_extra_copy(
             }
         }
 
-        // Stage 4: Copy from intermediate ALP buffer to final output.
-        // SAFETY: Buffer sizes are verified to be N.
-        let output_chunk = unsafe { output.get_unchecked_mut(output_offset..output_offset + N) };
-        output_chunk.copy_from_slice(alp_chunk);
+        // Stage 4: Filter the intermediate ALP buffer.
+        let kept_count = filter_scalar(alp_chunk);
 
+        // Stage 5: Copy filtered data from intermediate ALP buffer to final output.
+        // SAFETY: Buffer sizes are verified and kept_count <= N.
+        let output_chunk = unsafe {
+            output.get_unchecked_mut(output_write_offset..output_write_offset + kept_count)
+        };
+        output_chunk.copy_from_slice(&alp_chunk[..kept_count]);
+
+        output_write_offset += kept_count;
         input_offset += S;
-        output_offset += N;
     }
 }
 
@@ -420,12 +473,13 @@ fn decompress_in_place_pipeline(
     debug_assert_eq!(output.len(), bitpacked.len() * T / W);
 
     let mut input_offset = 0;
-    let mut output_offset = 0;
+    let mut output_write_offset = 0; // Track where to write filtered output.
 
     while input_offset < bitpacked.len() {
         // Get the current chunk of the output buffer to work on.
         // SAFETY: Output bounds are verified by debug_assert.
-        let output_chunk = unsafe { output.get_unchecked_mut(output_offset..output_offset + N) };
+        let output_chunk =
+            unsafe { output.get_unchecked_mut(output_write_offset..output_write_offset + N) };
 
         // Reinterpret the output chunk as u32 for unpacking.
         // SAFETY: f32 and u32 have the same size and alignment.
@@ -457,9 +511,50 @@ fn decompress_in_place_pipeline(
             }
         }
 
+        // Stage 4: Filter the chunk in-place.
+        let kept_count = filter_scalar(output_chunk);
+
+        output_write_offset += kept_count;
         input_offset += S;
-        output_offset += N;
     }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Filter Functions
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Hardcoded mask for now.
+
+fn filter_scalar<T: Copy>(data: &mut [T]) -> usize {
+    let len = data.len();
+    assert!(len.is_multiple_of(usize::BITS as usize));
+
+    let iters = len / 64;
+
+    let mut read_ptr = data.as_ptr();
+    let mut write_ptr = data.as_mut_ptr();
+    let initial_write_ptr = write_ptr;
+
+    for _ in 0..iters {
+        let mut word: usize = std::hint::black_box(0xDEADBEEF);
+
+        while word != 0 {
+            let bit_pos = word.trailing_zeros();
+            word &= word - 1; // Clear the bit at `bit_pos`.
+            let span = word.trailing_ones();
+            word >>= span;
+
+            unsafe {
+                std::ptr::copy(read_ptr.add(bit_pos as usize), write_ptr, span as usize);
+                write_ptr = write_ptr.add(span as usize);
+            }
+        }
+
+        unsafe { read_ptr = read_ptr.add(usize::BITS as usize) };
+    }
+
+    // Return the number of elements kept.
+    unsafe { write_ptr.offset_from(initial_write_ptr) as usize }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -650,22 +745,49 @@ fn verify(
 /// Compare outputs from different decompression functions.
 ///
 /// Ensures that all decompression strategies produce identical results.
-fn compare_outputs(function_name: &str, expected: &[f32], actual: &[f32]) {
-    assert_eq!(
-        expected.len(),
-        actual.len(),
-        "{}: Output length mismatch: expected={}, actual={}",
-        function_name,
-        expected.len(),
-        actual.len()
-    );
+/// Filtering should produce the same results whether applied chunk-by-chunk
+/// or all at once. Both expected and actual should already be filtered.
+fn compare_outputs(function_name: &str, expected: &[f32], actual: &[f32], expected_len: usize) {
+    // Both buffers should have the same allocated size.
+    assert_eq!(actual.len(), expected.len());
 
-    for i in 0..expected.len() {
-        assert_eq!(
-            expected[i], actual[i],
-            "{}: Output mismatch at index {}: expected={}, actual={}",
-            function_name, i, expected[i], actual[i]
-        );
+    // Only compare the filtered portion of the data.
+    let expected_slice = &expected[..expected_len];
+    let actual_slice = &actual[..expected_len];
+
+    for i in 0..expected_len {
+        if expected_slice[i] != actual_slice[i] {
+            // Debug output to understand the mismatch.
+            eprintln!(
+                "Mismatch at index {}: expected={}, actual={}",
+                i, expected_slice[i], actual_slice[i]
+            );
+            if i > 0 {
+                eprintln!(
+                    "  Previous values: expected[{}]={}, actual[{}]={}",
+                    i - 1,
+                    expected_slice[i - 1],
+                    i - 1,
+                    actual_slice[i - 1]
+                );
+            }
+            if i + 1 < expected_len {
+                eprintln!(
+                    "  Next values: expected[{}]={}, actual[{}]={}",
+                    i + 1,
+                    expected_slice[i + 1],
+                    i + 1,
+                    actual_slice[i + 1]
+                );
+            }
+            vortex_panic!(
+                "{}: Output mismatch at index {}: expected={}, actual={}",
+                function_name,
+                i,
+                expected_slice[i],
+                actual_slice[i]
+            );
+        }
     }
 }
 
@@ -767,7 +889,17 @@ mod correctness_verification {
     #[divan::bench(consts = VERIFICATION_SIZES)]
     fn verify_all_methods<const SIZE: usize>(bencher: Bencher) {
         bencher.bench_local(|| {
-            let (input_data, mut buffers) = setup(SIZE);
+            let (mut input_data, mut buffers) = setup(SIZE);
+
+            // Create a filtered version of the original values for comparison.
+            // SAFETY: f32 and u32 have the same size and alignment.
+            let original_as_u32 = unsafe {
+                std::slice::from_raw_parts_mut(
+                    input_data.original.as_mut_ptr() as *mut u32,
+                    input_data.original.len(),
+                )
+            };
+            let expected_filtered_len = filter_scalar(original_as_u32);
 
             // Run batch decompression (our reference implementation).
             decompress_batch(
@@ -780,12 +912,13 @@ mod correctness_verification {
             );
 
             // Verify batch decompression is correct.
+            // Note: for_decoded is not filtered, but alp_decoded is filtered.
             verify(
                 "batch",
                 &buffers.for_decoded,
                 &buffers.alp_decoded,
                 &input_data.alp_encoded,
-                &input_data.original,
+                &input_data.original, // This is now filtered.
                 &input_data.patches,
             );
 
@@ -798,7 +931,12 @@ mod correctness_verification {
                 &mut buffers.for_decoded,
                 &mut buffers.pipeline_output,
             );
-            compare_outputs("pipeline", &buffers.alp_decoded, &buffers.pipeline_output);
+            compare_outputs(
+                "pipeline",
+                &buffers.alp_decoded,
+                &buffers.pipeline_output,
+                expected_filtered_len,
+            );
 
             // Run in-place batch decompression and compare with batch.
             decompress_in_place_batch(
@@ -811,6 +949,7 @@ mod correctness_verification {
                 "in_place_batch",
                 &buffers.alp_decoded,
                 &buffers.alp_decoded_inplace_batch,
+                expected_filtered_len,
             );
 
             // Run in-place pipeline decompression and compare with batch.
@@ -824,6 +963,7 @@ mod correctness_verification {
                 "in_place_pipeline",
                 &buffers.alp_decoded,
                 &buffers.alp_decoded_inplace_pipeline,
+                expected_filtered_len,
             );
         });
     }
