@@ -267,19 +267,22 @@ impl RewriteRuleRegistry {
     }
 
     /// Get all typed reduce rules for a given expression ID.
-    pub(crate) fn typed_reduce_rules_for(&self, id: &ExprId) -> &[Arc<dyn DynTypedReduceRule>] {
+    pub(crate) fn typed_reduce_rules_for(
+        &self,
+        id: &ExprId,
+    ) -> impl Iterator<Item = &Arc<dyn DynTypedReduceRule>> {
         self.typed_reduce_rules
             .get(id)
-            .map(|v| v.as_slice())
-            .unwrap_or_default()
+            .into_iter()
+            .flat_map(|v| v.iter())
     }
 
     /// Get all untyped reduce rules for a given expression ID.
-    pub(crate) fn reduce_rules_for(&self, id: &ExprId) -> &[Arc<dyn DynReduceRule>] {
-        self.reduce_rules
-            .get(id)
-            .map(|v| v.as_slice())
-            .unwrap_or_default()
+    pub(crate) fn reduce_rules_for(
+        &self,
+        id: &ExprId,
+    ) -> impl Iterator<Item = &Arc<dyn DynReduceRule>> {
+        self.reduce_rules.get(id).into_iter().flat_map(|v| v.iter())
     }
 
     /// Get all untyped parent reduce rules for a given child and parent expression ID pair.
@@ -289,21 +292,20 @@ impl RewriteRuleRegistry {
         &self,
         child_id: &ExprId,
         parent_id: &ExprId,
-    ) -> Vec<Arc<dyn DynParentReduceRule>> {
-        let mut rules = Vec::new();
-
-        if let Some(specific) = self
+    ) -> impl Iterator<Item = &Arc<dyn DynParentReduceRule>> {
+        let specific = self
             .parent_rules
             .get(&(child_id.clone(), parent_id.clone()))
-        {
-            rules.extend_from_slice(specific);
-        }
+            .into_iter()
+            .flat_map(|v| v.iter());
 
-        if let Some(wildcard) = self.any_parent_rules.get(child_id) {
-            rules.extend_from_slice(wildcard);
-        }
+        let wildcard = self
+            .any_parent_rules
+            .get(child_id)
+            .into_iter()
+            .flat_map(|v| v.iter());
 
-        rules
+        specific.chain(wildcard)
     }
 
     /// Get all the typed parent reduce rules for a given child and parent expression ID pair.
@@ -313,20 +315,19 @@ impl RewriteRuleRegistry {
         &self,
         child_id: &ExprId,
         parent_id: &ExprId,
-    ) -> Vec<Arc<dyn DynTypedParentReduceRule>> {
-        let mut rules = Vec::new();
-
-        if let Some(specific) = self
+    ) -> impl Iterator<Item = &Arc<dyn DynTypedParentReduceRule>> {
+        let specific = self
             .typed_parent_rules
             .get(&(child_id.clone(), parent_id.clone()))
-        {
-            rules.extend_from_slice(specific);
-        }
+            .into_iter()
+            .flat_map(|v| v.iter());
 
-        if let Some(wildcard) = self.typed_any_parent_rules.get(child_id) {
-            rules.extend_from_slice(wildcard);
-        }
+        let wildcard = self
+            .typed_any_parent_rules
+            .get(child_id)
+            .into_iter()
+            .flat_map(|v| v.iter());
 
-        rules
+        specific.chain(wildcard)
     }
 }
