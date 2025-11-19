@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_dtype::{Nullability, StructFields};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexExpect;
 
 use crate::expr::Expression;
 use crate::expr::exprs::get_item::col;
