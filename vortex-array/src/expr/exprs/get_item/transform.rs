@@ -40,8 +40,8 @@ mod tests {
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::pack::pack;
     use crate::expr::session::ExprSession;
+    use crate::expr::transform::ExprOptimizer;
     use crate::expr::transform::rules::{ReduceRule, RuleContext};
-    use crate::expr::transform::simplify_typed;
 
     #[test]
     fn test_pack_get_item_rule() {
@@ -82,7 +82,9 @@ mod tests {
 
         let dtype = DType::Primitive(PType::I32, NonNullable);
 
-        let result = simplify_typed(get_z, &dtype, ExprSession::default().rewrite_rules()).unwrap();
+        let session = ExprSession::default();
+        let optimizer = ExprOptimizer::new(&session);
+        let result = optimizer.optimize_typed(get_z, &dtype).unwrap();
 
         assert_eq!(&result, &lit(4));
     }
@@ -103,8 +105,9 @@ mod tests {
 
         let dtype = DType::Primitive(PType::I32, NonNullable);
 
-        let result =
-            simplify_typed(get_final, &dtype, ExprSession::default().rewrite_rules()).unwrap();
+        let session = ExprSession::default();
+        let optimizer = ExprOptimizer::new(&session);
+        let result = optimizer.optimize_typed(get_final, &dtype).unwrap();
 
         assert_eq!(&result, &lit(42));
     }
@@ -120,8 +123,9 @@ mod tests {
 
         let dtype = DType::Primitive(PType::I32, NonNullable);
 
-        let result =
-            simplify_typed(get_result, &dtype, ExprSession::default().rewrite_rules()).unwrap();
+        let session = ExprSession::default();
+        let optimizer = ExprOptimizer::new(&session);
+        let result = optimizer.optimize_typed(get_result, &dtype).unwrap();
 
         let expected = checked_add(lit(1), lit(10));
         assert_eq!(&result, &expected);

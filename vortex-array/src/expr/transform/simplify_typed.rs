@@ -15,7 +15,7 @@ use crate::expr::traversal::{NodeExt, Transformed};
 ///
 /// NOTE: After typed simplification, returned expressions is "bound" to the scope DType.
 ///     Applying the returned expression to a different DType may produce wrong results.
-pub(crate) fn simplify_typed(
+pub(super) fn simplify_typed(
     expr: Expression,
     dtype: &DType,
     rule_registry: &RewriteRuleRegistry,
@@ -88,6 +88,7 @@ fn apply_parent_rules_impl_typed(
         for (idx, child) in node.children().iter().enumerate() {
             let result = rule_registry.with_typed_parent_rules(
                 &child.id(),
+                Some(&node.id()),
                 |rules| -> VortexResult<Option<Expression>> {
                     for rule in rules {
                         if let Some(new_expr) = rule.reduce_parent(child, &node, idx, ctx)? {
@@ -105,6 +106,7 @@ fn apply_parent_rules_impl_typed(
             let untyped_ctx: RuleContext = ctx.into();
             let result = rule_registry.with_parent_rules(
                 &child.id(),
+                Some(&node.id()),
                 |rules| -> VortexResult<Option<Expression>> {
                     for rule in rules {
                         if let Some(new_expr) =

@@ -105,7 +105,7 @@ where
 }
 
 type RuleRegistry<Rule> = DashMap<ExprId, Vec<Arc<Rule>>>;
-type ParentRuleRegistry<Rule> = DashMap<ExprId, Vec<Arc<Rule>>>;
+type ParentRuleRegistry<Rule> = DashMap<(ExprId, ExprId), Vec<Arc<Rule>>>;
 
 /// Inner struct that holds all the rule registries.
 /// Wrapped in a single Arc by RewriteRuleRegistry for efficient cloning.
@@ -218,7 +218,7 @@ impl RewriteRuleRegistry {
         };
         self.inner
             .parent_rules
-            .entry(child_vtable.id())
+            .entry((child_vtable.id(), parent_vtable.id()))
             .or_default()
             .push(Arc::new(adapter));
     }
@@ -235,7 +235,7 @@ impl RewriteRuleRegistry {
             _phantom: PhantomData,
         };
         self.inner
-            .parent_rules
+            .any_parent_rules
             .entry(child_vtable.id())
             .or_default()
             .push(Arc::new(adapter));
@@ -259,7 +259,7 @@ impl RewriteRuleRegistry {
         };
         self.inner
             .typed_parent_rules
-            .entry(child_vtable.id())
+            .entry((child_vtable.id(), parent_vtable.id()))
             .or_default()
             .push(Arc::new(adapter));
     }
@@ -279,7 +279,7 @@ impl RewriteRuleRegistry {
             _phantom: PhantomData,
         };
         self.inner
-            .typed_parent_rules
+            .typed_any_parent_rules
             .entry(child_vtable.id())
             .or_default()
             .push(Arc::new(adapter));
@@ -288,48 +288,84 @@ impl RewriteRuleRegistry {
     /// Execute a callback with all typed reduce rules for a given expression ID.
     pub(crate) fn with_typed_reduce_rules<F, R>(&self, id: &ExprId, f: F) -> R
     where
-        F: FnOnce(&[Arc<dyn DynTypedReduceRule>]) -> R,
+        F: FnOnce(&mut dyn Iterator<Item = &dyn DynTypedReduceRule>) -> R,
     {
-        if let Some(entry) = self.inner.typed_reduce_rules.get(id) {
-            f(entry.value())
-        } else {
-            f(&[])
-        }
+        f(&mut self
+            .inner
+            .typed_reduce_rules
+            .get(id)
+            .iter()
+            .map(|v| v.value())
+            .flatten()
+            .map(|arc| arc.as_ref()))
     }
 
     /// Execute a callback with all untyped reduce rules for a given expression ID.
     pub(crate) fn with_reduce_rules<F, R>(&self, id: &ExprId, f: F) -> R
     where
-        F: FnOnce(&[Arc<dyn DynReduceRule>]) -> R,
+        F: FnOnce(&mut dyn Iterator<Item = &dyn DynReduceRule>) -> R,
     {
-        if let Some(entry) = self.inner.reduce_rules.get(id) {
-            f(entry.value())
-        } else {
-            f(&[])
-        }
+        f(&mut self
+            .inner
+            .reduce_rules
+            .get(id)
+            .iter()
+            .map(|v| v.value())
+            .flatten()
+            .map(|arc| arc.as_ref()))
     }
 
-    /// Execute a callback with all untyped parent reduce rules for a given expression ID.
-    pub(crate) fn with_parent_rules<F, R>(&self, id: &ExprId, f: F) -> R
+    /// Execute a callback with all untyped parent reduce rules for a given child and parent expression ID.
+    ///
+    /// Returns rules from both specific parent rules (if parent_id provided) and "any parent" wildcard rules.
+    pub(crate) fn with_parent_rules<F, R>(
+        &self,
+        child_id: &ExprId,
+        parent_id: Option<&ExprId>,
+        f: F,
+    ) -> R
     where
-        F: FnOnce(&[Arc<dyn DynParentReduceRule>]) -> R,
+        F: FnOnce(&mut dyn Iterator<Item = &dyn DynParentReduceRule>) -> R,
     {
-        if let Some(entry) = self.inner.parent_rules.get(id) {
-            f(entry.value())
-        } else {
-            f(&[])
-        }
+        let specific_entry = parent_id.and_then(|pid| {
+            self.inner
+                .parent_rules
+                .get(&(child_id.clone(), pid.clone()))
+        });
+        let wildcard_entry = self.inner.any_parent_rules.get(child_id);
+
+        f(&mut specific_entry
+            .iter()
+            .map(|v| v.value())
+            .flatten()
+            .chain(wildcard_entry.iter().map(|v| v.value()).flatten())
+            .map(|arc| arc.as_ref()))
     }
 
-    /// Execute a callback with all typed parent reduce rules for a given expression ID.
-    pub(crate) fn with_typed_parent_rules<F, R>(&self, id: &ExprId, f: F) -> R
+    /// Execute a callback with all typed parent reduce rules for a given child and parent expression ID.
+    ///
+    /// Returns rules from both specific parent rules (if parent_id provided) and "any parent" wildcard rules.
+    pub(crate) fn with_typed_parent_rules<F, R>(
+        &self,
+        child_id: &ExprId,
+        parent_id: Option<&ExprId>,
+        f: F,
+    ) -> R
     where
-        F: FnOnce(&[Arc<dyn DynTypedParentReduceRule>]) -> R,
+        F: FnOnce(&mut dyn Iterator<Item = &dyn DynTypedParentReduceRule>) -> R,
     {
-        if let Some(entry) = self.inner.typed_parent_rules.get(id) {
-            f(entry.value())
-        } else {
-            f(&[])
-        }
+        let specific_entry = parent_id.and_then(|pid| {
+            self.inner
+                .typed_parent_rules
+                .get(&(child_id.clone(), pid.clone()))
+        });
+        let wildcard_entry = self.inner.typed_any_parent_rules.get(child_id);
+
+        f(&mut specific_entry
+            .iter()
+            .map(|v| v.value())
+            .flatten()
+            .chain(wildcard_entry.iter().map(|v| v.value()).flatten())
+            .map(|arc| arc.as_ref()))
     }
 }

@@ -6,7 +6,8 @@ use vortex_error::VortexResult;
 
 use crate::expr::Expression;
 use crate::expr::session::{ExprSession, RewriteRuleRegistry};
-use crate::expr::transform::{simplify, simplify_typed};
+use crate::expr::transform::simplify::simplify;
+use crate::expr::transform::simplify_typed::simplify_typed;
 
 /// A unified optimizer for expressions that can work with or without type information.
 pub struct ExprOptimizer {
@@ -14,19 +15,14 @@ pub struct ExprOptimizer {
 }
 
 impl ExprOptimizer {
-    /// Create a new untyped optimizer.
-    ///
-    /// This optimizer will use untyped simplification rules only.
+    /// Creates a new optimizer with the rules in `ExprSession`.
     pub fn new(session: &ExprSession) -> Self {
         Self {
             rule_registry: session.rewrite_rules().clone(),
         }
     }
 
-    /// Optimize the given expression.
-    ///
-    /// If this optimizer was created with a dtype, this will perform typed optimization.
-    /// Otherwise, it will perform untyped optimization.
+    /// Optimize the given expression without a dtype.
     pub fn optimize(&self, expr: Expression) -> VortexResult<Expression> {
         simplify(expr, &self.rule_registry)
     }

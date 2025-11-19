@@ -13,7 +13,7 @@ use crate::expr::traversal::{NodeExt, Transformed};
 ///
 /// This applies only untyped rewrite rules registered in the default session.
 /// If the scope dtype is known, see `simplify_typed` for a simplifier which uses dtype.
-pub(crate) fn simplify(
+pub(super) fn simplify(
     e: Expression,
     rule_registry: &RewriteRuleRegistry,
 ) -> VortexResult<Expression> {
@@ -35,6 +35,7 @@ fn apply_parent_rules(
         for (idx, child) in node.children().iter().enumerate() {
             let result = rule_registry.with_parent_rules(
                 &child.id(),
+                Some(&node.id()),
                 |rules| -> VortexResult<Option<Expression>> {
                     for rule in rules {
                         if let Some(new_expr) = rule.reduce_parent(child, &node, idx, ctx)? {
@@ -53,7 +54,7 @@ fn apply_parent_rules(
     .map(|t| t.into_inner())
 }
 
-pub(crate) fn apply_child_rules_impl(
+fn apply_child_rules_impl(
     expr: Expression,
     ctx: &RuleContext,
     rule_registry: &RewriteRuleRegistry,
