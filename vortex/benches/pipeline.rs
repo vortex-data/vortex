@@ -112,48 +112,57 @@ fn decompress_pipeline(
     bitpacked: &[u32],
     reference: i32,
     exponents: Exponents,
+    unpack_buffer: &mut [u32],
+    for_buffer: &mut [i32],
     output: &mut [f32],
 ) {
     debug_assert!(bitpacked.len().is_multiple_of(S));
     debug_assert_eq!(output.len(), bitpacked.len() * T / W);
+    debug_assert!(unpack_buffer.len() >= N);
+    debug_assert!(for_buffer.len() >= N);
 
-    // let num_chunks = bitpacked.len() / S;
-
-    // Stack-allocated buffer for one chunk of unpacked values.
-    let mut chunk_buffer: [u32; N] = [0; N];
+    // Use only the first N elements of the pre-allocated buffers.
+    let unpack_chunk = &mut unpack_buffer[..N];
+    let for_chunk = &mut for_buffer[..N];
 
     let mut input_offset = 0;
     let mut output_offset = 0;
 
     // Process each 1024-element chunk.
     while input_offset < bitpacked.len() {
+        // Stage 1: Bitpacking decompression.
         // SAFETY: We've verified:
         // - bitpacked.len() is a multiple of S
         // - input_offset + S <= bitpacked.len() (by loop bounds)
-        // - chunk_buffer has N elements
+        // - unpack_chunk has N elements
         unsafe {
             let input = bitpacked.get_unchecked(input_offset..input_offset + S);
-            BitPacking::unchecked_unpack(W, input, &mut chunk_buffer);
+            BitPacking::unchecked_unpack(W, input, unpack_chunk);
         }
 
-        // Stages 2 & 3: Apply FoR and ALP decompression in a single pass.
-        // SAFETY: We've verified output.len() matches bitpacked data
+        // Stage 2: FoR decompression.
+        // SAFETY: We've verified unpack_chunk and for_chunk both have N elements.
+        unsafe {
+            for i in 0..N {
+                // Read unpacked value as i32.
+                let unpacked = *unpack_chunk.get_unchecked(i) as i32;
+
+                // Apply FoR decompression (add reference).
+                *for_chunk.get_unchecked_mut(i) = unpacked.wrapping_add(reference);
+            }
+        }
+
+        // Stage 3: ALP decompression.
+        // SAFETY: We've verified for_chunk has N elements and output.len() matches bitpacked data.
         unsafe {
             let output_chunk = output.get_unchecked_mut(output_offset..output_offset + N);
 
-            let mut i = 0;
-            while i < N {
-                // SAFETY: i < N and chunk_buffer has N elements
-                let unpacked = *chunk_buffer.get_unchecked(i) as i32;
-
-                // Apply FoR decompression (add reference).
-                let for_decoded = unpacked.wrapping_add(reference);
+            for i in 0..N {
+                // Read FoR-decoded value.
+                let for_decoded = *for_chunk.get_unchecked(i);
 
                 // Apply ALP decompression (convert to float with exponent scaling).
-                // SAFETY: i < N and output_chunk.len() == N
                 *output_chunk.get_unchecked_mut(i) = f32::decode_single(for_decoded, exponents);
-
-                i += 1;
             }
         }
 
@@ -192,21 +201,30 @@ fn decompress_in_place_pipeline(
             BitPacking::unchecked_unpack(W, input, chunk_u32);
         }
 
-        // Stages 2 & 3: Fused FoR and ALP decode in single pass.
-        // Process each element through both transformations to minimize memory traffic.
-        // SAFETY: We've verified that chunk_u32 has N elements and output_chunk has N elements.
+        // Stage 2: FoR decompression in-place.
+        // Reinterpret buffer as i32 and add reference value.
+        // SAFETY: u32 and i32 have the same size and alignment.
+        let chunk_i32 = cast_u32_as_i32_mut(chunk_u32);
         unsafe {
             for i in 0..N {
-                // Read once from buffer (as u32, interpret as i32).
-                let unpacked = *chunk_u32.get_unchecked(i) as i32;
+                // Apply FoR decompression (add reference) in-place.
+                *chunk_i32.get_unchecked_mut(i) =
+                    chunk_i32.get_unchecked(i).wrapping_add(reference);
+            }
+        }
 
-                // Apply FoR decompression (add reference).
-                let for_decoded = unpacked.wrapping_add(reference);
+        // Stage 3: ALP decompression.
+        // Read from i32 buffer and decode to f32 in output.
+        // SAFETY: We've verified that chunk_i32 has N elements and output_chunk has N elements.
+        unsafe {
+            for i in 0..N {
+                // Read FoR-decoded value.
+                let for_decoded = *chunk_i32.get_unchecked(i);
 
                 // Apply ALP decompression (convert to f32 with exponent scaling).
                 let alp_decoded = f32::decode_single(for_decoded, exponents);
 
-                // Write once to output.
+                // Write to output.
                 *output_chunk.get_unchecked_mut(i) = alp_decoded;
             }
         }
@@ -255,11 +273,19 @@ mod decompress_benchmarks {
 
     #[divan::bench(consts = BENCHMARK_SIZES)]
     fn pipeline<const SIZE: usize>(bencher: Bencher) {
-        let data = setup(SIZE);
+        let mut data = setup(SIZE);
         let mut output = vec![0f32; SIZE];
+        let mut bitpacked_output = vec![0u32; SIZE];
 
         bencher.bench_local(|| {
-            decompress_pipeline(&data.bitpacked, data.reference, data.exponents, &mut output);
+            decompress_pipeline(
+                &data.bitpacked,
+                data.reference,
+                data.exponents,
+                &mut bitpacked_output,
+                &mut data.for_decoded,
+                &mut output,
+            );
         });
     }
 
