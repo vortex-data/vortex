@@ -16,7 +16,7 @@ pub fn replace(expr: Expression, needle: &Expression, replacement: Expression) -
         if &node == needle {
             Ok(Transformed {
                 value: replacement.clone(),
-
+                // If there is a match with a needle there can be no more matches in that subtree.
                 order: TraversalOrder::Skip,
                 changed: true,
             })
