@@ -295,8 +295,7 @@ impl RewriteRuleRegistry {
             .typed_reduce_rules
             .get(id)
             .iter()
-            .map(|v| v.value())
-            .flatten()
+            .flat_map(|v| v.value())
             .map(|arc| arc.as_ref()))
     }
 
@@ -310,8 +309,7 @@ impl RewriteRuleRegistry {
             .reduce_rules
             .get(id)
             .iter()
-            .map(|v| v.value())
-            .flatten()
+            .flat_map(|v| v.value())
             .map(|arc| arc.as_ref()))
     }
 
@@ -336,9 +334,8 @@ impl RewriteRuleRegistry {
 
         f(&mut specific_entry
             .iter()
-            .map(|v| v.value())
-            .flatten()
-            .chain(wildcard_entry.iter().map(|v| v.value()).flatten())
+            .flat_map(|v| v.value())
+            .chain(wildcard_entry.iter().flat_map(|v| v.value()))
             .map(|arc| arc.as_ref()))
     }
 
@@ -363,9 +360,8 @@ impl RewriteRuleRegistry {
 
         f(&mut specific_entry
             .iter()
-            .map(|v| v.value())
-            .flatten()
-            .chain(wildcard_entry.iter().map(|v| v.value()).flatten())
+            .flat_map(|v| v.value())
+            .chain(wildcard_entry.iter().flat_map(|v| v.value()))
             .map(|arc| arc.as_ref()))
     }
 }
