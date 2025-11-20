@@ -4,8 +4,10 @@
 use std::hash::Hash;
 use std::ops::Range;
 
+use num_traits::One;
 use num_traits::cast::FromPrimitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::execution::ExecutionCtx;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
@@ -24,6 +26,8 @@ use vortex_dtype::{
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::{PValue, Scalar, ScalarValue};
+use vortex_vector::Vector;
+use vortex_vector::primitive::PVector;
 
 vtable!(Sequence);
 
@@ -241,6 +245,26 @@ impl VTable for SequenceVTable {
             dtype.nullability(),
             len,
         ))
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+        Ok(match_each_native_ptype!(array.ptype(), |P| {
+            let base = array.base().cast::<P>();
+            let multiplier = array.multiplier().cast::<P>();
+
+            let values = if multiplier == <P>::one() {
+                BufferMut::from_iter(
+                    (0..array.len()).map(|i| base + <P>::from_usize(i).vortex_expect("must fit")),
+                )
+            } else {
+                BufferMut::from_iter(
+                    (0..array.len())
+                        .map(|i| base + <P>::from_usize(i).vortex_expect("must fit") * multiplier),
+                )
+            };
+
+            PVector::<P>::new(values.freeze(), Mask::new_true(array.len())).into()
+        }))
     }
 }
 

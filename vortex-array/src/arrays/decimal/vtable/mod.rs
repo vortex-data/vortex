@@ -2,11 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
-use vortex_dtype::{DType, NativeDecimalType, match_each_decimal_value_type};
+use vortex_dtype::{DType, NativeDecimalType, PrecisionScale, match_each_decimal_value_type};
 use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
 use vortex_scalar::DecimalType;
+use vortex_vector::Vector;
+use vortex_vector::decimal::DVector;
 
 use crate::arrays::DecimalArray;
+use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
@@ -102,6 +105,19 @@ impl VTable for DecimalVTable {
             );
             let buffer = Buffer::<D>::from_byte_buffer(buffer);
             DecimalArray::try_new::<D>(buffer, *decimal_dtype, validity)
+        })
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+        match_each_decimal_value_type!(array.values_type(), |D| {
+            Ok(unsafe {
+                DVector::<D>::new_unchecked(
+                    PrecisionScale::new_unchecked(array.precision(), array.scale()),
+                    array.buffer::<D>(),
+                    array.validity_mask(),
+                )
+            }
+            .into())
         })
     }
 }

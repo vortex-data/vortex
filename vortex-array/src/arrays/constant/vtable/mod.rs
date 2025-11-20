@@ -5,8 +5,11 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::{Scalar, ScalarValue};
+use vortex_vector::{Vector, VectorMutOps};
 
 use crate::arrays::ConstantArray;
+use crate::arrays::constant::vector::to_vector;
+use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::vtable::{NotSupported, VTable};
 use crate::{EmptyMetadata, EncodingId, EncodingRef, vtable};
@@ -15,7 +18,6 @@ mod array;
 mod canonical;
 mod encode;
 mod operations;
-mod operator;
 mod validity;
 mod visitor;
 
@@ -37,7 +39,7 @@ impl VTable for ConstantVTable {
     // TODO(ngates): implement a compute kernel for elementwise operations
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type OperatorVTable = Self;
+    type OperatorVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.constant")
@@ -73,5 +75,9 @@ impl VTable for ConstantVTable {
         let sv = ScalarValue::from_protobytes(&buffers[0])?;
         let scalar = Scalar::new(dtype.clone(), sv);
         Ok(ConstantArray::new(scalar, len))
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+        Ok(to_vector(array.scalar().clone(), array.len()).freeze())
     }
 }

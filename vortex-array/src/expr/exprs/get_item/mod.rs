@@ -7,9 +7,11 @@ use std::fmt::Formatter;
 use std::ops::Not;
 
 use prost::Message;
+use vortex_compute::mask::MaskValidity;
 use vortex_dtype::{DType, FieldName, FieldPath, Nullability};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
+use vortex_vector::{Vector, VectorOps};
 
 use crate::compute::mask;
 use crate::expr::exprs::root::root;
@@ -94,6 +96,29 @@ impl VTable for GetItem {
             Nullability::NonNullable => Ok(field),
             Nullability::Nullable => mask(&field, &input.validity_mask().not()),
         }
+    }
+
+    fn execute(
+        &self,
+        expr: &ExpressionView<Self>,
+        vector: &Vector,
+        dtype: &DType,
+    ) -> VortexResult<Vector> {
+        let child_dtype = expr.child(0).return_dtype(dtype)?;
+        let struct_dtype = child_dtype
+            .as_struct_fields_opt()
+            .ok_or_else(|| vortex_err!("Expected struct dtype for child of GetItem expression"))?;
+        let field_idx = struct_dtype
+            .find(expr.data())
+            .ok_or_else(|| vortex_err!("Field {} not found in struct dtype", expr.data()))?;
+
+        let struct_vector = expr.child(0).execute(vector, dtype)?.into_struct();
+
+        // We must intersect the validity with that of the parent struct
+        let field = struct_vector.fields()[field_idx].clone();
+        let field = MaskValidity::mask_validity(field, struct_vector.validity());
+
+        Ok(field)
     }
 
     fn stat_max(

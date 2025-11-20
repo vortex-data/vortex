@@ -6,9 +6,11 @@ use std::sync::Arc;
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
-use vortex_vector::binaryview::BinaryView;
+use vortex_vector::Vector;
+use vortex_vector::binaryview::{BinaryVector, BinaryView, StringVector};
 
 use crate::arrays::varbinview::VarBinViewArray;
+use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
@@ -87,6 +89,28 @@ impl VTable for VarBinViewVTable {
         };
 
         VarBinViewArray::try_new(views, Arc::from(buffers), dtype.clone(), validity)
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+        Ok(match array.dtype() {
+            DType::Utf8(_) => unsafe {
+                StringVector::new_unchecked(
+                    array.views().clone(),
+                    Arc::new(array.buffers().to_vec().into_boxed_slice()),
+                    array.validity_mask(),
+                )
+            }
+            .into(),
+            DType::Binary(_) => unsafe {
+                BinaryVector::new_unchecked(
+                    array.views().clone(),
+                    Arc::new(array.buffers().to_vec().into_boxed_slice()),
+                    array.validity_mask(),
+                )
+            }
+            .into(),
+            _ => unreachable!("VarBinViewArray must have Binary or Utf8 dtype"),
+        })
     }
 }
 

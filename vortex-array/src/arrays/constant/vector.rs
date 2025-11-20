@@ -4,7 +4,7 @@
 use vortex_dtype::{
     DType, DecimalType, PrecisionScale, match_each_decimal_value_type, match_each_native_ptype,
 };
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexExpect;
 use vortex_scalar::{BinaryScalar, BoolScalar, DecimalScalar, PrimitiveScalar, Scalar, Utf8Scalar};
 use vortex_vector::binaryview::{BinaryVectorMut, StringVectorMut};
 use vortex_vector::bool::BoolVectorMut;
@@ -13,29 +13,7 @@ use vortex_vector::null::NullVectorMut;
 use vortex_vector::primitive::{PVectorMut, PrimitiveVectorMut};
 use vortex_vector::{VectorMut, VectorMutOps};
 
-use crate::ArrayRef;
-use crate::arrays::{ConstantArray, ConstantVTable};
-use crate::execution::{BatchKernelRef, BindCtx, kernel};
-use crate::vtable::OperatorVTable;
-
-impl OperatorVTable<ConstantVTable> for ConstantVTable {
-    fn bind(
-        array: &ConstantArray,
-        selection: Option<&ArrayRef>,
-        ctx: &mut dyn BindCtx,
-    ) -> VortexResult<BatchKernelRef> {
-        let mask = ctx.bind_selection(array.len, selection)?;
-        let scalar = array.scalar().clone();
-
-        Ok(kernel(move || {
-            // TODO(ngates): would be good to do a sum aggregation, rather than execution.
-            let mask = mask.execute()?;
-            Ok(to_vector(scalar, mask.true_count()).freeze())
-        }))
-    }
-}
-
-fn to_vector(scalar: Scalar, len: usize) -> VectorMut {
+pub(super) fn to_vector(scalar: Scalar, len: usize) -> VectorMut {
     match scalar.dtype() {
         DType::Null => NullVectorMut::new(len).into(),
         DType::Bool(_) => to_vector_bool(scalar.as_bool(), len).into(),
