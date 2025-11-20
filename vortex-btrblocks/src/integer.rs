@@ -626,12 +626,11 @@ impl Scheme for DictScheme {
 
         // SAFETY: compressing codes does not change their values
         unsafe {
-            Ok(DictArray::new_unchecked(
-                compressed_codes,
-                dict.values().clone(),
-                dict.has_all_values_referenced(),
+            Ok(
+                DictArray::new_unchecked(compressed_codes, dict.values().clone())
+                    .set_all_values_referenced(dict.has_all_values_referenced())
+                    .into_array(),
             )
-            .into_array())
         }
     }
 }

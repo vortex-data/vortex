@@ -28,12 +28,9 @@ impl LikeKernel for DictVTable {
             // Preserve all_values_referenced since codes are unchanged
             unsafe {
                 Ok(Some(
-                    DictArray::new_unchecked(
-                        array.codes().clone(),
-                        values,
-                        array.has_all_values_referenced(),
-                    )
-                    .into_array(),
+                    DictArray::new_unchecked(array.codes().clone(), values)
+                        .set_all_values_referenced(array.has_all_values_referenced())
+                        .into_array(),
                 ))
             }
         } else {

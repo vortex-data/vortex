@@ -376,12 +376,11 @@ impl Scheme for DictScheme {
 
         // SAFETY: compressing codes or values does not alter the invariants
         unsafe {
-            Ok(DictArray::new_unchecked(
-                compressed_codes,
-                compressed_values,
-                dict_array.has_all_values_referenced(),
+            Ok(
+                DictArray::new_unchecked(compressed_codes, compressed_values)
+                    .set_all_values_referenced(dict_array.has_all_values_referenced())
+                    .into_array(),
             )
-            .into_array())
         }
     }
 }

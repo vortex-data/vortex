@@ -14,7 +14,6 @@ impl<K: ArrowDictionaryKeyType> FromArrowArray<&DictionaryArray<K>> for DictArra
         let keys = ArrayRef::from_arrow(keys, keys.is_nullable());
         let values = ArrayRef::from_arrow(array.values().as_ref(), nullable);
         // SAFETY: we assume that Arrow has checked the invariants on construction
-        // We conservatively set all_values_referenced to false since Arrow doesn't provide this info
-        unsafe { DictArray::new_unchecked(keys, values, false) }
+        unsafe { DictArray::new_unchecked(keys, values) }
     }
 }

@@ -43,10 +43,11 @@ impl FillNullKernel for DictVTable {
 
         // SAFETY: invariants are still satisfied after patching nulls
         unsafe {
-            Ok(
-                DictArray::new_unchecked(codes, values, array.has_all_values_referenced())
-                    .into_array(),
-            )
+            Ok(DictArray::new_unchecked(codes, values)
+                // Preserve all_values_referenced since filling nulls cannot make values
+                // unreferenced.
+                .set_all_values_referenced(array.has_all_values_referenced())
+                .into_array())
         }
     }
 }
