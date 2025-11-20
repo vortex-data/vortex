@@ -12,8 +12,7 @@ use arrow_schema::SchemaRef;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::arrow::array::RecordBatch;
-use datafusion_datasource::FileRange;
-use datafusion_datasource::PartitionedFile;
+use datafusion_common::internal_datafusion_err;
 use datafusion_datasource::file_meta::FileMeta;
 use datafusion_datasource::file_stream::FileOpenFuture;
 use datafusion_datasource::file_stream::FileOpener;
@@ -348,17 +347,22 @@ impl FileOpener for VortexOpener {
                 );
             }
 
-            let filter = filter
-                .and_then(|f| {
-                    let exprs = split_conjunction(&f)
-                        .into_iter()
-                        .filter(|expr| can_be_pushed_down(expr, &predicate_file_schema))
-                        .collect::<Vec<_>>();
+            let filter = match filter {
+                None => None,
+                Some(f) => {
+                    let exprs = split_conjunction(&f).into_iter().collect::<Vec<_>>();
 
-                    make_vortex_predicate(&exprs).transpose()
-                })
-                .transpose()
-                .map_err(|e| DataFusionError::External(e.into()))?;
+                    for expr in &exprs {
+                        if !can_be_pushed_down(expr, &predicate_file_schema) {
+                            internal_datafusion_err!("DataFusion predicate {expr} cannot be pushed down to Vortex file {} with schema {predicate_file_schema}",
+                            file_meta.object_meta.location);
+                        }
+                    }
+
+                    make_vortex_predicate(&exprs)
+                        .map_err(|e| DataFusionError::External(e.into()))?
+                }
+            };
 
             if let Some(limit) = limit
                 && filter.is_none()
