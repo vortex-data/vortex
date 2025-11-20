@@ -6,7 +6,9 @@ use std::hash::Hash;
 
 use vortex_buffer::{BitBuffer, ByteBuffer};
 use vortex_dtype::{DType, Nullability, PType, match_each_integer_ptype};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{
+    VortexExpect as _, VortexResult, VortexUnwrap, vortex_bail, vortex_ensure, vortex_err,
+};
 use vortex_mask::{AllOr, Mask};
 
 use crate::builders::dict::dict_encode;
@@ -32,6 +34,11 @@ pub struct DictMetadata {
     // nullable codes are optional since they were added after stabilisation
     #[prost(optional, bool, tag = "3")]
     pub(super) is_nullable_codes: Option<bool>,
+    // all_values_referenced is optional for backward compatibility
+    // true = all dictionary values are definitely referenced by at least one code
+    // false/None = unknown whether all values are referenced (conservative default)
+    #[prost(optional, bool, tag = "4")]
+    pub(super) all_values_referenced: Option<bool>,
 }
 
 impl VTable for DictVTable {
@@ -66,6 +73,7 @@ impl VTable for DictVTable {
                 )
             })?,
             is_nullable_codes: Some(array.codes().dtype().is_nullable()),
+            all_values_referenced: Some(array.all_values_referenced),
         }))
     }
 
@@ -101,8 +109,12 @@ impl VTable for DictVTable {
         let codes_dtype = DType::Primitive(metadata.codes_ptype(), codes_nullable);
         let codes = children.get(0, &codes_dtype, len)?;
         let values = children.get(1, dtype, metadata.values_len as usize)?;
+        let all_values_referenced = metadata.all_values_referenced.unwrap_or(false);
 
-        DictArray::try_new(codes, values)
+        // SAFETY: We've validated the metadata and children
+        Ok(unsafe {
+            DictArray::new_unchecked(codes, values).set_all_values_referenced(all_values_referenced)
+        })
     }
 }
 
@@ -112,6 +124,10 @@ pub struct DictArray {
     values: ArrayRef,
     stats_set: ArrayStats,
     dtype: DType,
+    /// Indicates whether all dictionary values are definitely referenced by at least one code.
+    /// `true` = all values are referenced (computed during encoding).
+    /// `false` = unknown/might have unreferenced values.
+    all_values_referenced: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -133,7 +149,28 @@ impl DictArray {
             values,
             stats_set: Default::default(),
             dtype,
+            all_values_referenced: false,
         }
+    }
+
+    /// Set whether all dictionary values are definitely referenced.
+    ///
+    /// # Safety
+    /// The caller must ensure that when setting `all_values_referenced = true`, ALL dictionary
+    /// values are actually referenced by at least one valid code. Setting this incorrectly can
+    /// lead to incorrect query results in operations like min/max.
+    ///
+    /// This is typically only set to `true` during dictionary encoding when we know for certain
+    /// that all values are referenced.
+    pub unsafe fn set_all_values_referenced(mut self, all_values_referenced: bool) -> Self {
+        // In debug builds, verify the claim when setting to true
+        #[cfg(debug_assertions)]
+        {
+            self.validate_all_values_referenced().vortex_unwrap()
+        }
+
+        self.all_values_referenced = all_values_referenced;
+        self
     }
 
     /// Build a new `DictArray` from its components, `codes` and `values`.
@@ -156,11 +193,26 @@ impl DictArray {
     ///
     /// It is an error to provide a nullable `codes` with non-nullable `values`.
     pub fn try_new(codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
+        Self::try_new_with_metadata(codes, values, false)
+    }
+
+    /// Build a new `DictArray` from its components with explicit metadata.
+    ///
+    /// Same as [`DictArray::try_new`] but allows specifying whether all values are referenced.
+    /// This is typically only set to `true` during dictionary encoding when we know for certain
+    /// that all dictionary values are referenced by at least one code.
+    pub fn try_new_with_metadata(
+        codes: ArrayRef,
+        values: ArrayRef,
+        all_values_referenced: bool,
+    ) -> VortexResult<Self> {
         if !codes.dtype().is_unsigned_int() {
             vortex_bail!(MismatchedTypes: "unsigned int", codes.dtype());
         }
 
-        Ok(unsafe { Self::new_unchecked(codes, values) })
+        Ok(unsafe {
+            Self::new_unchecked(codes, values).set_all_values_referenced(all_values_referenced)
+        })
     }
 
     #[inline]
@@ -173,24 +225,60 @@ impl DictArray {
         &self.values
     }
 
+    /// Returns `true` if all dictionary values are definitely referenced by at least one code.
+    ///
+    /// When `true`, operations like min/max can safely operate on all values without needing to
+    /// compute which values are actually referenced. When `false`, it is unknown whether all
+    /// values are referenced (conservative default).
+    #[inline]
+    pub fn has_all_values_referenced(&self) -> bool {
+        self.all_values_referenced
+    }
+
+    /// Validates that the `all_values_referenced` flag matches reality.
+    ///
+    /// Returns `Ok(())` if the flag is consistent with the actual referenced values,
+    /// or an error describing the mismatch.
+    ///
+    /// This is primarily useful for testing and debugging.
+    pub fn validate_all_values_referenced(&self) -> VortexResult<()> {
+        if self.all_values_referenced {
+            let referenced_mask = self.compute_referenced_values_mask(true)?;
+            let all_referenced = referenced_mask.iter().all(|v| v);
+
+            vortex_ensure!(all_referenced, "value in dict not referenced");
+        }
+
+        Ok(())
+    }
+
     /// Compute a mask indicating which values in the dictionary are referenced by at least one code.
     ///
-    /// Returns a `BitBuffer` where unset bits (false) correspond to values that are referenced
-    /// by at least one valid code, and set bits (true) correspond to unreferenced values.
+    /// When `referenced = true`, returns a `BitBuffer` where set bits (true) correspond to
+    /// referenced values, and unset bits (false) correspond to unreferenced values.
+    ///
+    /// When `referenced = false` (default for unreferenced values), returns the inverse:
+    /// set bits (true) correspond to unreferenced values, and unset bits (false) correspond
+    /// to referenced values.
     ///
     /// This is useful for operations like min/max that need to ignore unreferenced values.
-    pub fn compute_unreferenced_values_mask(&self) -> VortexResult<BitBuffer> {
+    pub fn compute_referenced_values_mask(&self, referenced: bool) -> VortexResult<BitBuffer> {
         let codes_validity = self.codes().validity_mask();
         let codes_primitive = self.codes().to_primitive();
         let values_len = self.values().len();
 
-        let mut unreferenced_vec = vec![true; values_len];
+        // Initialize with the starting value: false for referenced, true for unreferenced
+        let init_value = !referenced;
+        // Value to set when we find a referenced code: true for referenced, false for unreferenced
+        let referenced_value = referenced;
+
+        let mut values_vec = vec![init_value; values_len];
         match codes_validity.bit_buffer() {
             AllOr::All => {
                 match_each_integer_ptype!(codes_primitive.ptype(), |P| {
                     #[allow(clippy::cast_possible_truncation)]
                     for &code in codes_primitive.as_slice::<P>().iter() {
-                        unreferenced_vec[code as usize] = false;
+                        values_vec[code as usize] = referenced_value;
                     }
                 });
             }
@@ -201,15 +289,13 @@ impl DictArray {
 
                     #[allow(clippy::cast_possible_truncation)]
                     buf.set_indices().for_each(|idx| {
-                        unreferenced_vec[codes[idx] as usize] = false;
+                        values_vec[codes[idx] as usize] = referenced_value;
                     })
                 });
             }
         }
 
-        Ok(BitBuffer::collect_bool(values_len, |idx| {
-            unreferenced_vec[idx]
-        }))
+        Ok(BitBuffer::collect_bool(values_len, |idx| values_vec[idx]))
     }
 }
 
@@ -467,6 +553,7 @@ mod test {
                 codes_ptype: PType::U64 as i32,
                 values_len: u32::MAX,
                 is_nullable_codes: None,
+                all_values_referenced: None,
             }),
         );
     }

@@ -41,7 +41,7 @@ fn bench_many_codes_few_values(bencher: Bencher, num_values: i32) {
 
     bencher
         .with_inputs(|| array.clone())
-        .bench_values(|array| array.compute_unreferenced_values_mask().unwrap());
+        .bench_values(|array| array.compute_referenced_values_mask(false).unwrap());
 }
 
 /// Benchmark with many nulls in the codes array.
@@ -73,7 +73,7 @@ fn bench_many_nulls(bencher: Bencher, fraction_valid: f64) {
 
     bencher
         .with_inputs(|| array.clone())
-        .bench_values(|array| array.compute_unreferenced_values_mask().unwrap());
+        .bench_values(|array| array.compute_referenced_values_mask(false).unwrap());
 }
 
 /// Benchmark with sparse code coverage (many unreferenced values).
@@ -107,5 +107,5 @@ fn bench_sparse_coverage(bencher: Bencher, fraction_coverage: f64) {
 
     bencher
         .with_inputs(|| array.clone())
-        .bench_values(|array| array.compute_unreferenced_values_mask().unwrap());
+        .bench_values(|array| array.compute_referenced_values_mask(false).unwrap());
 }
