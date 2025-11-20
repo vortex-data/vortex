@@ -201,7 +201,6 @@ impl LayoutReader for DictReader {
             let (values, codes) = try_join!(values_eval.map_err(VortexError::from), codes_eval)?;
 
             // Validate that codes are valid for the values
-            // Preserve all_values_referenced metadata from the layout
             let array =
                 DictArray::try_new_with_metadata(codes, values, all_values_referenced)?.to_array();
             expr.evaluate(&array)

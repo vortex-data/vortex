@@ -124,7 +124,7 @@ pub struct DictArray {
     dtype: DType,
     /// Indicates whether all dictionary values are definitely referenced by at least one code.
     /// `true` = all values are referenced (computed during encoding).
-    /// `false` = unknown/might have unreferenced values (conservative default).
+    /// `false` = unknown/might have unreferenced values.
     all_values_referenced: bool,
 }
 
