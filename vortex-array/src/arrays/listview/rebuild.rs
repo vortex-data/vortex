@@ -7,7 +7,8 @@ use vortex_dtype::{IntegerPType, Nullability, match_each_integer_ptype};
 use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ChunkedArray, ListViewArray};
+use crate::arrays::ListViewArray;
+use crate::builders::builder_with_capacity;
 use crate::vtable::ValidityHelper;
 use crate::{Array, IntoArray, ToCanonical, compute};
 
@@ -138,15 +139,17 @@ impl ListViewArray {
         let offsets = offsets.into_array();
         let sizes = sizes.into_array();
 
-        // SAFETY: all chunks were sliced from the same array so have same DType.
-        let elements =
-            unsafe { ChunkedArray::new_unchecked(chunks, element_dtype.as_ref().clone()) };
+        let mut builder = builder_with_capacity(element_dtype.as_ref(), n_elements.as_());
+        for chunk in &chunks {
+            chunk.append_to_builder(builder.as_mut());
+        }
+        let elements = builder.finish_into_canonical();
 
         // SAFETY: elements are contiguous, offsets and sizes hand-built to be zero copy
         //  to list.
         unsafe {
             ListViewArray::new_unchecked(
-                elements.to_canonical().into_array(),
+                elements.into_array(),
                 offsets,
                 sizes,
                 self.validity.clone(),
