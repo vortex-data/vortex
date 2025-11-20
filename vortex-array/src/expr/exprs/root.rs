@@ -5,6 +5,7 @@ use std::fmt::Formatter;
 
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_vector::Vector;
 
 use crate::ArrayRef;
 use crate::expr::expression::Expression;
@@ -57,6 +58,15 @@ impl VTable for Root {
 
     fn evaluate(&self, _expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         Ok(scope.clone())
+    }
+
+    fn execute(
+        &self,
+        _expr: &ExpressionView<Self>,
+        vector: &Vector,
+        _dtype: &DType,
+    ) -> VortexResult<Vector> {
+        Ok(vector.clone())
     }
 
     fn stat_max(

@@ -9,7 +9,8 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_dtype::{DType, FieldPath};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_err};
+use vortex_vector::{Vector, VectorOps, vector_matches_dtype};
 
 use crate::ArrayRef;
 use crate::expr::expression::Expression;
@@ -75,7 +76,18 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// Evaluate the expression in the given scope.
     fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef>;
 
-    /// See [`crate::expr::Expression::stat_falsification`].
+    /// Execute the expression on the given vector with the given dtype.
+    fn execute(
+        &self,
+        _expr: &ExpressionView<Self>,
+        _vector: &Vector,
+        _dtype: &DType,
+    ) -> VortexResult<Vector> {
+        // TODO(ngates): remove this once we port to vector execution
+        vortex_bail!("Expression {} does not support execution", self.id());
+    }
+
+    /// See [`Expression::stat_falsification`].
     fn stat_falsification(
         &self,
         _expr: &ExpressionView<Self>,
@@ -84,7 +96,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
         None
     }
 
-    /// See [`crate::expr::Expression::stat_max`].
+    /// See [`Expression::stat_max`].
     fn stat_max(
         &self,
         _expr: &ExpressionView<Self>,
@@ -93,7 +105,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
         None
     }
 
-    /// See [`crate::expr::Expression::stat_min`].
+    /// See [`Expression::stat_min`].
     fn stat_min(
         &self,
         _expr: &ExpressionView<Self>,
@@ -102,7 +114,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
         None
     }
 
-    /// See [`crate::expr::Expression::stat_nan_count`].
+    /// See [`Expression::stat_nan_count`].
     fn stat_nan_count(
         &self,
         _expr: &ExpressionView<Self>,
@@ -111,7 +123,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
         None
     }
 
-    /// See [`crate::expr::Expression::stat_field_path`].
+    /// See [`Expression::stat_field_path`].
     fn stat_field_path(&self, _expr: &ExpressionView<Self>) -> Option<FieldPath> {
         None
     }
@@ -163,6 +175,12 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     fn fmt_data(&self, instance: &dyn Any, f: &mut Formatter<'_>) -> fmt::Result;
     fn return_dtype(&self, expression: &Expression, scope: &DType) -> VortexResult<DType>;
     fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef>;
+    fn execute(
+        &self,
+        expression: &Expression,
+        vector: &Vector,
+        dtype: &DType,
+    ) -> VortexResult<Vector>;
 
     fn stat_falsification(
         &self,
@@ -248,6 +266,37 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
     fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         let expr = ExpressionView::new(expression);
         V::evaluate(&self.0, &expr, scope)
+    }
+
+    fn execute(
+        &self,
+        expression: &Expression,
+        vector: &Vector,
+        dtype: &DType,
+    ) -> VortexResult<Vector> {
+        let expr = ExpressionView::new(expression);
+        let result = V::execute(&self.0, &expr, vector, dtype)?;
+
+        assert_eq!(
+            result.len(),
+            vector.len(),
+            "Expression execution returned vector of length {}, but expected {}",
+            result.len(),
+            vector.len()
+        );
+
+        #[cfg(debug_assertions)]
+        {
+            // In debug mode, validate that the output dtype matches the expected return dtype.
+            let expected_dtype = V::return_dtype(&self.0, &expr, dtype)?;
+            vortex_ensure!(
+                vector_matches_dtype(&result, &expected_dtype),
+                "Expression execution invalid for dtype {}",
+                expected_dtype
+            );
+        }
+
+        Ok(result)
     }
 
     fn stat_falsification(

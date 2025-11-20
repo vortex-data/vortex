@@ -11,11 +11,13 @@ mod visitor;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
+use vortex_vector::Vector;
 
 use crate::arrays::extension::ExtensionArray;
+use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromChild};
-use crate::{EmptyMetadata, EncodingId, EncodingRef, vtable};
+use crate::{ArrayOperator, EmptyMetadata, EncodingId, EncodingRef, vtable};
 
 vtable!(Extension);
 
@@ -69,6 +71,10 @@ impl VTable for ExtensionVTable {
         }
         let storage = children.get(0, ext_dtype.storage_dtype(), len)?;
         Ok(ExtensionArray::new(ext_dtype.clone(), storage))
+    }
+
+    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+        array.storage().execute_batch(ctx)
     }
 }
 
