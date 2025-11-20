@@ -114,8 +114,6 @@
     clippy::cast_possible_truncation
 )]
 
-use std::time::Duration;
-
 use divan::Bencher;
 use fastlanes::BitPacking;
 use rand::Rng;
@@ -795,176 +793,166 @@ fn compare_outputs(function_name: &str, expected: &[f32], actual: &[f32], expect
 // Benchmarks
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-/// Performance benchmarks for decompression strategies.
-#[divan::bench_group(min_time = Duration::from_secs(1))]
-mod decompress_benchmarks {
-    use super::*;
+#[divan::bench(consts = BENCHMARK_SIZES)]
+fn batch<const SIZE: usize>(bencher: Bencher) {
+    let (input_data, mut buffers) = setup(SIZE);
 
-    #[divan::bench(consts = BENCHMARK_SIZES)]
-    fn batch<const SIZE: usize>(bencher: Bencher) {
-        let (input_data, mut buffers) = setup(SIZE);
-
-        bencher.bench_local(|| {
-            decompress_batch(
-                &input_data.bitpacked,
-                input_data.reference,
-                input_data.exponents,
-                &mut buffers.bitpacked_output,
-                &mut buffers.for_decoded,
-                &mut buffers.alp_decoded,
-            );
-        });
-    }
-
-    #[divan::bench(consts = BENCHMARK_SIZES)]
-    fn pipeline<const SIZE: usize>(bencher: Bencher) {
-        let (input_data, mut buffers) = setup(SIZE);
-
-        bencher.bench_local(|| {
-            decompress_pipeline(
-                &input_data.bitpacked,
-                input_data.reference,
-                input_data.exponents,
-                &mut buffers.bitpacked_output,
-                &mut buffers.for_decoded,
-                &mut buffers.pipeline_output,
-            );
-        });
-    }
-
-    #[divan::bench(consts = BENCHMARK_SIZES)]
-    fn pipeline_extra_copy<const SIZE: usize>(bencher: Bencher) {
-        let (input_data, mut buffers) = setup(SIZE);
-
-        bencher.bench_local(|| {
-            decompress_pipeline_extra_copy(
-                &input_data.bitpacked,
-                input_data.reference,
-                input_data.exponents,
-                &mut buffers.bitpacked_output,
-                &mut buffers.for_decoded,
-                &mut buffers.alp_decoded,
-                &mut buffers.pipeline_output,
-            );
-        });
-    }
-
-    #[divan::bench(consts = BENCHMARK_SIZES)]
-    fn in_place_batch<const SIZE: usize>(bencher: Bencher) {
-        let (input_data, mut buffers) = setup(SIZE);
-
-        bencher.bench_local(|| {
-            decompress_in_place_batch(
-                &input_data.bitpacked,
-                input_data.reference,
-                input_data.exponents,
-                &mut buffers.alp_decoded_inplace_batch,
-            );
-        });
-    }
-
-    #[divan::bench(consts = BENCHMARK_SIZES)]
-    fn in_place_pipeline<const SIZE: usize>(bencher: Bencher) {
-        let (input_data, mut buffers) = setup(SIZE);
-
-        bencher.bench_local(|| {
-            decompress_in_place_pipeline(
-                &input_data.bitpacked,
-                input_data.reference,
-                input_data.exponents,
-                &mut buffers.alp_decoded_inplace_pipeline,
-            );
-        });
-    }
+    bencher.bench_local(|| {
+        decompress_batch(
+            &input_data.bitpacked,
+            input_data.reference,
+            input_data.exponents,
+            &mut buffers.bitpacked_output,
+            &mut buffers.for_decoded,
+            &mut buffers.alp_decoded,
+        );
+    });
 }
 
-/// Correctness verification benchmarks.
-///
-/// These benchmarks verify that all decompression strategies produce identical
-/// and correct results. They run with smaller sizes for quick verification.
-#[divan::bench_group(min_time = Duration::from_millis(100))]
-mod correctness_verification {
-    use super::*;
+#[divan::bench(consts = BENCHMARK_SIZES)]
+fn pipeline<const SIZE: usize>(bencher: Bencher) {
+    let (input_data, mut buffers) = setup(SIZE);
 
-    #[divan::bench(consts = VERIFICATION_SIZES)]
-    fn verify_all_methods<const SIZE: usize>(bencher: Bencher) {
-        bencher.bench_local(|| {
-            let (mut input_data, mut buffers) = setup(SIZE);
+    bencher.bench_local(|| {
+        decompress_pipeline(
+            &input_data.bitpacked,
+            input_data.reference,
+            input_data.exponents,
+            &mut buffers.bitpacked_output,
+            &mut buffers.for_decoded,
+            &mut buffers.pipeline_output,
+        );
+    });
+}
 
-            // Create a filtered version of the original values for comparison.
-            // SAFETY: f32 and u32 have the same size and alignment.
-            let original_as_u32 = unsafe {
-                std::slice::from_raw_parts_mut(
-                    input_data.original.as_mut_ptr() as *mut u32,
-                    input_data.original.len(),
-                )
-            };
-            let expected_filtered_len = filter_scalar(original_as_u32);
+#[divan::bench(consts = BENCHMARK_SIZES)]
+fn pipeline_extra_copy<const SIZE: usize>(bencher: Bencher) {
+    let (input_data, mut buffers) = setup(SIZE);
 
-            // Run batch decompression (our reference implementation).
-            decompress_batch(
-                &input_data.bitpacked,
-                input_data.reference,
-                input_data.exponents,
-                &mut buffers.bitpacked_output,
-                &mut buffers.for_decoded,
-                &mut buffers.alp_decoded,
-            );
+    bencher.bench_local(|| {
+        decompress_pipeline_extra_copy(
+            &input_data.bitpacked,
+            input_data.reference,
+            input_data.exponents,
+            &mut buffers.bitpacked_output,
+            &mut buffers.for_decoded,
+            &mut buffers.alp_decoded,
+            &mut buffers.pipeline_output,
+        );
+    });
+}
 
-            // Verify batch decompression is correct.
-            // Note: for_decoded is not filtered, but alp_decoded is filtered.
-            verify(
-                "batch",
-                &buffers.for_decoded,
-                &buffers.alp_decoded,
-                &input_data.alp_encoded,
-                &input_data.original, // This is now filtered.
-                &input_data.patches,
-            );
+#[divan::bench(consts = BENCHMARK_SIZES)]
+fn in_place_batch<const SIZE: usize>(bencher: Bencher) {
+    let (input_data, mut buffers) = setup(SIZE);
 
-            // Run pipeline decompression and compare with batch.
-            decompress_pipeline(
-                &input_data.bitpacked,
-                input_data.reference,
-                input_data.exponents,
-                &mut buffers.bitpacked_output,
-                &mut buffers.for_decoded,
-                &mut buffers.pipeline_output,
-            );
-            compare_outputs(
-                "pipeline",
-                &buffers.alp_decoded,
-                &buffers.pipeline_output,
-                expected_filtered_len,
-            );
+    bencher.bench_local(|| {
+        decompress_in_place_batch(
+            &input_data.bitpacked,
+            input_data.reference,
+            input_data.exponents,
+            &mut buffers.alp_decoded_inplace_batch,
+        );
+    });
+}
 
-            // Run in-place batch decompression and compare with batch.
-            decompress_in_place_batch(
-                &input_data.bitpacked,
-                input_data.reference,
-                input_data.exponents,
-                &mut buffers.alp_decoded_inplace_batch,
-            );
-            compare_outputs(
-                "in_place_batch",
-                &buffers.alp_decoded,
-                &buffers.alp_decoded_inplace_batch,
-                expected_filtered_len,
-            );
+#[divan::bench(consts = BENCHMARK_SIZES)]
+fn in_place_pipeline<const SIZE: usize>(bencher: Bencher) {
+    let (input_data, mut buffers) = setup(SIZE);
 
-            // Run in-place pipeline decompression and compare with batch.
-            decompress_in_place_pipeline(
-                &input_data.bitpacked,
-                input_data.reference,
-                input_data.exponents,
-                &mut buffers.alp_decoded_inplace_pipeline,
-            );
-            compare_outputs(
-                "in_place_pipeline",
-                &buffers.alp_decoded,
-                &buffers.alp_decoded_inplace_pipeline,
-                expected_filtered_len,
-            );
-        });
-    }
+    bencher.bench_local(|| {
+        decompress_in_place_pipeline(
+            &input_data.bitpacked,
+            input_data.reference,
+            input_data.exponents,
+            &mut buffers.alp_decoded_inplace_pipeline,
+        );
+    });
+}
+
+// Correctness verification benchmarks.
+//
+// These benchmarks verify that all decompression strategies produce identical
+// and correct results. They run with smaller sizes for quick verification.
+
+#[divan::bench(consts = VERIFICATION_SIZES)]
+fn verify_all_methods<const SIZE: usize>(bencher: Bencher) {
+    bencher.bench_local(|| {
+        let (mut input_data, mut buffers) = setup(SIZE);
+
+        // Create a filtered version of the original values for comparison.
+        // SAFETY: f32 and u32 have the same size and alignment.
+        let original_as_u32 = unsafe {
+            std::slice::from_raw_parts_mut(
+                input_data.original.as_mut_ptr() as *mut u32,
+                input_data.original.len(),
+            )
+        };
+        let expected_filtered_len = filter_scalar(original_as_u32);
+
+        // Run batch decompression (our reference implementation).
+        decompress_batch(
+            &input_data.bitpacked,
+            input_data.reference,
+            input_data.exponents,
+            &mut buffers.bitpacked_output,
+            &mut buffers.for_decoded,
+            &mut buffers.alp_decoded,
+        );
+
+        // Verify batch decompression is correct.
+        // Note: for_decoded is not filtered, but alp_decoded is filtered.
+        verify(
+            "batch",
+            &buffers.for_decoded,
+            &buffers.alp_decoded,
+            &input_data.alp_encoded,
+            &input_data.original, // This is now filtered.
+            &input_data.patches,
+        );
+
+        // Run pipeline decompression and compare with batch.
+        decompress_pipeline(
+            &input_data.bitpacked,
+            input_data.reference,
+            input_data.exponents,
+            &mut buffers.bitpacked_output,
+            &mut buffers.for_decoded,
+            &mut buffers.pipeline_output,
+        );
+        compare_outputs(
+            "pipeline",
+            &buffers.alp_decoded,
+            &buffers.pipeline_output,
+            expected_filtered_len,
+        );
+
+        // Run in-place batch decompression and compare with batch.
+        decompress_in_place_batch(
+            &input_data.bitpacked,
+            input_data.reference,
+            input_data.exponents,
+            &mut buffers.alp_decoded_inplace_batch,
+        );
+        compare_outputs(
+            "in_place_batch",
+            &buffers.alp_decoded,
+            &buffers.alp_decoded_inplace_batch,
+            expected_filtered_len,
+        );
+
+        // Run in-place pipeline decompression and compare with batch.
+        decompress_in_place_pipeline(
+            &input_data.bitpacked,
+            input_data.reference,
+            input_data.exponents,
+            &mut buffers.alp_decoded_inplace_pipeline,
+        );
+        compare_outputs(
+            "in_place_pipeline",
+            &buffers.alp_decoded,
+            &buffers.alp_decoded_inplace_pipeline,
+            expected_filtered_len,
+        );
+    });
 }
