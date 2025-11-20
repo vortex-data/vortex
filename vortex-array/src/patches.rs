@@ -111,6 +111,11 @@ pub struct Patches {
     indices: ArrayRef,
     values: ArrayRef,
     /// Stores the patch index offset for each chunk.
+    ///
+    /// This allows us to lookup the patches for a given chunk in constant time via
+    /// `patch_indices[chunk_offsets[i]..chunk_offsets[i+1]]`.
+    ///
+    /// This is optional for compatibility reasons.
     chunk_offsets: Option<ArrayRef>,
     /// Chunk offsets are only sliced off in case the slice is fully
     /// outside of the chunk range.
@@ -118,7 +123,7 @@ pub struct Patches {
     /// Though the range for indices and values is sliced in terms of
     /// individual elements, not chunks. To account for that we do a
     /// saturating sub when adjusting the indices based on the chunk offset.
-    //
+    ///
     /// `offset_within_chunk` is necessary in order to keep track of how many
     /// elements were sliced off within the chunk.
     offset_within_chunk: Option<usize>,

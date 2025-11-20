@@ -9,35 +9,35 @@
 [![Maven - Version](https://img.shields.io/maven-central/v/dev.vortex/vortex-spark)](https://central.sonatype.com/artifact/dev.vortex/vortex-spark)
 [![codecov](https://codecov.io/github/vortex-data/vortex/graph/badge.svg)](https://codecov.io/github/vortex-data/vortex)
 
-🫶 [Join the community on Slack!](https://vortex.dev/slack) | 📚 [Documentation](https://docs.vortex.dev/) | 📊 [Performance Benchmarks](https://bench.vortex.dev)
+[Join the community on Slack!](https://vortex.dev/slack) | [Documentation](https://docs.vortex.dev/) | [Performance Benchmarks](https://bench.vortex.dev)
 
 ## Overview
 
 Vortex is a next-generation columnar file format and toolkit designed for high-performance data processing.
 It is the fastest and most extensible format for building data systems backed by object storage. It provides:
 
-- **⚡️ Blazing Fast Performance**
+- **Blazing Fast Performance**
   - 100x faster random access reads (vs. modern Apache Parquet)
   - 10-20x faster scans
   - 5x faster writes
   - Similar compression ratios
   - Efficient support for wide tables with zero-copy/zero-parse metadata
 
-- **🔧 Extensible Architecture**
+- **Extensible Architecture**
   - Modeled after Apache DataFusion's extensible approach
   - Pluggable encoding system, type system, compression strategy, & layout strategy
   - Zero-copy compatibility with Apache Arrow
 
-- **🗳️ Open Source, Neutral Governance**
+- **Open Source, Neutral Governance**
   - A Linux Foundation (LF AI & Data) Project
   - Apache-2.0 Licensed
 
-- **↔️ Integrations**
+- **Integrations**
   - Arrow, DataFusion, DuckDB, Spark, Pandas, Polars, & more
   - Apache Iceberg (coming soon)
 
 > 🟢 **Development Status**: Library APIs may change from version to version, but we now consider
-> the file format <ins>*stable*</ins>. From release 0.36.0, all future releases of Vortex should
+> the file format <ins>_stable_</ins>. From release 0.36.0, all future releases of Vortex should
 > maintain backwards compatibility of the file format (i.e., be able to read files written by
 > any earlier version >= 0.36.0).
 
@@ -45,12 +45,12 @@ It is the fastest and most extensible format for building data systems backed by
 
 ### Core Capabilities
 
-- ✨ **Logical Types** - Clean separation between logical schema and physical layout
-- 🔄 **Zero-Copy Arrow Integration** - Seamless conversion to/from Apache Arrow arrays
-- 🧩 **Extensible Encodings** - Pluggable physical layouts with built-in optimizations
-- 📦 **Cascading Compression** - Support for nested encoding schemes
-- 🚀 **High-Performance Computing** - Optimized compute kernels for encoded data
-- 📊 **Rich Statistics** - Lazy-loaded summary statistics for optimization
+- **Logical Types** - Clean separation between logical schema and physical layout
+- **Zero-Copy Arrow Integration** - Seamless conversion to/from Apache Arrow arrays
+- **Extensible Encodings** - Pluggable physical layouts with built-in optimizations
+- **Cascading Compression** - Support for nested encoding schemes
+- **High-Performance Computing** - Optimized compute kernels for encoded data
+- **Rich Statistics** - Lazy-loaded summary statistics for optimization
 
 ### Technical Architecture
 
@@ -152,7 +152,7 @@ If you discovery a security vulnerability, please email <vuln-report@vortex.dev>
 Copyright © Vortex a Series of LF Projects, LLC.
 For terms of use, trademark policy, and other project policies please see <https://lfprojects.org>
 
-## Acknowledgments 🏆
+## Acknowledgments
 
 The Vortex project benefits enormously from groundbreaking work from the academic & open-source communities.
 

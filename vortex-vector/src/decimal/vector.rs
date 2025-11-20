@@ -73,6 +73,10 @@ impl VectorOps for DecimalVector {
         match_each_dvector!(self, |v| { DecimalVector::from(v.slice(range)) })
     }
 
+    fn clear(&mut self) {
+        match_each_dvector!(self, |v| { v.clear() })
+    }
+
     fn try_into_mut(self) -> Result<DecimalVectorMut, Self> {
         match_each_dvector!(self, |v| {
             v.try_into_mut()

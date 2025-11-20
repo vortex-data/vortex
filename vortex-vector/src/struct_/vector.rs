@@ -142,6 +142,14 @@ impl VectorOps for StructVector {
         todo!()
     }
 
+    fn clear(&mut self) {
+        self.len = 0;
+        self.validity.clear();
+        Arc::make_mut(&mut self.fields)
+            .iter_mut()
+            .for_each(|f| f.clear());
+    }
+
     fn try_into_mut(self) -> Result<StructVectorMut, Self> {
         let len = self.len;
 

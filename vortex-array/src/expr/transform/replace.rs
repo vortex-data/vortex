@@ -2,19 +2,30 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_dtype::{Nullability, StructFields};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexExpect;
 
 use crate::expr::Expression;
 use crate::expr::exprs::get_item::col;
 use crate::expr::exprs::pack::pack;
 use crate::expr::exprs::root::root;
-use crate::expr::traversal::{NodeExt, Transformed};
+use crate::expr::traversal::{NodeExt, Transformed, TraversalOrder};
 
 /// Replaces all occurrences of `needle` in the expression `expr` with `replacement`.
 pub fn replace(expr: Expression, needle: &Expression, replacement: Expression) -> Expression {
-    expr.transform_up(|node| replace_transformer(node, needle, &replacement))
-        .vortex_expect("ReplaceVisitor should not fail")
-        .into_inner()
+    expr.transform_down(|node| {
+        if &node == needle {
+            Ok(Transformed {
+                value: replacement.clone(),
+                // If there is a match with a needle there can be no more matches in that subtree.
+                order: TraversalOrder::Skip,
+                changed: true,
+            })
+        } else {
+            Ok(Transformed::no(node))
+        }
+    })
+    .vortex_expect("ReplaceVisitor should not fail")
+    .into_inner()
 }
 
 /// Expand the `root` expression with a pack of the given struct fields.
@@ -30,18 +41,6 @@ pub fn replace_root_fields(expr: Expression, fields: &StructFields) -> Expressio
             Nullability::NonNullable,
         ),
     )
-}
-
-fn replace_transformer(
-    node: Expression,
-    needle: &Expression,
-    replacement: &Expression,
-) -> VortexResult<Transformed<Expression>> {
-    if &node == needle {
-        Ok(Transformed::yes(replacement.clone()))
-    } else {
-        Ok(Transformed::no(node))
-    }
 }
 
 #[cfg(test)]

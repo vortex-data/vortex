@@ -41,7 +41,7 @@ impl Datum {
         })
     }
 
-    pub fn with_target_datatype(
+    pub fn try_new_with_target_datatype(
         array: &dyn Array,
         target_datatype: &DataType,
     ) -> VortexResult<Self> {
@@ -56,6 +56,10 @@ impl Datum {
                 is_scalar: false,
             })
         }
+    }
+
+    pub fn data_type(&self) -> &DataType {
+        self.array.data_type()
     }
 }
 

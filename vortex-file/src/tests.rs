@@ -13,8 +13,10 @@ use vortex_array::arrays::{
     ChunkedArray, ConstantArray, DecimalArray, DictEncoding, DictVTable, ListArray, PrimitiveArray,
     StructArray, VarBinArray, VarBinViewArray,
 };
+use vortex_array::expr::session::ExprSession;
 use vortex_array::expr::{
-    Pack, PackOptions, VTableExt, and, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root, select,
+    Pack, PackOptions, VTableExt, and, cast, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root,
+    select,
 };
 use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::{ArrayStreamAdapter, ArrayStreamExt};
@@ -40,6 +42,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .with::<VortexMetrics>()
         .with::<ArraySession>()
         .with::<LayoutSession>()
+        .with::<ExprSession>()
         .with::<RuntimeSession>();
 
     crate::register_default_encodings(&session);
@@ -419,6 +422,45 @@ async fn test_empty_varbin_array_roundtrip() {
 
     assert_eq!(result.len(), 0);
     assert_eq!(result.dtype(), st.dtype());
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn issue_5385_filter_casted_column() {
+    let array = StructArray::try_from_iter([("x", buffer![1u8, 2, 3, 4, 5])])
+        .unwrap()
+        .into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, array.to_array_stream())
+        .await
+        .unwrap();
+
+    let result = SESSION
+        .open_options()
+        .open_buffer(buf)
+        .unwrap()
+        .scan()
+        .unwrap()
+        .with_filter(eq(
+            cast(
+                get_item("x", root()),
+                DType::Primitive(PType::U16, Nullability::NonNullable),
+            ),
+            lit(1u16),
+        ))
+        .into_array_stream()
+        .unwrap()
+        .read_all()
+        .await
+        .unwrap();
+
+    assert_arrays_eq!(
+        result,
+        StructArray::try_from_iter([("x", buffer![1u8])]).unwrap()
+    );
 }
 
 #[tokio::test]

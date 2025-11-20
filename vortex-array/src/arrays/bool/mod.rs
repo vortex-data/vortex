@@ -9,7 +9,7 @@ pub use array::*;
 pub mod compute;
 
 mod vtable;
-pub use vtable::{BoolEncoding, BoolVTable};
+pub use vtable::{BoolEncoding, BoolMaskedValidityRule, BoolVTable};
 
 #[cfg(feature = "test-harness")]
 mod test_harness;

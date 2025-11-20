@@ -11,6 +11,7 @@ use vortex_array::{ArrayContext, DeserializeMetadata, ProstMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_panic};
+use vortex_session::VortexSession;
 
 use crate::children::LayoutChildren;
 use crate::layouts::flat::reader::FlatReader;
@@ -71,6 +72,7 @@ impl VTable for FlatVTable {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        _session: &VortexSession,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(FlatReader::new(
             layout.clone(),

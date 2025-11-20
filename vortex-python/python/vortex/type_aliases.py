@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
-
-from typing import TypeAlias
+from typing import TypeAlias, Union  # pyright: ignore[reportDeprecated]
 
 import pyarrow as pa
 
@@ -12,6 +11,7 @@ from ._lib.iter import ArrayIterator  # pyright: ignore[reportMissingModuleSourc
 # TypeAliases do not support __doc__.
 IntoProjection: TypeAlias = Expr | list[str] | None
 IntoArrayIterator: TypeAlias = Array | ArrayIterator | pa.Table | pa.RecordBatchReader
+IntoArray: TypeAlias = Union[Array, "pa.Array[pa.Scalar[pa.DataType]]", pa.Table]  # pyright: ignore[reportDeprecated]
 
 # If you make an intersphinx reference to pyarrow.RecordBatchReader in the return type of a function
 # *and also* use the IntoProjection type alias in a parameter type, Sphinx thinks the type alias

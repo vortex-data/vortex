@@ -58,6 +58,38 @@ impl Fineweb {
     pub fn new(data_url: Url) -> Self {
         Self { data_url }
     }
+
+    pub fn with_remote_data_dir(use_remote_data_dir: Option<String>) -> anyhow::Result<Self> {
+        let data_url = Self::create_data_url(&use_remote_data_dir)?;
+        Ok(Self { data_url })
+    }
+
+    fn create_data_url(remote_data_dir: &Option<String>) -> anyhow::Result<Url> {
+        match remote_data_dir {
+            None => {
+                let data_dir = crate::IdempotentPath::to_data_path("fineweb");
+                Url::from_directory_path(&data_dir).map_err(|_| {
+                    anyhow::anyhow!("Failed to create URL from directory path: {:?}", &data_dir)
+                })
+            }
+            Some(remote_data_dir) => {
+                if !remote_data_dir.ends_with("/") {
+                    log::warn!(
+                        "Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev-eu/develop/12345/fineweb/"
+                    );
+                }
+                log::info!(
+                    concat!(
+                        "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
+                        "If it does not, you should kill this command, locally generate the files (by running without\n",
+                        "--use-remote-data-dir) and upload data/fineweb/ to some remote location.",
+                    ),
+                    remote_data_dir,
+                );
+                Ok(Url::parse(remote_data_dir)?)
+            }
+        }
+    }
 }
 
 impl Fineweb {
@@ -92,6 +124,17 @@ impl Benchmark for Fineweb {
     }
 
     fn generate_data(&self, target: &Target) -> anyhow::Result<()> {
+        // Skip generation if using remote storage
+        match self.data_url.scheme() {
+            "file" => {
+                // Continue with local generation
+            }
+            _ => {
+                // Remote storage - data should already be uploaded
+                return Ok(());
+            }
+        }
+
         // Before downloading anything, make sure we are using a supported target.
         anyhow::ensure!(
             matches!(

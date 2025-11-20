@@ -2,7 +2,6 @@
 members = [
     "bench-vortex",
     "encodings/*",
-    "vortex-gpu-kernels",
     "fuzz",
     "vortex",
     "vortex-array",
@@ -32,7 +31,6 @@ members = [
     "vortex-utils",
     "vortex-vector",
     "xtask",
-    "vortex-gpu",
 ]
 exclude = ["java/testfiles", "wasm-test"]
 resolver = "2"
@@ -232,7 +230,6 @@ vortex-fastlanes = { version = "0.1.0", path = "./encodings/fastlanes", default-
 vortex-file = { version = "0.1.0", path = "./vortex-file", default-features = false }
 vortex-flatbuffers = { version = "0.1.0", path = "./vortex-flatbuffers", default-features = false }
 vortex-fsst = { version = "0.1.0", path = "./encodings/fsst", default-features = false }
-vortex-gpu = { version = "0.1.0", path = "./vortex-gpu", default-features = false }
 vortex-io = { version = "0.1.0", path = "./vortex-io", default-features = false }
 vortex-ipc = { version = "0.1.0", path = "./vortex-ipc", default-features = false }
 vortex-layout = { version = "0.1.0", path = "./vortex-layout", default-features = false }
@@ -257,8 +254,6 @@ vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features =
 vortex-cxx = { path = "./vortex-cxx", default-features = false }
 vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
 vortex-ffi = { path = "./vortex-ffi", default-features = false }
-vortex-gpu-kernels = { version = "0.1.0", path = "./vortex-gpu-kernels", default-features = false }
-
 xshell = "0.2.6"
 zigzag = "0.1.0"
 zstd = { version = "0.13.3", default-features = false, features = [

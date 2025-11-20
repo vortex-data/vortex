@@ -4,7 +4,7 @@
 pub mod driver;
 
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_vector::{Vector, VectorMut};
+use vortex_vector::Vector;
 
 /// A view over a fixed-size `N`-bit vector used in Vortex pipeline execution.
 pub type BitView<'a> = vortex_buffer::BitView<'a, N_BYTES>;
@@ -82,21 +82,24 @@ pub trait BindContext {
 /// The pipeline driver will verify these conditions before and after each step.
 pub trait Kernel: Send {
     /// Perform a single step of the kernel.
-    fn step(
-        &mut self,
-        ctx: &KernelCtx,
-        selection: &BitView,
-        out: &mut VectorMut,
-    ) -> VortexResult<()>;
+    fn step(&mut self, ctx: &KernelCtx, selection: &BitView, out: Vector) -> VortexResult<Vector>;
+}
+
+/// A pipeline sink that consumes vectors as emitted from the root of the pipeline.
+///
+/// The returned vector will be reused by the pipeline driver to pass existing allocations back
+/// to the root of the pipeline.
+pub trait Sink: Send {
+    fn consume(&mut self, selection: &BitView, vector: Vector) -> VortexResult<Vector>;
 }
 
 /// The context provided to kernels during execution to access input vectors.
 pub struct KernelCtx {
-    vectors: Vec<Option<VectorMut>>,
+    vectors: Vec<Option<Vector>>,
 }
 
 impl KernelCtx {
-    fn new(vectors: Vec<VectorMut>) -> Self {
+    fn new(vectors: Vec<Vector>) -> Self {
         Self {
             vectors: vectors.into_iter().map(Some).collect(),
         }
@@ -104,29 +107,29 @@ impl KernelCtx {
 
     /// Returns the input vector at the given index.
     ///
-    /// Note that a [`VectorMut`] is returned here, indicating that this is the only instance of
-    /// the data. It does not imply that the caller is able to mutate the data (it is returned
-    /// as an immutable reference).
+    /// Note that a [`Vector`] is returned here, indicating that this is the only instance of
+    /// the data. Kernels are encouraged to use [`std::mem::swap`] or similar to propagate data
+    /// from input vectors to output vectors without unnecessary copies.
     ///
     /// # Panics
     ///
     /// If the input vector at the given index is not available (typically because the vector
     /// happens to be currently borrowed as an output vector!).
-    pub fn input(&mut self, id: VectorId) -> &VectorMut {
+    pub fn input(&mut self, id: VectorId) -> &Vector {
         self.vectors[id.0]
             .as_ref()
             .vortex_expect("Input vector at index is not available")
     }
 
     #[inline]
-    fn take_output(&mut self, id: &VectorId) -> VectorMut {
+    fn take_output(&mut self, id: &VectorId) -> Vector {
         self.vectors[id.0]
             .take()
             .vortex_expect("Output vector at index is not available")
     }
 
     #[inline]
-    fn replace_output(&mut self, id: &VectorId, vec: VectorMut) {
+    fn replace_output(&mut self, id: &VectorId, vec: Vector) {
         self.vectors[id.0] = Some(vec);
     }
 }

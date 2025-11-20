@@ -4,7 +4,7 @@
 //! Vector allocation strategy for pipelines
 
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_vector::VectorMut;
+use vortex_vector::{Vector, VectorMut, VectorMutOps};
 
 use crate::Array;
 use crate::pipeline::driver::{Node, NodeId};
@@ -13,30 +13,9 @@ use crate::pipeline::{N, VectorId};
 #[derive(Debug)]
 pub struct VectorAllocation {
     /// Where each node writes its output
-    pub(crate) output_targets: Vec<OutputTarget>,
+    pub(crate) output_targets: Vec<VectorId>,
     /// The actual allocated vectors
-    pub(crate) vectors: Vec<VectorMut>,
-}
-
-// TODO(joe): support in-place view operations
-// Node mutates its input in-place (input node index, vector idx)
-// add variant InPlace.
-/// Tracks which vector a node outputs to
-#[derive(Debug, Clone)]
-pub(crate) enum OutputTarget {
-    /// Node writes to the top-level provided output
-    ExternalOutput,
-    /// Node writes to an allocated intermediate vector
-    IntermediateVector(VectorId), // vector idx
-}
-
-impl OutputTarget {
-    pub fn vector_id(&self) -> Option<VectorId> {
-        match self {
-            OutputTarget::IntermediateVector(vector_id) => Some(*vector_id),
-            OutputTarget::ExternalOutput => None,
-        }
-    }
+    pub(crate) vectors: Vec<Vector>,
 }
 
 // ============================================================================
@@ -48,7 +27,7 @@ pub(super) fn allocate_vectors(
     dag: &[Node],
     execution_order: &[NodeId],
 ) -> VortexResult<VectorAllocation> {
-    let mut output_targets: Vec<Option<OutputTarget>> = vec![None; dag.len()];
+    let mut output_targets: Vec<Option<VectorId>> = vec![None; dag.len()];
     let mut allocation_types = Vec::new();
 
     // Process nodes in reverse execution order (top-down for output propagation)
@@ -56,27 +35,20 @@ pub(super) fn allocate_vectors(
         let node = &dag[node_idx];
         let array = &node.array;
 
-        // Determine output target
-        let output_target = if node.parents.is_empty() {
-            // Root node - always writes to external output
-            OutputTarget::ExternalOutput
-        } else {
-            // All intermediate nodes need intermediate vector allocation
-            // The previous pass-through optimization was buggy and incorrectly
-            // assigned ExternalOutput to intermediate nodes
+        // All nodes need a vector allocation to write into.
+        // The previous pass-through optimization was buggy and incorrectly
+        // assigned ExternalOutput to intermediate nodes
 
-            // TODO(joe): Implement vector allocation reuse optimization here:
-            // 1. Identify when intermediate nodes can safely write to ExternalOutput
-            // 2. Check that ALL consumers of this node can handle external output
-            // 3. Verify no conflicts with parallel execution paths
-            // 4. Ensure proper vector lifetime management
+        // TODO(joe): Implement vector allocation reuse optimization here:
+        // 1. Identify when intermediate nodes can safely write to ExternalOutput
+        // 2. Check that ALL consumers of this node can handle external output
+        // 3. Verify no conflicts with parallel execution paths
+        // 4. Ensure proper vector lifetime management
 
-            let vector_id = VectorId::new(allocation_types.len());
-            allocation_types.push(array.dtype());
-            OutputTarget::IntermediateVector(vector_id)
-        };
+        let vector_id = VectorId::new(allocation_types.len());
+        allocation_types.push(array.dtype());
 
-        output_targets[node_idx] = Some(output_target);
+        output_targets[node_idx] = Some(vector_id);
     }
 
     Ok(VectorAllocation {
@@ -86,7 +58,7 @@ pub(super) fn allocate_vectors(
             .collect(),
         vectors: allocation_types
             .into_iter()
-            .map(|dtype| VectorMut::with_capacity(dtype, N))
+            .map(|dtype| VectorMut::with_capacity(dtype, N).freeze())
             .collect(),
     })
 }

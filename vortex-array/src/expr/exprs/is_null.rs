@@ -7,6 +7,8 @@ use std::ops::Not;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
+use vortex_vector::bool::BoolVector;
+use vortex_vector::{Vector, VectorOps};
 
 use crate::arrays::{BoolArray, ConstantArray};
 use crate::expr::exprs::binary::eq;
@@ -67,6 +69,20 @@ impl VTable for IsNull {
             Mask::AllFalse(len) => Ok(ConstantArray::new(true, len).into_array()),
             Mask::Values(mask) => Ok(BoolArray::from(mask.bit_buffer().not()).into_array()),
         }
+    }
+
+    fn execute(
+        &self,
+        expr: &ExpressionView<Self>,
+        vector: &Vector,
+        dtype: &DType,
+    ) -> VortexResult<Vector> {
+        let child = expr.child(0).execute(vector, dtype)?;
+        Ok(BoolVector::new(
+            child.validity().to_bit_buffer().not(),
+            Mask::new_true(child.len()),
+        )
+        .into())
     }
 
     fn stat_falsification(

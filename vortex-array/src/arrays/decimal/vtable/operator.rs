@@ -6,7 +6,8 @@ use vortex_dtype::{PrecisionScale, match_each_decimal_value_type};
 use vortex_error::VortexResult;
 use vortex_vector::decimal::DVector;
 
-use crate::arrays::{DecimalArray, DecimalVTable, MaskedVTable};
+use crate::array::transform::{ArrayParentReduceRule, ArrayRuleContext};
+use crate::arrays::{DecimalArray, DecimalVTable, MaskedArray, MaskedVTable};
 use crate::execution::{BatchKernelRef, BindCtx, kernel};
 use crate::vtable::{OperatorVTable, ValidityHelper};
 use crate::{ArrayRef, IntoArray};
@@ -36,30 +37,37 @@ impl OperatorVTable<DecimalVTable> for DecimalVTable {
             }))
         })
     }
+}
 
+/// Rule to push down validity masking from MaskedArray parent into DecimalArray child.
+///
+/// When a DecimalArray is wrapped by a MaskedArray, this rule merges the mask's validity
+/// with the DecimalArray's existing validity, eliminating the need for the MaskedArray wrapper.
+pub struct DecimalMaskedValidityRule;
+
+impl ArrayParentReduceRule<DecimalVTable, MaskedVTable> for DecimalMaskedValidityRule {
     fn reduce_parent(
+        &self,
         array: &DecimalArray,
-        parent: &ArrayRef,
+        parent: &MaskedArray,
         _child_idx: usize,
+        _ctx: &ArrayRuleContext,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Push-down masking of `validity` from the parent `MaskedArray`.
-        if let Some(masked) = parent.as_opt::<MaskedVTable>() {
-            let masked_array = match_each_decimal_value_type!(array.values_type(), |D| {
-                // SAFETY: Since we are only flipping some bits in the validity, all invariants that
-                // were upheld are still upheld.
-                unsafe {
-                    DecimalArray::new_unchecked(
-                        array.buffer::<D>(),
-                        array.decimal_dtype(),
-                        array.validity().clone().and(masked.validity().clone()),
-                    )
-                }
-                .into_array()
-            });
+        // Merge the parent's validity mask into the child's validity
+        // TODO(joe): make this lazy
+        let masked_array = match_each_decimal_value_type!(array.values_type(), |D| {
+            // SAFETY: Since we are only flipping some bits in the validity, all invariants that
+            // were upheld are still upheld.
+            unsafe {
+                DecimalArray::new_unchecked(
+                    array.buffer::<D>(),
+                    array.decimal_dtype(),
+                    array.validity().clone().and(parent.validity().clone()),
+                )
+            }
+            .into_array()
+        });
 
-            return Ok(Some(masked_array));
-        }
-
-        Ok(None)
+        Ok(Some(masked_array))
     }
 }

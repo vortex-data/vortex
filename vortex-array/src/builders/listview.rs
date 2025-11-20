@@ -77,17 +77,6 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
         elements_capacity: usize,
         capacity: usize,
     ) -> Self {
-        // Validate that size type's maximum value fits within offset type's maximum value.
-        // Since offsets are non-negative, we only need to check max values.
-        assert!(
-            S::max_value_as_u64() <= O::max_value_as_u64(),
-            "Size type {:?} (max offset {}) must fit within offset type {:?} (max offset {})",
-            S::PTYPE,
-            S::max_value_as_u64(),
-            O::PTYPE,
-            O::max_value_as_u64()
-        );
-
         let elements_builder = builder_with_capacity(&element_dtype, elements_capacity);
 
         let offsets_builder =
@@ -627,15 +616,5 @@ mod tests {
                 .to_string()
                 .contains("null value to non-nullable")
         );
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Size type I32 (max offset 2147483647) must fit within offset type I16 (max offset 32767)"
-    )]
-    fn test_error_invalid_type_combination() {
-        let dtype: Arc<DType> = Arc::new(I32.into());
-        // This should panic because i32 (4 bytes) cannot fit within i16 (2 bytes).
-        let _builder = ListViewBuilder::<i16, i32>::with_capacity(dtype, NonNullable, 0, 0);
     }
 }

@@ -3,12 +3,13 @@
 
 use std::any::Any;
 use std::fmt;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
+use vortex_vector::Vector;
 
 use crate::ArrayRef;
 use crate::expr::display::DisplayTreeExpr;
@@ -19,7 +20,7 @@ use crate::stats::Stat;
 ///
 /// Expressions represent scalar computations that can be performed on data. Each
 /// expression consists of an encoding (vtable), heap-allocated metadata, and child expressions.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Expression {
     /// The vtable for this expression.
     vtable: ExprVTable,
@@ -139,6 +140,11 @@ impl Expression {
     /// Evaluates the expression in the given scope.
     pub fn evaluate(&self, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         self.vtable.as_dyn().evaluate(self, scope)
+    }
+
+    /// Executes the expression over the given vector input scope.
+    pub fn execute(&self, vector: &Vector, dtype: &DType) -> VortexResult<Vector> {
+        self.vtable.as_dyn().execute(self, vector, dtype)
     }
 
     /// An expression over zone-statistics which implies all records in the zone evaluate to false.
@@ -263,6 +269,33 @@ impl Expression {
 impl Display for Expression {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.fmt_sql(f)
+    }
+}
+
+struct FormatExpressionData<'a> {
+    vtable: &'a ExprVTable,
+    data: &'a Arc<dyn Any + Send + Sync>,
+}
+
+impl<'a> Debug for FormatExpressionData<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.vtable.as_dyn().fmt_data(self.data.as_ref(), f)
+    }
+}
+
+impl Debug for Expression {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Expression")
+            .field("vtable", &self.vtable)
+            .field(
+                "data",
+                &FormatExpressionData {
+                    vtable: &self.vtable,
+                    data: &self.data,
+                },
+            )
+            .field("children", &self.children)
+            .finish()
     }
 }
 

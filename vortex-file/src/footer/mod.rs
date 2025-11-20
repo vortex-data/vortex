@@ -65,7 +65,7 @@ impl Footer {
         layout_bytes: FlatBuffer,
         dtype: DType,
         statistics: Option<FileStatistics>,
-        session: VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<Self> {
         let fb_footer = root::<fb::Footer>(&footer_bytes)?;
 

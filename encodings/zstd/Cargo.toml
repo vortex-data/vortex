@@ -30,5 +30,10 @@ vortex-vector = { workspace = true }
 zstd = { workspace = true }
 
 [dev-dependencies]
+divan = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["test-harness"] }
+
+[[bench]]
+name = "listview_rebuild"
+harness = false

@@ -17,37 +17,98 @@ impl TakeKernel for VarBinVTable {
         let offsets = array.offsets().to_primitive();
         let data = array.bytes();
         let indices = indices.to_primitive();
-        match_each_integer_ptype!(offsets.ptype(), |O| {
-            match_each_integer_ptype!(indices.ptype(), |I| {
-                Ok(take(
-                    array
-                        .dtype()
-                        .clone()
-                        .union_nullability(indices.dtype().nullability()),
-                    offsets.as_slice::<O>(),
+        let dtype = array
+            .dtype()
+            .clone()
+            .union_nullability(indices.dtype().nullability());
+        let array = match_each_integer_ptype!(indices.ptype(), |I| {
+            // On take, offsets get widened to either 32- or 64-bit based on the original type,
+            // to avoid overflow issues.
+            match offsets.ptype() {
+                PType::U8 => take::<I, u8, u32>(
+                    dtype,
+                    offsets.as_slice::<u8>(),
                     data.as_slice(),
                     indices.as_slice::<I>(),
                     array.validity_mask(),
                     indices.validity_mask(),
-                )?
-                .into_array())
-            })
-        })
+                ),
+                PType::U16 => take::<I, u16, u32>(
+                    dtype,
+                    offsets.as_slice::<u16>(),
+                    data.as_slice(),
+                    indices.as_slice::<I>(),
+                    array.validity_mask(),
+                    indices.validity_mask(),
+                ),
+                PType::U32 => take::<I, u32, u32>(
+                    dtype,
+                    offsets.as_slice::<u32>(),
+                    data.as_slice(),
+                    indices.as_slice::<I>(),
+                    array.validity_mask(),
+                    indices.validity_mask(),
+                ),
+                PType::U64 => take::<I, u64, u64>(
+                    dtype,
+                    offsets.as_slice::<u64>(),
+                    data.as_slice(),
+                    indices.as_slice::<I>(),
+                    array.validity_mask(),
+                    indices.validity_mask(),
+                ),
+                PType::I8 => take::<I, i8, i32>(
+                    dtype,
+                    offsets.as_slice::<i8>(),
+                    data.as_slice(),
+                    indices.as_slice::<I>(),
+                    array.validity_mask(),
+                    indices.validity_mask(),
+                ),
+                PType::I16 => take::<I, i16, i32>(
+                    dtype,
+                    offsets.as_slice::<i16>(),
+                    data.as_slice(),
+                    indices.as_slice::<I>(),
+                    array.validity_mask(),
+                    indices.validity_mask(),
+                ),
+                PType::I32 => take::<I, i32, i32>(
+                    dtype,
+                    offsets.as_slice::<i32>(),
+                    data.as_slice(),
+                    indices.as_slice::<I>(),
+                    array.validity_mask(),
+                    indices.validity_mask(),
+                ),
+                PType::I64 => take::<I, i64, i64>(
+                    dtype,
+                    offsets.as_slice::<i64>(),
+                    data.as_slice(),
+                    indices.as_slice::<I>(),
+                    array.validity_mask(),
+                    indices.validity_mask(),
+                ),
+                _ => unreachable!("invalid PType for offsets"),
+            }
+        });
+
+        Ok(array?.into_array())
     }
 }
 
 register_kernel!(TakeKernelAdapter(VarBinVTable).lift());
 
-fn take<I: IntegerPType, O: IntegerPType>(
+fn take<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPType>(
     dtype: DType,
-    offsets: &[O],
+    offsets: &[Offset],
     data: &[u8],
-    indices: &[I],
+    indices: &[Index],
     validity_mask: Mask,
     indices_validity_mask: Mask,
 ) -> VortexResult<VarBinArray> {
     if !validity_mask.all_true() || !indices_validity_mask.all_true() {
-        return Ok(take_nullable(
+        return Ok(take_nullable::<Index, Offset, NewOffset>(
             dtype,
             offsets,
             data,
@@ -57,9 +118,9 @@ fn take<I: IntegerPType, O: IntegerPType>(
         ));
     }
 
-    let mut new_offsets = BufferMut::with_capacity(indices.len() + 1);
-    new_offsets.push(O::zero());
-    let mut current_offset = O::zero();
+    let mut new_offsets = BufferMut::<NewOffset>::with_capacity(indices.len() + 1);
+    new_offsets.push(NewOffset::zero());
+    let mut current_offset = NewOffset::zero();
 
     for &idx in indices {
         let idx = idx
@@ -67,15 +128,12 @@ fn take<I: IntegerPType, O: IntegerPType>(
             .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", idx));
         let start = offsets[idx];
         let stop = offsets[idx + 1];
-        current_offset += stop - start;
+
+        current_offset += NewOffset::from(stop - start).vortex_expect("offset type overflow");
         new_offsets.push(current_offset);
     }
 
-    let mut new_data = ByteBufferMut::with_capacity(
-        current_offset
-            .to_usize()
-            .vortex_expect("Failed to cast max offset to usize"),
-    );
+    let mut new_data = ByteBufferMut::with_capacity(current_offset.as_());
 
     for idx in indices {
         let idx = idx
@@ -104,17 +162,17 @@ fn take<I: IntegerPType, O: IntegerPType>(
     }
 }
 
-fn take_nullable<I: IntegerPType, O: IntegerPType>(
+fn take_nullable<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPType>(
     dtype: DType,
-    offsets: &[O],
+    offsets: &[Offset],
     data: &[u8],
-    indices: &[I],
+    indices: &[Index],
     data_validity: Mask,
     indices_validity: Mask,
 ) -> VarBinArray {
-    let mut new_offsets = BufferMut::with_capacity(indices.len() + 1);
-    new_offsets.push(O::zero());
-    let mut current_offset = O::zero();
+    let mut new_offsets = BufferMut::<NewOffset>::with_capacity(indices.len() + 1);
+    new_offsets.push(NewOffset::zero());
+    let mut current_offset = NewOffset::zero();
 
     let mut validity_buffer = BitBufferMut::with_capacity(indices.len());
 
@@ -135,7 +193,7 @@ fn take_nullable<I: IntegerPType, O: IntegerPType>(
             validity_buffer.append(true);
             let start = offsets[data_idx_usize];
             let stop = offsets[data_idx_usize + 1];
-            current_offset += stop - start;
+            current_offset += NewOffset::from(stop - start).vortex_expect("offset type overflow");
             new_offsets.push(current_offset);
             valid_indices.push(data_idx_usize);
         } else {
@@ -144,11 +202,7 @@ fn take_nullable<I: IntegerPType, O: IntegerPType>(
         }
     }
 
-    let mut new_data = ByteBufferMut::with_capacity(
-        current_offset
-            .to_usize()
-            .vortex_expect("Failed to cast max offset to usize"),
-    );
+    let mut new_data = ByteBufferMut::with_capacity(current_offset.as_());
 
     // Second pass: copy data for valid indices only
     for data_idx in valid_indices {
@@ -178,12 +232,14 @@ fn take_nullable<I: IntegerPType, O: IntegerPType>(
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_buffer::{ByteBuffer, buffer};
     use vortex_dtype::{DType, Nullability};
 
-    use crate::Array;
-    use crate::arrays::{PrimitiveArray, VarBinArray};
+    use crate::arrays::{PrimitiveArray, VarBinArray, VarBinVTable};
     use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
+    use crate::validity::Validity;
+    use crate::{Array, IntoArray};
 
     #[test]
     fn test_null_take() {
@@ -220,5 +276,28 @@ mod tests {
     #[case(VarBinArray::from_iter(["single"].map(Some), DType::Utf8(Nullability::NonNullable)))]
     fn test_take_varbin_conformance(#[case] array: VarBinArray) {
         test_take_conformance(array.as_ref());
+    }
+
+    #[test]
+    fn test_take_overflow() {
+        let scream = std::iter::once("a").cycle().take(128).collect::<String>();
+        let bytes = ByteBuffer::copy_from(scream.as_bytes());
+        let offsets = buffer![0u8, 128u8].into_array();
+
+        let array = VarBinArray::new(
+            offsets,
+            bytes,
+            DType::Utf8(Nullability::NonNullable),
+            Validity::NonNullable,
+        );
+
+        let indices = buffer![0u32, 0u32, 0u32].into_array();
+        let taken = take(array.as_ref(), indices.as_ref()).unwrap();
+
+        let taken_str = taken.as_::<VarBinVTable>();
+        assert_eq!(taken_str.len(), 3);
+        assert_eq!(taken_str.bytes_at(0).as_bytes(), scream.as_bytes());
+        assert_eq!(taken_str.bytes_at(1).as_bytes(), scream.as_bytes());
+        assert_eq!(taken_str.bytes_at(2).as_bytes(), scream.as_bytes());
     }
 }

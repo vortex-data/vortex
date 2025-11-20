@@ -97,11 +97,15 @@ impl VTable for Cast {
             Stat::IsConstant
             | Stat::IsSorted
             | Stat::IsStrictSorted
-            | Stat::Max
-            | Stat::Min
             | Stat::NaNCount
             | Stat::Sum
             | Stat::UncompressedSizeInBytes => expr.child(0).stat_expression(stat, catalog),
+            Stat::Max | Stat::Min => {
+                // We cast min/max to the new type
+                expr.child(0)
+                    .stat_expression(stat, catalog)
+                    .map(|x| cast(x, expr.data().clone()))
+            }
             Stat::NullCount => {
                 // if !expr.data().is_nullable() {
                 // NOTE(ngates): we should decide on the semantics here. In theory, the null

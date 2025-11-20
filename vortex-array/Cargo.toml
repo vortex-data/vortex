@@ -159,3 +159,7 @@ required-features = ["test-harness"]
 [[bench]]
 name = "dict_mask"
 harness = false
+
+[[bench]]
+name = "dict_unreferenced_mask"
+harness = false

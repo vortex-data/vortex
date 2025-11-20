@@ -805,7 +805,7 @@ const vx_string *vx_struct_fields_field_name(const vx_struct_fields *dtype, size
  *
  * Returns null if the index is out of bounds or if the field dtype cannot be parsed.
  */
-const vx_dtype *vx_struct_fields_field_dtype(const vx_struct_fields *dtype, uint64_t idx);
+const vx_dtype *vx_struct_fields_field_dtype(const vx_struct_fields *dtype, size_t idx);
 
 /**
  * Free an owned [`vx_struct_fields_builder`] object.

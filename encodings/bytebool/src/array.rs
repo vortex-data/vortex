@@ -6,18 +6,20 @@ use std::hash::Hash;
 use std::ops::Range;
 
 use vortex_array::arrays::BoolArray;
+use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
-    ValidityVTableFromValidityHelper,
+    ValidityVTableFromValidityHelper, VisitorVTable,
 };
 use vortex_array::{
-    ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, Precision, vtable,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical, EmptyMetadata,
+    EncodingId, EncodingRef, IntoArray, Precision, vtable,
 };
 use vortex_buffer::{BitBuffer, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::vortex_panic;
+use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 use vortex_scalar::Scalar;
 
 vtable!(ByteBool);
@@ -25,6 +27,7 @@ vtable!(ByteBool);
 impl VTable for ByteBoolVTable {
     type Array = ByteBoolArray;
     type Encoding = ByteBoolEncoding;
+    type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
@@ -33,7 +36,6 @@ impl VTable for ByteBoolVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type SerdeVTable = Self;
     type OperatorVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -42,6 +44,43 @@ impl VTable for ByteBoolVTable {
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
         EncodingRef::new_ref(ByteBoolEncoding.as_ref())
+    }
+
+    fn metadata(_array: &ByteBoolArray) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
+    }
+
+    fn deserialize(_buffer: &[u8]) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn build(
+        _encoding: &ByteBoolEncoding,
+        dtype: &DType,
+        len: usize,
+        _metadata: &Self::Metadata,
+        buffers: &[ByteBuffer],
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<ByteBoolArray> {
+        let validity = if children.is_empty() {
+            Validity::from(dtype.nullability())
+        } else if children.len() == 1 {
+            let validity = children.get(0, &Validity::DTYPE, len)?;
+            Validity::Array(validity)
+        } else {
+            vortex_bail!("Expected 0 or 1 child, got {}", children.len());
+        };
+
+        if buffers.len() != 1 {
+            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
+        }
+        let buffer = buffers[0].clone();
+
+        Ok(ByteBoolArray::new(buffer, validity))
     }
 }
 
@@ -149,6 +188,16 @@ impl OperationsVTable<ByteBoolVTable> for ByteBoolVTable {
 
     fn scalar_at(array: &ByteBoolArray, index: usize) -> Scalar {
         Scalar::bool(array.buffer()[index] == 1, array.dtype().nullability())
+    }
+}
+
+impl VisitorVTable<ByteBoolVTable> for ByteBoolVTable {
+    fn visit_buffers(array: &ByteBoolArray, visitor: &mut dyn ArrayBufferVisitor) {
+        visitor.visit_buffer(array.buffer());
+    }
+
+    fn visit_children(array: &ByteBoolArray, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_validity(array.validity(), array.len());
     }
 }
 

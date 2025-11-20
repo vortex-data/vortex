@@ -99,8 +99,9 @@ pub struct ListViewArray {
     ///
     /// We use this information to help us more efficiently rebuild / compact our data.
     ///
-    /// When this flag is true (indicating sorted offsets with no gaps and no overlaps), conversions
-    /// can bypass the very expensive rebuild process (which just calls `append_scalar` in a loop).
+    /// When this flag is true (indicating sorted offsets with no gaps and no overlaps and all
+    /// `offsets[i] + sizes[i]` are in order), conversions can bypass the very expensive rebuild
+    /// process which must rebuild the array from scratch.
     is_zero_copy_to_list: bool,
 
     /// The validity / null map of the array.
@@ -264,6 +265,7 @@ impl ListViewArray {
     /// actually zero-copyable to a [`ListArray`]. This means:
     ///
     /// - Offsets must be sorted (but not strictly sorted, zero-length lists are allowed).
+    /// - `offsets[i] + sizes[i] == offsets[i + 1]` for all `i`.
     /// - No gaps in elements between first and last referenced elements.
     /// - No overlapping list views (each element referenced at most once).
     ///
@@ -425,7 +427,8 @@ where
         if offset_u64 == elements_len {
             vortex_ensure!(
                 size_u64 == 0,
-                "views to the end of the elements array (length {elements_len}) must have size 0"
+                "views to the end of the elements array (length {elements_len}) must have size 0 \
+                    (had size {size_u64})"
             );
         }
 
@@ -453,6 +456,51 @@ fn validate_zctl(
     } else {
         vortex_bail!("offsets must report is_sorted statistic");
     }
+
+    // Validate that offset[i] + size[i] <= offset[i+1] for all items
+    // This ensures views are non-overlapping and properly ordered for zero-copy-to-list
+    fn validate_monotonic_ends<O: IntegerPType, S: IntegerPType>(
+        offsets_slice: &[O],
+        sizes_slice: &[S],
+        len: usize,
+    ) -> VortexResult<()> {
+        let mut max_end = 0usize;
+
+        for i in 0..len {
+            let offset = offsets_slice[i].to_usize().unwrap_or(usize::MAX);
+            let size = sizes_slice[i].to_usize().unwrap_or(usize::MAX);
+
+            // Check that this view starts at or after the previous view ended
+            vortex_ensure!(
+                offset >= max_end,
+                "Zero-copy-to-list requires views to be non-overlapping and ordered: \
+                 view[{}] starts at {} but previous views extend to {}",
+                i,
+                offset,
+                max_end
+            );
+
+            // Update max_end for the next iteration
+            let end = offset.saturating_add(size);
+            max_end = max_end.max(end);
+        }
+
+        Ok(())
+    }
+
+    let offsets_dtype = offsets_primitive.dtype();
+    let sizes_dtype = sizes_primitive.dtype();
+    let len = offsets_primitive.len();
+
+    // Check that offset + size values are monotonic (no overlaps)
+    match_each_integer_ptype!(offsets_dtype.as_ptype(), |O| {
+        match_each_integer_ptype!(sizes_dtype.as_ptype(), |S| {
+            let offsets_slice = offsets_primitive.as_slice::<O>();
+            let sizes_slice = sizes_primitive.as_slice::<S>();
+
+            validate_monotonic_ends(offsets_slice, sizes_slice, len)?;
+        })
+    });
 
     // TODO(connor)[ListView]: Making this allocation is expensive, but the more efficient
     // implementation would be even more complicated than this. We could use a bit buffer denoting

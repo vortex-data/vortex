@@ -6,5 +6,7 @@ pub use array::ConstantArray;
 
 mod compute;
 
+mod vector;
 mod vtable;
+
 pub use vtable::{ConstantEncoding, ConstantVTable};

@@ -239,13 +239,7 @@ impl FooterDeserializer {
             &initial_read[layout_offset..layout_offset + (layout_segment.length as usize)],
         );
 
-        Footer::from_flatbuffer(
-            footer_bytes,
-            layout_bytes,
-            dtype,
-            file_stats,
-            self.session.clone(),
-        )
+        Footer::from_flatbuffer(footer_bytes, layout_bytes, dtype, file_stats, &self.session)
     }
 }
 

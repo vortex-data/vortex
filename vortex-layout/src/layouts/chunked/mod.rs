@@ -9,6 +9,7 @@ use std::sync::Arc;
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::children::LayoutChildren;
 use crate::layouts::chunked::reader::ChunkedReader;
@@ -64,11 +65,13 @@ impl VTable for ChunkedVTable {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        session: &VortexSession,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(ChunkedReader::new(
             layout.clone(),
             name,
             segment_source,
+            session,
         )))
     }
 

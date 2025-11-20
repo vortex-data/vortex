@@ -8,8 +8,9 @@ use futures::Stream;
 use futures::future::BoxFuture;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
+use vortex_array::expr::session::ExprSessionExt;
+use vortex_array::expr::transform::ExprOptimizer;
 use vortex_array::expr::transform::immediate_access::immediate_scope_access;
-use vortex_array::expr::transform::simplify_typed;
 use vortex_array::expr::{Expression, root};
 use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
 use vortex_array::stats::StatsSet;
@@ -30,6 +31,7 @@ use crate::splits::{Splits, attempt_split_ranges};
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder<A> {
+    expr_optimizer: ExprOptimizer,
     session: VortexSession,
     layout_reader: LayoutReaderRef,
     projection: Expression,
@@ -59,7 +61,9 @@ pub struct ScanBuilder<A> {
 
 impl ScanBuilder<ArrayRef> {
     pub fn new(session: VortexSession, layout_reader: Arc<dyn LayoutReader>) -> Self {
+        let expr_optimizer = ExprOptimizer::new(&session.expressions());
         Self {
+            expr_optimizer,
             session,
             layout_reader,
             projection: root(),
@@ -178,6 +182,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
     ) -> ScanBuilder<B> {
         let old_map_fn = self.map_fn;
         ScanBuilder {
+            expr_optimizer: self.expr_optimizer,
             session: self.session,
             layout_reader: self.layout_reader,
             projection: self.projection,
@@ -209,13 +214,20 @@ impl<A: 'static + Send> ScanBuilder<A> {
         // Enrich the layout reader to support RowIdx expressions.
         // Note that this is applied below the filter layout reader since it can perform
         // better over individual conjunctions.
-        layout_reader = Arc::new(RowIdxLayoutReader::new(self.row_offset, layout_reader));
+        layout_reader = Arc::new(RowIdxLayoutReader::new(
+            self.row_offset,
+            layout_reader,
+            &self.session,
+        ));
 
         // Normalize and simplify the expressions.
-        let projection = simplify_typed(self.projection, layout_reader.dtype())?;
+        let projection = self
+            .expr_optimizer
+            .optimize_typed(self.projection, layout_reader.dtype())?;
+
         let filter = self
             .filter
-            .map(|f| simplify_typed(f, layout_reader.dtype()))
+            .map(|f| self.expr_optimizer.optimize_typed(f, layout_reader.dtype()))
             .transpose()?;
 
         // Construct field masks and compute the row splits of the scan.

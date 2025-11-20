@@ -4,28 +4,31 @@
 use std::hash::Hash;
 use std::ops::Range;
 
+use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityChild,
-    ValidityVTableFromChild,
+    ArrayVTable, CanonicalVTable, EncodeVTable, NotSupported, OperationsVTable, VTable,
+    ValidityChild, ValidityVTableFromChild, VisitorVTable,
 };
 use vortex_array::{
-    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, Precision,
-    ToCanonical, vtable,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
+    EmptyMetadata, EncodingId, EncodingRef, IntoArray, Precision, ToCanonical, vtable,
 };
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 use zigzag::ZigZag as ExternalZigZag;
 
 use crate::compute::ZigZagEncoded;
-use crate::zigzag_decode;
+use crate::{zigzag_decode, zigzag_encode};
 
 vtable!(ZigZag);
 
 impl VTable for ZigZagVTable {
     type Array = ZigZagArray;
     type Encoding = ZigZagEncoding;
+    type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
@@ -34,7 +37,6 @@ impl VTable for ZigZagVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type SerdeVTable = Self;
     type OperatorVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -43,6 +45,37 @@ impl VTable for ZigZagVTable {
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
         EncodingRef::new_ref(ZigZagEncoding.as_ref())
+    }
+
+    fn metadata(_array: &ZigZagArray) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
+    }
+
+    fn deserialize(_buffer: &[u8]) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn build(
+        _encoding: &ZigZagEncoding,
+        dtype: &DType,
+        len: usize,
+        _metadata: &Self::Metadata,
+        _buffers: &[ByteBuffer],
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<ZigZagArray> {
+        if children.len() != 1 {
+            vortex_bail!("Expected 1 child, got {}", children.len());
+        }
+
+        let ptype = PType::try_from(dtype)?;
+        let encoded_type = DType::Primitive(ptype.to_unsigned(), dtype.nullability());
+
+        let encoded = children.get(0, &encoded_type, len)?;
+        ZigZagArray::try_new(encoded)
     }
 }
 
@@ -143,6 +176,34 @@ impl OperationsVTable<ZigZagVTable> for ZigZagVTable {
 impl ValidityChild<ZigZagVTable> for ZigZagVTable {
     fn validity_child(array: &ZigZagArray) -> &dyn Array {
         array.encoded()
+    }
+}
+
+impl EncodeVTable<ZigZagVTable> for ZigZagVTable {
+    fn encode(
+        encoding: &ZigZagEncoding,
+        canonical: &Canonical,
+        _like: Option<&ZigZagArray>,
+    ) -> VortexResult<Option<ZigZagArray>> {
+        let parray = canonical.clone().into_primitive();
+
+        if !parray.ptype().is_signed_int() {
+            vortex_bail!(
+                "only signed integers can be encoded into {}, got {}",
+                encoding.id(),
+                parray.ptype()
+            )
+        }
+
+        Ok(Some(zigzag_encode(parray)?))
+    }
+}
+
+impl VisitorVTable<ZigZagVTable> for ZigZagVTable {
+    fn visit_buffers(_array: &ZigZagArray, _visitor: &mut dyn ArrayBufferVisitor) {}
+
+    fn visit_children(array: &ZigZagArray, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("encoded", array.encoded())
     }
 }
 

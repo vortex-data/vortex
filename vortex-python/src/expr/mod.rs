@@ -7,8 +7,11 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
 use vortex::dtype::{DType, Nullability, PType};
+use vortex::expr;
 use vortex::expr::{Binary, Expression, GetItem, Operator, VTableExt, and, lit, not};
 
+use crate::arrays::PyArrayRef;
+use crate::arrays::into_array::PyIntoArray;
 use crate::dtype::PyDType;
 use crate::install_module;
 use crate::scalar::factory::scalar_helper;
@@ -23,6 +26,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(literal, &m)?)?;
     m.add_function(wrap_pyfunction!(not_, &m)?)?;
     m.add_function(wrap_pyfunction!(and_, &m)?)?;
+    m.add_function(wrap_pyfunction!(cast, &m)?)?;
     m.add_class::<PyExpr>()?;
 
     Ok(())
@@ -164,6 +168,45 @@ impl PyExpr {
     fn __getitem__(self_: PyRef<'_, Self>, field: String) -> PyResult<PyExpr> {
         get_item(field, self_.clone())
     }
+
+    /// Evaluate this expression on an in-memory array.
+    ///
+    /// Examples
+    /// --------
+    ///
+    /// Extract one column from a Vortex array:
+    ///
+    /// ```python
+    /// >>> import vortex.expr as ve
+    /// >>> import vortex as vx
+    /// >>> array = ve.column("a").evaluate(vx.array([{"a": 0, "b": "hello"}, {"a": 1, "b": "goodbye"}]))
+    /// >>> array.to_arrow_array()
+    /// <pyarrow.lib.Int64Array object at ...>
+    /// [
+    ///  0,
+    ///  1
+    /// ]
+    /// ```
+    ///
+    /// Evaluating an expression on an Arrow array or table implicitly converts it to a Vortex
+    /// array:
+    ///
+    /// >>> import pyarrow as pa
+    /// >>> array = ve.column("a").evaluate(pa.Table.from_arrays(
+    /// ...     [[0, 1, 2, 3]],
+    /// ...     names=['a'],
+    /// ... ))
+    /// >>> array
+    /// <vortex.PrimitiveArray object at ...>
+    ///
+    /// See also
+    /// --------
+    /// vortex.open : Open an on-disk Vortex array for scanning with an expression.
+    /// vortex.VortexFile : An on-disk Vortex array ready to scan with an expression.
+    /// vortex.VortexFile.scan : Scan an on-disk Vortex array with an expression.
+    fn evaluate(self_: PyRef<'_, Self>, array: PyIntoArray) -> PyResult<PyArrayRef> {
+        Ok(PyArrayRef::from(self_.evaluate(array.inner())?))
+    }
 }
 
 /// Create an expression that represents a literal value.
@@ -215,7 +258,7 @@ pub fn literal<'py>(
 #[pyfunction]
 pub fn root() -> PyExpr {
     PyExpr {
-        inner: vortex::expr::root(),
+        inner: expr::root(),
     }
 }
 
@@ -249,7 +292,7 @@ pub fn column<'py>(name: &Bound<'py, PyString>) -> PyResult<Bound<'py, PyExpr>> 
     Bound::new(
         py,
         PyExpr {
-            inner: vortex::expr::get_item(name, vortex::expr::root()),
+            inner: expr::get_item(name, expr::root()),
         },
     )
 }
@@ -301,7 +344,10 @@ pub fn not_(child: PyExpr) -> PyResult<PyExpr> {
 ///
 /// Parameters
 /// ----------
-/// child : :class:`Any`
+/// left : :class:`Expr`
+///     A boolean expression.
+///
+/// right : :class:`Expr`
 ///     A boolean expression.
 ///
 /// Returns
@@ -321,5 +367,43 @@ pub fn not_(child: PyExpr) -> PyResult<PyExpr> {
 pub fn and_(left: PyExpr, right: PyExpr) -> PyResult<PyExpr> {
     Ok(PyExpr {
         inner: and(left.inner, right.inner),
+    })
+}
+
+/// Cast an expression to a compatible type.
+///
+/// Parameters
+/// ----------
+/// child : :class:`Expr`
+///     The expression to cast.
+///
+/// Returns
+/// -------
+/// :class:`vortex.Expr`
+///
+/// Examples
+/// --------
+///
+/// Cast to a wider integer type:
+///
+/// ```python
+/// >>> import vortex.expr as ve
+/// >>> import vortex as vx
+/// >>> ve.cast(ve.literal(vx.int_(8), 1), vx.int_(16))
+/// <vortex.Expr object at ...>
+/// ```
+///
+/// Cast to a wider floating-point type:
+///
+/// ```python
+/// >>> import vortex.expr as ve
+/// >>> import vortex as vx
+/// >>> ve.cast(ve.literal(vx.float_(16), 3.145), vx.float_(64))
+/// <vortex.Expr object at ...>
+/// ```
+#[pyfunction]
+pub fn cast(child: PyExpr, dtype: PyDType) -> PyResult<PyExpr> {
+    Ok(PyExpr {
+        inner: expr::cast(child.into_inner(), dtype.into_inner()),
     })
 }

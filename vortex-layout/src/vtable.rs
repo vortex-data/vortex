@@ -8,6 +8,7 @@ use std::sync::Arc;
 use vortex_array::{ArrayContext, DeserializeMetadata, SerializeMetadata};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::children::LayoutChildren;
 use crate::segments::{SegmentId, SegmentSource};
@@ -53,6 +54,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        session: &VortexSession,
     ) -> VortexResult<LayoutReaderRef>;
 
     #[cfg(gpu_unstable)]
@@ -65,6 +67,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     ) -> VortexResult<crate::gpu::GpuLayoutReaderRef>;
 
     /// Construct a new [`Layout`] from the provided parts.
+    #[allow(clippy::too_many_arguments)]
     fn build(
         encoding: &Self::Encoding,
         dtype: &DType,

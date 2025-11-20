@@ -22,11 +22,14 @@ pub use metadata::*;
 use vortex_session::registry::Registry;
 use vortex_session::{Ref, SessionExt};
 
+use crate::array::session::rewrite::ArrayRewriteRuleRegistry;
+use crate::array::transform::{AnyParent, ArrayOptimizer, ArrayParentReduceRule, ArrayReduceRule};
 use crate::arrays::{
     BoolEncoding, ChunkedEncoding, ConstantEncoding, DecimalEncoding, ExtensionEncoding,
     FixedSizeListEncoding, ListEncoding, ListViewEncoding, MaskedEncoding, NullEncoding,
     PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
+use crate::vtable::VTable;
 
 pub mod accessor;
 #[doc(hidden)]
@@ -71,11 +74,18 @@ pub type ArrayRegistry = Registry<EncodingRef>;
 pub struct ArraySession {
     /// The set of registered array encodings.
     registry: ArrayRegistry,
+
+    /// The set of registered rewrite rules.
+    rewrite_rules: ArrayRewriteRuleRegistry,
 }
 
 impl ArraySession {
     pub fn registry(&self) -> &ArrayRegistry {
         &self.registry
+    }
+
+    pub fn rewrite_rules(&self) -> &ArrayRewriteRuleRegistry {
+        &self.rewrite_rules
     }
 
     /// Register a new array encoding, replacing any existing encoding with the same ID.
@@ -86,6 +96,49 @@ impl ArraySession {
     /// Register many array encodings, replacing any existing encodings with the same ID.
     pub fn register_many(&self, encodings: impl IntoIterator<Item = EncodingRef>) {
         self.registry.register_many(encodings);
+    }
+
+    /// Register a reduce rule for a specific array encoding
+    pub fn register_reduce_rule<V, R>(&self, encoding: &V::Encoding, rule: R)
+    where
+        V: VTable,
+        R: 'static + ArrayReduceRule<V>,
+    {
+        self.rewrite_rules
+            .register_reduce_rule::<V, R>(encoding, rule);
+    }
+
+    /// Register a parent reduce rule for specific child and parent types
+    pub fn register_parent_rule<Child, Parent, R>(
+        &self,
+        child_encoding: &Child::Encoding,
+        parent_encoding: &Parent::Encoding,
+        rule: R,
+    ) where
+        Child: VTable,
+        Parent: VTable,
+        R: 'static + ArrayParentReduceRule<Child, Parent>,
+    {
+        self.rewrite_rules.register_parent_rule::<Child, Parent, R>(
+            child_encoding,
+            parent_encoding,
+            rule,
+        );
+    }
+
+    /// Register a parent reduce rule that matches any parent type
+    pub fn register_any_parent_rule<Child, R>(&self, child_encoding: &Child::Encoding, rule: R)
+    where
+        Child: VTable,
+        R: 'static + ArrayParentReduceRule<Child, AnyParent>,
+    {
+        self.rewrite_rules
+            .register_any_parent_rule::<Child, R>(child_encoding, rule);
+    }
+
+    /// Create an ArrayOptimizer using this session's rules
+    pub fn optimizer(&self, expr_optimizer: expr::transform::ExprOptimizer) -> ArrayOptimizer {
+        ArrayOptimizer::new(self.rewrite_rules.clone(), expr_optimizer)
     }
 }
 
@@ -115,9 +168,41 @@ impl Default for ArraySession {
             EncodingRef::new_ref(VarBinEncoding.as_ref()),
         ]);
 
-        Self {
+        let session = Self {
             registry: encodings,
-        }
+            rewrite_rules: ArrayRewriteRuleRegistry::default(),
+        };
+
+        session.register_parent_rule::<arrays::BoolVTable, arrays::MaskedVTable, _>(
+            &BoolEncoding,
+            &MaskedEncoding,
+            arrays::BoolMaskedValidityRule,
+        );
+
+        session.register_parent_rule::<arrays::PrimitiveVTable, arrays::MaskedVTable, _>(
+            &PrimitiveEncoding,
+            &MaskedEncoding,
+            arrays::PrimitiveMaskedValidityRule,
+        );
+
+        session.register_parent_rule::<arrays::DecimalVTable, arrays::MaskedVTable, _>(
+            &DecimalEncoding,
+            &MaskedEncoding,
+            arrays::DecimalMaskedValidityRule,
+        );
+
+        session.register_parent_rule::<arrays::StructVTable, arrays::ExprVTable, _>(
+            &StructEncoding,
+            &arrays::ExprEncoding,
+            arrays::StructExprPartitionRule,
+        );
+
+        session.register_reduce_rule::<arrays::ExprVTable, _>(
+            &arrays::ExprEncoding,
+            arrays::ExprOptimizationRule,
+        );
+
+        session
     }
 }
 

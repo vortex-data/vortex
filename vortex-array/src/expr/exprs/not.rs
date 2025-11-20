@@ -3,8 +3,10 @@
 
 use std::fmt::Formatter;
 
+use vortex_compute::logical::LogicalNot;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
+use vortex_vector::Vector;
 
 use crate::ArrayRef;
 use crate::compute::invert;
@@ -65,6 +67,16 @@ impl VTable for Not {
     fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         let child_result = expr.child(0).evaluate(scope)?;
         invert(&child_result)
+    }
+
+    fn execute(
+        &self,
+        expr: &ExpressionView<Self>,
+        vector: &Vector,
+        dtype: &DType,
+    ) -> VortexResult<Vector> {
+        let child = expr.child(0).execute(vector, dtype)?;
+        Ok(child.into_bool().not().into())
     }
 }
 

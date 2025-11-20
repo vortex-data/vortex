@@ -108,6 +108,12 @@ pub enum Mask {
     Values(Arc<MaskValues>),
 }
 
+impl Default for Mask {
+    fn default() -> Self {
+        Self::new_true(0)
+    }
+}
+
 /// Represents the values of a [`Mask`] that contains some true and some false elements.
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -295,6 +301,11 @@ impl Mask {
             }
         }
         Self::from_indices(len, intersection)
+    }
+
+    /// Clears the mask of all data. Drops any allocated capacity.
+    pub fn clear(&mut self) {
+        *self = Self::new_false(0);
     }
 
     /// Returns the length of the mask (not the number of true values).

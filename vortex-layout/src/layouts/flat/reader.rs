@@ -137,11 +137,16 @@ impl LayoutReader for FlatReader {
                 // TODO(joe): fixme casting null to false is *VERY* unsound, if the expression in the filter
                 // can inspect nulls (e.g. `is_null`).
                 // you will need to call the array evaluation instead of the mask evaluation.
-                let array_mask = expr.evaluate(&array)?.try_to_mask_fill_null_false()?;
+                let array_mask = expr
+                    .evaluate(&array)
+                    .map_err(|err| err.with_context(format!("While evaluating filter {}", expr)))?
+                    .try_to_mask_fill_null_false()?;
                 mask.intersect_by_rank(&array_mask)
             } else {
                 // Evaluate all rows, avoiding the more expensive rank intersection.
-                array = expr.evaluate(&array)?;
+                array = expr
+                    .evaluate(&array)
+                    .map_err(|err| err.with_context(format!("While evaluating filter {}", expr)))?;
                 let array_mask = array.try_to_mask_fill_null_false()?;
                 mask.bitand(&array_mask)
             };
@@ -190,7 +195,9 @@ impl LayoutReader for FlatReader {
 
             // Evaluate the projection expression.
             if !is_root(&expr) {
-                array = expr.evaluate(&array)?;
+                array = expr.evaluate(&array).map_err(|err| {
+                    err.with_context(format!("While evaluating projection {}", expr))
+                })?;
             }
 
             Ok(array)
@@ -214,6 +221,7 @@ mod test {
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::{SequenceId, SequentialArrayStreamExt};
+    use crate::test::SESSION;
 
     #[test]
     fn flat_identity() {
@@ -234,7 +242,7 @@ mod test {
                 .unwrap();
 
             let result = layout
-                .new_reader("".into(), segments)
+                .new_reader("".into(), segments, &SESSION)
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -257,6 +265,7 @@ mod test {
     fn flat_expr() {
         block_on(|handle| async {
             let ctx = ArrayContext::empty();
+
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).to_array();
@@ -273,7 +282,7 @@ mod test {
 
             let expr = gt(root(), lit(3i32));
             let result = layout
-                .new_reader("".into(), segments)
+                .new_reader("".into(), segments, &SESSION)
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -311,7 +320,7 @@ mod test {
                 .unwrap();
 
             let result = layout
-                .new_reader("".into(), segments)
+                .new_reader("".into(), segments, &SESSION)
                 .unwrap()
                 .projection_evaluation(&(2..4), &root(), MaskFuture::new_true(2))
                 .unwrap()

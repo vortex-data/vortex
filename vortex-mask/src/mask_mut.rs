@@ -12,6 +12,12 @@ use crate::Mask;
 #[derive(Debug, Clone)]
 pub struct MaskMut(Inner);
 
+impl Default for MaskMut {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
 #[derive(Debug, Clone)]
 enum Inner {
     /// Initially, the mask is empty but may have some capacity.
@@ -54,6 +60,11 @@ impl MaskMut {
             len,
             capacity: len,
         })
+    }
+
+    /// Creates a new mask from an existing bit buffer.
+    pub fn from_buffer(bit_buffer: BitBufferMut) -> Self {
+        Self(Inner::Builder(bit_buffer))
     }
 
     /// Returns the boolean value at a given index.
@@ -334,6 +345,14 @@ impl MaskMut {
             Inner::Empty { .. } => true,
             Inner::Constant { value, .. } => !*value,
             Inner::Builder(bits) => !bits.is_empty() && bits.true_count() == 0,
+        }
+    }
+
+    /// Returns the internal bit buffer if it exists.
+    pub fn as_bit_buffer_mut(&mut self) -> Option<&mut BitBufferMut> {
+        match &mut self.0 {
+            Inner::Builder(bits) => Some(bits),
+            _ => None,
         }
     }
 }

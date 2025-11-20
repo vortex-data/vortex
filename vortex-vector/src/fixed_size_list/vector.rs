@@ -165,6 +165,12 @@ impl VectorOps for FixedSizeListVector {
         todo!()
     }
 
+    fn clear(&mut self) {
+        Arc::make_mut(&mut self.elements).clear();
+        self.validity.clear();
+        self.len = 0;
+    }
+
     fn try_into_mut(self) -> Result<FixedSizeListVectorMut, Self> {
         let len = self.len;
         let list_size = self.list_size;
