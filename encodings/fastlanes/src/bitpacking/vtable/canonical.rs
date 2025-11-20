@@ -7,17 +7,17 @@ use vortex_array::vtable::CanonicalVTable;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 
-use crate::bitpack_decompress::{unpack, unpack_into};
+use crate::bitpack_decompress::{unpack_array, unpack_into_primitive_builder};
 use crate::{BitPackedArray, BitPackedVTable};
 
 impl CanonicalVTable<BitPackedVTable> for BitPackedVTable {
     fn canonicalize(array: &BitPackedArray) -> Canonical {
-        Canonical::Primitive(unpack(array))
+        Canonical::Primitive(unpack_array(array))
     }
 
     fn append_to_builder(array: &BitPackedArray, builder: &mut dyn ArrayBuilder) {
         match_each_integer_ptype!(array.ptype(), |T| {
-            unpack_into::<T>(
+            unpack_into_primitive_builder::<T>(
                 array,
                 builder
                     .as_any_mut()
