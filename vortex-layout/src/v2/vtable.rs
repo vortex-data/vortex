@@ -8,6 +8,7 @@ use arcref::ArcRef;
 use std::any::Any;
 use std::fmt::Debug;
 use std::hash::Hash;
+use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 pub type ChildName = ArcRef<str>;
@@ -34,6 +35,9 @@ pub trait VTable: 'static + Sized + Send + Sync {
 
     /// Returns the name of the nth layout child, if applicable.
     fn child_name(&self, _view: &LayoutView<Self>, _child_idx: usize) -> ChildName;
+
+    /// Returns the DType of the nth child layout.
+    fn child_dtype(&self, _view: &LayoutView<Self>, _child_idx: usize) -> DType;
 }
 
 /// A type-erased vtable for dynamic layouts.

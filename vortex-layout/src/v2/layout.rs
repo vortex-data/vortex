@@ -37,6 +37,11 @@ impl Layout {
     pub fn children(&self) -> &Arc<dyn LayoutChildren> {
         &self.children
     }
+
+    pub fn child(&self, idx: usize) -> VortexResult<Layout> {
+        // Grab the child dtype from the layout vtable.
+        self.children.child(idx, &DType::Null)
+    }
 }
 
 /// Abstract way of accessing the children of a layout.

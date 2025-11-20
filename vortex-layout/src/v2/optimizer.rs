@@ -17,7 +17,7 @@ pub trait ReduceParent<Parent: VTable, const CHILD_IDX: usize>: VTable {
     /// If no reduction is possible, return None.
     fn reduce_parent(
         layout: &LayoutView<Self>,
-        parent: &LayoutView<Self>,
+        parent: &LayoutView<Parent>,
     ) -> VortexResult<Option<LayoutRef>>;
 }
 
