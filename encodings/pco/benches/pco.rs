@@ -37,6 +37,7 @@ pub fn main() {
 )]
 pub fn pco_pipeline(bencher: Bencher, (size, selectivity): (usize, f64)) {
     let mut rng = StdRng::seed_from_u64(42);
+    #[allow(clippy::cast_possible_truncation)]
     let values = (0..size)
         .map(|i| (i % 10000) as i32)
         .collect::<BufferMut<i32>>()
@@ -49,8 +50,8 @@ pub fn pco_pipeline(bencher: Bencher, (size, selectivity): (usize, f64)) {
         .collect::<BitBuffer>();
 
     bencher
-        .with_inputs(|| Mask::from_buffer(mask.clone()))
-        .bench_local_values(|mask| pco_array.execute_with_selection(&mask).unwrap());
+        .with_inputs(|| (Mask::from_buffer(mask.clone()), pco_array.clone()))
+        .bench_refs(|(mask, pco_array)| pco_array.execute_with_selection(&mask).unwrap());
 }
 
 #[divan::bench(args = [
@@ -69,6 +70,7 @@ pub fn pco_pipeline(bencher: Bencher, (size, selectivity): (usize, f64)) {
 )]
 pub fn pco_canonical(bencher: Bencher, (size, selectivity): (usize, f64)) {
     let mut rng = StdRng::seed_from_u64(42);
+    #[allow(clippy::cast_possible_truncation)]
     let values = (0..size)
         .map(|i| (i % 10000) as i32)
         .collect::<BufferMut<i32>>()
@@ -81,6 +83,6 @@ pub fn pco_canonical(bencher: Bencher, (size, selectivity): (usize, f64)) {
         .collect::<BitBuffer>();
 
     bencher
-        .with_inputs(|| Mask::from_buffer(mask.clone()))
-        .bench_values(|mask| filter(pco_array.to_canonical().as_ref(), &mask).unwrap());
+        .with_inputs(|| (Mask::from_buffer(mask.clone()), pco_array.clone()))
+        .bench_refs(|(mask, pco_array)| filter(pco_array.to_canonical().as_ref(), &mask).unwrap());
 }
