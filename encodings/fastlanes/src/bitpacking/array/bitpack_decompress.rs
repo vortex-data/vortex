@@ -8,33 +8,14 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder, UninitRange};
 use vortex_array::patches::Patches;
 use vortex_dtype::{
-    IntegerPType, NativePType, PhysicalPType, match_each_integer_ptype,
-    match_each_unsigned_integer_ptype,
+    IntegerPType, NativePType, match_each_integer_ptype, match_each_unsigned_integer_ptype,
 };
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::BitPackedArray;
-use crate::unpack_iter::{BitPacked, UnpackStrategy};
-
-/// BitPacking strategy - uses plain bitpacking without reference value
-pub struct BitPackingStrategy;
-
-impl<T: PhysicalPType<Physical: BitPacking>> UnpackStrategy<T> for BitPackingStrategy {
-    #[inline(always)]
-    unsafe fn unpack_chunk(
-        &self,
-        bit_width: usize,
-        chunk: &[T::Physical],
-        dst: &mut [T::Physical],
-    ) {
-        // SAFETY: Caller must ensure [`BitPacking::unchecked_unpack`] safety requirements hold.
-        unsafe {
-            BitPacking::unchecked_unpack(bit_width, chunk, dst);
-        }
-    }
-}
+use crate::unpack_iter::BitPacked;
 
 pub fn unpack(array: &BitPackedArray) -> PrimitiveArray {
     match_each_integer_ptype!(array.ptype(), |P| { unpack_primitive::<P>(array) })
@@ -65,15 +46,18 @@ pub(crate) fn unpack_into<T: BitPacked>(
         uninit_range.append_mask(array.validity_mask());
     }
 
+    // SAFETY: `decode_into` will initialize all values in this range.
+    let uninit_slice = unsafe { uninit_range.slice_uninit_mut(0, array.len()) };
+
     let mut bit_packed_iter = array.unpacked_chunks();
-    bit_packed_iter.decode_into(&mut uninit_range);
+    bit_packed_iter.decode_into(uninit_slice);
 
     if let Some(patches) = array.patches() {
         apply_patches(&mut uninit_range, patches);
     };
 
     // SAFETY: We have set a correct validity mask via `append_mask` with `array.len()` values and
-    // initialized the same number of values needed via calls to `copy_from_slice`.
+    // initialized the same number of values needed via `decode_into`.
     unsafe {
         uninit_range.finish();
     }
