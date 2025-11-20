@@ -48,6 +48,7 @@ impl ArrayParentReduceRule<BoolVTable, MaskedVTable> for BoolMaskedValidityRule 
         _ctx: &ArrayRuleContext,
     ) -> VortexResult<Option<ArrayRef>> {
         // Merge the parent's validity mask into the child's validity
+        // TODO(joe): make this lazy
         Ok(Some(
             BoolArray::from_bit_buffer(
                 array.bit_buffer().clone(),
