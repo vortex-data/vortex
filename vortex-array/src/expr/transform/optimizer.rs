@@ -10,6 +10,7 @@ use crate::expr::transform::simplify::simplify;
 use crate::expr::transform::simplify_typed::simplify_typed;
 
 /// A unified optimizer for expressions that can work with or without type information.
+#[derive(Debug, Clone)]
 pub struct ExprOptimizer {
     rule_registry: RewriteRuleRegistry,
 }
