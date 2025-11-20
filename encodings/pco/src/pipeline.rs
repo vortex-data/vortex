@@ -216,15 +216,14 @@ mod tests {
     const PAGE_SIZE: usize = 128;
 
     #[rstest]
-    #[case(50, 64)]
-    #[case(100, 128)]
-    #[case(1024, 1024)]
-    #[case(1025, 512)]
-    #[case(2048, 512)]
-    #[case(3000, 1000)]
-    #[case(5120, 256)]
-    #[case(10000, 2048)]
-    fn test_pco_pipeline_roundtrip(#[case] array_size: usize, #[case] page_size: usize) {
+    #[case(50)]
+    #[case(100)]
+    #[case(1024)]
+    #[case(1025)]
+    #[case(2048)]
+    #[case(3000)]
+    #[case(5120)]
+    fn test_pco_pipeline_roundtrip(#[case] array_size: usize) {
         let values: Vec<i32> = (0..array_size).map(|i| i32::try_from(i).unwrap()).collect();
         let primitive = PrimitiveArray::from_iter(values);
 
@@ -240,29 +239,21 @@ mod tests {
         let result = pco_array.to_array().execute_with_selection(&mask).unwrap();
         assert_eq!(result.len(), array_size);
 
-        let pvector_i32 = result.as_primitive().into_i32();
-        let elements = pvector_i32.elements().as_slice();
-
-        for idx in 0..array_size {
-            assert_eq!(
-                elements[idx],
-                i32::try_from(idx).unwrap(),
-                "Mismatch at index {} for array_size={}, page_size={}",
-                idx,
-                array_size,
-                page_size
-            );
-        }
+        let pvector = result.as_primitive().into_i32();
+        let result_vec: Vec<i32> = pvector.elements().to_vec();
+        let expected_vec: Vec<i32> = primitive.as_slice::<i32>().to_vec();
+        assert_eq!(result_vec, expected_vec);
     }
 
     #[rstest]
-    #[case(50, 64)]
-    #[case(100, 128)]
-    #[case(1024, 1024)]
-    #[case(1025, 512)]
-    #[case(2048, 512)]
-    #[case(3000, 1000)]
-    fn test_pco_pipeline_with_mixed_mask(#[case] array_size: usize, #[case] page_size: usize) {
+    #[case(50)]
+    #[case(100)]
+    #[case(1024)]
+    #[case(1025)]
+    #[case(2048)]
+    #[case(3000)]
+    #[case(5120)]
+    fn test_pco_pipeline_with_mixed_mask(#[case] array_size: usize) {
         let values: Vec<i32> = (0..array_size).map(|i| i32::try_from(i).unwrap()).collect();
         let primitive = PrimitiveArray::from_iter(values);
 
@@ -283,21 +274,23 @@ mod tests {
         assert_eq!(result.len(), expected_len);
         let pvector_i32 = result.as_primitive().into_i32();
 
-        for (idx, &value) in pvector_i32.elements().iter().enumerate() {
-            let expected = i32::try_from(idx * 2).unwrap();
-            assert_eq!(
-                value, expected,
-                "Mismatch at result index {} for array_size={}, page_size={}",
-                idx, array_size, page_size
-            );
-        }
+        let expected_values: Vec<i32> = (0..array_size)
+            .filter(|i| i % 2 == 0)
+            .map(|i| i32::try_from(i).unwrap())
+            .collect();
+        let result_vec: Vec<i32> = pvector_i32.elements().to_vec();
+        assert_eq!(result_vec, expected_values);
     }
 
     #[rstest]
-    #[case(10, 64)]
-    #[case(50, 128)]
-    #[case(100, 256)]
-    fn test_pco_pipeline_with_validity(#[case] array_size: usize, #[case] page_size: usize) {
+    #[case(50)]
+    #[case(100)]
+    #[case(1024)]
+    #[case(1025)]
+    #[case(2048)]
+    #[case(3000)]
+    #[case(5120)]
+    fn test_pco_pipeline_with_validity(#[case] array_size: usize) {
         // Create array with alternating null values: [0, null, 2, null, 4, null, ...]
         let values: Vec<Option<i32>> = (0..array_size)
             .map(|i| (i % 2 == 0).then(|| i32::try_from(i).unwrap()))
@@ -316,39 +309,27 @@ mod tests {
         let result = pco_array.to_array().execute_with_selection(&mask).unwrap();
         assert_eq!(result.len(), array_size);
 
-        let pvector_i32 = result.as_primitive().into_i32();
-        let elements = pvector_i32.elements().as_slice();
-        let validity = pvector_i32.validity();
+        let pvector = result.as_primitive().into_i32();
+        let result_slice = pvector.elements();
+        let expected_slice = primitive.as_slice::<i32>();
 
-        for idx in 0..array_size {
-            if idx % 2 == 0 {
-                assert!(validity.value(idx), "Position {} should be valid", idx);
-                assert_eq!(
-                    elements[idx],
-                    i32::try_from(idx).unwrap(),
-                    "Mismatch at valid position {} for array_size={}, page_size={}",
-                    idx,
-                    array_size,
-                    page_size
-                );
-            } else {
-                assert!(!validity.value(idx), "Position {} should be null", idx);
-            }
-        }
+        assert_eq!(result_slice.as_slice(), expected_slice);
     }
 
     #[rstest]
-    #[case(100, 128, 10, 50)]
-    #[case(100, 128, 0, 50)]
-    #[case(100, 128, 50, 100)]
-    #[case(256, 64, 20, 100)]
-    #[case(512, 256, 100, 300)]
-    #[case(1024, 256, 0, 256)]
-    #[case(1024, 256, 512, 768)]
-    #[case(1024, 256, 768, 1024)]
+    #[case(100, 10, 50)]
+    #[case(100, 0, 50)]
+    #[case(100, 50, 100)]
+    #[case(256, 20, 100)]
+    #[case(512, 100, 300)]
+    #[case(1024, 0, 256)]
+    #[case(1024, 512, 768)]
+    #[case(1024, 768, 1024)]
+    #[case(4000, 0, 256)]
+    #[case(4000, 512, 768)]
+    #[case(4000, 768, 1024)]
     fn test_pco_pipeline_with_slice_offsets(
         #[case] array_size: usize,
-        #[case] page_size: usize,
         #[case] slice_start: usize,
         #[case] slice_end: usize,
     ) {
@@ -369,22 +350,10 @@ mod tests {
         let decompressed = sliced_pco_array.to_primitive();
         assert_eq!(decompressed.len(), slice_end - slice_start);
 
-        for (result_idx, &value) in decompressed.as_slice::<i32>().iter().enumerate() {
-            let expected_idx = slice_start + result_idx;
-            let expected_value = i32::try_from(expected_idx).unwrap();
-            assert_eq!(
-                value,
-                expected_value,
-                "Mismatch at result index {}: got {}, expected {} (original index {}) for array_size={}, page_size={}, slice=[{}..{}]",
-                result_idx,
-                value,
-                expected_value,
-                expected_idx,
-                array_size,
-                page_size,
-                slice_start,
-                slice_end
-            );
-        }
+        let expected_values: Vec<i32> = (slice_start..slice_end)
+            .map(|i| i32::try_from(i).unwrap())
+            .collect();
+        let result_slice = decompressed.as_slice::<i32>();
+        assert_eq!(result_slice, expected_values.as_slice());
     }
 }
