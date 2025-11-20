@@ -328,6 +328,8 @@ mod tests {
     use datafusion_functions::expr_fn::get_field;
     use datafusion_physical_expr::PhysicalExpr;
     use datafusion_physical_expr::create_physical_expr;
+    use datafusion_physical_expr::planner::logical2physical;
+    use datafusion_physical_expr::{PhysicalExpr, create_physical_expr};
     use datafusion_physical_plan::expressions as df_expr;
     use datafusion_physical_plan::filter_pushdown::PushedDown;
     use insta::assert_snapshot;
@@ -677,8 +679,7 @@ mod tests {
 
         let df_schema = test_schema.clone().to_dfschema().unwrap();
 
-        let physical_filter =
-            create_physical_expr(&filter, &df_schema, &ExecutionProps::default()).unwrap();
+        let physical_filter = logical2physical(&filter, df_schema.as_ref()).unwrap();
 
         let source = vortex_source(&test_schema);
 
@@ -714,8 +715,7 @@ mod tests {
 
         let deep_filter = get_field(get_field(col("a"), "b"), "c").eq(datafusion_expr::lit(10i32));
 
-        let physical_filter =
-            create_physical_expr(&deep_filter, &df_schema, &ExecutionProps::default()).unwrap();
+        let physical_filter = logical2physical(&deep_filter, &df_schema.as_ref()).unwrap();
 
         let prop = source
             .try_pushdown_filters(vec![physical_filter], &ConfigOptions::default())
@@ -787,8 +787,7 @@ mod tests {
         // Another weird ScalarFunction that we can't push down
         let deep_filter = unknown_func.eq(datafusion_expr::lit(10i32));
 
-        let physical_filter =
-            create_physical_expr(&deep_filter, &df_schema, &ExecutionProps::default()).unwrap();
+        let physical_filter = logical2physical(&deep_filter, &df_schema.as_ref()).unwrap();
 
         let prop = source
             .try_pushdown_filters(vec![physical_filter], &ConfigOptions::default())
