@@ -6,6 +6,7 @@
 mod bitbuffer;
 mod buffer;
 mod mask;
+mod slice;
 mod slice_mut;
 mod vector;
 

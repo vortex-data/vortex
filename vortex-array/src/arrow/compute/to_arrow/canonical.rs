@@ -1026,7 +1026,7 @@ mod tests {
     fn test_to_arrow_listview_i64() {
         // Create a ListViewArray with nullable elements: [[100], null, [200, 300]]
         let elements = PrimitiveArray::new(buffer![100i64, 200, 300], Validity::NonNullable);
-        let offsets = PrimitiveArray::new(buffer![0i64, 0, 1], Validity::NonNullable);
+        let offsets = PrimitiveArray::new(buffer![0i64, 1, 1], Validity::NonNullable);
         let sizes = PrimitiveArray::new(buffer![1i64, 0, 2], Validity::NonNullable);
         let validity = Validity::from_iter([true, false, true]);
 

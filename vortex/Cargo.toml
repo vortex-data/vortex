@@ -20,6 +20,8 @@ all-features = true
 workspace = true
 
 [dependencies]
+fastlanes = { workspace = true }
+rand = { workspace = true }
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }
@@ -57,7 +59,6 @@ divan = { workspace = true }
 itertools = { workspace = true }
 mimalloc = { workspace = true }
 parquet = { workspace = true }
-rand = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
@@ -92,3 +93,7 @@ test = false
 name = "common_encoding_tree_throughput"
 harness = false
 test = false
+
+[[bench]]
+name = "pipeline"
+harness = false

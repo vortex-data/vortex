@@ -45,6 +45,7 @@ impl VTable for DictVTable {
         let mut metadata =
             DictLayoutMetadata::new(PType::try_from(layout.codes.dtype()).vortex_expect("ptype"));
         metadata.is_nullable_codes = Some(layout.codes.dtype().is_nullable());
+        metadata.all_values_referenced = Some(layout.all_values_referenced);
         ProstMetadata(metadata)
     }
 
@@ -114,7 +115,12 @@ impl VTable for DictVTable {
             // see [`SerdeVTable<DictVTable>::build`].
             .unwrap_or_else(|| dtype.nullability());
         let codes = children.child(1, &DType::Primitive(metadata.codes_ptype(), codes_nullable))?;
-        Ok(DictLayout { values, codes })
+        let all_values_referenced = metadata.all_values_referenced.unwrap_or(false);
+        Ok(DictLayout::new_with_metadata(
+            values,
+            codes,
+            all_values_referenced,
+        ))
     }
 }
 
@@ -125,11 +131,27 @@ pub struct DictLayoutEncoding;
 pub struct DictLayout {
     values: LayoutRef,
     codes: LayoutRef,
+    /// Indicates whether all dictionary values are definitely referenced by at least one code.
+    /// `true` = all values are referenced (computed during encoding).
+    /// `false` = unknown/might have unreferenced values.
+    all_values_referenced: bool,
 }
 
 impl DictLayout {
-    pub(super) fn new(values: LayoutRef, codes: LayoutRef) -> Self {
-        Self { values, codes }
+    pub(crate) fn new_with_metadata(
+        values: LayoutRef,
+        codes: LayoutRef,
+        all_values_referenced: bool,
+    ) -> Self {
+        Self {
+            values,
+            codes,
+            all_values_referenced,
+        }
+    }
+
+    pub fn has_all_values_referenced(&self) -> bool {
+        self.all_values_referenced
     }
 }
 
@@ -141,6 +163,12 @@ pub struct DictLayoutMetadata {
     // nullable codes are optional since they were added after stabilisation
     #[prost(optional, bool, tag = "2")]
     is_nullable_codes: Option<bool>,
+    // all_values_referenced is optional for backward compatibility
+    // true = all dictionary values are definitely referenced by at least one code
+    // false/None = unknown whether all values are referenced (conservative default)
+    // see `DictArray::all_values_referenced`
+    #[prost(optional, bool, tag = "3")]
+    pub(crate) all_values_referenced: Option<bool>,
 }
 
 impl DictLayoutMetadata {

@@ -10,7 +10,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_zstd::ZstdArray;
 
-#[divan::bench]
+#[divan::bench(sample_size = 1000)]
 fn rebuild_naive(bencher: Bencher) {
     let dudes = VarBinViewArray::from_iter_str(["Washington", "Adams", "Jefferson", "Madison"])
         .into_array();

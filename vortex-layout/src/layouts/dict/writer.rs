@@ -181,7 +181,10 @@ impl LayoutStrategy for DictStrategy {
             .buffered(usize::MAX)
             .map(|result| {
                 let (codes_layout, values_layout) = result?;
-                Ok::<_, VortexError>(DictLayout::new(values_layout, codes_layout).into_layout())
+                // All values are referenced when created via dictionary encoding
+                Ok::<_, VortexError>(
+                    DictLayout::new_with_metadata(values_layout, codes_layout, true).into_layout(),
+                )
             })
             .try_collect::<Vec<_>>()
             .await?;
