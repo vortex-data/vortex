@@ -72,7 +72,7 @@ impl ArrayOperator for Arc<dyn Array> {
 
 impl<V: VTable> ArrayOperator for ArrayAdapter<V> {
     fn execute_batch(&self, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
-        let vector = <V::OperatorVTable as OperatorVTable<V>>::execute_batch(&self.0, ctx)?;
+        let vector = V::execute(&self.0, ctx)?;
 
         if cfg!(debug_assertions) {
             // Checks for correct type and nullability.
