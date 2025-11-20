@@ -69,32 +69,13 @@ impl VTable for Root {
         Ok(vector.clone())
     }
 
-    fn stat_max(
+    fn stat_expression(
         &self,
-        expr: &ExpressionView<Root>,
-        catalog: &mut dyn StatsCatalog,
+        _expr: &ExpressionView<Self>,
+        stat: Stat,
+        catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
-        catalog.stats_ref(&self.stat_field_path(expr)?, Stat::Max)
-    }
-
-    fn stat_min(
-        &self,
-        expr: &ExpressionView<Root>,
-        catalog: &mut dyn StatsCatalog,
-    ) -> Option<Expression> {
-        catalog.stats_ref(&self.stat_field_path(expr)?, Stat::Min)
-    }
-
-    fn stat_nan_count(
-        &self,
-        expr: &ExpressionView<Root>,
-        catalog: &mut dyn StatsCatalog,
-    ) -> Option<Expression> {
-        catalog.stats_ref(&self.stat_field_path(expr)?, Stat::NaNCount)
-    }
-
-    fn stat_field_path(&self, _expr: &ExpressionView<Root>) -> Option<FieldPath> {
-        Some(FieldPath::root())
+        catalog.stats_ref(&FieldPath::root(), stat)
     }
 }
 

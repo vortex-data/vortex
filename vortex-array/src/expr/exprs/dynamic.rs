@@ -91,7 +91,7 @@ impl VTable for DynamicComparison {
     fn stat_falsification(
         &self,
         expr: &ExpressionView<DynamicComparison>,
-        catalog: &mut dyn StatsCatalog,
+        catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         match expr.data().operator {
             Operator::Gt => Some(DynamicComparison.new_expr(

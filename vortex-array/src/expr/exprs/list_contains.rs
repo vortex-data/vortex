@@ -84,7 +84,7 @@ impl VTable for ListContains {
     fn stat_falsification(
         &self,
         expr: &ExpressionView<Self>,
-        catalog: &mut dyn StatsCatalog,
+        catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         // falsification(contains([1,2,5], x)) =>
         //   falsification(x != 1) and falsification(x != 2) and falsification(x != 5)

@@ -88,10 +88,9 @@ impl VTable for IsNull {
     fn stat_falsification(
         &self,
         expr: &ExpressionView<Self>,
-        catalog: &mut dyn StatsCatalog,
+        catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
-        let field_path = expr.children()[0].stat_field_path()?;
-        let null_count_expr = catalog.stats_ref(&field_path, Stat::NullCount)?;
+        let null_count_expr = expr.child(0).stat_expression(Stat::NullCount, catalog)?;
         Some(eq(null_count_expr, lit(0u64)))
     }
 }

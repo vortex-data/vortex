@@ -121,34 +121,21 @@ impl VTable for GetItem {
         Ok(field)
     }
 
-    fn stat_max(
+    fn stat_expression(
         &self,
         expr: &ExpressionView<Self>,
-        catalog: &mut dyn StatsCatalog,
+        stat: Stat,
+        catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
-        catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), Stat::Max)
-    }
+        // TODO(ngates): I think we can do better here and support stats over nested fields.
+        //  It would be nice if delegating to our child would return a struct of statistics
+        //  matching the nested DType such that we can write:
+        //    `get_item(expr.child(0).stat_expression(...), expr.data().field_name())`
 
-    fn stat_min(
-        &self,
-        expr: &ExpressionView<Self>,
-        catalog: &mut dyn StatsCatalog,
-    ) -> Option<Expression> {
-        catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), Stat::Min)
-    }
-
-    fn stat_nan_count(
-        &self,
-        expr: &ExpressionView<Self>,
-        catalog: &mut dyn StatsCatalog,
-    ) -> Option<Expression> {
-        catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), Stat::NaNCount)
-    }
-
-    fn stat_field_path(&self, expr: &ExpressionView<Self>) -> Option<FieldPath> {
-        expr.children()[0]
-            .stat_field_path()
-            .map(|fp| fp.push(expr.data().clone()))
+        // TODO(ngates): this is a bug whereby we may return stats for a nested field of the same
+        //  name as a field in the root struct. This should be resolved with upcoming change to
+        //  falsify expressions, but for now I'm preserving the existing buggy behavior.
+        catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), stat)
     }
 }
 

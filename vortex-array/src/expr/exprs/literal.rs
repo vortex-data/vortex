@@ -11,6 +11,7 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantArray;
 use crate::expr::{ChildName, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt};
+use crate::stats::Stat;
 use crate::{Array, ArrayRef, IntoArray};
 
 /// Expression that represents a literal scalar value.
@@ -72,41 +73,47 @@ impl VTable for Literal {
         Ok(ConstantArray::new(expr.data().clone(), scope.len()).into_array())
     }
 
-    fn stat_max(
+    fn stat_expression(
         &self,
         expr: &ExpressionView<Self>,
-        _catalog: &mut dyn StatsCatalog,
+        stat: Stat,
+        _catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
-        Some(lit(expr.data().clone()))
-    }
+        // NOTE(ngates): we return incorrect `1` values for counts here since we don't have
+        //  row-count information. We could resolve this in the future by introducing a `count()`
+        //  expression that evaluates to the row count of the provided scope. But since this is
+        //  only currently used for pruning, it doesn't change the outcome.
 
-    fn stat_min(
-        &self,
-        expr: &ExpressionView<Self>,
-        _catalog: &mut dyn StatsCatalog,
-    ) -> Option<Expression> {
-        Some(lit(expr.data().clone()))
-    }
+        match stat {
+            Stat::Min | Stat::Max => Some(lit(expr.data().clone())),
+            Stat::IsConstant => Some(lit(true)),
+            Stat::NaNCount => {
+                // The NaNCount for a non-float literal is not defined.
+                // For floating point types, the NaNCount is 1 for lit(NaN), and 0 otherwise.
+                let value = expr.data().as_primitive_opt()?;
+                if !value.ptype().is_float() {
+                    return None;
+                }
 
-    fn stat_nan_count(
-        &self,
-        expr: &ExpressionView<Self>,
-        _catalog: &mut dyn StatsCatalog,
-    ) -> Option<Expression> {
-        // The NaNCount for a non-float literal is not defined.
-        // For floating point types, the NaNCount is 1 for lit(NaN), and 0 otherwise.
-        let value = expr.data().as_primitive_opt()?;
-        if !value.ptype().is_float() {
-            return None;
-        }
-
-        match_each_float_ptype!(value.ptype(), |T| {
-            match value.typed_value::<T>() {
-                None => Some(lit(0u64)),
-                Some(value) if value.is_nan() => Some(lit(1u64)),
-                _ => Some(lit(0u64)),
+                match_each_float_ptype!(value.ptype(), |T| {
+                    if value.typed_value::<T>().is_some_and(|v| v.is_nan()) {
+                        Some(lit(1u64))
+                    } else {
+                        Some(lit(0u64))
+                    }
+                })
             }
-        })
+            Stat::NullCount => {
+                if expr.data().is_null() {
+                    Some(lit(1u64))
+                } else {
+                    Some(lit(0u64))
+                }
+            }
+            Stat::IsSorted | Stat::IsStrictSorted | Stat::Sum | Stat::UncompressedSizeInBytes => {
+                None
+            }
+        }
     }
 }
 

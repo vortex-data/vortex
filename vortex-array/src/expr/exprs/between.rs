@@ -139,7 +139,7 @@ impl VTable for Between {
     fn stat_falsification(
         &self,
         expr: &ExpressionView<Self>,
-        catalog: &mut dyn StatsCatalog,
+        catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         expr.to_binary_expr().stat_falsification(catalog)
     }

@@ -13,6 +13,7 @@ use crate::expr::expression::Expression;
 use crate::expr::exprs::literal::lit;
 use crate::expr::exprs::operators::Operator;
 use crate::expr::{ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt};
+use crate::stats::Stat;
 use crate::{ArrayRef, compute};
 
 pub struct Binary;
@@ -104,7 +105,7 @@ impl VTable for Binary {
     fn stat_falsification(
         &self,
         expr: &ExpressionView<Self>,
-        catalog: &mut dyn StatsCatalog,
+        catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         // Wrap another predicate with an optional NaNCount check, if the stat is available.
         //
@@ -124,12 +125,12 @@ impl VTable for Binary {
             lhs: &Expression,
             rhs: &Expression,
             value_predicate: Expression,
-            catalog: &mut dyn StatsCatalog,
+            catalog: &dyn StatsCatalog,
         ) -> Expression {
             let nan_predicate = lhs
-                .stat_nan_count(catalog)
+                .stat_expression(Stat::NaNCount, catalog)
                 .into_iter()
-                .chain(rhs.stat_nan_count(catalog))
+                .chain(rhs.stat_expression(Stat::NaNCount, catalog))
                 .map(|nans| eq(nans, lit(0u64)))
                 .reduce(and);
 
