@@ -17,9 +17,11 @@ use crate::{
 mod array;
 mod canonical;
 mod operations;
-mod operator;
+pub mod operator;
 mod validity;
 mod visitor;
+
+pub use operator::DecimalMaskedValidityRule;
 
 vtable!(Decimal);
 
@@ -42,7 +44,7 @@ impl VTable for DecimalVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type OperatorVTable = NotSupported;
+    type OperatorVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.decimal")

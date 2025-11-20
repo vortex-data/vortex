@@ -26,12 +26,6 @@ pub trait ArrayOperator: 'static + Send + Sync {
     /// If the array's implementation returns an invalid vector (wrong length, wrong type, etc.).
     fn execute_batch(&self, selection: &Mask, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector>;
 
-    /// Optimize the array by running the optimization rules.
-    fn reduce(&self) -> VortexResult<Option<ArrayRef>>;
-
-    /// Optimize the array by pushing down a parent array.
-    fn reduce_parent(&self, parent: &ArrayRef, child_idx: usize) -> VortexResult<Option<ArrayRef>>;
-
     /// Returns the array as a pipeline node, if supported.
     fn as_pipelined(&self) -> Option<&dyn PipelinedNode>;
 
@@ -46,14 +40,6 @@ pub trait ArrayOperator: 'static + Send + Sync {
 impl ArrayOperator for Arc<dyn Array> {
     fn execute_batch(&self, selection: &Mask, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
         self.as_ref().execute_batch(selection, ctx)
-    }
-
-    fn reduce(&self) -> VortexResult<Option<ArrayRef>> {
-        self.as_ref().reduce()
-    }
-
-    fn reduce_parent(&self, parent: &ArrayRef, child_idx: usize) -> VortexResult<Option<ArrayRef>> {
-        self.as_ref().reduce_parent(parent, child_idx)
     }
 
     fn as_pipelined(&self) -> Option<&dyn PipelinedNode> {
@@ -94,14 +80,6 @@ impl<V: VTable> ArrayOperator for ArrayAdapter<V> {
         }
 
         Ok(vector)
-    }
-
-    fn reduce(&self) -> VortexResult<Option<ArrayRef>> {
-        <V::OperatorVTable as OperatorVTable<V>>::reduce(&self.0)
-    }
-
-    fn reduce_parent(&self, parent: &ArrayRef, child_idx: usize) -> VortexResult<Option<ArrayRef>> {
-        <V::OperatorVTable as OperatorVTable<V>>::reduce_parent(&self.0, parent, child_idx)
     }
 
     fn as_pipelined(&self) -> Option<&dyn PipelinedNode> {

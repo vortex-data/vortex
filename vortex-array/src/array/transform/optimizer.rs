@@ -79,7 +79,6 @@ impl ArrayOptimizer {
         // Now try to apply parent rules to each optimized child in the context of this array
         // Use the optimized_children list directly instead of re-fetching from array.children()
         // let mut transformed_children = Vec::with_capacity(optimized_children.len());
-        let rules_applied = false;
 
         for (idx, child) in optimized_children.iter().enumerate() {
             let child_id = child.encoding_id();

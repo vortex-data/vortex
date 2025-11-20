@@ -7,7 +7,8 @@ use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 use vortex_vector::primitive::PVector;
 
-use crate::arrays::{MaskedVTable, PrimitiveArray, PrimitiveVTable};
+use crate::array::transform::{ArrayParentReduceRule, ArrayRuleContext};
+use crate::arrays::{MaskedArray, MaskedVTable, PrimitiveArray, PrimitiveVTable};
 use crate::execution::{BatchKernelRef, BindCtx, kernel};
 use crate::vtable::{OperatorVTable, ValidityHelper};
 use crate::{ArrayRef, IntoArray};
@@ -35,29 +36,36 @@ impl OperatorVTable<PrimitiveVTable> for PrimitiveVTable {
             }))
         })
     }
+}
 
+/// Rule to push down validity masking from MaskedArray parent into PrimitiveArray child.
+///
+/// When a PrimitiveArray is wrapped by a MaskedArray, this rule merges the mask's validity
+/// with the PrimitiveArray's existing validity, eliminating the need for the MaskedArray wrapper.
+pub struct PrimitiveMaskedValidityRule;
+
+impl ArrayParentReduceRule<PrimitiveVTable, MaskedVTable> for PrimitiveMaskedValidityRule {
     fn reduce_parent(
+        &self,
         array: &PrimitiveArray,
-        parent: &ArrayRef,
+        parent: &MaskedArray,
         _child_idx: usize,
+        _ctx: &ArrayRuleContext,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Push-down masking of `validity` from the parent `MaskedArray`.
-        if let Some(masked) = parent.as_opt::<MaskedVTable>() {
-            let masked_array = match_each_native_ptype!(array.ptype(), |T| {
-                // SAFETY: Since we are only flipping some bits in the validity, all invariants that
-                // were upheld are still upheld.
-                unsafe {
-                    PrimitiveArray::new_unchecked(
-                        Buffer::<T>::from_byte_buffer(array.byte_buffer().clone()),
-                        array.validity().clone().and(masked.validity().clone()),
-                    )
-                }
-                .into_array()
-            });
+        // Merge the parent's validity mask into the child's validity
+        // TODO(joe): make this lazy
+        let masked_array = match_each_native_ptype!(array.ptype(), |T| {
+            // SAFETY: Since we are only flipping some bits in the validity, all invariants that
+            // were upheld are still upheld.
+            unsafe {
+                PrimitiveArray::new_unchecked(
+                    Buffer::<T>::from_byte_buffer(array.byte_buffer().clone()),
+                    array.validity().clone().and(parent.validity().clone()),
+                )
+            }
+            .into_array()
+        });
 
-            return Ok(Some(masked_array));
-        }
-
-        Ok(None)
+        Ok(Some(masked_array))
     }
 }

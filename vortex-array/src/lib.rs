@@ -179,6 +179,18 @@ impl Default for ArraySession {
             arrays::BoolMaskedValidityRule,
         );
 
+        session.register_parent_rule::<arrays::PrimitiveVTable, arrays::MaskedVTable, _>(
+            &PrimitiveEncoding,
+            &MaskedEncoding,
+            arrays::PrimitiveMaskedValidityRule,
+        );
+
+        session.register_parent_rule::<arrays::DecimalVTable, arrays::MaskedVTable, _>(
+            &DecimalEncoding,
+            &MaskedEncoding,
+            arrays::DecimalMaskedValidityRule,
+        );
+
         session.register_parent_rule::<arrays::StructVTable, arrays::ExprVTable, _>(
             &StructEncoding,
             &arrays::ExprEncoding,

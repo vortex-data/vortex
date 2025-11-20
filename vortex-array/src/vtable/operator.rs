@@ -69,39 +69,6 @@ pub trait OperatorVTable<V: VTable> {
             array.encoding_id()
         )
     }
-
-    /// Attempt to optimize this array tree looking at itself and its children.
-    ///
-    /// For example, if all the children are constant, this function should perform constant
-    /// folding and return a constant operator.
-    ///
-    /// This function should typically be implemented only for self-contained optimizations based
-    /// Self and child properties.
-    ///
-    /// Returns `None` if no optimization is possible.
-    fn reduce(_array: &V::Array) -> VortexResult<Option<ArrayRef>> {
-        Ok(None)
-    }
-
-    /// Attempt to push down a parent array through this node.
-    ///
-    /// The `child_idx` parameter indicates which child of the parent this array occupies.
-    /// For example, if the parent is a binary array, and this array is the left child,
-    /// then `child_idx` will be 0. If this array is the right child, then `child_idx` will be 1.
-    ///
-    /// The returned array will replace the parent in the tree.
-    ///
-    /// This function should typically be implemented for cross-array optimizations where the
-    /// child needs to adapt to the parent's requirements.
-    ///
-    /// Returns `None` if no optimization is possible.
-    fn reduce_parent(
-        _array: &V::Array,
-        _parent: &ArrayRef,
-        _child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        Ok(None)
-    }
 }
 
 impl<V: VTable> OperatorVTable<V> for NotSupported {
