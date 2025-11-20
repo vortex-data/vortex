@@ -49,7 +49,6 @@ pub struct PcoKernel<T: Number + NativePType> {
     page_position: usize, // Position within current page
     page_buffer: Vec<T>,  // Buffer for current page
     values_processed: usize,
-    total_values: usize,
 }
 
 impl<T: Number + NativePType> PcoKernel<T> {
@@ -57,13 +56,6 @@ impl<T: Number + NativePType> PcoKernel<T> {
         let (fd, _) = FileDecompressor::new(array.metadata.header.as_slice())
             .map_err(vortex_err_from_pco)
             .vortex_unwrap();
-
-        let slice_value_indices = array
-            .unsliced_validity
-            .to_mask(array.unsliced_n_rows())
-            .valid_counts_for_indices(&[array.slice_start(), array.slice_stop()]);
-
-        let total_values = slice_value_indices[1] - slice_value_indices[0];
 
         Ok(Self {
             file_decompressor: fd,
@@ -81,7 +73,6 @@ impl<T: Number + NativePType> PcoKernel<T> {
             page_position: 0,
             page_buffer: Vec::new(),
             values_processed: 0,
-            total_values,
         })
     }
 
@@ -164,9 +155,9 @@ impl<T: Number + NativePType> Kernel for PcoKernel<T> {
         // PCO only stores valid values, not nulls. Therefore, we decompress `true_count` number of elements.
         let mut decompressed = BufferMut::<T>::with_capacity(step_true_count);
 
-        while decompressed.len() < step_true_count && self.values_processed < self.total_values {
+        while decompressed.len() < step_true_count {
             // Ensure the page to read is decompressed.
-            if self.page_buffer.is_empty() || self.page_position >= self.page_buffer.len() {
+            if self.page_buffer.is_empty() {
                 self.decompress_current_page()?;
             }
 
@@ -177,7 +168,7 @@ impl<T: Number + NativePType> Kernel for PcoKernel<T> {
             // SAFETY: Sufficient capacity is pre-allocated.
             unsafe {
                 std::ptr::copy_nonoverlapping(
-                    page_slice.as_ptr() as *const std::mem::MaybeUninit<T>,
+                    page_slice.as_ptr() as _,
                     decompressed.spare_capacity_mut().as_mut_ptr(),
                     copy_count,
                 );
