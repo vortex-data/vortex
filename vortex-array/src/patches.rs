@@ -115,7 +115,7 @@ pub struct Patches {
     /// This allows us to lookup the patches for a given chunk in constant time via
     /// `patch_indices[chunk_offsets[i]..chunk_offsets[i+1]]`.
     ///
-    /// This is optional for backcompatability reasons.
+    /// This is optional for compatibility reasons.
     chunk_offsets: Option<ArrayRef>,
     /// Chunk offsets are only sliced off in case the slice is fully
     /// outside of the chunk range.
