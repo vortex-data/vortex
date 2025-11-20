@@ -66,17 +66,7 @@ impl ArrayOptimizer {
         for child in children.iter() {
             let optimized_child = self.apply_parent_rules(child.clone(), ctx)?;
             children_changed |= !std::sync::Arc::ptr_eq(&optimized_child, child);
-            println!(
-                "----child {}, opt child {}----",
-                child.display_tree(),
-                optimized_child.display_tree()
-            );
             optimized_children.push(optimized_child);
-        }
-
-        println!("arary {}", array.display_tree());
-        for o in &optimized_children {
-            println!("optimized_children {}", o.display_tree());
         }
 
         // Reconstruct array with optimized children if any changed
