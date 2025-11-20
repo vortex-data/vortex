@@ -3,9 +3,10 @@
 
 use std::sync::Arc;
 
+use vortex_compute::filter::Filter;
 use vortex_error::{VortexResult, vortex_panic};
 use vortex_mask::Mask;
-use vortex_vector::{Vector, VectorOps, vector_matches_dtype};
+use vortex_vector::{Vector, vector_matches_dtype};
 
 use crate::execution::{BatchKernelRef, BindCtx, DummyExecutionCtx, ExecutionCtx};
 use crate::pipeline::PipelinedNode;
@@ -24,7 +25,7 @@ pub trait ArrayOperator: 'static + Send + Sync {
     ///
     /// If the mask length does not match the array length.
     /// If the array's implementation returns an invalid vector (wrong length, wrong type, etc.).
-    fn execute_batch(&self, selection: &Mask, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector>;
+    fn execute_batch(&self, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector>;
 
     /// Optimize the array by running the optimization rules.
     fn reduce(&self) -> VortexResult<Option<ArrayRef>>;
@@ -44,8 +45,8 @@ pub trait ArrayOperator: 'static + Send + Sync {
 }
 
 impl ArrayOperator for Arc<dyn Array> {
-    fn execute_batch(&self, selection: &Mask, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
-        self.as_ref().execute_batch(selection, ctx)
+    fn execute_batch(&self, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+        self.as_ref().execute_batch(ctx)
     }
 
     fn reduce(&self) -> VortexResult<Option<ArrayRef>> {
@@ -70,17 +71,8 @@ impl ArrayOperator for Arc<dyn Array> {
 }
 
 impl<V: VTable> ArrayOperator for ArrayAdapter<V> {
-    fn execute_batch(&self, selection: &Mask, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
-        let vector =
-            <V::OperatorVTable as OperatorVTable<V>>::execute_batch(&self.0, selection, ctx)?;
-
-        // Such a cheap check that we run it always. More expensive DType checks live in
-        // debug_assertions.
-        assert_eq!(
-            vector.len(),
-            selection.true_count(),
-            "Batch execution returned vector of incorrect length"
-        );
+    fn execute_batch(&self, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+        let vector = <V::OperatorVTable as OperatorVTable<V>>::execute_batch(&self.0, ctx)?;
 
         if cfg!(debug_assertions) {
             // Checks for correct type and nullability.
@@ -130,17 +122,20 @@ impl BindCtx for () {
 
 impl dyn Array + '_ {
     pub fn execute(&self) -> VortexResult<Vector> {
-        self.execute_with_selection(&Mask::new_true(self.len()))
+        // Check if the array is a pipeline node
+        if self.as_pipelined().is_some() {
+            return PipelineDriver::new(self.to_array()).execute(&Mask::new_true(self.len()));
+        }
+        self.execute_batch(&mut DummyExecutionCtx)
     }
 
     pub fn execute_with_selection(&self, selection: &Mask) -> VortexResult<Vector> {
-        assert_eq!(self.len(), selection.len());
-
         // Check if the array is a pipeline node
         if self.as_pipelined().is_some() {
             return PipelineDriver::new(self.to_array()).execute(selection);
         }
-
-        self.execute_batch(selection, &mut DummyExecutionCtx)
+        Ok(self
+            .execute_batch(&mut DummyExecutionCtx)?
+            .filter(selection))
     }
 }

@@ -2,11 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::{VortexResult, vortex_bail};
-use vortex_mask::Mask;
 use vortex_vector::Vector;
 
 use crate::ArrayRef;
-use crate::array::IntoArray;
 use crate::execution::{BatchKernelRef, BindCtx, ExecutionCtx};
 use crate::pipeline::PipelinedNode;
 use crate::vtable::{NotSupported, VTable};
@@ -32,12 +30,8 @@ pub trait OperatorVTable<V: VTable> {
     // TODO(ngates): we should fix array vtables such that we can take the array by ownership. This
     //  allows for more efficient in-place compute, as well as avoids allocating additional memory
     //  if the array's own memory can be reused by some reasonable allocator.
-    fn execute_batch(
-        array: &V::Array,
-        selection: &Mask,
-        _ctx: &mut dyn ExecutionCtx,
-    ) -> VortexResult<Vector> {
-        Self::bind(array, Some(&selection.clone().into_array()), &mut ())?.execute()
+    fn execute_batch(array: &V::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+        Self::bind(array, None, &mut ())?.execute()
     }
 
     /// Downcast this array into a [`PipelinedNode`] if it supports pipelined execution.
