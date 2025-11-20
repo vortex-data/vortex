@@ -21,7 +21,7 @@ impl MinMaxKernel for DictVTable {
         }
 
         // Slow path: compute which values are unreferenced and mask them out
-        let unreferenced_mask = Mask::from_buffer(array.compute_unreferenced_values_mask(false)?);
+        let unreferenced_mask = Mask::from_buffer(array.compute_referenced_values_mask(false)?);
         min_max(&mask(array.values(), &unreferenced_mask)?)
     }
 }

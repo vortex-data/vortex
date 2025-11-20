@@ -6,7 +6,9 @@ use std::hash::Hash;
 
 use vortex_buffer::{BitBuffer, ByteBuffer};
 use vortex_dtype::{DType, Nullability, PType, match_each_integer_ptype};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{
+    VortexExpect as _, VortexResult, VortexUnwrap, vortex_bail, vortex_ensure, vortex_err,
+};
 use vortex_mask::{AllOr, Mask};
 
 use crate::builders::dict::dict_encode;
@@ -163,15 +165,8 @@ impl DictArray {
     pub unsafe fn set_all_values_referenced(mut self, all_values_referenced: bool) -> Self {
         // In debug builds, verify the claim when setting to true
         #[cfg(debug_assertions)]
-        if all_values_referenced {
-            if let Ok(unreferenced_mask) = self.compute_unreferenced_values_mask(false) {
-                let has_unreferenced = unreferenced_mask.iter().any(|b| b);
-                debug_assert!(
-                    !has_unreferenced,
-                    "set_all_values_referenced(true) called but {} unreferenced values found",
-                    unreferenced_mask.iter().filter(|&b| b).count()
-                );
-            }
+        {
+            self.validate_all_values_referenced().vortex_unwrap()
         }
 
         self.all_values_referenced = all_values_referenced;
@@ -246,18 +241,12 @@ impl DictArray {
     /// or an error describing the mismatch.
     ///
     /// This is primarily useful for testing and debugging.
-    #[cfg(debug_assertions)]
     pub fn validate_all_values_referenced(&self) -> VortexResult<()> {
-        let unreferenced_mask = self.compute_unreferenced_values_mask(false)?;
-        let has_unreferenced = unreferenced_mask.iter().any(|b| b);
-        let actual_all_referenced = !has_unreferenced;
+        if self.all_values_referenced {
+            let referenced_mask = self.compute_referenced_values_mask(true)?;
+            let all_referenced = referenced_mask.iter().all(|v| v);
 
-        if self.all_values_referenced && !actual_all_referenced {
-            let unreferenced_count = unreferenced_mask.iter().filter(|&b| b).count();
-            vortex_bail!(
-                "all_values_referenced=true but {} unreferenced values found",
-                unreferenced_count
-            );
+            vortex_ensure!(all_referenced, "value in dict not referenced");
         }
 
         Ok(())
@@ -273,7 +262,7 @@ impl DictArray {
     /// to referenced values.
     ///
     /// This is useful for operations like min/max that need to ignore unreferenced values.
-    pub fn compute_unreferenced_values_mask(&self, referenced: bool) -> VortexResult<BitBuffer> {
+    pub fn compute_referenced_values_mask(&self, referenced: bool) -> VortexResult<BitBuffer> {
         let codes_validity = self.codes().validity_mask();
         let codes_primitive = self.codes().to_primitive();
         let values_len = self.values().len();
