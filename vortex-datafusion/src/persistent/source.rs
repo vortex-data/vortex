@@ -230,6 +230,11 @@ impl FileSource for VortexSource {
         filters: Vec<Arc<dyn PhysicalExpr>>,
         _config: &ConfigOptions,
     ) -> DFResult<FilterPushdownPropagation<Arc<dyn FileSource>>> {
+        // NOTE(aduffy): we never report to DF that we "pushed down" the filter, as this can play
+        //  oddly with schema evolution. We always want DataFusion to insert a FilterExec node
+        //  above us, so that any data we don't successfully filter does get postfiltered. We do
+        //  capture any filters that we believe we can pushdown however. This lets us prune data
+        //  before we read it into memory.
         if filters.is_empty() {
             return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
                 vec![],
@@ -254,46 +259,34 @@ impl FileSource for VortexSource {
         };
 
         let supported_filters = filters
+            .clone()
             .into_iter()
-            .map(|expr| {
-                if can_be_pushed_down(&expr, schema) {
-                    PushedDownPredicate::supported(expr)
-                } else {
-                    PushedDownPredicate::unsupported(expr)
-                }
-            })
+            .filter(|expr| can_be_pushed_down(&expr, schema))
             .collect::<Vec<_>>();
 
-        if supported_filters
-            .iter()
-            .all(|p| matches!(p.discriminant, PushedDown::No))
-        {
-            return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
-                vec![PushedDown::No; supported_filters.len()],
-            )
+        if supported_filters.is_empty() {
+            return Ok(FilterPushdownPropagation::with_parent_pushdown_result(vec![
+                PushedDown::No;
+                filters.len()
+            ])
             .with_updated_node(Arc::new(source) as _));
         }
 
-        let supported = supported_filters
-            .iter()
-            .filter_map(|p| match p.discriminant {
-                PushedDown::Yes => Some(&p.predicate),
-                PushedDown::No => None,
-            })
-            .cloned();
-
+        // We might need to append to the predicate multiple times.
         let predicate = match source.vortex_predicate {
-            Some(predicate) => conjunction(std::iter::once(predicate).chain(supported)),
-            None => conjunction(supported),
+            Some(predicate) => conjunction(std::iter::once(predicate).chain(supported_filters)),
+            None => conjunction(supported_filters),
         };
 
         tracing::debug!(%predicate, "Saving predicate");
 
         source.vortex_predicate = Some(predicate);
 
-        Ok(FilterPushdownPropagation::with_parent_pushdown_result(
-            supported_filters.iter().map(|f| f.discriminant).collect(),
-        )
+        // Report no pushdown, but update the set of filters we try and optimistically apply at scan
+        Ok(FilterPushdownPropagation::with_parent_pushdown_result(vec![
+            PushedDown::No;
+            filters.len()
+        ])
         .with_updated_node(Arc::new(source) as _))
     }
 

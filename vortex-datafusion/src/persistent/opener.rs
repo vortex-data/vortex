@@ -586,12 +586,12 @@ mod tests {
 
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file1_path = "/path/file1.vortex";
-        let batch1 = record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3)])).unwrap();
+        let batch1 = record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3)]))?;
         let data_size1 = write_arrow_to_vortex(object_store.clone(), file1_path, batch1).await?;
         let file1 = PartitionedFile::new(file1_path.to_string(), data_size1);
 
         let file2_path = "/path/file2.vortex";
-        let batch2 = record_batch!(("a", Int16, vec![Some(-1), Some(-2), Some(-3)])).unwrap();
+        let batch2 = record_batch!(("a", Int16, vec![Some(-1), Some(-2), Some(-3)]))?;
         let data_size2 = write_arrow_to_vortex(object_store.clone(), file2_path, batch2).await?;
         let file2 = PartitionedFile::new(file1_path.to_string(), data_size1);
 
