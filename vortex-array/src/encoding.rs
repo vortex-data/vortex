@@ -14,7 +14,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::serde::ArrayChildren;
 use crate::vtable::{EncodeVTable, VTable};
-use crate::{Array, ArrayRef, Canonical};
+use crate::{Array, ArrayRef, Canonical, IntoArray};
 
 /// EncodingId is a globally unique name of the array's encoding.
 pub type EncodingId = ArcRef<str>;
@@ -106,7 +106,7 @@ impl<V: VTable> Encoding for EncodingAdapter<V> {
             array.buffers().as_slice(),
             children,
         )
-        .map(|a| a.to_array())
+        .map(|a| a.into_array())
     }
 
     fn encode(
@@ -148,7 +148,7 @@ impl<V: VTable> Encoding for EncodingAdapter<V> {
             );
         }
 
-        Ok(Some(array.to_array()))
+        Ok(Some(array.into_array()))
     }
 }
 
