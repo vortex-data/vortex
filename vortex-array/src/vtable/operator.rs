@@ -15,7 +15,7 @@ use crate::vtable::{NotSupported, VTable};
 ///
 /// See <https://github.com/vortex-data/vortex/pull/4726> for the operators RFC.
 pub trait OperatorVTable<V: VTable> {
-    /// Returns a canonical [`Vector`] containing the rows indicated by the given selection [`Mask`].
+    /// Returns a canonical [`Vector`].
     ///
     /// The returned vector must be the appropriate one for the array's logical type (they are
     /// one-to-one with Vortex `DType`s), and should respect the output nullability of the array.
