@@ -12,6 +12,12 @@ use crate::Mask;
 #[derive(Debug, Clone)]
 pub struct MaskMut(Inner);
 
+impl Default for MaskMut {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
 #[derive(Debug, Clone)]
 enum Inner {
     /// Initially, the mask is empty but may have some capacity.

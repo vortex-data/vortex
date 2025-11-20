@@ -15,7 +15,13 @@ impl MinMaxKernel for DictVTable {
             return Ok(None);
         }
 
-        let unreferenced_mask = Mask::from_buffer(array.compute_unreferenced_values_mask()?);
+        // Fast path: if all values are referenced, directly compute min/max on values
+        if array.has_all_values_referenced() {
+            return min_max(array.values());
+        }
+
+        // Slow path: compute which values are unreferenced and mask them out
+        let unreferenced_mask = Mask::from_buffer(array.compute_referenced_values_mask(false)?);
         min_max(&mask(array.values(), &unreferenced_mask)?)
     }
 }

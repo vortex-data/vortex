@@ -56,13 +56,20 @@ df3 = pd.merge(base, pr, on=["name", "storage", "dataset_key"], how="right", suf
 
 # assert df3["unit_base"].equals(df3["unit_pr"]), (df3["unit_base"], df3["unit_pr"])
 
+# Determine threshold based on benchmark name
+# Use 30% threshold for S3 benchmarks, 10% for others
+is_s3_benchmark = "s3" in benchmark_name.lower()
+threshold_pct = 30 if is_s3_benchmark else 10
+improvement_threshold = 1.0 - (threshold_pct / 100.0)  # e.g., 0.7 for 30%, 0.9 for 10%
+regression_threshold = 1.0 + (threshold_pct / 100.0)  # e.g., 1.3 for 30%, 1.1 for 10%
+
 # Generate summary statistics
 df3["ratio"] = df3["value_pr"] / df3["value_base"]
 df3["remark"] = pd.Series([""] * len(df3))
 df3["remark"] = df3["remark"].case_when(
     [
-        (df3["ratio"] >= 1.3, "🚨"),
-        (df3["ratio"] <= 0.7, "🚀"),
+        (df3["ratio"] >= regression_threshold, "🚨"),
+        (df3["ratio"] <= improvement_threshold, "🚀"),
     ]
 )
 
@@ -114,13 +121,6 @@ if len(vortex_valid_ratios) > 0:
 else:
     best_improvement = "No valid vortex comparisons"
     worst_regression = "No valid vortex comparisons"
-
-# Determine threshold based on benchmark name
-# Use 30% threshold for S3 benchmarks, 10% for others
-is_s3_benchmark = "s3" in benchmark_name.lower()
-threshold_pct = 30 if is_s3_benchmark else 10
-improvement_threshold = 1.0 - (threshold_pct / 100.0)  # e.g., 0.7 for 30%, 0.9 for 10%
-regression_threshold = 1.0 + (threshold_pct / 100.0)  # e.g., 1.3 for 30%, 1.1 for 10%
 
 # Count significant changes for vortex-only results
 significant_improvements = (vortex_df["ratio"] < improvement_threshold).sum()
