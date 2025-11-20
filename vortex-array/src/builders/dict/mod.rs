@@ -57,6 +57,9 @@ pub fn dict_encode_with_constraints(
         Ok(DictArray::new_unchecked(
             codes.into_array(),
             encoder.reset(),
+            // All values in the dictionary are guaranteed to be referenced by at least one code
+            // since we build the dictionary from the codes we observe during encoding
+            true,
         ))
     }
 }

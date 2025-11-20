@@ -30,7 +30,12 @@ impl CompareKernel for DictVTable {
 
             // SAFETY: values len preserved, codes all still point to valid values
             let result = unsafe {
-                DictArray::new_unchecked(lhs.codes().clone(), compare_result).into_array()
+                DictArray::new_unchecked(
+                    lhs.codes().clone(),
+                    compare_result,
+                    lhs.has_all_values_referenced(),
+                )
+                .into_array()
             };
 
             // We canonicalize the result because dictionary-encoded bools is dumb.

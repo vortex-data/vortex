@@ -196,11 +196,14 @@ impl LayoutReader for DictReader {
             .map_err(|err| err.with_context("While evaluating projection on codes"))?;
         let expr = expr.clone();
 
+        let all_values_referenced = self.layout.has_all_values_referenced();
         Ok(async move {
             let (values, codes) = try_join!(values_eval.map_err(VortexError::from), codes_eval)?;
 
             // Validate that codes are valid for the values
-            let array = DictArray::try_new(codes, values)?.to_array();
+            // Preserve all_values_referenced metadata from the layout
+            let array =
+                DictArray::try_new_with_metadata(codes, values, all_values_referenced)?.to_array();
             expr.evaluate(&array)
         }
         .boxed())

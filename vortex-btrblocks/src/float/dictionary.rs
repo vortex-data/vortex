@@ -38,7 +38,7 @@ macro_rules! typed_encode {
         let values = PrimitiveArray::new(values, values_validity).into_array();
 
         // SAFETY: enforced by the DictEncoder
-        unsafe { DictArray::new_unchecked(codes, values) }
+        unsafe { DictArray::new_unchecked(codes, values, true) }
     }};
 }
 

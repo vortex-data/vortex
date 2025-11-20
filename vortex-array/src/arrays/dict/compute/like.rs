@@ -25,9 +25,15 @@ impl LikeKernel for DictVTable {
 
             // SAFETY: LIKE preserves the len of the values, so codes are still pointing at
             //  valid positions.
+            // Preserve all_values_referenced since codes are unchanged
             unsafe {
                 Ok(Some(
-                    DictArray::new_unchecked(array.codes().clone(), values).into_array(),
+                    DictArray::new_unchecked(
+                        array.codes().clone(),
+                        values,
+                        array.has_all_values_referenced(),
+                    )
+                    .into_array(),
                 ))
             }
         } else {

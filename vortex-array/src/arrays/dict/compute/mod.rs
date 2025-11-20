@@ -22,7 +22,8 @@ impl TakeKernel for DictVTable {
     fn take(&self, array: &DictArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let codes = take(array.codes(), indices)?;
         // SAFETY: selecting codes doesn't change the invariants of DictArray
-        Ok(unsafe { DictArray::new_unchecked(codes, array.values().clone()) }.into_array())
+        // We conservatively set all_values_referenced to false since taking may leave values unreferenced
+        Ok(unsafe { DictArray::new_unchecked(codes, array.values().clone(), false) }.into_array())
     }
 }
 
@@ -33,7 +34,8 @@ impl FilterKernel for DictVTable {
         let codes = filter(array.codes(), mask)?;
 
         // SAFETY: filtering codes doesn't change invariants
-        unsafe { Ok(DictArray::new_unchecked(codes, array.values().clone()).into_array()) }
+        // We conservatively set all_values_referenced to false since filtering may leave values unreferenced
+        unsafe { Ok(DictArray::new_unchecked(codes, array.values().clone(), false).into_array()) }
     }
 }
 

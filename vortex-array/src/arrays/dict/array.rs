@@ -32,6 +32,11 @@ pub struct DictMetadata {
     // nullable codes are optional since they were added after stabilisation
     #[prost(optional, bool, tag = "3")]
     pub(super) is_nullable_codes: Option<bool>,
+    // all_values_referenced is optional for backward compatibility
+    // true = all dictionary values are definitely referenced by at least one code
+    // false/None = unknown whether all values are referenced (conservative default)
+    #[prost(optional, bool, tag = "4")]
+    pub(super) all_values_referenced: Option<bool>,
 }
 
 impl VTable for DictVTable {
@@ -66,6 +71,7 @@ impl VTable for DictVTable {
                 )
             })?,
             is_nullable_codes: Some(array.codes().dtype().is_nullable()),
+            all_values_referenced: Some(array.all_values_referenced),
         }))
     }
 
@@ -101,8 +107,9 @@ impl VTable for DictVTable {
         let codes_dtype = DType::Primitive(metadata.codes_ptype(), codes_nullable);
         let codes = children.get(0, &codes_dtype, len)?;
         let values = children.get(1, dtype, metadata.values_len as usize)?;
+        let all_values_referenced = metadata.all_values_referenced.unwrap_or(false);
 
-        DictArray::try_new(codes, values)
+        DictArray::try_new_with_metadata(codes, values, all_values_referenced)
     }
 }
 
@@ -112,6 +119,10 @@ pub struct DictArray {
     values: ArrayRef,
     stats_set: ArrayStats,
     dtype: DType,
+    /// Indicates whether all dictionary values are definitely referenced by at least one code.
+    /// `true` = all values are referenced (computed during encoding).
+    /// `false` = unknown/might have unreferenced values (conservative default).
+    all_values_referenced: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -124,7 +135,11 @@ impl DictArray {
     /// This should be called only when you can guarantee the invariants checked
     /// by the safe [`DictArray::try_new`] constructor are valid, for example when
     /// you are filtering or slicing an existing valid `DictArray`.
-    pub unsafe fn new_unchecked(codes: ArrayRef, values: ArrayRef) -> Self {
+    pub unsafe fn new_unchecked(
+        codes: ArrayRef,
+        values: ArrayRef,
+        all_values_referenced: bool,
+    ) -> Self {
         let dtype = values
             .dtype()
             .union_nullability(codes.dtype().nullability());
@@ -133,6 +148,7 @@ impl DictArray {
             values,
             stats_set: Default::default(),
             dtype,
+            all_values_referenced,
         }
     }
 
@@ -156,11 +172,24 @@ impl DictArray {
     ///
     /// It is an error to provide a nullable `codes` with non-nullable `values`.
     pub fn try_new(codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
+        Self::try_new_with_metadata(codes, values, false)
+    }
+
+    /// Build a new `DictArray` from its components with explicit metadata.
+    ///
+    /// Same as [`DictArray::try_new`] but allows specifying whether all values are referenced.
+    /// This is typically only set to `true` during dictionary encoding when we know for certain
+    /// that all dictionary values are referenced by at least one code.
+    pub fn try_new_with_metadata(
+        codes: ArrayRef,
+        values: ArrayRef,
+        all_values_referenced: bool,
+    ) -> VortexResult<Self> {
         if !codes.dtype().is_unsigned_int() {
             vortex_bail!(MismatchedTypes: "unsigned int", codes.dtype());
         }
 
-        Ok(unsafe { Self::new_unchecked(codes, values) })
+        Ok(unsafe { Self::new_unchecked(codes, values, all_values_referenced) })
     }
 
     #[inline]
@@ -171,6 +200,16 @@ impl DictArray {
     #[inline]
     pub fn values(&self) -> &ArrayRef {
         &self.values
+    }
+
+    /// Returns `true` if all dictionary values are definitely referenced by at least one code.
+    ///
+    /// When `true`, operations like min/max can safely operate on all values without needing to
+    /// compute which values are actually referenced. When `false`, it is unknown whether all
+    /// values are referenced (conservative default).
+    #[inline]
+    pub fn has_all_values_referenced(&self) -> bool {
+        self.all_values_referenced
     }
 
     /// Compute a mask indicating which values in the dictionary are referenced by at least one code.
@@ -467,6 +506,7 @@ mod test {
                 codes_ptype: PType::U64 as i32,
                 values_len: u32::MAX,
                 is_nullable_codes: None,
+                all_values_referenced: None,
             }),
         );
     }

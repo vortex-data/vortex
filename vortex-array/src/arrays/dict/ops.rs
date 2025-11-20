@@ -24,7 +24,7 @@ impl OperationsVTable<DictVTable> for DictVTable {
             };
         }
         // SAFETY: slicing the codes preserves invariants
-        unsafe { DictArray::new_unchecked(sliced_code, array.values().clone()).into_array() }
+        unsafe { DictArray::new_unchecked(sliced_code, array.values().clone(), false).into_array() }
     }
 
     fn scalar_at(array: &DictArray, index: usize) -> Scalar {
