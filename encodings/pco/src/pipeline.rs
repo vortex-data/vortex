@@ -100,7 +100,13 @@ impl<T: Number + NativePType> PcoKernel<T> {
         let page_n_values = chunk_info.pages[self.current_page_idx_in_chunk].n_values as usize;
         let page_bytes: &[u8] = self.pages[self.global_page_idx].as_ref();
 
-        self.page_buffer.resize(page_n_values, T::default());
+        if self.page_buffer.capacity() < page_n_values {
+            self.page_buffer
+                .reserve(page_n_values - self.page_buffer.capacity());
+        }
+        unsafe {
+            self.page_buffer.set_len(page_n_values);
+        }
 
         let chunk_decompressor = self
             .chunk_decompressor
@@ -119,7 +125,10 @@ impl<T: Number + NativePType> PcoKernel<T> {
     }
 
     fn advance_to_next_page(&mut self) {
-        self.page_buffer.clear();
+        // SAFETY: Setting the length to 0 is always safe.
+        unsafe {
+            self.page_buffer.set_len(0);
+        }
         self.page_position = 0;
         self.current_page_idx_in_chunk += 1;
         self.global_page_idx += 1;
