@@ -53,7 +53,7 @@ pub(crate) fn unpack_into_primitive_builder<T: BitPacked>(
     bit_packed_iter.decode_into(uninit_slice);
 
     if let Some(patches) = array.patches() {
-        apply_patches(&mut uninit_range, patches);
+        apply_patches_to_uninit_range(&mut uninit_range, patches);
     };
 
     // SAFETY: We have set a correct validity mask via `append_mask` with `array.len()` values and
@@ -63,11 +63,11 @@ pub(crate) fn unpack_into_primitive_builder<T: BitPacked>(
     }
 }
 
-pub fn apply_patches<T: NativePType>(dst: &mut UninitRange<T>, patches: &Patches) {
-    apply_patches_fn(dst, patches, |x| x)
+pub fn apply_patches_to_uninit_range<T: NativePType>(dst: &mut UninitRange<T>, patches: &Patches) {
+    apply_patches_to_uninit_range_fn(dst, patches, |x| x)
 }
 
-pub fn apply_patches_fn<T: NativePType, F: Fn(T) -> T>(
+pub fn apply_patches_to_uninit_range_fn<T: NativePType, F: Fn(T) -> T>(
     dst: &mut UninitRange<T>,
     patches: &Patches,
     f: F,
@@ -80,7 +80,7 @@ pub fn apply_patches_fn<T: NativePType, F: Fn(T) -> T>(
     let values = values.as_slice::<T>();
 
     match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
-        insert_values_and_validity_at_indices(
+        insert_values_and_validity_at_indices_to_uninit_range(
             dst,
             indices.as_slice::<P>(),
             values,
@@ -91,7 +91,11 @@ pub fn apply_patches_fn<T: NativePType, F: Fn(T) -> T>(
     });
 }
 
-fn insert_values_and_validity_at_indices<T: NativePType, IndexT: IntegerPType, F: Fn(T) -> T>(
+fn insert_values_and_validity_at_indices_to_uninit_range<
+    T: NativePType,
+    IndexT: IntegerPType,
+    F: Fn(T) -> T,
+>(
     dst: &mut UninitRange<T>,
     indices: &[IndexT],
     values: &[T],

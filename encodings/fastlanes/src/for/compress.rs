@@ -136,7 +136,9 @@ fn fused_decompress<T: PhysicalPType<Physical = T> + UnsignedPType + FoR + Wrapp
     unpacked.decode_into(uninit_slice);
 
     if let Some(patches) = bp.patches() {
-        bitpack_decompress::apply_patches_fn(&mut uninit_range, patches, |v| v.wrapping_add(&ref_));
+        bitpack_decompress::apply_patches_to_uninit_range_fn(&mut uninit_range, patches, |v| {
+            v.wrapping_add(&ref_)
+        });
     };
 
     // SAFETY: We have set a correct validity mask via `append_mask` with `array.len()` values and
