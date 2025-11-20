@@ -345,9 +345,7 @@ impl BitBuffer {
     /// # Panics
     ///
     /// If the bit offset is not zero
-    pub fn iter_bit_views<const NB: usize>(
-        &self,
-    ) -> impl Iterator<Item = (BitView<'_, NB>, usize)> + '_ {
+    pub fn iter_bit_views<const NB: usize>(&self) -> impl Iterator<Item = BitView<'_, NB>> + '_ {
         assert_eq!(
             self.offset(),
             0,
@@ -369,9 +367,7 @@ impl BitBufferMut {
     /// # Panics
     ///
     /// If the bit offset is not zero
-    pub fn iter_bit_views<const NB: usize>(
-        &self,
-    ) -> impl Iterator<Item = (BitView<'_, NB>, usize)> + '_ {
+    pub fn iter_bit_views<const NB: usize>(&self) -> impl Iterator<Item = BitView<'_, NB>> + '_ {
         assert_eq!(
             self.offset(),
             0,
@@ -388,8 +384,6 @@ pub(super) struct BitViewIterator<'a, const NB: usize> {
     view_idx: usize,
     // The total number of views
     n_views: usize,
-    // Final view len
-    final_view_len: usize,
     // Phantom to capture `NB`
     _phantom: PhantomData<[u8; NB]>,
 }
@@ -398,20 +392,18 @@ impl<'a, const NB: usize> BitViewIterator<'a, NB> {
     /// Create a new [`BitViewIterator`].
     fn new(bits: &'a [u8], len: usize) -> Self {
         debug_assert_eq!(len.div_ceil(8), bits.len());
-        let final_view_len = len % (NB * 8);
         let n_views = bits.len().div_ceil(NB);
         BitViewIterator {
             bits,
             view_idx: 0,
             n_views,
-            final_view_len,
             _phantom: PhantomData,
         }
     }
 }
 
 impl<'a, const NB: usize> Iterator for BitViewIterator<'a, NB> {
-    type Item = (BitView<'a, NB>, usize);
+    type Item = BitView<'a, NB>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.view_idx == self.n_views {
@@ -423,16 +415,13 @@ impl<'a, const NB: usize> Iterator for BitViewIterator<'a, NB> {
 
         let bits = if end_byte <= self.bits.len() {
             // Full view from the original bits
-            (
-                BitView::from_slice(&self.bits[start_byte..end_byte]),
-                BitView::<NB>::N,
-            )
+            BitView::from_slice(&self.bits[start_byte..end_byte])
         } else {
             // Partial view, copy to scratch
             let remaining_bytes = self.bits.len() - start_byte;
             let mut remaining = [0u8; NB];
             remaining[..remaining_bytes].copy_from_slice(&self.bits[start_byte..]);
-            (BitView::new_owned(remaining), self.final_view_len)
+            BitView::new_owned(remaining)
         };
 
         self.view_idx += 1;

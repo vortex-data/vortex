@@ -1,25 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_compute::filter::Filter;
 pub mod allocation;
 mod bind;
 mod input;
+mod output;
 mod toposort;
 
 use std::hash::{BuildHasher, Hash, Hasher};
 
 use itertools::Itertools;
-use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_ensure};
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
-use vortex_vector::{Vector, VectorMut, VectorMutOps};
+use vortex_vector::{Vector, VectorOps};
 
-use crate::pipeline::driver::allocation::{OutputTarget, allocate_vectors};
+use crate::pipeline::driver::allocation::allocate_vectors;
 use crate::pipeline::driver::bind::bind_kernels;
+use crate::pipeline::driver::output::OutputSink;
 use crate::pipeline::driver::toposort::topological_sort;
-use crate::pipeline::{BitView, Kernel, KernelCtx, N, PipelineInputs};
+use crate::pipeline::{BitView, Kernel, KernelCtx, N, PipelineInputs, Sink, VectorId};
 use crate::{Array, ArrayEq, ArrayHash, ArrayOperator, ArrayRef, ArrayVisitor, Precision};
 
 /// A pipeline driver takes a Vortex array and executes it into a canonical vector.
@@ -214,136 +214,97 @@ impl PipelineDriver {
         // Construct the kernel execution context
         let ctx = KernelCtx::new(allocation_plan.vectors);
 
+        // Construct the pipeline sink.
+        let sink = OutputSink::new(dtype, selection.true_count());
+
+        let output_targets = allocation_plan.output_targets;
+        let root_output = output_targets[*exec_order.last().vortex_expect("Must have a root")];
+
         Pipeline {
-            dtype,
+            sink,
             ctx,
             kernels,
             exec_order,
-            output_targets: allocation_plan.output_targets,
+            output_targets,
+            root_output,
         }
         .execute(selection)
     }
 }
 
 struct Pipeline {
-    dtype: DType,
+    sink: OutputSink,
     ctx: KernelCtx,
     kernels: Vec<Box<dyn Kernel>>,
     exec_order: Vec<NodeId>,
-    output_targets: Vec<OutputTarget>,
+    output_targets: Vec<VectorId>,
+    root_output: VectorId,
 }
 
 impl Pipeline {
-    fn execute(&mut self, selection: &Mask) -> VortexResult<Vector> {
-        // Start by allocating the output vector.
-        let capacity = selection.true_count().next_multiple_of(N) + N;
-        let mut output = VectorMut::with_capacity(&self.dtype, capacity);
-
+    fn execute(mut self, selection: &Mask) -> VortexResult<Vector> {
         match selection {
-            Mask::AllFalse(_) => {}
+            Mask::AllFalse(_) => {
+                // No work to do at all.
+            }
             Mask::AllTrue(_) => {
                 // Run the operator to completion with all rows selected.
                 // The number of _full_ chunks we need to process.
                 let nchunks = selection.len() / N;
                 for _ in 0..nchunks {
-                    self.step(&BitView::all_true(), N, &mut output)?;
+                    self.step(&BitView::all_true())?;
                 }
 
                 // Now process the final partial chunk, if any.
                 let remaining = selection.len() % N;
                 if remaining > 0 {
                     let selection_view = BitView::with_prefix(remaining);
-                    self.step(&selection_view, remaining, &mut output)?;
+                    self.step(&selection_view)?;
                 }
             }
             Mask::Values(mask_values) => {
                 // Loop over each chunk of N elements in the mask as a bit view.
                 let selection_bits = mask_values.bit_buffer();
-                for (selection_view, selection_len) in selection_bits.iter_bit_views() {
-                    self.step(&selection_view, selection_len, &mut output)?;
+                for selection_view in selection_bits.iter_bit_views() {
+                    self.step(&selection_view)?;
                 }
             }
         }
 
-        Ok(output.freeze())
+        Ok(self.sink.into_vector())
     }
 
     /// Perform a single step of the pipeline.
-    fn step(
-        &mut self,
-        selection: &BitView,
-        step_len: usize,
-        output: &mut VectorMut,
-    ) -> VortexResult<()> {
+    fn step(&mut self, selection: &BitView) -> VortexResult<()> {
         // Loop over the kernels in toposorted execution order.
         for &node_idx in self.exec_order.iter() {
             let kernel = &mut self.kernels[node_idx];
 
-            // Depending on the output target, either write directly to the pipeline output, or
-            // take the intermediate vector and write into that.
-            // FIXME(ngates): since we allow kernels mutable access to input vectors (for zero-copy
-            //  propagation of data), we should change output_targets to have multiple per node
-            //  and to copy the output into each one.
-            match &self.output_targets[node_idx] {
-                OutputTarget::ExternalOutput => {
-                    // We split off the next N elements of capacity from the external output vector.
-                    let tail = output.split_off(output.len());
-                    debug_assert!(tail.is_empty());
+            // We grab this node's output vector and clear it back to len = 0.
+            let output_vector_id = &self.output_targets[node_idx];
+            let mut output_vector = self.ctx.take_output(output_vector_id);
+            output_vector.clear();
 
-                    let mut tail = kernel.step(&mut self.ctx, selection, tail)?;
+            // Execute the kernel for this step.
+            let output_vector = kernel.step(&self.ctx, selection, output_vector)?;
 
-                    let len = tail.len();
-                    vortex_ensure!(
-                        len == step_len || len == selection.true_count(),
-                        "Kernel produced incorrect number of output elements, \
+            let len = output_vector.len();
+            vortex_ensure!(
+                len == N || len == selection.true_count(),
+                "Kernel produced incorrect number of output elements, \
                             expected either {} or {}, got {len}",
-                        step_len,
-                        selection.true_count(),
-                    );
+                N,
+                selection.true_count(),
+            );
 
-                    // Since we are writing to the final vector, there are no other kernels who we
-                    // can delegate filtering the selection mask out to, so check if we need to do
-                    // a final filter before we return.
-                    if selection.true_count() < len {
-                        if selection.true_count() == 0 {
-                            tail.clear();
-                        } else {
-                            // TODO(ngates): this is janky and forces us to filter validity also,
-                            //  but we need the tail.len() == N in order to invoke filter.
-                            if tail.len() != N {
-                                tail.append_nulls(N - tail.len());
-                            }
-                            tail.filter(selection);
-                            assert_eq!(tail.len(), selection.true_count());
-                        }
-                    }
-
-                    // Now we join the produced output back to the main output vector.
-                    // Note that we still need to do this even if tail is empty so that we put
-                    // back the capacity we split off.
-                    // TODO(ngates): we could unsplit + filter in one go ideally.
-                    output.unsplit(tail);
-                }
-                OutputTarget::IntermediateVector(vector_id) => {
-                    let mut out_vector = self.ctx.take_output(vector_id);
-                    out_vector.clear();
-
-                    let out_vector = kernel.step(&mut self.ctx, selection, out_vector)?;
-
-                    let len = out_vector.len();
-                    vortex_ensure!(
-                        len == step_len || len == selection.true_count(),
-                        "Kernel produced incorrect number of output elements, \
-                            expected either {} or {}, got {len}",
-                        step_len,
-                        selection.true_count(),
-                    );
-
-                    // If the kernel added N elements, the output is in-place.
-                    self.ctx.replace_output(vector_id, out_vector);
-                }
-            };
+            // If the kernel added N elements, the output is in-place.
+            self.ctx.replace_output(output_vector_id, output_vector);
         }
+
+        // After a full step, we consume the root's output vector into the sink.
+        let root_vector = self.ctx.take_output(&self.root_output);
+        let root_vector = self.sink.consume(selection, root_vector)?;
+        self.ctx.replace_output(&self.root_output, root_vector);
 
         Ok(())
     }

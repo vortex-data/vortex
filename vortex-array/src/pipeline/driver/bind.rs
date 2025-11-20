@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_vector::{Vector, VectorOps};
+use vortex_vector::Vector;
 
 use crate::array::ArrayOperator;
 use crate::pipeline::driver::allocation::VectorAllocation;
@@ -20,11 +20,7 @@ pub(crate) fn bind_kernels(
         let input_ids = node
             .children
             .iter()
-            .map(|node_id| {
-                allocation_plan.output_targets[*node_id]
-                    .vector_id()
-                    .vortex_expect("Input node must have an output vector ID")
-            })
+            .map(|node_id| allocation_plan.output_targets[*node_id])
             .collect::<Vec<_>>();
 
         let mut batch_inputs: Vec<_> = node
@@ -46,8 +42,7 @@ pub(crate) fn bind_kernels(
 
                 let batch = batch_inputs[batch_id]
                     .take()
-                    .vortex_expect("Batch input vector has already been consumed")
-                    .into_mut();
+                    .vortex_expect("Batch input vector has already been consumed");
 
                 Box::new(InputKernel::new(batch))
             }

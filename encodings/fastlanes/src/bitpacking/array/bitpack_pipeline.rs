@@ -11,9 +11,9 @@ use vortex_array::pipeline::{
 use vortex_buffer::Buffer;
 use vortex_dtype::{PTypeDowncastExt, PhysicalPType, match_each_integer_ptype};
 use vortex_error::VortexResult;
-use vortex_mask::MaskMut;
-use vortex_vector::primitive::PVectorMut;
-use vortex_vector::{VectorMut, VectorMutOps};
+use vortex_mask::Mask;
+use vortex_vector::primitive::PVector;
+use vortex_vector::{Vector, VectorOps};
 
 use crate::BitPackedArray;
 
@@ -58,9 +58,7 @@ impl PipelinedNode for BitPackedArray {
             Ok(Box::new(AlignedBitPackedKernel::<T>::new(
                 packed_bit_width,
                 packed_buffer,
-                // FIXME(ngates): if we make sure the mask has offset zero, we know that split_off
-                //  inside the kernel is free.
-                self.validity.to_mask(self.len()).into_mut(),
+                self.validity.to_mask(self.len()),
             )) as Box<dyn Kernel>)
         })
     }
@@ -89,7 +87,7 @@ pub struct AlignedBitPackedKernel<BP: PhysicalPType<Physical: BitPacking>> {
     packed_buffer: Buffer<BP::Physical>,
 
     /// The validity mask for the bitpacked array.
-    validity: MaskMut,
+    validity: Mask,
 
     /// The total number of bitpacked chunks we have unpacked.
     num_chunks_unpacked: usize,
@@ -100,7 +98,7 @@ impl<BP: PhysicalPType<Physical: BitPacking>> AlignedBitPackedKernel<BP> {
         packed_bit_width: usize,
         // TODO(ngates): hold an iterator over chunks instead of the full buffer?
         packed_buffer: Buffer<BP::Physical>,
-        validity: MaskMut,
+        validity: Mask,
     ) -> Self {
         let packed_stride =
             packed_bit_width * <<BP as PhysicalPType>::Physical as FastLanes>::LANES;
@@ -122,19 +120,14 @@ impl<BP: PhysicalPType<Physical: BitPacking>> AlignedBitPackedKernel<BP> {
 }
 
 impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<BP> {
-    fn step(
-        &mut self,
-        _ctx: &mut KernelCtx,
-        selection: &BitView,
-        out: VectorMut,
-    ) -> VortexResult<VectorMut> {
+    fn step(&mut self, _ctx: &KernelCtx, selection: &BitView, out: Vector) -> VortexResult<Vector> {
         if selection.true_count() == 0 {
             debug_assert!(out.is_empty());
             return Ok(out);
         }
 
-        let mut output: PVectorMut<BP> = out.into_primitive().downcast();
-        debug_assert!(output.is_empty());
+        let (elements, validity) = out.into_primitive().downcast::<BP>().into_parts();
+        let mut elements = elements.into_mut();
 
         let packed_offset = self.num_chunks_unpacked * self.packed_stride;
         let packed_bytes = &self.packed_buffer[packed_offset..][..self.packed_stride];
@@ -142,7 +135,10 @@ impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<
         // If the true count is very small (the selection is sparse), we can unpack individual
         // elements directly into the output vector.
         if selection.true_count() < SCALAR_UNPACK_THRESHOLD {
-            output.reserve(selection.true_count());
+            elements.reserve(selection.true_count());
+
+            let mut validity = validity.into_mut();
+            validity.reserve(selection.true_count());
 
             selection.iter_ones(|idx| {
                 if self.validity.value(idx) {
@@ -160,21 +156,21 @@ impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<
                     };
 
                     // SAFETY: We just reserved enough capacity to push these values.
-                    unsafe { output.push_unchecked(transmute_copy(&unpacked_value)) };
+                    unsafe { elements.push_unchecked(transmute_copy(&unpacked_value)) };
+                    validity.append_n(true, 1);
                 } else {
-                    output.append_nulls(1);
+                    unsafe { elements.push_unchecked(BP::default()) };
+                    validity.append_n(false, 1);
                 }
             });
 
             self.num_chunks_unpacked += 1;
-            return Ok(output.into());
+            return Ok(PVector::new(elements.freeze(), validity.freeze()).into());
         }
 
         // Otherwise if the mask is dense, it is faster to fully unpack the entire 1024
         // element lane with SIMD / FastLanes and let other nodes in the pipeline decide if they
         // want to perform the selection filter themselves.
-        let (mut elements, _validity) = output.into_parts();
-
         elements.reserve(N);
         // SAFETY: we just reserved enough capacity.
         unsafe { elements.set_len(N) };
@@ -188,16 +184,17 @@ impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<
         }
 
         // Prepare the output validity mask for this chunk.
-        let mut chunk_validity = self.validity.split_off(N.min(self.validity.capacity()));
-        std::mem::swap(&mut self.validity, &mut chunk_validity);
-
-        // For the final chunk, we may have fewer than N elements to unpack.
-        // So we just set the length of the output to the correct value.
-        unsafe { elements.set_len(chunk_validity.len()) };
+        let remaining = self.validity.len().min(N);
+        let mut chunk_validity = self.validity.slice(0..remaining);
+        if chunk_validity.len() < N {
+            let mut chunk_validity_mut = chunk_validity.into_mut();
+            chunk_validity_mut.append_n(true, N - remaining);
+            chunk_validity = chunk_validity_mut.freeze();
+        }
 
         self.num_chunks_unpacked += 1;
 
-        Ok(PVectorMut::new(elements, chunk_validity).into())
+        Ok(PVector::new(elements.freeze(), chunk_validity).into())
     }
 }
 
