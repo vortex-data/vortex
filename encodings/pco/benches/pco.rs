@@ -51,7 +51,7 @@ pub fn pco_pipeline(bencher: Bencher, (size, selectivity): (usize, f64)) {
 
     bencher
         .with_inputs(|| (Mask::from_buffer(mask.clone()), pco_array.clone()))
-        .bench_refs(|(mask, pco_array)| pco_array.execute_with_selection(&mask).unwrap());
+        .bench_refs(|(mask, pco_array)| pco_array.execute_with_selection(mask).unwrap());
 }
 
 #[divan::bench(args = [
@@ -84,5 +84,5 @@ pub fn pco_canonical(bencher: Bencher, (size, selectivity): (usize, f64)) {
 
     bencher
         .with_inputs(|| (Mask::from_buffer(mask.clone()), pco_array.clone()))
-        .bench_refs(|(mask, pco_array)| filter(pco_array.to_canonical().as_ref(), &mask).unwrap());
+        .bench_refs(|(mask, pco_array)| filter(pco_array.to_canonical().as_ref(), mask).unwrap());
 }
