@@ -39,6 +39,7 @@ tokio-stream = { workspace = true }
 tracing = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "tokio"] }
 vortex-utils = { workspace = true, features = ["dashmap"] }
+url = "2.5.7"
 
 [dev-dependencies]
 anyhow = { workspace = true }

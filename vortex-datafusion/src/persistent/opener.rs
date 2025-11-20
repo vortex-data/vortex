@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
 use std::sync::Arc;
 use std::sync::Weak;
 
@@ -13,6 +12,7 @@ use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::arrow::array::RecordBatch;
 use datafusion_common::internal_datafusion_err;
+use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::file_meta::FileMeta;
 use datafusion_datasource::file_stream::FileOpenFuture;
 use datafusion_datasource::file_stream::FileOpener;
@@ -31,7 +31,6 @@ use futures::stream;
 use object_store::ObjectStore;
 use object_store::path::Path;
 use tracing::Instrument;
-use vortex::ArrayRef;
 use vortex::dtype::FieldName;
 use vortex::error::VortexError;
 use vortex::expr::root;
@@ -46,6 +45,7 @@ use vortex_utils::aliases::dash_map::Entry;
 use super::cache::VortexFileCache;
 use crate::convert::exprs::can_be_pushed_down;
 use crate::convert::exprs::make_vortex_predicate;
+use crate::convert::ranges::apply_byte_range;
 
 #[derive(Clone)]
 pub(crate) struct VortexOpener {
@@ -413,279 +413,222 @@ impl FileOpener for VortexOpener {
 
             Ok(stream)
         }
-        .in_current_span()
-        .boxed())
+            .in_current_span()
+            .boxed())
     }
-}
-
-/// If the file has a [`FileRange`](datafusion::datasource::listing::FileRange), we translate it into a row range in the file for the scan.
-fn apply_byte_range(
-    file_range: FileRange,
-    total_size: u64,
-    row_count: u64,
-    scan_builder: ScanBuilder<ArrayRef>,
-) -> ScanBuilder<ArrayRef> {
-    let row_range = byte_range_to_row_range(
-        file_range.start as u64..file_range.end as u64,
-        row_count,
-        total_size,
-    );
-
-    scan_builder.with_row_range(row_range)
-}
-
-fn byte_range_to_row_range(byte_range: Range<u64>, row_count: u64, total_size: u64) -> Range<u64> {
-    let average_row = total_size / row_count;
-    assert!(average_row > 0, "A row must always have at least one byte");
-
-    let start_row = byte_range.start / average_row;
-    let end_row = byte_range.end / average_row;
-
-    // We take the min here as `end_row` might overshoot
-    start_row..u64::min(row_count, end_row)
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::LazyLock;
+    use std::str::FromStr;
 
     use arrow_schema::Fields;
+    use chrono::DateTime;
     use chrono::Utc;
     use datafusion::arrow::array::RecordBatch;
-    use datafusion::arrow::array::StringArray;
     use datafusion::arrow::array::StructArray;
     use datafusion::arrow::datatypes::DataType;
     use datafusion::arrow::datatypes::Schema;
     use datafusion::arrow::util::display::FormatOptions;
+    use datafusion::arrow::util::pretty::pretty_format_batches_with_options;
     use datafusion::common::record_batch;
     use datafusion::datasource::schema_adapter::DefaultSchemaAdapterFactory;
     use datafusion::logical_expr::col;
     use datafusion::logical_expr::lit;
     use datafusion::physical_expr::planner::logical2physical;
-    use datafusion::physical_expr_adapter::DefaultPhysicalExprAdapterFactory;
-    use datafusion::scalar::ScalarValue;
+    use datafusion::prelude::SessionContext;
+    use datafusion_common::config::ConfigOptions;
+    use datafusion_common::create_array;
+    use datafusion_datasource::file::FileSource;
+    use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
+    use datafusion_execution::object_store::ObjectStoreUrl;
+    use datafusion_physical_plan::filter_pushdown::PushedDown;
+    use futures::pin_mut;
     use insta::assert_snapshot;
-    use itertools::Itertools;
     use object_store::ObjectMeta;
     use object_store::memory::InMemory;
     use rstest::rstest;
+    use url::Url;
+    use vortex::ArrayRef;
     use vortex::VortexSessionDefault;
     use vortex::arrow::FromArrowArray;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::ObjectStoreWriter;
     use vortex::io::VortexWrite;
     use vortex::session::VortexSession;
+    use vortex_utils::aliases::hash_map::HashMap;
 
     use super::*;
+    use crate::VortexSource;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
-
-    #[rstest]
-    #[case(0..100, 100, 100, 0..100)]
-    #[case(0..105, 100, 105, 0..100)]
-    #[case(0..50, 100, 105, 0..50)]
-    #[case(50..105, 100, 105, 50..100)]
-    #[case(0..1, 4, 8, 0..0)]
-    #[case(1..8, 4, 8, 0..4)]
-    fn test_range_translation(
-        #[case] byte_range: Range<u64>,
-        #[case] row_count: u64,
-        #[case] total_size: u64,
-        #[case] expected: Range<u64>,
-    ) {
-        assert_eq!(
-            byte_range_to_row_range(byte_range, row_count, total_size),
-            expected
-        );
-    }
-
-    #[test]
-    fn test_consecutive_ranges() {
-        let row_count = 100;
-        let total_size = 429;
-        let bytes_a = 0..143;
-        let bytes_b = 143..286;
-        let bytes_c = 286..429;
-
-        let rows_a = byte_range_to_row_range(bytes_a, row_count, total_size);
-        let rows_b = byte_range_to_row_range(bytes_b, row_count, total_size);
-        let rows_c = byte_range_to_row_range(bytes_c, row_count, total_size);
-
-        assert_eq!(rows_a.end - rows_a.start, 35);
-        assert_eq!(rows_b.end - rows_b.start, 36);
-        assert_eq!(rows_c.end - rows_c.start, 29);
-
-        assert_eq!(rows_a.start, 0);
-        assert_eq!(rows_c.end, 100);
-        for (left, right) in [rows_a, rows_b, rows_c].iter().tuple_windows() {
-            assert_eq!(left.end, right.start);
-        }
-    }
-
-    async fn write_arrow_to_vortex(
+    struct TestFixtures {
         object_store: Arc<dyn ObjectStore>,
-        path: &str,
-        rb: RecordBatch,
-    ) -> anyhow::Result<u64> {
-        let array = ArrayRef::from_arrow(rb, false);
-        let path = Path::parse(path)?;
-
-        let mut write = ObjectStoreWriter::new(object_store, &path).await?;
-        let summary = SESSION
-            .write_options()
-            .write(&mut write, array.to_array_stream())
-            .await?;
-        write.shutdown().await?;
-
-        Ok(summary.size())
+        // We need to return this to the caller to prevent the session context from
+        // being dropped and the object_store from being removed
+        #[allow(dead_code)]
+        session_context: SessionContext,
+        source: Arc<dyn FileSource>,
+        file_meta: HashMap<String, FileMeta>,
     }
 
-    fn make_meta(path: &str, data_size: u64) -> FileMeta {
-        FileMeta {
-            object_meta: ObjectMeta {
-                location: Path::from(path),
-                last_modified: Utc::now(),
-                size: data_size,
-                e_tag: None,
-                version: None,
-            },
-            range: None,
-            extensions: None,
-            metadata_size_hint: None,
+    // Make a set of files and record batches
+    async fn make_source(
+        files: HashMap<String, RecordBatch>,
+        file_schema: &SchemaRef,
+    ) -> anyhow::Result<TestFixtures> {
+        let session = VortexSession::default();
+
+        let ctx = SessionContext::new();
+
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+
+        ctx.register_object_store(&Url::from_str("s3://in-memory")?, store.clone());
+
+        // "write" all the record batches to the named file paths
+        let mut file_meta = HashMap::with_capacity(files.len());
+
+        // TODO: make file schema by superset of fields?
+        for (path_str, rb) in files.iter() {
+            let array = ArrayRef::from_arrow(rb, false);
+            let path = Path::from_url_path(path_str.as_str())?;
+            let mut write = ObjectStoreWriter::new(store.clone(), &path).await?;
+            let summary = session
+                .write_options()
+                .write(&mut write, array.to_array_stream())
+                .await?;
+            write.shutdown().await?;
+
+            file_meta.insert(
+                path_str.clone(),
+                FileMeta::from(ObjectMeta {
+                    location: path.clone(),
+                    size: summary.size(),
+                    e_tag: None,
+                    version: None,
+                    last_modified: DateTime::<Utc>::from_timestamp_secs(0).unwrap(),
+                }),
+            );
         }
+
+        let source = VortexSource::new(
+            session.clone(),
+            VortexFileCache::new(1024, 1024, session.clone()),
+        );
+        let source = source
+            .with_schema(Arc::clone(file_schema))
+            .with_batch_size(100);
+
+        Ok(TestFixtures {
+            session_context: ctx,
+            object_store: store,
+            file_meta,
+            source,
+        })
     }
 
     #[rstest]
-    #[case(Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _), (1, 3), (0, 0))]
-    // If we don't have a physical expr adapter, we just drop filters on partition values
-    #[case(None, (1, 3), (1, 3))]
     #[tokio::test]
-    async fn test_adapter_optimization_partition_column(
-        #[case] expr_adapter_factory: Option<Arc<dyn PhysicalExprAdapterFactory>>,
-        #[case] expected_result1: (usize, usize),
-        #[case] expected_result2: (usize, usize),
-    ) -> anyhow::Result<()> {
-        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
-        let file_path = "part=1/file.vortex";
-        let batch = record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3)])).unwrap();
-        let data_size =
-            write_arrow_to_vortex(object_store.clone(), file_path, batch.clone()).await?;
-
-        let file_schema = batch.schema();
-        let mut file = PartitionedFile::new(file_path.to_string(), data_size);
-        file.partition_values = vec![ScalarValue::Int32(Some(1))];
+    async fn test_do_not_pushdown_filter_on_partition_columns() -> anyhow::Result<()> {
+        let batch = record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3)]))?;
+        let file_schema = batch.schema().clone();
+        let files = HashMap::from_iter([("part=1/file.vortex".to_string(), batch)]);
 
         let table_schema = Arc::new(Schema::new(vec![
             Field::new("part", DataType::Int32, false),
             Field::new("a", DataType::Int32, false),
         ]));
 
-        let make_opener = |filter| VortexOpener {
-            session: SESSION.clone(),
-            object_store: object_store.clone(),
-            projection: Some([0].into()),
-            filter: Some(filter),
-            file_pruning_predicate: None,
-            expr_adapter_factory: expr_adapter_factory.clone(),
-            schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
-            partition_fields: vec![Arc::new(Field::new("part", DataType::Int32, false))],
-            file_cache: VortexFileCache::new(1, 1, SESSION.clone()),
-            logical_schema: file_schema.clone(),
-            batch_size: 100,
-            limit: None,
-            metrics: Default::default(),
-            layout_readers: Default::default(),
-            has_output_ordering: false,
-        };
+        let TestFixtures {
+            source,
+            object_store,
+            file_meta,
+            ..
+        } = make_source(files, &file_schema).await?;
 
-        // filter matches partition value
-        let filter = col("part").eq(lit(1));
-        let filter = logical2physical(&filter, table_schema.as_ref());
+        // Attempting to push filters over partitions should fail.
+        let filter_partition_col = col("part").eq(lit(1i32));
+        let filter_partition_col = logical2physical(&filter_partition_col, table_schema.as_ref());
 
-        let opener = make_opener(filter);
-        let stream = opener
-            .open(make_meta(file_path, data_size), file.clone())
-            .unwrap()
-            .await
-            .unwrap();
+        let push_filters =
+            source.try_pushdown_filters(vec![filter_partition_col], &ConfigOptions::default())?;
 
-        let data = stream.try_collect::<Vec<_>>().await?;
-        let num_batches = data.len();
-        let num_rows = data.iter().map(|rb| rb.num_rows()).sum::<usize>();
+        assert!(matches!(push_filters.filters[0], PushedDown::No));
 
-        assert_eq!((num_batches, num_rows), expected_result1);
+        let base_config = FileScanConfigBuilder::new(
+            ObjectStoreUrl::parse("s3://in-memory")?,
+            file_schema.clone(),
+            source.clone(),
+        )
+        .build();
 
-        // filter doesn't matches partition value
-        let filter = col("part").eq(lit(2));
-        let filter = logical2physical(&filter, table_schema.as_ref());
+        // Create an opener with this
+        let opener = source.create_file_opener(object_store.clone(), &base_config, 0);
 
-        let opener = make_opener(filter);
-        let stream = opener
-            .open(make_meta(file_path, data_size), file.clone())
-            .unwrap()
-            .await
-            .unwrap();
+        let file1 = file_meta.get("part=1/file.vortex").unwrap().clone();
+        let part_file1 = PartitionedFile::new("part=1/file.vortex", file1.object_meta.size);
 
-        let data = stream.try_collect::<Vec<_>>().await?;
-        let num_batches = data.len();
-        let num_rows = data.iter().map(|rb| rb.num_rows()).sum::<usize>();
-        assert_eq!((num_batches, num_rows), expected_result2);
+        let open_result = opener.open(file1, part_file1)?.await?;
+
+        pin_mut!(open_result);
+        let mut rbs = open_result.try_collect::<Vec<_>>().await?;
+        assert_eq!(rbs.len(), 1);
+
+        let rb = rbs.pop().unwrap();
+        assert_eq!(rb.num_rows(), 3);
+        let expected = record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3)]))?;
+
+        assert_eq!(rb, expected);
 
         Ok(())
     }
 
-    #[rstest]
-    #[case(Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _))]
-    // If we don't have a physical expr adapter, we just drop filters on partition values.
-    // This is currently not supported, the work to support it requires to rewrite the predicate with appropriate casts.
     // Seems like datafusion is moving towards having DefaultPhysicalExprAdapterFactory be always provided, which would make it work OOTB.
     // See: https://github.com/apache/datafusion/issues/16800
-    // #[case(None)]
     #[tokio::test]
-    async fn test_open_files_different_table_schema(
-        #[case] expr_adapter_factory: Option<Arc<dyn PhysicalExprAdapterFactory>>,
-    ) -> anyhow::Result<()> {
-        use datafusion::arrow::util::pretty::pretty_format_batches_with_options;
-
-        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
-        let file1_path = "/path/file1.vortex";
-        let batch1 = record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3)])).unwrap();
-        let data_size1 = write_arrow_to_vortex(object_store.clone(), file1_path, batch1).await?;
-        let file1 = PartitionedFile::new(file1_path.to_string(), data_size1);
-
-        let file2_path = "/path/file2.vortex";
-        let batch2 = record_batch!(("a", Int16, vec![Some(-1), Some(-2), Some(-3)])).unwrap();
-        let data_size2 = write_arrow_to_vortex(object_store.clone(), file2_path, batch2).await?;
-        let file2 = PartitionedFile::new(file1_path.to_string(), data_size1);
+    async fn test_open_files_different_table_schema() -> anyhow::Result<()> {
+        let batch1 = record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3)]))?;
+        let batch2 = record_batch!(("a", Int16, vec![Some(-1), Some(-2), Some(-3)]))?;
+        let files = HashMap::from_iter([
+            ("path/file1.vortex".to_string(), batch1),
+            ("path/file2.vortex".to_string(), batch2),
+        ]);
 
         // Table schema has can accommodate both files
         let table_schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, true)]));
 
-        let make_opener = |filter| VortexOpener {
-            session: SESSION.clone(),
-            object_store: object_store.clone(),
-            projection: Some([0].into()),
-            filter: Some(filter),
-            file_pruning_predicate: None,
-            expr_adapter_factory: expr_adapter_factory.clone(),
-            schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
-            partition_fields: vec![],
-            file_cache: VortexFileCache::new(1, 1, SESSION.clone()),
-            logical_schema: table_schema.clone(),
-            batch_size: 100,
-            limit: None,
-            metrics: Default::default(),
-            layout_readers: Default::default(),
-            has_output_ordering: false,
-        };
+        let TestFixtures {
+            file_meta,
+            object_store,
+            source,
+            ..
+        } = make_source(files, &table_schema).await?;
 
+        let file1 = file_meta.get("path/file1.vortex").unwrap().clone();
+        let part_file1 = PartitionedFile::new("path/file1.vortex", file1.object_meta.size);
+        let file2 = file_meta.get("path/file2.vortex").unwrap().clone();
+        let part_file2 = PartitionedFile::new("path/file2.vortex", file1.object_meta.size);
+
+        // Try and push filters into the source.
         let filter = col("a").lt(lit(100_i32));
         let filter = logical2physical(&filter, table_schema.as_ref());
+        let pushdown_result =
+            source.try_pushdown_filters(vec![filter], &ConfigOptions::default())?;
+        // filter should've succeeded pushing
+        assert!(matches!(pushdown_result.filters[0], PushedDown::Yes));
 
-        let opener1 = make_opener(filter.clone());
-        let stream = opener1
-            .open(make_meta(file1_path, data_size1), file1)?
-            .await?;
+        // // Use a SchemaAdapter to allow for reading with evolution.
+        // Why does this not matter?
+        // let schema_adapter = DefaultSchemaAdapterFactory::default();
+
+        let base_config = FileScanConfigBuilder::new(
+            ObjectStoreUrl::parse("s3://in-memory")?,
+            table_schema.clone(),
+            source.clone(),
+        )
+        .build();
+
+        let opener = source.create_file_opener(object_store.clone(), &base_config, 0);
+        let stream = opener.open(file1, part_file1)?.await?;
 
         let format_opts = FormatOptions::new().with_types_info(true);
 
@@ -701,11 +644,7 @@ mod tests {
         +-------+
         ");
 
-        let opener2 = make_opener(filter.clone());
-        let stream = opener2
-            .open(make_meta(file2_path, data_size2), file2)?
-            .await?;
-
+        let stream = opener.open(file2, part_file2)?.await?;
         let data = stream.try_collect::<Vec<_>>().await?;
         assert_snapshot!(pretty_format_batches_with_options(&data, &format_opts)?.to_string(), @r"
         +-------+
@@ -721,6 +660,7 @@ mod tests {
         Ok(())
     }
 
+    //
     #[tokio::test]
     // This test verifies that files with different column order than the
     // table schema can be opened without errors. The fix ensures that the
@@ -794,83 +734,95 @@ mod tests {
     // a nested schema mismatch between the physical file schema and logical
     // table schema.
     async fn test_adapter_logical_physical_struct_mismatch() -> anyhow::Result<()> {
-        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
-        let file_path = "/path/file.vortex";
-        let file_struct_fields = Fields::from(vec![
-            Field::new("field1", DataType::Utf8, true),
-            Field::new("field2", DataType::Utf8, true),
-        ]);
+        let field1 = create_array!(Utf8, vec![Some("value1"), Some("value2"), Some("value3")]);
+        let field2 = create_array!(Utf8, vec![Some("a"), Some("b"), Some("c")]);
+
         let struct_array = StructArray::new(
-            file_struct_fields.clone(),
-            vec![
-                Arc::new(StringArray::from(vec!["value1", "value2", "value3"])),
-                Arc::new(StringArray::from(vec!["a", "b", "c"])),
-            ],
+            Fields::from(vec![
+                Field::new("field1", DataType::Utf8, true),
+                Field::new("field2", DataType::Utf8, true),
+            ]),
+            vec![field1.clone(), field2.clone()],
             None,
         );
-        let batch = RecordBatch::try_new(
-            Arc::new(Schema::new(vec![Field::new(
-                "my_struct",
-                DataType::Struct(file_struct_fields),
-                true,
-            )])),
-            vec![Arc::new(struct_array)],
-        )?;
-        let data_size = write_arrow_to_vortex(object_store.clone(), file_path, batch).await?;
 
-        // Table schema has an extra utf8 field.
+        // file schema reflects the data
+        let file_schema = Arc::new(Schema::new(vec![Field::new(
+            "my_struct",
+            DataType::Struct(Fields::from(vec![
+                Field::new("field1", DataType::Utf8, true),
+                Field::new("field2", DataType::Utf8, true),
+            ])),
+            true,
+        )]));
+
+        // Table schema has an extra inner utf8 field.
         let table_schema = Arc::new(Schema::new(vec![Field::new(
             "my_struct",
             DataType::Struct(Fields::from(vec![
-                Field::new(
-                    "field1",
-                    DataType::Dictionary(Box::new(DataType::UInt32), Box::new(DataType::Utf8)),
-                    true,
-                ),
-                Field::new(
-                    "field2",
-                    DataType::Dictionary(Box::new(DataType::UInt32), Box::new(DataType::Utf8)),
-                    true,
-                ),
+                Field::new("field1", DataType::Utf8, true),
+                Field::new("field2", DataType::Utf8, true),
                 Field::new("field3", DataType::Utf8, true),
             ])),
             true,
         )]));
 
-        let opener = VortexOpener {
-            session: SESSION.clone(),
-            object_store: object_store.clone(),
-            projection: None,
-            filter: Some(logical2physical(
-                &col("my_struct").is_not_null(),
-                &table_schema,
-            )),
-            file_pruning_predicate: None,
-            expr_adapter_factory: Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _),
-            schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
-            partition_fields: vec![],
-            file_cache: VortexFileCache::new(1, 1, SESSION.clone()),
-            logical_schema: table_schema,
-            batch_size: 100,
-            limit: None,
-            metrics: Default::default(),
-            layout_readers: Default::default(),
-            has_output_ordering: false,
-        };
+        let batch = RecordBatch::try_new(file_schema.clone(), vec![Arc::new(struct_array)])?;
 
-        // The opener should be able to open the file with a filter on the
-        // struct column.
+        let files = HashMap::from_iter([("path/file.vortex".to_string(), batch.clone())]);
+
+        let TestFixtures {
+            source,
+            file_meta,
+            object_store,
+            ..
+        } = make_source(files, &table_schema).await?;
+
+        let filter = logical2physical(&col("my_struct").is_not_null(), &table_schema);
+        let pushdown_result =
+            source.try_pushdown_filters(vec![filter], &ConfigOptions::default())?;
+
+        // The filter should not have been pushed
+        assert!(matches!(pushdown_result.filters[0], PushedDown::Yes));
+
+        let base_config = FileScanConfigBuilder::new(
+            ObjectStoreUrl::parse("s3://in-memory")?,
+            table_schema.clone(),
+            source.clone(),
+        )
+        .build();
+
+        let opener = source.create_file_opener(object_store.clone(), &base_config, 0);
+
+        let file = file_meta.get("path/file.vortex").unwrap().clone();
+        let part_file = PartitionedFile::new("path/file.vortex", file.object_meta.size);
+
         let data = opener
-            .open(
-                make_meta(file_path, data_size),
-                PartitionedFile::new(file_path.to_string(), data_size),
-            )?
+            .open(file, part_file)?
             .await?
             .try_collect::<Vec<_>>()
             .await?;
 
         assert_eq!(data.len(), 1);
-        assert_eq!(data[0].num_rows(), 3);
+
+        // The opener will return batches that have been adapted with the extra "field3" with
+        // nulls added.
+        let field3 = create_array!(Utf8, vec![Option::<String>::None; 3]);
+        let table_struct = StructArray::new(
+            Fields::from(vec![
+                Field::new("field1", DataType::Utf8, true),
+                Field::new("field2", DataType::Utf8, true),
+                Field::new("field3", DataType::Utf8, true),
+            ]),
+            vec![field1, field2, field3],
+            None,
+        );
+
+        let batch_with_nulls =
+            RecordBatch::try_new(table_schema.clone(), vec![Arc::new(table_struct)])?;
+
+        // The opener returns us a stream where field3 is replaced with nulls
+        assert_eq!(data[0], batch_with_nulls);
 
         Ok(())
     }

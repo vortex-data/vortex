@@ -4,6 +4,7 @@
 use vortex::error::VortexResult;
 
 pub(crate) mod exprs;
+pub(crate) mod ranges;
 mod scalars;
 
 /// First-party trait for implementing conversion from DataFusion types to Vortex types.
