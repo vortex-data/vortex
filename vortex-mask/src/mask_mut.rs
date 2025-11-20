@@ -355,6 +355,111 @@ impl MaskMut {
             _ => None,
         }
     }
+
+    /// Set the value at the given index to true.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds.
+    pub fn set(&mut self, index: usize) {
+        self.set_to(index, true);
+    }
+
+    /// Set the value at the given index to false.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds.
+    pub fn unset(&mut self, index: usize) {
+        self.set_to(index, false);
+    }
+
+    /// Set the value at the given index to the specified boolean value.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds.
+    pub fn set_to(&mut self, index: usize, value: bool) {
+        match &mut self.0 {
+            Inner::Empty { .. } => {
+                vortex_panic!("index out of bounds: the length is 0 but the index is {index}")
+            }
+            Inner::Constant {
+                value: current_value,
+                len,
+                ..
+            } => {
+                assert!(
+                    index < *len,
+                    "index out of bounds: the length is {} but the index is {index}",
+                    *len
+                );
+
+                if *current_value != value {
+                    // Need to materialize the buffer since we're changing from constant.
+                    self.materialize().set_to(index, value);
+                }
+                // If the value is the same as the constant, no action needed.
+            }
+            Inner::Builder(bit_buffer) => {
+                bit_buffer.set_to(index, value);
+            }
+        }
+    }
+
+    /// Set the value at the given index to true without bounds checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `index < self.len()`.
+    pub unsafe fn set_unchecked(&mut self, index: usize) {
+        unsafe { self.set_to_unchecked(index, true) }
+    }
+
+    /// Set the value at the given index to false without bounds checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `index < self.len()`.
+    pub unsafe fn unset_unchecked(&mut self, index: usize) {
+        unsafe { self.set_to_unchecked(index, false) }
+    }
+
+    /// Set the value at the given index to the specified boolean value without bounds checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `index < self.len()`.
+    pub unsafe fn set_to_unchecked(&mut self, index: usize, value: bool) {
+        unsafe {
+            match &mut self.0 {
+                Inner::Empty { .. } => {
+                    // In debug mode, we still want to catch this error.
+                    debug_assert!(false, "cannot set value in empty mask");
+                }
+                Inner::Constant {
+                    value: current_value,
+                    len,
+                    ..
+                } => {
+                    debug_assert!(
+                        index < *len,
+                        "index out of bounds: the length is {} but the index is {index}",
+                        *len
+                    );
+
+                    if *current_value != value {
+                        // Need to materialize the buffer since we're changing from constant.
+                        self.materialize().set_to_unchecked(index, value);
+                    }
+                    // If the value is the same as the constant, no action needed.
+                }
+                Inner::Builder(bit_buffer) => {
+                    bit_buffer.set_to_unchecked(index, value);
+                }
+            }
+        }
+    }
 }
 
 impl Mask {
