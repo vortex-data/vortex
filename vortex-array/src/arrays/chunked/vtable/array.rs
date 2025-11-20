@@ -27,7 +27,7 @@ impl ArrayVTable<ChunkedVTable> for ChunkedVTable {
     fn array_hash<H: std::hash::Hasher>(array: &ChunkedArray, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
         array.len.hash(state);
-        array.chunk_offsets.array_hash(state, precision);
+        array.chunk_offsets.as_ref().array_hash(state, precision);
         for chunk in &array.chunks {
             chunk.array_hash(state, precision);
         }
@@ -38,7 +38,8 @@ impl ArrayVTable<ChunkedVTable> for ChunkedVTable {
             && array.len == other.len
             && array
                 .chunk_offsets
-                .array_eq(&other.chunk_offsets, precision)
+                .as_ref()
+                .array_eq(other.chunk_offsets.as_ref(), precision)
             && array.chunks.len() == other.chunks.len()
             && array
                 .chunks

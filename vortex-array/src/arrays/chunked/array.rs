@@ -12,17 +12,19 @@ use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult, VortexUnwrap, vortex_bail};
 
+use crate::arrays::PrimitiveArray;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::search_sorted::{SearchSorted, SearchSortedSide};
 use crate::stats::ArrayStats;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
+use crate::validity::Validity;
 use crate::{Array, ArrayRef, IntoArray};
 
 #[derive(Clone, Debug)]
 pub struct ChunkedArray {
     pub(super) dtype: DType,
     pub(super) len: usize,
-    pub(super) chunk_offsets: Buffer<u64>,
+    pub(super) chunk_offsets: PrimitiveArray,
     pub(super) chunks: Vec<ArrayRef>,
     pub(super) stats_set: ArrayStats,
 }
@@ -58,20 +60,22 @@ impl ChunkedArray {
 
         let nchunks = chunks.len();
 
-        let mut chunk_offsets = BufferMut::<u64>::with_capacity(nchunks + 1);
+        let mut chunk_offsets_buf = BufferMut::<u64>::with_capacity(nchunks + 1);
         // SAFETY: nchunks + 1
-        unsafe { chunk_offsets.push_unchecked(0) }
+        unsafe { chunk_offsets_buf.push_unchecked(0) }
         let mut curr_offset = 0;
         for c in &chunks {
             curr_offset += c.len() as u64;
             // SAFETY: nchunks + 1
-            unsafe { chunk_offsets.push_unchecked(curr_offset) }
+            unsafe { chunk_offsets_buf.push_unchecked(curr_offset) }
         }
+
+        let chunk_offsets = PrimitiveArray::new(chunk_offsets_buf.freeze(), Validity::NonNullable);
 
         Self {
             dtype,
             len: curr_offset.try_into().vortex_unwrap(),
-            chunk_offsets: chunk_offsets.freeze(),
+            chunk_offsets,
             chunks,
             stats_set: Default::default(),
         }
@@ -102,8 +106,8 @@ impl ChunkedArray {
     }
 
     #[inline]
-    pub fn chunk_offsets(&self) -> &Buffer<u64> {
-        &self.chunk_offsets
+    pub fn chunk_offsets(&self) -> Buffer<u64> {
+        self.chunk_offsets.buffer()
     }
 
     pub(crate) fn find_chunk_idx(&self, index: usize) -> (usize, usize) {

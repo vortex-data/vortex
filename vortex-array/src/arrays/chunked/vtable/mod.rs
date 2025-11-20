@@ -6,8 +6,9 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
-use crate::arrays::ChunkedArray;
+use crate::arrays::{ChunkedArray, PrimitiveArray};
 use crate::serde::ArrayChildren;
+use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable};
 use crate::{EmptyMetadata, EncodingId, EncodingRef, ToCanonical, vtable};
 
@@ -69,18 +70,19 @@ impl VTable for ChunkedVTable {
         let nchunks = children.len() - 1;
 
         // The first child contains the row offsets of the chunks
-        let chunk_offsets = children
+        let chunk_offsets_array = children
             .get(
                 0,
                 &DType::Primitive(PType::U64, Nullability::NonNullable),
                 // 1 extra offset for the end of the last chunk
                 nchunks + 1,
             )?
-            .to_primitive()
-            .buffer::<u64>();
+            .to_primitive();
+
+        let chunk_offsets_buf = chunk_offsets_array.buffer::<u64>();
 
         // The remaining children contain the actual data of the chunks
-        let chunks = chunk_offsets
+        let chunks = chunk_offsets_buf
             .iter()
             .tuple_windows()
             .enumerate()
@@ -91,9 +93,22 @@ impl VTable for ChunkedVTable {
             })
             .try_collect()?;
 
-        // SAFETY: All chunks are deserialized with the same dtype that was serialized.
-        // Each chunk was validated during deserialization to match the expected dtype.
-        unsafe { Ok(ChunkedArray::new_unchecked(chunks, dtype.clone())) }
+        let chunk_offsets = PrimitiveArray::new(chunk_offsets_buf.clone(), Validity::NonNullable);
+
+        let total_len = chunk_offsets_buf
+            .last()
+            .ok_or_else(|| vortex_err!("chunk_offsets must not be empty"))?;
+        let len = usize::try_from(*total_len)
+            .map_err(|_| vortex_err!("total length {} exceeds usize range", total_len))?;
+
+        // Construct directly using the struct fields to avoid recomputing chunk_offsets
+        Ok(ChunkedArray {
+            dtype: dtype.clone(),
+            len,
+            chunk_offsets,
+            chunks,
+            stats_set: Default::default(),
+        })
     }
 }
 
