@@ -7,13 +7,13 @@ use pco::wrapped::{ChunkDecompressor, FileDecompressor};
 use vortex_array::pipeline::{
     BindContext, BitView, Kernel, KernelCtx, N, PipelineInputs, PipelinedNode,
 };
-use vortex_buffer::{BufferMut, ByteBuffer};
+use vortex_buffer::ByteBuffer;
 use vortex_compute::expand::Expand;
-use vortex_dtype::{NativePType, half};
+use vortex_dtype::{NativePType, PTypeDowncastExt, half};
 use vortex_error::{VortexResult, VortexUnwrap, vortex_err};
 use vortex_mask::MaskMut;
 use vortex_vector::primitive::PVectorMut;
-use vortex_vector::{VectorMut, VectorMutOps};
+use vortex_vector::{Vector, VectorMutOps, VectorOps};
 
 use crate::array::{number_type_from_dtype, vortex_err_from_pco};
 use crate::{PcoArray, PcoMetadata};
@@ -136,12 +136,7 @@ impl<T: Number + NativePType> PcoKernel<T> {
 }
 
 impl<T: Number + NativePType> Kernel for PcoKernel<T> {
-    fn step(
-        &mut self,
-        _ctx: &mut KernelCtx,
-        selection: &BitView,
-        out: VectorMut,
-    ) -> VortexResult<VectorMut> {
+    fn step(&mut self, _ctx: &KernelCtx, selection: &BitView, out: Vector) -> VortexResult<Vector> {
         let remaining_validity = self.validity.split_off(N.min(self.validity.len()));
         let step_validity = std::mem::take(&mut self.validity).freeze();
         let step_true_count = step_validity.true_count();
@@ -152,27 +147,28 @@ impl<T: Number + NativePType> Kernel for PcoKernel<T> {
             return Ok(out);
         }
 
-        // PCO only stores valid values, not nulls. Therefore, we decompress `true_count` number of elements.
-        let mut decompressed = BufferMut::<T>::with_capacity(step_true_count);
+        let (elements, _validity) = out.into_primitive().downcast::<T>().into_parts();
 
-        while decompressed.len() < step_true_count {
+        let mut elements = elements.into_mut();
+
+        while elements.len() < step_true_count {
             // Ensure the page to read is decompressed.
             if self.page_buffer.is_empty() {
                 self.decompress_current_page()?;
             }
 
             let remaining_in_page = self.page_buffer.len() - self.page_position;
-            let copy_count = (step_true_count - decompressed.len()).min(remaining_in_page);
+            let copy_count = (step_true_count - elements.len()).min(remaining_in_page);
             let page_slice = &self.page_buffer[self.page_position..][..copy_count];
 
             // SAFETY: Sufficient capacity is pre-allocated.
             unsafe {
                 std::ptr::copy_nonoverlapping(
                     page_slice.as_ptr() as _,
-                    decompressed.spare_capacity_mut().as_mut_ptr(),
+                    elements.spare_capacity_mut().as_mut_ptr(),
                     copy_count,
                 );
-                decompressed.set_len(decompressed.len() + copy_count);
+                elements.set_len(elements.len() + copy_count);
             }
 
             self.page_position += copy_count;
@@ -183,11 +179,12 @@ impl<T: Number + NativePType> Kernel for PcoKernel<T> {
             }
         }
 
-        Ok(PVectorMut::new(
-            decompressed.expand(&step_validity),
-            step_validity.into_mut(),
-        )
-        .into())
+        let mut vec = PVectorMut::new(elements.expand(&step_validity), step_validity.into_mut());
+        if vec.len() < N && vec.len() > selection.true_count() {
+            vec.append_values(T::default(), N - vec.len());
+        }
+
+        Ok(vec.freeze().into())
     }
 }
 

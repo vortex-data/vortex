@@ -6,9 +6,7 @@ use std::hash::Hash;
 
 use vortex_buffer::{BitBuffer, ByteBuffer};
 use vortex_dtype::{DType, Nullability, PType, match_each_integer_ptype};
-use vortex_error::{
-    VortexExpect as _, VortexResult, VortexUnwrap, vortex_bail, vortex_ensure, vortex_err,
-};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_ensure, vortex_err};
 use vortex_mask::{AllOr, Mask};
 
 use crate::builders::dict::dict_encode;
@@ -166,6 +164,7 @@ impl DictArray {
         // In debug builds, verify the claim when setting to true
         #[cfg(debug_assertions)]
         {
+            use vortex_error::VortexUnwrap;
             self.validate_all_values_referenced().vortex_unwrap()
         }
 
