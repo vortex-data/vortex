@@ -182,9 +182,11 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
         if let Some(initial) = self.initial() {
             local_idx = initial.len();
 
+            // TODO(connor): use `maybe_uninit_write_slice` feature when it gets stabilized.
+            // https://github.com/rust-lang/rust/issues/79995
             // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout.
-            let uninit_initial: &[MaybeUninit<T>] = unsafe { mem::transmute(initial) };
-            output[..uninit_initial.len()].copy_from_slice(uninit_initial);
+            let init_initial: &[MaybeUninit<T>] = unsafe { mem::transmute(initial) };
+            output[..local_idx].copy_from_slice(init_initial);
         }
 
         // Handle full chunks
@@ -192,9 +194,11 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
 
         // Handle trailing partial chunk if present
         if let Some(trailer) = self.trailer() {
+            // TODO(connor): use `maybe_uninit_write_slice` feature when it gets stabilized.
+            // https://github.com/rust-lang/rust/issues/79995
             // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout.
-            let uninit_trailer: &[MaybeUninit<T>] = unsafe { mem::transmute(trailer) };
-            output[local_idx..][..uninit_trailer.len()].copy_from_slice(uninit_trailer);
+            let init_trailer: &[MaybeUninit<T>] = unsafe { mem::transmute(trailer) };
+            output[local_idx..][..init_trailer.len()].copy_from_slice(init_trailer);
         }
     }
 
