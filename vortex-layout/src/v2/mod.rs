@@ -8,5 +8,7 @@
 
 mod layout;
 mod layouts;
+mod optimizer;
+mod session;
 mod view;
 mod vtable;

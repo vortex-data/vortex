@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::v2::layout::Layout;
+use crate::v2::layout::{Layout, LayoutRef};
 use crate::v2::vtable::VTable;
 use std::ops::Deref;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_session::SessionVar;
 
 pub struct LayoutView<'a, V: VTable> {
-    layout: &'a Layout,
+    layout: &'a LayoutRef,
     vtable: &'a V,
     instance: &'a V::Instance,
 }
 
 impl<V: VTable> Deref for LayoutView<'_, V> {
-    type Target = Layout;
+    type Target = LayoutRef;
 
     fn deref(&self) -> &Self::Target {
         self.layout
