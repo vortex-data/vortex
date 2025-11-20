@@ -425,10 +425,7 @@ fn run_statpopgen(args: StatPopGenArgs) -> anyhow::Result<()> {
 fn run_fineweb(args: FinewebArgs) -> anyhow::Result<()> {
     setup_logging_and_tracing(args.common.verbose, args.common.tracing)?;
 
-    let data_url = Url::from_directory_path("fineweb".to_data_path())
-        .map_err(|_| anyhow::anyhow!("bad data path"))?;
-
-    let benchmark = Fineweb::new(data_url);
+    let benchmark = Fineweb::with_remote_data_dir(args.common.use_remote_data_dir)?;
 
     let config = DriverConfig {
         targets: args.targets,
@@ -456,10 +453,7 @@ fn run_fineweb(args: FinewebArgs) -> anyhow::Result<()> {
 fn run_gharchive(args: GhArchiveArgs) -> anyhow::Result<()> {
     setup_logging_and_tracing(args.common.verbose, args.common.tracing)?;
 
-    let data_url = Url::from_directory_path("gharchive".to_data_path())
-        .map_err(|_| anyhow::anyhow!("bad data path"))?;
-
-    let benchmark = GithubArchive::new(data_url);
+    let benchmark = GithubArchive::with_remote_data_dir(args.common.use_remote_data_dir)?;
 
     let config = DriverConfig {
         targets: args.targets,
