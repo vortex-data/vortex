@@ -37,6 +37,8 @@ impl Sink for OutputSink {
             _ => {
                 // Otherwise, we know that the vector has not yet been filtered.
                 assert_eq!(vector.len(), N, "it must therefore be len = N");
+                // TODO(ngates): it would be great to have a `filter_into` that avoids the extra
+                //  copy here.
                 let vector = vector.filter(selection);
                 self.vector.extend_from_vector(&vector);
             }

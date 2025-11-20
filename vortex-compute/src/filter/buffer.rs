@@ -56,13 +56,7 @@ impl<const NB: usize, T: Copy> Filter<BitView<'_, NB>> for &Buffer<T> {
     type Output = Buffer<T>;
 
     fn filter(self, selection: &BitView<'_, NB>) -> Self::Output {
-        // TODO(ngates): this is very very slow!
-        let elems = self.as_slice();
-        let mut out = BufferMut::<T>::with_capacity(selection.true_count());
-        selection.iter_ones(|idx| {
-            unsafe { out.push_unchecked(elems[idx]) };
-        });
-        out.freeze()
+        self.as_slice().filter(selection)
     }
 }
 
