@@ -107,7 +107,7 @@ impl KernelCtx {
 
     /// Returns the input vector at the given index.
     ///
-    /// Note that a [`VectorMut`] is returned here, indicating that this is the only instance of
+    /// Note that a [`Vector`] is returned here, indicating that this is the only instance of
     /// the data. Kernels are encouraged to use [`std::mem::swap`] or similar to propagate data
     /// from input vectors to output vectors without unnecessary copies.
     ///
