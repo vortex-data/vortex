@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::{VortexExpect, VortexResult};
+use vortex_vector::Vector;
 
 use crate::ArrayRef;
 use crate::expr::display::DisplayTreeExpr;
@@ -138,6 +139,11 @@ impl Expression {
     /// Evaluates the expression in the given scope.
     pub fn evaluate(&self, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         self.vtable.as_dyn().evaluate(self, scope)
+    }
+
+    /// Executes the expression over the given vector input scope.
+    pub fn execute(&self, vector: &Vector, dtype: &DType) -> VortexResult<Vector> {
+        self.vtable.as_dyn().execute(self, vector, dtype)
     }
 
     /// An expression over zone-statistics which implies all records in the zone evaluate to false.

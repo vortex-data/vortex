@@ -1,16 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
+use vortex_vector::Vector;
+use vortex_vector::listview::ListViewVector;
 
 use crate::arrays::ListViewArray;
+use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
 use crate::{
-    DeserializeMetadata, EncodingId, EncodingRef, ProstMetadata, SerializeMetadata, vtable,
+    ArrayOperator, DeserializeMetadata, EncodingId, EncodingRef, ProstMetadata, SerializeMetadata,
+    vtable,
 };
 
 mod array;
@@ -125,5 +131,17 @@ impl VTable for ListViewVTable {
         )?;
 
         ListViewArray::try_new(elements, offsets, sizes, validity)
+    }
+
+    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+        Ok(unsafe {
+            ListViewVector::new_unchecked(
+                Arc::new(array.elements().execute_batch(ctx)?),
+                array.offsets().execute_batch(ctx)?.into_primitive(),
+                array.sizes().execute_batch(ctx)?.into_primitive(),
+                array.validity_mask(),
+            )
+        }
+        .into())
     }
 }

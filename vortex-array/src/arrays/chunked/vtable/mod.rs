@@ -5,11 +5,13 @@ use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_vector::{Vector, VectorMut, VectorMutOps};
 
 use crate::arrays::ChunkedArray;
+use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::vtable::{NotSupported, VTable};
-use crate::{EmptyMetadata, EncodingId, EncodingRef, ToCanonical, vtable};
+use crate::{ArrayOperator, EmptyMetadata, EncodingId, EncodingRef, ToCanonical, vtable};
 
 mod array;
 mod canonical;
@@ -94,6 +96,15 @@ impl VTable for ChunkedVTable {
         // SAFETY: All chunks are deserialized with the same dtype that was serialized.
         // Each chunk was validated during deserialization to match the expected dtype.
         unsafe { Ok(ChunkedArray::new_unchecked(chunks, dtype.clone())) }
+    }
+
+    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+        let mut vector = VectorMut::with_capacity(array.dtype(), 0);
+        for chunk in array.chunks() {
+            let chunk_vector = chunk.execute_batch(ctx)?;
+            vector.extend_from_vector(&chunk_vector);
+        }
+        Ok(vector.freeze())
     }
 }
 

@@ -8,15 +8,19 @@ mod operator;
 mod validity;
 
 use vortex_buffer::ByteBuffer;
+use vortex_compute::mask::MaskValidity;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
+use vortex_vector::Vector;
 
 use crate::arrays::masked::MaskedArray;
+use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper, VisitorVTable};
 use crate::{
-    ArrayBufferVisitor, ArrayChildVisitor, EmptyMetadata, EncodingId, EncodingRef, vtable,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayOperator, EmptyMetadata, EncodingId, EncodingRef,
+    vtable,
 };
 
 vtable!(Masked);
@@ -94,6 +98,11 @@ impl VTable for MaskedVTable {
         };
 
         MaskedArray::try_new(child, validity)
+    }
+
+    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+        let vector = array.child().execute_batch(ctx)?;
+        Ok(MaskValidity::mask_validity(vector, &array.validity_mask()))
     }
 }
 

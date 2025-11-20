@@ -4,8 +4,11 @@
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_vector::Vector;
+use vortex_vector::bool::BoolVector;
 
 use crate::arrays::BoolArray;
+use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
@@ -90,6 +93,10 @@ impl VTable for BoolVTable {
         };
 
         BoolArray::try_new(buffers[0].clone(), metadata.offset as usize, len, validity)
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+        Ok(BoolVector::new(array.bit_buffer().clone(), array.validity_mask()).into())
     }
 }
 
