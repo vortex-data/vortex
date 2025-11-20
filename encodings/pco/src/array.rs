@@ -13,12 +13,14 @@ use pco::{ChunkConfig, PagingSpec, match_number_enum};
 use prost::Message;
 use vortex_array::arrays::{PrimitiveArray, PrimitiveVTable};
 use vortex_array::compute::filter;
+use vortex_array::pipeline::PipelinedNode;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, EncodeVTable, NotSupported, OperationsVTable, VTable,
-    ValidityHelper, ValiditySliceHelper, ValidityVTableFromValiditySliceHelper, VisitorVTable,
+    ArrayVTable, CanonicalVTable, EncodeVTable, NotSupported, OperationsVTable, OperatorVTable,
+    VTable, ValidityHelper, ValiditySliceHelper, ValidityVTableFromValiditySliceHelper,
+    VisitorVTable,
 };
 use vortex_array::{
     ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId,
@@ -67,7 +69,7 @@ impl VTable for PcoVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type OperatorVTable = NotSupported;
+    type OperatorVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.pco")
@@ -129,7 +131,7 @@ impl VTable for PcoVTable {
     }
 }
 
-fn number_type_from_dtype(dtype: &DType) -> NumberType {
+pub(crate) fn number_type_from_dtype(dtype: &DType) -> NumberType {
     let ptype = dtype.as_ptype();
     match ptype {
         PType::F16 => NumberType::F16,
@@ -150,7 +152,7 @@ fn collect_valid(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
     Ok(filter(&parray.to_array(), &mask)?.to_primitive())
 }
 
-fn vortex_err_from_pco(err: PcoError) -> VortexError {
+pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
     use pco::errors::ErrorKind::*;
     match err.kind {
         Io(io_kind) => VortexError::from(std::io::Error::new(io_kind, err.message)),
@@ -506,6 +508,12 @@ impl VisitorVTable<PcoVTable> for PcoVTable {
 
     fn visit_children(array: &PcoArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_validity(&array.unsliced_validity, array.unsliced_n_rows());
+    }
+}
+
+impl OperatorVTable<PcoVTable> for PcoVTable {
+    fn pipeline_node(array: &PcoArray) -> Option<&dyn PipelinedNode> {
+        Some(array)
     }
 }
 
