@@ -6,15 +6,15 @@ use std::fmt::Formatter;
 use prost::Message;
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_proto::expr as pb;
 
-use crate::ArrayRef;
-use crate::compute::{BetweenOptions, between as between_compute};
+use crate::compute::{between as between_compute, BetweenOptions};
 use crate::expr::expression::Expression;
 use crate::expr::exprs::binary::Binary;
 use crate::expr::exprs::operators::Operator;
 use crate::expr::{ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt};
+use crate::ArrayRef;
 
 /// An optimized scalar expression to compute whether values fall between two bounds.
 ///
@@ -46,7 +46,7 @@ impl VTable for Between {
         ))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Instance> {
         let opts = pb::BetweenOpts::decode(metadata)?;
         Ok(Some(BetweenOptions {
             lower_strict: if opts.lower_strict {
