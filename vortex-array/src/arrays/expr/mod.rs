@@ -5,4 +5,4 @@ mod array;
 pub use array::ExprArray;
 
 mod vtable;
-pub use vtable::{ExprEncoding, ExprVTable};
+pub use vtable::{ExprEncoding, ExprOptimizationRule, ExprVTable};

@@ -168,10 +168,29 @@ impl Default for ArraySession {
             EncodingRef::new_ref(VarBinEncoding.as_ref()),
         ]);
 
-        Self {
+        let session = Self {
             registry: encodings,
             rewrite_rules: ArrayRewriteRuleRegistry::default(),
-        }
+        };
+
+        session.register_parent_rule::<arrays::BoolVTable, arrays::MaskedVTable, _>(
+            &BoolEncoding,
+            &MaskedEncoding,
+            arrays::BoolMaskedValidityRule,
+        );
+
+        session.register_parent_rule::<arrays::StructVTable, arrays::ExprVTable, _>(
+            &StructEncoding,
+            &arrays::ExprEncoding,
+            arrays::StructExprPartitionRule,
+        );
+
+        session.register_reduce_rule::<arrays::ExprVTable, _>(
+            &arrays::ExprEncoding,
+            arrays::ExprOptimizationRule,
+        );
+
+        session
     }
 }
 

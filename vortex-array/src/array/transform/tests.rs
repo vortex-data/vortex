@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::sync::Arc;
 
 use vortex_dtype::FieldNames;
@@ -106,35 +109,50 @@ fn test_reduce_rules_traverse_whole_tree() -> VortexResult<()> {
     let optimized_inner_struct = optimized_outer.field_by_name("inner_struct")?;
     let optimized_outer_field = optimized_outer.field_by_name("outer_field")?;
 
-    assert!(Arc::ptr_eq(&outer_field, &optimized_outer_field));
+    assert!(Arc::ptr_eq(&outer_field, optimized_outer_field));
 
     let inner_struct_view = optimized_inner_struct.as_opt::<StructVTable>().unwrap();
     let optimized_field1 = inner_struct_view.field_by_name("field1")?;
     let optimized_field2 = inner_struct_view.field_by_name("field2")?;
 
-    assert!(Arc::ptr_eq(&inner_field1, &optimized_field1));
-    assert!(Arc::ptr_eq(&inner_field2, &optimized_field2));
+    assert!(Arc::ptr_eq(&inner_field1, optimized_field1));
+    assert!(Arc::ptr_eq(&inner_field2, optimized_field2));
     Ok(())
 }
 
+// Odd rule for testing
 struct ConstantInStructRule;
 
 impl ArrayParentReduceRule<ConstantVTable, StructVTable> for ConstantInStructRule {
     fn reduce_parent(
         &self,
         array: &ConstantArray,
-        _parent: &StructArray,
-        child_idx: usize,
+        parent: &StructArray,
+        _child_idx: usize,
         _ctx: &ArrayRuleContext,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Replace constant arrays inside structs with a constant of value = child_idx
-        Ok(Some(
-            ConstantArray::new(
-                i32::try_from(child_idx).vortex_expect("must fit"),
-                array.len(),
-            )
-            .into_array(),
-        ))
+        StructArray::try_from_iter(
+            parent
+                .names()
+                .iter()
+                .zip(parent.fields().iter())
+                .enumerate()
+                .map(|(idx, (name, field))| {
+                    if field.is::<ConstantVTable>() {
+                        (
+                            name,
+                            ConstantArray::new(
+                                i32::try_from(idx).vortex_expect("must fit"),
+                                array.len(),
+                            )
+                            .into_array(),
+                        )
+                    } else {
+                        (name, field.clone())
+                    }
+                }),
+        )
+        .map(|s| Some(s.to_array()))
     }
 }
 
@@ -167,9 +185,13 @@ fn test_parent_rules_traverse_whole_tree() -> VortexResult<()> {
     let outer_struct = StructArray::from_fields(&[
         ("inner_struct", inner_struct.into_array()),
         ("outer_field", outer_field.into_array()),
-    ])?;
+    ])?
+    .into_array();
 
-    let optimized = optimizer.optimize_array(outer_struct.into_array())?;
+    let optimized = optimizer.optimize_array(outer_struct.clone())?;
+
+    println!("in {}", outer_struct.display_tree());
+    println!("opt {}", optimized.display_tree());
 
     let optimized_outer = optimized.as_opt::<StructVTable>().unwrap();
     let inner_struct = optimized_outer.field_by_name("inner_struct")?;

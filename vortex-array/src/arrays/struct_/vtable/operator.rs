@@ -8,7 +8,8 @@ use vortex_vector::Vector;
 use vortex_vector::struct_::StructVector;
 
 use crate::ArrayRef;
-use crate::arrays::expr::ExprVTable;
+use crate::array::transform::{ArrayParentReduceRule, ArrayRuleContext};
+use crate::arrays::expr::{ExprArray, ExprVTable};
 use crate::arrays::struct_::vtable::reduce::{apply_partitioned_expr, partition_struct_expr};
 use crate::arrays::{StructArray, StructVTable};
 use crate::execution::{BatchKernelRef, BindCtx, kernel};
@@ -40,31 +41,36 @@ impl OperatorVTable<StructVTable> for StructVTable {
             Ok(StructVector::try_new(Arc::new(fields.into_boxed_slice()), validity_mask)?.into())
         }))
     }
+}
 
+/// Rule to partition expressions over struct fields when a StructArray is wrapped by an ExprArray.
+///
+/// This optimization pushes expression evaluation down to individual struct fields, enabling
+/// better field-level optimizations and potentially avoiding materialization of unused fields.
+pub struct StructExprPartitionRule;
+
+impl ArrayParentReduceRule<StructVTable, ExprVTable> for StructExprPartitionRule {
     fn reduce_parent(
+        &self,
         array: &StructArray,
-        parent: &ArrayRef,
+        parent: &ExprArray,
         _child_idx: usize,
+        _ctx: &ArrayRuleContext,
     ) -> VortexResult<Option<ArrayRef>> {
         if array.dtype().is_nullable() {
             // TODO(joe): cannot handle nullable struct pushdown yet.
             return Ok(None);
         }
-        // Check if the parent is an ExprArray wrapping this struct
-        // If so, we can partition the expression over the struct fields
-        if let Some(expr_array) = parent.as_opt::<ExprVTable>() {
-            let session = ExprSession::default();
 
-            // Partition the expression over the struct fields
-            let partitioned = partition_struct_expr(array, expr_array.expr().clone(), &session)?;
+        let session = ExprSession::default();
 
-            // Apply the partitioned expression to create a new struct with ExprArrays
-            let result = apply_partitioned_expr(array, partitioned)?;
+        // Partition the expression over the struct fields
+        let partitioned = partition_struct_expr(array, parent.expr().clone(), &session)?;
 
-            return Ok(Some(result));
-        }
+        // Apply the partitioned expression to create a new struct with ExprArrays
+        let result = apply_partitioned_expr(array, partitioned)?;
 
-        Ok(None)
+        Ok(Some(result))
     }
 }
 
@@ -80,6 +86,7 @@ mod tests {
     use super::*;
     use crate::arrays::expr::ExprVTable;
     use crate::arrays::{BoolArray, ExprArray, PrimitiveArray, StructArray};
+    use crate::expr::transform::ExprOptimizer;
     use crate::expr::{and, col, eq, get_item, gt, lit, lt, pack, root};
     use crate::validity::Validity;
     use crate::{Array, IntoArray, assert_arrays_eq};
@@ -247,10 +254,13 @@ mod tests {
 
         assert_arrays_eq!(expected, actual);
 
-        let parent: ArrayRef = expr_array.into_array();
-        let result = struct_array
-            .reduce_parent(&parent, 0)?
-            .vortex_expect("does reduce");
+        // Use the optimizer to apply parent rules
+        let array_session = crate::ArraySession::default();
+        let expr_session = ExprSession::default();
+        let expr_optimizer = ExprOptimizer::new(&expr_session);
+        let optimizer = array_session.optimizer(expr_optimizer);
+
+        let result = optimizer.optimize_array(expr_array.into_array())?;
 
         let result = result.as_::<ExprVTable>();
         assert_eq!(&gt(root(), lit(5i32)), result.expr());
@@ -278,10 +288,13 @@ mod tests {
             .into_array();
         assert_arrays_eq!(expected, actual);
 
-        let parent: ArrayRef = expr_array.into_array();
-        let result = struct_array
-            .reduce_parent(&parent, 0)?
-            .vortex_expect("does reduce");
+        // Use the optimizer to apply parent rules
+        let array_session = crate::ArraySession::default();
+        let expr_session = ExprSession::default();
+        let expr_optimizer = ExprOptimizer::new(&expr_session);
+        let optimizer = array_session.optimizer(expr_optimizer);
+
+        let result = optimizer.optimize_array(expr_array.into_array())?;
 
         let result = result.as_::<ExprVTable>();
         assert_eq!(
@@ -304,10 +317,14 @@ mod tests {
             gt(col("a"), lit(6)),
         );
         let expr_array = ExprArray::new_infer_dtype(struct_array.clone().into_array(), expr)?;
-        let parent: ArrayRef = expr_array.into_array();
-        let result = struct_array
-            .reduce_parent(&parent, 0)?
-            .vortex_expect("does reduce");
+
+        // Use the optimizer to apply parent rules
+        let array_session = crate::ArraySession::default();
+        let expr_session = ExprSession::default();
+        let expr_optimizer = ExprOptimizer::new(&expr_session);
+        let optimizer = array_session.optimizer(expr_optimizer);
+
+        let result = optimizer.optimize_array(expr_array.into_array())?;
 
         // Assert the result is an ExprArray wrapping a StructArray
         let result_expr = result
@@ -386,10 +403,13 @@ mod tests {
         let expected = (0..5).map(|_| false).collect::<BoolArray>().into_array();
         assert_arrays_eq!(expected, actual);
 
-        let parent: ArrayRef = expr_array.into_array();
-        let result = struct_array
-            .reduce_parent(&parent, 0)?
-            .vortex_expect("should be reduced");
+        // Use the optimizer to apply parent rules
+        let array_session = crate::ArraySession::default();
+        let expr_session = ExprSession::default();
+        let expr_optimizer = ExprOptimizer::new(&expr_session);
+        let optimizer = array_session.optimizer(expr_optimizer);
+
+        let result = optimizer.optimize_array(expr_array.into_array())?;
         let actual = result.to_canonical().into_array();
         assert_arrays_eq!(expected, actual);
 

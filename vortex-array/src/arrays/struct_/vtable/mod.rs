@@ -15,10 +15,12 @@ use crate::{EmptyMetadata, EncodingId, EncodingRef, vtable};
 mod array;
 mod canonical;
 mod operations;
-mod operator;
+pub mod operator;
 pub mod reduce;
 mod validity;
 mod visitor;
+
+pub use operator::StructExprPartitionRule;
 
 vtable!(Struct);
 

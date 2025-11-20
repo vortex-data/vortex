@@ -4,21 +4,22 @@
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::array::transform::{ArrayReduceRule, ArrayRuleContext};
 use crate::arrays::expr::{ExprArray, ExprVTable};
 use crate::expr::root;
-use crate::expr::session::ExprSession;
-use crate::expr::transform::ExprOptimizer;
 use crate::vtable::OperatorVTable;
 
-impl OperatorVTable<ExprVTable> for ExprVTable {
-    fn reduce(array: &ExprArray) -> VortexResult<Option<ArrayRef>> {
-        // Get the default expression session
-        let session = ExprSession::default();
-        let optimizer = ExprOptimizer::new(&session);
+impl OperatorVTable<ExprVTable> for ExprVTable {}
 
+/// Rule to optimize expressions within ExprArrays.
+pub struct ExprOptimizationRule;
+
+impl ArrayReduceRule<ExprVTable> for ExprOptimizationRule {
+    fn reduce(&self, array: &ExprArray, ctx: &ArrayRuleContext) -> VortexResult<Option<ArrayRef>> {
         // Try to optimize the expression with type information
-        let optimized_expr =
-            optimizer.optimize_typed(array.expr().clone(), array.child().dtype())?;
+        let optimized_expr = ctx
+            .expr_optimizer()
+            .optimize_typed(array.expr().clone(), array.child().dtype())?;
 
         if optimized_expr != *array.expr() {
             // If the expression simplified to just root(), return the child directly
@@ -40,12 +41,13 @@ impl OperatorVTable<ExprVTable> for ExprVTable {
 mod tests {
 
     use vortex_dtype::Nullability;
-    use vortex_error::VortexExpect;
 
     use super::*;
-    use crate::IntoArray;
     use crate::arrays::{PrimitiveArray, PrimitiveVTable};
+    use crate::expr::session::ExprSession;
+    use crate::expr::transform::ExprOptimizer;
     use crate::expr::{get_item, pack, root};
+    use crate::{ArraySession, IntoArray};
 
     #[test]
     fn test_expr_array_reduce_pack_unpack() -> VortexResult<()> {
@@ -55,8 +57,13 @@ mod tests {
 
         let expr_array = ExprArray::new_infer_dtype(array.into_array(), expr)?;
 
-        // Call reduce - it should optimize pack(a: $).a to just $
-        let reduced = expr_array.reduce()?.vortex_expect("reduce failed");
+        // Use the optimizer to optimize the expression array
+        let array_session = ArraySession::default();
+        let expr_session = ExprSession::default();
+        let expr_optimizer = ExprOptimizer::new(&expr_session);
+        let optimizer = array_session.optimizer(expr_optimizer);
+
+        let reduced = optimizer.optimize_array(expr_array.into_array())?;
 
         assert!(reduced.is::<PrimitiveVTable>());
 

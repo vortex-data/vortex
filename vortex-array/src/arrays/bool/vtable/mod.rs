@@ -16,9 +16,11 @@ use crate::{
 mod array;
 mod canonical;
 mod operations;
-mod operator;
+pub mod operator;
 mod validity;
 mod visitor;
+
+pub use operator::BoolMaskedValidityRule;
 
 vtable!(Bool);
 

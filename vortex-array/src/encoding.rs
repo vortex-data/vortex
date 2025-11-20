@@ -41,6 +41,12 @@ pub trait Encoding: 'static + private::Sealed + Send + Sync + Debug {
         children: &dyn ArrayChildren,
     ) -> VortexResult<ArrayRef>;
 
+    fn with_children(
+        &self,
+        array: &dyn Array,
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<ArrayRef>;
+
     /// Encode the canonical array into this encoding implementation.
     /// Returns `None` if this encoding does not support the given canonical array, for example
     /// if the data type is incompatible.
@@ -85,6 +91,22 @@ impl<V: VTable> Encoding for EncodingAdapter<V> {
         assert_eq!(array.len(), len, "Array length mismatch after building");
         assert_eq!(array.dtype(), dtype, "Array dtype mismatch after building");
         Ok(array.to_array())
+    }
+
+    fn with_children(
+        &self,
+        array: &dyn Array,
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<ArrayRef> {
+        V::build(
+            &self.0,
+            array.dtype(),
+            array.len(),
+            &V::metadata(array.as_::<V>())?,
+            array.buffers().as_slice(),
+            children,
+        )
+        .map(|a| a.to_array())
     }
 
     fn encode(

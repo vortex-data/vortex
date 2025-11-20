@@ -4,11 +4,12 @@
 mod array;
 mod canonical;
 mod operations;
-mod operator;
+pub mod operator;
 mod visitor;
 
 use std::fmt::Debug;
 
+pub use operator::ExprOptimizationRule;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};

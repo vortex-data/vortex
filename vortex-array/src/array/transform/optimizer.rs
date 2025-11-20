@@ -60,27 +60,38 @@ impl ArrayOptimizer {
             return Ok(array);
         }
 
-        let mut new_children = Vec::with_capacity(children.len());
-        let mut changed = false;
+        let mut optimized_children = Vec::with_capacity(children.len());
+        let mut children_changed = false;
 
         for child in children.iter() {
             let optimized_child = self.apply_parent_rules(child.clone(), ctx)?;
-            changed |= !std::sync::Arc::ptr_eq(&optimized_child, child);
-            new_children.push(optimized_child);
+            children_changed |= !std::sync::Arc::ptr_eq(&optimized_child, child);
+            println!(
+                "----child {}, opt child {}----",
+                child.display_tree(),
+                optimized_child.display_tree()
+            );
+            optimized_children.push(optimized_child);
+        }
+
+        println!("arary {}", array.display_tree());
+        for o in &optimized_children {
+            println!("optimized_children {}", o.display_tree());
         }
 
         // Reconstruct array with optimized children if any changed
-        let array = if changed {
-            array.with_children(&new_children)?
+        let array = if children_changed {
+            array.with_children(&optimized_children)?
         } else {
             array
         };
 
-        // Now try to apply parent rules to each child in the context of this array
-        let mut new_children = Vec::with_capacity(new_children.len());
-        let mut changed = false;
+        // Now try to apply parent rules to each optimized child in the context of this array
+        // Use the optimized_children list directly instead of re-fetching from array.children()
+        // let mut transformed_children = Vec::with_capacity(optimized_children.len());
+        let rules_applied = false;
 
-        for (idx, child) in array.children().iter().enumerate() {
+        for (idx, child) in optimized_children.iter().enumerate() {
             let child_id = child.encoding_id();
             let parent_id = array.encoding_id();
 
@@ -89,7 +100,13 @@ impl ArrayOptimizer {
                 Some(&parent_id),
                 |rules| -> VortexResult<Option<ArrayRef>> {
                     for rule in rules {
+                        println!("apply rule");
                         if let Some(new_array) = rule.reduce_parent(child, &array, idx, ctx)? {
+                            println!(
+                                "matched new: {}, old: {}",
+                                new_array.display_tree(),
+                                array.display_tree()
+                            );
                             return Ok(Some(new_array));
                         }
                     }
@@ -98,21 +115,12 @@ impl ArrayOptimizer {
             )?;
 
             if let Some(transformed) = result {
-                // Parent rule matched - recursively apply parent rules to the result
-                let transformed = self.apply_parent_rules(transformed, ctx)?;
-                changed = true;
-                new_children.push(transformed);
-            } else {
-                new_children.push(child.clone());
+                return Ok(transformed);
             }
         }
 
         // Reconstruct array with transformed children if any rules matched
-        if changed {
-            array.with_children(&new_children)
-        } else {
-            Ok(array)
-        }
+        Ok(array)
     }
 
     /// Apply reduce rules in a bottom-up traversal.
@@ -168,7 +176,8 @@ impl ArrayOptimizer {
 
         if let Some(transformed) = result {
             // Rule matched - recursively try to reduce the result
-            self.try_reduce(transformed, ctx)
+            // self.try_reduce(transformed, ctx)
+            Ok(transformed)
         } else {
             Ok(array)
         }
