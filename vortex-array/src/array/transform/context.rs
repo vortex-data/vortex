@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use crate::expr::transform::ExprOptimizer;
 
 /// Rule context for array rewrite rules

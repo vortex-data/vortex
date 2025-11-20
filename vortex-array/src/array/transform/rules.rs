@@ -1,7 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_error::VortexResult;
 
-use crate::array::ArrayRef;
 use crate::array::transform::context::ArrayRuleContext;
+use crate::array::ArrayRef;
 use crate::vtable::VTable;
 
 /// Trait for matching parent array types in parent reduce rules
