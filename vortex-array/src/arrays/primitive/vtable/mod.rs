@@ -4,8 +4,11 @@
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::{DType, PType, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail};
+use vortex_vector::Vector;
+use vortex_vector::primitive::PVector;
 
 use crate::arrays::PrimitiveArray;
+use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
@@ -14,9 +17,11 @@ use crate::{EmptyMetadata, EncodingId, EncodingRef, vtable};
 mod array;
 mod canonical;
 mod operations;
-mod operator;
+pub mod operator;
 mod validity;
 mod visitor;
+
+pub use operator::PrimitiveMaskedValidityRule;
 
 vtable!(Primitive);
 
@@ -98,6 +103,12 @@ impl VTable for PrimitiveVTable {
             let buffer = Buffer::<P>::from_byte_buffer(buffer);
             Ok(PrimitiveArray::new(buffer, validity))
         })
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+        Ok(match_each_native_ptype!(array.ptype(), |T| {
+            PVector::new(array.buffer::<T>(), array.validity_mask()).into()
+        }))
     }
 }
 

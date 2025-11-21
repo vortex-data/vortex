@@ -6,8 +6,10 @@ use std::sync::Arc;
 use vortex_dtype::{IntegerPType, Nullability, match_each_integer_ptype};
 use vortex_error::VortexExpect;
 
-use crate::arrays::{ExtensionArray, FixedSizeListArray, ListArray, ListViewArray, StructArray};
-use crate::builders::{ArrayBuilder, ListBuilder, PrimitiveBuilder};
+use crate::arrays::{
+    ExtensionArray, FixedSizeListArray, ListArray, ListViewArray, ListViewRebuildMode, StructArray,
+};
+use crate::builders::PrimitiveBuilder;
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 
@@ -92,56 +94,26 @@ fn build_sizes_from_offsets<O: IntegerPType>(list: &ListArray) -> ArrayRef {
 /// Otherwise, this function fall back to the (very) expensive path and will rebuild the
 /// [`ListArray`] from scratch.
 pub fn list_from_list_view(list_view: ListViewArray) -> ListArray {
-    // Fast path if the array is zero-copyable to a `ListArray`.
-    if list_view.is_zero_copy_to_list() {
-        let list_offsets = match_each_integer_ptype!(list_view.offsets().dtype().as_ptype(), |O| {
-            // SAFETY: We checked that the array is zero-copyable to `ListArray`, so the safety
-            // contract is upheld.
-            unsafe { build_list_offsets_from_list_view::<O>(&list_view) }
-        });
+    // Rebuild as zero-copyable to list array and also trim all leading and trailing elements.
+    let zctl_array = list_view.rebuild(ListViewRebuildMode::MakeExact);
+    debug_assert!(zctl_array.is_zero_copy_to_list());
 
-        // SAFETY: Because the shape of the `ListViewArray` is zero-copyable to a `ListArray`, we
-        // can simply reuse all of the data (besides the offsets).
-        let new_array = unsafe {
-            ListArray::new_unchecked(
-                list_view.elements().clone(),
-                list_offsets,
-                list_view.validity().clone(),
-            )
-        };
+    let list_offsets = match_each_integer_ptype!(zctl_array.offsets().dtype().as_ptype(), |O| {
+        // SAFETY: We just made the array zero-copyable to `ListArray`, so the safety contract is
+        // upheld.
+        unsafe { build_list_offsets_from_list_view::<O>(&zctl_array) }
+    });
 
-        let new_array = new_array
-            .reset_offsets(false)
-            .vortex_expect("TODO(connor)[ListView]: This can't fail");
-
-        return new_array;
+    // SAFETY: Because the shape of the `ListViewArray` is zero-copyable to a `ListArray`, we
+    // can simply reuse all of the data (besides the offsets). We also trim all of the elements to
+    // make it easier for the caller to use the `ListArray`.
+    unsafe {
+        ListArray::new_unchecked(
+            zctl_array.elements().clone(),
+            list_offsets,
+            zctl_array.validity().clone(),
+        )
     }
-
-    let elements_dtype = list_view
-        .dtype()
-        .as_list_element_opt()
-        .vortex_expect("`DType` of `ListView` was somehow not a `List`");
-    let nullability = list_view.dtype().nullability();
-    let len = list_view.len();
-
-    match_each_integer_ptype!(list_view.offsets().dtype().as_ptype(), |O| {
-        let mut builder = ListBuilder::<O>::with_capacity(
-            elements_dtype.clone(),
-            nullability,
-            list_view.elements().len(),
-            len,
-        );
-
-        for i in 0..len {
-            builder
-                .append_scalar(&list_view.scalar_at(i))
-                .vortex_expect(
-                    "The `ListView` scalars are `ListScalar`, which the `ListBuilder` must accept",
-                )
-        }
-
-        builder.finish_into_list()
-    })
 }
 
 // TODO(connor)[ListView]: We can optimize this by always keeping extra memory in `ListViewArray`
@@ -165,6 +137,7 @@ unsafe fn build_list_offsets_from_list_view<O: IntegerPType>(
 
     let offsets = list_view.offsets().to_primitive();
     let offsets_slice = offsets.as_slice::<O>();
+    debug_assert!(offsets_slice.is_sorted());
 
     // Copy the existing n offsets.
     offsets_range.copy_from_slice(0, offsets_slice);

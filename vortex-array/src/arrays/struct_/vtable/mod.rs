@@ -1,24 +1,31 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_vector::Vector;
+use vortex_vector::struct_::StructVector;
 
 use crate::arrays::struct_::StructArray;
+use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{EmptyMetadata, EncodingId, EncodingRef, vtable};
+use crate::{ArrayOperator, EmptyMetadata, EncodingId, EncodingRef, vtable};
 
 mod array;
 mod canonical;
 mod operations;
-mod operator;
+pub mod operator;
 pub mod reduce;
 mod validity;
 mod visitor;
+
+pub use operator::StructExprPartitionRule;
 
 vtable!(Struct);
 
@@ -93,6 +100,16 @@ impl VTable for StructVTable {
             .try_collect()?;
 
         StructArray::try_new_with_dtype(children, struct_dtype.clone(), len, validity)
+    }
+
+    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+        let fields: Box<[_]> = array
+            .fields()
+            .iter()
+            .map(|field| field.execute_batch(ctx))
+            .try_collect()?;
+        // SAFETY: we know that all field lengths match the struct array length, and the validity
+        Ok(unsafe { StructVector::new_unchecked(Arc::new(fields), array.validity_mask()) }.into())
     }
 }
 

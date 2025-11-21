@@ -9,12 +9,10 @@ use lending_iterator::gat;
 use lending_iterator::prelude::Item;
 #[gat(Item)]
 use lending_iterator::prelude::LendingIterator;
-use vortex_array::builders::UninitRange;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::PhysicalPType;
 
 use crate::BitPackedArray;
-use crate::bitpacking::bitpack_decompress::BitPackingStrategy;
 
 const CHUNK_SIZE: usize = 1024;
 
@@ -26,6 +24,24 @@ pub trait UnpackStrategy<T: PhysicalPType> {
     /// - `chunk` must contain exactly `elems_per_chunk` elements
     /// - `dst` must have exactly CHUNK_SIZE capacity
     unsafe fn unpack_chunk(&self, bit_width: usize, chunk: &[T::Physical], dst: &mut [T::Physical]);
+}
+
+/// BitPacking strategy - uses plain bitpacking without reference value
+pub struct BitPackingStrategy;
+
+impl<T: PhysicalPType<Physical: BitPacking>> UnpackStrategy<T> for BitPackingStrategy {
+    #[inline(always)]
+    unsafe fn unpack_chunk(
+        &self,
+        bit_width: usize,
+        chunk: &[T::Physical],
+        dst: &mut [T::Physical],
+    ) {
+        // SAFETY: Caller must ensure [`BitPacking::unchecked_unpack`] safety requirements hold.
+        unsafe {
+            BitPacking::unchecked_unpack(bit_width, chunk, dst);
+        }
+    }
 }
 
 /// Accessor to unpacked chunks of bitpacked arrays
@@ -159,13 +175,18 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
 
     /// Decode all chunks (initial, full, and trailer) into the output range.
     /// This consolidates the logic for handling all three chunk types in one place.
-    pub fn decode_into(&mut self, output: &mut UninitRange<T>) {
+    pub fn decode_into(&mut self, output: &mut [MaybeUninit<T>]) {
         let mut local_idx = 0;
 
         // Handle initial partial chunk if present
         if let Some(initial) = self.initial() {
-            output.copy_from_slice(0, initial);
             local_idx = initial.len();
+
+            // TODO(connor): use `maybe_uninit_write_slice` feature when it gets stabilized.
+            // https://github.com/rust-lang/rust/issues/79995
+            // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout.
+            let init_initial: &[MaybeUninit<T>] = unsafe { mem::transmute(initial) };
+            output[..local_idx].copy_from_slice(init_initial);
         }
 
         // Handle full chunks
@@ -173,7 +194,11 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
 
         // Handle trailing partial chunk if present
         if let Some(trailer) = self.trailer() {
-            output.copy_from_slice(local_idx, trailer);
+            // TODO(connor): use `maybe_uninit_write_slice` feature when it gets stabilized.
+            // https://github.com/rust-lang/rust/issues/79995
+            // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout.
+            let init_trailer: &[MaybeUninit<T>] = unsafe { mem::transmute(trailer) };
+            output[local_idx..][..init_trailer.len()].copy_from_slice(init_trailer);
         }
     }
 
@@ -181,7 +206,7 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
     /// Returns the next local index to write to.
     fn decode_full_chunks_into_at(
         &mut self,
-        output: &mut UninitRange<T>,
+        output: &mut [MaybeUninit<T>],
         start_idx: usize,
     ) -> usize {
         // If there's only one chunk it has been handled already by `initial` method
@@ -204,8 +229,7 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
             let chunk = &packed_slice[i * elems_per_chunk..][..elems_per_chunk];
 
             unsafe {
-                // SAFETY: We're about to initialize CHUNK_SIZE elements at local_idx.
-                let uninit_dst = output.slice_uninit_mut(local_idx, CHUNK_SIZE);
+                let uninit_dst = &mut output[local_idx..local_idx + CHUNK_SIZE];
                 // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout
                 let dst: &mut [T::Physical] = mem::transmute(uninit_dst);
                 self.strategy.unpack_chunk(self.bit_width, chunk, dst);

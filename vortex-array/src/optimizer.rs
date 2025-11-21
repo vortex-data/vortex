@@ -1,43 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use vortex_error::VortexResult;
 
+use crate::ArrayRef;
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef};
-
-impl dyn Array + '_ {
-    /// Optimize this array by applying optimization rules recursively to its children in a single
-    /// bottom-up pass.
-    pub fn optimize(&self) -> VortexResult<ArrayRef> {
-        let slf = self.to_array();
-        let children = self.children();
-
-        let mut new_children = Vec::with_capacity(children.len());
-        let mut children_modified = false;
-        for (idx, child) in children.iter().enumerate() {
-            let child = child.optimize()?;
-
-            // Check if the child can reduce us (its parent), and if so bail early.
-            if let Some(reduced) = child.reduce_parent(&slf, idx)? {
-                return Ok(reduced);
-            }
-
-            if !Arc::ptr_eq(&child, &children[idx]) {
-                children_modified = true;
-            }
-            new_children.push(child);
-        }
-
-        if children_modified {
-            return self.with_children(&new_children);
-        }
-
-        Ok(slf)
-    }
-}
 
 /// An optimizer rule that tries to reduce/replace a parent array where the implementer is a
 /// child array in the `CHILD_IDX` position of the parent array.
@@ -63,9 +30,11 @@ mod tests {
     use vortex_dtype::PTypeDowncast;
     use vortex_vector::VectorOps;
 
-    use crate::IntoArray;
     use crate::arrays::{BoolArray, MaskedArray, PrimitiveArray};
+    use crate::expr::session::ExprSession;
+    use crate::expr::transform::ExprOptimizer;
     use crate::validity::Validity;
+    use crate::{ArraySession, IntoArray};
 
     #[test]
     fn test_masked_pushdown() {
@@ -78,8 +47,16 @@ mod tests {
         )
         .unwrap();
 
-        let result = masked.optimize().unwrap();
-        assert_eq!(masked.dtype(), result.dtype());
+        let masked_dtype = masked.dtype().clone();
+
+        // Use the new ArrayOptimizer via ArraySession
+        let array_session = ArraySession::default();
+        let expr_session = ExprSession::default();
+        let expr_optimizer = ExprOptimizer::new(&expr_session);
+        let optimizer = array_session.optimizer(expr_optimizer);
+
+        let result = optimizer.optimize_array(masked.into_array()).unwrap();
+        assert_eq!(&masked_dtype, result.dtype());
         assert!(result.dtype().is_nullable());
 
         let vector = result.execute().unwrap().into_primitive().into_u32();

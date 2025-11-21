@@ -3,6 +3,8 @@
 
 pub mod display;
 mod operator;
+pub mod session;
+pub mod transform;
 mod visitor;
 
 use std::any::Any;
@@ -15,7 +17,7 @@ pub use operator::*;
 pub use visitor::*;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -617,18 +619,9 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             }
         }
 
-        let metadata = self.metadata()?.ok_or_else(|| {
-            vortex_err!("Cannot replace children for arrays that do not support serialization")
-        })?;
-
         // Replace the children of the array by re-building the array from parts.
-        self.encoding().build(
-            self.dtype(),
-            self.len(),
-            &metadata,
-            &self.buffers(),
-            &ReplacementChildren { children },
-        )
+        self.encoding()
+            .with_children(self, &ReplacementChildren { children })
     }
 
     fn invoke(

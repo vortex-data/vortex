@@ -5,7 +5,8 @@ use vortex_compute::filter::Filter;
 use vortex_error::VortexResult;
 use vortex_vector::bool::BoolVector;
 
-use crate::arrays::{BoolArray, BoolVTable, MaskedVTable};
+use crate::array::transform::{ArrayParentReduceRule, ArrayRuleContext};
+use crate::arrays::{BoolArray, BoolVTable, MaskedArray, MaskedVTable};
 use crate::execution::{BatchKernelRef, BindCtx, kernel};
 use crate::vtable::{OperatorVTable, ValidityHelper};
 use crate::{ArrayRef, IntoArray};
@@ -30,23 +31,30 @@ impl OperatorVTable<BoolVTable> for BoolVTable {
             Ok(BoolVector::try_new(bits, validity)?.into())
         }))
     }
+}
 
+/// Rule to push down validity masking from MaskedArray parent into BoolArray child.
+///
+/// When a BoolArray is wrapped by a MaskedArray, this rule merges the mask's validity
+/// with the BoolArray's existing validity, eliminating the need for the MaskedArray wrapper.
+pub struct BoolMaskedValidityRule;
+
+impl ArrayParentReduceRule<BoolVTable, MaskedVTable> for BoolMaskedValidityRule {
     fn reduce_parent(
+        &self,
         array: &BoolArray,
-        parent: &ArrayRef,
+        parent: &MaskedArray,
         _child_idx: usize,
+        _ctx: &ArrayRuleContext,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Push-down masking of validity from parent MaskedVTable.
-        if let Some(masked) = parent.as_opt::<MaskedVTable>() {
-            return Ok(Some(
-                BoolArray::from_bit_buffer(
-                    array.bit_buffer().clone(),
-                    array.validity().clone().and(masked.validity().clone()),
-                )
-                .into_array(),
-            ));
-        }
-
-        Ok(None)
+        // Merge the parent's validity mask into the child's validity
+        // TODO(joe): make this lazy
+        Ok(Some(
+            BoolArray::from_bit_buffer(
+                array.bit_buffer().clone(),
+                array.validity().clone().and(parent.validity().clone()),
+            )
+            .into_array(),
+        ))
     }
 }

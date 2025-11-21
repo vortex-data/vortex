@@ -9,9 +9,10 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
+use vortex_vector::Vector;
 use vortex_vector::null::NullVector;
 
-use crate::execution::{BatchKernelRef, BindCtx, kernel};
+use crate::execution::{BatchKernelRef, BindCtx, ExecutionCtx, kernel};
 use crate::serde::ArrayChildren;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::vtable::{
@@ -70,6 +71,10 @@ impl VTable for NullVTable {
         _children: &dyn ArrayChildren,
     ) -> VortexResult<NullArray> {
         Ok(NullArray::new(len))
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+        Ok(NullVector::new(array.len()).into())
     }
 }
 

@@ -1,15 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
+use vortex_vector::Vector;
+use vortex_vector::fixed_size_list::FixedSizeListVector;
 
 use crate::arrays::FixedSizeListArray;
+use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{EmptyMetadata, EncodingId, EncodingRef, vtable};
+use crate::{ArrayOperator, EmptyMetadata, EncodingId, EncodingRef, vtable};
 
 mod array;
 mod canonical;
@@ -94,5 +99,16 @@ impl VTable for FixedSizeListVTable {
         let elements = children.get(0, element_dtype.as_ref(), num_elements)?;
 
         FixedSizeListArray::try_new(elements, *list_size, validity, len)
+    }
+
+    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+        Ok(unsafe {
+            FixedSizeListVector::new_unchecked(
+                Arc::new(array.elements().execute_batch(ctx)?),
+                array.list_size(),
+                array.validity_mask(),
+            )
+        }
+        .into())
     }
 }

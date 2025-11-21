@@ -8358,6 +8358,7 @@ dependencies = [
  "anyhow",
  "arrow-array",
  "codspeed-divan-compat",
+ "fastlanes",
  "itertools 0.14.0",
  "mimalloc",
  "parquet",

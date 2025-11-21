@@ -14,7 +14,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::serde::ArrayChildren;
 use crate::vtable::{EncodeVTable, VTable};
-use crate::{Array, ArrayRef, Canonical};
+use crate::{Array, ArrayRef, Canonical, IntoArray};
 
 /// EncodingId is a globally unique name of the array's encoding.
 pub type EncodingId = ArcRef<str>;
@@ -38,6 +38,12 @@ pub trait Encoding: 'static + private::Sealed + Send + Sync + Debug {
         len: usize,
         metadata: &[u8],
         buffers: &[ByteBuffer],
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<ArrayRef>;
+
+    fn with_children(
+        &self,
+        array: &dyn Array,
         children: &dyn ArrayChildren,
     ) -> VortexResult<ArrayRef>;
 
@@ -87,6 +93,22 @@ impl<V: VTable> Encoding for EncodingAdapter<V> {
         Ok(array.to_array())
     }
 
+    fn with_children(
+        &self,
+        array: &dyn Array,
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<ArrayRef> {
+        V::build(
+            &self.0,
+            array.dtype(),
+            array.len(),
+            &V::metadata(array.as_::<V>())?,
+            array.buffers().as_slice(),
+            children,
+        )
+        .map(|a| a.into_array())
+    }
+
     fn encode(
         &self,
         input: &Canonical,
@@ -126,7 +148,7 @@ impl<V: VTable> Encoding for EncodingAdapter<V> {
             );
         }
 
-        Ok(Some(array.to_array()))
+        Ok(Some(array.into_array()))
     }
 }
 

@@ -4,20 +4,23 @@
 mod array;
 mod canonical;
 mod operations;
-mod operator;
+pub mod operator;
 mod visitor;
 
 use std::fmt::Debug;
 
+pub use operator::ExprOptimizationRule;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
+use vortex_vector::Vector;
 
 use crate::arrays::expr::ExprArray;
+use crate::execution::ExecutionCtx;
 use crate::expr::Expression;
 use crate::serde::ArrayChildren;
 use crate::vtable::{NotSupported, VTable};
-use crate::{EncodingId, EncodingRef, vtable};
+use crate::{Array, ArrayOperator, EncodingId, EncodingRef, vtable};
 
 vtable!(Expr);
 
@@ -75,6 +78,11 @@ impl VTable for ExprVTable {
         };
 
         ExprArray::try_new(child, expr.clone(), dtype.clone())
+    }
+
+    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+        let scope = array.child().execute_batch(ctx)?;
+        array.expr().execute(&scope, array.child().dtype())
     }
 }
 

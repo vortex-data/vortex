@@ -25,8 +25,10 @@ pub use validity::*;
 pub use visitor::*;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, vortex_bail};
+use vortex_vector::Vector;
 
+use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::{Array, Encoding, EncodingId, EncodingRef, IntoArray};
 
@@ -127,6 +129,23 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<Self::Array>;
+
+    /// Executes this array tree to return a canonical [`Vector`].
+    ///
+    /// The returned vector must be the appropriate one for the array's logical type (they are
+    /// one-to-one with Vortex `DType`s), and should respect the output nullability of the array.
+    ///
+    /// Debug builds will panic if the returned vector is of the wrong type, wrong length, or
+    /// incorrectly contains null values.
+    ///
+    /// Implementations should recursively call [`crate::ArrayOperator::execute_batch`] on child
+    /// arrays as needed.
+    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+        vortex_bail!(
+            "Array {} does not support vector execution",
+            Self::encoding(array).id()
+        )
+    }
 }
 
 /// Placeholder type used to indicate when a particular vtable is not supported by the encoding.

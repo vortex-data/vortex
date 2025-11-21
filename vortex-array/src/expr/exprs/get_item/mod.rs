@@ -7,9 +7,11 @@ use std::fmt::Formatter;
 use std::ops::Not;
 
 use prost::Message;
+use vortex_compute::mask::MaskValidity;
 use vortex_dtype::{DType, FieldName, FieldPath, Nullability};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
+use vortex_vector::{Vector, VectorOps};
 
 use crate::compute::mask;
 use crate::expr::exprs::root::root;
@@ -96,34 +98,44 @@ impl VTable for GetItem {
         }
     }
 
-    fn stat_max(
+    fn execute(
         &self,
         expr: &ExpressionView<Self>,
-        catalog: &mut dyn StatsCatalog,
-    ) -> Option<Expression> {
-        catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), Stat::Max)
+        vector: &Vector,
+        dtype: &DType,
+    ) -> VortexResult<Vector> {
+        let child_dtype = expr.child(0).return_dtype(dtype)?;
+        let struct_dtype = child_dtype
+            .as_struct_fields_opt()
+            .ok_or_else(|| vortex_err!("Expected struct dtype for child of GetItem expression"))?;
+        let field_idx = struct_dtype
+            .find(expr.data())
+            .ok_or_else(|| vortex_err!("Field {} not found in struct dtype", expr.data()))?;
+
+        let struct_vector = expr.child(0).execute(vector, dtype)?.into_struct();
+
+        // We must intersect the validity with that of the parent struct
+        let field = struct_vector.fields()[field_idx].clone();
+        let field = MaskValidity::mask_validity(field, struct_vector.validity());
+
+        Ok(field)
     }
 
-    fn stat_min(
+    fn stat_expression(
         &self,
         expr: &ExpressionView<Self>,
-        catalog: &mut dyn StatsCatalog,
+        stat: Stat,
+        catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
-        catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), Stat::Min)
-    }
+        // TODO(ngates): I think we can do better here and support stats over nested fields.
+        //  It would be nice if delegating to our child would return a struct of statistics
+        //  matching the nested DType such that we can write:
+        //    `get_item(expr.child(0).stat_expression(...), expr.data().field_name())`
 
-    fn stat_nan_count(
-        &self,
-        expr: &ExpressionView<Self>,
-        catalog: &mut dyn StatsCatalog,
-    ) -> Option<Expression> {
-        catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), Stat::NaNCount)
-    }
-
-    fn stat_field_path(&self, expr: &ExpressionView<Self>) -> Option<FieldPath> {
-        expr.children()[0]
-            .stat_field_path()
-            .map(|fp| fp.push(expr.data().clone()))
+        // TODO(ngates): this is a bug whereby we may return stats for a nested field of the same
+        //  name as a field in the root struct. This should be resolved with upcoming change to
+        //  falsify expressions, but for now I'm preserving the existing buggy behavior.
+        catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), stat)
     }
 }
 

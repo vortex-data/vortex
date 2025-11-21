@@ -8,12 +8,14 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use arcref::ArcRef;
-use vortex_dtype::{DType, FieldPath};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_dtype::DType;
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_err};
+use vortex_vector::{Vector, VectorOps, vector_matches_dtype};
 
 use crate::ArrayRef;
 use crate::expr::expression::Expression;
 use crate::expr::{ExprId, ExpressionView, StatsCatalog};
+use crate::stats::Stat;
 
 ///
 /// This trait defines the interface for expression vtables, including methods for
@@ -75,44 +77,33 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// Evaluate the expression in the given scope.
     fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef>;
 
-    /// See [`crate::expr::Expression::stat_falsification`].
+    /// Execute the expression on the given vector with the given dtype.
+    fn execute(
+        &self,
+        _expr: &ExpressionView<Self>,
+        _vector: &Vector,
+        _dtype: &DType,
+    ) -> VortexResult<Vector> {
+        // TODO(ngates): remove this once we port to vector execution
+        vortex_bail!("Expression {} does not support execution", self.id());
+    }
+
+    /// See [`Expression::stat_falsification`].
     fn stat_falsification(
         &self,
         _expr: &ExpressionView<Self>,
-        _catalog: &mut dyn StatsCatalog,
+        _catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         None
     }
 
-    /// See [`crate::expr::Expression::stat_max`].
-    fn stat_max(
+    /// See [`Expression::stat_expression`].
+    fn stat_expression(
         &self,
         _expr: &ExpressionView<Self>,
-        _catalog: &mut dyn StatsCatalog,
+        _stat: Stat,
+        _catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
-        None
-    }
-
-    /// See [`crate::expr::Expression::stat_min`].
-    fn stat_min(
-        &self,
-        _expr: &ExpressionView<Self>,
-        _catalog: &mut dyn StatsCatalog,
-    ) -> Option<Expression> {
-        None
-    }
-
-    /// See [`crate::expr::Expression::stat_nan_count`].
-    fn stat_nan_count(
-        &self,
-        _expr: &ExpressionView<Self>,
-        _catalog: &mut dyn StatsCatalog,
-    ) -> Option<Expression> {
-        None
-    }
-
-    /// See [`crate::expr::Expression::stat_field_path`].
-    fn stat_field_path(&self, _expr: &ExpressionView<Self>) -> Option<FieldPath> {
         None
     }
 }
@@ -163,28 +154,24 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     fn fmt_data(&self, instance: &dyn Any, f: &mut Formatter<'_>) -> fmt::Result;
     fn return_dtype(&self, expression: &Expression, scope: &DType) -> VortexResult<DType>;
     fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef>;
+    fn execute(
+        &self,
+        expression: &Expression,
+        vector: &Vector,
+        dtype: &DType,
+    ) -> VortexResult<Vector>;
 
     fn stat_falsification(
         &self,
         expression: &Expression,
-        catalog: &mut dyn StatsCatalog,
+        catalog: &dyn StatsCatalog,
     ) -> Option<Expression>;
-    fn stat_max(
+    fn stat_expression(
         &self,
         expression: &Expression,
-        catalog: &mut dyn StatsCatalog,
+        stat: Stat,
+        catalog: &dyn StatsCatalog,
     ) -> Option<Expression>;
-    fn stat_min(
-        &self,
-        expression: &Expression,
-        catalog: &mut dyn StatsCatalog,
-    ) -> Option<Expression>;
-    fn stat_nan_count(
-        &self,
-        expression: &Expression,
-        catalog: &mut dyn StatsCatalog,
-    ) -> Option<Expression>;
-    fn stat_field_path(&self, expression: &Expression) -> Option<FieldPath>;
 
     fn dyn_eq(&self, instance: &dyn Any, other: &dyn Any) -> bool;
     fn dyn_hash(&self, instance: &dyn Any, state: &mut dyn Hasher);
@@ -250,45 +237,54 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         V::evaluate(&self.0, &expr, scope)
     }
 
+    fn execute(
+        &self,
+        expression: &Expression,
+        vector: &Vector,
+        dtype: &DType,
+    ) -> VortexResult<Vector> {
+        let expr = ExpressionView::new(expression);
+        let result = V::execute(&self.0, &expr, vector, dtype)?;
+
+        assert_eq!(
+            result.len(),
+            vector.len(),
+            "Expression execution returned vector of length {}, but expected {}",
+            result.len(),
+            vector.len()
+        );
+
+        #[cfg(debug_assertions)]
+        {
+            // In debug mode, validate that the output dtype matches the expected return dtype.
+            let expected_dtype = V::return_dtype(&self.0, &expr, dtype)?;
+            vortex_ensure!(
+                vector_matches_dtype(&result, &expected_dtype),
+                "Expression execution invalid for dtype {}",
+                expected_dtype
+            );
+        }
+
+        Ok(result)
+    }
+
     fn stat_falsification(
         &self,
         expression: &Expression,
-        catalog: &mut dyn StatsCatalog,
+        catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         let expr = ExpressionView::new(expression);
         V::stat_falsification(&self.0, &expr, catalog)
     }
 
-    fn stat_max(
+    fn stat_expression(
         &self,
         expression: &Expression,
-        catalog: &mut dyn StatsCatalog,
+        stat: Stat,
+        catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         let expr = ExpressionView::new(expression);
-        V::stat_max(&self.0, &expr, catalog)
-    }
-
-    fn stat_min(
-        &self,
-        expression: &Expression,
-        catalog: &mut dyn StatsCatalog,
-    ) -> Option<Expression> {
-        let expr = ExpressionView::new(expression);
-        V::stat_min(&self.0, &expr, catalog)
-    }
-
-    fn stat_nan_count(
-        &self,
-        expression: &Expression,
-        catalog: &mut dyn StatsCatalog,
-    ) -> Option<Expression> {
-        let expr = ExpressionView::new(expression);
-        V::stat_nan_count(&self.0, &expr, catalog)
-    }
-
-    fn stat_field_path(&self, expression: &Expression) -> Option<FieldPath> {
-        let expr = ExpressionView::new(expression);
-        V::stat_field_path(&self.0, &expr)
+        V::stat_expression(&self.0, &expr, stat, catalog)
     }
 
     fn dyn_eq(&self, instance: &dyn Any, other: &dyn Any) -> bool {
