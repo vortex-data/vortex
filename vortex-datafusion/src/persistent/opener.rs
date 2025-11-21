@@ -659,6 +659,74 @@ mod tests {
     }
 
     #[tokio::test]
+    // This test verifies that files with different column order than the
+    // table schema can be opened without errors. The fix ensures that the
+    // schema mapper is only used for type casting, not for reordering,
+    // since the vortex projection already handles reordering.
+    async fn test_schema_different_column_order() -> anyhow::Result<()> {
+        use datafusion::arrow::util::pretty::pretty_format_batches_with_options;
+
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "/path/file.vortex";
+
+        // File has columns in order: c, b, a
+        let batch = record_batch!(
+            ("c", Int32, vec![Some(300), Some(301), Some(302)]),
+            ("b", Int32, vec![Some(200), Some(201), Some(202)]),
+            ("a", Int32, vec![Some(100), Some(101), Some(102)])
+        )
+        .unwrap();
+        let data_size = write_arrow_to_vortex(object_store.clone(), file_path, batch).await?;
+        let file = PartitionedFile::new(file_path.to_string(), data_size);
+
+        // Table schema has columns in different order: a, b, c
+        let table_schema = Arc::new(Schema::new(vec![
+            Field::new("a", DataType::Int32, true),
+            Field::new("b", DataType::Int32, true),
+            Field::new("c", DataType::Int32, true),
+        ]));
+
+        let opener = VortexOpener {
+            session: SESSION.clone(),
+            object_store: object_store.clone(),
+            projection: Some([0, 1, 2].into()),
+            filter: None,
+            file_pruning_predicate: None,
+            expr_adapter_factory: Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _),
+            schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
+            partition_fields: vec![],
+            file_cache: VortexFileCache::new(1, 1, SESSION.clone()),
+            logical_schema: table_schema.clone(),
+            batch_size: 100,
+            limit: None,
+            metrics: Default::default(),
+            layout_readers: Default::default(),
+            has_output_ordering: false,
+        };
+
+        // The opener should successfully open the file and reorder columns
+        let stream = opener.open(make_meta(file_path, data_size), file)?.await?;
+
+        let format_opts = FormatOptions::new().with_types_info(true);
+        let data = stream.try_collect::<Vec<_>>().await?;
+
+        // Verify the output has columns in table schema order (a, b, c)
+        // not file order (c, b, a)
+        assert_snapshot!(pretty_format_batches_with_options(&data, &format_opts)?.to_string(), @r"
+        +-------+-------+-------+
+        | a     | b     | c     |
+        | Int32 | Int32 | Int32 |
+        +-------+-------+-------+
+        | 100   | 200   | 300   |
+        | 101   | 201   | 301   |
+        | 102   | 202   | 302   |
+        +-------+-------+-------+
+        ");
+
+        Ok(())
+    }
+
+    #[tokio::test]
     // This test verifies that expression rewriting doesn't fail when there is
     // a nested schema mismatch between the physical file schema and logical
     // table schema.
