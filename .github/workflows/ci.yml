@@ -412,7 +412,7 @@ jobs:
               - runs-on=${{ github.run_id }}
               - family=m7i
               - cpu=8
-              - image=windows22-base-x64
+              - image=windows22-full-x64
               - tag=rust-test-windows
           - os: linux-arm64
             runner:
