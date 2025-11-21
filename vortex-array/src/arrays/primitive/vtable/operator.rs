@@ -42,7 +42,6 @@ impl OperatorVTable<PrimitiveVTable> for PrimitiveVTable {
 ///
 /// When a PrimitiveArray is wrapped by a MaskedArray, this rule merges the mask's validity
 /// with the PrimitiveArray's existing validity, eliminating the need for the MaskedArray wrapper.
-#[derive(Default, Debug)]
 pub struct PrimitiveMaskedValidityRule;
 
 impl ArrayParentReduceRule<PrimitiveVTable, MaskedVTable> for PrimitiveMaskedValidityRule {

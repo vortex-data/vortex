@@ -47,7 +47,6 @@ impl OperatorVTable<StructVTable> for StructVTable {
 ///
 /// This optimization pushes expression evaluation down to individual struct fields, enabling
 /// better field-level optimizations and potentially avoiding materialization of unused fields.
-#[derive(Default, Debug)]
 pub struct StructExprPartitionRule;
 
 impl ArrayParentReduceRule<StructVTable, ExprVTable> for StructExprPartitionRule {

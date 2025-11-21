@@ -12,7 +12,6 @@ use crate::expr::{Expression, ExpressionView};
 /// Rule that removes Select expressions by converting them to Pack + GetItem.
 ///
 /// Transforms: `select(["a", "b"], expr)` → `pack(a: get_item("a", expr), b: get_item("b", expr))`
-#[derive(Debug, Default)]
 pub struct RemoveSelectRule;
 
 impl ReduceRule<Select, TypedRuleContext> for RemoveSelectRule {
@@ -72,9 +71,10 @@ mod tests {
         );
         let e = select(["a", "b"], root());
 
+        let rule = RemoveSelectRule;
         let ctx = TypedRuleContext::new(dtype.clone());
         let select_view = e.as_::<Select>();
-        let result = RemoveSelectRule.reduce(&select_view, &ctx).unwrap();
+        let result = rule.reduce(&select_view, &ctx).unwrap();
 
         assert!(result.is_some());
         let transformed = result.unwrap();
@@ -95,9 +95,10 @@ mod tests {
         );
         let e = select_exclude(["c"], root());
 
+        let rule = RemoveSelectRule;
         let ctx = TypedRuleContext::new(dtype.clone());
         let select_view = e.as_::<Select>();
-        let result = RemoveSelectRule.reduce(&select_view, &ctx).unwrap();
+        let result = rule.reduce(&select_view, &ctx).unwrap();
 
         assert!(result.is_some());
         let transformed = result.unwrap();

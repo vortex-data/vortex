@@ -43,7 +43,6 @@ impl OperatorVTable<DecimalVTable> for DecimalVTable {
 ///
 /// When a DecimalArray is wrapped by a MaskedArray, this rule merges the mask's validity
 /// with the DecimalArray's existing validity, eliminating the need for the MaskedArray wrapper.
-#[derive(Default, Debug)]
 pub struct DecimalMaskedValidityRule;
 
 impl ArrayParentReduceRule<DecimalVTable, MaskedVTable> for DecimalMaskedValidityRule {

@@ -13,11 +13,6 @@
 //! arrays can be [canonicalized](Canonical) into for ease of access in compute functions.
 
 pub use array::*;
-use arrays::{
-    BoolMaskedValidityRule, BoolVTable, DecimalMaskedValidityRule, DecimalVTable,
-    ExprOptimizationRule, ExprVTable, MaskedVTable, PrimitiveMaskedValidityRule, PrimitiveVTable,
-    StructExprPartitionRule, StructVTable,
-};
 pub use canonical::*;
 pub use context::*;
 pub use encoding::*;
@@ -28,9 +23,7 @@ use vortex_session::registry::Registry;
 use vortex_session::{Ref, SessionExt};
 
 use crate::array::session::rewrite::ArrayRewriteRuleRegistry;
-use crate::array::transform::{
-    AnyArrayParent, ArrayOptimizer, ArrayParentReduceRule, ArrayReduceRule,
-};
+use crate::array::transform::{AnyParent, ArrayOptimizer, ArrayParentReduceRule, ArrayReduceRule};
 use crate::arrays::{
     BoolEncoding, ChunkedEncoding, ConstantEncoding, DecimalEncoding, ExtensionEncoding,
     FixedSizeListEncoding, ListEncoding, ListViewEncoding, MaskedEncoding, NullEncoding,
@@ -137,7 +130,7 @@ impl ArraySession {
     pub fn register_any_parent_rule<Child, R>(&self, child_encoding: &Child::Encoding, rule: R)
     where
         Child: VTable,
-        R: 'static + ArrayParentReduceRule<Child, AnyArrayParent>,
+        R: 'static + ArrayParentReduceRule<Child, AnyParent>,
     {
         self.rewrite_rules
             .register_any_parent_rule::<Child, R>(child_encoding, rule);
@@ -180,33 +173,33 @@ impl Default for ArraySession {
             rewrite_rules: ArrayRewriteRuleRegistry::default(),
         };
 
-        session.register_parent_rule::<BoolVTable, MaskedVTable, BoolMaskedValidityRule>(
+        session.register_parent_rule::<arrays::BoolVTable, arrays::MaskedVTable, _>(
             &BoolEncoding,
             &MaskedEncoding,
-            BoolMaskedValidityRule,
+            arrays::BoolMaskedValidityRule,
         );
 
-        session.register_parent_rule::<PrimitiveVTable, MaskedVTable, PrimitiveMaskedValidityRule>(
+        session.register_parent_rule::<arrays::PrimitiveVTable, arrays::MaskedVTable, _>(
             &PrimitiveEncoding,
             &MaskedEncoding,
-            PrimitiveMaskedValidityRule,
+            arrays::PrimitiveMaskedValidityRule,
         );
 
-        session.register_parent_rule::<DecimalVTable, MaskedVTable, DecimalMaskedValidityRule>(
+        session.register_parent_rule::<arrays::DecimalVTable, arrays::MaskedVTable, _>(
             &DecimalEncoding,
             &MaskedEncoding,
-            DecimalMaskedValidityRule,
+            arrays::DecimalMaskedValidityRule,
         );
 
-        session.register_parent_rule::<StructVTable, ExprVTable, StructExprPartitionRule>(
+        session.register_parent_rule::<arrays::StructVTable, arrays::ExprVTable, _>(
             &StructEncoding,
             &arrays::ExprEncoding,
-            StructExprPartitionRule,
+            arrays::StructExprPartitionRule,
         );
 
-        session.register_reduce_rule::<ExprVTable, ExprOptimizationRule>(
+        session.register_reduce_rule::<arrays::ExprVTable, _>(
             &arrays::ExprEncoding,
-            ExprOptimizationRule,
+            arrays::ExprOptimizationRule,
         );
 
         session

@@ -89,7 +89,13 @@ impl ArrayOptimizer {
                 Some(&parent_id),
                 |rules| -> VortexResult<Option<ArrayRef>> {
                     for rule in rules {
+                        println!("apply rule");
                         if let Some(new_array) = rule.reduce_parent(child, &array, idx, ctx)? {
+                            println!(
+                                "matched new: {}, old: {}",
+                                new_array.display_tree(),
+                                array.display_tree()
+                            );
                             return Ok(Some(new_array));
                         }
                     }

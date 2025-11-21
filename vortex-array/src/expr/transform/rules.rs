@@ -6,8 +6,6 @@
 //! These traits allow external crates to define custom expression optimization rules
 //! that can be registered with the expression session.
 
-use std::fmt::Debug;
-
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -24,7 +22,6 @@ pub trait ParentMatcher: Send + Sync + 'static {
 }
 
 /// Marker type representing "any parent" - matches all parent expressions.
-#[derive(Debug)]
 pub struct AnyParent;
 
 impl ParentMatcher for AnyParent {
@@ -52,7 +49,7 @@ impl<V: VTable> ParentMatcher for V {
 /// # Type Parameters
 /// * `V` - The VTable type this rule applies to. The rule will only be invoked for expressions
 ///   with this vtable type, providing compile-time type safety.
-pub trait ReduceRule<V: VTable, C: RewriteContext>: Debug + Send + Sync + 'static {
+pub trait ReduceRule<V: VTable, C: RewriteContext>: Send + Sync {
     /// Try to rewrite an expression.
     ///
     /// # Arguments
@@ -79,7 +76,7 @@ pub trait ReduceRule<V: VTable, C: RewriteContext>: Debug + Send + Sync + 'stati
 ///   access, or `AnyParent` to match any parent type with untyped access.
 /// * `C` - The rewrite context type (RuleContext or TypedRuleContext)
 pub trait ParentReduceRule<Child: VTable, Parent: ParentMatcher, C: RewriteContext>:
-    Debug + Send + Sync + 'static
+    Send + Sync
 {
     /// Try to rewrite an expression based on its parent.
     ///
@@ -147,16 +144,16 @@ impl From<&TypedRuleContext> for RuleContext {
 }
 
 /// Type-erased wrappers that allows dynamic dispatch.
-pub(crate) trait DynReduceRule: Debug + Send + Sync {
+pub(crate) trait DynReduceRule: Send + Sync {
     fn reduce(&self, expr: &Expression, ctx: &RuleContext) -> VortexResult<Option<Expression>>;
 }
 
-pub(crate) trait DynTypedReduceRule: Debug + Send + Sync {
+pub(crate) trait DynTypedReduceRule: Send + Sync {
     fn reduce(&self, expr: &Expression, ctx: &TypedRuleContext)
     -> VortexResult<Option<Expression>>;
 }
 
-pub(crate) trait DynParentReduceRule: Debug + Send + Sync {
+pub(crate) trait DynParentReduceRule: Send + Sync {
     fn reduce_parent(
         &self,
         expr: &Expression,
@@ -166,7 +163,7 @@ pub(crate) trait DynParentReduceRule: Debug + Send + Sync {
     ) -> VortexResult<Option<Expression>>;
 }
 
-pub(crate) trait DynTypedParentReduceRule: Debug + Send + Sync {
+pub(crate) trait DynTypedParentReduceRule: Send + Sync {
     fn reduce_parent(
         &self,
         expr: &Expression,

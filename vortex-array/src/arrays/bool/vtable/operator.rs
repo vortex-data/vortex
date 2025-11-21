@@ -37,7 +37,6 @@ impl OperatorVTable<BoolVTable> for BoolVTable {
 ///
 /// When a BoolArray is wrapped by a MaskedArray, this rule merges the mask's validity
 /// with the BoolArray's existing validity, eliminating the need for the MaskedArray wrapper.
-#[derive(Default, Debug)]
 pub struct BoolMaskedValidityRule;
 
 impl ArrayParentReduceRule<BoolVTable, MaskedVTable> for BoolMaskedValidityRule {

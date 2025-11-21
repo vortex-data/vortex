@@ -66,8 +66,7 @@ impl ExprSession {
         R: 'static,
         R: ReduceRule<V, TypedRuleContext>,
     {
-        self.rewrite_rules
-            .register_typed_reduce_rule::<V, R>(vtable, rule);
+        self.rewrite_rules.register_typed_reduce_rule(vtable, rule);
     }
 
     /// Register a reduce rule that uses Untyped context.
@@ -78,8 +77,7 @@ impl ExprSession {
         R: 'static,
         R: ReduceRule<V, RuleContext>,
     {
-        self.rewrite_rules
-            .register_reduce_rule::<V, R>(vtable, rule);
+        self.rewrite_rules.register_reduce_rule(vtable, rule);
     }
 
     /// Register a parent reduce rule for a specific parent type.
@@ -95,7 +93,7 @@ impl ExprSession {
         R: ParentReduceRule<Child, Parent, RuleContext>,
     {
         self.rewrite_rules
-            .register_parent_rule_specific::<Child, Parent, R>(child_vtable, parent_vtable, rule);
+            .register_parent_rule_specific(child_vtable, parent_vtable, rule);
     }
 
     /// Register a parent rule that matches ANY parent type (wildcard).
@@ -106,7 +104,7 @@ impl ExprSession {
         R: ParentReduceRule<Child, AnyParent, RuleContext>,
     {
         self.rewrite_rules
-            .register_parent_rule_any::<Child, R>(child_vtable, rule);
+            .register_parent_rule_any(child_vtable, rule);
     }
 
     /// Register a typed parent reduce rule for a specific parent type.
@@ -122,11 +120,7 @@ impl ExprSession {
         R: ParentReduceRule<Child, Parent, TypedRuleContext>,
     {
         self.rewrite_rules
-            .register_typed_parent_rule_specific::<Child, Parent, R>(
-                child_vtable,
-                parent_vtable,
-                rule,
-            );
+            .register_typed_parent_rule_specific(child_vtable, parent_vtable, rule);
     }
 
     /// Register a typed parent rule that matches ANY parent type (wildcard).
@@ -140,7 +134,7 @@ impl ExprSession {
         R: ParentReduceRule<Child, AnyParent, TypedRuleContext>,
     {
         self.rewrite_rules
-            .register_typed_parent_rule_any::<Child, R>(child_vtable, rule);
+            .register_typed_parent_rule_any(child_vtable, rule);
     }
 }
 
@@ -167,10 +161,9 @@ impl Default for ExprSession {
 
         // Register built-in rewrite rules
         let mut rewrite_rules = RewriteRuleRegistry::new();
-        rewrite_rules
-            .register_typed_reduce_rule::<Select, RemoveSelectRule>(&Select, RemoveSelectRule);
-        rewrite_rules.register_typed_reduce_rule::<Merge, RemoveMergeRule>(&Merge, RemoveMergeRule);
-        rewrite_rules.register_reduce_rule::<GetItem, PackGetItemRule>(&GetItem, PackGetItemRule);
+        rewrite_rules.register_typed_reduce_rule(&Select, RemoveSelectRule);
+        rewrite_rules.register_typed_reduce_rule(&Merge, RemoveMergeRule);
+        rewrite_rules.register_reduce_rule(&GetItem, PackGetItemRule);
 
         Self {
             registry: expressions,
