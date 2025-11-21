@@ -6,10 +6,10 @@ use std::fmt::Debug;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{CompareKernel, CompareKernelAdapter, Operator, compare};
 use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
-use vortex_dtype::NativePType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::{PrimitiveScalar, Scalar};
 
+use super::compare_common::{EncodedComparison, encode_for_comparison};
 use crate::{ALPArray, ALPFloat, ALPVTable, match_each_alp_float_ptype};
 
 // TODO(joe): add fuzzing.
@@ -54,6 +54,8 @@ register_kernel!(CompareKernelAdapter(ALPVTable).lift());
 /// We can compare a scalar to an ALPArray by encoding the scalar into the ALP domain and comparing
 /// the encoded value to the encoded values in the ALPArray. There are fixups when the value doesn't
 /// encode into the ALP domain.
+///
+/// This uses the common `encode_for_comparison` logic shared with the expression pushdown optimization.
 fn alp_scalar_compare<F: ALPFloat + Into<Scalar>>(
     alp: &ALPArray,
     value: F,
@@ -69,59 +71,18 @@ where
     }
 
     let exponents = alp.exponents();
-    // If the scalar doesn't fit into the ALP domain,
-    // it cannot be equal to any values in the encoded array.
-    let encoded = F::encode_single(value, alp.exponents());
-    match encoded {
-        Some(encoded) => {
-            let s = ConstantArray::new(encoded, alp.len());
+
+    // Use the common comparison logic from compare_common.rs
+    match encode_for_comparison(value, exponents, operator) {
+        EncodedComparison::Encoded { value, operator } => {
+            // Compare the encoded array with the encoded scalar value
+            let s = ConstantArray::new(value, alp.len());
             Ok(Some(compare(alp.encoded(), s.as_ref(), operator)?))
         }
-        None => match operator {
-            // Since this value is not encodable it cannot be equal to any value in the encoded
-            // array.
-            Operator::Eq => Ok(Some(ConstantArray::new(false, alp.len()).into_array())),
-            // Since this value is not encodable it cannot be equal to any value in the encoded
-            // array, hence != to all values in the encoded array.
-            Operator::NotEq => Ok(Some(ConstantArray::new(true, alp.len()).into_array())),
-            Operator::Gt | Operator::Gte => {
-                // Per IEEE 754 totalOrder semantics the ordering is -Nan < -Inf < Inf < Nan.
-                // All values in the encoded array are definitely finite
-                let is_not_finite = NativePType::is_infinite(value) || NativePType::is_nan(value);
-                if is_not_finite {
-                    Ok(Some(
-                        ConstantArray::new(value.is_sign_negative(), alp.len()).into_array(),
-                    ))
-                } else {
-                    Ok(Some(compare(
-                        alp.encoded(),
-                        ConstantArray::new(F::encode_above(value, exponents), alp.len()).as_ref(),
-                        // Since the encoded value is unencodable gte is equivalent to gt.
-                        // Consider a value v, between two encodable values v_l (just less) and
-                        // v_a (just above), then for all encodable values (u), v > u <=> v_g >= u
-                        Operator::Gte,
-                    )?))
-                }
-            }
-            Operator::Lt | Operator::Lte => {
-                // Per IEEE 754 totalOrder semantics the ordering is -Nan < -Inf < Inf < Nan.
-                // All values in the encoded array are definitely finite
-                let is_not_finite = NativePType::is_infinite(value) || NativePType::is_nan(value);
-                if is_not_finite {
-                    Ok(Some(
-                        ConstantArray::new(value.is_sign_positive(), alp.len()).into_array(),
-                    ))
-                } else {
-                    Ok(Some(compare(
-                        alp.encoded(),
-                        ConstantArray::new(F::encode_below(value, exponents), alp.len()).as_ref(),
-                        // Since the encoded values unencodable lt is equivalent to lte.
-                        // See Gt | Gte for further explanation.
-                        Operator::Lte,
-                    )?))
-                }
-            }
-        },
+        EncodedComparison::Constant(result) => {
+            // Return a constant result for all elements
+            Ok(Some(ConstantArray::new(result, alp.len()).into_array()))
+        }
     }
 }
 

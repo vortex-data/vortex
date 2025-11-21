@@ -9,7 +9,7 @@ use num_traits::{CheckedSub, Float, PrimInt, ToPrimitive};
 
 mod array;
 mod compress;
-mod compute;
+pub mod compute;
 mod ops;
 
 #[cfg(test)]

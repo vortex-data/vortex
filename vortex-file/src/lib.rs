@@ -106,7 +106,7 @@ pub use footer::*;
 pub use forever_constant::*;
 pub use open::*;
 pub use strategy::*;
-use vortex_alp::{ALPEncoding, ALPRDEncoding};
+use vortex_alp::{ALPEncoding, ALPRDEncoding, register_alp_rules};
 use vortex_array::arrays::DictEncoding;
 use vortex_array::{ArraySessionExt, EncodingRef};
 use vortex_bytebool::ByteBoolEncoding;
@@ -179,4 +179,6 @@ pub fn register_default_encodings(session: &VortexSession) {
         #[cfg(feature = "zstd")]
         EncodingRef::new_ref(vortex_zstd::ZstdEncoding.as_ref()),
     ]);
+
+    register_alp_rules(&session.arrays())
 }

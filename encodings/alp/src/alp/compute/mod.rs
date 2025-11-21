@@ -4,10 +4,14 @@
 mod between;
 mod cast;
 mod compare;
+mod compare_common;
+mod expr_pushdown;
 mod filter;
 mod mask;
 mod nan_count;
 mod take;
+
+pub use expr_pushdown::ALPExprPushdownRule;
 
 #[cfg(test)]
 mod tests {
