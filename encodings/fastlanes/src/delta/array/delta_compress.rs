@@ -3,16 +3,12 @@
 
 use arrayref::{array_mut_ref, array_ref};
 use fastlanes::{Delta, FastLanes, Transpose};
-use num_traits::{WrappingAdd, WrappingSub};
+use num_traits::WrappingSub;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{Array, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{NativePType, match_each_unsigned_integer_ptype};
 use vortex_error::VortexResult;
-
-use crate::DeltaArray;
 
 pub fn delta_compress(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, PrimitiveArray)> {
     // TODO(ngates): fill forward nulls?
@@ -89,76 +85,14 @@ fn compress_primitive<T: NativePType + Delta + Transpose + WrappingSub, const LA
     (bases.freeze(), deltas.freeze())
 }
 
-pub fn delta_decompress(array: &DeltaArray) -> PrimitiveArray {
-    let bases = array.bases().to_primitive();
-    let deltas = array.deltas().to_primitive();
-    let decoded = match_each_unsigned_integer_ptype!(deltas.ptype(), |T| {
-        const LANES: usize = T::LANES;
-
-        PrimitiveArray::new(
-            decompress_primitive::<T, LANES>(bases.as_slice(), deltas.as_slice()),
-            Validity::from_mask(array.deltas().validity_mask(), array.dtype().nullability()),
-        )
-    });
-
-    decoded
-        .slice(array.offset()..array.offset() + array.len())
-        .to_primitive()
-}
-
-// TODO(ngates): can we re-use the deltas buffer for the result? Might be tricky given the
-//  traversal ordering, but possibly doable.
-fn decompress_primitive<T: NativePType + Delta + Transpose + WrappingAdd, const LANES: usize>(
-    bases: &[T],
-    deltas: &[T],
-) -> Buffer<T> {
-    // How many fastlanes vectors we will process.
-    let num_chunks = deltas.len() / 1024;
-
-    // Allocate a result array.
-    let mut output = BufferMut::with_capacity(deltas.len());
-
-    // Loop over all the chunks
-    if num_chunks > 0 {
-        let mut transposed: [T; 1024] = [T::default(); 1024];
-
-        for i in 0..num_chunks {
-            let start_elem = i * 1024;
-            let chunk: &[T; 1024] = array_ref![deltas, start_elem, 1024];
-
-            // Initialize the base vector for this chunk
-            Delta::undelta::<LANES>(
-                chunk,
-                unsafe { &*(bases[i * LANES..(i + 1) * LANES].as_ptr().cast()) },
-                &mut transposed,
-            );
-
-            let output_len = output.len();
-            unsafe { output.set_len(output_len + 1024) }
-            Transpose::untranspose(&transposed, array_mut_ref![output[output_len..], 0, 1024]);
-        }
-    }
-    assert_eq!(output.len() % 1024, 0);
-
-    // The remainder was encoded with scalar logic, so we need to scalar decode it.
-    let remainder_size = deltas.len() % 1024;
-    if remainder_size > 0 {
-        let chunk = &deltas[num_chunks * 1024..];
-        assert_eq!(bases.len(), num_chunks * LANES + 1);
-        let mut base_scalar = bases[num_chunks * LANES];
-        for next_diff in chunk {
-            let next = next_diff.wrapping_add(&base_scalar);
-            output.push(next);
-            base_scalar = next;
-        }
-    }
-
-    output.freeze()
-}
-
 #[cfg(test)]
-mod test {
+mod tests {
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_dtype::NativePType;
+
     use super::*;
+    use crate::DeltaArray;
+    use crate::delta::array::delta_decompress::delta_decompress;
 
     #[test]
     fn test_compress() {

@@ -8,7 +8,8 @@ use vortex_array::vtable::OperationsVTable;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_scalar::Scalar;
 
-use crate::{DeltaArray, DeltaVTable};
+use super::DeltaVTable;
+use crate::DeltaArray;
 
 impl OperationsVTable<DeltaVTable> for DeltaVTable {
     fn slice(array: &DeltaArray, range: Range<usize>) -> ArrayRef {
@@ -44,7 +45,7 @@ impl OperationsVTable<DeltaVTable> for DeltaVTable {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
@@ -52,6 +53,7 @@ mod test {
     use vortex_array::{IntoArray, assert_arrays_eq};
 
     use super::*;
+    use crate::DeltaArray;
 
     #[test]
     fn test_slice_non_jagged_array_first_chunk_of_two() {
