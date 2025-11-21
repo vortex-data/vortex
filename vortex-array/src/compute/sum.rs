@@ -4,6 +4,7 @@
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
+use num_traits::{CheckedAdd, CheckedSub};
 use vortex_dtype::DType;
 use vortex_error::{
     VortexError, VortexResult, vortex_bail, vortex_ensure, vortex_err, vortex_panic,
@@ -102,15 +103,27 @@ impl ComputeFnVTable for Sum {
 
         // Short-circuit using array statistics.
         if let Some(Precision::Exact(sum)) = array.statistics().get(Stat::Sum) {
-            return Ok(sum.into());
+            let sum_from_stat = sum
+                .as_primitive()
+                .checked_add(&accumulator.as_primitive())
+                .map(|s| Scalar::from(s));
+            return Ok(sum_from_stat
+                .unwrap_or_else(|| Scalar::null(sum_dtype))
+                .into());
         }
 
         let sum_scalar = sum_impl(array, accumulator, kernels)?;
 
-        // Update the statistics with the computed sum.
-        array
-            .statistics()
-            .set(Stat::Sum, Precision::Exact(sum_scalar.value().clone()));
+        // Update the statistics with the computed sum. Stored statistic shouldn't include the accumulator.
+        if let Some(less_accumulator) = sum_scalar
+            .as_primitive()
+            .checked_sub(&accumulator.as_primitive())
+        {
+            array.statistics().set(
+                Stat::Sum,
+                Precision::Exact(Scalar::from(less_accumulator).value().clone()),
+            );
+        }
 
         Ok(sum_scalar.into())
     }
@@ -206,12 +219,13 @@ pub fn sum_impl(
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability;
+    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_error::VortexUnwrap;
     use vortex_scalar::Scalar;
 
     use crate::IntoArray as _;
-    use crate::arrays::{BoolArray, PrimitiveArray};
-    use crate::compute::sum;
+    use crate::arrays::{BoolArray, ChunkedArray, PrimitiveArray};
+    use crate::compute::{sum, sum_with_accumulator};
 
     #[test]
     fn sum_all_invalid() {
@@ -246,5 +260,29 @@ mod test {
         let array = BoolArray::from_iter([true, false, false, true]);
         let result = sum(array.as_ref()).unwrap();
         assert_eq!(result.as_primitive().as_::<i32>(), Some(2));
+    }
+
+    #[test]
+    fn sum_stats() {
+        let array = ChunkedArray::try_new(
+            vec![
+                PrimitiveArray::from_iter([1, 1, 1]).into_array(),
+                PrimitiveArray::from_iter([2, 2, 2]).into_array(),
+            ],
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+        )
+        .vortex_unwrap();
+        // comptue sum with accumulator to populate stats
+        sum_with_accumulator(
+            array.as_ref(),
+            &Scalar::primitive(2i64, Nullability::Nullable),
+        )
+        .unwrap();
+
+        let sum_with_acc = sum(array.as_ref()).unwrap();
+        assert_eq!(
+            sum_with_acc,
+            Scalar::primitive(11i64, Nullability::Nullable)
+        );
     }
 }
