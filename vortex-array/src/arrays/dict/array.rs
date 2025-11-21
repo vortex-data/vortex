@@ -125,6 +125,8 @@ pub struct DictArray {
     /// Indicates whether all dictionary values are definitely referenced by at least one code.
     /// `true` = all values are referenced (computed during encoding).
     /// `false` = unknown/might have unreferenced values.
+    /// In case this is incorrect never use this to enable memory unsafe behaviour just semantically
+    /// incorrect behaviour.
     all_values_referenced: bool,
 }
 
@@ -192,26 +194,11 @@ impl DictArray {
     ///
     /// It is an error to provide a nullable `codes` with non-nullable `values`.
     pub fn try_new(codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
-        Self::try_new_with_metadata(codes, values, false)
-    }
-
-    /// Build a new `DictArray` from its components with explicit metadata.
-    ///
-    /// Same as [`DictArray::try_new`] but allows specifying whether all values are referenced.
-    /// This is typically only set to `true` during dictionary encoding when we know for certain
-    /// that all dictionary values are referenced by at least one code.
-    pub fn try_new_with_metadata(
-        codes: ArrayRef,
-        values: ArrayRef,
-        all_values_referenced: bool,
-    ) -> VortexResult<Self> {
         if !codes.dtype().is_unsigned_int() {
             vortex_bail!(MismatchedTypes: "unsigned int", codes.dtype());
         }
 
-        Ok(unsafe {
-            Self::new_unchecked(codes, values).set_all_values_referenced(all_values_referenced)
-        })
+        Ok(unsafe { Self::new_unchecked(codes, values) })
     }
 
     #[inline]

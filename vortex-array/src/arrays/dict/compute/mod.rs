@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod binary_numeric;
 mod cast;
 mod compare;
 mod fill_null;
@@ -22,7 +23,12 @@ impl TakeKernel for DictVTable {
     fn take(&self, array: &DictArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let codes = take(array.codes(), indices)?;
         // SAFETY: selecting codes doesn't change the invariants of DictArray
-        Ok(unsafe { DictArray::new_unchecked(codes, array.values().clone()) }.into_array())
+        // Preserve all_values_referenced since taking codes doesn't affect which values are referenced
+        Ok(unsafe {
+            DictArray::new_unchecked(codes, array.values().clone())
+                .set_all_values_referenced(array.has_all_values_referenced())
+                .into_array()
+        })
     }
 }
 
@@ -33,7 +39,12 @@ impl FilterKernel for DictVTable {
         let codes = filter(array.codes(), mask)?;
 
         // SAFETY: filtering codes doesn't change invariants
-        unsafe { Ok(DictArray::new_unchecked(codes, array.values().clone()).into_array()) }
+        // Preserve all_values_referenced since filtering codes doesn't affect which values are referenced
+        unsafe {
+            Ok(DictArray::new_unchecked(codes, array.values().clone())
+                .set_all_values_referenced(array.has_all_values_referenced())
+                .into_array())
+        }
     }
 }
 
