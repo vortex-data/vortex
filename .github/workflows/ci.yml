@@ -429,9 +429,11 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v5
-      - name: Install MSVC Build Tools (Windows)
+      - name: Install Visual Studio Build Tools (Windows)
         if: matrix.os == 'windows-x64'
-        uses: ilammy/msvc-dev-cmd@v1
+        shell: bash
+        run: |
+          choco install visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --passive" -y
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
