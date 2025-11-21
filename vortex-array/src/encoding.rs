@@ -47,12 +47,6 @@ pub trait Encoding: 'static + private::Sealed + Send + Sync + Debug {
         children: &dyn ArrayChildren,
     ) -> VortexResult<ArrayRef>;
 
-    fn with_children(
-        &self,
-        array: &dyn Array,
-        children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef>;
-
     /// Encode the canonical array into this encoding implementation.
     /// Returns `None` if this encoding does not support the given canonical array, for example
     /// if the data type is incompatible.

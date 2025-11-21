@@ -3,7 +3,7 @@
 
 use crate::arrays::{ChunkedArray, ChunkedVTable};
 use crate::vtable::VisitorVTable;
-use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor};
+use crate::{ArrayBufferVisitor, ArrayChildVisitor};
 
 impl VisitorVTable<ChunkedVTable> for ChunkedVTable {
     fn visit_buffers(_array: &ChunkedArray, _visitor: &mut dyn ArrayBufferVisitor) {}

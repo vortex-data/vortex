@@ -64,8 +64,9 @@ impl ArrayOptimizer {
         let mut children_changed = false;
 
         for child in children.iter() {
+            let child = child.to_array();
             let optimized_child = self.apply_parent_rules(child.clone(), ctx)?;
-            children_changed |= !std::sync::Arc::ptr_eq(&optimized_child, child);
+            children_changed |= !std::sync::Arc::ptr_eq(&optimized_child, &child);
             optimized_children.push(optimized_child);
         }
 
@@ -128,8 +129,9 @@ impl ArrayOptimizer {
             let mut changed = false;
 
             for child in children.iter() {
+                let child = child.to_array();
                 let optimized_child = self.apply_reduce_rules(child.clone(), ctx)?;
-                changed |= !std::sync::Arc::ptr_eq(&optimized_child, child);
+                changed |= !std::sync::Arc::ptr_eq(&optimized_child, &child);
                 new_children.push(optimized_child);
             }
 
