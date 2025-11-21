@@ -49,17 +49,10 @@ impl ArrayParentReduceRule<ALPVTable, ExprVTable> for ALPExprPushdownRule {
         _child_idx: usize,
         _ctx: &ArrayRuleContext,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Only optimize if there are no patches
-        if alp.patches().is_some() {
+        if alp.patches().is_some() || parent.dtype().is_nullable() || alp.dtype().is_nullable() {
             return Ok(None);
         }
 
-        // Only optimize if the array is not nullable
-        if alp.dtype().is_nullable() {
-            return Ok(None);
-        }
-
-        // Check if the expression is a binary comparison
         let Some(binary_view) = parent.expr().as_opt::<Binary>() else {
             return Ok(None);
         };
@@ -90,19 +83,20 @@ impl ArrayParentReduceRule<ALPVTable, ExprVTable> for ALPExprPushdownRule {
         };
 
         // Check if this is a comparison of root() with a literal
-        // For simplicity, we only handle `root() op literal` (not swapped)
-        if !binary_view.lhs().is::<Root>() {
-            return Ok(None);
-        }
-        if !binary_view.rhs().is::<Literal>() {
-            return Ok(None);
-        }
+        // Handle both `root() op literal` and `literal op root()` (swapped)
+        let (literal_expr, compute_op) =
+            if binary_view.lhs().is::<Root>() && binary_view.rhs().is::<Literal>() {
+                // Normal case: root() op literal
+                (binary_view.rhs(), compute_op)
+            } else if binary_view.lhs().is::<Literal>() && binary_view.rhs().is::<Root>() {
+                // Swapped case: literal op root() -> swap operator
+                (binary_view.lhs(), compute_op.swap())
+            } else {
+                return Ok(None);
+            };
 
         // Get the literal scalar - literals evaluate to a constant array with one element
-        let literal_array = binary_view.rhs().evaluate(&alp.clone().into_array())?;
-        let Some(literal_value) = literal_array.as_constant() else {
-            return Ok(None);
-        };
+        let literal_value = literal_expr.as_::<Literal>().data().clone();
 
         // Don't optimize nullable comparisons
         if literal_value.dtype().is_nullable() {
