@@ -9088,6 +9088,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
+ "vortex-mask",
  "vortex-proto",
  "vortex-utils",
  "vortex-vector",
