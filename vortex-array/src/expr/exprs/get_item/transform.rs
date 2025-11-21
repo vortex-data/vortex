@@ -12,6 +12,7 @@ use crate::expr::{Expression, ExpressionView};
 ///
 /// Simplifies accessing a field from a pack expression by directly returning the field's
 /// expression instead of materializing the pack.
+#[derive(Debug, Default)]
 pub struct PackGetItemRule;
 
 impl ReduceRule<GetItem, RuleContext> for PackGetItemRule {
@@ -45,14 +46,14 @@ mod tests {
 
     #[test]
     fn test_pack_get_item_rule() {
-        let rule = PackGetItemRule;
-
         // Create: pack(a: lit(1), b: lit(2)).get_item("b")
         let pack_expr = pack([("a", lit(1)), ("b", lit(2))], NonNullable);
         let get_item_expr = get_item("b", pack_expr);
 
         let get_item_view = get_item_expr.as_::<GetItem>();
-        let result = rule.reduce(&get_item_view, &RuleContext).unwrap();
+        let result = PackGetItemRule
+            .reduce(&get_item_view, &RuleContext)
+            .unwrap();
 
         assert!(result.is_some());
         assert_eq!(&result.unwrap(), &lit(2));
@@ -60,14 +61,14 @@ mod tests {
 
     #[test]
     fn test_pack_get_item_rule_no_match() {
-        let rule = PackGetItemRule;
-
         // Create: get_item("x", lit(42)) - not a pack child
         let lit_expr = lit(42);
         let get_item_expr = get_item("x", lit_expr);
 
         let get_item_view = get_item_expr.as_::<GetItem>();
-        let result = rule.reduce(&get_item_view, &RuleContext).unwrap();
+        let result = PackGetItemRule
+            .reduce(&get_item_view, &RuleContext)
+            .unwrap();
 
         assert!(result.is_none());
     }
