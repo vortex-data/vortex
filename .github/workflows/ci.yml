@@ -419,7 +419,7 @@ jobs:
   bench-codspeed:
     strategy:
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     name: "Benchmark with Codspeed (Shard #${{ matrix.shard }})"
     timeout-minutes: 120
     runs-on:
@@ -517,22 +517,10 @@ jobs:
             -p vortex-zstd \
             --profile bench
 
-      - name: Build benchmarks (shard 8 - IO and Layout)
+      - name: Build benchmarks (shard 8 - Storage formats)
         env:
           RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
         if: ${{ matrix.shard == 8 }}
-        run: |
-          cargo codspeed build --features test-harness \
-            -p vortex-io \
-            -p vortex-file \
-            -p vortex-layout \
-            -p vortex-ipc \
-            --profile bench
-
-      - name: Build benchmarks (shard 9 - Storage formats)
-        env:
-          RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
-        if: ${{ matrix.shard == 9 }}
         run: |
           cargo codspeed build \
             -p vortex-flatbuffers \
