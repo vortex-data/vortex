@@ -442,7 +442,7 @@ jobs:
         with:
           tool: nextest
       - name: Rust Tests
-        run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude bench-vortex
+        run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude bench-vortex --exclude vortex-python
 
   build-java:
     name: "Java"
