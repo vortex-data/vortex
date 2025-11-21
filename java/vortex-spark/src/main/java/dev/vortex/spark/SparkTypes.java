@@ -3,7 +3,6 @@
 
 package dev.vortex.spark;
 
-import com.google.common.collect.Streams;
 import dev.vortex.api.DType;
 import java.util.Optional;
 import org.apache.spark.sql.connector.catalog.Column;
@@ -107,13 +106,23 @@ public final class SparkTypes {
                 return DataTypes.BinaryType;
             case STRUCT:
                 // For each of the inner struct fields, we capture them together here.
-                var struct = new StructType();
+                var fieldNames = dType.getFieldNames();
+                var fieldTypes = dType.getFieldTypes();
 
-                Streams.forEachPair(
-                        dType.getFieldNames().stream(),
-                        dType.getFieldTypes().stream(),
-                        (name, type) -> struct.add(name, toDataType(type)));
-                return struct;
+                // NOTE: it's very important we do this with a for loop. Using the streams API can easily
+                //  lead to StackOverflowError being thrown.
+                var fields = new StructField[fieldNames.size()];
+                for (int i = 0; i < fieldNames.size(); i++) {
+                    var name = fieldNames.get(i);
+                    var type = fieldTypes.get(i);
+
+                    fields[i] = new StructField(name, toDataType(type), dType.isNullable(), Metadata.empty());
+
+                    // Close the DType to free it when we're done with conversion
+                    type.close();
+                }
+
+                return new StructType(fields);
             case LIST:
                 return DataTypes.createArrayType(toDataType(dType.getElementType()), dType.isNullable());
             case EXTENSION:
@@ -151,10 +160,17 @@ public final class SparkTypes {
      * Convert a STRUCT Vortex type to a Spark {@link Column}.
      */
     public static Column[] toColumns(DType dType) {
-        return Streams.zip(dType.getFieldNames().stream(), dType.getFieldTypes().stream(), (name, fieldType) -> {
-                    var dataType = toDataType(fieldType);
-                    return Column.create(name, dataType, fieldType.isNullable());
-                })
-                .toArray(Column[]::new);
+        var fieldNames = dType.getFieldNames();
+        var fieldTypes = dType.getFieldTypes();
+        var columns = new Column[fieldNames.size()];
+
+        for (int i = 0; i < columns.length; i++) {
+            var name = fieldNames.get(i);
+            try (var type = fieldTypes.get(i)) {
+                columns[i] = Column.create(name, toDataType(type), type.isNullable());
+            }
+        }
+
+        return columns;
     }
 }

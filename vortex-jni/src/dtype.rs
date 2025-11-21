@@ -128,13 +128,20 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getFieldTypes(
     let dtype = unsafe { &*(dtype_ptr as *const DType) };
 
     try_or_throw(&mut env, |env| {
-        let array_list = env.new_object("java/util/ArrayList", "()V", &[])?;
+        let array_list = env
+            .new_object("java/util/ArrayList", "()V", &[])
+            .map_err(|e| JNIError::Vortex(vortex_err!("failure constructing ArrayList: {e}")))?;
         let field_types = env.get_list(&array_list)?;
         let Some(struct_dtype) = dtype.as_struct_fields_opt() else {
+            println!("Type should be STRUCT, was {dtype}");
             throw_runtime!("DType should be STRUCT, was {dtype}");
         };
 
-        for field_dtype in struct_dtype.fields() {
+        for (index, field_dtype) in struct_dtype.fields().enumerate() {
+            println!(
+                "making java ptr from {:?} ({field_dtype})",
+                struct_dtype.field_name(index)
+            );
             let ptr: *mut DType = Box::into_raw(Box::new(field_dtype));
             let boxed = env
                 .call_static_method(
@@ -142,8 +149,19 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getFieldTypes(
                     "valueOf",
                     "(J)Ljava/lang/Long;",
                     &[JValue::Long(ptr.addr() as jlong)],
-                )?
-                .l()?;
+                )
+                .map_err(|e| {
+                    JNIError::Vortex(vortex_err!(
+                        "failure constructing Long.valueOf({}): {e}",
+                        ptr.addr() as jlong,
+                    ))
+                })?
+                .l()
+                .map_err(|e| {
+                    JNIError::Vortex(vortex_err!(
+                        "downcasting Long.valueOf result to object: {e}"
+                    ))
+                })?;
             field_types.add(env, &boxed)?;
         }
 
