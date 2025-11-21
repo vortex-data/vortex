@@ -301,7 +301,7 @@ mod test {
             DType::Primitive(PType::I32, Nullability::NonNullable),
         )
         .vortex_unwrap();
-        // comptue sum with accumulator to populate stats
+        // compute sum with accumulator to populate stats
         sum_with_accumulator(
             array.as_ref(),
             &Scalar::primitive(2i64, Nullability::Nullable),
