@@ -274,6 +274,11 @@ typedef struct vx_array_iterator vx_array_iterator;
 typedef struct vx_array_sink vx_array_sink;
 
 /**
+ * Strings for use within Vortex.
+ */
+typedef struct vx_binary vx_binary;
+
+/**
  * A Vortex data type.
  *
  * Data types in Vortex are purely logical, meaning they confer no information about how the data
@@ -461,16 +466,18 @@ double vx_array_get_f64(const vx_array *array, uint32_t index);
 double vx_array_get_storage_f64(const vx_array *array, uint32_t index);
 
 /**
- * Write the UTF-8 string at `index` in the array into the provided destination buffer, recording
- * the length in `len`.
+ * Return the utf-8 string at `index` in the array. The pointer will be null if the value at `index` is null.
+ * The caller must free the returned pointer.
  */
-void vx_array_get_utf8(const vx_array *array, uint32_t index, void *dst, int *len);
+const vx_string *vx_array_get_utf8(const vx_array *array,
+                                   uint32_t index);
 
 /**
- * Write the UTF-8 string at `index` in the array into the provided destination buffer, recording
- * the length in `len`.
+ * Return the binary at `index` in the array. The pointer will be null if the value at `index` is null.
+ * The caller must free the returned pointer.
  */
-void vx_array_get_binary(const vx_array *array, uint32_t index, void *dst, int *len);
+const vx_binary *vx_array_get_binary(const vx_array *array,
+                                     uint32_t index);
 
 /**
  * Free an owned [`vx_array_iterator`] object.
@@ -487,6 +494,34 @@ void vx_array_iterator_free(vx_array_iterator *ptr);
  */
 const vx_array *vx_array_iterator_next(vx_array_iterator *iter,
                                        vx_error **error_out);
+
+/**
+ * Clone a borrowed [`vx_binary`], returning an owned [`vx_binary`].
+ *
+ *
+ * Must be released with [`vx_binary_free`].
+ */
+const vx_binary *vx_binary_clone(const vx_binary *ptr);
+
+/**
+ * Free an owned [`vx_binary`] object.
+ */
+void vx_binary_free(const vx_binary *ptr);
+
+/**
+ * Create a new Vortex UTF-8 string by copying from a pointer and length.
+ */
+const vx_binary *vx_binary_new(const char *ptr, size_t len);
+
+/**
+ * Return the length of the string in bytes.
+ */
+size_t vx_binary_len(const vx_binary *ptr);
+
+/**
+ * Return the pointer to the string data.
+ */
+const char *vx_binary_ptr(const vx_binary *ptr);
 
 /**
  * Clone a borrowed [`vx_dtype`], returning an owned [`vx_dtype`].
@@ -629,9 +664,9 @@ bool vx_dtype_is_timestamp(const DType *dtype);
 uint8_t vx_dtype_time_unit(const DType *dtype);
 
 /**
- * Returns the time zone, assuming the type is time.
+ * Returns the time zone, assuming the type is time. Caller is responsible for freeing the returned pointer.
  */
-void vx_dtype_time_zone(const DType *dtype, void *dst, int *len);
+const vx_string *vx_dtype_time_zone(const DType *dtype);
 
 /**
  * Free an owned [`vx_error`] object.

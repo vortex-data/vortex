@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ffi::{c_int, c_void};
+use std::ptr;
 use std::sync::Arc;
 
 use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata};
 use vortex::dtype::{DType, DecimalDType};
-use vortex::error::{VortexExpect, VortexUnwrap, vortex_panic};
+use vortex::error::{VortexExpect, vortex_panic};
 
 use crate::arc_wrapper;
 use crate::ptype::vx_ptype;
+use crate::string::vx_string;
 use crate::struct_fields::vx_struct_fields;
 
 arc_wrapper!(
@@ -286,13 +287,9 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_unit(dtype: *const DType) -> u8 {
     metadata.as_ref()[0]
 }
 
-/// Returns the time zone, assuming the type is time.
+/// Returns the time zone, assuming the type is time. Caller is responsible for freeing the returned pointer.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_dtype_time_zone(
-    dtype: *const DType,
-    dst: *mut c_void,
-    len: *mut c_int,
-) {
+pub unsafe extern "C-unwind" fn vx_dtype_time_zone(dtype: *const DType) -> *const vx_string {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
     let DType::Extension(ext_dtype) = dtype else {
@@ -302,13 +299,9 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(
     match TemporalMetadata::try_from(ext_dtype).vortex_expect("timestamp") {
         TemporalMetadata::Timestamp(_, zone) => {
             if let Some(zone) = zone {
-                let bytes = zone.as_bytes();
-                let dst = unsafe { std::slice::from_raw_parts_mut(dst as *mut u8, bytes.len()) };
-                dst.copy_from_slice(bytes);
-                unsafe { *len = bytes.len().try_into().vortex_unwrap() };
+                vx_string::new(zone.into())
             } else {
-                // No time zone, using local timestamps.
-                unsafe { *len = 0 };
+                ptr::null()
             }
         }
         _ => vortex_panic!("DType_time_zone: not a timestamp metadata: {ext_dtype:?}"),
