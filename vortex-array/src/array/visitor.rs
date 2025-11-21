@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Formatter;
-use std::ops::Deref;
 use std::sync::Arc;
 
 use vortex_buffer::ByteBuffer;
@@ -145,11 +144,10 @@ pub trait ArrayChildVisitor<'a> {
                 //  * is_nullable & has_validity => Validity::Array (or Validity::AllInvalid)
                 //  * is_nullable & !has_validity => Validity::AllValid
                 //  * !is_nullable => Validity::NonNullable
-                let constant = ConstantArray::new(false, len);
-                // SAFETY: We extend the lifetime of the dynamically-constructed constant array
-                // to 'a. This is safe because the visitor will not retain references beyond this call,
-                // and the array lives for the scope of this function.
-                let constant_ref: &'a dyn Array = unsafe { std::mem::transmute(constant.deref()) };
+                let constant = ConstantArray::new(false, len).to_array();
+                // TODO: This leaks memory but fixes the dangling pointer bug that caused SIGSEGV
+                let leaked: &'static ArrayRef = Box::leak(Box::new(constant));
+                let constant_ref: &'a dyn Array = leaked.as_ref();
                 self.visit_child("validity", constant_ref)
             }
             Validity::Array(array) => {
