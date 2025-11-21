@@ -23,7 +23,7 @@ impl NumericKernel for DictVTable {
 
         // Only push down if all values are referenced to avoid incorrect results
         // See: https://github.com/vortex-data/vortex/pull/4560
-        // Checked unnchecked operation will be fine to pushdown.
+        // Unchecked operation will be fine to pushdown.
         if !lhs.has_all_values_referenced() {
             return Ok(None);
         }
