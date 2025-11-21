@@ -10,7 +10,7 @@ impl VisitorVTable<PrimitiveVTable> for PrimitiveVTable {
         visitor.visit_buffer(array.byte_buffer());
     }
 
-    fn visit_children(array: &PrimitiveArray, visitor: &mut dyn ArrayChildVisitor) {
+    fn visit_children<'a>(array: &'a PrimitiveArray, visitor: &mut dyn ArrayChildVisitor<'a>) {
         visitor.visit_validity(array.validity(), array.len());
     }
 }

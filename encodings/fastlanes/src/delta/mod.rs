@@ -318,7 +318,7 @@ impl CanonicalVTable<DeltaVTable> for DeltaVTable {
 impl VisitorVTable<DeltaVTable> for DeltaVTable {
     fn visit_buffers(_array: &DeltaArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
-    fn visit_children(array: &DeltaArray, visitor: &mut dyn ArrayChildVisitor) {
+    fn visit_children<'a>(array: &'a DeltaArray, visitor: &mut dyn ArrayChildVisitor<'a>) {
         visitor.visit_child("bases", array.bases());
         visitor.visit_child("deltas", array.deltas());
     }

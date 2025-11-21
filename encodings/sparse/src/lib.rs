@@ -439,7 +439,7 @@ impl VisitorVTable<SparseVTable> for SparseVTable {
         visitor.visit_buffer(&fill_value_buffer);
     }
 
-    fn visit_children(array: &SparseArray, visitor: &mut dyn ArrayChildVisitor) {
+    fn visit_children<'a>(array: &'a SparseArray, visitor: &mut dyn ArrayChildVisitor<'a>) {
         visitor.visit_patches(array.patches())
     }
 }

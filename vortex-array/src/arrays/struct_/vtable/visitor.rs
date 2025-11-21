@@ -10,7 +10,7 @@ use crate::{ArrayBufferVisitor, ArrayChildVisitor};
 impl VisitorVTable<StructVTable> for StructVTable {
     fn visit_buffers(_array: &StructArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
-    fn visit_children(array: &StructArray, visitor: &mut dyn ArrayChildVisitor) {
+    fn visit_children<'a>(array: &'a StructArray, visitor: &mut dyn ArrayChildVisitor<'a>) {
         visitor.visit_validity(array.validity(), array.len());
         for (name, field) in array.names().iter().zip_eq(array.fields().iter()) {
             visitor.visit_child(name.as_ref(), field);

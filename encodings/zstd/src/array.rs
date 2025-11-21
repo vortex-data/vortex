@@ -745,7 +745,7 @@ impl VisitorVTable<ZstdVTable> for ZstdVTable {
         }
     }
 
-    fn visit_children(array: &ZstdArray, visitor: &mut dyn ArrayChildVisitor) {
+    fn visit_children<'a>(array: &'a ZstdArray, visitor: &mut dyn ArrayChildVisitor<'a>) {
         visitor.visit_validity(&array.unsliced_validity, array.unsliced_n_rows());
     }
 }

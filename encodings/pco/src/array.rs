@@ -506,7 +506,7 @@ impl VisitorVTable<PcoVTable> for PcoVTable {
         }
     }
 
-    fn visit_children(array: &PcoArray, visitor: &mut dyn ArrayChildVisitor) {
+    fn visit_children<'a>(array: &'a PcoArray, visitor: &mut dyn ArrayChildVisitor<'a>) {
         visitor.visit_validity(&array.unsliced_validity, array.unsliced_n_rows());
     }
 }

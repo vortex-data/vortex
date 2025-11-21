@@ -202,7 +202,7 @@ impl EncodeVTable<ZigZagVTable> for ZigZagVTable {
 impl VisitorVTable<ZigZagVTable> for ZigZagVTable {
     fn visit_buffers(_array: &ZigZagArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
-    fn visit_children(array: &ZigZagArray, visitor: &mut dyn ArrayChildVisitor) {
+    fn visit_children<'a>(array: &'a ZigZagArray, visitor: &mut dyn ArrayChildVisitor<'a>) {
         visitor.visit_child("encoded", array.encoded())
     }
 }

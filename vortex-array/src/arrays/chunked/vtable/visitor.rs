@@ -3,12 +3,12 @@
 
 use crate::arrays::{ChunkedArray, ChunkedVTable};
 use crate::vtable::VisitorVTable;
-use crate::{ArrayBufferVisitor, ArrayChildVisitor};
+use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor};
 
 impl VisitorVTable<ChunkedVTable> for ChunkedVTable {
     fn visit_buffers(_array: &ChunkedArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
-    fn visit_children(array: &ChunkedArray, visitor: &mut dyn ArrayChildVisitor) {
+    fn visit_children<'a>(array: &'a ChunkedArray, visitor: &mut dyn ArrayChildVisitor<'a>) {
         visitor.visit_child("chunk_offsets", array.chunk_offsets.as_ref());
 
         for (idx, chunk) in array.chunks().iter().enumerate() {

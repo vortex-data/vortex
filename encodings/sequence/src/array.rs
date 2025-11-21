@@ -359,7 +359,7 @@ impl VisitorVTable<SequenceVTable> for SequenceVTable {
         // TODO(joe): expose scalar values
     }
 
-    fn visit_children(_array: &SequenceArray, _visitor: &mut dyn ArrayChildVisitor) {}
+    fn visit_children<'a>(_array: &'a SequenceArray, _visitor: &mut dyn ArrayChildVisitor<'a>) {}
 }
 
 #[derive(Clone, Debug)]

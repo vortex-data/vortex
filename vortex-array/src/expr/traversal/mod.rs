@@ -103,12 +103,18 @@ impl<T> Transformed<T> {
 pub trait NodeVisitor<'a> {
     type NodeTy: Node;
 
-    fn visit_down(&mut self, node: &'a Self::NodeTy) -> VortexResult<TraversalOrder> {
+    fn visit_down(
+        &mut self,
+        node: &'a <Self::NodeTy as Node>::Child,
+    ) -> VortexResult<TraversalOrder> {
         _ = node;
         Ok(TraversalOrder::Continue)
     }
 
-    fn visit_up(&mut self, node: &'a Self::NodeTy) -> VortexResult<TraversalOrder> {
+    fn visit_up(
+        &mut self,
+        node: &'a <Self::NodeTy as Node>::Child,
+    ) -> VortexResult<TraversalOrder> {
         _ = node;
         Ok(TraversalOrder::Continue)
     }
@@ -126,11 +132,16 @@ pub trait NodeRewriter: Sized {
     }
 }
 
-pub trait Node: Sized + Clone {
+pub trait Node: Sized + Clone + AsRef<Self::Child> {
+    /// The type used to reference children in traversals.
+    /// For Expression: Self (same as the node type)
+    /// For &dyn Array: dyn Array (the trait object type)
+    type Child: ?Sized;
+
     /// Walk the node's children by applying `f` to them.
     ///
     /// This is a lower level API that other functions rely on for their implementation.
-    fn apply_children<'a, F: FnMut(&'a Self) -> VortexResult<TraversalOrder>>(
+    fn apply_children<'a, F: FnMut(&'a Self::Child) -> VortexResult<TraversalOrder>>(
         &'a self,
         f: F,
     ) -> VortexResult<TraversalOrder>;
@@ -148,6 +159,15 @@ pub trait Node: Sized + Clone {
 
     /// This is a lower level API that other functions rely on for their implementation.
     fn children_count(&self) -> usize;
+
+    /// Helper method to recursively call accept on a child.
+    /// Each type must implement this to handle the recursion appropriately.
+    /// For Expression (where Child = Self), this can call child.accept directly.
+    /// For ArrayRef (where Child = dyn Array), this must convert to ArrayRef first.
+    fn accept_on_child<'a, V: NodeVisitor<'a, NodeTy = Self>>(
+        child: &'a Self::Child,
+        visitor: &mut V,
+    ) -> VortexResult<TraversalOrder>;
 }
 
 pub trait NodeExt: Node {
@@ -189,9 +209,14 @@ pub trait NodeExt: Node {
         visitor: &mut V,
     ) -> VortexResult<TraversalOrder> {
         visitor
-            .visit_down(self)?
-            .visit_children(|| self.apply_children(|c| c.accept(visitor)))?
-            .visit_parent(|| visitor.visit_up(self))
+            .visit_down(self.as_ref())?
+            .visit_children(|| {
+                self.apply_children(|c: &'a Self::Child| {
+                    // Use helper method for recursion
+                    Self::accept_on_child(c, visitor)
+                })
+            })?
+            .visit_parent(|| visitor.visit_up(self.as_ref()))
     }
 
     /// A pre-order transformation
@@ -489,8 +514,16 @@ impl<'a> NodeContainer<'a, Self> for Expression {
     }
 }
 
+impl AsRef<Expression> for Expression {
+    fn as_ref(&self) -> &Expression {
+        self
+    }
+}
+
 impl Node for Expression {
-    fn apply_children<'a, F: FnMut(&'a Self) -> VortexResult<TraversalOrder>>(
+    type Child = Self;
+
+    fn apply_children<'a, F: FnMut(&'a Self::Child) -> VortexResult<TraversalOrder>>(
         &'a self,
         mut f: F,
     ) -> VortexResult<TraversalOrder> {
@@ -525,6 +558,14 @@ impl Node for Expression {
 
     fn children_count(&self) -> usize {
         self.children().len()
+    }
+
+    /// For Expression, Child = Self, so we can directly call accept on the child
+    fn accept_on_child<'a, V: NodeVisitor<'a, NodeTy = Self>>(
+        child: &'a Self::Child,
+        visitor: &mut V,
+    ) -> VortexResult<TraversalOrder> {
+        child.accept(visitor)
     }
 }
 
@@ -689,5 +730,176 @@ mod tests {
 
         assert!(result.changed);
         assert!(is_root(&result.value));
+    }
+
+    #[test]
+    fn expr_visit_order() {
+        // Verify pre-order down, post-order up traversal for expressions
+        let col1 = col("col1");
+        let col2 = col("col2");
+        let expr = eq(col1, col2);
+
+        struct OrderTracker {
+            order: Vec<String>,
+        }
+
+        impl<'a> NodeVisitor<'a> for OrderTracker {
+            type NodeTy = Expression;
+
+            fn visit_down(&mut self, node: &'a Expression) -> VortexResult<TraversalOrder> {
+                self.order.push(format!("down:{:?}", node.id()));
+                Ok(TraversalOrder::Continue)
+            }
+
+            fn visit_up(&mut self, node: &'a Expression) -> VortexResult<TraversalOrder> {
+                self.order.push(format!("up:{:?}", node.id()));
+                Ok(TraversalOrder::Continue)
+            }
+        }
+
+        let mut visitor = OrderTracker { order: Vec::new() };
+        expr.accept(&mut visitor).unwrap();
+
+        // col("col1") expands to GetItem(Root()), so we have:
+        // eq -> GetItem(Root()), GetItem(Root())
+        // That's 5 nodes total: 1 binary + 2 get_items + 2 roots = 10 visits
+        assert_eq!(visitor.order.len(), 10); // 5 nodes * 2 (down + up)
+
+        // Verify first visit is down and last is up for root
+        assert!(visitor.order[0].starts_with("down:"));
+        assert!(visitor.order[visitor.order.len() - 1].starts_with("up:"));
+
+        // Verify every down has a corresponding up (pre-order down, post-order up)
+        let down_count = visitor
+            .order
+            .iter()
+            .filter(|s| s.starts_with("down:"))
+            .count();
+        let up_count = visitor
+            .order
+            .iter()
+            .filter(|s| s.starts_with("up:"))
+            .count();
+        assert_eq!(down_count, up_count);
+        assert_eq!(down_count, 5);
+    }
+
+    #[test]
+    fn expr_both_down_and_up_called() {
+        // Ensure visit_down and visit_up are both called for every node
+        let col1 = col("col1");
+        let lit1 = lit(1);
+        let expr = eq(col1, lit1);
+
+        struct UpDownCounter {
+            down_count: usize,
+            up_count: usize,
+        }
+
+        impl<'a> NodeVisitor<'a> for UpDownCounter {
+            type NodeTy = Expression;
+
+            fn visit_down(&mut self, _node: &'a Expression) -> VortexResult<TraversalOrder> {
+                self.down_count += 1;
+                Ok(TraversalOrder::Continue)
+            }
+
+            fn visit_up(&mut self, _node: &'a Expression) -> VortexResult<TraversalOrder> {
+                self.up_count += 1;
+                Ok(TraversalOrder::Continue)
+            }
+        }
+
+        let mut visitor = UpDownCounter {
+            down_count: 0,
+            up_count: 0,
+        };
+        expr.accept(&mut visitor).unwrap();
+
+        // Every node should have both down and up called
+        assert_eq!(visitor.down_count, visitor.up_count);
+        // eq + GetItem + Root + Literal = 4 nodes
+        assert_eq!(visitor.down_count, 4);
+    }
+
+    #[test]
+    fn expr_deep_nesting() {
+        // Test deeply nested expression to ensure recursion works
+        // Build: ((((col0 = 0) AND (col1 = 1)) AND ...) AND ...)
+        let mut expr = eq(col("col0"), lit(0));
+
+        for i in 1..20 {
+            let next = eq(col(format!("col{}", i)), lit(i));
+            expr = and(expr, next);
+        }
+
+        struct DepthTracker {
+            current_depth: usize,
+            max_depth: usize,
+        }
+
+        impl<'a> NodeVisitor<'a> for DepthTracker {
+            type NodeTy = Expression;
+
+            fn visit_down(&mut self, _node: &'a Expression) -> VortexResult<TraversalOrder> {
+                self.current_depth += 1;
+                self.max_depth = self.max_depth.max(self.current_depth);
+                Ok(TraversalOrder::Continue)
+            }
+
+            fn visit_up(&mut self, _node: &'a Expression) -> VortexResult<TraversalOrder> {
+                self.current_depth -= 1;
+                Ok(TraversalOrder::Continue)
+            }
+        }
+
+        let mut visitor = DepthTracker {
+            current_depth: 0,
+            max_depth: 0,
+        };
+        expr.accept(&mut visitor).unwrap();
+
+        // Verify we visited a deep tree (should be > 20)
+        assert!(
+            visitor.max_depth > 20,
+            "Expected deep nesting, got depth {}",
+            visitor.max_depth
+        );
+        assert_eq!(visitor.current_depth, 0); // Should be back to 0 after traversal
+    }
+
+    #[test]
+    fn expr_no_duplicate_visits() {
+        // Ensure each expression node is visited exactly once
+        use vortex_utils::aliases::hash_set::HashSet;
+
+        let col1 = col("col1");
+        let col2 = col("col2");
+        let expr1 = eq(col1, col2);
+        let lit1 = lit(1);
+        let expr = and(expr1, lit1);
+
+        struct DuplicateDetector {
+            visited: HashSet<*const Expression>,
+        }
+
+        impl<'a> NodeVisitor<'a> for DuplicateDetector {
+            type NodeTy = Expression;
+
+            fn visit_down(&mut self, node: &'a Expression) -> VortexResult<TraversalOrder> {
+                let ptr = node as *const Expression;
+                assert!(!self.visited.contains(&ptr), "Expression visited twice!");
+                self.visited.insert(ptr);
+                Ok(TraversalOrder::Continue)
+            }
+        }
+
+        let mut visitor = DuplicateDetector {
+            visited: HashSet::new(),
+        };
+        expr.accept(&mut visitor).unwrap();
+
+        // Should have visited 7 unique nodes: and, eq, GetItem(col1), Root, GetItem(col2), Root, lit1
+        assert_eq!(visitor.visited.len(), 7);
     }
 }

@@ -9,7 +9,8 @@ use crate::expr::traversal::{Node, NodeExt, NodeVisitor, TraversalOrder};
 
 struct FnVisitor<'a, F, T: 'a>
 where
-    F: FnMut(&'a T) -> VortexResult<TraversalOrder>,
+    T: Node,
+    F: FnMut(&'a T::Child) -> VortexResult<TraversalOrder>,
 {
     f_down: Option<F>,
     f_up: Option<F>,
@@ -18,12 +19,12 @@ where
 
 impl<'a, T, F> NodeVisitor<'a> for FnVisitor<'a, F, T>
 where
-    F: FnMut(&'a T) -> VortexResult<TraversalOrder>,
+    F: FnMut(&'a T::Child) -> VortexResult<TraversalOrder>,
     T: NodeExt,
 {
     type NodeTy = T;
 
-    fn visit_down(&mut self, node: &'a T) -> VortexResult<TraversalOrder> {
+    fn visit_down(&mut self, node: &'a T::Child) -> VortexResult<TraversalOrder> {
         if let Some(f) = self.f_down.as_mut() {
             f(node)
         } else {
@@ -31,7 +32,7 @@ where
         }
     }
 
-    fn visit_up(&mut self, node: &'a T) -> VortexResult<TraversalOrder> {
+    fn visit_up(&mut self, node: &'a T::Child) -> VortexResult<TraversalOrder> {
         if let Some(f) = self.f_up.as_mut() {
             f(node)
         } else {
@@ -43,7 +44,7 @@ where
 /// Traverse a [`Node`]-based tree using a closure. It will do it by walking the tree from the bottom going up.
 pub fn pre_order_visit_up<'a, T: 'a + Node>(
     tree: &'a T,
-    f: impl FnMut(&'a T) -> VortexResult<TraversalOrder>,
+    f: impl FnMut(&'a T::Child) -> VortexResult<TraversalOrder>,
 ) -> VortexResult<()> {
     let mut visitor = FnVisitor {
         f_down: None,
@@ -59,7 +60,7 @@ pub fn pre_order_visit_up<'a, T: 'a + Node>(
 /// Traverse a [`Node`]-based tree using a closure. It will do it by walking the tree from the top going down.
 pub fn pre_order_visit_down<'a, T: 'a + Node>(
     tree: &'a T,
-    f: impl FnMut(&'a T) -> VortexResult<TraversalOrder>,
+    f: impl FnMut(&'a T::Child) -> VortexResult<TraversalOrder>,
 ) -> VortexResult<()> {
     let mut visitor = FnVisitor {
         f_down: Some(f),

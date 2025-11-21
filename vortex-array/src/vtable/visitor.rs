@@ -26,14 +26,14 @@ pub trait VisitorVTable<V: VTable> {
     }
 
     /// Visit the children of the array.
-    fn visit_children(array: &V::Array, visitor: &mut dyn ArrayChildVisitor);
+    fn visit_children<'a>(array: &'a V::Array, visitor: &mut dyn ArrayChildVisitor<'a>);
 
     /// Count the number of children in the array.
     fn nchildren(array: &V::Array) -> usize {
         struct NChildren(usize);
 
-        impl ArrayChildVisitor for NChildren {
-            fn visit_child(&mut self, _name: &str, _array: &dyn Array) {
+        impl<'a> ArrayChildVisitor<'a> for NChildren {
+            fn visit_child(&mut self, _name: &str, _array: &'a dyn Array) {
                 self.0 += 1;
             }
         }

@@ -413,7 +413,7 @@ impl EncodeVTable<ALPRDVTable> for ALPRDVTable {
 impl VisitorVTable<ALPRDVTable> for ALPRDVTable {
     fn visit_buffers(_array: &ALPRDArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
-    fn visit_children(array: &ALPRDArray, visitor: &mut dyn ArrayChildVisitor) {
+    fn visit_children<'a>(array: &'a ALPRDArray, visitor: &mut dyn ArrayChildVisitor<'a>) {
         visitor.visit_child("left_parts", array.left_parts());
         visitor.visit_child("right_parts", array.right_parts());
         if let Some(patches) = array.left_parts_patches() {

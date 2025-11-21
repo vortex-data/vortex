@@ -83,7 +83,7 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
                 .into_iter()
                 .zip(array.children().into_iter())
             {
-                i.format(&name, child)?;
+                i.format(&name, child.to_array())?;
             }
             Ok(())
         })?;

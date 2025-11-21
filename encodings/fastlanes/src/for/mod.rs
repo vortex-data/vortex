@@ -184,7 +184,7 @@ impl EncodeVTable<FoRVTable> for FoRVTable {
 impl VisitorVTable<FoRVTable> for FoRVTable {
     fn visit_buffers(_array: &FoRArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
-    fn visit_children(array: &FoRArray, visitor: &mut dyn ArrayChildVisitor) {
+    fn visit_children<'a>(array: &'a FoRArray, visitor: &mut dyn ArrayChildVisitor<'a>) {
         visitor.visit_child("encoded", array.encoded())
     }
 }

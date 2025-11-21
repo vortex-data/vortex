@@ -338,7 +338,7 @@ impl VisitorVTable<FSSTVTable> for FSSTVTable {
         visitor.visit_buffer(&array.symbol_lengths().clone().into_byte_buffer());
     }
 
-    fn visit_children(array: &FSSTArray, visitor: &mut dyn ArrayChildVisitor) {
+    fn visit_children<'a>(array: &'a FSSTArray, visitor: &mut dyn ArrayChildVisitor<'a>) {
         visitor.visit_child("codes", array.codes().as_ref());
         visitor.visit_child("uncompressed_lengths", array.uncompressed_lengths());
     }

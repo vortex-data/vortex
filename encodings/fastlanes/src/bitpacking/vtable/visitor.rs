@@ -11,7 +11,7 @@ impl VisitorVTable<BitPackedVTable> for BitPackedVTable {
         visitor.visit_buffer(array.packed());
     }
 
-    fn visit_children(array: &BitPackedArray, visitor: &mut dyn ArrayChildVisitor) {
+    fn visit_children<'a>(array: &'a BitPackedArray, visitor: &mut dyn ArrayChildVisitor<'a>) {
         if let Some(patches) = array.patches() {
             visitor.visit_patches(patches);
         }

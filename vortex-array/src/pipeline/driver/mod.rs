@@ -114,7 +114,7 @@ impl PipelineDriver {
                         let mut batch_inputs = Vec::with_capacity(children.len());
                         for child in children {
                             batch_inputs.push(batch.len());
-                            batch.push(child);
+                            batch.push(child.to_array());
                         }
 
                         Node {
@@ -134,7 +134,7 @@ impl PipelineDriver {
                         for (child_idx, child) in children.into_iter().enumerate() {
                             if pipelined_inputs.contains(&child_idx) {
                                 pipeline_inputs.push(visit_node(
-                                    child.clone(),
+                                    child.to_array(),
                                     dag,
                                     batch,
                                     hash_to_id,
@@ -142,7 +142,7 @@ impl PipelineDriver {
                                 ));
                             } else {
                                 let batch_id = batch.len();
-                                batch.push(child);
+                                batch.push(child.to_array());
                                 batch_inputs.push(batch_id);
                             }
                         }

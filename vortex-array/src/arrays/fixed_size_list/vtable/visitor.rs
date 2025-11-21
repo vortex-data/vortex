@@ -11,7 +11,7 @@ impl VisitorVTable<FixedSizeListVTable> for FixedSizeListVTable {
     }
 
     // We define the children for [`FixedSizeListArray`] as the `elements` array and the `validity`.
-    fn visit_children(array: &FixedSizeListArray, visitor: &mut dyn ArrayChildVisitor) {
+    fn visit_children<'a>(array: &'a FixedSizeListArray, visitor: &mut dyn ArrayChildVisitor<'a>) {
         visitor.visit_child("elements", array.elements());
         visitor.visit_validity(array.validity(), array.len());
     }

@@ -156,7 +156,7 @@ impl VisitorVTable<PythonVTable> for PythonVTable {
         todo!()
     }
 
-    fn visit_children(_array: &PythonArray, _visitor: &mut dyn ArrayChildVisitor) {
+    fn visit_children<'a>(_array: &'a PythonArray, _visitor: &mut dyn ArrayChildVisitor<'a>) {
         todo!()
     }
 }

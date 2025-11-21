@@ -265,7 +265,7 @@ impl EncodeVTable<DateTimePartsVTable> for DateTimePartsVTable {
 impl VisitorVTable<DateTimePartsVTable> for DateTimePartsVTable {
     fn visit_buffers(_array: &DateTimePartsArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
-    fn visit_children(array: &DateTimePartsArray, visitor: &mut dyn ArrayChildVisitor) {
+    fn visit_children<'a>(array: &'a DateTimePartsArray, visitor: &mut dyn ArrayChildVisitor<'a>) {
         visitor.visit_child("days", array.days());
         visitor.visit_child("seconds", array.seconds());
         visitor.visit_child("subseconds", array.subseconds());

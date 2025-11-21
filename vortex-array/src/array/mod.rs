@@ -647,14 +647,14 @@ impl<V: VTable> ArrayEq for ArrayAdapter<V> {
 }
 
 impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
-    fn children(&self) -> Vec<ArrayRef> {
-        struct ChildrenCollector {
-            children: Vec<ArrayRef>,
+    fn children<'a>(&'a self) -> Vec<&'a dyn Array> {
+        struct ChildrenCollector<'a> {
+            children: Vec<&'a dyn Array>,
         }
 
-        impl ArrayChildVisitor for ChildrenCollector {
-            fn visit_child(&mut self, _name: &str, array: &dyn Array) {
-                self.children.push(array.to_array());
+        impl<'a> ArrayChildVisitor<'a> for ChildrenCollector<'a> {
+            fn visit_child(&mut self, _name: &str, array: &'a dyn Array) {
+                self.children.push(array);
             }
         }
 
@@ -662,7 +662,13 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
             children: Vec::new(),
         };
         <V::VisitorVTable as VisitorVTable<V>>::visit_children(&self.0, &mut collector);
+
         collector.children
+    }
+
+    fn visit_children<'a>(&'a self, visitor: &mut dyn ArrayChildVisitor<'a>) {
+        // Directly call the vtable's visit_children - zero allocation!
+        <V::VisitorVTable as VisitorVTable<V>>::visit_children(&self.0, visitor)
     }
 
     fn nchildren(&self) -> usize {
@@ -674,8 +680,8 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
             names: Vec<String>,
         }
 
-        impl ArrayChildVisitor for ChildNameCollector {
-            fn visit_child(&mut self, name: &str, _array: &dyn Array) {
+        impl<'a> ArrayChildVisitor<'a> for ChildNameCollector {
+            fn visit_child(&mut self, name: &str, _array: &'a dyn Array) {
                 self.names.push(name.to_string());
             }
         }
@@ -690,8 +696,8 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
             children: Vec<(String, ArrayRef)>,
         }
 
-        impl ArrayChildVisitor for NamedChildrenCollector {
-            fn visit_child(&mut self, name: &str, array: &dyn Array) {
+        impl<'a> ArrayChildVisitor<'a> for NamedChildrenCollector {
+            fn visit_child(&mut self, name: &str, array: &'a dyn Array) {
                 self.children.push((name.to_string(), array.to_array()));
             }
         }

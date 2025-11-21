@@ -145,7 +145,7 @@ impl ArrayVTable<NullVTable> for NullVTable {
 impl VisitorVTable<NullVTable> for NullVTable {
     fn visit_buffers(_array: &NullArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
-    fn visit_children(_array: &NullArray, _visitor: &mut dyn ArrayChildVisitor) {}
+    fn visit_children<'a>(_array: &'a NullArray, _visitor: &mut dyn ArrayChildVisitor<'a>) {}
 }
 
 impl CanonicalVTable<NullVTable> for NullVTable {

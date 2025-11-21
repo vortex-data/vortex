@@ -391,9 +391,9 @@ impl EncodeVTable<DictVTable> for DictVTable {
 impl VisitorVTable<DictVTable> for DictVTable {
     fn visit_buffers(_array: &DictArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
-    fn visit_children(array: &DictArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("codes", array.codes());
-        visitor.visit_child("values", array.values());
+    fn visit_children<'a>(array: &'a DictArray, visitor: &mut dyn ArrayChildVisitor<'a>) {
+        visitor.visit_child("codes", array.codes().as_ref());
+        visitor.visit_child("values", array.values().as_ref());
     }
 }
 

@@ -371,7 +371,7 @@ impl VisitorVTable<RLEVTable> for RLEVTable {
         // RLE stores all data in child arrays, no direct buffers
     }
 
-    fn visit_children(array: &RLEArray, visitor: &mut dyn ArrayChildVisitor) {
+    fn visit_children<'a>(array: &'a RLEArray, visitor: &mut dyn ArrayChildVisitor<'a>) {
         visitor.visit_child("values", array.values());
         visitor.visit_child("indices", array.indices());
         visitor.visit_child("values_idx_offsets", array.values_idx_offsets());

@@ -19,7 +19,7 @@ impl IsConstantKernel for StructVTable {
         }
 
         for child in children.iter() {
-            match compute::is_constant_opts(child, opts)? {
+            match compute::is_constant_opts(&child.to_array(), opts)? {
                 // Un-determined
                 None => return Ok(None),
                 Some(false) => return Ok(Some(false)),

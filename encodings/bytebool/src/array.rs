@@ -196,7 +196,7 @@ impl VisitorVTable<ByteBoolVTable> for ByteBoolVTable {
         visitor.visit_buffer(array.buffer());
     }
 
-    fn visit_children(array: &ByteBoolArray, visitor: &mut dyn ArrayChildVisitor) {
+    fn visit_children<'a>(array: &'a ByteBoolArray, visitor: &mut dyn ArrayChildVisitor<'a>) {
         visitor.visit_validity(array.validity(), array.len());
     }
 }

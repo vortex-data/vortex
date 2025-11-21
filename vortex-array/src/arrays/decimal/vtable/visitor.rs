@@ -10,7 +10,7 @@ impl VisitorVTable<DecimalVTable> for DecimalVTable {
         visitor.visit_buffer(&array.values);
     }
 
-    fn visit_children(array: &DecimalArray, visitor: &mut dyn ArrayChildVisitor) {
+    fn visit_children<'a>(array: &'a DecimalArray, visitor: &mut dyn ArrayChildVisitor<'a>) {
         visitor.visit_validity(array.validity(), array.len())
     }
 }

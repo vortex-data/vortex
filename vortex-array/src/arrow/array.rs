@@ -171,5 +171,5 @@ impl ValidityVTable<ArrowVTable> for ArrowVTable {
 impl VisitorVTable<ArrowVTable> for ArrowVTable {
     fn visit_buffers(_array: &ArrowArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
-    fn visit_children(_array: &ArrowArray, _visitor: &mut dyn ArrayChildVisitor) {}
+    fn visit_children<'a>(_array: &'a ArrowArray, _visitor: &mut dyn ArrayChildVisitor<'a>) {}
 }

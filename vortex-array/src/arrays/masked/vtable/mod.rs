@@ -31,8 +31,8 @@ pub struct MaskedEncoding;
 impl VisitorVTable<MaskedVTable> for MaskedVTable {
     fn visit_buffers(_array: &MaskedArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
-    fn visit_children(array: &MaskedArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("child", array.child.as_ref());
+    fn visit_children<'a>(array: &'a MaskedArray, visitor: &mut dyn ArrayChildVisitor<'a>) {
+        visitor.visit_child("child", &array.child);
         visitor.visit_validity(&array.validity, array.child.len());
     }
 }

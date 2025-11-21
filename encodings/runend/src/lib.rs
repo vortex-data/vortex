@@ -50,7 +50,7 @@ impl EncodeVTable<RunEndVTable> for RunEndVTable {
 impl VisitorVTable<RunEndVTable> for RunEndVTable {
     fn visit_buffers(_array: &RunEndArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
-    fn visit_children(array: &RunEndArray, visitor: &mut dyn ArrayChildVisitor) {
+    fn visit_children<'a>(array: &'a RunEndArray, visitor: &mut dyn ArrayChildVisitor<'a>) {
         visitor.visit_child("ends", array.ends());
         visitor.visit_child("values", array.values());
     }

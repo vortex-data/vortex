@@ -385,7 +385,7 @@ impl EncodeVTable<ALPVTable> for ALPVTable {
 impl VisitorVTable<ALPVTable> for ALPVTable {
     fn visit_buffers(_array: &ALPArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
-    fn visit_children(array: &ALPArray, visitor: &mut dyn ArrayChildVisitor) {
+    fn visit_children<'a>(array: &'a ALPArray, visitor: &mut dyn ArrayChildVisitor<'a>) {
         visitor.visit_child("encoded", array.encoded());
         if let Some(patches) = array.patches() {
             visitor.visit_patches(patches);

@@ -198,10 +198,11 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
             .children()
             .iter()
             .map(|child| {
+                let child = child.to_array();
                 // Update the number of buffers required.
                 let msg = ArrayNodeFlatBuffer {
                     ctx: self.ctx,
-                    array: child,
+                    array: &child,
                     buffer_idx: child_buffer_idx,
                 }
                 .write_flatbuffer(fbb);

@@ -8,7 +8,7 @@ use crate::{ArrayBufferVisitor, ArrayChildVisitor};
 impl VisitorVTable<ExprVTable> for ExprVTable {
     fn visit_buffers(_array: &ExprArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
-    fn visit_children(array: &ExprArray, visitor: &mut dyn ArrayChildVisitor) {
+    fn visit_children<'a>(array: &'a ExprArray, visitor: &mut dyn ArrayChildVisitor<'a>) {
         visitor.visit_child("child", &array.child);
     }
 }

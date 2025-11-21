@@ -17,5 +17,5 @@ impl VisitorVTable<ConstantVTable> for ConstantVTable {
         visitor.visit_buffer(&buffer);
     }
 
-    fn visit_children(_array: &ConstantArray, _visitor: &mut dyn ArrayChildVisitor) {}
+    fn visit_children<'a>(_array: &'a ConstantArray, _visitor: &mut dyn ArrayChildVisitor<'a>) {}
 }

@@ -10,7 +10,7 @@ impl VisitorVTable<BoolVTable> for BoolVTable {
         visitor.visit_buffer(array.bit_buffer().inner())
     }
 
-    fn visit_children(array: &BoolArray, visitor: &mut dyn ArrayChildVisitor) {
+    fn visit_children<'a>(array: &'a BoolArray, visitor: &mut dyn ArrayChildVisitor<'a>) {
         visitor.visit_validity(&array.validity, array.len());
     }
 }
