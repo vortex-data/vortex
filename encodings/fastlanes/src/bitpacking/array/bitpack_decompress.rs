@@ -36,7 +36,6 @@ pub fn unpack_to_pvector<P: BitPacked>(array: &BitPackedArray) -> PVectorMut<P> 
     let len = array.len();
     let mut elements = BufferMut::<P>::with_capacity(len);
     let uninit_slice = &mut elements.spare_capacity_mut()[..len];
-    debug_assert_eq!(uninit_slice.len(), len);
 
     // Decode into an uninitialized slice.
     let mut bit_packed_iter = array.unpacked_chunks();
