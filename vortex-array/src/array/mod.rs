@@ -5,6 +5,7 @@ pub mod display;
 mod operator;
 pub mod session;
 pub mod transform;
+mod traversal;
 mod visitor;
 
 use std::any::Any;
@@ -647,7 +648,7 @@ impl<V: VTable> ArrayEq for ArrayAdapter<V> {
 }
 
 impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
-    fn children<'a>(&'a self) -> Vec<&'a dyn Array> {
+    fn children(&self) -> Vec<&dyn Array> {
         struct ChildrenCollector<'a> {
             children: Vec<&'a dyn Array>,
         }
