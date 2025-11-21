@@ -2,16 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! FFI interface for working with Vortex Arrays.
-use std::ffi::{c_int, c_void};
-use std::slice;
+use std::ptr;
+use std::sync::Arc;
 
 use vortex::dtype::half::f16;
-use vortex::error::{VortexExpect, VortexUnwrap, vortex_err};
+use vortex::error::{VortexExpect, vortex_err};
 use vortex::{Array, ToCanonical};
 
 use crate::arc_dyn_wrapper;
+use crate::binary::vx_binary;
 use crate::dtype::vx_dtype;
 use crate::error::{try_or_default, vx_error};
+use crate::string::vx_string;
 
 arc_dyn_wrapper!(
     /// Base type for all Vortex arrays.
@@ -133,48 +135,42 @@ ffiarray_get_ptype!(f16);
 ffiarray_get_ptype!(f32);
 ffiarray_get_ptype!(f64);
 
-/// Write the UTF-8 string at `index` in the array into the provided destination buffer, recording
-/// the length in `len`.
+/// Return the utf-8 string at `index` in the array. The pointer will be null if the value at `index` is null.
+/// The caller must free the returned pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_get_utf8(
     array: *const vx_array,
     index: u32,
-    dst: *mut c_void,
-    len: *mut c_int,
-) {
+) -> *const vx_string {
     let array = vx_array::as_ref(array);
     let value = array.scalar_at(index as usize);
     let utf8_scalar = value.as_utf8();
     if let Some(buffer) = utf8_scalar.value() {
-        let bytes = buffer.as_bytes();
-        let dst = unsafe { slice::from_raw_parts_mut(dst as *mut u8, bytes.len()) };
-        dst.copy_from_slice(bytes);
-        unsafe { *len = bytes.len().try_into().vortex_unwrap() };
+        vx_string::new(Arc::from(buffer.as_str()))
+    } else {
+        ptr::null()
     }
 }
 
-/// Write the UTF-8 string at `index` in the array into the provided destination buffer, recording
-/// the length in `len`.
+/// Return the binary at `index` in the array. The pointer will be null if the value at `index` is null.
+/// The caller must free the returned pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_get_binary(
     array: *const vx_array,
     index: u32,
-    dst: *mut c_void,
-    len: *mut c_int,
-) {
+) -> *const vx_binary {
     let array = vx_array::as_ref(array);
     let value = array.scalar_at(index as usize);
-    let utf8_scalar = value.as_binary();
-    if let Some(bytes) = utf8_scalar.value() {
-        let dst = unsafe { slice::from_raw_parts_mut(dst as *mut u8, bytes.len()) };
-        dst.copy_from_slice(&bytes);
-        unsafe { *len = bytes.len().try_into().vortex_unwrap() };
+    let binary_scalar = value.as_binary();
+    if let Some(bytes) = binary_scalar.value() {
+        vx_binary::new(Arc::from(bytes.as_bytes()))
+    } else {
+        ptr::null()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::{c_int, c_void};
     use std::ptr;
 
     use vortex::IntoArray;
@@ -185,8 +181,10 @@ mod tests {
     use vortex::validity::Validity;
 
     use crate::array::*;
+    use crate::binary::vx_binary_free;
     use crate::dtype::{vx_dtype_get_variant, vx_dtype_variant};
     use crate::error::vx_error_free;
+    use crate::string::vx_string_free;
 
     #[test]
     fn test_simple() {
@@ -349,35 +347,17 @@ mod tests {
             let utf8_array = VarBinViewArray::from_iter_str(["hello", "world", "test"]);
             let ffi_array = vx_array::new(utf8_array.into_array());
 
-            let mut buffer = vec![0u8; 10];
-            let mut len: c_int = 0;
+            let vx_str1 = vx_array_get_utf8(ffi_array, 0);
+            assert_eq!(vx_string::as_str(vx_str1), "hello");
+            vx_string_free(vx_str1);
 
-            vx_array_get_utf8(
-                ffi_array,
-                0,
-                buffer.as_mut_ptr() as *mut c_void,
-                &raw mut len,
-            );
-            assert_eq!(len, 5);
-            assert_eq!(&buffer[..5], b"hello");
+            let vx_str2 = vx_array_get_utf8(ffi_array, 1);
+            assert_eq!(vx_string::as_str(vx_str2), "world");
+            vx_string_free(vx_str2);
 
-            vx_array_get_utf8(
-                ffi_array,
-                1,
-                buffer.as_mut_ptr() as *mut c_void,
-                &raw mut len,
-            );
-            assert_eq!(len, 5);
-            assert_eq!(&buffer[..5], b"world");
-
-            vx_array_get_utf8(
-                ffi_array,
-                2,
-                buffer.as_mut_ptr() as *mut c_void,
-                &raw mut len,
-            );
-            assert_eq!(len, 4);
-            assert_eq!(&buffer[..4], b"test");
+            let vx_str3 = vx_array_get_utf8(ffi_array, 2);
+            assert_eq!(vx_string::as_str(vx_str3), "test");
+            vx_string_free(vx_str3);
 
             vx_array_free(ffi_array);
         }
@@ -393,35 +373,17 @@ mod tests {
             ]);
             let ffi_array = vx_array::new(binary_array.into_array());
 
-            let mut buffer = vec![0u8; 10];
-            let mut len: c_int = 0;
+            let vx_bin1 = vx_array_get_binary(ffi_array, 0);
+            assert_eq!(vx_binary::as_slice(vx_bin1), &[0x01, 0x02, 0x03]);
+            vx_binary_free(vx_bin1);
 
-            vx_array_get_binary(
-                ffi_array,
-                0,
-                buffer.as_mut_ptr() as *mut c_void,
-                &raw mut len,
-            );
-            assert_eq!(len, 3);
-            assert_eq!(&buffer[..3], &[0x01, 0x02, 0x03]);
+            let vx_bin2 = vx_array_get_binary(ffi_array, 1);
+            assert_eq!(vx_binary::as_slice(vx_bin2), &[0xFF, 0xEE]);
+            vx_binary_free(vx_bin2);
 
-            vx_array_get_binary(
-                ffi_array,
-                1,
-                buffer.as_mut_ptr() as *mut c_void,
-                &raw mut len,
-            );
-            assert_eq!(len, 2);
-            assert_eq!(&buffer[..2], &[0xFF, 0xEE]);
-
-            vx_array_get_binary(
-                ffi_array,
-                2,
-                buffer.as_mut_ptr() as *mut c_void,
-                &raw mut len,
-            );
-            assert_eq!(len, 4);
-            assert_eq!(&buffer[..4], &[0xAA, 0xBB, 0xCC, 0xDD]);
+            let vx_bin3 = vx_array_get_binary(ffi_array, 2);
+            assert_eq!(vx_binary::as_slice(vx_bin3), &[0xAA, 0xBB, 0xCC, 0xDD]);
+            vx_binary_free(vx_bin3);
 
             vx_array_free(ffi_array);
         }

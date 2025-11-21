@@ -8,6 +8,7 @@
 
 mod array;
 mod array_iterator;
+mod binary;
 mod dtype;
 mod error;
 mod file;
