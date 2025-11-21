@@ -140,6 +140,8 @@ public final class SparkTypes {
 
                 // TODO(aduffy): other extension types
                 throw new IllegalArgumentException("Unsupported non-temporal extension type");
+            case DECIMAL:
+                return DataTypes.createDecimalType(dType.getPrecision(), dType.getScale());
             default:
                 throw new IllegalArgumentException("unreachable");
         }

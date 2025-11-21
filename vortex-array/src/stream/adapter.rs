@@ -55,7 +55,9 @@ where
             debug_assert_eq!(
                 array.dtype(),
                 this.dtype,
-                "ArrayStreamAdapter received an array with unexpected dtype"
+                "ArrayStreamAdapter expected array with type {}, actual {}",
+                this.dtype,
+                array.dtype(),
             );
         }
 
