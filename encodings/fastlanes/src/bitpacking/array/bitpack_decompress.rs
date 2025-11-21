@@ -10,7 +10,7 @@ use vortex_array::patches::Patches;
 use vortex_dtype::{
     IntegerPType, NativePType, match_each_integer_ptype, match_each_unsigned_integer_ptype,
 };
-use vortex_error::VortexExpect;
+use vortex_error::{VortexExpect, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -103,24 +103,12 @@ fn insert_values_and_validity_at_indices_to_uninit_range<
     indices_offset: usize,
     f: F,
 ) {
-    match values_validity {
-        Mask::AllTrue(_) => {
-            for (index, &value) in indices.iter().zip_eq(values) {
-                dst.set_value(index.as_() - indices_offset, f(value));
-            }
-        }
-        Mask::AllFalse(_) => {
-            for decompressed_index in indices {
-                dst.set_validity_bit(decompressed_index.as_() - indices_offset, false);
-            }
-        }
-        Mask::Values(vb) => {
-            for (index, &value) in indices.iter().zip_eq(values) {
-                let out_index = index.as_() - indices_offset;
-                dst.set_value(out_index, f(value));
-                dst.set_validity_bit(out_index, vb.value(out_index));
-            }
-        }
+    let Mask::AllTrue(_) = values_validity else {
+        vortex_panic!("BitPackedArray somehow had nullable patch values");
+    };
+
+    for (index, &value) in indices.iter().zip_eq(values) {
+        dst.set_value(index.as_() - indices_offset, f(value));
     }
 }
 
