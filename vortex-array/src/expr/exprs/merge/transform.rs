@@ -14,6 +14,7 @@ use crate::expr::{Expression, ExpressionView};
 /// Rule that removes Merge expressions by converting them to Pack + GetItem.
 ///
 /// Transforms: `merge([struct1, struct2])` → `pack(field1: get_item("field1", struct1), field2: get_item("field2", struct2), ...)`
+#[derive(Debug, Default)]
 pub struct RemoveMergeRule;
 
 impl ReduceRule<Merge, TypedRuleContext> for RemoveMergeRule {
@@ -99,9 +100,8 @@ mod tests {
         );
 
         let ctx = TypedRuleContext::new(dtype.clone());
-        let rule = RemoveMergeRule;
         let merge_view = e.as_::<Merge>();
-        let result = rule.reduce(&merge_view, &ctx).unwrap();
+        let result = RemoveMergeRule.reduce(&merge_view, &ctx).unwrap();
 
         assert!(result.is_some());
         let result = result.unwrap();

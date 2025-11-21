@@ -12,6 +12,7 @@ use crate::vtable::OperatorVTable;
 impl OperatorVTable<ExprVTable> for ExprVTable {}
 
 /// Rule to optimize expressions within ExprArrays.
+#[derive(Default, Debug)]
 pub struct ExprOptimizationRule;
 
 impl ArrayReduceRule<ExprVTable> for ExprOptimizationRule {
