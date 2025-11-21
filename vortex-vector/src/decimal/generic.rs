@@ -8,11 +8,11 @@ use std::ops::RangeBounds;
 
 use vortex_buffer::Buffer;
 use vortex_dtype::{NativeDecimalType, PrecisionScale};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
-use crate::decimal::{DScalar, DVectorMut};
 use crate::VectorOps;
+use crate::decimal::{DScalar, DVectorMut};
 
 /// An immutable vector of generic decimal values.
 ///

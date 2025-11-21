@@ -5,7 +5,7 @@
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::{NativeDecimalType, PrecisionScale};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::MaskMut;
 
 use crate::decimal::{DScalar, DVector};

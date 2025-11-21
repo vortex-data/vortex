@@ -6,11 +6,11 @@
 use std::sync::Arc;
 
 use vortex_dtype::StructFields;
-use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::MaskMut;
 
 use crate::struct_::{StructScalar, StructVector};
-use crate::{match_vector_pair, ScalarOps, Vector, VectorMut, VectorMutOps, VectorOps};
+use crate::{ScalarOps, Vector, VectorMut, VectorMutOps, VectorOps, match_vector_pair};
 
 /// A mutable vector of struct values (values with named fields).
 ///
@@ -346,10 +346,10 @@ mod tests {
     use vortex_mask::{Mask, MaskMut};
 
     use super::*;
+    use crate::VectorMut;
     use crate::bool::BoolVectorMut;
     use crate::null::{NullVector, NullVectorMut};
     use crate::primitive::PVectorMut;
-    use crate::VectorMut;
 
     #[test]
     fn test_empty_fields() {

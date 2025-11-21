@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::{i256, DecimalTypeUpcast, NativeDecimalType, PrecisionScale};
+use vortex_dtype::{DecimalTypeUpcast, NativeDecimalType, PrecisionScale, i256};
 use vortex_error::VortexExpect;
 
 use crate::decimal::DVectorMut;

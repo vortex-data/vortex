@@ -8,8 +8,8 @@ use std::ops::RangeBounds;
 
 use vortex_mask::Mask;
 
-use crate::null::{NullScalar, NullVectorMut};
 use crate::VectorOps;
+use crate::null::{NullScalar, NullVectorMut};
 
 /// An immutable vector of null values.
 ///

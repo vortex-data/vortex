@@ -12,7 +12,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::primitive::{PVector, PrimitiveScalar, PrimitiveVectorMut};
-use crate::{match_each_pvector, VectorOps};
+use crate::{VectorOps, match_each_pvector};
 
 /// An immutable vector of primitive values.
 ///

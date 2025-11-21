@@ -19,7 +19,7 @@ use crate::listview::ListViewVector;
 use crate::null::NullVector;
 use crate::primitive::PrimitiveVector;
 use crate::struct_::StructVector;
-use crate::{match_each_vector, Scalar, VectorMut, VectorOps};
+use crate::{Scalar, VectorMut, VectorOps, match_each_vector};
 
 /// An enum over all kinds of immutable vectors, which represent fully decompressed (canonical)
 /// array data.

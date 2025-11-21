@@ -7,7 +7,7 @@ use std::fmt::Debug;
 use std::ops::RangeBounds;
 use std::sync::Arc;
 
-use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 
 use crate::struct_::{StructScalar, StructVectorMut};

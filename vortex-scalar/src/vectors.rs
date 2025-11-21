@@ -3,9 +3,8 @@
 
 //! Conversion logic from this "legacy" scalar crate to Vortex Vector scalars.
 
-use crate::Scalar;
 use vortex_dtype::{
-    match_each_decimal_value_type, match_each_native_ptype, DType, DecimalType, PrecisionScale,
+    DType, DecimalType, PrecisionScale, match_each_decimal_value_type, match_each_native_ptype,
 };
 use vortex_error::VortexExpect;
 use vortex_vector::binaryview::{BinaryViewScalar, StringScalar};
@@ -13,6 +12,8 @@ use vortex_vector::bool::BoolScalar;
 use vortex_vector::decimal::DScalar;
 use vortex_vector::null::NullScalar;
 use vortex_vector::primitive::PScalar;
+
+use crate::Scalar;
 
 impl Scalar {
     pub fn into_vector(self) -> vortex_vector::Scalar {
@@ -41,9 +42,9 @@ impl Scalar {
             }
             DType::Utf8(_) => StringScalar::new(self.as_utf8().value()).into(),
             DType::Binary(_) => BinaryViewScalar::new(self.as_binary().value()).into(),
-            DType::List(_, _) => {}
-            DType::FixedSizeList(_, _, _) => {}
-            DType::Struct(_, _) => {}
+            DType::List(..) => {}
+            DType::FixedSizeList(..) => {}
+            DType::Struct(..) => {}
             DType::Extension(_) => {}
         }
     }

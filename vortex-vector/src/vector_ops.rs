@@ -9,7 +9,7 @@ use std::ops::RangeBounds;
 
 use vortex_mask::{Mask, MaskMut};
 
-use crate::{private, ScalarOps, Vector, VectorMut};
+use crate::{ScalarOps, Vector, VectorMut, private};
 
 /// Common operations for immutable vectors (all the variants of [`Vector`]).
 pub trait VectorOps: private::Sealed + Into<Vector> + Sized {

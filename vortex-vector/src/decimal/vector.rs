@@ -6,12 +6,12 @@
 use std::fmt::Debug;
 use std::ops::RangeBounds;
 
-use vortex_dtype::{i256, DecimalType, DecimalTypeDowncast, DecimalTypeUpcast, NativeDecimalType};
+use vortex_dtype::{DecimalType, DecimalTypeDowncast, DecimalTypeUpcast, NativeDecimalType, i256};
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::decimal::{DVector, DecimalScalar, DecimalVectorMut};
-use crate::{match_each_dvector, VectorOps};
+use crate::{VectorOps, match_each_dvector};
 
 /// An enum over all supported decimal mutable vector types.
 #[derive(Clone, Debug)]
