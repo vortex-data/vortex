@@ -110,7 +110,7 @@ impl ComputeFnVTable for Sum {
                 let sum_from_stat = accumulator
                     .as_primitive()
                     .checked_add(&sum.as_primitive())
-                    .map(|s| Scalar::from(s));
+                    .map(Scalar::from);
                 return Ok(sum_from_stat
                     .unwrap_or_else(|| Scalar::null(sum_dtype))
                     .into());
@@ -118,7 +118,7 @@ impl ComputeFnVTable for Sum {
                 let sum_from_stat = accumulator
                     .as_decimal()
                     .checked_binary_numeric(&sum.as_decimal(), NumericOperator::Add)
-                    .map(|s| Scalar::from(s));
+                    .map(Scalar::from);
                 return Ok(sum_from_stat
                     .unwrap_or_else(|| Scalar::null(sum_dtype))
                     .into());
@@ -132,26 +132,24 @@ impl ComputeFnVTable for Sum {
             array
                 .statistics()
                 .set(Stat::Sum, Precision::Exact(sum_scalar.value().clone()));
-        } else if sum_dtype.is_int() {
-            if let Some(less_accumulator) = sum_scalar
+        } else if sum_dtype.is_int()
+            && let Some(less_accumulator) = sum_scalar
                 .as_primitive()
                 .checked_sub(&accumulator.as_primitive())
-            {
-                array.statistics().set(
-                    Stat::Sum,
-                    Precision::Exact(Scalar::from(less_accumulator).value().clone()),
-                );
-            }
-        } else if sum_dtype.is_decimal() {
-            if let Some(less_accumulator) = sum_scalar
+        {
+            array.statistics().set(
+                Stat::Sum,
+                Precision::Exact(Scalar::from(less_accumulator).value().clone()),
+            );
+        } else if sum_dtype.is_decimal()
+            && let Some(less_accumulator) = sum_scalar
                 .as_decimal()
                 .checked_binary_numeric(&accumulator.as_decimal(), NumericOperator::Sub)
-            {
-                array.statistics().set(
-                    Stat::Sum,
-                    Precision::Exact(Scalar::from(less_accumulator).value().clone()),
-                );
-            }
+        {
+            array.statistics().set(
+                Stat::Sum,
+                Precision::Exact(Scalar::from(less_accumulator).value().clone()),
+            );
         }
 
         Ok(sum_scalar.into())
