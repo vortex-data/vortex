@@ -545,7 +545,7 @@ jobs:
           RUSTFLAGS: "-C target-feature=+avx2"
         if: ${{ matrix.shard == 10 }}
         run: |
-          cargo codspeed build --features test-harness \
+          cargo codspeed build \
             -p vortex-mask \
             -p vortex-metrics \
             -p vortex-utils \
