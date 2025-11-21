@@ -8,7 +8,8 @@ use vortex_array::{ArrayRef, IntoArray};
 use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
 
-use crate::{FL_CHUNK_SIZE, RLEArray, RLEVTable};
+use super::RLEVTable;
+use crate::{FL_CHUNK_SIZE, RLEArray};
 
 impl OperationsVTable<RLEVTable> for RLEVTable {
     fn slice(array: &RLEArray, range: Range<usize>) -> ArrayRef {
@@ -30,7 +31,7 @@ impl OperationsVTable<RLEVTable> for RLEVTable {
             .slice(chunk_start_idx..chunk_end_idx);
 
         let sliced_indices = array
-            .indices
+            .indices()
             .slice(chunk_start_idx * FL_CHUNK_SIZE..chunk_end_idx * FL_CHUNK_SIZE);
 
         // SAFETY: Slicing preserves all invariants.
@@ -39,9 +40,9 @@ impl OperationsVTable<RLEVTable> for RLEVTable {
                 sliced_values,
                 sliced_indices,
                 sliced_values_idx_offsets,
-                array.dtype.clone(),
+                array.dtype().clone(),
                 // Keep the offset relative to the first chunk.
-                (array.offset + range.start) % FL_CHUNK_SIZE,
+                (array.offset() + range.start) % FL_CHUNK_SIZE,
                 range.len(),
             )
             .into_array()
