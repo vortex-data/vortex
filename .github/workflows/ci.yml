@@ -446,7 +446,7 @@ jobs:
           RUSTFLAGS: "-C target-feature=+avx2"
         if: ${{ matrix.shard == 1 }}
         run: |
-          cargo codspeed build --features test-harness \
+          cargo codspeed build \
             -p vortex-buffer \
             -p vortex-dtype \
             -p vortex-error \
@@ -468,7 +468,7 @@ jobs:
           RUSTFLAGS: "-C target-feature=+avx2"
         if: ${{ matrix.shard == 3 }}
         run: |
-          cargo codspeed build --features test-harness \
+          cargo codspeed build \
             -p vortex \
             -p vortex-compute \
             --profile bench
@@ -500,7 +500,7 @@ jobs:
           RUSTFLAGS: "-C target-feature=+avx2"
         if: ${{ matrix.shard == 6 }}
         run: |
-          cargo codspeed build --features test-harness \
+          cargo codspeed build \
             -p vortex-pco \
             -p vortex-runend \
             -p vortex-sequence \
@@ -511,7 +511,7 @@ jobs:
           RUSTFLAGS: "-C target-feature=+avx2"
         if: ${{ matrix.shard == 7 }}
         run: |
-          cargo codspeed build --features test-harness \
+          cargo codspeed build \
             -p vortex-sparse \
             -p vortex-zigzag \
             -p vortex-zstd \
@@ -534,7 +534,7 @@ jobs:
           RUSTFLAGS: "-C target-feature=+avx2"
         if: ${{ matrix.shard == 9 }}
         run: |
-          cargo codspeed build --features test-harness \
+          cargo codspeed build \
             -p vortex-flatbuffers \
             -p vortex-proto \
             -p vortex-btrblocks \
