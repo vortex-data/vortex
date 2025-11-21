@@ -322,15 +322,27 @@ impl From<&[&'static str]> for FieldNames {
     }
 }
 
+impl<const N: usize> From<[&str; N]> for FieldNames {
+    fn from(value: [&str; N]) -> Self {
+        Self(value.iter().cloned().map(FieldName::from).collect())
+    }
+}
+
+impl From<Vec<&str>> for FieldNames {
+    fn from(value: Vec<&str>) -> Self {
+        Self(value.into_iter().map(FieldName::from).collect())
+    }
+}
+
 impl From<&[FieldName]> for FieldNames {
     fn from(value: &[FieldName]) -> Self {
         Self(Arc::from(value))
     }
 }
 
-impl<const N: usize> From<[&'static str; N]> for FieldNames {
-    fn from(value: [&'static str; N]) -> Self {
-        Self(value.into_iter().map(FieldName::from).collect())
+impl<const N: usize> From<&[&str; N]> for FieldNames {
+    fn from(value: &[&str; N]) -> Self {
+        Self(value.into_iter().cloned().map(FieldName::from).collect())
     }
 }
 

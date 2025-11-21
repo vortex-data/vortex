@@ -122,7 +122,7 @@ public final class SparkTypes {
                     type.close();
                 }
 
-                return new StructType(fields);
+                return DataTypes.createStructType(fields);
             case LIST:
                 return DataTypes.createArrayType(toDataType(dType.getElementType()), dType.isNullable());
             case EXTENSION:
