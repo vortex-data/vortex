@@ -419,7 +419,7 @@ jobs:
   bench-codspeed:
     strategy:
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 9]
     name: "Benchmark with Codspeed (Shard #${{ matrix.shard }})"
     timeout-minutes: 120
     runs-on:
@@ -427,7 +427,7 @@ jobs:
       - family=c6id.8xlarge
       - extras=s3-cache
       - image=ubuntu24-full-x64
-      - tag=bench-codspeed
+      - tag=bench-codspeed-${{matrix.shard}}
     steps:
       - uses: runs-on/action@v2
         with:
@@ -538,19 +538,6 @@ jobs:
             -p vortex-flatbuffers \
             -p vortex-proto \
             -p vortex-btrblocks \
-            --profile bench
-
-      - name: Build benchmarks (shard 10 - Utilities)
-        env:
-          RUSTFLAGS: "-C target-feature=+avx2"
-        if: ${{ matrix.shard == 10 }}
-        run: |
-          cargo codspeed build \
-            -p vortex-mask \
-            -p vortex-metrics \
-            -p vortex-utils \
-            -p vortex-scan \
-            -p vortex-session \
             --profile bench
 
       - name: Run benchmarks
