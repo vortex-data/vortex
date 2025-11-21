@@ -21,7 +21,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::expr::traversal::{NodeExt, ReferenceCollector};
 
 pub mod aliases;
-mod analysis;
+pub mod analysis;
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
 pub mod display;

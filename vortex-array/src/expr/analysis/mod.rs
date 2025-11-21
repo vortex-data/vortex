@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+pub mod annotations;
+pub mod immediate_access;
+mod null_sensitive;
+
+pub use annotations::*;
+pub use immediate_access::*;
+pub use null_sensitive::*;
 use vortex_dtype::FieldPath;
 
 use crate::expr::Expression;

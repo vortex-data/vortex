@@ -10,8 +10,8 @@ use vortex_dtype::{FieldName, FieldNames};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::arrays::{ExprArray, StructArray};
+use crate::expr::analysis::annotate_scope_access;
 use crate::expr::session::ExprSession;
-use crate::expr::transform::immediate_access::annotate_scope_access;
 use crate::expr::transform::{
     ExprOptimizer, PartitionedExpr, partition, replace, replace_root_fields,
 };

@@ -9,13 +9,11 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::expr::Expression;
+use crate::expr::analysis::{Annotation, AnnotationFn, Annotations, descendent_annotations};
 use crate::expr::exprs::get_item::get_item;
 use crate::expr::exprs::pack::pack;
 use crate::expr::exprs::root::root;
 use crate::expr::transform::ExprOptimizer;
-use crate::expr::transform::annotations::{
-    Annotation, AnnotationFn, Annotations, descendent_annotations,
-};
 use crate::expr::traversal::{NodeExt, NodeRewriter, Transformed, TraversalOrder};
 
 /// Partition an expression into sub-expressions that are uniquely associated with an annotation.
@@ -201,6 +199,7 @@ mod tests {
     use vortex_dtype::{DType, StructFields};
 
     use super::*;
+    use crate::expr::analysis::annotate_scope_access;
     use crate::expr::exprs::binary::and;
     use crate::expr::exprs::get_item::{col, get_item};
     use crate::expr::exprs::literal::lit;
@@ -209,7 +208,6 @@ mod tests {
     use crate::expr::exprs::root::root;
     use crate::expr::exprs::select::select;
     use crate::expr::session::ExprSession;
-    use crate::expr::transform::immediate_access::annotate_scope_access;
     use crate::expr::transform::replace::replace_root_fields;
     use crate::expr::transform::simplify_typed::simplify_typed;
 

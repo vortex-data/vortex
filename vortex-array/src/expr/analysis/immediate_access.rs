@@ -6,10 +6,10 @@ use vortex_error::VortexExpect;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::expr::Expression;
+use crate::expr::analysis::annotations::{AnnotationFn, Annotations, descendent_annotations};
 use crate::expr::exprs::get_item::GetItem;
 use crate::expr::exprs::root::Root;
 use crate::expr::exprs::select::Select;
-use crate::expr::transform::annotations::{AnnotationFn, Annotations, descendent_annotations};
 
 pub type FieldAccesses<'a> = Annotations<'a, FieldName>;
 
