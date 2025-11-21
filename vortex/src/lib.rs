@@ -4,7 +4,6 @@
 // https://github.com/rust-lang/cargo/pull/11645#issuecomment-1536905941
 #![doc = include_str!(concat!("../", env!("CARGO_PKG_README")))]
 
-use vortex_alp::ALPVTable;
 use vortex_array::expr::session::ExprSession;
 pub use vortex_array::*;
 #[cfg(feature = "files")]
