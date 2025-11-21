@@ -227,8 +227,10 @@ impl FileOpener for VortexOpener {
                 // for schema evolution and divergence between the table's schema and individual files.
                 filter = filter
                     .map(|filter| {
-                        let logical_file_schema =
-                            compute_logical_file_schema(&physical_file_schema, &logical_schema);
+                        let logical_file_schema = compute_logical_file_schema(
+                            &physical_file_schema.clone(),
+                            &logical_schema,
+                        );
 
                         let expr = expr_adapter_factory
                             .create(logical_file_schema, physical_file_schema.clone())
@@ -244,9 +246,14 @@ impl FileOpener for VortexOpener {
                 predicate_file_schema = physical_file_schema.clone();
             }
 
-            let (schema_mapping, adapted_projections) =
+            // Create the initial mapping from physical file schema to projected schema.
+            // This gives us the field reordering and tells us which logical schema fields
+            // to select.
+            let (_schema_mapping, adapted_projections) =
                 schema_adapter.map_schema(&physical_file_schema)?;
 
+            // Build the Vortex projection expression using the adapted projections.
+            // This will reorder the fields to match the target order.
             let fields = adapted_projections
                 .iter()
                 .map(|idx| {
@@ -255,6 +262,39 @@ impl FileOpener for VortexOpener {
                 })
                 .collect::<Vec<_>>();
             let projection_expr = select(fields, root());
+
+            // After Vortex applies the projection, the batch will have fields in the target
+            // order (matching adapted_projections), but with the physical file types.
+            // We need a second schema mapping for type casting only, not reordering.
+            // Build a schema that represents what Vortex will return: fields in target order
+            // with physical types.
+            let projected_physical_fields: Vec<Field> = adapted_projections
+                .iter()
+                .map(|&idx| {
+                    let logical_field = logical_schema.field(idx);
+                    let field_name = logical_field.name();
+
+                    // Find this field in the physical schema to get its physical type
+                    physical_file_schema
+                        .field_with_name(field_name)
+                        .map(|phys_field| {
+                            Field::new(
+                                field_name,
+                                merge_field_types(phys_field, logical_field),
+                                phys_field.is_nullable(),
+                            )
+                        })
+                        .unwrap_or_else(|_| (*logical_field).clone())
+                })
+                .collect();
+
+            let projected_physical_schema =
+                Arc::new(arrow_schema::Schema::new(projected_physical_fields));
+
+            // Create a second mapping from the projected physical schema (what Vortex returns)
+            // to the final projected schema. This mapping will handle type casting without reordering.
+            let (batch_schema_mapping, _) =
+                schema_adapter.map_schema(&projected_physical_schema)?;
 
             // We share our layout readers with others partitions in the scan, so we can only need to read each layout in each file once.
             let layout_reader = match layout_reader.entry(file_meta.object_meta.location.clone()) {
@@ -350,7 +390,7 @@ impl FileOpener for VortexOpener {
                     ))))
                 })
                 .try_flatten()
-                .map(move |batch| batch.and_then(|b| schema_mapping.map_batch(b)))
+                .map(move |batch| batch.and_then(|b| batch_schema_mapping.map_batch(b)))
                 .boxed();
 
             Ok(stream)
@@ -653,6 +693,74 @@ mod tests {
         | -2    |
         | -3    |
         +-------+
+        ");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    // This test verifies that files with different column order than the
+    // table schema can be opened without errors. The fix ensures that the
+    // schema mapper is only used for type casting, not for reordering,
+    // since the vortex projection already handles reordering.
+    async fn test_schema_different_column_order() -> anyhow::Result<()> {
+        use datafusion::arrow::util::pretty::pretty_format_batches_with_options;
+
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "/path/file.vortex";
+
+        // File has columns in order: c, b, a
+        let batch = record_batch!(
+            ("c", Int32, vec![Some(300), Some(301), Some(302)]),
+            ("b", Int32, vec![Some(200), Some(201), Some(202)]),
+            ("a", Int32, vec![Some(100), Some(101), Some(102)])
+        )
+        .unwrap();
+        let data_size = write_arrow_to_vortex(object_store.clone(), file_path, batch).await?;
+        let file = PartitionedFile::new(file_path.to_string(), data_size);
+
+        // Table schema has columns in different order: a, b, c
+        let table_schema = Arc::new(Schema::new(vec![
+            Field::new("a", DataType::Int32, true),
+            Field::new("b", DataType::Int32, true),
+            Field::new("c", DataType::Int32, true),
+        ]));
+
+        let opener = VortexOpener {
+            session: SESSION.clone(),
+            object_store: object_store.clone(),
+            projection: Some([0, 1, 2].into()),
+            filter: None,
+            file_pruning_predicate: None,
+            expr_adapter_factory: Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _),
+            schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
+            partition_fields: vec![],
+            file_cache: VortexFileCache::new(1, 1, SESSION.clone()),
+            logical_schema: table_schema.clone(),
+            batch_size: 100,
+            limit: None,
+            metrics: Default::default(),
+            layout_readers: Default::default(),
+            has_output_ordering: false,
+        };
+
+        // The opener should successfully open the file and reorder columns
+        let stream = opener.open(make_meta(file_path, data_size), file)?.await?;
+
+        let format_opts = FormatOptions::new().with_types_info(true);
+        let data = stream.try_collect::<Vec<_>>().await?;
+
+        // Verify the output has columns in table schema order (a, b, c)
+        // not file order (c, b, a)
+        assert_snapshot!(pretty_format_batches_with_options(&data, &format_opts)?.to_string(), @r"
+        +-------+-------+-------+
+        | a     | b     | c     |
+        | Int32 | Int32 | Int32 |
+        +-------+-------+-------+
+        | 100   | 200   | 300   |
+        | 101   | 201   | 301   |
+        | 102   | 202   | 302   |
+        +-------+-------+-------+
         ");
 
         Ok(())
