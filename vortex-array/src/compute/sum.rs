@@ -306,10 +306,10 @@ mod test {
         )
         .unwrap();
 
-        let sum_with_acc = sum(array.as_ref()).unwrap();
+        let sum_without_acc = sum(array.as_ref()).unwrap();
         assert_eq!(
-            sum_with_acc,
-            Scalar::primitive(11i64, Nullability::Nullable)
+            sum_without_acc,
+            Scalar::primitive(9i64, Nullability::Nullable)
         );
     }
 }
