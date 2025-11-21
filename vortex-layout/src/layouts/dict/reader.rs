@@ -200,9 +200,16 @@ impl LayoutReader for DictReader {
         Ok(async move {
             let (values, codes) = try_join!(values_eval.map_err(VortexError::from), codes_eval)?;
 
-            // Validate that codes are valid for the values
-            let array =
-                DictArray::try_new_with_metadata(codes, values, all_values_referenced)?.to_array();
+            // SAFETY: Layout was validated at write time.
+            //  * The codes dtype is guaranteed to be an unsigned integer type from the layout
+            //  * The codes child reader ensures the correct dtype.
+            //  * The layout stores `all_values_referenced` and if this is malicious then it must
+            //    only affect correctness not memory safety.
+            let array = unsafe {
+                DictArray::new_unchecked(codes, values)
+                    .set_all_values_referenced(all_values_referenced)
+            }
+            .to_array();
             expr.evaluate(&array)
         }
         .boxed())
