@@ -446,7 +446,11 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: nextest
-      - name: Rust Tests
+      - name: Rust Tests (Windows)
+        if: matrix.os == 'windows-x64'
+        run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude bench-vortex --exclude vortex-python --exclude vortex-duckdb
+      - name: Rust Tests (Other)
+        if: matrix.os != 'windows-x64'
         run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude bench-vortex
 
   build-java:
