@@ -2,10 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::io;
-#[cfg(unix)]
-use std::os::unix::fs::FileExt;
 #[cfg(not(unix))]
 use std::io::{Read, Seek};
+#[cfg(unix)]
+use std::os::unix::fs::FileExt;
 use std::sync::Arc;
 
 use async_compat::Compat;
@@ -127,8 +127,9 @@ impl ReadSource for ObjectStoreIoSource {
                         )
                         .await?;
 
+                    #[cfg_attr(unix, allow(unused_mut))]
                     let buffer = match response.payload {
-                        object_store::GetResultPayload::File(file, _) => {
+                        object_store::GetResultPayload::File(mut file, _) => {
                             // SAFETY: We're setting the length to the exact size we're about to read.
                             // The read_exact_at call will either fill the entire buffer or return an error,
                             // ensuring no uninitialized memory is exposed.
