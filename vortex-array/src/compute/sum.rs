@@ -9,7 +9,7 @@ use vortex_dtype::DType;
 use vortex_error::{
     VortexError, VortexResult, vortex_bail, vortex_ensure, vortex_err, vortex_panic,
 };
-use vortex_scalar::Scalar;
+use vortex_scalar::{NumericOperator, Scalar};
 
 use crate::Array;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
@@ -103,26 +103,55 @@ impl ComputeFnVTable for Sum {
 
         // Short-circuit using array statistics.
         if let Some(Precision::Exact(sum)) = array.statistics().get(Stat::Sum) {
-            let sum_from_stat = sum
-                .as_primitive()
-                .checked_add(&accumulator.as_primitive())
-                .map(|s| Scalar::from(s));
-            return Ok(sum_from_stat
-                .unwrap_or_else(|| Scalar::null(sum_dtype))
-                .into());
+            // For floats only use stats if accumulator is zero. otherwise we might have numerical stability issues.
+            if sum_dtype.is_float() && accumulator == &Scalar::zero_value(sum_dtype.clone()) {
+                return Ok(sum.into());
+            } else if sum_dtype.is_int() {
+                let sum_from_stat = accumulator
+                    .as_primitive()
+                    .checked_add(&sum.as_primitive())
+                    .map(|s| Scalar::from(s));
+                return Ok(sum_from_stat
+                    .unwrap_or_else(|| Scalar::null(sum_dtype))
+                    .into());
+            } else if sum_dtype.is_decimal() {
+                let sum_from_stat = accumulator
+                    .as_decimal()
+                    .checked_binary_numeric(&sum.as_decimal(), NumericOperator::Add)
+                    .map(|s| Scalar::from(s));
+                return Ok(sum_from_stat
+                    .unwrap_or_else(|| Scalar::null(sum_dtype))
+                    .into());
+            }
         }
 
         let sum_scalar = sum_impl(array, accumulator, kernels)?;
 
         // Update the statistics with the computed sum. Stored statistic shouldn't include the accumulator.
-        if let Some(less_accumulator) = sum_scalar
-            .as_primitive()
-            .checked_sub(&accumulator.as_primitive())
-        {
-            array.statistics().set(
-                Stat::Sum,
-                Precision::Exact(Scalar::from(less_accumulator).value().clone()),
-            );
+        if sum_dtype.is_float() && accumulator == &Scalar::zero_value(sum_dtype.clone()) {
+            array
+                .statistics()
+                .set(Stat::Sum, Precision::Exact(sum_scalar.value().clone()));
+        } else if sum_dtype.is_int() {
+            if let Some(less_accumulator) = sum_scalar
+                .as_primitive()
+                .checked_sub(&accumulator.as_primitive())
+            {
+                array.statistics().set(
+                    Stat::Sum,
+                    Precision::Exact(Scalar::from(less_accumulator).value().clone()),
+                );
+            }
+        } else if sum_dtype.is_decimal() {
+            if let Some(less_accumulator) = sum_scalar
+                .as_decimal()
+                .checked_binary_numeric(&accumulator.as_decimal(), NumericOperator::Sub)
+            {
+                array.statistics().set(
+                    Stat::Sum,
+                    Precision::Exact(Scalar::from(less_accumulator).value().clone()),
+                );
+            }
         }
 
         Ok(sum_scalar.into())
