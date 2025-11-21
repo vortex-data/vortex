@@ -19,7 +19,7 @@ use crate::listview::ListViewVector;
 use crate::null::NullVector;
 use crate::primitive::PrimitiveVector;
 use crate::struct_::StructVector;
-use crate::{Scalar, VectorMut, VectorOps, match_each_vector};
+use crate::{match_each_vector, Scalar, VectorMut, VectorOps};
 
 /// An enum over all kinds of immutable vectors, which represent fully decompressed (canonical)
 /// array data.
@@ -64,6 +64,7 @@ pub enum Vector {
 
 impl VectorOps for Vector {
     type Mutable = VectorMut;
+    type Scalar = Scalar;
 
     fn len(&self) -> usize {
         match_each_vector!(self, |v| { v.len() })
@@ -74,7 +75,7 @@ impl VectorOps for Vector {
     }
 
     fn scalar_at(&self, index: usize) -> Scalar {
-        match_each_vector!(self, |v| { v.scalar_at(index) })
+        match_each_vector!(self, |v| { v.scalar_at(index).into() })
     }
 
     fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self {

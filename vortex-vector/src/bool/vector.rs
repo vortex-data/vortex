@@ -7,11 +7,11 @@ use std::fmt::Debug;
 use std::ops::RangeBounds;
 
 use vortex_buffer::BitBuffer;
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
-use crate::bool::BoolVectorMut;
-use crate::{Scalar, VectorOps};
+use crate::bool::{BoolScalar, BoolVectorMut};
+use crate::VectorOps;
 
 /// An immutable vector of boolean values.
 ///
@@ -74,6 +74,7 @@ impl BoolVector {
 
 impl VectorOps for BoolVector {
     type Mutable = BoolVectorMut;
+    type Scalar = BoolScalar;
 
     fn len(&self) -> usize {
         debug_assert!(self.validity.len() == self.bits.len());
@@ -84,13 +85,13 @@ impl VectorOps for BoolVector {
         &self.validity
     }
 
-    fn scalar_at(&self, index: usize) -> Scalar {
+    fn scalar_at(&self, index: usize) -> BoolScalar {
         assert!(index < self.len());
 
         let is_valid = self.validity.value(index);
         let value = is_valid.then(|| self.bits.value(index));
 
-        Scalar::Bool(value.into())
+        BoolScalar::new(value)
     }
 
     fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self {

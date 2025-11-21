@@ -8,13 +8,13 @@ use std::ops::RangeBounds;
 use std::sync::Arc;
 
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use crate::binaryview::vector_mut::BinaryViewVectorMut;
-use crate::binaryview::view::{BinaryView, validate_views};
+use crate::binaryview::view::{validate_views, BinaryView};
 use crate::binaryview::{BinaryViewScalar, BinaryViewType};
-use crate::{Scalar, VectorOps};
+use crate::VectorOps;
 
 /// A variable-length binary vector.
 ///
@@ -193,6 +193,7 @@ impl<T: BinaryViewType> BinaryViewVector<T> {
 
 impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
     type Mutable = BinaryViewVectorMut<T>;
+    type Scalar = BinaryViewScalar<T>;
 
     fn len(&self) -> usize {
         self.views.len()
@@ -202,9 +203,9 @@ impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
         &self.validity
     }
 
-    fn scalar_at(&self, index: usize) -> Scalar {
+    fn scalar_at(&self, index: usize) -> BinaryViewScalar<T> {
         assert!(index < self.len());
-        BinaryViewScalar::<T>::from(self.get(index)).into()
+        BinaryViewScalar::<T>::new(self.get(index))
     }
 
     fn slice(&self, _range: impl RangeBounds<usize> + Clone + Debug) -> Self {
@@ -281,7 +282,7 @@ impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_buffer::{ByteBuffer, buffer};
+    use vortex_buffer::{buffer, ByteBuffer};
     use vortex_mask::Mask;
 
     use crate::binaryview::view::BinaryView;

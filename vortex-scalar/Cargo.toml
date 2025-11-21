@@ -29,6 +29,7 @@ vortex-dtype = { workspace = true, features = ["arrow"] }
 vortex-error = { workspace = true }
 vortex-proto = { workspace = true, features = ["scalar"] }
 vortex-utils = { workspace = true }
+vortex-vector = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }

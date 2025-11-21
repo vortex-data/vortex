@@ -6,12 +6,12 @@
 use std::sync::Arc;
 
 use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
 use vortex_mask::MaskMut;
 
-use crate::binaryview::BinaryViewType;
 use crate::binaryview::vector::BinaryViewVector;
-use crate::binaryview::view::{BinaryView, validate_views};
+use crate::binaryview::view::{validate_views, BinaryView};
+use crate::binaryview::{BinaryViewScalar, BinaryViewType};
 use crate::{VectorMutOps, VectorOps};
 
 // Default capacity for new string data buffers of 2MiB.
@@ -264,6 +264,20 @@ impl<T: BinaryViewType> VectorMutOps for BinaryViewVectorMut<T> {
         self.validity.append_n(false, n);
     }
 
+    fn append_zeros(&mut self, n: usize) {
+        self.views.push_n(BinaryView::empty_view(), n);
+        self.validity.append_n(true, n);
+    }
+
+    fn append_scalars(&mut self, scalar: &BinaryViewScalar<T>, n: usize) {
+        match scalar.value() {
+            None => self.append_nulls(n),
+            Some(v) => {
+                self.append_owned_values(v.clone(), n);
+            }
+        }
+    }
+
     fn freeze(mut self) -> BinaryViewVector<T> {
         // Freeze all components, close any in-progress views
         self.flush_open_buffer();
@@ -296,7 +310,7 @@ mod tests {
     use std::ops::Deref;
     use std::sync::Arc;
 
-    use vortex_buffer::{ByteBuffer, buffer, buffer_mut};
+    use vortex_buffer::{buffer, buffer_mut, ByteBuffer};
     use vortex_mask::{Mask, MaskMut};
 
     use crate::binaryview::view::BinaryView;

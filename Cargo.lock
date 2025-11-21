@@ -9090,6 +9090,7 @@ dependencies = [
  "vortex-error",
  "vortex-proto",
  "vortex-utils",
+ "vortex-vector",
 ]
 
 [[package]]

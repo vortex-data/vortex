@@ -3,16 +3,16 @@
 
 use std::fmt::Formatter;
 
-use prost::Message;
-use vortex_dtype::{DType, match_each_float_ptype};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_proto::expr as pb;
-use vortex_scalar::Scalar;
-
 use crate::arrays::ConstantArray;
 use crate::expr::{ChildName, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt};
 use crate::stats::Stat;
 use crate::{Array, ArrayRef, IntoArray};
+use prost::Message;
+use vortex_dtype::{match_each_float_ptype, DType};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_proto::expr as pb;
+use vortex_scalar::Scalar;
+use vortex_vector::Vector;
 
 /// Expression that represents a literal scalar value.
 pub struct Literal;
@@ -71,6 +71,14 @@ impl VTable for Literal {
 
     fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         Ok(ConstantArray::new(expr.data().clone(), scope.len()).into_array())
+    }
+
+    fn execute(
+        &self,
+        _expr: &ExpressionView<Self>,
+        _vector: &Vector,
+        _dtype: &DType,
+    ) -> VortexResult<Vector> {
     }
 
     fn stat_expression(

@@ -6,13 +6,13 @@
 use std::sync::Arc;
 
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
 use vortex_mask::MaskMut;
 
-use super::ListViewVector;
+use super::{ListViewScalar, ListViewVector};
 use crate::primitive::{PrimitiveVector, PrimitiveVectorMut};
 use crate::vector_ops::VectorMutOps;
-use crate::{VectorMut, VectorOps, match_each_integer_pvector, match_each_integer_pvector_mut};
+use crate::{match_each_integer_pvector, match_each_integer_pvector_mut, VectorMut, VectorOps};
 
 /// A mutable vector of variable-width lists.
 ///
@@ -357,6 +357,14 @@ impl VectorMutOps for ListViewVectorMut {
         self.validity.append_n(false, n);
         self.len += n;
         debug_assert_eq!(self.len, self.validity.len());
+    }
+
+    fn append_zeros(&mut self, n: usize) {
+        todo!()
+    }
+
+    fn append_scalars(&mut self, scalar: &ListViewScalar, n: usize) {
+        todo!()
     }
 
     fn freeze(self) -> ListViewVector {

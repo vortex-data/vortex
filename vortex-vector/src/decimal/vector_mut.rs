@@ -4,14 +4,14 @@
 //! Definition and implementation of [`DecimalVectorMut`].
 
 use vortex_dtype::{
-    DecimalDType, DecimalType, DecimalTypeDowncast, DecimalTypeUpcast, NativeDecimalType,
-    PrecisionScale, i256, match_each_decimal_value_type,
+    i256, match_each_decimal_value_type, DecimalDType, DecimalType, DecimalTypeDowncast,
+    DecimalTypeUpcast, NativeDecimalType, PrecisionScale,
 };
 use vortex_error::vortex_panic;
 use vortex_mask::MaskMut;
 
-use crate::decimal::{DVectorMut, DecimalVector};
-use crate::{VectorMutOps, match_each_dvector_mut};
+use crate::decimal::{DVectorMut, DecimalScalar, DecimalVector};
+use crate::{match_each_dvector_mut, VectorMutOps};
 
 /// An enum over all supported decimal mutable vector types.
 #[derive(Clone, Debug)]
@@ -94,6 +94,22 @@ impl VectorMutOps for DecimalVectorMut {
 
     fn append_nulls(&mut self, n: usize) {
         match_each_dvector_mut!(self, |d| { d.append_nulls(n) })
+    }
+
+    fn append_zeros(&mut self, n: usize) {
+        match_each_dvector_mut!(self, |d| { d.append_zeros(n) })
+    }
+
+    fn append_scalars(&mut self, scalar: &DecimalScalar, n: usize) {
+        match (self, scalar) {
+            (Self::D8(s), DecimalScalar::D8(o)) => s.append_scalars(o, n),
+            (Self::D16(s), DecimalScalar::D16(o)) => s.append_scalars(o, n),
+            (Self::D32(s), DecimalScalar::D32(o)) => s.append_scalars(o, n),
+            (Self::D64(s), DecimalScalar::D64(o)) => s.append_scalars(o, n),
+            (Self::D128(s), DecimalScalar::D128(o)) => s.append_scalars(o, n),
+            (Self::D256(s), DecimalScalar::D256(o)) => s.append_scalars(o, n),
+            _ => vortex_panic!("Mismatched decimal vector and scalar types in append_scalar"),
+        }
     }
 
     fn freeze(self) -> DecimalVector {

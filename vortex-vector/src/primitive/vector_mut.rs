@@ -8,8 +8,8 @@ use vortex_dtype::{NativePType, PType, PTypeDowncast, PTypeUpcast};
 use vortex_error::vortex_panic;
 use vortex_mask::MaskMut;
 
-use crate::primitive::{PVectorMut, PrimitiveVector};
-use crate::{VectorMutOps, match_each_pvector_mut};
+use crate::primitive::{PVectorMut, PrimitiveScalar, PrimitiveVector};
+use crate::{match_each_pvector_mut, VectorMutOps};
 
 /// A mutable vector of primitive values.
 ///
@@ -127,6 +127,27 @@ impl VectorMutOps for PrimitiveVectorMut {
 
     fn append_nulls(&mut self, n: usize) {
         match_each_pvector_mut!(self, |v| { v.append_nulls(n) })
+    }
+
+    fn append_zeros(&mut self, n: usize) {
+        match_each_pvector_mut!(self, |v| { v.append_zeros(n) })
+    }
+
+    fn append_scalars(&mut self, scalar: &PrimitiveScalar, n: usize) {
+        match (self, scalar) {
+            (Self::U8(a), PrimitiveScalar::U8(b)) => a.append_scalars(b, n),
+            (Self::U16(a), PrimitiveScalar::U16(b)) => a.append_scalars(b, n),
+            (Self::U32(a), PrimitiveScalar::U32(b)) => a.append_scalars(b, n),
+            (Self::U64(a), PrimitiveScalar::U64(b)) => a.append_scalars(b, n),
+            (Self::I8(a), PrimitiveScalar::I8(b)) => a.append_scalars(b, n),
+            (Self::I16(a), PrimitiveScalar::I16(b)) => a.append_scalars(b, n),
+            (Self::I32(a), PrimitiveScalar::I32(b)) => a.append_scalars(b, n),
+            (Self::I64(a), PrimitiveScalar::I64(b)) => a.append_scalars(b, n),
+            (Self::F16(a), PrimitiveScalar::F16(b)) => a.append_scalars(b, n),
+            (Self::F32(a), PrimitiveScalar::F32(b)) => a.append_scalars(b, n),
+            (Self::F64(a), PrimitiveScalar::F64(b)) => a.append_scalars(b, n),
+            _ => vortex_panic!("Mismatched primitive vector and scalar types"),
+        }
     }
 
     fn freeze(self) -> PrimitiveVector {

@@ -6,11 +6,11 @@
 use std::sync::Arc;
 
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
 use vortex_mask::MaskMut;
 
-use crate::fixed_size_list::FixedSizeListVector;
-use crate::{VectorMut, VectorMutOps, match_vector_pair};
+use crate::fixed_size_list::{FixedSizeListScalar, FixedSizeListVector};
+use crate::{match_vector_pair, ScalarOps, VectorMut, VectorMutOps};
 
 /// A mutable vector of fixed-size lists.
 ///
@@ -224,6 +224,22 @@ impl VectorMutOps for FixedSizeListVectorMut {
         debug_assert_eq!(self.len, self.validity.len());
     }
 
+    fn append_zeros(&mut self, n: usize) {
+        self.elements.append_zeros(n * self.list_size as usize);
+        self.validity.append_n(true, n);
+        self.len += n;
+        debug_assert_eq!(self.len, self.validity.len());
+    }
+
+    fn append_scalars(&mut self, scalar: &FixedSizeListScalar, n: usize) {
+        for _ in 0..n {
+            self.elements.extend_from_vector(scalar.value().elements())
+        }
+        self.validity.append_n(scalar.is_valid(), n);
+        self.len += n;
+        debug_assert_eq!(self.len, self.validity.len());
+    }
+
     fn freeze(self) -> FixedSizeListVector {
         FixedSizeListVector {
             elements: Arc::new(self.elements.freeze()),
@@ -281,8 +297,8 @@ mod tests {
     use vortex_mask::{Mask, MaskMut};
 
     use super::*;
-    use crate::VectorOps;
     use crate::primitive::PVectorMut;
+    use crate::VectorOps;
 
     #[test]
     fn test_core_operations() {
