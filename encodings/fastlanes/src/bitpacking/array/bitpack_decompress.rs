@@ -7,15 +7,117 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder, UninitRange};
 use vortex_array::patches::Patches;
+use vortex_array::validity::Validity;
+use vortex_array::vtable::ValidityHelper;
+use vortex_buffer::BufferMut;
 use vortex_dtype::{
-    IntegerPType, NativePType, match_each_integer_ptype, match_each_unsigned_integer_ptype,
+    IntegerPType, NativePType, UnsignedPType, match_each_integer_ptype,
+    match_each_unsigned_integer_ptype,
 };
 use vortex_error::{VortexExpect, vortex_panic};
-use vortex_mask::Mask;
+use vortex_mask::{Mask, MaskMut};
 use vortex_scalar::Scalar;
+use vortex_vector::primitive::{PVectorMut, PrimitiveVectorMut};
 
 use crate::BitPackedArray;
 use crate::unpack_iter::BitPacked;
+
+/// Unpacks a bit-packed array into a primitive vector.
+pub fn unpack_to_primitive_vector(array: &BitPackedArray) -> PrimitiveVectorMut {
+    match_each_integer_ptype!(array.ptype(), |P| { unpack_to_pvector::<P>(array).into() })
+}
+
+/// Unpacks a bit-packed array into a generic [`PVectorMut`].
+pub fn unpack_to_pvector<P: BitPacked>(array: &BitPackedArray) -> PVectorMut<P> {
+    if array.is_empty() {
+        return PVectorMut::with_capacity(0);
+    }
+
+    let len = array.len();
+    let mut elements = BufferMut::<P>::with_capacity(len);
+    let uninit_slice = &mut elements.spare_capacity_mut()[..len];
+    debug_assert_eq!(uninit_slice.len(), len);
+
+    // Decode into an uninitialized slice.
+    let mut bit_packed_iter = array.unpacked_chunks();
+    bit_packed_iter.decode_into(uninit_slice);
+    // SAFETY: `decode_into` initialized exactly `len` elements into the spare (existing) capacity.
+    unsafe { elements.set_len(len) };
+
+    let mut validity = array.validity_mask().into_mut();
+    debug_assert_eq!(validity.len(), len);
+
+    // TODO(connor): Implement a fused version of patching instead.
+    if let Some(patches) = array.patches() {
+        let patch_indices = patches.indices().to_primitive();
+        let patch_values = patches.values().to_primitive();
+        let patches_validity = patch_values.validity();
+        let patch_offset = patches.offset();
+
+        let patch_values_slice = patch_values.as_slice::<P>();
+        match_each_unsigned_integer_ptype!(patch_indices.ptype(), |I| {
+            let patch_indices_slice = patch_indices.as_slice::<I>();
+
+            // SAFETY:
+            // - `Patches` invariant guarantees indices are sorted and within array bounds.
+            // - `patch_indices` and `patch_values` have equal length (from `Patches` invariant).
+            // - `elements` and `validity` have equal length (both are `len` from the array).
+            // - All patch indices are valid after offset adjustment (guaranteed by `Patches`).
+            unsafe {
+                apply_patches_inner(
+                    &mut elements,
+                    &mut validity,
+                    patch_indices_slice,
+                    patch_offset,
+                    patch_values_slice,
+                    patches_validity,
+                )
+            };
+        });
+    }
+
+    // SAFETY: `elements` and `validity` have the same length.
+    unsafe { PVectorMut::new_unchecked(elements, validity) }
+}
+
+/// # Safety
+///
+/// - All indices in `patch_indices` after subtracting `patch_offset` must be valid indices
+///   into both `buffer` and `validity`.
+/// - `patch_indices` must be sorted in ascending order.
+/// - `patch_indices` and `patch_values` must have the same length.
+/// - `buffer` and `validity` must have the same length.
+unsafe fn apply_patches_inner<P, I>(
+    buffer: &mut [P],
+    validity: &mut MaskMut,
+    patch_indices: &[I],
+    patch_offset: usize,
+    patch_values: &[P],
+    patches_validity: &Validity,
+) where
+    P: NativePType,
+    I: UnsignedPType,
+{
+    debug_assert!(!patch_indices.is_empty());
+    debug_assert_eq!(patch_indices.len(), patch_values.len());
+    debug_assert_eq!(buffer.len(), validity.len());
+    debug_assert!(patch_indices.is_sorted());
+    debug_assert!(patch_indices.last().vortex_expect("can't be empty").as_() <= validity.len());
+
+    match patches_validity {
+        Validity::NonNullable | Validity::AllValid => {
+            for (&i, &value) in patch_indices.iter().zip_eq(patch_values) {
+                let index = i.as_() - patch_offset;
+
+                // SAFETY: `index` is valid because caller guarantees all patch indices are within
+                // bounds after offset adjustment.
+                unsafe { validity.set_unchecked(index) };
+                buffer[index] = value;
+            }
+        }
+        _ => vortex_panic!("BitPackedArray somehow had nullable patch values"),
+    }
+}
 
 pub fn unpack_array(array: &BitPackedArray) -> PrimitiveArray {
     match_each_integer_ptype!(array.ptype(), |P| { unpack_primitive_array::<P>(array) })
