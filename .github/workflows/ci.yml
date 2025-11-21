@@ -412,7 +412,7 @@ jobs:
               - runs-on=${{ github.run_id }}
               - family=m7i
               - cpu=8
-              - image=windows22-full-x64
+              - image=windows22-base-x64
               - tag=rust-test-windows
           - os: linux-arm64
             runner:
@@ -429,6 +429,9 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v5
+      - name: Install MSVC Build Tools (Windows)
+        if: matrix.os == 'windows-x64'
+        uses: ilammy/msvc-dev-cmd@v1
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
