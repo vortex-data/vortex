@@ -4,6 +4,8 @@
 use std::io;
 #[cfg(unix)]
 use std::os::unix::fs::FileExt;
+#[cfg(not(unix))]
+use std::io::{Read, Seek};
 use std::sync::Arc;
 
 use async_compat::Compat;
@@ -139,7 +141,7 @@ impl ReadSource for ObjectStoreIoSource {
                                         Ok::<_, io::Error>(buffer)
                                     }
                                     #[cfg(not(unix))] {
-                                        file.seek(range.start)?;
+                                        file.seek(io::SeekFrom::Start(range.start))?;
                                         file.read_exact(&mut buffer)?;
                                         Ok::<_, io::Error>(buffer)
                                     }
