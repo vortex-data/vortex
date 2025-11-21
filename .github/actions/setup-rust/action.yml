@@ -25,6 +25,7 @@ runs:
       run: echo "version=$(cat rust-toolchain.toml | grep channel | awk -F'\"' '{print $2}')" >> $GITHUB_OUTPUT
 
     - name: Install Mold
+      if: runner.os == 'Linux'
       uses: rui314/setup-mold@v1
 
     - name: Rust Toolchain
