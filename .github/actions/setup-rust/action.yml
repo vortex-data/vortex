@@ -50,13 +50,16 @@ runs:
       shell: bash
       run: echo "PATH=$PATH" >> $GITHUB_ENV
 
-    - name: Add PowerShell to PATH (Windows)
-      if: runner.os == 'Windows'
-      shell: bash
-      run: echo "C:\Windows\System32\WindowsPowerShell\v1.0" >> $GITHUB_PATH
-
     - name: Install Protoc (for lance-encoding build step)
+      if: runner.os != 'Windows'
       uses: arduino/setup-protoc@v3
       with:
         version: "29.3"
         repo-token: ${{ inputs.repo-token }}
+
+    - name: Install Protoc on Windows
+      if: runner.os == 'Windows'
+      shell: bash
+      run: |
+        choco install protoc --version=29.3 -y
+        echo "C:\ProgramData\chocolatey\lib\protoc\tools\bin" >> $GITHUB_PATH
