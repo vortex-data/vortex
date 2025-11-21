@@ -155,8 +155,8 @@ mod tests {
     use vortex_array::compute::{Operator as ComputeOp, compare};
     use vortex_array::expr::session::ExprSession;
     use vortex_array::expr::transform::ExprOptimizer;
-    use vortex_array::expr::{gt, lit, root};
-    use vortex_array::{Array, ArraySession, IntoArray, ToCanonical};
+    use vortex_array::expr::{Binary, Literal, Root, gt, lit, root};
+    use vortex_array::{Array, ArraySession, IntoArray, ToCanonical, assert_arrays_eq};
 
     use super::*;
     use crate::alp_encode;
@@ -202,9 +202,18 @@ mod tests {
         let encoded_child = optimized_expr.child().to_primitive();
         assert_eq!(encoded_child.as_slice::<i32>(), vec![1234; 100]);
 
-        // Verify the expression is comparing against encoded value (1.0 * 10^3 = 1000)
-        // The expression should be: $ > 1000 (since 1.0 encodes to 1000)
-        println!("Optimized expression: {:?}", optimized_expr.expr());
+        // Verify the expression structure
+        let binary_view = optimized_expr.expr().as_::<Binary>();
+        assert!(binary_view.lhs().is::<Root>(), "Left side should be root()");
+        assert!(
+            binary_view.rhs().is::<Literal>(),
+            "Right side should be a literal"
+        );
+        assert_eq!(
+            binary_view.operator(),
+            vortex_array::expr::Operator::Gt,
+            "Operator should be Gt (1.0 encodes exactly to 1000, so the operator remains unchanged)"
+        );
 
         // Verify correctness by comparing with the eager comparison kernel
         let expected = compare(
@@ -215,10 +224,8 @@ mod tests {
         .unwrap();
         let actual = optimized.to_canonical().into_array();
 
-        assert_eq!(actual.len(), expected.len());
-        for i in 0..actual.len() {
-            assert_eq!(actual.scalar_at(i), expected.scalar_at(i));
-        }
+        // Use assert_arrays_eq to validate the canonical form
+        assert_arrays_eq!(actual.clone(), expected.clone());
 
         // Result should be all true (1.234 > 1.0)
         for i in 0..actual.len() {
@@ -240,6 +247,29 @@ mod tests {
         let optimizer = session.optimizer(ExprOptimizer::new(&expr_session));
         let optimized = optimizer.optimize_array(expr_array.into_array()).unwrap();
 
+        // Verify the pushdown happened: should be ExprArray wrapping encoded integers
+        let optimized_expr = optimized.as_::<ExprVTable>();
+        assert!(
+            optimized_expr
+                .child()
+                .is::<vortex_array::arrays::PrimitiveVTable>(),
+            "Pushdown failed: child is not PrimitiveArray, it's {:?}",
+            optimized_expr.child().encoding().id()
+        );
+
+        // Verify the expression structure
+        let binary_view = optimized_expr.expr().as_::<Binary>();
+        assert!(binary_view.lhs().is::<Root>(), "Left side should be root()");
+        assert!(
+            binary_view.rhs().is::<Literal>(),
+            "Right side should be a literal"
+        );
+        assert_eq!(
+            binary_view.operator(),
+            vortex_array::expr::Operator::Eq,
+            "Operator should be Eq"
+        );
+
         // Verify correctness matches the eager comparison
         let expected = compare(
             alp.as_ref(),
@@ -249,10 +279,8 @@ mod tests {
         .unwrap();
         let actual = optimized.to_canonical().into_array();
 
-        assert_eq!(actual.len(), expected.len());
-        for i in 0..actual.len() {
-            assert_eq!(actual.scalar_at(i), expected.scalar_at(i));
-        }
+        // Use assert_arrays_eq to validate the canonical form
+        assert_arrays_eq!(actual.clone(), expected.clone());
     }
 
     #[test]
@@ -282,12 +310,24 @@ mod tests {
             optimized.encoding().id()
         );
 
-        // Should return constant false (value can't be equal to any encoded value)
+        // Downcast to ConstantArray and verify structure
+        let constant_array = optimized.as_::<vortex_array::arrays::ConstantVTable>();
+        assert_eq!(constant_array.len(), 100);
+        let false_scalar: Scalar = false.into();
+        assert_eq!(*constant_array.scalar(), false_scalar);
+
+        // Verify correctness matches the eager comparison
+        #[allow(clippy::excessive_precision)]
+        let expected = compare(
+            alp.as_ref(),
+            ConstantArray::new(1.234444f32, 100).as_ref(),
+            ComputeOp::Eq,
+        )
+        .unwrap();
         let actual = optimized.to_canonical().into_array();
-        assert_eq!(actual.len(), 100);
-        for i in 0..actual.len() {
-            assert_eq!(actual.scalar_at(i), false.into());
-        }
+
+        // Use assert_arrays_eq to validate the canonical form
+        assert_arrays_eq!(actual.clone(), expected.clone());
     }
 
     #[test]
@@ -299,7 +339,8 @@ mod tests {
         assert!(alp.patches().is_some());
 
         let expr = gt(root(), lit(1.0f32));
-        let expr_array = ExprArray::new_infer_dtype(alp.into_array(), expr.clone()).unwrap();
+        let expr_array =
+            ExprArray::new_infer_dtype(alp.clone().into_array(), expr.clone()).unwrap();
 
         let session = ArraySession::default();
         crate::register_alp_rules(&session);
@@ -307,12 +348,29 @@ mod tests {
         let optimizer = session.optimizer(ExprOptimizer::new(&expr_session));
         let optimized = optimizer.optimize_array(expr_array.into_array()).unwrap();
 
-        // Optimization should not apply - expression should be unchanged
+        // Optimization should not apply - child should still be ALPArray
         let optimized_expr = optimized.as_::<ExprVTable>();
+        assert!(
+            optimized_expr.child().is::<ALPVTable>(),
+            "When patches exist, pushdown should not apply - child should still be ALPArray"
+        );
         assert_eq!(optimized_expr.expr(), &expr);
+
+        // Verify correctness still holds even without pushdown
+        let expected = compare(
+            alp.as_ref(),
+            ConstantArray::new(1.0f32, 5).as_ref(),
+            ComputeOp::Gt,
+        )
+        .unwrap();
+        let actual = optimized.to_canonical().into_array();
+
+        // Use assert_arrays_eq to validate the canonical form
+        assert_arrays_eq!(actual.clone(), expected.clone());
     }
 
     #[test]
+    #[allow(clippy::use_debug)]
     fn test_alp_pushdown_all_operators() {
         let array = PrimitiveArray::from_iter([0.0605f32; 10]);
         let alp = alp_encode(&array, None).unwrap();
@@ -372,6 +430,19 @@ mod tests {
                         opt_expr.expr()
                     );
                     pushdown_count += 1;
+
+                    // Verify the expression structure for ExprArray optimizations
+                    let binary_view = opt_expr.expr().as_::<Binary>();
+                    assert!(
+                        binary_view.lhs().is::<Root>(),
+                        "Left side should be root() for operator {:?}",
+                        compute_op
+                    );
+                    assert!(
+                        binary_view.rhs().is::<Literal>(),
+                        "Right side should be a literal for operator {:?}",
+                        compute_op
+                    );
                 } else {
                     println!(
                         "✗ Operator {:?}: Still ExprArray but child is {:?}",
@@ -379,13 +450,23 @@ mod tests {
                         opt_expr.child().encoding().id()
                     );
                 }
-            } else {
+            } else if optimized.is::<vortex_array::arrays::ConstantVTable>() {
                 println!(
                     "✓ Operator {:?}: Optimized to {:?} (constant result)",
                     compute_op,
                     optimized.encoding().id()
                 );
                 pushdown_count += 1;
+
+                // Verify ConstantArray structure
+                let constant_array = optimized.as_::<vortex_array::arrays::ConstantVTable>();
+                assert_eq!(constant_array.len(), 10);
+            } else {
+                println!(
+                    "✗ Operator {:?}: Optimized to unexpected type {:?}",
+                    compute_op,
+                    optimized.encoding().id()
+                );
             }
 
             // Verify correctness matches the eager comparison kernel
@@ -397,21 +478,8 @@ mod tests {
             .unwrap();
             let actual = optimized.to_canonical().into_array();
 
-            assert_eq!(
-                actual.len(),
-                expected.len(),
-                "Failed for operator {:?}",
-                compute_op
-            );
-            for i in 0..actual.len() {
-                assert_eq!(
-                    actual.scalar_at(i),
-                    expected.scalar_at(i),
-                    "Mismatch at index {} for operator {:?}",
-                    i,
-                    compute_op
-                );
-            }
+            // Use assert_arrays_eq to validate the canonical form
+            assert_arrays_eq!(actual.clone(), expected.clone());
         }
 
         // Verify that all operators were optimized
