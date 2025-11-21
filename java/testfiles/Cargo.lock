@@ -527,6 +527,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 
 [[package]]
+name = "cudarc"
+version = "0.17.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0bf99ab37ee7072d64d906aa2dada9a3422f1d975cdf8c8055a573bc84897ed8"
+dependencies = [
+ "half",
+ "libloading",
+]
+
+[[package]]
 name = "dashmap"
 version = "6.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -883,6 +893,8 @@ dependencies = [
  "cfg-if",
  "crunchy",
  "num-traits",
+ "rand",
+ "rand_distr",
  "zerocopy",
 ]
 
@@ -1185,6 +1197,16 @@ name = "libc"
 version = "0.2.177"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2874a2af47a2325c2001a6e6fad9b16a53b802102b528163885171cf92b15976"
+
+[[package]]
+name = "libloading"
+version = "0.8.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
+dependencies = [
+ "cfg-if",
+ "windows-link",
+]
 
 [[package]]
 name = "libm"
@@ -1701,6 +1723,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rand_distr"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a8615d50dcf34fa31f7ab52692afec947c4dd0ab803cc87cb3b0b4570ff7463"
+dependencies = [
+ "num-traits",
+ "rand",
+]
+
+[[package]]
 name = "rand_xoshiro"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2088,6 +2120,8 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 name = "vortex"
 version = "0.1.0"
 dependencies = [
+ "fastlanes",
+ "rand",
  "vortex-alp",
  "vortex-array",
  "vortex-btrblocks",
@@ -2095,10 +2129,8 @@ dependencies = [
  "vortex-bytebool",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
- "vortex-dict",
  "vortex-dtype",
  "vortex-error",
- "vortex-expr",
  "vortex-fastlanes",
  "vortex-file",
  "vortex-flatbuffers",
@@ -2184,6 +2216,7 @@ dependencies = [
  "vortex-io",
  "vortex-mask",
  "vortex-metrics",
+ "vortex-proto",
  "vortex-scalar",
  "vortex-session",
  "vortex-utils",
@@ -2205,7 +2238,6 @@ dependencies = [
  "vortex-buffer",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
- "vortex-dict",
  "vortex-dtype",
  "vortex-error",
  "vortex-fastlanes",
@@ -2226,6 +2258,7 @@ dependencies = [
  "arrow-buffer",
  "bitvec",
  "bytes",
+ "cudarc",
  "itertools",
  "num-traits",
  "simdutf8",
@@ -2289,24 +2322,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vortex-dict"
-version = "0.1.0"
-dependencies = [
- "arrow-array",
- "arrow-buffer",
- "num-traits",
- "prost",
- "rustc-hash",
- "vortex-array",
- "vortex-buffer",
- "vortex-dtype",
- "vortex-error",
- "vortex-mask",
- "vortex-scalar",
- "vortex-utils",
-]
-
-[[package]]
 name = "vortex-dtype"
 version = "0.1.0"
 dependencies = [
@@ -2341,27 +2356,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vortex-expr"
-version = "0.1.0"
-dependencies = [
- "arcref",
- "itertools",
- "parking_lot",
- "paste",
- "prost",
- "termtree",
- "vortex-array",
- "vortex-buffer",
- "vortex-dtype",
- "vortex-error",
- "vortex-mask",
- "vortex-proto",
- "vortex-scalar",
- "vortex-session",
- "vortex-utils",
-]
-
-[[package]]
 name = "vortex-fastlanes"
 version = "0.1.0"
 dependencies = [
@@ -2373,13 +2367,16 @@ dependencies = [
  "log",
  "num-traits",
  "prost",
+ "static_assertions",
  "vortex-array",
  "vortex-buffer",
+ "vortex-compute",
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
  "vortex-scalar",
  "vortex-utils",
+ "vortex-vector",
 ]
 
 [[package]]
@@ -2402,10 +2399,8 @@ dependencies = [
  "vortex-bytebool",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
- "vortex-dict",
  "vortex-dtype",
  "vortex-error",
- "vortex-expr",
  "vortex-fastlanes",
  "vortex-flatbuffers",
  "vortex-fsst",
@@ -2445,6 +2440,7 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-scalar",
+ "vortex-vector",
 ]
 
 [[package]]
@@ -2519,10 +2515,8 @@ dependencies = [
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-decimal-byte-parts",
- "vortex-dict",
  "vortex-dtype",
  "vortex-error",
- "vortex-expr",
  "vortex-flatbuffers",
  "vortex-io",
  "vortex-mask",
@@ -2563,10 +2557,12 @@ dependencies = [
  "prost",
  "vortex-array",
  "vortex-buffer",
+ "vortex-compute",
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
  "vortex-scalar",
+ "vortex-vector",
 ]
 
 [[package]]
@@ -2627,7 +2623,6 @@ dependencies = [
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
- "vortex-expr",
  "vortex-io",
  "vortex-layout",
  "vortex-mask",
@@ -2674,6 +2669,7 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-scalar",
+ "vortex-vector",
 ]
 
 [[package]]
@@ -2688,6 +2684,7 @@ dependencies = [
 name = "vortex-vector"
 version = "0.1.0"
 dependencies = [
+ "paste",
  "static_assertions",
  "vortex-buffer",
  "vortex-dtype",
@@ -2722,6 +2719,7 @@ dependencies = [
  "vortex-mask",
  "vortex-scalar",
  "vortex-sparse",
+ "vortex-vector",
  "zstd",
 ]
 
