@@ -419,7 +419,7 @@ jobs:
   bench-codspeed:
     strategy:
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 9]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9]
     name: "Benchmark with Codspeed (Shard #${{ matrix.shard }})"
     timeout-minutes: 120
     runs-on:
@@ -450,7 +450,8 @@ jobs:
             -p vortex-buffer \
             -p vortex-dtype \
             -p vortex-error \
-            --profile bench
+            --profile bench \
+            -C debug_assertions=yes
 
       - name: Build benchmarks (shard 2 - Array types)
         env:
@@ -461,7 +462,8 @@ jobs:
             -p vortex-array \
             -p vortex-scalar \
             -p vortex-vector \
-            --profile bench
+            --profile bench \
+            -C debug_assertions=yes
 
       - name: Build benchmarks (shard 3 - Main library)
         env:
@@ -471,7 +473,8 @@ jobs:
           cargo codspeed build \
             -p vortex \
             -p vortex-compute \
-            --profile bench
+            --profile bench \
+            -C debug_assertions=yes
 
       - name: Build benchmarks (shard 4 - Encodings 1)
         env:
@@ -482,7 +485,8 @@ jobs:
             -p vortex-alp \
             -p vortex-bytebool \
             -p vortex-datetime-parts \
-            --profile bench
+            --profile bench \
+            -C debug_assertions=yes
 
       - name: Build benchmarks (shard 5 - Encodings 2)
         env:
@@ -493,7 +497,8 @@ jobs:
             -p vortex-decimal-byte-parts \
             -p vortex-fastlanes \
             -p vortex-fsst \
-            --profile bench
+            --profile bench \
+            -C debug_assertions=yes
 
       - name: Build benchmarks (shard 6 - Encodings 3)
         env:
@@ -504,7 +509,8 @@ jobs:
             -p vortex-pco \
             -p vortex-runend \
             -p vortex-sequence \
-            --profile bench
+            --profile bench \
+            -C debug_assertions=yes
 
       - name: Build benchmarks (shard 7 - Encodings 4)
         env:
@@ -515,7 +521,8 @@ jobs:
             -p vortex-sparse \
             -p vortex-zigzag \
             -p vortex-zstd \
-            --profile bench
+            --profile bench \
+            -C debug_assertions=yes
 
       - name: Build benchmarks (shard 8 - IO and Layout)
         env:
@@ -527,7 +534,8 @@ jobs:
             -p vortex-file \
             -p vortex-layout \
             -p vortex-ipc \
-            --profile bench
+            --profile bench \
+            -C debug_assertions=yes
 
       - name: Build benchmarks (shard 9 - Storage formats)
         env:
@@ -538,7 +546,8 @@ jobs:
             -p vortex-flatbuffers \
             -p vortex-proto \
             -p vortex-btrblocks \
-            --profile bench
+            --profile bench \
+            -C debug_assertions=yes
 
       - name: Run benchmarks
         uses: CodSpeedHQ/action@6a8e2b874c338bf81cc5e8be715ada75908d3871
