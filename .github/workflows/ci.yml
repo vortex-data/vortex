@@ -400,6 +400,27 @@ jobs:
             --target x86_64-unknown-linux-gnu \
             --verbose
 
+  rust-test-windows:
+    name: "Rust tests (Windows)"
+    timeout-minutes: 120
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i
+      - cpu=8
+      - image=windows22-full-x64
+      - tag=rust-test-windows
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+      - name: Rust Tests
+        run: cargo nextest run --locked --workspace --all-features --no-fail-fast
+
   build-java:
     name: "Java"
     runs-on: ubuntu-latest
