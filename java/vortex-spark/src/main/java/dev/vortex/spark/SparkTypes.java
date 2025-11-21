@@ -114,12 +114,9 @@ public final class SparkTypes {
                 var fields = new StructField[fieldNames.size()];
                 for (int i = 0; i < fieldNames.size(); i++) {
                     var name = fieldNames.get(i);
-                    var type = fieldTypes.get(i);
-
-                    fields[i] = new StructField(name, toDataType(type), dType.isNullable(), Metadata.empty());
-
-                    // Close the DType to free it when we're done with conversion
-                    type.close();
+                    try (var type = fieldTypes.get(i)) {
+                        fields[i] = new StructField(name, toDataType(type), dType.isNullable(), Metadata.empty());
+                    }
                 }
 
                 return DataTypes.createStructType(fields);
