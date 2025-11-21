@@ -82,10 +82,19 @@ impl ReadSource for FileIoSource {
                         let offset = req.offset();
                         let mut buffer = ByteBufferMut::with_capacity_aligned(len, req.alignment());
                         unsafe { buffer.set_len(len) };
-                        req.resolve(match file.read_exact_at(&mut buffer, offset) {
-                            Ok(()) => Ok(buffer.freeze()),
-                            Err(e) => Err(VortexError::from(e)),
-                        })
+
+                        #[cfg(unix)]
+                        let buffer_res = file.read_exact_at(&mut buffer, offset);
+                        #[cfg(not(unix))]
+                        let buffer_res = file
+                            .seek(io::SeekFrom::Start(offset))
+                            .and_then(|_| file.read_exact(&mut buffer));
+
+                        req.resolve(
+                            buffer_res
+                                .map(|_| buffer.freeze())
+                                .map_err(VortexError::from),
+                        )
                     }
                 })
             })
