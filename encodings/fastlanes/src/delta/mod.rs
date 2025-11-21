@@ -5,7 +5,7 @@ mod array;
 pub use array::DeltaArray;
 pub use array::delta_compress::delta_compress;
 
-pub mod compute;
+mod compute;
 
 mod vtable;
 pub use vtable::{DeltaEncoding, DeltaVTable};
