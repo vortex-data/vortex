@@ -15,13 +15,13 @@ use vortex_array::vtable::{
     ValidityVTableFromChild, VisitorVTable,
 };
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
-    DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata, SerializeMetadata,
-    ToCanonical, vtable,
+    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef,
+    Canonical, DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata,
+    SerializeMetadata, ToCanonical,
 };
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
 use crate::alp_rd::alp_rd_decode;
 
@@ -43,7 +43,7 @@ pub struct ALPRDMetadata {
 
 impl VTable for ALPRDVTable {
     type Array = ALPRDArray;
-    type Encoding = ALPRDEncoding;
+
     type Metadata = ProstMetadata<ALPRDMetadata>;
 
     type ArrayVTable = Self;
@@ -55,12 +55,12 @@ impl VTable for ALPRDVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
+    fn id(&self) -> EncodingId {
         EncodingId::new_ref("vortex.alprd")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ALPRDEncoding.as_ref())
+        EncodingRef::new_ref(ALPRDVTable.as_ref())
     }
 
     fn metadata(array: &ALPRDArray) -> VortexResult<Self::Metadata> {
@@ -94,7 +94,7 @@ impl VTable for ALPRDVTable {
     }
 
     fn build(
-        _encoding: &ALPRDEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -176,7 +176,7 @@ pub struct ALPRDArray {
 }
 
 #[derive(Clone, Debug)]
-pub struct ALPRDEncoding;
+pub struct ALPRDVTable;
 
 impl ALPRDArray {
     /// Build a new `ALPRDArray` from components.
@@ -382,7 +382,7 @@ impl CanonicalVTable<ALPRDVTable> for ALPRDVTable {
 
 impl EncodeVTable<ALPRDVTable> for ALPRDVTable {
     fn encode(
-        _encoding: &ALPRDEncoding,
+        &self,
         canonical: &Canonical,
         like: Option<&ALPRDArray>,
     ) -> VortexResult<Option<ALPRDArray>> {
@@ -428,11 +428,11 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
-    use vortex_array::{ProstMetadata, ToCanonical, assert_arrays_eq};
+    use vortex_array::{assert_arrays_eq, ProstMetadata, ToCanonical};
     use vortex_dtype::PType;
 
     use super::ALPRDMetadata;
-    use crate::{ALPRDFloat, alp_rd};
+    use crate::{alp_rd, ALPRDFloat};
 
     #[rstest]
     #[case(vec![0.1f32.next_up(); 1024], 1.123_848_f32)]

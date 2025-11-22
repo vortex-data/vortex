@@ -4,12 +4,12 @@
 use pyo3::conversion::FromPyObjectBound;
 use pyo3::prelude::*;
 use pyo3::types::PyType;
-use vortex::EncodingRef;
 use vortex::dtype::DType;
 use vortex::stats::ArrayStats;
+use vortex::EncodingRef;
 
+use crate::arrays::py::PythonVTable;
 use crate::arrays::PyArray;
-use crate::arrays::py::PythonEncoding;
 use crate::dtype::PyDType;
 
 /// Base class for implementing a Vortex encoding in Python.

@@ -10,7 +10,7 @@ use futures::{StreamExt, TryStreamExt, pin_mut};
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
-    ChunkedArray, ConstantArray, DecimalArray, DictEncoding, DictVTable, ListArray, PrimitiveArray,
+    ChunkedArray, ConstantArray, DecimalArray, DictVTable, , ListArray, PrimitiveArray,
     StructArray, VarBinArray, VarBinViewArray,
 };
 use vortex_array::expr::session::ExprSession;
@@ -65,13 +65,13 @@ async fn test_read_simple() {
         VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
         VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
     ])
-    .into_array();
+        .into_array();
 
     let numbers = ChunkedArray::from_iter([
         buffer![1u32, 2, 3, 4].into_array(),
         buffer![5u32, 6, 7, 8].into_array(),
     ])
-    .into_array();
+        .into_array();
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let mut buf = ByteBufferMut::empty();
@@ -113,35 +113,35 @@ async fn test_round_trip_many_types() {
         DecimalDType::new(2, 1),
         Validity::from_iter([false, true, false]),
     )
-    .into_array();
+        .into_array();
 
     let decimal_4 = DecimalArray::new(
         buffer![100i16, 10i16, 2i16],
         DecimalDType::new(4, 2),
         Validity::from_iter([false, true, false]),
     )
-    .into_array();
+        .into_array();
 
     let decimal_9 = DecimalArray::new(
         buffer![100i32, 10i32, 2i32],
         DecimalDType::new(9, 2),
         Validity::from_iter([false, true, false]),
     )
-    .into_array();
+        .into_array();
 
     let decimal_17 = DecimalArray::new(
         buffer![100i64, 10i64, 20234i64],
         DecimalDType::new(17, 2),
         Validity::from_iter([false, true, false]),
     )
-    .into_array();
+        .into_array();
 
     let decimal_35 = DecimalArray::new(
         buffer![100i128, 139348340i128, 23943942i128],
         DecimalDType::new(35, 2),
         Validity::from_iter([true, false, false]),
     )
-    .into_array();
+        .into_array();
 
     let st = StructArray::from_fields(&[
         ("strings", strings),
@@ -152,7 +152,7 @@ async fn test_round_trip_many_types() {
         ("decimal_17", decimal_17),
         ("decimal_35", decimal_35),
     ])
-    .unwrap();
+        .unwrap();
     let mut buf = ByteBufferMut::empty();
 
     SESSION
@@ -185,27 +185,27 @@ async fn test_read_simple_with_spawn() {
         VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
         VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
     ])
-    .into_array();
+        .into_array();
 
     let numbers = ChunkedArray::from_iter([
         buffer![1u32, 2, 3, 4].into_array(),
         buffer![5u32, 6, 7, 8].into_array(),
     ])
-    .into_array();
+        .into_array();
 
     let lists = ChunkedArray::from_iter([
         ListArray::from_iter_slow::<i16, _>(
             vec![vec![11, 12], vec![21, 22], vec![31, 32], vec![41, 42]],
             Arc::new(I32.into()),
         )
-        .unwrap(),
+            .unwrap(),
         ListArray::from_iter_slow::<i8, _>(
             vec![vec![51, 52], vec![61, 62], vec![71, 72], vec![81, 82]],
             Arc::new(I32.into()),
         )
-        .unwrap(),
+            .unwrap(),
     ])
-    .into_array();
+        .into_array();
 
     let st =
         StructArray::from_fields(&[("strings", strings), ("numbers", numbers), ("lists", lists)])
@@ -229,7 +229,7 @@ async fn test_read_projection() {
         VarBinArray::from(strings_expected[..4].to_vec()).into_array(),
         VarBinArray::from(strings_expected[4..].to_vec()).into_array(),
     ])
-    .into_array();
+        .into_array();
     let strings_dtype = strings.dtype().clone();
 
     let numbers_expected = [1u32, 2, 3, 4, 5, 6, 7, 8];
@@ -237,7 +237,7 @@ async fn test_read_projection() {
         Buffer::copy_from(&numbers_expected[..4]).into_array(),
         Buffer::copy_from(&numbers_expected[4..]).into_array(),
     ])
-    .into_array();
+        .into_array();
     let numbers_dtype = numbers.dtype().clone();
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
@@ -302,13 +302,13 @@ async fn unequal_batches() {
         VarBinArray::from(vec!["ab", "foo", "bar", "bob"]).into_array(),
         VarBinArray::from(vec!["baz", "ab", "foo", "bar", "baz", "alice"]).into_array(),
     ])
-    .into_array();
+        .into_array();
 
     let numbers = ChunkedArray::from_iter([
         buffer![1u32, 2, 3, 4, 5].into_array(),
         buffer![6u32, 7, 8, 9, 10].into_array(),
     ])
-    .into_array();
+        .into_array();
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let mut buf = ByteBufferMut::empty();
@@ -364,8 +364,8 @@ async fn write_chunked() {
         16,
         Validity::NonNullable,
     )
-    .unwrap()
-    .into_array();
+        .unwrap()
+        .into_array();
     let st_dtype = st.dtype().clone();
 
     let chunked_st = ChunkedArray::try_new(iter::repeat_n(st, 3).collect(), st_dtype)
@@ -470,7 +470,7 @@ async fn filter_string() {
         vec![Some("Joseph"), None, Some("Angela"), Some("Mikhail"), None],
         DType::Utf8(Nullability::Nullable),
     )
-    .into_array();
+        .into_array();
     let ages_orig =
         PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]).into_array();
     let st = StructArray::try_new(
@@ -479,8 +479,8 @@ async fn filter_string() {
         5,
         Validity::NonNullable,
     )
-    .unwrap()
-    .into_array();
+        .unwrap()
+        .into_array();
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
@@ -527,8 +527,8 @@ async fn filter_or() {
         5,
         Validity::NonNullable,
     )
-    .unwrap()
-    .into_array();
+        .unwrap()
+        .into_array();
 
     let mut buf = ByteBufferMut::empty();
     SESSION
@@ -587,8 +587,8 @@ async fn filter_and() {
         5,
         Validity::NonNullable,
     )
-    .unwrap()
-    .into_array();
+        .unwrap()
+        .into_array();
 
     let mut buf = ByteBufferMut::empty();
     SESSION
@@ -619,7 +619,7 @@ async fn filter_and() {
         vec![Some("Joseph"), None],
         DType::Utf8(Nullability::Nullable),
     )
-    .into_array();
+        .into_array();
     assert_arrays_eq!(names_actual.as_ref(), names_expected.as_ref());
 
     let ages_actual = result[0].to_struct().fields()[1].clone();
@@ -639,9 +639,9 @@ async fn test_with_indices_simple() {
                 .cloned()
                 .map(IntoArray::into_array),
         )
-        .into_array(),
+            .into_array(),
     )])
-    .unwrap();
+        .unwrap();
     let expected_numbers: Vec<i16> = expected_numbers_split.into_iter().flatten().collect();
 
     let mut buf = ByteBufferMut::empty();
@@ -713,14 +713,14 @@ async fn test_with_indices_on_two_columns() {
         VarBinArray::from(strings_expected[..4].to_vec()).into_array(),
         VarBinArray::from(strings_expected[4..].to_vec()).into_array(),
     ])
-    .into_array();
+        .into_array();
 
     let numbers_expected = [1u32, 2, 3, 4, 5, 6, 7, 8];
     let numbers = ChunkedArray::from_iter([
         Buffer::copy_from(&numbers_expected[..4]).into_array(),
         Buffer::copy_from(&numbers_expected[4..]).into_array(),
     ])
-    .into_array();
+        .into_array();
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let mut buf = ByteBufferMut::empty();
@@ -774,9 +774,9 @@ async fn test_with_indices_and_with_row_filter_simple() {
                 .cloned()
                 .map(IntoArray::into_array),
         )
-        .into_array(),
+            .into_array(),
     )])
-    .unwrap();
+        .unwrap();
     let expected_numbers: Vec<i16> = expected_numbers_split.into_iter().flatten().collect();
 
     let mut buf = ByteBufferMut::empty();
@@ -866,7 +866,7 @@ async fn filter_string_chunked() {
         Some("Mikhail".to_owned()),
         None,
     ])
-    .into_array();
+        .into_array();
     let age_chunk2 =
         PrimitiveArray::from_option_iter([Some(57_i32), Some(18), None, Some(32)]).into_array();
 
@@ -922,7 +922,7 @@ async fn test_pruning_with_or() {
         Some("B".to_owned()),
         Some("D".to_owned()),
     ])
-    .into_array();
+        .into_array();
     let number_chunk1 =
         PrimitiveArray::from_option_iter([Some(25_i32), Some(31), None]).into_array();
     let letter_chunk2 = VarBinViewArray::from_iter_nullable_str([
@@ -931,7 +931,7 @@ async fn test_pruning_with_or() {
         Some("J".to_owned()),
         None,
     ])
-    .into_array();
+        .into_array();
     let number_chunk2 =
         PrimitiveArray::from_option_iter([Some(4_i32), Some(18), None, Some(21)]).into_array();
     let letter_chunk3 = VarBinViewArray::from_iter_nullable_str([
@@ -940,7 +940,7 @@ async fn test_pruning_with_or() {
         Some("O".to_owned()),
         Some("P".to_owned()),
     ])
-    .into_array();
+        .into_array();
     let number_chunk3 =
         PrimitiveArray::from_option_iter([Some(10_i32), Some(15), None, Some(22)]).into_array();
     let letter_chunk4 = VarBinViewArray::from_iter_nullable_str([
@@ -948,7 +948,7 @@ async fn test_pruning_with_or() {
         Some("Y".to_owned()),
         Some("Z".to_owned()),
     ])
-    .into_array();
+        .into_array();
     let number_chunk4 =
         PrimitiveArray::from_option_iter([Some(66_i32), Some(77), Some(88)]).into_array();
 
@@ -1007,7 +1007,7 @@ async fn test_pruning_with_or() {
         None,
         Some("P".to_owned()),
     ])
-    .into_array();
+        .into_array();
     assert_arrays_eq!(letters_actual.as_ref(), letters_expected.as_ref());
 
     let numbers_actual = actual_array.fields()[1].clone();
@@ -1023,7 +1023,7 @@ async fn test_pruning_with_or() {
         Some(15),
         Some(22),
     ])
-    .into_array();
+        .into_array();
     assert_arrays_eq!(numbers_actual.as_ref(), numbers_expected.as_ref());
 }
 
@@ -1033,7 +1033,7 @@ async fn test_repeated_projection() {
         VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
         VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
     ])
-    .into_array();
+        .into_array();
 
     let single_column_array = StructArray::from_fields(&[("strings", strings.clone())])
         .unwrap()
@@ -1079,7 +1079,7 @@ async fn chunked_file() -> VortexResult<VortexFile> {
         buffer![3, 4, 5].into_array(),
         buffer![6, 7, 8].into_array(),
     ])
-    .into_array();
+        .into_array();
 
     let mut writer = vec![];
     SESSION
@@ -1108,7 +1108,7 @@ async fn file_excluding_dtype() -> VortexResult<()> {
         buffer![3, 4, 5].into_array(),
         buffer![6, 7, 8].into_array(),
     ])
-    .into_array();
+        .into_array();
     let dtype = array.dtype().clone();
 
     let mut writer = vec![];
@@ -1162,8 +1162,8 @@ async fn write_nullable_top_level_struct() {
         5,
         Validity::AllValid,
     )
-    .unwrap()
-    .into_array();
+        .unwrap()
+        .into_array();
 
     let mut writer = vec![];
     SESSION
@@ -1213,7 +1213,7 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
         3,
         Validity::NonNullable,
     )?
-    .into_array();
+        .into_array();
 
     let result = round_trip(&array, Ok).await?.to_struct();
 
@@ -1242,7 +1242,7 @@ async fn scan_empty_fields() -> VortexResult<()> {
             [],
         )))
     })
-    .await?;
+        .await?;
 
     assert_eq!(result.len(), array.len());
 
@@ -1255,13 +1255,13 @@ async fn test_into_tokio_array_stream() -> VortexResult<()> {
         VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
         VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
     ])
-    .into_array();
+        .into_array();
 
     let numbers = ChunkedArray::from_iter([
         buffer![1u32, 2, 3, 4].into_array(),
         buffer![5u32, 6, 7, 8].into_array(),
     ])
-    .into_array();
+        .into_array();
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let mut buf = ByteBufferMut::empty();
@@ -1300,7 +1300,7 @@ async fn test_array_stream_no_double_dict_encode() -> VortexResult<()> {
         .expect("expected root to be dictionary");
     assert_ne!(
         dict.codes().encoding().id(),
-        DictEncoding.id(),
+        DictVTable.id(),
         "dictionary codes should not be dictionary encoded"
     );
     Ok(())
@@ -1427,7 +1427,7 @@ async fn test_writer_empty_chunks() -> VortexResult<()> {
         "numbers",
         PrimitiveArray::new::<u32>(buffer![], Validity::NonNullable).into_array(),
     )])?
-    .into_array();
+        .into_array();
     let non_empty =
         StructArray::from_fields(&[("numbers", buffer![1u32, 2].into_array())])?.into_array();
 
@@ -1503,7 +1503,7 @@ async fn test_writer_with_complex_types() -> VortexResult<()> {
         ("numbers", numbers),
         ("lists", lists.into_array()),
     ])?
-    .into_array();
+        .into_array();
 
     let dtype = chunk.dtype().clone();
 

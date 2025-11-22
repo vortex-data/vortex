@@ -28,7 +28,7 @@ use crate::compress::runend_encode;
 
 impl EncodeVTable<RunEndVTable> for RunEndVTable {
     fn encode(
-        _encoding: &RunEndEncoding,
+        &self,
         canonical: &Canonical,
         _like: Option<&RunEndArray>,
     ) -> VortexResult<Option<RunEndArray>> {
@@ -58,8 +58,8 @@ impl VisitorVTable<RunEndVTable> for RunEndVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::ProstMetadata;
     use vortex_array::test_harness::check_metadata;
+    use vortex_array::ProstMetadata;
     use vortex_dtype::PType;
 
     use crate::RunEndMetadata;

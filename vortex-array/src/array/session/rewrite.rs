@@ -8,13 +8,13 @@ use std::sync::Arc;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::dash_map::DashMap;
 
-use crate::EncodingId;
-use crate::array::ArrayRef;
 use crate::array::transform::context::ArrayRuleContext;
 use crate::array::transform::rules::{
     AnyArrayParent, ArrayParentMatcher, ArrayParentReduceRule, ArrayReduceRule,
 };
+use crate::array::ArrayRef;
 use crate::vtable::VTable;
+use crate::EncodingId;
 
 /// Dynamic trait for array reduce rules
 pub trait DynArrayReduceRule: Debug + Send + Sync {
@@ -132,7 +132,7 @@ impl ArrayRewriteRuleRegistry {
     }
 
     /// Register a reduce rule for a specific array encoding.
-    pub fn register_reduce_rule<V, R>(&self, encoding: &V::Encoding, rule: R)
+    pub fn register_reduce_rule<V, R>(&self, vtable: &V, rule: R)
     where
         V: VTable,
         R: ArrayReduceRule<V> + 'static,
@@ -141,7 +141,7 @@ impl ArrayRewriteRuleRegistry {
             rule,
             _phantom: PhantomData,
         };
-        let encoding_id = V::id(encoding);
+        let encoding_id = V::id(vtable);
         self.inner
             .reduce_rules
             .entry(encoding_id)
@@ -152,8 +152,8 @@ impl ArrayRewriteRuleRegistry {
     /// Register a parent rule for a specific parent type.
     pub fn register_parent_rule<Child, Parent, R>(
         &self,
-        child_encoding: &Child::Encoding,
-        parent_encoding: &Parent::Encoding,
+        child_encoding: &Child,
+        parent_encoding: &Parent,
         rule: R,
     ) where
         Child: VTable,
@@ -174,7 +174,7 @@ impl ArrayRewriteRuleRegistry {
     }
 
     /// Register a parent rule that matches ANY parent type (wildcard).
-    pub fn register_any_parent_rule<Child, R>(&self, child_encoding: &Child::Encoding, rule: R)
+    pub fn register_any_parent_rule<Child, R>(&self, child_encoding: &Child, rule: R)
     where
         Child: VTable,
         R: ArrayParentReduceRule<Child, AnyArrayParent> + 'static,

@@ -2,11 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
-use vortex_dtype::{DType, NativeDecimalType, PrecisionScale, match_each_decimal_value_type};
-use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
+use vortex_dtype::{match_each_decimal_value_type, DType, NativeDecimalType, PrecisionScale};
+use vortex_error::{vortex_bail, vortex_ensure, VortexResult};
 use vortex_scalar::DecimalType;
-use vortex_vector::Vector;
 use vortex_vector::decimal::DVector;
+use vortex_vector::Vector;
 
 use crate::arrays::DecimalArray;
 use crate::execution::ExecutionCtx;
@@ -14,7 +14,7 @@ use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
 use crate::{
-    DeserializeMetadata, EncodingId, EncodingRef, ProstMetadata, SerializeMetadata, vtable,
+    vtable, DeserializeMetadata, EncodingId, EncodingRef, ProstMetadata, SerializeMetadata,
 };
 
 mod array;
@@ -37,7 +37,7 @@ pub struct DecimalMetadata {
 
 impl VTable for DecimalVTable {
     type Array = DecimalArray;
-    type Encoding = DecimalEncoding;
+
     type Metadata = ProstMetadata<DecimalMetadata>;
 
     type ArrayVTable = Self;
@@ -49,12 +49,12 @@ impl VTable for DecimalVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
+    fn id(&self) -> EncodingId {
         EncodingId::new_ref("vortex.decimal")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(DecimalEncoding.as_ref())
+        EncodingRef::new_ref(DecimalVTable.as_ref())
     }
 
     fn metadata(array: &DecimalArray) -> VortexResult<Self::Metadata> {
@@ -73,7 +73,7 @@ impl VTable for DecimalVTable {
     }
 
     fn build(
-        _encoding: &DecimalEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -125,14 +125,14 @@ impl VTable for DecimalVTable {
 }
 
 #[derive(Clone, Debug)]
-pub struct DecimalEncoding;
+pub struct DecimalVTable;
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::{ByteBufferMut, buffer};
+    use vortex_buffer::{buffer, ByteBufferMut};
     use vortex_dtype::DecimalDType;
 
-    use crate::arrays::{DecimalArray, DecimalEncoding};
+    use crate::arrays::{DecimalArray, DecimalVTable};
     use crate::serde::{ArrayParts, SerializeOptions};
     use crate::validity::Validity;
     use crate::{ArrayContext, EncodingRef, IntoArray};
@@ -145,7 +145,7 @@ mod tests {
             Validity::NonNullable,
         );
         let dtype = array.dtype().clone();
-        let ctx = ArrayContext::empty().with(EncodingRef::new_ref(DecimalEncoding.as_ref()));
+        let ctx = ArrayContext::empty().with(EncodingRef::new_ref(DecimalVTable.as_ref()));
         let out = array
             .into_array()
             .serialize(&ctx, &SerializeOptions::default())
@@ -161,6 +161,6 @@ mod tests {
         let parts = ArrayParts::try_from(concat).unwrap();
 
         let decoded = parts.decode(&ctx, &dtype, 5).unwrap();
-        assert_eq!(decoded.encoding_id(), DecimalEncoding.id());
+        assert_eq!(decoded.encoding_id(), DecimalVTable.id());
     }
 }

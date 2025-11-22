@@ -7,4 +7,4 @@ pub use array::RLEArray;
 mod compute;
 
 mod vtable;
-pub use vtable::{RLEEncoding, RLEVTable};
+pub use vtable::RLEVTable;

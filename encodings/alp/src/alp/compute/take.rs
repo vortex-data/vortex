@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{TakeKernel, TakeKernelAdapter, take};
-use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
+use vortex_array::compute::{take, TakeKernel, TakeKernelAdapter};
+use vortex_array::{register_kernel, Array, ArrayRef, IntoArray};
 use vortex_error::VortexResult;
 
 use crate::{ALPArray, ALPVTable};
@@ -32,12 +32,10 @@ register_kernel!(TakeKernelAdapter(ALPVTable).lift());
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::take::test_take_conformance;
+    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
-
-    use crate::ALPEncoding;
 
     #[rstest]
     #[case(buffer![1.23f32, 4.56, 7.89, 10.11, 12.13].into_array())]

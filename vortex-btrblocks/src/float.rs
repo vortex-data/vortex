@@ -4,7 +4,7 @@
 pub(crate) mod dictionary;
 mod stats;
 
-use vortex_alp::{ALPArray, ALPEncoding, ALPVTable, RDEncoder};
+use vortex_alp::{ALPArray, ALPVTable, , RDEncoder};
 use vortex_array::arrays::{ConstantArray, DictArray, MaskedArray, PrimitiveVTable};
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
@@ -23,9 +23,9 @@ use crate::{
     estimate_compression_ratio_with_sampling, integer,
 };
 
-pub trait FloatScheme: Scheme<StatsType = FloatStats, CodeType = FloatCode> {}
+pub trait FloatScheme: Scheme<StatsType=FloatStats, CodeType=FloatCode> {}
 
-impl<T> FloatScheme for T where T: Scheme<StatsType = FloatStats, CodeType = FloatCode> {}
+impl<T> FloatScheme for T where T: Scheme<StatsType=FloatStats, CodeType=FloatCode> {}
 
 /// [`Compressor`] for floating-point numbers.
 pub struct FloatCompressor;
@@ -175,7 +175,7 @@ impl Scheme for ConstantScheme {
                 Scalar::null(stats.src.dtype().clone()),
                 stats.src.len(),
             )
-            .into_array()),
+                .into_array()),
         }
     }
 }
@@ -451,7 +451,7 @@ impl Scheme for NullDominated {
                 sparse.len(),
                 sparse.fill_scalar().clone(),
             )
-            .map(|a| a.into_array())
+                .map(|a| a.into_array())
         } else {
             Ok(sparse_encoded)
         }
@@ -468,7 +468,7 @@ mod tests {
     use vortex_array::{Array, IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::{Buffer, buffer_mut};
     use vortex_dtype::Nullability;
-    use vortex_sparse::SparseEncoding;
+    use vortex_sparse::SparseVTable;
 
     use crate::float::{FloatCompressor, RLE_FLOAT_SCHEME};
     use crate::{Compressor, CompressorStats, MAX_CASCADE, Scheme};
@@ -482,7 +482,7 @@ mod tests {
             3,
             &[],
         )
-        .unwrap();
+            .unwrap();
 
         assert!(result.is_empty());
     }
@@ -534,6 +534,6 @@ mod tests {
 
         let compressed = FloatCompressor::compress(&floats, false, MAX_CASCADE, &[]).unwrap();
 
-        assert_eq!(compressed.encoding_id(), SparseEncoding.id());
+        assert_eq!(compressed.encoding_id(), SparseVTable.id());
     }
 }

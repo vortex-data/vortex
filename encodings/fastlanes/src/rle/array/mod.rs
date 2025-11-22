@@ -4,7 +4,7 @@
 use vortex_array::stats::ArrayStats;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexResult, vortex_ensure};
+use vortex_error::{vortex_ensure, VortexResult};
 
 use crate::FL_CHUNK_SIZE;
 
@@ -419,7 +419,7 @@ mod tests {
         let original_data = rle_array.to_primitive();
         let original_values = original_data.as_slice::<u32>();
 
-        let ctx = ArrayContext::empty().with(EncodingRef::new_ref(RLEEncoding.as_ref()));
+        let ctx = ArrayContext::empty().with(EncodingRef::new_ref(RLEVTable.as_ref()));
         let serialized = rle_array
             .to_array()
             .serialize(&ctx, &SerializeOptions::default())
@@ -453,7 +453,7 @@ mod tests {
         let sliced = rle_array.slice(100..200);
         assert_eq!(sliced.len(), 100);
 
-        let ctx = ArrayContext::empty().with(EncodingRef::new_ref(RLEEncoding.as_ref()));
+        let ctx = ArrayContext::empty().with(EncodingRef::new_ref(RLEVTable.as_ref()));
         let serialized = sliced
             .serialize(&ctx, &SerializeOptions::default())
             .unwrap();

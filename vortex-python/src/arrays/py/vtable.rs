@@ -6,11 +6,11 @@ use std::ops::Range;
 
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use pyo3::{Python, intern};
+use pyo3::{intern, Python};
 use vortex::buffer::ByteBuffer;
 use vortex::compute::{ComputeFn, InvocationArgs, Output};
 use vortex::dtype::DType;
-use vortex::error::{VortexResult, vortex_err};
+use vortex::error::{vortex_err, VortexResult};
 use vortex::mask::Mask;
 use vortex::scalar::Scalar;
 use vortex::serde::ArrayChildren;
@@ -20,17 +20,17 @@ use vortex::vtable::{
     VTable, ValidityVTable, VisitorVTable,
 };
 use vortex::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef, Precision,
-    RawMetadata, SerializeMetadata, vtable,
+    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef,
+    Precision, RawMetadata, SerializeMetadata,
 };
 
-use crate::arrays::py::{PythonArray, PythonEncoding};
+use crate::arrays::py::PythonArray;
 
 vtable!(Python);
 
 impl VTable for PythonVTable {
     type Array = PythonArray;
-    type Encoding = PythonEncoding;
+
     type Metadata = RawMetadata;
 
     type ArrayVTable = Self;
@@ -78,7 +78,7 @@ impl VTable for PythonVTable {
     }
 
     fn build(
-        _encoding: &PythonEncoding,
+        &self,
         _dtype: &DType,
         _len: usize,
         _metadata: &Self::Metadata,
@@ -173,7 +173,7 @@ impl ComputeVTable<PythonVTable> for PythonVTable {
 
 impl EncodeVTable<PythonVTable> for PythonVTable {
     fn encode(
-        _encoding: &PythonEncoding,
+        &self,
         _canonical: &Canonical,
         _like: Option<&PythonArray>,
     ) -> VortexResult<Option<PythonArray>> {

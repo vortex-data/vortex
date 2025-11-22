@@ -13,13 +13,13 @@ use vortex_session::VortexSession;
 use crate::children::LayoutChildren;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
-    IntoLayout, Layout, LayoutChildType, LayoutEncoding, LayoutEncodingRef, LayoutId,
+    IntoLayout, Layout, LayoutChildType, LayoutVTable, LayoutEncodingRef, LayoutId,
     LayoutReaderRef, LayoutRef,
 };
 
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
-    type Layout: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn Layout> + IntoLayout;
-    type Encoding: 'static + Send + Sync + Deref<Target = dyn LayoutEncoding>;
+    type Layout: 'static + Send + Sync + Clone + Debug + Deref<Target=dyn Layout> + IntoLayout;
+    type Encoding: 'static + Send + Sync + Deref<Target=dyn LayoutEncoding>;
     type Metadata: SerializeMetadata + DeserializeMetadata + Debug;
 
     /// Returns the ID of the layout encoding.
@@ -69,7 +69,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Construct a new [`Layout`] from the provided parts.
     #[allow(clippy::too_many_arguments)]
     fn build(
-        encoding: &Self::Encoding,
+        &self
         dtype: &DType,
         row_count: u64,
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
@@ -132,7 +132,7 @@ macro_rules! vtable {
             }
 
             impl std::ops::Deref for [<$V LayoutEncoding>] {
-                type Target = dyn $crate::LayoutEncoding;
+                type Target = dyn $crate::LayoutVTable;
 
                 fn deref(&self) -> &Self::Target {
                     // SAFETY: LayoutEncodingAdapter is #[repr(transparent)] over the LayoutEncoding type,

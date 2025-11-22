@@ -5,10 +5,10 @@ use std::fmt::{Debug, Formatter};
 
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{NotSupported, VTable, ValidityVTableFromChild};
-use vortex_array::{DeserializeMetadata, EncodingId, EncodingRef, SerializeMetadata, vtable};
+use vortex_array::{vtable, DeserializeMetadata, EncodingId, EncodingRef, SerializeMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::FoRArray;
@@ -25,7 +25,7 @@ vtable!(FoR);
 
 impl VTable for FoRVTable {
     type Array = FoRArray;
-    type Encoding = FoREncoding;
+
     type Metadata = ScalarValueMetadata;
 
     type ArrayVTable = Self;
@@ -37,12 +37,12 @@ impl VTable for FoRVTable {
     type EncodeVTable = Self;
     type OperatorVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
+    fn id(&self) -> EncodingId {
         EncodingId::new_ref("fastlanes.for")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(FoREncoding.as_ref())
+        EncodingRef::new_ref(FoRVTable.as_ref())
     }
 
     fn metadata(array: &FoRArray) -> VortexResult<Self::Metadata> {
@@ -60,7 +60,7 @@ impl VTable for FoRVTable {
     }
 
     fn build(
-        _encoding: &FoREncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -82,7 +82,7 @@ impl VTable for FoRVTable {
 }
 
 #[derive(Clone, Debug)]
-pub struct FoREncoding;
+pub struct FoRVTable;
 
 #[derive(Clone)]
 pub struct ScalarValueMetadata(pub ScalarValue);

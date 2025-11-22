@@ -10,7 +10,7 @@ pub(crate) mod compact;
 mod compute;
 
 mod vtable;
-pub use vtable::{VarBinViewEncoding, VarBinViewVTable};
+pub use vtable::VarBinViewVTable;
 
 #[cfg(test)]
 mod tests;

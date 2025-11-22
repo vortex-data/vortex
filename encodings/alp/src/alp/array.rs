@@ -12,22 +12,22 @@ use vortex_array::vtable::{
     ValidityVTableFromChild, VisitorVTable,
 };
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
-    DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata, SerializeMetadata,
-    vtable,
+    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef,
+    Canonical, DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata,
+    SerializeMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_ensure};
+use vortex_error::{vortex_bail, vortex_ensure, VortexError, VortexExpect, VortexResult};
 
+use crate::alp::{alp_encode, decompress, Exponents};
 use crate::ALPFloat;
-use crate::alp::{Exponents, alp_encode, decompress};
 
 vtable!(ALP);
 
 impl VTable for ALPVTable {
     type Array = ALPArray;
-    type Encoding = ALPEncoding;
+
     type Metadata = ProstMetadata<ALPMetadata>;
 
     type ArrayVTable = Self;
@@ -39,12 +39,12 @@ impl VTable for ALPVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
+    fn id(&self) -> EncodingId {
         EncodingId::new_ref("vortex.alp")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ALPEncoding.as_ref())
+        EncodingRef::new_ref(ALPVTable.as_ref())
     }
 
     fn metadata(array: &ALPArray) -> VortexResult<Self::Metadata> {
@@ -70,7 +70,7 @@ impl VTable for ALPVTable {
     }
 
     fn build(
-        _encoding: &ALPEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -125,7 +125,7 @@ pub struct ALPArray {
 }
 
 #[derive(Clone, Debug)]
-pub struct ALPEncoding;
+pub struct ALPVTable;
 
 #[derive(Clone, prost::Message)]
 pub struct ALPMetadata {
@@ -370,7 +370,7 @@ impl CanonicalVTable<ALPVTable> for ALPVTable {
 
 impl EncodeVTable<ALPVTable> for ALPVTable {
     fn encode(
-        _encoding: &ALPEncoding,
+        &self,
         canonical: &Canonical,
         like: Option<&ALPArray>,
     ) -> VortexResult<Option<ALPArray>> {

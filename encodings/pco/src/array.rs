@@ -9,7 +9,7 @@ use std::ops::Range;
 use pco::data_types::{Number, NumberType};
 use pco::errors::PcoError;
 use pco::wrapped::{ChunkDecompressor, FileCompressor, FileDecompressor};
-use pco::{ChunkConfig, PagingSpec, match_number_enum};
+use pco::{match_number_enum, ChunkConfig, PagingSpec};
 use prost::Message;
 use vortex_array::arrays::{PrimitiveArray, PrimitiveVTable};
 use vortex_array::compute::filter;
@@ -23,13 +23,13 @@ use vortex_array::vtable::{
     VisitorVTable,
 };
 use vortex_array::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId,
-    EncodingRef, IntoArray, Precision, ProstMetadata, ToCanonical, vtable,
+    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
+    EncodingId, EncodingRef, IntoArray, Precision, ProstMetadata, ToCanonical,
 };
 use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
-use vortex_dtype::{DType, PType, half};
+use vortex_dtype::{half, DType, PType};
 use vortex_error::{
-    VortexError, VortexResult, VortexUnwrap, vortex_bail, vortex_ensure, vortex_err,
+    vortex_bail, vortex_ensure, vortex_err, VortexError, VortexResult, VortexUnwrap,
 };
 use vortex_scalar::Scalar;
 
@@ -59,7 +59,7 @@ vtable!(Pco);
 
 impl VTable for PcoVTable {
     type Array = PcoArray;
-    type Encoding = PcoEncoding;
+
     type Metadata = ProstMetadata<PcoMetadata>;
 
     type ArrayVTable = Self;
@@ -71,12 +71,12 @@ impl VTable for PcoVTable {
     type EncodeVTable = Self;
     type OperatorVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
+    fn id(&self) -> EncodingId {
         EncodingId::new_ref("vortex.pco")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(PcoEncoding.as_ref())
+        EncodingRef::new_ref(PcoVTable.as_ref())
     }
 
     fn metadata(array: &PcoArray) -> VortexResult<Self::Metadata> {
@@ -92,7 +92,7 @@ impl VTable for PcoVTable {
     }
 
     fn build(
-        _encoding: &PcoEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -162,7 +162,7 @@ pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
 }
 
 #[derive(Clone, Debug)]
-pub struct PcoEncoding;
+pub struct PcoVTable;
 
 #[derive(Clone, Debug)]
 pub struct PcoArray {
@@ -521,7 +521,7 @@ impl OperatorVTable<PcoVTable> for PcoVTable {
 mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, ToCanonical, assert_arrays_eq};
+    use vortex_array::{assert_arrays_eq, IntoArray, ToCanonical};
     use vortex_buffer::Buffer;
 
     use crate::PcoArray;

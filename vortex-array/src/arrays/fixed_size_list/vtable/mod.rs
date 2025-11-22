@@ -5,16 +5,16 @@ use std::sync::Arc;
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
-use vortex_vector::Vector;
+use vortex_error::{vortex_bail, vortex_ensure, VortexResult};
 use vortex_vector::fixed_size_list::FixedSizeListVector;
+use vortex_vector::Vector;
 
 use crate::arrays::FixedSizeListArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{ArrayOperator, EmptyMetadata, EncodingId, EncodingRef, vtable};
+use crate::{vtable, ArrayOperator, EmptyMetadata, EncodingId, EncodingRef};
 
 mod array;
 mod canonical;
@@ -25,11 +25,11 @@ mod visitor;
 vtable!(FixedSizeList);
 
 #[derive(Clone, Debug)]
-pub struct FixedSizeListEncoding;
+pub struct FixedSizeListVTable;
 
 impl VTable for FixedSizeListVTable {
     type Array = FixedSizeListArray;
-    type Encoding = FixedSizeListEncoding;
+
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
@@ -41,12 +41,12 @@ impl VTable for FixedSizeListVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
+    fn id(&self) -> EncodingId {
         EncodingId::new_ref("vortex.fixed_size_list")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(FixedSizeListEncoding.as_ref())
+        EncodingRef::new_ref(FixedSizeListVTable.as_ref())
     }
 
     fn metadata(_array: &FixedSizeListArray) -> VortexResult<Self::Metadata> {
@@ -65,7 +65,7 @@ impl VTable for FixedSizeListVTable {
     ///
     /// This method expects 1 or 2 children (a second child indicates a validity array).
     fn build(
-        _encoding: &FixedSizeListEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,

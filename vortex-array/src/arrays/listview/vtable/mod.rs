@@ -5,9 +5,9 @@ use std::sync::Arc;
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
-use vortex_vector::Vector;
+use vortex_error::{vortex_bail, vortex_ensure, VortexResult};
 use vortex_vector::listview::ListViewVector;
+use vortex_vector::Vector;
 
 use crate::arrays::ListViewArray;
 use crate::execution::ExecutionCtx;
@@ -15,8 +15,8 @@ use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
 use crate::{
-    ArrayOperator, DeserializeMetadata, EncodingId, EncodingRef, ProstMetadata, SerializeMetadata,
-    vtable,
+    vtable, ArrayOperator, DeserializeMetadata, EncodingId, EncodingRef, ProstMetadata,
+    SerializeMetadata,
 };
 
 mod array;
@@ -29,7 +29,7 @@ mod visitor;
 vtable!(ListView);
 
 #[derive(Clone, Debug)]
-pub struct ListViewEncoding;
+pub struct ListViewVTable;
 
 #[derive(Clone, prost::Message)]
 pub struct ListViewMetadata {
@@ -43,7 +43,7 @@ pub struct ListViewMetadata {
 
 impl VTable for ListViewVTable {
     type Array = ListViewArray;
-    type Encoding = ListViewEncoding;
+
     type Metadata = ProstMetadata<ListViewMetadata>;
 
     type ArrayVTable = Self;
@@ -55,12 +55,12 @@ impl VTable for ListViewVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
+    fn id(&self) -> EncodingId {
         EncodingId::new_ref("vortex.listview")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ListViewEncoding.as_ref())
+        EncodingRef::new_ref(ListViewVTable.as_ref())
     }
 
     fn metadata(array: &ListViewArray) -> VortexResult<Self::Metadata> {
@@ -81,7 +81,7 @@ impl VTable for ListViewVTable {
     }
 
     fn build(
-        _encoding: &ListViewEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,

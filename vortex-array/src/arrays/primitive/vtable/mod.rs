@@ -2,17 +2,17 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
-use vortex_dtype::{DType, PType, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_bail};
-use vortex_vector::Vector;
+use vortex_dtype::{match_each_native_ptype, DType, PType};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_vector::primitive::PVector;
+use vortex_vector::Vector;
 
 use crate::arrays::PrimitiveArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{EmptyMetadata, EncodingId, EncodingRef, vtable};
+use crate::{vtable, EmptyMetadata, EncodingId, EncodingRef};
 
 mod array;
 mod canonical;
@@ -27,7 +27,7 @@ vtable!(Primitive);
 
 impl VTable for PrimitiveVTable {
     type Array = PrimitiveArray;
-    type Encoding = PrimitiveEncoding;
+
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
@@ -39,12 +39,12 @@ impl VTable for PrimitiveVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
+    fn id(&self) -> EncodingId {
         EncodingId::new_ref("vortex.primitive")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(PrimitiveEncoding.as_ref())
+        EncodingRef::new_ref(PrimitiveVTable.as_ref())
     }
 
     fn metadata(_array: &PrimitiveArray) -> VortexResult<Self::Metadata> {
@@ -60,7 +60,7 @@ impl VTable for PrimitiveVTable {
     }
 
     fn build(
-        _encoding: &PrimitiveEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
@@ -113,4 +113,4 @@ impl VTable for PrimitiveVTable {
 }
 
 #[derive(Clone, Debug)]
-pub struct PrimitiveEncoding;
+pub struct PrimitiveVTable;

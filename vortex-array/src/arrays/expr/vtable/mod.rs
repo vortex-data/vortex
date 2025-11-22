@@ -12,7 +12,7 @@ use std::fmt::Debug;
 pub use operator::ExprOptimizationRule;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_vector::Vector;
 
 use crate::arrays::expr::ExprArray;
@@ -20,16 +20,16 @@ use crate::execution::ExecutionCtx;
 use crate::expr::Expression;
 use crate::serde::ArrayChildren;
 use crate::vtable::{NotSupported, VTable};
-use crate::{Array, ArrayOperator, EncodingId, EncodingRef, vtable};
+use crate::{vtable, Array, ArrayOperator, EncodingId, EncodingRef};
 
 vtable!(Expr);
 
 #[derive(Clone, Debug)]
-pub struct ExprEncoding;
+pub struct ExprVTable;
 
 impl VTable for ExprVTable {
     type Array = ExprArray;
-    type Encoding = ExprEncoding;
+
     type Metadata = ExprArrayMetadata;
 
     type ArrayVTable = Self;
@@ -41,12 +41,12 @@ impl VTable for ExprVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
+    fn id(&self) -> EncodingId {
         EncodingId::new_ref("vortex.expr")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ExprEncoding.as_ref())
+        EncodingRef::new_ref(ExprVTable.as_ref())
     }
 
     fn metadata(array: &ExprArray) -> VortexResult<Self::Metadata> {
@@ -62,7 +62,7 @@ impl VTable for ExprVTable {
     }
 
     fn build(
-        _encoding: &ExprEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         ExprArrayMetadata((expr, root_dtype)): &Self::Metadata,

@@ -9,10 +9,10 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
-use vortex_vector::Vector;
 use vortex_vector::null::NullVector;
+use vortex_vector::Vector;
 
-use crate::execution::{BatchKernelRef, BindCtx, ExecutionCtx, kernel};
+use crate::execution::{kernel, BatchKernelRef, BindCtx, ExecutionCtx};
 use crate::serde::ArrayChildren;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::vtable::{
@@ -20,8 +20,8 @@ use crate::vtable::{
     ValidityVTable, VisitorVTable,
 };
 use crate::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EmptyMetadata, EncodingId,
-    EncodingRef, IntoArray, Precision, vtable,
+    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EmptyMetadata,
+    EncodingId, EncodingRef, IntoArray, Precision,
 };
 
 mod compute;
@@ -30,7 +30,7 @@ vtable!(Null);
 
 impl VTable for NullVTable {
     type Array = NullArray;
-    type Encoding = NullEncoding;
+
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
@@ -42,12 +42,12 @@ impl VTable for NullVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
+    fn id(&self) -> EncodingId {
         EncodingId::new_ref("vortex.null")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(NullEncoding.as_ref())
+        EncodingRef::new_ref(NullVTable.as_ref())
     }
 
     fn metadata(_array: &NullArray) -> VortexResult<Self::Metadata> {
@@ -63,7 +63,7 @@ impl VTable for NullVTable {
     }
 
     fn build(
-        _encoding: &NullEncoding,
+        &self,
         _dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
@@ -109,7 +109,7 @@ pub struct NullArray {
 }
 
 #[derive(Clone, Debug)]
-pub struct NullEncoding;
+pub struct NullVTable;
 
 impl NullArray {
     pub fn new(len: usize) -> Self {

@@ -106,20 +106,20 @@ pub use footer::*;
 pub use forever_constant::*;
 pub use open::*;
 pub use strategy::*;
-use vortex_alp::{ALPEncoding, ALPRDEncoding};
-use vortex_array::arrays::DictEncoding;
+use vortex_alp::ALPRDVTable;
+use vortex_array::arrays::DictVTable;
 use vortex_array::{ArraySessionExt, EncodingRef};
-use vortex_bytebool::ByteBoolEncoding;
-use vortex_datetime_parts::DateTimePartsEncoding;
-use vortex_decimal_byte_parts::DecimalBytePartsEncoding;
-use vortex_fastlanes::{BitPackedEncoding, DeltaEncoding, FoREncoding, RLEEncoding};
-use vortex_fsst::FSSTEncoding;
-use vortex_pco::PcoEncoding;
-use vortex_runend::RunEndEncoding;
-use vortex_sequence::SequenceEncoding;
+use vortex_bytebool::ByteBoolVTable;
+use vortex_datetime_parts::DateTimePartsVTable;
+use vortex_decimal_byte_parts::DecimalBytePartsVTable;
+use vortex_fastlanes::RLEVTable;
+use vortex_fsst::FSSTVTable;
+use vortex_pco::PcoVTable;
+use vortex_runend::RunEndVTable;
+use vortex_sequence::SequenceVTable;
 use vortex_session::VortexSession;
-use vortex_sparse::SparseEncoding;
-use vortex_zigzag::ZigZagEncoding;
+use vortex_sparse::SparseVTable;
+use vortex_zigzag::ZigZagVTable;
 pub use writer::*;
 
 /// The current version of the Vortex file format
@@ -160,23 +160,23 @@ mod forever_constant {
 /// Vortex "Editions" that may support different sets of encodings.
 pub fn register_default_encodings(session: &VortexSession) {
     session.arrays().register_many([
-        EncodingRef::new_ref(ALPEncoding.as_ref()),
-        EncodingRef::new_ref(ALPRDEncoding.as_ref()),
-        EncodingRef::new_ref(BitPackedEncoding.as_ref()),
-        EncodingRef::new_ref(ByteBoolEncoding.as_ref()),
-        EncodingRef::new_ref(DateTimePartsEncoding.as_ref()),
-        EncodingRef::new_ref(DecimalBytePartsEncoding.as_ref()),
-        EncodingRef::new_ref(DeltaEncoding.as_ref()),
-        EncodingRef::new_ref(DictEncoding.as_ref()),
-        EncodingRef::new_ref(FSSTEncoding.as_ref()),
-        EncodingRef::new_ref(FoREncoding.as_ref()),
-        EncodingRef::new_ref(PcoEncoding.as_ref()),
-        EncodingRef::new_ref(RLEEncoding.as_ref()),
-        EncodingRef::new_ref(RunEndEncoding.as_ref()),
-        EncodingRef::new_ref(SequenceEncoding.as_ref()),
-        EncodingRef::new_ref(SparseEncoding.as_ref()),
-        EncodingRef::new_ref(ZigZagEncoding.as_ref()),
+        EncodingRef::new_ref(ALPVTable.as_ref()),
+        EncodingRef::new_ref(ALPRDVTable.as_ref()),
+        EncodingRef::new_ref(BitPackedVTable.as_ref()),
+        EncodingRef::new_ref(ByteBoolVTable.as_ref()),
+        EncodingRef::new_ref(DateTimePartsVTable.as_ref()),
+        EncodingRef::new_ref(DecimalBytePartsVTable.as_ref()),
+        EncodingRef::new_ref(DeltaVTable.as_ref()),
+        EncodingRef::new_ref(DictVTable.as_ref()),
+        EncodingRef::new_ref(FSSTVTable.as_ref()),
+        EncodingRef::new_ref(FoRVTable.as_ref()),
+        EncodingRef::new_ref(PcoVTable.as_ref()),
+        EncodingRef::new_ref(RLEVTable.as_ref()),
+        EncodingRef::new_ref(RunEndVTable.as_ref()),
+        EncodingRef::new_ref(SequenceVTable.as_ref()),
+        EncodingRef::new_ref(SparseVTable.as_ref()),
+        EncodingRef::new_ref(ZigZagVTable.as_ref()),
         #[cfg(feature = "zstd")]
-        EncodingRef::new_ref(vortex_zstd::ZstdEncoding.as_ref()),
+        EncodingRef::new_ref(vortex_zstd::ZstdVTable.as_ref()),
     ]);
 }

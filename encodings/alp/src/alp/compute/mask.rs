@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{MaskKernel, MaskKernelAdapter, mask};
-use vortex_array::{ArrayRef, register_kernel};
+use vortex_array::compute::{mask, MaskKernel, MaskKernelAdapter};
+use vortex_array::{register_kernel, ArrayRef};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -33,12 +33,10 @@ register_kernel!(MaskKernelAdapter(ALPVTable).lift());
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
+    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
-
-    use crate::ALPEncoding;
 
     #[rstest]
     #[case(buffer![10.5f32, 20.5, 30.5, 40.5, 50.5].into_array())]

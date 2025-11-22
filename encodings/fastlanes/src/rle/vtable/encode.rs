@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Canonical;
 use vortex_array::vtable::EncodeVTable;
+use vortex_array::Canonical;
 use vortex_error::VortexResult;
 
-use super::{RLEEncoding, RLEVTable};
+use super::RLEVTable;
 use crate::RLEArray;
 
 impl EncodeVTable<RLEVTable> for RLEVTable {
     fn encode(
-        _encoding: &RLEEncoding,
+        &self,
         canonical: &Canonical,
         _like: Option<&RLEArray>,
     ) -> VortexResult<Option<RLEArray>> {

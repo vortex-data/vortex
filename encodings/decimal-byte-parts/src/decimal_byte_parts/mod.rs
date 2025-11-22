@@ -15,13 +15,13 @@ use vortex_array::vtable::{
     ValidityHelper, ValidityVTableFromChild, VisitorVTable,
 };
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
-    EncodingId, EncodingRef, IntoArray, Precision, ProstMetadata, SerializeMetadata, ToCanonical,
-    vtable,
+    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef,
+    Canonical, EncodingId, EncodingRef, IntoArray, Precision, ProstMetadata, SerializeMetadata,
+    ToCanonical,
 };
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, DecimalDType, PType, match_each_signed_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_dtype::{match_each_signed_integer_ptype, DType, DecimalDType, PType};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::{DecimalValue, Scalar};
 
 vtable!(DecimalByteParts);
@@ -36,7 +36,7 @@ pub struct DecimalBytesPartsMetadata {
 
 impl VTable for DecimalBytePartsVTable {
     type Array = DecimalBytePartsArray;
-    type Encoding = DecimalBytePartsEncoding;
+
     type Metadata = ProstMetadata<DecimalBytesPartsMetadata>;
 
     type ArrayVTable = Self;
@@ -48,12 +48,12 @@ impl VTable for DecimalBytePartsVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
+    fn id(&self) -> EncodingId {
         EncodingId::new_ref("vortex.decimal_byte_parts")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(DecimalBytePartsEncoding.as_ref())
+        EncodingRef::new_ref(DecimalBytePartsVTable.as_ref())
     }
 
     fn metadata(array: &DecimalBytePartsArray) -> VortexResult<Self::Metadata> {
@@ -72,7 +72,7 @@ impl VTable for DecimalBytePartsVTable {
     }
 
     fn build(
-        _encoding: &DecimalBytePartsEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -149,7 +149,7 @@ impl DecimalBytePartsArray {
 }
 
 #[derive(Clone, Debug)]
-pub struct DecimalBytePartsEncoding;
+pub struct DecimalBytePartsVTable;
 
 impl ArrayVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
     fn len(array: &DecimalBytePartsArray) -> usize {
@@ -242,9 +242,9 @@ impl VisitorVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::Array;
     use vortex_array::arrays::{BoolArray, PrimitiveArray};
     use vortex_array::validity::Validity;
+    use vortex_array::Array;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, DecimalDType, Nullability};
     use vortex_scalar::{DecimalValue, Scalar};

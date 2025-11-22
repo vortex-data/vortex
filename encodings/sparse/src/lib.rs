@@ -8,7 +8,7 @@ use itertools::Itertools as _;
 use num_traits::AsPrimitive;
 use prost::Message as _;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{Operator, compare, fill_null, filter, sub_scalar};
+use vortex_array::compute::{compare, fill_null, filter, sub_scalar, Operator};
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
@@ -16,12 +16,12 @@ use vortex_array::vtable::{
     ArrayVTable, EncodeVTable, NotSupported, VTable, ValidityVTable, VisitorVTable,
 };
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
-    EncodingId, EncodingRef, IntoArray, Precision, ProstMetadata, ToCanonical, vtable,
+    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef,
+    Canonical, EncodingId, EncodingRef, IntoArray, Precision, ProstMetadata, ToCanonical,
 };
 use vortex_buffer::{BitBufferMut, Buffer, ByteBuffer, ByteBufferMut};
-use vortex_dtype::{DType, NativePType, Nullability, match_each_integer_ptype};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_ensure};
+use vortex_dtype::{match_each_integer_ptype, DType, NativePType, Nullability};
+use vortex_error::{vortex_bail, vortex_ensure, VortexExpect as _, VortexResult};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::{Scalar, ScalarValue};
 
@@ -40,7 +40,7 @@ pub struct SparseMetadata {
 
 impl VTable for SparseVTable {
     type Array = SparseArray;
-    type Encoding = SparseEncoding;
+
     type Metadata = ProstMetadata<SparseMetadata>;
 
     type ArrayVTable = Self;
@@ -52,12 +52,12 @@ impl VTable for SparseVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
+    fn id(&self) -> EncodingId {
         EncodingId::new_ref("vortex.sparse")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(SparseEncoding.as_ref())
+        EncodingRef::new_ref(SparseVTable.as_ref())
     }
 
     fn metadata(array: &SparseArray) -> VortexResult<Self::Metadata> {
@@ -75,7 +75,7 @@ impl VTable for SparseVTable {
     }
 
     fn build(
-        _encoding: &SparseEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -118,7 +118,7 @@ pub struct SparseArray {
 }
 
 #[derive(Clone, Debug)]
-pub struct SparseEncoding;
+pub struct SparseVTable;
 
 impl SparseArray {
     pub fn try_new(
@@ -415,7 +415,7 @@ fn patch_validity<I: NativePType + AsPrimitive<usize>>(
 
 impl EncodeVTable<SparseVTable> for SparseVTable {
     fn encode(
-        _encoding: &SparseEncoding,
+        &self,
         input: &Canonical,
         like: Option<&SparseArray>,
     ) -> VortexResult<Option<SparseArray>> {
@@ -447,10 +447,10 @@ impl VisitorVTable<SparseVTable> for SparseVTable {
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
-    use vortex_array::IntoArray;
     use vortex_array::arrays::{ConstantArray, PrimitiveArray};
     use vortex_array::compute::cast;
     use vortex_array::validity::Validity;
+    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexUnwrap;

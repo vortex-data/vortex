@@ -7,7 +7,7 @@ pub use array::ChunkedArray;
 mod compute;
 
 mod vtable;
-pub use vtable::{ChunkedEncoding, ChunkedVTable};
+pub use vtable::ChunkedVTable;
 
 #[cfg(test)]
 mod tests;

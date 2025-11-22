@@ -6,16 +6,16 @@ use std::sync::Arc;
 use vortex_dtype::FieldNames;
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::ArraySession;
 use crate::array::transform::{ArrayParentReduceRule, ArrayReduceRule, ArrayRuleContext};
 use crate::array::{ArrayRef, IntoArray};
 use crate::arrays::{
-    ChunkedArray, ChunkedEncoding, ChunkedVTable, ConstantArray, ConstantEncoding, ConstantVTable,
-    PrimitiveArray, StructArray, StructVTable,
+    ChunkedArray, ChunkedVTable, ConstantArray, ConstantVTable, PrimitiveArray, StructArray,
+    StructVTable,
 };
 use crate::expr::session::ExprSession;
 use crate::expr::transform::ExprOptimizer;
 use crate::validity::Validity;
+use crate::ArraySession;
 
 /// Test rule that unwraps single-chunk ChunkedArrays
 #[derive(Debug, Default)]
@@ -74,7 +74,7 @@ fn test_reduce_rules_traverse_whole_tree() -> VortexResult<()> {
     let expr_session = ExprSession::default();
 
     array_session.register_reduce_rule::<ChunkedVTable, UnwrapSingleChunkRule>(
-        &ChunkedEncoding,
+        &ChunkedVTable,
         UnwrapSingleChunkRule,
     );
 
@@ -167,8 +167,8 @@ fn test_parent_rules_traverse_whole_tree() -> VortexResult<()> {
     let expr_session = ExprSession::default();
 
     array_session.register_parent_rule::<ConstantVTable, StructVTable, ConstantInStructRule>(
-        &ConstantEncoding,
-        &crate::arrays::StructEncoding,
+        &ConstantVTable,
+        &StructVTable,
         ConstantInStructRule,
     );
 

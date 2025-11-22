@@ -2,13 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
-pub use array::{PrimitiveArray, patch_chunk};
+pub use array::{patch_chunk, PrimitiveArray};
 
 mod compute;
-pub use compute::{IS_CONST_LANE_WIDTH, compute_is_constant};
+pub use compute::{compute_is_constant, IS_CONST_LANE_WIDTH};
 
 mod vtable;
-pub use vtable::{PrimitiveEncoding, PrimitiveMaskedValidityRule, PrimitiveVTable};
+pub use vtable::{PrimitiveMaskedValidityRule, PrimitiveVTable};
 
 mod native_value;
 pub use native_value::NativeValue;

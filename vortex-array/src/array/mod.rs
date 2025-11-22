@@ -17,17 +17,16 @@ pub use operator::*;
 pub use visitor::*;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{
-    BoolEncoding, ConstantVTable, DecimalEncoding, ExtensionEncoding, FixedSizeListEncoding,
-    ListViewEncoding, NullEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding,
-    VarBinViewEncoding,
+    BoolVTable, ConstantVTable, DecimalVTable, ExtensionVTable, FixedSizeListVTable,
+    ListViewVTable, NullVTable, PrimitiveVTable, StructVTable, VarBinVTable, VarBinViewVTable,
 };
 use crate::builders::ArrayBuilder;
-use crate::compute::{ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output, is_constant_opts};
+use crate::compute::{is_constant_opts, ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output};
 use crate::serde::ArrayChildren;
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
 use crate::vtable::{
@@ -35,7 +34,7 @@ use crate::vtable::{
     VisitorVTable,
 };
 use crate::{
-    ArrayEq, ArrayHash, Canonical, DynArrayEq, DynArrayHash, EncodingId, EncodingRef, hash,
+    hash, ArrayEq, ArrayHash, Canonical, DynArrayEq, DynArrayHash, EncodingId, EncodingRef,
 };
 
 /// The public API trait for all Vortex arrays.
@@ -89,25 +88,25 @@ pub trait Array:
     /// Returns whether this array is an arrow encoding.
     // TODO(ngates): this shouldn't live here.
     fn is_arrow(&self) -> bool {
-        self.is_encoding(NullEncoding.id())
-            || self.is_encoding(BoolEncoding.id())
-            || self.is_encoding(PrimitiveEncoding.id())
-            || self.is_encoding(VarBinEncoding.id())
-            || self.is_encoding(VarBinViewEncoding.id())
+        self.is_encoding(NullVTable.id())
+            || self.is_encoding(BoolVTable.id())
+            || self.is_encoding(PrimitiveVTable.id())
+            || self.is_encoding(VarBinVTable.id())
+            || self.is_encoding(VarBinViewVTable.id())
     }
 
     /// Whether the array is of a canonical encoding.
     // TODO(ngates): this shouldn't live here.
     fn is_canonical(&self) -> bool {
-        self.is_encoding(NullEncoding.id())
-            || self.is_encoding(BoolEncoding.id())
-            || self.is_encoding(PrimitiveEncoding.id())
-            || self.is_encoding(DecimalEncoding.id())
-            || self.is_encoding(StructEncoding.id())
-            || self.is_encoding(ListViewEncoding.id())
-            || self.is_encoding(FixedSizeListEncoding.id())
-            || self.is_encoding(VarBinViewEncoding.id())
-            || self.is_encoding(ExtensionEncoding.id())
+        self.is_encoding(NullVTable.id())
+            || self.is_encoding(BoolVTable.id())
+            || self.is_encoding(PrimitiveVTable.id())
+            || self.is_encoding(DecimalVTable.id())
+            || self.is_encoding(StructVTable.id())
+            || self.is_encoding(ListViewVTable.id())
+            || self.is_encoding(FixedSizeListVTable.id())
+            || self.is_encoding(VarBinViewVTable.id())
+            || self.is_encoding(ExtensionVTable.id())
     }
 
     /// Returns whether the item at `index` is valid.

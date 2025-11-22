@@ -14,9 +14,8 @@
 
 pub use array::*;
 use arrays::{
-    BoolMaskedValidityRule, BoolVTable, DecimalMaskedValidityRule, DecimalVTable,
-    ExprOptimizationRule, ExprVTable, MaskedVTable, PrimitiveMaskedValidityRule, PrimitiveVTable,
-    StructExprPartitionRule, StructVTable,
+    BoolMaskedValidityRule, DecimalMaskedValidityRule, ExprOptimizationRule, ExprVTable,
+    PrimitiveMaskedValidityRule, StructExprPartitionRule,
 };
 pub use canonical::*;
 pub use context::*;
@@ -32,9 +31,9 @@ use crate::array::transform::{
     AnyArrayParent, ArrayOptimizer, ArrayParentReduceRule, ArrayReduceRule,
 };
 use crate::arrays::{
-    BoolEncoding, ChunkedEncoding, ConstantEncoding, DecimalEncoding, ExtensionEncoding,
-    FixedSizeListEncoding, ListEncoding, ListViewEncoding, MaskedEncoding, NullEncoding,
-    PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
+    BoolVTable, ChunkedVTable, ConstantVTable, DecimalVTable, ExtensionVTable, FixedSizeListVTable,
+    ListVTable, ListViewVTable, MaskedVTable, NullVTable, PrimitiveVTable, StructVTable,
+    VarBinVTable, VarBinViewVTable,
 };
 use crate::vtable::VTable;
 
@@ -106,7 +105,7 @@ impl ArraySession {
     }
 
     /// Register a reduce rule for a specific array encoding
-    pub fn register_reduce_rule<V, R>(&self, encoding: &V::Encoding, rule: R)
+    pub fn register_reduce_rule<V, R>(&self, encoding: &V, rule: R)
     where
         V: VTable,
         R: 'static + ArrayReduceRule<V>,
@@ -118,8 +117,8 @@ impl ArraySession {
     /// Register a parent reduce rule for specific child and parent types
     pub fn register_parent_rule<Child, Parent, R>(
         &self,
-        child_encoding: &Child::Encoding,
-        parent_encoding: &Parent::Encoding,
+        child_encoding: &Child,
+        parent_encoding: &Parent,
         rule: R,
     ) where
         Child: VTable,
@@ -134,7 +133,7 @@ impl ArraySession {
     }
 
     /// Register a parent reduce rule that matches any parent type
-    pub fn register_any_parent_rule<Child, R>(&self, child_encoding: &Child::Encoding, rule: R)
+    pub fn register_any_parent_rule<Child, R>(&self, child_encoding: &Child, rule: R)
     where
         Child: VTable,
         R: 'static + ArrayParentReduceRule<Child, AnyArrayParent>,
@@ -155,24 +154,24 @@ impl Default for ArraySession {
 
         // Register the canonical encodings.
         encodings.register_many([
-            EncodingRef::new_ref(NullEncoding.as_ref()),
-            EncodingRef::new_ref(BoolEncoding.as_ref()),
-            EncodingRef::new_ref(PrimitiveEncoding.as_ref()),
-            EncodingRef::new_ref(DecimalEncoding.as_ref()),
-            EncodingRef::new_ref(VarBinViewEncoding.as_ref()),
-            EncodingRef::new_ref(ListViewEncoding.as_ref()),
-            EncodingRef::new_ref(FixedSizeListEncoding.as_ref()),
-            EncodingRef::new_ref(StructEncoding.as_ref()),
-            EncodingRef::new_ref(ExtensionEncoding.as_ref()),
+            EncodingRef::new_ref(NullVTable.as_ref()),
+            EncodingRef::new_ref(BoolVTable.as_ref()),
+            EncodingRef::new_ref(PrimitiveVTable.as_ref()),
+            EncodingRef::new_ref(DecimalVTable.as_ref()),
+            EncodingRef::new_ref(VarBinViewVTable.as_ref()),
+            EncodingRef::new_ref(ListViewVTable.as_ref()),
+            EncodingRef::new_ref(FixedSizeListVTable.as_ref()),
+            EncodingRef::new_ref(StructVTable.as_ref()),
+            EncodingRef::new_ref(ExtensionVTable.as_ref()),
         ]);
 
         // Register the utility encodings.
         encodings.register_many([
-            EncodingRef::new_ref(ChunkedEncoding.as_ref()),
-            EncodingRef::new_ref(ConstantEncoding.as_ref()),
-            EncodingRef::new_ref(MaskedEncoding.as_ref()),
-            EncodingRef::new_ref(ListEncoding.as_ref()),
-            EncodingRef::new_ref(VarBinEncoding.as_ref()),
+            EncodingRef::new_ref(ChunkedVTable.as_ref()),
+            EncodingRef::new_ref(ConstantVTable.as_ref()),
+            EncodingRef::new_ref(MaskedVTable.as_ref()),
+            EncodingRef::new_ref(ListVTable.as_ref()),
+            EncodingRef::new_ref(VarBinVTable.as_ref()),
         ]);
 
         let session = Self {
@@ -181,31 +180,31 @@ impl Default for ArraySession {
         };
 
         session.register_parent_rule::<BoolVTable, MaskedVTable, BoolMaskedValidityRule>(
-            &BoolEncoding,
-            &MaskedEncoding,
+            &BoolVTable,
+            &MaskedVTable,
             BoolMaskedValidityRule,
         );
 
         session.register_parent_rule::<PrimitiveVTable, MaskedVTable, PrimitiveMaskedValidityRule>(
-            &PrimitiveEncoding,
-            &MaskedEncoding,
+            &PrimitiveVTable,
+            &MaskedVTable,
             PrimitiveMaskedValidityRule,
         );
 
         session.register_parent_rule::<DecimalVTable, MaskedVTable, DecimalMaskedValidityRule>(
-            &DecimalEncoding,
-            &MaskedEncoding,
+            &DecimalVTable,
+            &MaskedVTable,
             DecimalMaskedValidityRule,
         );
 
         session.register_parent_rule::<StructVTable, ExprVTable, StructExprPartitionRule>(
-            &StructEncoding,
-            &arrays::ExprEncoding,
+            &StructVTable,
+            &ExprVTable,
             StructExprPartitionRule,
         );
 
         session.register_reduce_rule::<ExprVTable, ExprOptimizationRule>(
-            &arrays::ExprEncoding,
+            &ExprVTable,
             ExprOptimizationRule,
         );
 

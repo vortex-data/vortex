@@ -9,7 +9,7 @@ use arrow_array::ArrayRef as ArrowArrayRef;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -21,15 +21,15 @@ use crate::vtable::{
     VisitorVTable,
 };
 use crate::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EmptyMetadata, EncodingId,
-    EncodingRef, IntoArray, Precision, vtable,
+    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EmptyMetadata,
+    EncodingId, EncodingRef, IntoArray, Precision,
 };
 
 vtable!(Arrow);
 
 impl VTable for ArrowVTable {
     type Array = ArrowArray;
-    type Encoding = ArrowEncoding;
+
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
@@ -41,12 +41,12 @@ impl VTable for ArrowVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
+    fn id(&self) -> EncodingId {
         EncodingId::new_ref("vortex.arrow")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ArrowEncoding.as_ref())
+        EncodingRef::new_ref(ArrowVTable.as_ref())
     }
 
     fn metadata(_array: &Self::Array) -> VortexResult<Self::Metadata> {
@@ -62,7 +62,7 @@ impl VTable for ArrowVTable {
     }
 
     fn build(
-        _encoding: &Self::Encoding,
+        &self,
         _dtype: &DType,
         _len: usize,
         _metadata: &Self::Metadata,
@@ -76,7 +76,7 @@ impl VTable for ArrowVTable {
 /// A Vortex array that wraps an in-memory Arrow array.
 // TODO(ngates): consider having each Arrow encoding be a separate encoding ID.
 #[derive(Clone, Debug)]
-pub struct ArrowEncoding;
+pub struct ArrowVTable;
 
 #[derive(Clone, Debug)]
 pub struct ArrowArray {

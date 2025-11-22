@@ -10,14 +10,14 @@ use std::sync::{Arc, LazyLock};
 use vortex_array::{ArrayContext, DeserializeMetadata, ProstMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 use vortex_session::VortexSession;
 
 use crate::children::LayoutChildren;
 use crate::layouts::flat::reader::FlatReader;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
-    LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
+    vtable, LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable,
 };
 
 static FLAT_LAYOUT_INLINE_ARRAY_NODE: LazyLock<bool> =
@@ -27,15 +27,15 @@ vtable!(Flat);
 
 impl VTable for FlatVTable {
     type Layout = FlatLayout;
-    type Encoding = FlatLayoutEncoding;
+
     type Metadata = ProstMetadata<FlatLayoutMetadata>;
 
-    fn id(_encoding: &Self::Encoding) -> LayoutId {
+    fn id(&self) -> LayoutId {
         LayoutId::new_ref("vortex.flat")
     }
 
     fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {
-        LayoutEncodingRef::new_ref(FlatLayoutEncoding.as_ref())
+        LayoutEncodingRef::new_ref(FlatLayoutVTable.as_ref())
     }
 
     fn row_count(layout: &Self::Layout) -> u64 {
@@ -97,7 +97,7 @@ impl VTable for FlatVTable {
     }
 
     fn build(
-        _encoding: &Self::Encoding,
+        &self,
         dtype: &DType,
         row_count: u64,
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
@@ -122,7 +122,7 @@ impl VTable for FlatVTable {
 }
 
 #[derive(Debug)]
-pub struct FlatLayoutEncoding;
+pub struct FlatLayoutVTable;
 
 #[derive(Clone, Debug)]
 pub struct FlatLayout {

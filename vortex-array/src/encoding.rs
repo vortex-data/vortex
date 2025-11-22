@@ -10,7 +10,7 @@ use std::sync::Arc;
 use arcref::ArcRef;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 
 use crate::serde::ArrayChildren;
 use crate::vtable::{EncodeVTable, VTable};
@@ -19,10 +19,10 @@ use crate::{Array, ArrayRef, Canonical, IntoArray};
 /// EncodingId is a globally unique name of the array's encoding.
 pub type EncodingId = ArcRef<str>;
 
-pub type EncodingRef = ArcRef<dyn Encoding>;
+pub type EncodingRef = ArcRef<dyn DynVTable>;
 
-/// Marker trait for array encodings with their associated Array type.
-pub trait Encoding: 'static + private::Sealed + Send + Sync + Debug {
+/// Dynamically typed trait for invoking array vtables.
+pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
     /// Downcast the encoding to [`Any`].
     fn as_any(&self) -> &dyn Any;
 
@@ -56,16 +56,16 @@ pub trait Encoding: 'static + private::Sealed + Send + Sync + Debug {
     -> VortexResult<Option<ArrayRef>>;
 }
 
-/// Adapter struct used to lift the [`VTable`] trait into an object-safe [`Encoding`]
+/// Adapter struct used to lift the [`VTable`] trait into an object-safe [`DynVTable`]
 /// implementation.
 ///
 /// Since this is a unit struct with `repr(transparent)`, we are able to turn un-adapted array
 /// structs into [`dyn Encoding`] using some cheeky casting inside [`std::ops::Deref`] and
 /// [`AsRef`]. See the `vtable!` macro for more details.
 #[repr(transparent)]
-pub struct EncodingAdapter<V: VTable>(V::Encoding);
+pub struct EncodingAdapter<V: VTable>(V);
 
-impl<V: VTable> Encoding for EncodingAdapter<V> {
+impl<V: VTable> DynVTable for EncodingAdapter<V> {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -158,22 +158,22 @@ impl<V: VTable> Debug for EncodingAdapter<V> {
     }
 }
 
-impl Display for dyn Encoding + '_ {
+impl Display for dyn DynVTable + '_ {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.id())
     }
 }
 
-impl PartialEq for dyn Encoding + '_ {
+impl PartialEq for dyn DynVTable + '_ {
     fn eq(&self, other: &Self) -> bool {
         self.id() == other.id()
     }
 }
 
-impl Eq for dyn Encoding + '_ {}
+impl Eq for dyn DynVTable + '_ {}
 
-impl dyn Encoding + '_ {
-    pub fn as_<V: VTable>(&self) -> &V::Encoding {
+impl dyn DynVTable + '_ {
+    pub fn as_<V: VTable>(&self) -> &V {
         self.as_any()
             .downcast_ref::<EncodingAdapter<V>>()
             .map(|e| &e.0)

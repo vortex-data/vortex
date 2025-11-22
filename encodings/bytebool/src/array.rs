@@ -14,19 +14,19 @@ use vortex_array::vtable::{
     ValidityVTableFromValidityHelper, VisitorVTable,
 };
 use vortex_array::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical, EmptyMetadata,
-    EncodingId, EncodingRef, IntoArray, Precision, vtable,
+    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
+    EmptyMetadata, EncodingId, EncodingRef, IntoArray, Precision,
 };
 use vortex_buffer::{BitBuffer, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 use vortex_scalar::Scalar;
 
 vtable!(ByteBool);
 
 impl VTable for ByteBoolVTable {
     type Array = ByteBoolArray;
-    type Encoding = ByteBoolEncoding;
+
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
@@ -38,12 +38,12 @@ impl VTable for ByteBoolVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
+    fn id(&self) -> EncodingId {
         EncodingId::new_ref("vortex.bytebool")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ByteBoolEncoding.as_ref())
+        EncodingRef::new_ref(ByteBoolVTable.as_ref())
     }
 
     fn metadata(_array: &ByteBoolArray) -> VortexResult<Self::Metadata> {
@@ -59,7 +59,7 @@ impl VTable for ByteBoolVTable {
     }
 
     fn build(
-        _encoding: &ByteBoolEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
@@ -93,7 +93,7 @@ pub struct ByteBoolArray {
 }
 
 #[derive(Clone, Debug)]
-pub struct ByteBoolEncoding;
+pub struct ByteBoolVTable;
 
 impl ByteBoolArray {
     pub fn new(buffer: ByteBuffer, validity: Validity) -> Self {

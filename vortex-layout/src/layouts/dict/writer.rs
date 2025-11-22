@@ -8,15 +8,14 @@ use std::task::{Context, Poll};
 use async_stream::{stream, try_stream};
 use async_trait::async_trait;
 use futures::future::BoxFuture;
-use futures::stream::{BoxStream, once};
-use futures::{FutureExt, Stream, StreamExt, TryStreamExt, pin_mut, try_join};
-use vortex_array::arrays::DictEncoding;
-use vortex_array::builders::dict::{DictConstraints, DictEncoder, dict_encoder};
+use futures::stream::{once, BoxStream};
+use futures::{pin_mut, try_join, FutureExt, Stream, StreamExt, TryStreamExt};
+use vortex_array::builders::dict::{dict_encoder, DictConstraints, DictEncoder};
 use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexError, VortexResult};
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::Handle;
 
@@ -117,7 +116,7 @@ impl LayoutStrategy for DictStrategy {
             None => true, // empty stream
             Some(chunk) => {
                 let compressed = BtrBlocksCompressor::default().compress(&chunk)?;
-                !compressed.is_encoding(DictEncoding.id())
+                !compressed.is_encoding(DictVTable.id())
             }
         };
         if should_fallback {

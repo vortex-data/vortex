@@ -7,15 +7,15 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
 use vortex_array::{
-    DeserializeMetadata, EncodingId, EncodingRef, ProstMetadata, SerializeMetadata, vtable,
+    vtable, DeserializeMetadata, EncodingId, EncodingRef, ProstMetadata, SerializeMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex_vector::{Vector, VectorMutOps};
 
-use crate::BitPackedArray;
 use crate::bitpack_decompress::unpack_to_primitive_vector;
+use crate::BitPackedArray;
 
 mod array;
 mod canonical;
@@ -38,7 +38,7 @@ pub struct BitPackedMetadata {
 
 impl VTable for BitPackedVTable {
     type Array = BitPackedArray;
-    type Encoding = BitPackedEncoding;
+
     type Metadata = ProstMetadata<BitPackedMetadata>;
 
     type ArrayVTable = Self;
@@ -50,12 +50,12 @@ impl VTable for BitPackedVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
+    fn id(&self) -> EncodingId {
         EncodingId::new_ref("fastlanes.bitpacked")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(BitPackedEncoding.as_ref())
+        EncodingRef::new_ref(BitPackedVTable.as_ref())
     }
 
     fn metadata(array: &BitPackedArray) -> VortexResult<Self::Metadata> {
@@ -84,7 +84,7 @@ impl VTable for BitPackedVTable {
     /// - No patches: `[validity?]`
     /// - With patches: `[patch_indices, patch_values, chunk_offsets?, validity?]`
     fn build(
-        _encoding: &BitPackedEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -167,4 +167,4 @@ impl VTable for BitPackedVTable {
 }
 
 #[derive(Clone, Debug)]
-pub struct BitPackedEncoding;
+pub struct BitPackedVTable;

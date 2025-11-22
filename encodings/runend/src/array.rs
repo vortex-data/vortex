@@ -10,12 +10,12 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTable};
 use vortex_array::{
-    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, DeserializeMetadata, EncodingId, EncodingRef,
-    IntoArray, Precision, ProstMetadata, SerializeMetadata, ToCanonical, vtable,
+    vtable, Array, ArrayEq, ArrayHash, ArrayRef, Canonical, DeserializeMetadata, EncodingId,
+    EncodingRef, IntoArray, Precision, ProstMetadata, SerializeMetadata, ToCanonical,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_ensure, vortex_panic};
+use vortex_error::{vortex_bail, vortex_ensure, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 
@@ -35,7 +35,7 @@ pub struct RunEndMetadata {
 
 impl VTable for RunEndVTable {
     type Array = RunEndArray;
-    type Encoding = RunEndEncoding;
+
     type Metadata = ProstMetadata<RunEndMetadata>;
 
     type ArrayVTable = Self;
@@ -47,12 +47,12 @@ impl VTable for RunEndVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
+    fn id(&self) -> EncodingId {
         EncodingId::new_ref("vortex.runend")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(RunEndEncoding.as_ref())
+        EncodingRef::new_ref(RunEndVTable.as_ref())
     }
 
     fn metadata(array: &RunEndArray) -> VortexResult<Self::Metadata> {
@@ -74,7 +74,7 @@ impl VTable for RunEndVTable {
     }
 
     fn build(
-        _encoding: &RunEndEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -106,7 +106,7 @@ pub struct RunEndArray {
 }
 
 #[derive(Clone, Debug)]
-pub struct RunEndEncoding;
+pub struct RunEndVTable;
 
 impl RunEndArray {
     fn validate(
@@ -431,7 +431,7 @@ impl CanonicalVTable<RunEndVTable> for RunEndVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::{IntoArray, assert_arrays_eq};
+    use vortex_array::{assert_arrays_eq, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 

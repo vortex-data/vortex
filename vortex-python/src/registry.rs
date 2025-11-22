@@ -5,8 +5,8 @@ use pyo3::prelude::*;
 use pyo3::{Bound, PyResult, Python};
 use vortex::ArraySessionExt;
 
-use crate::arrays::py::PythonEncoding;
-use crate::{SESSION, install_module};
+use crate::arrays::py::PythonVTable;
+use crate::{install_module, SESSION};
 
 /// Register serde functions and classes.
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {

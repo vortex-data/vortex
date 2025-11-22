@@ -3,9 +3,9 @@
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
-use vortex_vector::Vector;
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_vector::bool::BoolVector;
+use vortex_vector::Vector;
 
 use crate::arrays::BoolArray;
 use crate::execution::ExecutionCtx;
@@ -13,7 +13,7 @@ use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
 use crate::{
-    DeserializeMetadata, EncodingId, EncodingRef, ProstMetadata, SerializeMetadata, vtable,
+    vtable, DeserializeMetadata, EncodingId, EncodingRef, ProstMetadata, SerializeMetadata,
 };
 
 mod array;
@@ -36,7 +36,7 @@ pub struct BoolMetadata {
 
 impl VTable for BoolVTable {
     type Array = BoolArray;
-    type Encoding = BoolEncoding;
+
     type Metadata = ProstMetadata<BoolMetadata>;
 
     type ArrayVTable = Self;
@@ -48,12 +48,12 @@ impl VTable for BoolVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
+    fn id(&self) -> EncodingId {
         EncodingId::new_ref("vortex.bool")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(BoolEncoding.as_ref())
+        EncodingRef::new_ref(BoolVTable.as_ref())
     }
 
     fn metadata(array: &BoolArray) -> VortexResult<Self::Metadata> {
@@ -74,7 +74,7 @@ impl VTable for BoolVTable {
     }
 
     fn build(
-        _encoding: &Self::Encoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -103,4 +103,4 @@ impl VTable for BoolVTable {
 }
 
 #[derive(Clone, Debug)]
-pub struct BoolEncoding;
+pub struct BoolVTable;

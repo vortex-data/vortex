@@ -12,13 +12,13 @@ use vortex_array::vtable::{
     VisitorVTable,
 };
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
-    DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata, SerializeMetadata,
-    vtable,
+    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef,
+    Canonical, DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata,
+    SerializeMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 vtable!(DateTimeParts);
 
@@ -54,7 +54,7 @@ impl DateTimePartsMetadata {
 
 impl VTable for DateTimePartsVTable {
     type Array = DateTimePartsArray;
-    type Encoding = DateTimePartsEncoding;
+
     type Metadata = ProstMetadata<DateTimePartsMetadata>;
 
     type ArrayVTable = Self;
@@ -66,12 +66,12 @@ impl VTable for DateTimePartsVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
+    fn id(&self) -> EncodingId {
         EncodingId::new_ref("vortex.datetimeparts")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(DateTimePartsEncoding.as_ref())
+        EncodingRef::new_ref(DateTimePartsVTable.as_ref())
     }
 
     fn metadata(array: &DateTimePartsArray) -> VortexResult<Self::Metadata> {
@@ -93,7 +93,7 @@ impl VTable for DateTimePartsVTable {
     }
 
     fn build(
-        _encoding: &DateTimePartsEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -137,7 +137,7 @@ pub struct DateTimePartsArray {
 }
 
 #[derive(Clone, Debug)]
-pub struct DateTimePartsEncoding;
+pub struct DateTimePartsVTable;
 
 impl DateTimePartsArray {
     pub fn try_new(
@@ -251,7 +251,7 @@ impl ValidityChild<DateTimePartsVTable> for DateTimePartsVTable {
 
 impl EncodeVTable<DateTimePartsVTable> for DateTimePartsVTable {
     fn encode(
-        _encoding: &DateTimePartsEncoding,
+        &self,
         canonical: &Canonical,
         _like: Option<&DateTimePartsArray>,
     ) -> VortexResult<Option<DateTimePartsArray>> {

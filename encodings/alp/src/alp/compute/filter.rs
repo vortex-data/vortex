@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{FilterKernel, FilterKernelAdapter, filter};
-use vortex_array::{ArrayRef, register_kernel};
+use vortex_array::compute::{filter, FilterKernel, FilterKernelAdapter};
+use vortex_array::{register_kernel, ArrayRef};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -38,8 +38,6 @@ mod test {
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::{ArrayRef, IntoArray};
     use vortex_buffer::buffer;
-
-    use crate::ALPEncoding;
 
     #[rstest]
     #[case(buffer![1.23f32, 4.56, 7.89, 10.11, 12.13].into_array())]

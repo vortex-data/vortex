@@ -14,13 +14,13 @@ use vortex_array::vtable::{
     VisitorVTable,
 };
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
-    DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata, SerializeMetadata,
-    vtable,
+    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef,
+    Canonical, DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata,
+    SerializeMetadata,
 };
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::{fsst_compress, fsst_train_compressor};
 
@@ -41,7 +41,7 @@ impl FSSTMetadata {
 
 impl VTable for FSSTVTable {
     type Array = FSSTArray;
-    type Encoding = FSSTEncoding;
+
     type Metadata = ProstMetadata<FSSTMetadata>;
 
     type ArrayVTable = Self;
@@ -53,12 +53,12 @@ impl VTable for FSSTVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
+    fn id(&self) -> EncodingId {
         EncodingId::new_ref("vortex.fsst")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(FSSTEncoding.as_ref())
+        EncodingRef::new_ref(FSSTVTable.as_ref())
     }
 
     fn metadata(array: &FSSTArray) -> VortexResult<Self::Metadata> {
@@ -79,7 +79,7 @@ impl VTable for FSSTVTable {
     }
 
     fn build(
-        _encoding: &FSSTEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -151,7 +151,7 @@ impl Debug for FSSTArray {
 }
 
 #[derive(Clone, Debug)]
-pub struct FSSTEncoding;
+pub struct FSSTVTable;
 
 impl FSSTArray {
     /// Build an FSST array from a set of `symbols` and `codes`.
@@ -317,7 +317,7 @@ impl ValidityChild<FSSTVTable> for FSSTVTable {
 
 impl EncodeVTable<FSSTVTable> for FSSTVTable {
     fn encode(
-        _encoding: &FSSTEncoding,
+        &self,
         canonical: &Canonical,
         like: Option<&FSSTArray>,
     ) -> VortexResult<Option<FSSTArray>> {
@@ -346,8 +346,8 @@ impl VisitorVTable<FSSTVTable> for FSSTVTable {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::ProstMetadata;
     use vortex_array::test_harness::check_metadata;
+    use vortex_array::ProstMetadata;
     use vortex_dtype::PType;
 
     use crate::array::FSSTMetadata;

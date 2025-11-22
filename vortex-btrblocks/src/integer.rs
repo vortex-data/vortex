@@ -13,24 +13,24 @@ use vortex_array::arrays::{
 };
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
-use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
-use vortex_fastlanes::FoRArray;
+use vortex_error::{vortex_bail, vortex_err, VortexResult, VortexUnwrap};
 use vortex_fastlanes::bitpack_compress::{
     bit_width_histogram, bitpack_encode, find_best_bit_width,
 };
-use vortex_runend::RunEndArray;
+use vortex_fastlanes::FoRArray;
 use vortex_runend::compress::runend_encode;
+use vortex_runend::RunEndArray;
 use vortex_scalar::Scalar;
 use vortex_sequence::sequence_encode;
 use vortex_sparse::{SparseArray, SparseVTable};
-use vortex_zigzag::{ZigZagArray, zigzag_encode};
+use vortex_zigzag::{zigzag_encode, ZigZagArray};
 
 use crate::integer::dictionary::dictionary_encode;
 use crate::patches::compress_patches;
 use crate::rle::RLEScheme;
 use crate::{
-    Compressor, CompressorStats, GenerateStatsOptions, Scheme,
-    estimate_compression_ratio_with_sampling,
+    estimate_compression_ratio_with_sampling, Compressor, CompressorStats, GenerateStatsOptions,
+    Scheme,
 };
 
 /// [`Compressor`] for signed and unsigned integers.
@@ -763,17 +763,17 @@ mod tests {
     use log::LevelFilter;
     use rand::rngs::StdRng;
     use rand::{RngCore, SeedableRng};
-    use vortex_array::arrays::{DictEncoding, PrimitiveArray};
+    use vortex_array::arrays::{DictVTable, PrimitiveArray};
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
-    use vortex_array::{Array, IntoArray, ToCanonical, assert_arrays_eq};
-    use vortex_buffer::{Buffer, BufferMut, buffer, buffer_mut};
-    use vortex_sequence::SequenceEncoding;
-    use vortex_sparse::SparseEncoding;
+    use vortex_array::{assert_arrays_eq, Array, IntoArray, ToCanonical};
+    use vortex_buffer::{buffer, buffer_mut, Buffer, BufferMut};
+    use vortex_sequence::SequenceVTable;
+    use vortex_sparse::SparseVTable;
     use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::integer::{
-        IntCompressor, IntegerStats, RLE_INTEGER_SCHEME, SequenceScheme, SparseScheme,
+        IntCompressor, IntegerStats, SequenceScheme, SparseScheme, RLE_INTEGER_SCHEME,
     };
     use crate::{Compressor, CompressorStats, Scheme};
 
@@ -813,7 +813,7 @@ mod tests {
 
         let primitive = codes.freeze().into_array().to_primitive();
         let compressed = IntCompressor::compress(&primitive, false, 3, &[]).unwrap();
-        assert_eq!(compressed.encoding_id(), DictEncoding.id());
+        assert_eq!(compressed.encoding_id(), DictVTable.id());
     }
 
     #[test]
@@ -851,7 +851,7 @@ mod tests {
         let compressed = SparseScheme
             .compress(&IntegerStats::generate(&array), false, 3, &[])
             .unwrap();
-        assert_eq!(compressed.encoding_id(), SparseEncoding.id());
+        assert_eq!(compressed.encoding_id(), SparseVTable.id());
         let decoded = compressed.clone();
         let expected =
             PrimitiveArray::new(buffer![189u8, 189, 189, 0, 0], array.validity().clone())
@@ -870,7 +870,7 @@ mod tests {
         let compressed = SparseScheme
             .compress(&IntegerStats::generate(&array), false, 3, &[])
             .unwrap();
-        assert_eq!(compressed.encoding_id(), SparseEncoding.id());
+        assert_eq!(compressed.encoding_id(), SparseVTable.id());
         let decoded = compressed.clone();
         let expected = PrimitiveArray::new(
             buffer![0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 46],
@@ -887,7 +887,7 @@ mod tests {
         let compressed = SequenceScheme
             .compress(&IntegerStats::generate(&array), false, 3, &[])
             .unwrap();
-        assert_eq!(compressed.encoding_id(), SequenceEncoding.id());
+        assert_eq!(compressed.encoding_id(), SequenceVTable.id());
         let decoded = compressed;
         let expected = PrimitiveArray::from_option_iter(values.into_iter().map(Some)).into_array();
         assert_arrays_eq!(decoded.as_ref(), expected.as_ref());

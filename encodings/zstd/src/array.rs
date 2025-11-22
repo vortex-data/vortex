@@ -19,13 +19,13 @@ use vortex_array::vtable::{
     ValidityHelper, ValiditySliceHelper, ValidityVTableFromValiditySliceHelper, VisitorVTable,
 };
 use vortex_array::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId,
-    EncodingRef, IntoArray, Precision, ProstMetadata, ToCanonical, vtable,
+    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
+    EncodingId, EncodingRef, IntoArray, Precision, ProstMetadata, ToCanonical,
 };
 use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{
-    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
+    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult,
 };
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
@@ -59,7 +59,7 @@ vtable!(Zstd);
 
 impl VTable for ZstdVTable {
     type Array = ZstdArray;
-    type Encoding = ZstdEncoding;
+
     type Metadata = ProstMetadata<ZstdMetadata>;
 
     type ArrayVTable = Self;
@@ -71,12 +71,12 @@ impl VTable for ZstdVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
+    fn id(&self) -> EncodingId {
         EncodingId::new_ref("vortex.zstd")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ZstdEncoding.as_ref())
+        EncodingRef::new_ref(ZstdVTable.as_ref())
     }
 
     fn metadata(array: &ZstdArray) -> VortexResult<Self::Metadata> {
@@ -92,7 +92,7 @@ impl VTable for ZstdVTable {
     }
 
     fn build(
-        _encoding: &ZstdEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -128,7 +128,7 @@ impl VTable for ZstdVTable {
 }
 
 #[derive(Clone, Debug)]
-pub struct ZstdEncoding;
+pub struct ZstdVTable;
 
 #[derive(Clone, Debug)]
 pub struct ZstdArray {

@@ -8,7 +8,7 @@ use vortex_array::builders::dict::dict_encode;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_fsst::{FSSTArray, fsst_compress, fsst_train_compressor};
+use vortex_fsst::{fsst_compress, fsst_train_compressor, FSSTArray};
 use vortex_scalar::Scalar;
 use vortex_sparse::{SparseArray, SparseVTable};
 use vortex_utils::aliases::hash_set::HashSet;
@@ -16,8 +16,8 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::integer::IntCompressor;
 use crate::sample::sample;
 use crate::{
-    Compressor, CompressorStats, GenerateStatsOptions, Scheme,
-    estimate_compression_ratio_with_sampling, integer,
+    estimate_compression_ratio_with_sampling, integer, Compressor, CompressorStats,
+    GenerateStatsOptions, Scheme,
 };
 
 /// Array of variable-length byte arrays, and relevant stats for compression.
@@ -429,7 +429,6 @@ mod tests {
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
     use vortex_dtype::{DType, Nullability};
-    use vortex_sparse::SparseEncoding;
 
     use crate::string::StringCompressor;
     use crate::{Compressor, MAX_CASCADE};
@@ -462,6 +461,6 @@ mod tests {
         let strings = strings.finish_into_varbinview();
 
         let compressed = StringCompressor::compress(&strings, false, MAX_CASCADE, &[]).unwrap();
-        assert_eq!(compressed.encoding_id(), SparseEncoding.id());
+        assert_eq!(compressed.encoding_id(), SparseVTable.id());
     }
 }
