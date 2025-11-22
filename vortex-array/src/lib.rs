@@ -12,16 +12,6 @@
 //! Every data type recognized by Vortex also has a canonical physical encoding format, which
 //! arrays can be [canonicalized](Canonical) into for ease of access in compute functions.
 
-use crate::array::session::rewrite::ArrayRewriteRuleRegistry;
-use crate::array::transform::{
-    AnyArrayParent, ArrayOptimizer, ArrayParentReduceRule, ArrayReduceRule,
-};
-use crate::arrays::{
-    BoolVTable, ChunkedVTable, ConstantVTable, DecimalVTable, ExtensionVTable, FixedSizeListVTable,
-    ListVTable, ListViewVTable, MaskedVTable, NullVTable, PrimitiveVTable, StructVTable,
-    VarBinVTable, VarBinViewVTable,
-};
-use crate::vtable::{ArrayVTable, VTable};
 pub use array::*;
 use arrays::{
     BoolMaskedValidityRule, DecimalMaskedValidityRule, ExprOptimizationRule, ExprVTable,
@@ -34,6 +24,17 @@ pub use mask_future::*;
 pub use metadata::*;
 use vortex_session::registry::Registry;
 use vortex_session::{Ref, SessionExt};
+
+use crate::array::session::rewrite::ArrayRewriteRuleRegistry;
+use crate::array::transform::{
+    AnyArrayParent, ArrayOptimizer, ArrayParentReduceRule, ArrayReduceRule,
+};
+use crate::arrays::{
+    BoolVTable, ChunkedVTable, ConstantVTable, DecimalVTable, ExtensionVTable, FixedSizeListVTable,
+    ListVTable, ListViewVTable, MaskedVTable, NullVTable, PrimitiveVTable, StructVTable,
+    VarBinVTable, VarBinViewVTable,
+};
+use crate::vtable::{ArrayVTable, VTable};
 
 pub mod accessor;
 #[doc(hidden)]

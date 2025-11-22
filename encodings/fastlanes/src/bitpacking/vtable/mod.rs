@@ -5,16 +5,17 @@ use vortex_array::execution::ExecutionCtx;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::{ArrayId, ArrayVTable};
-use vortex_array::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use vortex_array::{vtable, DeserializeMetadata, ProstMetadata, SerializeMetadata};
+use vortex_array::vtable::{
+    ArrayId, ArrayVTable, NotSupported, VTable, ValidityVTableFromValidityHelper,
+};
+use vortex_array::{DeserializeMetadata, ProstMetadata, SerializeMetadata, vtable};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_vector::{Vector, VectorMutOps};
 
-use crate::bitpack_decompress::unpack_to_primitive_vector;
 use crate::BitPackedArray;
+use crate::bitpack_decompress::unpack_to_primitive_vector;
 
 mod array;
 mod canonical;

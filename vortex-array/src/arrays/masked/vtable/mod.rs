@@ -10,16 +10,17 @@ mod validity;
 use vortex_buffer::ByteBuffer;
 use vortex_compute::mask::MaskValidity;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_vector::Vector;
 
 use crate::arrays::masked::MaskedArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{ArrayId, ArrayVTable};
-use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper, VisitorVTable};
-use crate::{vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayOperator, EmptyMetadata};
+use crate::vtable::{
+    ArrayId, ArrayVTable, NotSupported, VTable, ValidityVTableFromValidityHelper, VisitorVTable,
+};
+use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayOperator, EmptyMetadata, vtable};
 
 vtable!(Masked);
 

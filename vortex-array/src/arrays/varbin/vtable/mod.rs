@@ -3,14 +3,13 @@
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::arrays::varbin::VarBinArray;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{ArrayId, ArrayVTable};
-use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{vtable, DeserializeMetadata, ProstMetadata, SerializeMetadata};
+use crate::vtable::{ArrayId, ArrayVTable, NotSupported, VTable, ValidityVTableFromValidityHelper};
+use crate::{DeserializeMetadata, ProstMetadata, SerializeMetadata, vtable};
 
 mod array;
 mod canonical;

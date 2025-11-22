@@ -4,12 +4,11 @@
 use std::fmt::{Debug, Formatter};
 
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{ArrayId, ArrayVTable};
-use vortex_array::vtable::{NotSupported, VTable, ValidityVTableFromChild};
-use vortex_array::{vtable, DeserializeMetadata, SerializeMetadata};
+use vortex_array::vtable::{ArrayId, ArrayVTable, NotSupported, VTable, ValidityVTableFromChild};
+use vortex_array::{DeserializeMetadata, SerializeMetadata, vtable};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::FoRArray;

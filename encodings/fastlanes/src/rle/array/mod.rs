@@ -4,7 +4,7 @@
 use vortex_array::stats::ArrayStats;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_ensure, VortexResult};
+use vortex_error::{VortexResult, vortex_ensure};
 
 use crate::FL_CHUNK_SIZE;
 

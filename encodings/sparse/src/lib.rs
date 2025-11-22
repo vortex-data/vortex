@@ -8,21 +8,21 @@ use itertools::Itertools as _;
 use num_traits::AsPrimitive;
 use prost::Message as _;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{compare, fill_null, filter, sub_scalar, Operator};
+use vortex_array::compute::{Operator, compare, fill_null, filter, sub_scalar};
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::{ArrayId, ArrayVTable};
 use vortex_array::vtable::{
-    BaseArrayVTable, EncodeVTable, NotSupported, VTable, ValidityVTable, VisitorVTable,
+    ArrayId, ArrayVTable, BaseArrayVTable, EncodeVTable, NotSupported, VTable, ValidityVTable,
+    VisitorVTable,
 };
 use vortex_array::{
-    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef,
-    Canonical, IntoArray, Precision, ProstMetadata, ToCanonical,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
+    IntoArray, Precision, ProstMetadata, ToCanonical, vtable,
 };
 use vortex_buffer::{BitBufferMut, Buffer, ByteBuffer, ByteBufferMut};
-use vortex_dtype::{match_each_integer_ptype, DType, NativePType, Nullability};
-use vortex_error::{vortex_bail, vortex_ensure, VortexExpect as _, VortexResult};
+use vortex_dtype::{DType, NativePType, Nullability, match_each_integer_ptype};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_ensure};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::{Scalar, ScalarValue};
 
@@ -448,10 +448,10 @@ impl VisitorVTable<SparseVTable> for SparseVTable {
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::{ConstantArray, PrimitiveArray};
     use vortex_array::compute::cast;
     use vortex_array::validity::Validity;
-    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexUnwrap;

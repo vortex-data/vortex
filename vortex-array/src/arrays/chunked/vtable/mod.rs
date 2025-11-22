@@ -4,16 +4,15 @@
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_vector::{Vector, VectorMut, VectorMutOps};
 
 use crate::arrays::{ChunkedArray, PrimitiveArray};
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{ArrayId, ArrayVTable};
-use crate::vtable::{NotSupported, VTable};
-use crate::{vtable, ArrayOperator, EmptyMetadata, ToCanonical};
+use crate::vtable::{ArrayId, ArrayVTable, NotSupported, VTable};
+use crate::{ArrayOperator, EmptyMetadata, ToCanonical, vtable};
 
 mod array;
 mod canonical;

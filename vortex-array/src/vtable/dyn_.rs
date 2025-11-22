@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
+use std::fmt::{Debug, Display, Formatter};
+use std::ops::Deref;
+use std::sync::Arc;
+
+use arcref::ArcRef;
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::DType;
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+
 use crate::serde::ArrayChildren;
 use crate::vtable::{EncodeVTable, VTable};
 use crate::{Array, ArrayRef, Canonical, IntoArray};
-use arcref::ArcRef;
-use std::any::Any;
-use std::fmt::{Debug, Display, Formatter};
-use std::sync::Arc;
-use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 
 /// ArrayId is a globally unique name for the array's vtable.
 pub type ArrayId = ArcRef<str>;

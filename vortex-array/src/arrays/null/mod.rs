@@ -9,20 +9,19 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
-use vortex_vector::null::NullVector;
 use vortex_vector::Vector;
+use vortex_vector::null::NullVector;
 
-use crate::execution::{kernel, BatchKernelRef, BindCtx, ExecutionCtx};
+use crate::execution::{BatchKernelRef, BindCtx, ExecutionCtx, kernel};
 use crate::serde::ArrayChildren;
 use crate::stats::{ArrayStats, StatsSetRef};
-use crate::vtable::{ArrayId, ArrayVTable};
 use crate::vtable::{
-    BaseArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, OperatorVTable, VTable,
-    ValidityVTable, VisitorVTable,
+    ArrayId, ArrayVTable, BaseArrayVTable, CanonicalVTable, NotSupported, OperationsVTable,
+    OperatorVTable, VTable, ValidityVTable, VisitorVTable,
 };
 use crate::{
-    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EmptyMetadata,
-    IntoArray, Precision,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EmptyMetadata, IntoArray,
+    Precision, vtable,
 };
 
 mod compute;

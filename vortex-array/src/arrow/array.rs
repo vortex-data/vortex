@@ -9,21 +9,20 @@ use arrow_array::ArrayRef as ArrowArrayRef;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, vortex_panic, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrow::FromArrowArray;
 use crate::serde::ArrayChildren;
 use crate::stats::{ArrayStats, StatsSetRef};
-use crate::vtable::{ArrayId, ArrayVTable};
 use crate::vtable::{
-    BaseArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityVTable,
-    VisitorVTable,
+    ArrayId, ArrayVTable, BaseArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable,
+    ValidityVTable, VisitorVTable,
 };
 use crate::{
-    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EmptyMetadata,
-    IntoArray, Precision,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EmptyMetadata, IntoArray,
+    Precision, vtable,
 };
 
 vtable!(Arrow);

@@ -3,16 +3,16 @@
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
-use vortex_vector::bool::BoolVector;
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_vector::Vector;
+use vortex_vector::bool::BoolVector;
 
 use crate::arrays::BoolArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{vtable, DeserializeMetadata, ProstMetadata, SerializeMetadata};
+use crate::{DeserializeMetadata, ProstMetadata, SerializeMetadata, vtable};
 
 mod array;
 mod canonical;
@@ -21,8 +21,9 @@ pub mod operator;
 mod validity;
 mod visitor;
 
-use crate::vtable::{ArrayId, ArrayVTable};
 pub use operator::BoolMaskedValidityRule;
+
+use crate::vtable::{ArrayId, ArrayVTable};
 
 vtable!(Bool);
 

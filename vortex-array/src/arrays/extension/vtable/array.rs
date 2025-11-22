@@ -5,11 +5,11 @@ use std::hash::Hash;
 
 use vortex_dtype::DType;
 
+use crate::Precision;
 use crate::arrays::extension::{ExtensionArray, ExtensionVTable};
 use crate::hash::{ArrayEq, ArrayHash};
 use crate::stats::StatsSetRef;
 use crate::vtable::BaseArrayVTable;
-use crate::Precision;
 
 impl BaseArrayVTable<ExtensionVTable> for ExtensionVTable {
     fn len(array: &ExtensionArray) -> usize {

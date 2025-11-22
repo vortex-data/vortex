@@ -12,16 +12,15 @@ use std::fmt::Debug;
 pub use operator::ExprOptimizationRule;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_vector::Vector;
 
 use crate::arrays::expr::ExprArray;
 use crate::execution::ExecutionCtx;
 use crate::expr::Expression;
 use crate::serde::ArrayChildren;
-use crate::vtable::{ArrayId, ArrayVTable};
-use crate::vtable::{NotSupported, VTable};
-use crate::{vtable, Array, ArrayOperator};
+use crate::vtable::{ArrayId, ArrayVTable, NotSupported, VTable};
+use crate::{Array, ArrayOperator, vtable};
 
 vtable!(Expr);
 

@@ -3,9 +3,10 @@
 
 use prost::Message;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{ArrayId, ArrayVTable};
-use vortex_array::vtable::{NotSupported, VTable, ValidityVTableFromChildSliceHelper};
-use vortex_array::{vtable, ProstMetadata};
+use vortex_array::vtable::{
+    ArrayId, ArrayVTable, NotSupported, VTable, ValidityVTableFromChildSliceHelper,
+};
+use vortex_array::{ProstMetadata, vtable};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::VortexResult;

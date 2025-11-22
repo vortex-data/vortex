@@ -10,15 +10,14 @@ mod visitor;
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_vector::Vector;
 
 use crate::arrays::extension::ExtensionArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
-use crate::vtable::{ArrayId, ArrayVTable};
-use crate::vtable::{NotSupported, VTable, ValidityVTableFromChild};
-use crate::{vtable, ArrayOperator, EmptyMetadata};
+use crate::vtable::{ArrayId, ArrayVTable, NotSupported, VTable, ValidityVTableFromChild};
+use crate::{ArrayOperator, EmptyMetadata, vtable};
 
 vtable!(Extension);
 

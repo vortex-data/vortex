@@ -4,11 +4,12 @@
 use std::fmt::Display;
 use std::sync::Arc;
 
-use crate::vtable::ArrayVTable;
 use itertools::Itertools;
 use parking_lot::RwLock;
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_session::registry::Registry;
+
+use crate::vtable::ArrayVTable;
 
 pub type ArrayContext = VTableContext<ArrayVTable>;
 

@@ -5,28 +5,28 @@ use std::hash::Hash;
 use std::ops::Range;
 use std::sync::Arc;
 
-use crate::arrays::py::PythonArray;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyType};
-use pyo3::{intern, Python};
+use pyo3::{Python, intern};
 use vortex::buffer::ByteBuffer;
 use vortex::compute::{ComputeFn, InvocationArgs, Output};
 use vortex::dtype::DType;
-use vortex::error::{vortex_err, VortexResult};
+use vortex::error::{VortexResult, vortex_err};
 use vortex::mask::Mask;
 use vortex::scalar::Scalar;
 use vortex::serde::ArrayChildren;
 use vortex::stats::StatsSetRef;
-use vortex::vtable::{ArrayId, ArrayVTable};
 use vortex::vtable::{
-    BaseArrayVTable, CanonicalVTable, ComputeVTable, EncodeVTable, NotSupported, OperationsVTable,
-    VTable, ValidityVTable, VisitorVTable,
+    ArrayId, ArrayVTable, BaseArrayVTable, CanonicalVTable, ComputeVTable, EncodeVTable,
+    NotSupported, OperationsVTable, VTable, ValidityVTable, VisitorVTable,
 };
 use vortex::{
-    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, Precision,
-    RawMetadata, SerializeMetadata,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, Precision, RawMetadata,
+    SerializeMetadata, vtable,
 };
+
+use crate::arrays::py::PythonArray;
 
 vtable!(Python);
 

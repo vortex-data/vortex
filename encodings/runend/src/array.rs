@@ -8,17 +8,16 @@ use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::search_sorted::{SearchSorted, SearchSortedSide};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::{ArrayId, ArrayVTable};
 use vortex_array::vtable::{
-    BaseArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTable,
+    ArrayId, ArrayVTable, BaseArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTable,
 };
 use vortex_array::{
-    vtable, Array, ArrayEq, ArrayHash, ArrayRef, Canonical, DeserializeMetadata, IntoArray,
-    Precision, ProstMetadata, SerializeMetadata, ToCanonical,
+    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, DeserializeMetadata, IntoArray, Precision,
+    ProstMetadata, SerializeMetadata, ToCanonical, vtable,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_bail, vortex_ensure, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_ensure, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 
@@ -434,7 +433,7 @@ impl CanonicalVTable<RunEndVTable> for RunEndVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::{assert_arrays_eq, IntoArray};
+    use vortex_array::{IntoArray, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 

@@ -5,9 +5,9 @@ use std::hash::Hasher;
 
 use vortex_dtype::DType;
 
+use crate::Precision;
 use crate::stats::StatsSetRef;
 use crate::vtable::VTable;
-use crate::Precision;
 
 // FIXME(ngates): inline into VTable when possible
 pub trait BaseArrayVTable<V: VTable> {

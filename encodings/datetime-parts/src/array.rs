@@ -7,18 +7,17 @@ use std::hash::Hash;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::{ArrayId, ArrayVTable};
 use vortex_array::vtable::{
-    BaseArrayVTable, EncodeVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
-    VisitorVTable,
+    ArrayId, ArrayVTable, BaseArrayVTable, EncodeVTable, NotSupported, VTable, ValidityChild,
+    ValidityVTableFromChild, VisitorVTable,
 };
 use vortex_array::{
-    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef,
-    Canonical, DeserializeMetadata, Precision, ProstMetadata, SerializeMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
+    DeserializeMetadata, Precision, ProstMetadata, SerializeMetadata, vtable,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 vtable!(DateTimeParts);
 

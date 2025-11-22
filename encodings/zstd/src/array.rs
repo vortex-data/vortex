@@ -14,19 +14,19 @@ use vortex_array::compute::filter;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
-use vortex_array::vtable::{ArrayId, ArrayVTable};
 use vortex_array::vtable::{
-    BaseArrayVTable, CanonicalVTable, EncodeVTable, NotSupported, OperationsVTable, VTable,
-    ValidityHelper, ValiditySliceHelper, ValidityVTableFromValiditySliceHelper, VisitorVTable,
+    ArrayId, ArrayVTable, BaseArrayVTable, CanonicalVTable, EncodeVTable, NotSupported,
+    OperationsVTable, VTable, ValidityHelper, ValiditySliceHelper,
+    ValidityVTableFromValiditySliceHelper, VisitorVTable,
 };
 use vortex_array::{
-    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
-    IntoArray, Precision, ProstMetadata, ToCanonical,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical, IntoArray,
+    Precision, ProstMetadata, ToCanonical, vtable,
 };
 use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{
-    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult,
+    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
 };
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;

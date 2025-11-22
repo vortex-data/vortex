@@ -8,13 +8,12 @@ use std::sync::Arc;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::dash_map::DashMap;
 
+use crate::array::ArrayRef;
 use crate::array::transform::context::ArrayRuleContext;
 use crate::array::transform::rules::{
     AnyArrayParent, ArrayParentMatcher, ArrayParentReduceRule, ArrayReduceRule,
 };
-use crate::array::ArrayRef;
-use crate::vtable::ArrayId;
-use crate::vtable::VTable;
+use crate::vtable::{ArrayId, VTable};
 
 /// Dynamic trait for array reduce rules
 pub trait DynArrayReduceRule: Debug + Send + Sync {

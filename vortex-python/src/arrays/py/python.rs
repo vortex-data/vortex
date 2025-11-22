@@ -8,8 +8,8 @@ use vortex::dtype::DType;
 use vortex::stats::ArrayStats;
 use vortex::vtable::{ArrayVTable, ArrayVTableExt};
 
-use crate::arrays::py::PythonVTable;
 use crate::arrays::PyArray;
+use crate::arrays::py::PythonVTable;
 use crate::dtype::PyDType;
 
 /// Base class for implementing a Vortex encoding in Python.

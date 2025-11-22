@@ -5,11 +5,11 @@ use std::hash::Hash;
 
 use vortex_dtype::DType;
 
+use crate::Precision;
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::hash::{ArrayEq, ArrayHash};
 use crate::stats::StatsSetRef;
 use crate::vtable::BaseArrayVTable;
-use crate::Precision;
 
 impl BaseArrayVTable<PrimitiveVTable> for PrimitiveVTable {
     fn len(array: &PrimitiveArray) -> usize {
