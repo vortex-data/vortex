@@ -3,8 +3,9 @@
 
 use prost::Message;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::vtable::{ArrayId, ArrayVTable};
 use vortex_array::vtable::{NotSupported, VTable, ValidityVTableFromChildSliceHelper};
-use vortex_array::{EncodingId, EncodingRef, ProstMetadata, vtable};
+use vortex_array::{vtable, ProstMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::VortexResult;
@@ -50,12 +51,12 @@ impl VTable for RLEVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("fastlanes.rle")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("fastlanes.rle")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(RLEVTable.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ArrayVTable::new_ref(RLEVTable.as_ref())
     }
 
     fn metadata(array: &RLEArray) -> VortexResult<Self::Metadata> {

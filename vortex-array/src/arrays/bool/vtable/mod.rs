@@ -3,18 +3,16 @@
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
-use vortex_vector::Vector;
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_vector::bool::BoolVector;
+use vortex_vector::Vector;
 
 use crate::arrays::BoolArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{
-    DeserializeMetadata, EncodingId, EncodingRef, ProstMetadata, SerializeMetadata, vtable,
-};
+use crate::{vtable, DeserializeMetadata, ProstMetadata, SerializeMetadata};
 
 mod array;
 mod canonical;
@@ -23,6 +21,7 @@ pub mod operator;
 mod validity;
 mod visitor;
 
+use crate::vtable::{ArrayId, ArrayVTable};
 pub use operator::BoolMaskedValidityRule;
 
 vtable!(Bool);
@@ -48,12 +47,12 @@ impl VTable for BoolVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = Self;
 
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.bool")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.bool")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(BoolVTable.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ArrayVTable::new_ref(BoolVTable.as_ref())
     }
 
     fn metadata(array: &BoolArray) -> VortexResult<Self::Metadata> {

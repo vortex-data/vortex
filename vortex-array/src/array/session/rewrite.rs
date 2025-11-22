@@ -8,12 +8,12 @@ use std::sync::Arc;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::dash_map::DashMap;
 
-use crate::EncodingId;
-use crate::array::ArrayRef;
 use crate::array::transform::context::ArrayRuleContext;
 use crate::array::transform::rules::{
     AnyArrayParent, ArrayParentMatcher, ArrayParentReduceRule, ArrayReduceRule,
 };
+use crate::array::ArrayRef;
+use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 
 /// Dynamic trait for array reduce rules
@@ -103,11 +103,11 @@ where
 #[derive(Default, Debug)]
 struct ArrayRewriteRuleRegistryInner {
     /// Reduce rules indexed by encoding ID
-    reduce_rules: DashMap<EncodingId, Vec<Arc<dyn DynArrayReduceRule>>>,
+    reduce_rules: DashMap<ArrayId, Vec<Arc<dyn DynArrayReduceRule>>>,
     /// Parent reduce rules for specific parent types, indexed by (child_id, parent_id)
-    parent_rules: DashMap<(EncodingId, EncodingId), Vec<Arc<dyn DynArrayParentReduceRule>>>,
+    parent_rules: DashMap<(ArrayId, ArrayId), Vec<Arc<dyn DynArrayParentReduceRule>>>,
     /// Wildcard parent rules (match any parent), indexed by child_id only
-    any_parent_rules: DashMap<EncodingId, Vec<Arc<dyn DynArrayParentReduceRule>>>,
+    any_parent_rules: DashMap<ArrayId, Vec<Arc<dyn DynArrayParentReduceRule>>>,
 }
 
 /// Registry of array rewrite rules.
@@ -192,7 +192,7 @@ impl ArrayRewriteRuleRegistry {
     }
 
     /// Execute a callback with all reduce rules for a given encoding ID.
-    pub(crate) fn with_reduce_rules<F, R>(&self, id: &EncodingId, f: F) -> R
+    pub(crate) fn with_reduce_rules<F, R>(&self, id: &ArrayId, f: F) -> R
     where
         F: FnOnce(&mut dyn Iterator<Item = &dyn DynArrayReduceRule>) -> R,
     {
@@ -210,8 +210,8 @@ impl ArrayRewriteRuleRegistry {
     /// Returns rules from both specific parent rules (if parent_id provided) and "any parent" wildcard rules.
     pub(crate) fn with_parent_rules<F, R>(
         &self,
-        child_id: &EncodingId,
-        parent_id: Option<&EncodingId>,
+        child_id: &ArrayId,
+        parent_id: Option<&ArrayId>,
         f: F,
     ) -> R
     where

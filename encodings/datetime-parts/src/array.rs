@@ -7,18 +7,18 @@ use std::hash::Hash;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
+use vortex_array::vtable::{ArrayId, ArrayVTable};
 use vortex_array::vtable::{
-    ArrayVTable, EncodeVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
+    BaseArrayVTable, EncodeVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
     VisitorVTable,
 };
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
-    DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata, SerializeMetadata,
-    vtable,
+    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef,
+    Canonical, DeserializeMetadata, Precision, ProstMetadata, SerializeMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 vtable!(DateTimeParts);
 
@@ -66,12 +66,12 @@ impl VTable for DateTimePartsVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.datetimeparts")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.datetimeparts")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(DateTimePartsVTable.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ArrayVTable::new_ref(DateTimePartsVTable.as_ref())
     }
 
     fn metadata(array: &DateTimePartsArray) -> VortexResult<Self::Metadata> {
@@ -207,7 +207,7 @@ impl DateTimePartsArray {
     }
 }
 
-impl ArrayVTable<DateTimePartsVTable> for DateTimePartsVTable {
+impl BaseArrayVTable<DateTimePartsVTable> for DateTimePartsVTable {
     fn len(array: &DateTimePartsArray) -> usize {
         array.days.len()
     }

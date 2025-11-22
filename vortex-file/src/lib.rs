@@ -108,7 +108,8 @@ pub use open::*;
 pub use strategy::*;
 use vortex_alp::{ALPRDVTable, ALPVTable};
 use vortex_array::arrays::DictVTable;
-use vortex_array::{ArraySessionExt, EncodingRef};
+use vortex_array::vtable::ArrayVTable;
+use vortex_array::ArraySessionExt;
 use vortex_bytebool::ByteBoolVTable;
 use vortex_datetime_parts::DateTimePartsVTable;
 use vortex_decimal_byte_parts::DecimalBytePartsVTable;
@@ -160,23 +161,23 @@ mod forever_constant {
 /// Vortex "Editions" that may support different sets of encodings.
 pub fn register_default_encodings(session: &VortexSession) {
     session.arrays().register_many([
-        EncodingRef::new_ref(ALPVTable.as_ref()),
-        EncodingRef::new_ref(ALPRDVTable.as_ref()),
-        EncodingRef::new_ref(BitPackedVTable.as_ref()),
-        EncodingRef::new_ref(ByteBoolVTable.as_ref()),
-        EncodingRef::new_ref(DateTimePartsVTable.as_ref()),
-        EncodingRef::new_ref(DecimalBytePartsVTable.as_ref()),
-        EncodingRef::new_ref(DeltaVTable.as_ref()),
-        EncodingRef::new_ref(DictVTable.as_ref()),
-        EncodingRef::new_ref(FSSTVTable.as_ref()),
-        EncodingRef::new_ref(FoRVTable.as_ref()),
-        EncodingRef::new_ref(PcoVTable.as_ref()),
-        EncodingRef::new_ref(RLEVTable.as_ref()),
-        EncodingRef::new_ref(RunEndVTable.as_ref()),
-        EncodingRef::new_ref(SequenceVTable.as_ref()),
-        EncodingRef::new_ref(SparseVTable.as_ref()),
-        EncodingRef::new_ref(ZigZagVTable.as_ref()),
+        ArrayVTable::new_ref(ALPVTable.as_ref()),
+        ArrayVTable::new_ref(ALPRDVTable.as_ref()),
+        ArrayVTable::new_ref(BitPackedVTable.as_ref()),
+        ArrayVTable::new_ref(ByteBoolVTable.as_ref()),
+        ArrayVTable::new_ref(DateTimePartsVTable.as_ref()),
+        ArrayVTable::new_ref(DecimalBytePartsVTable.as_ref()),
+        ArrayVTable::new_ref(DeltaVTable.as_ref()),
+        ArrayVTable::new_ref(DictVTable.as_ref()),
+        ArrayVTable::new_ref(FSSTVTable.as_ref()),
+        ArrayVTable::new_ref(FoRVTable.as_ref()),
+        ArrayVTable::new_ref(PcoVTable.as_ref()),
+        ArrayVTable::new_ref(RLEVTable.as_ref()),
+        ArrayVTable::new_ref(RunEndVTable.as_ref()),
+        ArrayVTable::new_ref(SequenceVTable.as_ref()),
+        ArrayVTable::new_ref(SparseVTable.as_ref()),
+        ArrayVTable::new_ref(ZigZagVTable.as_ref()),
         #[cfg(feature = "zstd")]
-        EncodingRef::new_ref(vortex_zstd::ZstdVTable.as_ref()),
+        ArrayVTable::new_ref(vortex_zstd::ZstdVTable.as_ref()),
     ]);
 }

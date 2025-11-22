@@ -6,16 +6,16 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
-use vortex_vector::Vector;
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_vector::struct_::StructVector;
+use vortex_vector::Vector;
 
 use crate::arrays::struct_::StructArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{ArrayOperator, EmptyMetadata, EncodingId, EncodingRef, vtable};
+use crate::{vtable, ArrayOperator, EmptyMetadata};
 
 mod array;
 mod canonical;
@@ -25,6 +25,7 @@ pub mod reduce;
 mod validity;
 mod visitor;
 
+use crate::vtable::{ArrayId, ArrayVTable};
 pub use operator::StructExprPartitionRule;
 
 vtable!(Struct);
@@ -43,12 +44,12 @@ impl VTable for StructVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = Self;
 
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.struct")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.struct")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(StructVTable.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ArrayVTable::new_ref(StructVTable.as_ref())
     }
 
     fn metadata(_array: &StructArray) -> VortexResult<Self::Metadata> {

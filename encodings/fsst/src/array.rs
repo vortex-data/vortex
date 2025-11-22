@@ -9,18 +9,18 @@ use fsst::{Compressor, Decompressor, Symbol};
 use vortex_array::arrays::{VarBinArray, VarBinVTable};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
+use vortex_array::vtable::{ArrayId, ArrayVTable};
 use vortex_array::vtable::{
-    ArrayVTable, EncodeVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
+    BaseArrayVTable, EncodeVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
     VisitorVTable,
 };
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
-    DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata, SerializeMetadata,
-    vtable,
+    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef,
+    Canonical, DeserializeMetadata, Precision, ProstMetadata, SerializeMetadata,
 };
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::{fsst_compress, fsst_train_compressor};
 
@@ -53,12 +53,12 @@ impl VTable for FSSTVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.fsst")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.fsst")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(FSSTVTable.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ArrayVTable::new_ref(FSSTVTable.as_ref())
     }
 
     fn metadata(array: &FSSTArray) -> VortexResult<Self::Metadata> {
@@ -272,7 +272,7 @@ impl FSSTArray {
     }
 }
 
-impl ArrayVTable<FSSTVTable> for FSSTVTable {
+impl BaseArrayVTable<FSSTVTable> for FSSTVTable {
     fn len(array: &FSSTArray) -> usize {
         array.codes().len()
     }
@@ -346,8 +346,8 @@ impl VisitorVTable<FSSTVTable> for FSSTVTable {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::ProstMetadata;
     use vortex_array::test_harness::check_metadata;
+    use vortex_array::ProstMetadata;
     use vortex_dtype::PType;
 
     use crate::array::FSSTMetadata;

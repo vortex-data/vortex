@@ -9051,6 +9051,7 @@ dependencies = [
  "tokio",
  "url",
  "vortex",
+ "vortex-array",
 ]
 
 [[package]]

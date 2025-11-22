@@ -2,20 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
-use vortex_dtype::{DType, NativeDecimalType, PrecisionScale, match_each_decimal_value_type};
-use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
+use vortex_dtype::{match_each_decimal_value_type, DType, NativeDecimalType, PrecisionScale};
+use vortex_error::{vortex_bail, vortex_ensure, VortexResult};
 use vortex_scalar::DecimalType;
-use vortex_vector::Vector;
 use vortex_vector::decimal::DVector;
+use vortex_vector::Vector;
 
 use crate::arrays::DecimalArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{
-    DeserializeMetadata, EncodingId, EncodingRef, ProstMetadata, SerializeMetadata, vtable,
-};
+use crate::{vtable, DeserializeMetadata, ProstMetadata, SerializeMetadata};
 
 mod array;
 mod canonical;
@@ -24,6 +22,7 @@ pub mod operator;
 mod validity;
 mod visitor;
 
+use crate::vtable::{ArrayId, ArrayVTable};
 pub use operator::DecimalMaskedValidityRule;
 
 vtable!(Decimal);
@@ -49,12 +48,12 @@ impl VTable for DecimalVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = Self;
 
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.decimal")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.decimal")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(DecimalVTable.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ArrayVTable::new_ref(DecimalVTable.as_ref())
     }
 
     fn metadata(array: &DecimalArray) -> VortexResult<Self::Metadata> {
@@ -129,13 +128,14 @@ pub struct DecimalVTable;
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::{ByteBufferMut, buffer};
+    use vortex_buffer::{buffer, ByteBufferMut};
     use vortex_dtype::DecimalDType;
 
     use crate::arrays::{DecimalArray, DecimalVTable};
     use crate::serde::{ArrayParts, SerializeOptions};
     use crate::validity::Validity;
-    use crate::{ArrayContext, EncodingRef, IntoArray};
+    use crate::vtable::ArrayVTable;
+    use crate::{ArrayContext, IntoArray};
 
     #[test]
     fn test_array_serde() {
@@ -145,7 +145,7 @@ mod tests {
             Validity::NonNullable,
         );
         let dtype = array.dtype().clone();
-        let ctx = ArrayContext::empty().with(EncodingRef::new_ref(DecimalVTable.as_ref()));
+        let ctx = ArrayContext::empty().with(ArrayVTable::new_ref(DecimalVTable.as_ref()));
         let out = array
             .into_array()
             .serialize(&ctx, &SerializeOptions::default())

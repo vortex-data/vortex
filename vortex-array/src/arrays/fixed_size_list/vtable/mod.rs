@@ -5,16 +5,17 @@ use std::sync::Arc;
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
-use vortex_vector::Vector;
+use vortex_error::{vortex_bail, vortex_ensure, VortexResult};
 use vortex_vector::fixed_size_list::FixedSizeListVector;
+use vortex_vector::Vector;
 
 use crate::arrays::FixedSizeListArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
+use crate::vtable::{ArrayId, ArrayVTable};
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{ArrayOperator, EmptyMetadata, EncodingId, EncodingRef, vtable};
+use crate::{vtable, ArrayOperator, EmptyMetadata};
 
 mod array;
 mod canonical;
@@ -41,12 +42,12 @@ impl VTable for FixedSizeListVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = NotSupported;
 
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.fixed_size_list")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.fixed_size_list")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(FixedSizeListVTable.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ArrayVTable::new_ref(FixedSizeListVTable.as_ref())
     }
 
     fn metadata(_array: &FixedSizeListArray) -> VortexResult<Self::Metadata> {

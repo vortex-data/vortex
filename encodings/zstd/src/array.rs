@@ -14,18 +14,19 @@ use vortex_array::compute::filter;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
+use vortex_array::vtable::{ArrayId, ArrayVTable};
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, EncodeVTable, NotSupported, OperationsVTable, VTable,
+    BaseArrayVTable, CanonicalVTable, EncodeVTable, NotSupported, OperationsVTable, VTable,
     ValidityHelper, ValiditySliceHelper, ValidityVTableFromValiditySliceHelper, VisitorVTable,
 };
 use vortex_array::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId,
-    EncodingRef, IntoArray, Precision, ProstMetadata, ToCanonical, vtable,
+    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
+    IntoArray, Precision, ProstMetadata, ToCanonical,
 };
 use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{
-    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
+    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult,
 };
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
@@ -71,12 +72,12 @@ impl VTable for ZstdVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.zstd")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.zstd")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ZstdVTable.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ArrayVTable::new_ref(ZstdVTable.as_ref())
     }
 
     fn metadata(array: &ZstdArray) -> VortexResult<Self::Metadata> {
@@ -650,7 +651,7 @@ impl ValiditySliceHelper for ZstdArray {
     }
 }
 
-impl ArrayVTable<ZstdVTable> for ZstdVTable {
+impl BaseArrayVTable<ZstdVTable> for ZstdVTable {
     fn len(array: &ZstdArray) -> usize {
         array.slice_stop - array.slice_start
     }

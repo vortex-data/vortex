@@ -4,15 +4,16 @@
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_vector::{Vector, VectorMut, VectorMutOps};
 
 use crate::arrays::{ChunkedArray, PrimitiveArray};
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
+use crate::vtable::{ArrayId, ArrayVTable};
 use crate::vtable::{NotSupported, VTable};
-use crate::{ArrayOperator, EmptyMetadata, EncodingId, EncodingRef, ToCanonical, vtable};
+use crate::{vtable, ArrayOperator, EmptyMetadata, ToCanonical};
 
 mod array;
 mod canonical;
@@ -37,12 +38,12 @@ impl VTable for ChunkedVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = NotSupported;
 
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.chunked")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.chunked")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ChunkedVTable.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ArrayVTable::new_ref(ChunkedVTable.as_ref())
     }
 
     fn metadata(_array: &ChunkedArray) -> VortexResult<Self::Metadata> {

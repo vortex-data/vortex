@@ -4,11 +4,12 @@
 use std::fmt::{Debug, Formatter};
 
 use vortex_array::serde::ArrayChildren;
+use vortex_array::vtable::{ArrayId, ArrayVTable};
 use vortex_array::vtable::{NotSupported, VTable, ValidityVTableFromChild};
-use vortex_array::{DeserializeMetadata, EncodingId, EncodingRef, SerializeMetadata, vtable};
+use vortex_array::{vtable, DeserializeMetadata, SerializeMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::FoRArray;
@@ -37,12 +38,12 @@ impl VTable for FoRVTable {
     type EncodeVTable = Self;
     type OperatorVTable = Self;
 
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("fastlanes.for")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("fastlanes.for")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(FoRVTable.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ArrayVTable::new_ref(FoRVTable.as_ref())
     }
 
     fn metadata(array: &FoRArray) -> VortexResult<Self::Metadata> {

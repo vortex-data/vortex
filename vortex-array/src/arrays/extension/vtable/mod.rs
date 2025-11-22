@@ -10,14 +10,15 @@ mod visitor;
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_vector::Vector;
 
 use crate::arrays::extension::ExtensionArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
+use crate::vtable::{ArrayId, ArrayVTable};
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromChild};
-use crate::{ArrayOperator, EmptyMetadata, EncodingId, EncodingRef, vtable};
+use crate::{vtable, ArrayOperator, EmptyMetadata};
 
 vtable!(Extension);
 
@@ -35,12 +36,12 @@ impl VTable for ExtensionVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = NotSupported;
 
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.ext")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.ext")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ExtensionVTable.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ArrayVTable::new_ref(ExtensionVTable.as_ref())
     }
 
     fn metadata(_array: &ExtensionArray) -> VortexResult<Self::Metadata> {

@@ -9,7 +9,7 @@ use std::ops::Range;
 use pco::data_types::{Number, NumberType};
 use pco::errors::PcoError;
 use pco::wrapped::{ChunkDecompressor, FileCompressor, FileDecompressor};
-use pco::{ChunkConfig, PagingSpec, match_number_enum};
+use pco::{match_number_enum, ChunkConfig, PagingSpec};
 use prost::Message;
 use vortex_array::arrays::{PrimitiveArray, PrimitiveVTable};
 use vortex_array::compute::filter;
@@ -17,19 +17,20 @@ use vortex_array::pipeline::PipelinedNode;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
+use vortex_array::vtable::{ArrayId, ArrayVTable};
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, EncodeVTable, NotSupported, OperationsVTable, OperatorVTable,
+    BaseArrayVTable, CanonicalVTable, EncodeVTable, NotSupported, OperationsVTable, OperatorVTable,
     VTable, ValidityHelper, ValiditySliceHelper, ValidityVTableFromValiditySliceHelper,
     VisitorVTable,
 };
 use vortex_array::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId,
-    EncodingRef, IntoArray, Precision, ProstMetadata, ToCanonical, vtable,
+    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
+    IntoArray, Precision, ProstMetadata, ToCanonical,
 };
 use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
-use vortex_dtype::{DType, PType, half};
+use vortex_dtype::{half, DType, PType};
 use vortex_error::{
-    VortexError, VortexResult, VortexUnwrap, vortex_bail, vortex_ensure, vortex_err,
+    vortex_bail, vortex_ensure, vortex_err, VortexError, VortexResult, VortexUnwrap,
 };
 use vortex_scalar::Scalar;
 
@@ -71,12 +72,12 @@ impl VTable for PcoVTable {
     type EncodeVTable = Self;
     type OperatorVTable = Self;
 
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.pco")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.pco")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(PcoVTable.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ArrayVTable::new_ref(PcoVTable.as_ref())
     }
 
     fn metadata(array: &PcoArray) -> VortexResult<Self::Metadata> {
@@ -413,7 +414,7 @@ impl ValiditySliceHelper for PcoArray {
     }
 }
 
-impl ArrayVTable<PcoVTable> for PcoVTable {
+impl BaseArrayVTable<PcoVTable> for PcoVTable {
     fn len(array: &PcoArray) -> usize {
         array.slice_stop - array.slice_start
     }
@@ -521,7 +522,7 @@ impl OperatorVTable<PcoVTable> for PcoVTable {
 mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, ToCanonical, assert_arrays_eq};
+    use vortex_array::{assert_arrays_eq, IntoArray, ToCanonical};
     use vortex_buffer::Buffer;
 
     use crate::PcoArray;

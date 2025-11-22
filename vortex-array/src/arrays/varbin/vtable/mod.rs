@@ -3,15 +3,14 @@
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::arrays::varbin::VarBinArray;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
+use crate::vtable::{ArrayId, ArrayVTable};
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{
-    DeserializeMetadata, EncodingId, EncodingRef, ProstMetadata, SerializeMetadata, vtable,
-};
+use crate::{vtable, DeserializeMetadata, ProstMetadata, SerializeMetadata};
 
 mod array;
 mod canonical;
@@ -42,12 +41,12 @@ impl VTable for VarBinVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = Self;
 
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.varbin")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.varbin")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(VarBinVTable.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ArrayVTable::new_ref(VarBinVTable.as_ref())
     }
 
     fn metadata(array: &VarBinArray) -> VortexResult<Self::Metadata> {

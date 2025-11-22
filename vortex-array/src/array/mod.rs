@@ -17,7 +17,7 @@ pub use operator::*;
 pub use visitor::*;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -26,16 +26,15 @@ use crate::arrays::{
     ListViewVTable, NullVTable, PrimitiveVTable, StructVTable, VarBinVTable, VarBinViewVTable,
 };
 use crate::builders::ArrayBuilder;
-use crate::compute::{ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output, is_constant_opts};
+use crate::compute::{is_constant_opts, ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output};
 use crate::serde::ArrayChildren;
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
+use crate::vtable::{ArrayId, ArrayVTable};
 use crate::vtable::{
-    ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, VTable, ValidityVTable,
+    BaseArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, VTable, ValidityVTable,
     VisitorVTable,
 };
-use crate::{
-    ArrayEq, ArrayHash, Canonical, DynArrayEq, DynArrayHash, EncodingId, EncodingRef, hash,
-};
+use crate::{hash, ArrayEq, ArrayHash, Canonical, DynArrayEq, DynArrayHash};
 
 /// The public API trait for all Vortex arrays.
 pub trait Array:
@@ -67,10 +66,10 @@ pub trait Array:
     fn dtype(&self) -> &DType;
 
     /// Returns the encoding of the array.
-    fn encoding(&self) -> EncodingRef;
+    fn encoding(&self) -> ArrayVTable;
 
     /// Returns the encoding ID of the array.
-    fn encoding_id(&self) -> EncodingId;
+    fn encoding_id(&self) -> ArrayId;
 
     /// Performs a constant-time slice of the array.
     fn slice(&self, range: Range<usize>) -> ArrayRef;
@@ -81,7 +80,7 @@ pub trait Array:
     fn scalar_at(&self, index: usize) -> Scalar;
 
     /// Returns whether the array is of the given encoding.
-    fn is_encoding(&self, encoding: EncodingId) -> bool {
+    fn is_encoding(&self, encoding: ArrayId) -> bool {
         self.encoding_id() == encoding
     }
 
@@ -191,12 +190,12 @@ impl Array for Arc<dyn Array> {
     }
 
     #[inline]
-    fn encoding(&self) -> EncodingRef {
+    fn encoding(&self) -> ArrayVTable {
         self.as_ref().encoding()
     }
 
     #[inline]
-    fn encoding_id(&self) -> EncodingId {
+    fn encoding_id(&self) -> ArrayId {
         self.as_ref().encoding_id()
     }
 
@@ -393,18 +392,18 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn len(&self) -> usize {
-        <V::ArrayVTable as ArrayVTable<V>>::len(&self.0)
+        <V::ArrayVTable as BaseArrayVTable<V>>::len(&self.0)
     }
 
     fn dtype(&self) -> &DType {
-        <V::ArrayVTable as ArrayVTable<V>>::dtype(&self.0)
+        <V::ArrayVTable as BaseArrayVTable<V>>::dtype(&self.0)
     }
 
-    fn encoding(&self) -> EncodingRef {
+    fn encoding(&self) -> ArrayVTable {
         V::encoding(&self.0)
     }
 
-    fn encoding_id(&self) -> EncodingId {
+    fn encoding_id(&self) -> ArrayId {
         V::encoding(&self.0).id()
     }
 
@@ -582,7 +581,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn statistics(&self) -> StatsSetRef<'_> {
-        <V::ArrayVTable as ArrayVTable<V>>::stats(&self.0)
+        <V::ArrayVTable as BaseArrayVTable<V>>::stats(&self.0)
     }
 
     fn with_children(&self, children: &[ArrayRef]) -> VortexResult<ArrayRef> {
@@ -635,13 +634,13 @@ impl<V: VTable> Array for ArrayAdapter<V> {
 impl<V: VTable> ArrayHash for ArrayAdapter<V> {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: hash::Precision) {
         self.0.encoding_id().hash(state);
-        <V::ArrayVTable as ArrayVTable<V>>::array_hash(&self.0, state, precision);
+        <V::ArrayVTable as BaseArrayVTable<V>>::array_hash(&self.0, state, precision);
     }
 }
 
 impl<V: VTable> ArrayEq for ArrayAdapter<V> {
     fn array_eq(&self, other: &Self, precision: hash::Precision) -> bool {
-        <V::ArrayVTable as ArrayVTable<V>>::array_eq(&self.0, &other.0, precision)
+        <V::ArrayVTable as BaseArrayVTable<V>>::array_eq(&self.0, &other.0, precision)
     }
 }
 

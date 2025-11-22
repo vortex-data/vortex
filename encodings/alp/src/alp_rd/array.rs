@@ -10,18 +10,18 @@ use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
+use vortex_array::vtable::{ArrayId, ArrayVTable};
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, EncodeVTable, NotSupported, VTable, ValidityChild,
+    BaseArrayVTable, CanonicalVTable, EncodeVTable, NotSupported, VTable, ValidityChild,
     ValidityVTableFromChild, VisitorVTable,
 };
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
-    DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata, SerializeMetadata,
-    ToCanonical, vtable,
+    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef,
+    Canonical, DeserializeMetadata, Precision, ProstMetadata, SerializeMetadata, ToCanonical,
 };
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
 use crate::alp_rd::alp_rd_decode;
 
@@ -55,12 +55,12 @@ impl VTable for ALPRDVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.alprd")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.alprd")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ALPRDVTable.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ArrayVTable::new_ref(ALPRDVTable.as_ref())
     }
 
     fn metadata(array: &ALPRDArray) -> VortexResult<Self::Metadata> {
@@ -308,7 +308,7 @@ impl ValidityChild<ALPRDVTable> for ALPRDVTable {
     }
 }
 
-impl ArrayVTable<ALPRDVTable> for ALPRDVTable {
+impl BaseArrayVTable<ALPRDVTable> for ALPRDVTable {
     fn len(array: &ALPRDArray) -> usize {
         array.left_parts.len()
     }
@@ -428,11 +428,11 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
-    use vortex_array::{ProstMetadata, ToCanonical, assert_arrays_eq};
+    use vortex_array::{assert_arrays_eq, ProstMetadata, ToCanonical};
     use vortex_dtype::PType;
 
     use super::ALPRDMetadata;
-    use crate::{ALPRDFloat, alp_rd};
+    use crate::{alp_rd, ALPRDFloat};
 
     #[rstest]
     #[case(vec![0.1f32.next_up(); 1024], 1.123_848_f32)]

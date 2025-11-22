@@ -5,13 +5,13 @@ use std::hash::Hash;
 
 use vortex_dtype::DType;
 
-use crate::Precision;
 use crate::arrays::struct_::{StructArray, StructVTable};
 use crate::hash::{ArrayEq, ArrayHash};
 use crate::stats::StatsSetRef;
-use crate::vtable::ArrayVTable;
+use crate::vtable::BaseArrayVTable;
+use crate::Precision;
 
-impl ArrayVTable<StructVTable> for StructVTable {
+impl BaseArrayVTable<StructVTable> for StructVTable {
     fn len(array: &StructArray) -> usize {
         array.len
     }

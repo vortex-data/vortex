@@ -8,14 +8,17 @@ use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::search_sorted::{SearchSorted, SearchSortedSide};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::{ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTable};
+use vortex_array::vtable::{ArrayId, ArrayVTable};
+use vortex_array::vtable::{
+    BaseArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTable,
+};
 use vortex_array::{
-    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, DeserializeMetadata, EncodingId, EncodingRef,
-    IntoArray, Precision, ProstMetadata, SerializeMetadata, ToCanonical, vtable,
+    vtable, Array, ArrayEq, ArrayHash, ArrayRef, Canonical, DeserializeMetadata, IntoArray,
+    Precision, ProstMetadata, SerializeMetadata, ToCanonical,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_ensure, vortex_panic};
+use vortex_error::{vortex_bail, vortex_ensure, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 
@@ -47,12 +50,12 @@ impl VTable for RunEndVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.runend")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.runend")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(RunEndVTable.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ArrayVTable::new_ref(RunEndVTable.as_ref())
     }
 
     fn metadata(array: &RunEndArray) -> VortexResult<Self::Metadata> {
@@ -338,7 +341,7 @@ impl RunEndArray {
     }
 }
 
-impl ArrayVTable<RunEndVTable> for RunEndVTable {
+impl BaseArrayVTable<RunEndVTable> for RunEndVTable {
     fn len(array: &RunEndArray) -> usize {
         array.length
     }
@@ -431,7 +434,7 @@ impl CanonicalVTable<RunEndVTable> for RunEndVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::{IntoArray, assert_arrays_eq};
+    use vortex_array::{assert_arrays_eq, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 

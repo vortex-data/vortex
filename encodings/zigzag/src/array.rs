@@ -4,24 +4,24 @@
 use std::hash::Hash;
 use std::ops::Range;
 
+use crate::compute::ZigZagEncoded;
+use crate::{zigzag_decode, zigzag_encode};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
+use vortex_array::vtable::{ArrayId, ArrayVTable};
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, EncodeVTable, NotSupported, OperationsVTable, VTable,
+    BaseArrayVTable, CanonicalVTable, EncodeVTable, NotSupported, OperationsVTable, VTable,
     ValidityChild, ValidityVTableFromChild, VisitorVTable,
 };
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
-    EmptyMetadata, EncodingId, EncodingRef, IntoArray, Precision, ToCanonical, vtable,
+    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef,
+    Canonical, EmptyMetadata, IntoArray, Precision, ToCanonical,
 };
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, PType, match_each_unsigned_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_dtype::{match_each_unsigned_integer_ptype, DType, PType};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 use zigzag::ZigZag as ExternalZigZag;
-
-use crate::compute::ZigZagEncoded;
-use crate::{zigzag_decode, zigzag_encode};
 
 vtable!(ZigZag);
 
@@ -39,12 +39,12 @@ impl VTable for ZigZagVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.zigzag")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.zigzag")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ZigZagVTable.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ArrayVTable::new_ref(ZigZagVTable.as_ref())
     }
 
     fn metadata(_array: &ZigZagArray) -> VortexResult<Self::Metadata> {
@@ -119,7 +119,7 @@ impl ZigZagArray {
     }
 }
 
-impl ArrayVTable<ZigZagVTable> for ZigZagVTable {
+impl BaseArrayVTable<ZigZagVTable> for ZigZagVTable {
     fn len(array: &ZigZagArray) -> usize {
         array.encoded.len()
     }

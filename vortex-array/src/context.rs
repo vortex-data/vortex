@@ -4,14 +4,13 @@
 use std::fmt::Display;
 use std::sync::Arc;
 
+use crate::vtable::ArrayVTable;
 use itertools::Itertools;
 use parking_lot::RwLock;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_session::registry::Registry;
 
-use crate::EncodingRef;
-
-pub type ArrayContext = VTableContext<EncodingRef>;
+pub type ArrayContext = VTableContext<ArrayVTable>;
 
 /// A collection of encodings that can be addressed by a u16 positional index.
 /// This is used to map array encodings and layout encodings when reading from a file.

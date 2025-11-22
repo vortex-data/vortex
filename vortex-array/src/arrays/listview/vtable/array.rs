@@ -5,13 +5,13 @@ use std::hash::Hash;
 
 use vortex_dtype::DType;
 
-use crate::Precision;
 use crate::arrays::{ListViewArray, ListViewVTable};
 use crate::hash::{ArrayEq, ArrayHash};
 use crate::stats::StatsSetRef;
-use crate::vtable::ArrayVTable;
+use crate::vtable::BaseArrayVTable;
+use crate::Precision;
 
-impl ArrayVTable<ListViewVTable> for ListViewVTable {
+impl BaseArrayVTable<ListViewVTable> for ListViewVTable {
     fn len(array: &ListViewArray) -> usize {
         debug_assert_eq!(array.offsets().len(), array.sizes().len());
         array.offsets().len()

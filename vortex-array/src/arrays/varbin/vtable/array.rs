@@ -5,13 +5,13 @@ use std::hash::Hash;
 
 use vortex_dtype::DType;
 
-use crate::Precision;
 use crate::arrays::varbin::{VarBinArray, VarBinVTable};
 use crate::hash::{ArrayEq, ArrayHash};
 use crate::stats::StatsSetRef;
-use crate::vtable::ArrayVTable;
+use crate::vtable::BaseArrayVTable;
+use crate::Precision;
 
-impl ArrayVTable<VarBinVTable> for VarBinVTable {
+impl BaseArrayVTable<VarBinVTable> for VarBinVTable {
     fn len(array: &VarBinArray) -> usize {
         array.offsets().len().saturating_sub(1)
     }

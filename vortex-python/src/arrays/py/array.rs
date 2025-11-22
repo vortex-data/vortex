@@ -5,10 +5,10 @@ use std::sync::Arc;
 
 use pyo3::prelude::*;
 use pyo3::{Bound, FromPyObject, Py, PyAny, PyResult};
-use vortex::EncodingRef;
 use vortex::dtype::DType;
 use vortex::error::VortexError;
 use vortex::stats::ArrayStats;
+use vortex::vtable::ArrayVTable;
 
 use crate::arrays::py::PyPythonArray;
 
@@ -20,7 +20,7 @@ use crate::arrays::py::PyPythonArray;
 #[derive(Debug, Clone)]
 pub struct PythonArray {
     pub(super) object: Arc<Py<PyAny>>,
-    pub(super) encoding: EncodingRef,
+    pub(super) vtable: ArrayVTable,
     pub(super) len: usize,
     pub(super) dtype: DType,
     pub(super) stats: ArrayStats,
@@ -31,7 +31,7 @@ impl<'py> FromPyObject<'py> for PythonArray {
         let python_array = ob.downcast::<PyPythonArray>()?.get();
         Ok(Self {
             object: Arc::new(ob.clone().unbind()),
-            encoding: python_array.encoding.clone(),
+            vtable: python_array.vtable.clone(),
             len: python_array.len,
             dtype: python_array.dtype.clone(),
             stats: python_array.stats.clone(),

@@ -3,14 +3,15 @@
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 
 use crate::arrays::ListArray;
 use crate::metadata::{DeserializeMetadata, SerializeMetadata};
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
+use crate::vtable::{ArrayId, ArrayVTable};
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{EncodingId, EncodingRef, ProstMetadata, vtable};
+use crate::{vtable, ProstMetadata};
 
 mod array;
 mod canonical;
@@ -42,12 +43,12 @@ impl VTable for ListVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = NotSupported;
 
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.list")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.list")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ListVTable.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ArrayVTable::new_ref(ListVTable.as_ref())
     }
 
     fn metadata(array: &ListArray) -> VortexResult<Self::Metadata> {

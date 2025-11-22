@@ -4,27 +4,13 @@
 #![cfg_attr(vortex_nightly, feature(portable_simd))]
 //! Vortex crate containing core logic for encoding and memory representation of [arrays](ArrayRef).
 //!
-//! At the heart of Vortex are [arrays](ArrayRef) and [encodings](EncodingRef).
+//! At the heart of Vortex are [arrays](ArrayRef) and [encodings](ArrayVTable).
 //! Arrays are typed views of memory buffers that hold [scalars](vortex_scalar::Scalar). These
 //! buffers can be held in a number of physical encodings to perform lightweight compression that
 //! exploits the particular data distribution of the array's values.
 //!
 //! Every data type recognized by Vortex also has a canonical physical encoding format, which
 //! arrays can be [canonicalized](Canonical) into for ease of access in compute functions.
-
-pub use array::*;
-use arrays::{
-    BoolMaskedValidityRule, DecimalMaskedValidityRule, ExprOptimizationRule, ExprVTable,
-    PrimitiveMaskedValidityRule, StructExprPartitionRule,
-};
-pub use canonical::*;
-pub use context::*;
-pub use encoding::*;
-pub use hash::*;
-pub use mask_future::*;
-pub use metadata::*;
-use vortex_session::registry::Registry;
-use vortex_session::{Ref, SessionExt};
 
 use crate::array::session::rewrite::ArrayRewriteRuleRegistry;
 use crate::array::transform::{
@@ -35,7 +21,19 @@ use crate::arrays::{
     ListVTable, ListViewVTable, MaskedVTable, NullVTable, PrimitiveVTable, StructVTable,
     VarBinVTable, VarBinViewVTable,
 };
-use crate::vtable::VTable;
+use crate::vtable::{ArrayVTable, VTable};
+pub use array::*;
+use arrays::{
+    BoolMaskedValidityRule, DecimalMaskedValidityRule, ExprOptimizationRule, ExprVTable,
+    PrimitiveMaskedValidityRule, StructExprPartitionRule,
+};
+pub use canonical::*;
+pub use context::*;
+pub use hash::*;
+pub use mask_future::*;
+pub use metadata::*;
+use vortex_session::registry::Registry;
+use vortex_session::{Ref, SessionExt};
 
 pub mod accessor;
 #[doc(hidden)]
@@ -47,7 +45,6 @@ pub mod builders;
 mod canonical;
 pub mod compute;
 mod context;
-mod encoding;
 pub mod execution;
 pub mod expr;
 mod hash;
@@ -74,7 +71,7 @@ pub mod flatbuffers {
     pub use vortex_flatbuffers::array::*;
 }
 
-pub type ArrayRegistry = Registry<EncodingRef>;
+pub type ArrayRegistry = Registry<ArrayVTable>;
 
 #[derive(Debug)]
 pub struct ArraySession {
@@ -95,12 +92,12 @@ impl ArraySession {
     }
 
     /// Register a new array encoding, replacing any existing encoding with the same ID.
-    pub fn register(&self, encoding: EncodingRef) {
+    pub fn register(&self, encoding: ArrayVTable) {
         self.registry.register(encoding)
     }
 
     /// Register many array encodings, replacing any existing encodings with the same ID.
-    pub fn register_many(&self, encodings: impl IntoIterator<Item = EncodingRef>) {
+    pub fn register_many(&self, encodings: impl IntoIterator<Item = ArrayVTable>) {
         self.registry.register_many(encodings);
     }
 
@@ -154,24 +151,24 @@ impl Default for ArraySession {
 
         // Register the canonical encodings.
         encodings.register_many([
-            EncodingRef::new_ref(NullVTable.as_ref()),
-            EncodingRef::new_ref(BoolVTable.as_ref()),
-            EncodingRef::new_ref(PrimitiveVTable.as_ref()),
-            EncodingRef::new_ref(DecimalVTable.as_ref()),
-            EncodingRef::new_ref(VarBinViewVTable.as_ref()),
-            EncodingRef::new_ref(ListViewVTable.as_ref()),
-            EncodingRef::new_ref(FixedSizeListVTable.as_ref()),
-            EncodingRef::new_ref(StructVTable.as_ref()),
-            EncodingRef::new_ref(ExtensionVTable.as_ref()),
+            ArrayVTable::new_ref(NullVTable.as_ref()),
+            ArrayVTable::new_ref(BoolVTable.as_ref()),
+            ArrayVTable::new_ref(PrimitiveVTable.as_ref()),
+            ArrayVTable::new_ref(DecimalVTable.as_ref()),
+            ArrayVTable::new_ref(VarBinViewVTable.as_ref()),
+            ArrayVTable::new_ref(ListViewVTable.as_ref()),
+            ArrayVTable::new_ref(FixedSizeListVTable.as_ref()),
+            ArrayVTable::new_ref(StructVTable.as_ref()),
+            ArrayVTable::new_ref(ExtensionVTable.as_ref()),
         ]);
 
         // Register the utility encodings.
         encodings.register_many([
-            EncodingRef::new_ref(ChunkedVTable.as_ref()),
-            EncodingRef::new_ref(ConstantVTable.as_ref()),
-            EncodingRef::new_ref(MaskedVTable.as_ref()),
-            EncodingRef::new_ref(ListVTable.as_ref()),
-            EncodingRef::new_ref(VarBinVTable.as_ref()),
+            ArrayVTable::new_ref(ChunkedVTable.as_ref()),
+            ArrayVTable::new_ref(ConstantVTable.as_ref()),
+            ArrayVTable::new_ref(MaskedVTable.as_ref()),
+            ArrayVTable::new_ref(ListVTable.as_ref()),
+            ArrayVTable::new_ref(VarBinVTable.as_ref()),
         ]);
 
         let session = Self {

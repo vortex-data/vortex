@@ -5,16 +5,17 @@ use std::sync::Arc;
 
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
-use vortex_vector::Vector;
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_vector::binaryview::{BinaryVector, BinaryView, StringVector};
+use vortex_vector::Vector;
 
 use crate::arrays::varbinview::VarBinViewArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
+use crate::vtable::{ArrayId, ArrayVTable};
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{EmptyMetadata, EncodingId, EncodingRef, vtable};
+use crate::{vtable, EmptyMetadata};
 
 mod array;
 mod canonical;
@@ -39,12 +40,12 @@ impl VTable for VarBinViewVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = Self;
 
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.varbinview")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.varbinview")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(VarBinViewVTable.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ArrayVTable::new_ref(VarBinViewVTable.as_ref())
     }
 
     fn metadata(_array: &VarBinViewArray) -> VortexResult<Self::Metadata> {

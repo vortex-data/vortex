@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::arrays::py::PythonVTable;
+use crate::{install_module, SESSION};
 use pyo3::prelude::*;
 use pyo3::{Bound, PyResult, Python};
+use vortex::vtable::ArrayVTableExt;
 use vortex::ArraySessionExt;
-
-use crate::arrays::py::PythonVTable;
-use crate::{SESSION, install_module};
 
 /// Register serde functions and classes.
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
@@ -24,7 +24,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// It's not currently possible to register a layout encoding from Python.
 #[pyfunction]
 pub(crate) fn register(cls: PythonVTable) -> PyResult<()> {
-    let encoding = cls.to_encoding();
-    SESSION.arrays().register(encoding);
+    let vtable = ArrayVTableExt::into_array_vtable(cls);
+    SESSION.arrays().register(vtable);
     Ok(())
 }

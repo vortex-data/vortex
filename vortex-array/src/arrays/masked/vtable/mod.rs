@@ -10,18 +10,16 @@ mod validity;
 use vortex_buffer::ByteBuffer;
 use vortex_compute::mask::MaskValidity;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_vector::Vector;
 
 use crate::arrays::masked::MaskedArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
+use crate::vtable::{ArrayId, ArrayVTable};
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper, VisitorVTable};
-use crate::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayOperator, EmptyMetadata, EncodingId, EncodingRef,
-    vtable,
-};
+use crate::{vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayOperator, EmptyMetadata};
 
 vtable!(Masked);
 
@@ -51,12 +49,12 @@ impl VTable for MaskedVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = Self;
 
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.masked")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.masked")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(MaskedVTable.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ArrayVTable::new_ref(MaskedVTable.as_ref())
     }
 
     fn metadata(_array: &MaskedArray) -> VortexResult<Self::Metadata> {
@@ -114,7 +112,8 @@ mod tests {
     use crate::arrays::{MaskedArray, PrimitiveArray};
     use crate::serde::{ArrayParts, SerializeOptions};
     use crate::validity::Validity;
-    use crate::{ArrayContext, EncodingRef, IntoArray, MaskedVTable};
+    use crate::vtable::ArrayVTable;
+    use crate::{ArrayContext, IntoArray, MaskedVTable};
 
     #[rstest]
     #[case(
@@ -138,7 +137,7 @@ mod tests {
     fn test_serde_roundtrip(#[case] array: MaskedArray) {
         let dtype = array.dtype().clone();
         let len = array.len();
-        let ctx = ArrayContext::empty().with(EncodingRef::new_ref(MaskedVTable.as_ref()));
+        let ctx = ArrayContext::empty().with(ArrayVTable::new_ref(MaskedVTable.as_ref()));
 
         let serialized = array
             .to_array()

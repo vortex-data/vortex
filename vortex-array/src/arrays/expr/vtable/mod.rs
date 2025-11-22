@@ -12,15 +12,16 @@ use std::fmt::Debug;
 pub use operator::ExprOptimizationRule;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_vector::Vector;
 
 use crate::arrays::expr::ExprArray;
 use crate::execution::ExecutionCtx;
 use crate::expr::Expression;
 use crate::serde::ArrayChildren;
+use crate::vtable::{ArrayId, ArrayVTable};
 use crate::vtable::{NotSupported, VTable};
-use crate::{Array, ArrayOperator, EncodingId, EncodingRef, vtable};
+use crate::{vtable, Array, ArrayOperator};
 
 vtable!(Expr);
 
@@ -41,12 +42,12 @@ impl VTable for ExprVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = Self;
 
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.expr")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.expr")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ExprVTable.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ArrayVTable::new_ref(ExprVTable.as_ref())
     }
 
     fn metadata(array: &ExprArray) -> VortexResult<Self::Metadata> {
