@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Canonical;
 use vortex_array::vtable::EncodeVTable;
+use vortex_array::Canonical;
 use vortex_error::VortexResult;
 
-use crate::{BitPackedArray, BitPackedVTable, bitpack_compress};
+use crate::{bitpack_compress, BitPackedArray, BitPackedVTable};
 
 impl EncodeVTable<BitPackedVTable> for BitPackedVTable {
     fn encode(
-        &self,
+        _vtable: &BitPackedVTable,
         canonical: &Canonical,
         like: Option<&BitPackedArray>,
     ) -> VortexResult<Option<BitPackedArray>> {

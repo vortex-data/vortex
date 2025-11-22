@@ -33,6 +33,7 @@ register_kernel!(FilterKernelAdapter(ALPVTable).lift());
 
 #[cfg(test)]
 mod test {
+    use crate::ALPVTable;
     use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
@@ -49,7 +50,7 @@ mod test {
         11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0
     ].into_array())]
     fn test_filter_alp_conformance(#[case] array: ArrayRef) {
-        let alp = ALPEncoding
+        let alp = ALPVTable
             .encode(&array.to_canonical(), None)
             .unwrap()
             .unwrap();

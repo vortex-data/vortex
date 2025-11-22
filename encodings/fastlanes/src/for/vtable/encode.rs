@@ -10,7 +10,7 @@ use crate::FoRArray;
 
 impl EncodeVTable<FoRVTable> for FoRVTable {
     fn encode(
-        &self,
+        _vtable: &FoRVTable,
         canonical: &Canonical,
         _like: Option<&FoRArray>,
     ) -> VortexResult<Option<FoRArray>> {

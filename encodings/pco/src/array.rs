@@ -486,7 +486,7 @@ impl OperationsVTable<PcoVTable> for PcoVTable {
 
 impl EncodeVTable<PcoVTable> for PcoVTable {
     fn encode(
-        _encoding: &<PcoVTable as VTable>::Encoding,
+        _vtable: &PcoVTable,
         canonical: &Canonical,
         _like: Option<&PcoArray>,
     ) -> VortexResult<Option<PcoArray>> {

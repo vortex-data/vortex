@@ -251,7 +251,7 @@ impl ValidityChild<DateTimePartsVTable> for DateTimePartsVTable {
 
 impl EncodeVTable<DateTimePartsVTable> for DateTimePartsVTable {
     fn encode(
-        &self,
+        _vtable: &DateTimePartsVTable,
         canonical: &Canonical,
         _like: Option<&DateTimePartsArray>,
     ) -> VortexResult<Option<DateTimePartsArray>> {

@@ -317,7 +317,7 @@ impl ValidityChild<FSSTVTable> for FSSTVTable {
 
 impl EncodeVTable<FSSTVTable> for FSSTVTable {
     fn encode(
-        &self,
+        _vtable: &FSSTVTable,
         canonical: &Canonical,
         like: Option<&FSSTArray>,
     ) -> VortexResult<Option<FSSTArray>> {

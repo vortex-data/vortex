@@ -426,12 +426,12 @@ impl Scheme for NullDominated {
 
 #[cfg(test)]
 mod tests {
+    use crate::string::StringCompressor;
+    use crate::{Compressor, MAX_CASCADE};
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
     use vortex_dtype::{DType, Nullability};
-
-    use crate::string::StringCompressor;
-    use crate::{Compressor, MAX_CASCADE};
+    use vortex_sparse::SparseVTable;
 
     #[test]
     fn test_strings() {

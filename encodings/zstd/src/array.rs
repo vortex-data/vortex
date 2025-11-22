@@ -727,7 +727,7 @@ impl OperationsVTable<ZstdVTable> for ZstdVTable {
 
 impl EncodeVTable<ZstdVTable> for ZstdVTable {
     fn encode(
-        _encoding: &<ZstdVTable as VTable>::Encoding,
+        _vtable: &ZstdVTable,
         canonical: &Canonical,
         _like: Option<&ZstdArray>,
     ) -> VortexResult<Option<ZstdArray>> {

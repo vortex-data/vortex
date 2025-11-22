@@ -14,7 +14,7 @@ use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_mask::Mask;
 
-use crate::{PcoArray, PcoEncoding};
+use crate::{PcoArray, PcoVTable};
 
 macro_rules! assert_nth_scalar {
     ($arr:expr, $n:expr, $expected:expr) => {

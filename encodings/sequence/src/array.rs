@@ -367,7 +367,7 @@ pub struct SequenceVTable;
 
 impl EncodeVTable<SequenceVTable> for SequenceVTable {
     fn encode(
-        &self,
+        _vtable: &SequenceVTable,
         _canonical: &Canonical,
         _like: Option<&SequenceArray>,
     ) -> VortexResult<Option<SequenceArray>> {

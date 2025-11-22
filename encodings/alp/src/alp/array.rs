@@ -370,7 +370,7 @@ impl CanonicalVTable<ALPVTable> for ALPVTable {
 
 impl EncodeVTable<ALPVTable> for ALPVTable {
     fn encode(
-        &self,
+        _vtable: &ALPVTable,
         canonical: &Canonical,
         like: Option<&ALPArray>,
     ) -> VortexResult<Option<ALPArray>> {

@@ -215,7 +215,7 @@ mod tests {
     use vortex_buffer::{Buffer, ByteBufferMut};
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::{RLEArray, RLEEncoding};
+    use crate::{RLEArray, RLEVTable};
 
     #[test]
     fn test_try_new() {

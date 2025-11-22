@@ -28,7 +28,7 @@ use crate::compress::runend_encode;
 
 impl EncodeVTable<RunEndVTable> for RunEndVTable {
     fn encode(
-        &self,
+        _vtable: &RunEndVTable,
         canonical: &Canonical,
         _like: Option<&RunEndArray>,
     ) -> VortexResult<Option<RunEndArray>> {

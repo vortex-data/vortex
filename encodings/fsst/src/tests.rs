@@ -8,7 +8,7 @@ use vortex_buffer::buffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_mask::Mask;
 
-use crate::{fsst_compress, fsst_train_compressor};
+use crate::{fsst_compress, fsst_train_compressor, FSSTVTable};
 
 macro_rules! assert_nth_scalar {
     ($arr:expr, $n:expr, $expected:expr) => {

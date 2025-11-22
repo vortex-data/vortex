@@ -68,9 +68,9 @@ where
 
 #[cfg(test)]
 mod test {
-    use vortex_array::ToCanonical;
-
     use super::*;
+    use crate::ZigZagVTable;
+    use vortex_array::ToCanonical;
 
     #[test]
     fn test_compress_i8() {

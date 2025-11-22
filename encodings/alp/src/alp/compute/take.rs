@@ -31,6 +31,7 @@ register_kernel!(TakeKernelAdapter(ALPVTable).lift());
 
 #[cfg(test)]
 mod test {
+    use crate::ALPVTable;
     use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::take::test_take_conformance;
@@ -43,7 +44,7 @@ mod test {
     #[case(PrimitiveArray::from_option_iter([Some(1.1f32), None, Some(2.2), Some(3.3), None]).into_array())]
     #[case(buffer![42.42f64].into_array())]
     fn test_take_alp_conformance(#[case] array: vortex_array::ArrayRef) {
-        let alp = ALPEncoding
+        let alp = ALPVTable
             .encode(&array.to_canonical(), None)
             .unwrap()
             .unwrap();

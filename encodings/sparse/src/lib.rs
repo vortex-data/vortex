@@ -415,7 +415,7 @@ fn patch_validity<I: NativePType + AsPrimitive<usize>>(
 
 impl EncodeVTable<SparseVTable> for SparseVTable {
     fn encode(
-        &self,
+        _vtable: &SparseVTable,
         input: &Canonical,
         like: Option<&SparseArray>,
     ) -> VortexResult<Option<SparseArray>> {

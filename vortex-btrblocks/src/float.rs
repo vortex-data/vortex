@@ -4,12 +4,12 @@
 pub(crate) mod dictionary;
 mod stats;
 
-use vortex_alp::{ALPArray, ALPVTable, , RDEncoder};
+use vortex_alp::{ALPArray, ALPVTable, RDEncoder};
 use vortex_array::arrays::{ConstantArray, DictArray, MaskedArray, PrimitiveVTable};
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::PType;
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 use vortex_sparse::{SparseArray, SparseVTable};
 
@@ -19,13 +19,13 @@ use crate::integer::{IntCompressor, IntegerStats};
 use crate::patches::compress_patches;
 use crate::rle::RLEScheme;
 use crate::{
-    Compressor, CompressorStats, GenerateStatsOptions, Scheme,
-    estimate_compression_ratio_with_sampling, integer,
+    estimate_compression_ratio_with_sampling, integer, Compressor, CompressorStats,
+    GenerateStatsOptions, Scheme,
 };
 
-pub trait FloatScheme: Scheme<StatsType=FloatStats, CodeType=FloatCode> {}
+pub trait FloatScheme: Scheme<StatsType = FloatStats, CodeType = FloatCode> {}
 
-impl<T> FloatScheme for T where T: Scheme<StatsType=FloatStats, CodeType=FloatCode> {}
+impl<T> FloatScheme for T where T: Scheme<StatsType = FloatStats, CodeType = FloatCode> {}
 
 /// [`Compressor`] for floating-point numbers.
 pub struct FloatCompressor;
@@ -175,7 +175,7 @@ impl Scheme for ConstantScheme {
                 Scalar::null(stats.src.dtype().clone()),
                 stats.src.len(),
             )
-                .into_array()),
+            .into_array()),
         }
     }
 }
@@ -225,7 +225,7 @@ impl Scheme for ALPScheme {
         allowed_cascading: usize,
         excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
-        let alp_encoded = ALPEncoding
+        let alp_encoded = ALPVTable
             .encode(&stats.source().to_canonical(), None)?
             .vortex_expect("Input is a supported floating point array");
         let alp = alp_encoded.as_::<ALPVTable>();
@@ -451,7 +451,7 @@ impl Scheme for NullDominated {
                 sparse.len(),
                 sparse.fill_scalar().clone(),
             )
-                .map(|a| a.into_array())
+            .map(|a| a.into_array())
         } else {
             Ok(sparse_encoded)
         }
@@ -465,13 +465,13 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder};
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray, ToCanonical, assert_arrays_eq};
-    use vortex_buffer::{Buffer, buffer_mut};
+    use vortex_array::{assert_arrays_eq, Array, IntoArray, ToCanonical};
+    use vortex_buffer::{buffer_mut, Buffer};
     use vortex_dtype::Nullability;
     use vortex_sparse::SparseVTable;
 
     use crate::float::{FloatCompressor, RLE_FLOAT_SCHEME};
-    use crate::{Compressor, CompressorStats, MAX_CASCADE, Scheme};
+    use crate::{Compressor, CompressorStats, Scheme, MAX_CASCADE};
 
     #[test]
     fn test_empty() {
@@ -482,7 +482,7 @@ mod tests {
             3,
             &[],
         )
-            .unwrap();
+        .unwrap();
 
         assert!(result.is_empty());
     }
