@@ -130,7 +130,7 @@ impl VectorMutOps for VectorMut {
 
     fn append_scalars(&mut self, scalar: &<Self::Immutable as VectorOps>::Scalar, n: usize) {
         match_vector_pair!(self, scalar, |a: VectorMut, b: Scalar| {
-            a.append_scalars(&b, n)
+            a.append_scalars(b, n)
         })
     }
 

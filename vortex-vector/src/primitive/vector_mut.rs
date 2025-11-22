@@ -133,6 +133,7 @@ impl VectorMutOps for PrimitiveVectorMut {
         match_each_pvector_mut!(self, |v| { v.append_zeros(n) })
     }
 
+    #[allow(clippy::many_single_char_names)]
     fn append_scalars(&mut self, scalar: &PrimitiveScalar, n: usize) {
         match (self, scalar) {
             (Self::U8(a), PrimitiveScalar::U8(b)) => a.append_scalars(b, n),

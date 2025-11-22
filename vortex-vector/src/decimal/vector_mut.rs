@@ -100,6 +100,7 @@ impl VectorMutOps for DecimalVectorMut {
         match_each_dvector_mut!(self, |d| { d.append_zeros(n) })
     }
 
+    #[allow(clippy::many_single_char_names)]
     fn append_scalars(&mut self, scalar: &DecimalScalar, n: usize) {
         match (self, scalar) {
             (Self::D8(s), DecimalScalar::D8(o)) => s.append_scalars(o, n),
