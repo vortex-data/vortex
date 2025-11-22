@@ -4,12 +4,12 @@
 use vortex_session::registry::Registry;
 use vortex_session::{Ref, SessionExt};
 
-use crate::layouts::chunked::ChunkedLayoutVTable;
-use crate::layouts::dict::DictLayoutVTable;
-use crate::layouts::flat::FlatLayoutVTable;
-use crate::layouts::struct_::StructLayoutVTable;
-use crate::layouts::zoned::ZonedLayoutVTable;
 use crate::LayoutEncodingRef;
+use crate::layouts::chunked::ChunkedLayoutEncoding;
+use crate::layouts::dict::DictLayoutEncoding;
+use crate::layouts::flat::FlatLayoutEncoding;
+use crate::layouts::struct_::StructLayoutEncoding;
+use crate::layouts::zoned::ZonedLayoutEncoding;
 
 pub type LayoutRegistry = Registry<LayoutEncodingRef>;
 
@@ -42,11 +42,11 @@ impl Default for LayoutSession {
 
         // Register the built-in layout encodings.
         layouts.register_many([
-            LayoutEncodingRef::new_ref(ChunkedLayoutVTable.as_ref()),
-            LayoutEncodingRef::new_ref(FlatLayoutVTable.as_ref()),
-            LayoutEncodingRef::new_ref(StructLayoutVTable.as_ref()),
-            LayoutEncodingRef::new_ref(ZonedLayoutVTable.as_ref()),
-            LayoutEncodingRef::new_ref(DictLayoutVTable.as_ref()),
+            LayoutEncodingRef::new_ref(ChunkedLayoutEncoding.as_ref()),
+            LayoutEncodingRef::new_ref(FlatLayoutEncoding.as_ref()),
+            LayoutEncodingRef::new_ref(StructLayoutEncoding.as_ref()),
+            LayoutEncodingRef::new_ref(ZonedLayoutEncoding.as_ref()),
+            LayoutEncodingRef::new_ref(DictLayoutEncoding.as_ref()),
         ]);
 
         Self { registry: layouts }

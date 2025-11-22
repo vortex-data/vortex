@@ -8,11 +8,11 @@ pub mod zone_map;
 
 use std::sync::Arc;
 
-pub use builder::{lower_bound, upper_bound, MAX_IS_TRUNCATED, MIN_IS_TRUNCATED};
-use vortex_array::stats::{as_stat_bitset_bytes, stats_from_bitset_bytes, Stat};
+pub use builder::{MAX_IS_TRUNCATED, MIN_IS_TRUNCATED, lower_bound, upper_bound};
+use vortex_array::stats::{Stat, as_stat_bitset_bytes, stats_from_bitset_bytes};
 use vortex_array::{ArrayContext, DeserializeMetadata, SerializeMetadata};
 use vortex_dtype::{DType, TryFromBytes};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 use vortex_session::VortexSession;
 
 use crate::children::{LayoutChildren, OwnedLayoutChildren};
@@ -20,22 +20,22 @@ use crate::layouts::zoned::reader::ZonedReader;
 use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
-    vtable, LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable,
+    LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
 };
 
 vtable!(Zoned);
 
 impl VTable for ZonedVTable {
     type Layout = ZonedLayout;
-
+    type Encoding = ZonedLayoutEncoding;
     type Metadata = ZonedMetadata;
 
-    fn id(&self) -> LayoutId {
+    fn id(_encoding: &Self::Encoding) -> LayoutId {
         LayoutId::new_ref("vortex.stats") // For legacy reasons, this is called stats
     }
 
     fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {
-        LayoutEncodingRef::new_ref(ZonedLayoutVTable.as_ref())
+        LayoutEncodingRef::new_ref(ZonedLayoutEncoding.as_ref())
     }
 
     fn row_count(layout: &Self::Layout) -> u64 {
@@ -109,7 +109,7 @@ impl VTable for ZonedVTable {
     }
 
     fn build(
-        &self,
+        _encoding: &Self::Encoding,
         dtype: &DType,
         _row_count: u64,
         metadata: &ZonedMetadata,
@@ -127,7 +127,7 @@ impl VTable for ZonedVTable {
 }
 
 #[derive(Debug)]
-pub struct ZonedLayoutVTable;
+pub struct ZonedLayoutEncoding;
 
 #[derive(Clone, Debug)]
 pub struct ZonedLayout {

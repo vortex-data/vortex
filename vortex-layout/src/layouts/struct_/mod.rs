@@ -9,28 +9,28 @@ use std::sync::Arc;
 use reader::StructReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::{DType, Field, FieldMask, Nullability, StructFields};
-use vortex_error::{vortex_bail, vortex_ensure, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_err};
 use vortex_session::{SessionExt, VortexSession};
 
 use crate::children::{LayoutChildren, OwnedLayoutChildren};
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
-    vtable, LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable,
+    LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
 };
 
 vtable!(Struct);
 
 impl VTable for StructVTable {
     type Layout = StructLayout;
-
+    type Encoding = StructLayoutEncoding;
     type Metadata = EmptyMetadata;
 
-    fn id(&self) -> LayoutId {
+    fn id(_encoding: &Self::Encoding) -> LayoutId {
         LayoutId::new_ref("vortex.struct")
     }
 
     fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {
-        LayoutEncodingRef::new_ref(StructLayoutVTable.as_ref())
+        LayoutEncodingRef::new_ref(StructLayoutEncoding.as_ref())
     }
 
     fn row_count(layout: &Self::Layout) -> u64 {
@@ -125,7 +125,7 @@ impl VTable for StructVTable {
     }
 
     fn build(
-        &self,
+        _encoding: &Self::Encoding,
         dtype: &DType,
         row_count: u64,
         _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
@@ -154,7 +154,7 @@ impl VTable for StructVTable {
 }
 
 #[derive(Debug)]
-pub struct StructLayoutVTable;
+pub struct StructLayoutEncoding;
 
 #[derive(Clone, Debug)]
 pub struct StructLayout {

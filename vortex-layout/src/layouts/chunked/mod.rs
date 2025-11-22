@@ -15,22 +15,22 @@ use crate::children::LayoutChildren;
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
-    vtable, LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable,
+    LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
 };
 
 vtable!(Chunked);
 
 impl VTable for ChunkedVTable {
     type Layout = ChunkedLayout;
-
+    type Encoding = ChunkedLayoutEncoding;
     type Metadata = EmptyMetadata;
 
-    fn id(&self) -> LayoutId {
+    fn id(_encoding: &Self::Encoding) -> LayoutId {
         LayoutId::new_ref("vortex.chunked")
     }
 
     fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {
-        LayoutEncodingRef::new_ref(ChunkedLayoutVTable.as_ref())
+        LayoutEncodingRef::new_ref(ChunkedLayoutEncoding.as_ref())
     }
 
     fn row_count(layout: &Self::Layout) -> u64 {
@@ -93,7 +93,7 @@ impl VTable for ChunkedVTable {
     }
 
     fn build(
-        &self,
+        _encoding: &Self::Encoding,
         dtype: &DType,
         row_count: u64,
         _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
@@ -110,7 +110,7 @@ impl VTable for ChunkedVTable {
 }
 
 #[derive(Debug)]
-pub struct ChunkedLayoutVTable;
+pub struct ChunkedLayoutEncoding;
 
 #[derive(Clone, Debug)]
 pub struct ChunkedLayout {

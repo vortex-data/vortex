@@ -9,28 +9,28 @@ use std::sync::Arc;
 use reader::DictReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 use vortex_session::VortexSession;
 
 use crate::children::LayoutChildren;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
-    vtable, LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable,
+    LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
 };
 
 vtable!(Dict);
 
 impl VTable for DictVTable {
     type Layout = DictLayout;
-
+    type Encoding = DictLayoutEncoding;
     type Metadata = ProstMetadata<DictLayoutMetadata>;
 
-    fn id(&self) -> LayoutId {
+    fn id(_encoding: &Self::Encoding) -> LayoutId {
         LayoutId::new_ref("vortex.dict")
     }
 
     fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {
-        LayoutEncodingRef::new_ref(DictLayoutVTable.as_ref())
+        LayoutEncodingRef::new_ref(DictLayoutEncoding.as_ref())
     }
 
     fn row_count(layout: &Self::Layout) -> u64 {
@@ -98,7 +98,7 @@ impl VTable for DictVTable {
     }
 
     fn build(
-        &self,
+        _encoding: &Self::Encoding,
         dtype: &DType,
         _row_count: u64,
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
@@ -125,7 +125,7 @@ impl VTable for DictVTable {
 }
 
 #[derive(Debug)]
-pub struct DictLayoutVTable;
+pub struct DictLayoutEncoding;
 
 #[derive(Clone, Debug)]
 pub struct DictLayout {
