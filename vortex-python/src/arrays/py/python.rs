@@ -33,10 +33,9 @@ impl PyPythonArray {
         len: usize,
         dtype: PyDType,
     ) -> PyResult<PyClassInitializer<Self>> {
-        let encoding =
-            PythonEncoding::from_py_object_bound(cls.as_any().as_borrowed())?.to_encoding();
+        let vtable = PythonVTable::from_py_object_bound(cls.as_any().as_borrowed())?.to_encoding();
         Ok(PyClassInitializer::from(PyArray).add_subclass(Self {
-            encoding,
+            encoding: vtable,
             len,
             dtype: dtype.into_inner(),
             stats: Default::default(),

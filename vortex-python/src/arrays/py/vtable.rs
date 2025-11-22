@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
+use pyo3::types::{PyBytes, PyType};
+use pyo3::{intern, Python};
 use std::hash::Hash;
 use std::ops::Range;
-
-use pyo3::prelude::*;
-use pyo3::types::PyBytes;
-use pyo3::{intern, Python};
+use std::sync::Arc;
 use vortex::buffer::ByteBuffer;
 use vortex::compute::{ComputeFn, InvocationArgs, Output};
 use vortex::dtype::DType;
@@ -28,6 +29,38 @@ use crate::arrays::py::PythonArray;
 
 vtable!(Python);
 
+/// Wrapper struct encapsulating a Python encoding.
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+pub struct PythonVTable {
+    pub(super) id: EncodingId,
+    pub(super) cls: Arc<Py<PyType>>,
+}
+
+/// Convert a Python class into a [`PythonEncoding`].
+impl<'py> FromPyObject<'py> for PythonVTable {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let cls = ob.downcast::<PyType>()?;
+
+        let id = EncodingId::new_arc(
+            cls.getattr("id")
+                .map_err(|_| {
+                    PyValueError::new_err(format!(
+                        "PyEncoding subclass {ob} must have an 'id' attribute"
+                    ))
+                })?
+                .extract::<String>()
+                .map_err(|_| PyValueError::new_err("'id' attribute must be a string"))?
+                .into(),
+        );
+
+        Ok(PythonVTable {
+            id,
+            cls: Arc::new(cls.clone().unbind()),
+        })
+    }
+}
+
 impl VTable for PythonVTable {
     type Array = PythonArray;
 
@@ -42,8 +75,8 @@ impl VTable for PythonVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(encoding: &Self::Encoding) -> EncodingId {
-        encoding.id.clone()
+    fn id(&self) -> EncodingId {
+        self.id.clone()
     }
 
     fn encoding(array: &Self::Array) -> EncodingRef {
@@ -103,14 +136,14 @@ impl ArrayVTable<PythonVTable> for PythonVTable {
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &PythonArray, state: &mut H, _precision: Precision) {
-        std::sync::Arc::as_ptr(&array.object).hash(state);
+        Arc::as_ptr(&array.object).hash(state);
         array.encoding.id().hash(state);
         array.len.hash(state);
         array.dtype.hash(state);
     }
 
     fn array_eq(array: &PythonArray, other: &PythonArray, _precision: Precision) -> bool {
-        std::sync::Arc::ptr_eq(&array.object, &other.object)
+        Arc::ptr_eq(&array.object, &other.object)
             && array.encoding == other.encoding
             && array.len == other.len
             && array.dtype == other.dtype
@@ -173,7 +206,7 @@ impl ComputeVTable<PythonVTable> for PythonVTable {
 
 impl EncodeVTable<PythonVTable> for PythonVTable {
     fn encode(
-        &self,
+        _vtable: &PythonVTable,
         _canonical: &Canonical,
         _like: Option<&PythonArray>,
     ) -> VortexResult<Option<PythonArray>> {

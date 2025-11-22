@@ -8,7 +8,8 @@ use pyo3::prelude::*;
 use pyo3::PyClass;
 use vortex::arrays::{
     BoolVTable, ChunkedVTable, ConstantVTable, DecimalVTable, DictVTable, ExtensionVTable,
-    FixedSizeListVTable, NullVTable, PrimitiveVTable, StructVTable, VarBinVTable, VarBinViewVTable,
+    FixedSizeListVTable, ListVTable, NullVTable, PrimitiveVTable, StructVTable, VarBinVTable,
+    VarBinViewVTable,
 };
 use vortex::encodings::alp::{ALPRDVTable, ALPVTable};
 use vortex::encodings::bytebool::ByteBoolVTable;
