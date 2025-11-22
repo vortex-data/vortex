@@ -3,13 +3,12 @@
 
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
-use std::ops::Deref;
 use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 
 use crate::serde::ArrayChildren;
 use crate::vtable::{EncodeVTable, VTable};
@@ -174,7 +173,10 @@ impl dyn DynVTable + '_ {
 }
 
 pub trait ArrayVTableExt {
+    /// Wraps the vtable into an `ArrayVTable` by static reference.
     fn to_array_vtable(&'static self) -> ArrayVTable;
+
+    /// Wraps the vtable into an `ArrayVTable` by owned reference.
     fn into_array_vtable(self) -> ArrayVTable;
 }
 
