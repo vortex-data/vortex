@@ -75,8 +75,8 @@ impl<T: NativePType> PScalar<T> {
     }
 
     /// Returns the value of the primitive scalar, or `None` if it is null.
-    pub fn value(&self) -> Option<&T> {
-        self.0.as_ref()
+    pub fn value(&self) -> Option<T> {
+        self.0
     }
 }
 
