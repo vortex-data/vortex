@@ -20,7 +20,7 @@ where
                 let value = Arithmetic::<Op, _>::eval(a, b);
                 PScalar::new(Some(value))
             }
-            (_, _) => {
+            (..) => {
                 // At least one side is null, so result is null
                 PScalar::new(None)
             }
