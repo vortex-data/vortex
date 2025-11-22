@@ -8,7 +8,7 @@ mod null;
 mod pvector;
 
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_vector::Vector;
 
 /// Trait for casting vectors to different data types.

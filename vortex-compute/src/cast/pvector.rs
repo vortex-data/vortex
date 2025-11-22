@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::cast::Cast;
 use vortex_dtype::{DType, NativePType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_vector::null::NullVector;
 use vortex_vector::primitive::{PVector, PrimitiveVector};
-use vortex_vector::{match_each_pvector, Vector, VectorOps};
+use vortex_vector::{Vector, VectorOps, match_each_pvector};
+
+use crate::cast::Cast;
 
 impl Cast for PrimitiveVector {
     fn cast(&self, dtype: &DType) -> VortexResult<Vector> {

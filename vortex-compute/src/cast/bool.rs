@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::cast::Cast;
 use num_traits::{One, Zero};
 use vortex_buffer::Buffer;
-use vortex_dtype::{match_each_native_ptype, DType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_dtype::{DType, match_each_native_ptype};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_vector::bool::BoolVector;
 use vortex_vector::null::NullVector;
 use vortex_vector::primitive::PVector;
 use vortex_vector::{Vector, VectorOps};
+
+use crate::cast::Cast;
 
 impl Cast for BoolVector {
     fn cast(&self, dtype: &DType) -> VortexResult<Vector> {

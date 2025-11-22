@@ -5,17 +5,18 @@ pub mod transform;
 
 use std::fmt::{Display, Formatter};
 
+use itertools::Itertools;
+use prost::Message;
+use vortex_dtype::{DType, FieldNames};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_proto::expr::select_opts::Opts;
+use vortex_proto::expr::{FieldNames as ProtoFieldNames, SelectOpts};
+use vortex_vector::Vector;
+
 use crate::expr::expression::Expression;
 use crate::expr::field::DisplayFieldNames;
 use crate::expr::{ChildName, ExprId, ExpressionView, VTable, VTableExt};
 use crate::{ArrayRef, IntoArray, ToCanonical};
-use itertools::Itertools;
-use prost::Message;
-use vortex_dtype::{DType, FieldNames};
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_proto::expr::select_opts::Opts;
-use vortex_proto::expr::{FieldNames as ProtoFieldNames, SelectOpts};
-use vortex_vector::Vector;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FieldSelection {

@@ -4,16 +4,17 @@
 use std::fmt::Formatter;
 use std::ops::Deref;
 
-use crate::compute::cast as compute_cast;
-use crate::expr::expression::Expression;
-use crate::expr::{ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt};
-use crate::stats::Stat;
-use crate::ArrayRef;
 use prost::Message;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_proto::expr as pb;
 use vortex_vector::Vector;
+
+use crate::compute::cast as compute_cast;
+use crate::expr::expression::Expression;
+use crate::expr::{ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt};
+use crate::stats::Stat;
+use crate::ArrayRef;
 
 /// A cast expression that converts values to a target data type.
 pub struct Cast;
@@ -128,15 +129,6 @@ impl VTable for Cast {
             }
         }
     }
-}
-
-/// A trait that defines the compute function for performing a cast.
-///
-/// The `try_cast` method attempts to convert the vector to the specified data type,
-/// returning a `VortexResult` that contains the casted vector or an error if the
-/// cast operation fails.
-trait VectorCast {
-    fn try_cast(self, dtype: &DType) -> VortexResult<Vector>;
 }
 
 /// Creates an expression that casts values to a target data type.
