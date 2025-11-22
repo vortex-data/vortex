@@ -487,7 +487,7 @@ mod tests {
         struct_vec.append_nulls(2);
         assert_eq!(struct_vec.len(), 7);
 
-        // Verify final values include nulls.
+        // Verify final values include zeros.
         if let VectorMut::Bool(bool_vec) = struct_vec.fields[1].clone() {
             let values: Vec<_> = bool_vec.into_iter().collect();
             assert_eq!(
@@ -498,8 +498,8 @@ mod tests {
                     Some(true),
                     Some(false),
                     Some(true),
-                    None,
-                    None
+                    Some(false),
+                    Some(false)
                 ]
             );
         }
