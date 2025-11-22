@@ -9,7 +9,7 @@ use arrow_array::ArrayRef as ArrowArrayRef;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, vortex_panic, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -21,8 +21,8 @@ use crate::vtable::{
     VisitorVTable,
 };
 use crate::{
-    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EmptyMetadata,
-    EncodingId, EncodingRef, IntoArray, Precision,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EmptyMetadata, EncodingId,
+    EncodingRef, IntoArray, Precision, vtable,
 };
 
 vtable!(Arrow);

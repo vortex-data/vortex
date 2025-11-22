@@ -5,9 +5,9 @@ use std::sync::Arc;
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_bail, vortex_ensure, VortexResult};
-use vortex_vector::listview::ListViewVector;
+use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
 use vortex_vector::Vector;
+use vortex_vector::listview::ListViewVector;
 
 use crate::arrays::ListViewArray;
 use crate::execution::ExecutionCtx;
@@ -15,8 +15,8 @@ use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
 use crate::{
-    vtable, ArrayOperator, DeserializeMetadata, EncodingId, EncodingRef, ProstMetadata,
-    SerializeMetadata,
+    ArrayOperator, DeserializeMetadata, EncodingId, EncodingRef, ProstMetadata, SerializeMetadata,
+    vtable,
 };
 
 mod array;

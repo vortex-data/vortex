@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{cast, CastKernel, CastKernelAdapter};
-use vortex_array::{register_kernel, ArrayRef, IntoArray};
+use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
+use vortex_array::{ArrayRef, IntoArray, register_kernel};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -44,14 +44,15 @@ register_kernel!(CastKernelAdapter(ALPVTable).lift());
 
 #[cfg(test)]
 mod tests {
-    use crate::ALPVTable;
     use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_array::{assert_arrays_eq, IntoArray};
+    use vortex_array::{IntoArray, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
+
+    use crate::ALPVTable;
 
     #[test]
     fn test_cast_alp_f32_to_f64() {

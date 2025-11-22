@@ -2,10 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
-pub use array::{patch_chunk, PrimitiveArray};
+pub use array::{PrimitiveArray, patch_chunk};
 
 mod compute;
-pub use compute::{compute_is_constant, IS_CONST_LANE_WIDTH};
+pub use compute::{IS_CONST_LANE_WIDTH, compute_is_constant};
 
 mod vtable;
 pub use vtable::{PrimitiveMaskedValidityRule, PrimitiveVTable};

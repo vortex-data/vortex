@@ -14,12 +14,12 @@ use vortex_array::vtable::{
     ValidityVTableFromValidityHelper, VisitorVTable,
 };
 use vortex_array::{
-    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
-    EmptyMetadata, EncodingId, EncodingRef, IntoArray, Precision,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical, EmptyMetadata,
+    EncodingId, EncodingRef, IntoArray, Precision, vtable,
 };
 use vortex_buffer::{BitBuffer, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_panic, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 use vortex_scalar::Scalar;
 
 vtable!(ByteBool);

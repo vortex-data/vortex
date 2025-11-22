@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
-pub use array::{bitpack_compress, bitpack_decompress, unpack_iter, BitPackedArray};
+pub use array::{BitPackedArray, bitpack_compress, bitpack_decompress, unpack_iter};
 
 mod compute;
 

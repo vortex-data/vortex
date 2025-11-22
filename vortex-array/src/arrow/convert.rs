@@ -3,20 +3,20 @@
 
 use std::sync::Arc;
 
-use arrow_array::cast::{as_null_array, AsArray};
+use arrow_array::cast::{AsArray, as_null_array};
 use arrow_array::types::{
-    ByteArrayType, ByteViewType, Date32Type, Date64Type, Decimal128Type, Decimal256Type,
-    Decimal32Type, Decimal64Type, Float16Type, Float32Type, Float64Type, Int16Type, Int32Type,
-    Int64Type, Int8Type, Time32MillisecondType, Time32SecondType, Time64MicrosecondType,
+    ByteArrayType, ByteViewType, Date32Type, Date64Type, Decimal32Type, Decimal64Type,
+    Decimal128Type, Decimal256Type, Float16Type, Float32Type, Float64Type, Int8Type, Int16Type,
+    Int32Type, Int64Type, Time32MillisecondType, Time32SecondType, Time64MicrosecondType,
     Time64NanosecondType, TimestampMicrosecondType, TimestampMillisecondType,
-    TimestampNanosecondType, TimestampSecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type,
+    TimestampNanosecondType, TimestampSecondType, UInt8Type, UInt16Type, UInt32Type, UInt64Type,
 };
 use arrow_array::{
-    make_array, Array as ArrowArray, ArrowPrimitiveType,
-    BooleanArray as ArrowBooleanArray, FixedSizeListArray as ArrowFixedSizeListArray, GenericByteArray,
-    GenericByteViewArray, GenericListArray, GenericListViewArray, NullArray as ArrowNullArray,
-    OffsetSizeTrait, PrimitiveArray as ArrowPrimitiveArray, RecordBatch,
-    StructArray as ArrowStructArray,
+    Array as ArrowArray, ArrowPrimitiveType, BooleanArray as ArrowBooleanArray,
+    FixedSizeListArray as ArrowFixedSizeListArray, GenericByteArray, GenericByteViewArray,
+    GenericListArray, GenericListViewArray, NullArray as ArrowNullArray, OffsetSizeTrait,
+    PrimitiveArray as ArrowPrimitiveArray, RecordBatch, StructArray as ArrowStructArray,
+    make_array,
 };
 use arrow_buffer::buffer::{NullBuffer, OffsetBuffer};
 use arrow_buffer::{ArrowNativeType, BooleanBuffer, Buffer as ArrowBuffer, ScalarBuffer};
@@ -25,7 +25,7 @@ use itertools::Itertools;
 use vortex_buffer::{Alignment, BitBuffer, Buffer, ByteBuffer};
 use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::{DType, DecimalDType, IntegerPType, NativePType, PType};
-use vortex_error::{vortex_panic, VortexExpect as _};
+use vortex_error::{VortexExpect as _, vortex_panic};
 use vortex_scalar::i256;
 
 use crate::arrays::{
@@ -549,17 +549,17 @@ mod tests {
     };
     use arrow_array::types::{ArrowPrimitiveType, Float16Type};
     use arrow_array::{
-        new_null_array, Array as ArrowArray, BinaryArray, BooleanArray, Date32Array,
-        Date64Array, FixedSizeListArray as ArrowFixedSizeListArray, Float32Array,
-        Float64Array, GenericListViewArray, Int16Array, Int32Array, Int64Array, Int8Array,
-        LargeBinaryArray, LargeStringArray, NullArray, RecordBatch, StringArray, StructArray,
-        Time32MillisecondArray, Time32SecondArray, Time64MicrosecondArray,
-        Time64NanosecondArray, TimestampMicrosecondArray, TimestampMillisecondArray,
-        TimestampNanosecondArray, TimestampSecondArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
+        Array as ArrowArray, BinaryArray, BooleanArray, Date32Array, Date64Array,
+        FixedSizeListArray as ArrowFixedSizeListArray, Float32Array, Float64Array,
+        GenericListViewArray, Int8Array, Int16Array, Int32Array, Int64Array, LargeBinaryArray,
+        LargeStringArray, NullArray, RecordBatch, StringArray, StructArray, Time32MillisecondArray,
+        Time32SecondArray, Time64MicrosecondArray, Time64NanosecondArray,
+        TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
+        TimestampSecondArray, UInt8Array, UInt16Array, UInt32Array, UInt64Array, new_null_array,
     };
     use arrow_buffer::{BooleanBuffer, Buffer as ArrowBuffer, OffsetBuffer, ScalarBuffer};
     use arrow_schema::{DataType, Field, Fields, Schema};
-    use vortex_dtype::datetime::{TemporalMetadata, TimeUnit, TIMESTAMP_ID};
+    use vortex_dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
     use vortex_dtype::{DType, ExtDType, Nullability, PType};
 
     use crate::arrays::{

@@ -13,24 +13,24 @@ use vortex_array::arrays::{
 };
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
-use vortex_error::{vortex_bail, vortex_err, VortexResult, VortexUnwrap};
+use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
+use vortex_fastlanes::FoRArray;
 use vortex_fastlanes::bitpack_compress::{
     bit_width_histogram, bitpack_encode, find_best_bit_width,
 };
-use vortex_fastlanes::FoRArray;
-use vortex_runend::compress::runend_encode;
 use vortex_runend::RunEndArray;
+use vortex_runend::compress::runend_encode;
 use vortex_scalar::Scalar;
 use vortex_sequence::sequence_encode;
 use vortex_sparse::{SparseArray, SparseVTable};
-use vortex_zigzag::{zigzag_encode, ZigZagArray};
+use vortex_zigzag::{ZigZagArray, zigzag_encode};
 
 use crate::integer::dictionary::dictionary_encode;
 use crate::patches::compress_patches;
 use crate::rle::RLEScheme;
 use crate::{
-    estimate_compression_ratio_with_sampling, Compressor, CompressorStats, GenerateStatsOptions,
-    Scheme,
+    Compressor, CompressorStats, GenerateStatsOptions, Scheme,
+    estimate_compression_ratio_with_sampling,
 };
 
 /// [`Compressor`] for signed and unsigned integers.
@@ -766,14 +766,14 @@ mod tests {
     use vortex_array::arrays::{DictVTable, PrimitiveArray};
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
-    use vortex_array::{assert_arrays_eq, Array, IntoArray, ToCanonical};
-    use vortex_buffer::{buffer, buffer_mut, Buffer, BufferMut};
+    use vortex_array::{Array, IntoArray, ToCanonical, assert_arrays_eq};
+    use vortex_buffer::{Buffer, BufferMut, buffer, buffer_mut};
     use vortex_sequence::SequenceVTable;
     use vortex_sparse::SparseVTable;
     use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::integer::{
-        IntCompressor, IntegerStats, SequenceScheme, SparseScheme, RLE_INTEGER_SCHEME,
+        IntCompressor, IntegerStats, RLE_INTEGER_SCHEME, SequenceScheme, SparseScheme,
     };
     use crate::{Compressor, CompressorStats, Scheme};
 

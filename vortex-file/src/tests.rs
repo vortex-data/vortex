@@ -6,7 +6,7 @@ use std::iter;
 use std::sync::{Arc, LazyLock};
 
 use bytes::Bytes;
-use futures::{pin_mut, StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt, pin_mut};
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
@@ -15,14 +15,14 @@ use vortex_array::arrays::{
 };
 use vortex_array::expr::session::ExprSession;
 use vortex_array::expr::{
-    and, cast, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root, select, Pack, PackOptions,
-    VTableExt,
+    Pack, PackOptions, VTableExt, and, cast, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root,
+    select,
 };
 use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::{ArrayStreamAdapter, ArrayStreamExt};
 use vortex_array::validity::Validity;
-use vortex_array::{assert_arrays_eq, Array, ArrayRef, ArraySession, IntoArray, ToCanonical};
-use vortex_buffer::{buffer, Buffer, ByteBufferMut};
+use vortex_array::{Array, ArrayRef, ArraySession, IntoArray, ToCanonical, assert_arrays_eq};
+use vortex_buffer::{Buffer, ByteBufferMut, buffer};
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, DecimalDType, Nullability, PType, StructFields};
 use vortex_error::VortexResult;
@@ -34,7 +34,7 @@ use vortex_scan::ScanBuilder;
 use vortex_session::VortexSession;
 
 use crate::{
-    OpenOptionsSessionExt, VortexFile, WriteOptionsSessionExt, V1_FOOTER_FBS_SIZE, VERSION,
+    OpenOptionsSessionExt, V1_FOOTER_FBS_SIZE, VERSION, VortexFile, WriteOptionsSessionExt,
 };
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {

@@ -12,13 +12,13 @@ use vortex_array::vtable::{
     VisitorVTable,
 };
 use vortex_array::{
-    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef,
-    Canonical, DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata,
-    SerializeMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
+    DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata, SerializeMetadata,
+    vtable,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 vtable!(DateTimeParts);
 

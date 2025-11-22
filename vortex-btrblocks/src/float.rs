@@ -9,7 +9,7 @@ use vortex_array::arrays::{ConstantArray, DictArray, MaskedArray, PrimitiveVTabl
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::PType;
-use vortex_error::{vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_scalar::Scalar;
 use vortex_sparse::{SparseArray, SparseVTable};
 
@@ -19,8 +19,8 @@ use crate::integer::{IntCompressor, IntegerStats};
 use crate::patches::compress_patches;
 use crate::rle::RLEScheme;
 use crate::{
-    estimate_compression_ratio_with_sampling, integer, Compressor, CompressorStats,
-    GenerateStatsOptions, Scheme,
+    Compressor, CompressorStats, GenerateStatsOptions, Scheme,
+    estimate_compression_ratio_with_sampling, integer,
 };
 
 pub trait FloatScheme: Scheme<StatsType = FloatStats, CodeType = FloatCode> {}
@@ -465,13 +465,13 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder};
     use vortex_array::validity::Validity;
-    use vortex_array::{assert_arrays_eq, Array, IntoArray, ToCanonical};
-    use vortex_buffer::{buffer_mut, Buffer};
+    use vortex_array::{Array, IntoArray, ToCanonical, assert_arrays_eq};
+    use vortex_buffer::{Buffer, buffer_mut};
     use vortex_dtype::Nullability;
     use vortex_sparse::SparseVTable;
 
     use crate::float::{FloatCompressor, RLE_FLOAT_SCHEME};
-    use crate::{Compressor, CompressorStats, Scheme, MAX_CASCADE};
+    use crate::{Compressor, CompressorStats, MAX_CASCADE, Scheme};
 
     #[test]
     fn test_empty() {

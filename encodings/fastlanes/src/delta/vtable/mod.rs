@@ -5,10 +5,10 @@ use fastlanes::FastLanes;
 use prost::Message;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{NotSupported, VTable, ValidityVTableFromChildSliceHelper};
-use vortex_array::{vtable, EncodingId, EncodingRef, ProstMetadata};
+use vortex_array::{EncodingId, EncodingRef, ProstMetadata, vtable};
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{match_each_unsigned_integer_ptype, DType, PType};
-use vortex_error::{vortex_err, VortexResult};
+use vortex_dtype::{DType, PType, match_each_unsigned_integer_ptype};
+use vortex_error::{VortexResult, vortex_err};
 
 use crate::DeltaArray;
 

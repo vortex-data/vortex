@@ -4,10 +4,10 @@
 mod cast;
 
 use vortex_array::compute::{
-    filter, mask, take, FilterKernel, FilterKernelAdapter,
-    MaskKernel, MaskKernelAdapter, TakeKernel, TakeKernelAdapter,
+    FilterKernel, FilterKernelAdapter, MaskKernel, MaskKernelAdapter, TakeKernel,
+    TakeKernelAdapter, filter, mask, take,
 };
-use vortex_array::{register_kernel, Array, ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -68,12 +68,12 @@ mod tests {
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::compute::{filter, take};
     use vortex_array::validity::Validity;
-    use vortex_array::{assert_arrays_eq, Array, ArrayRef, IntoArray, ToCanonical};
-    use vortex_buffer::{buffer, BitBuffer};
+    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, assert_arrays_eq};
+    use vortex_buffer::{BitBuffer, buffer};
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
-    use crate::{zigzag_encode, ZigZagArray, ZigZagVTable};
+    use crate::{ZigZagArray, ZigZagVTable, zigzag_encode};
 
     #[test]
     pub fn nullable_scalar_at() {

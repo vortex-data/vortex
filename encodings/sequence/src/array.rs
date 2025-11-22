@@ -4,8 +4,8 @@
 use std::hash::Hash;
 use std::ops::Range;
 
-use num_traits::cast::FromPrimitive;
 use num_traits::One;
+use num_traits::cast::FromPrimitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::execution::ExecutionCtx;
 use vortex_array::serde::ArrayChildren;
@@ -15,19 +15,19 @@ use vortex_array::vtable::{
     ValidityVTable, VisitorVTable,
 };
 use vortex_array::{
-    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata,
-    EncodingId, EncodingRef, Precision, ProstMetadata, SerializeMetadata,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata, EncodingId,
+    EncodingRef, Precision, ProstMetadata, SerializeMetadata, vtable,
 };
 use vortex_buffer::{BufferMut, ByteBuffer};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{
-    match_each_integer_ptype, match_each_native_ptype, DType, NativePType, Nullability, PType,
+    DType, NativePType, Nullability, PType, match_each_integer_ptype, match_each_native_ptype,
 };
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::{PValue, Scalar, ScalarValue};
-use vortex_vector::primitive::PVector;
 use vortex_vector::Vector;
+use vortex_vector::primitive::PVector;
 
 vtable!(Sequence);
 
@@ -378,8 +378,8 @@ impl EncodeVTable<SequenceVTable> for SequenceVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::ToCanonical;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_dtype::Nullability;
     use vortex_scalar::{Scalar, ScalarValue};
 

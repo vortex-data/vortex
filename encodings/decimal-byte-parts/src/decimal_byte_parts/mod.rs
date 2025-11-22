@@ -15,13 +15,13 @@ use vortex_array::vtable::{
     ValidityHelper, ValidityVTableFromChild, VisitorVTable,
 };
 use vortex_array::{
-    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef,
-    Canonical, EncodingId, EncodingRef, IntoArray, Precision, ProstMetadata, SerializeMetadata,
-    ToCanonical,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
+    EncodingId, EncodingRef, IntoArray, Precision, ProstMetadata, SerializeMetadata, ToCanonical,
+    vtable,
 };
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{match_each_signed_integer_ptype, DType, DecimalDType, PType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_dtype::{DType, DecimalDType, PType, match_each_signed_integer_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::{DecimalValue, Scalar};
 
 vtable!(DecimalByteParts);
@@ -242,9 +242,9 @@ impl VisitorVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::Array;
     use vortex_array::arrays::{BoolArray, PrimitiveArray};
     use vortex_array::validity::Validity;
-    use vortex_array::Array;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, DecimalDType, Nullability};
     use vortex_scalar::{DecimalValue, Scalar};

@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use pyo3::exceptions::PyValueError;
-use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyType};
-use pyo3::{intern, Python};
 use std::hash::Hash;
 use std::ops::Range;
 use std::sync::Arc;
+
+use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
+use pyo3::types::{PyBytes, PyType};
+use pyo3::{Python, intern};
 use vortex::buffer::ByteBuffer;
 use vortex::compute::{ComputeFn, InvocationArgs, Output};
 use vortex::dtype::DType;
-use vortex::error::{vortex_err, VortexResult};
+use vortex::error::{VortexResult, vortex_err};
 use vortex::mask::Mask;
 use vortex::scalar::Scalar;
 use vortex::serde::ArrayChildren;
@@ -21,8 +22,8 @@ use vortex::vtable::{
     VTable, ValidityVTable, VisitorVTable,
 };
 use vortex::{
-    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef,
-    Precision, RawMetadata, SerializeMetadata,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef, Precision,
+    RawMetadata, SerializeMetadata, vtable,
 };
 
 use crate::arrays::py::PythonArray;

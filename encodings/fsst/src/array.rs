@@ -14,13 +14,13 @@ use vortex_array::vtable::{
     VisitorVTable,
 };
 use vortex_array::{
-    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef,
-    Canonical, DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata,
-    SerializeMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
+    DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata, SerializeMetadata,
+    vtable,
 };
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::{fsst_compress, fsst_train_compressor};
 
@@ -346,8 +346,8 @@ impl VisitorVTable<FSSTVTable> for FSSTVTable {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::test_harness::check_metadata;
     use vortex_array::ProstMetadata;
+    use vortex_array::test_harness::check_metadata;
     use vortex_dtype::PType;
 
     use crate::array::FSSTMetadata;

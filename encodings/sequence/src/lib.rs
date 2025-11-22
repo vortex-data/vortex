@@ -11,7 +11,6 @@ mod operator;
 pub use array::{SequenceArray, SequenceVTable};
 pub use compress::sequence_encode;
 
-
 // TODO(joe): hook up to the compressor
 // TODO(joe): support comparisons with other operators
 // TODO(joe): support list in expr pushdown

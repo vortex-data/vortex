@@ -10,7 +10,7 @@ mod validity;
 use vortex_buffer::ByteBuffer;
 use vortex_compute::mask::MaskValidity;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_vector::Vector;
 
 use crate::arrays::masked::MaskedArray;
@@ -19,8 +19,8 @@ use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper, VisitorVTable};
 use crate::{
-    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayOperator, EmptyMetadata, EncodingId,
-    EncodingRef,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayOperator, EmptyMetadata, EncodingId, EncodingRef,
+    vtable,
 };
 
 vtable!(Masked);
@@ -108,14 +108,13 @@ impl VTable for MaskedVTable {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+    use vortex_buffer::ByteBufferMut;
+
     use crate::arrays::{MaskedArray, PrimitiveArray};
     use crate::serde::{ArrayParts, SerializeOptions};
     use crate::validity::Validity;
-    use crate::MaskedVTable;
-    use crate::{ArrayContext, EncodingRef, IntoArray};
-
-    use rstest::rstest;
-    use vortex_buffer::ByteBufferMut;
+    use crate::{ArrayContext, EncodingRef, IntoArray, MaskedVTable};
 
     #[rstest]
     #[case(

@@ -3,9 +3,9 @@
 
 use vortex_error::VortexResult;
 
+use crate::Canonical;
 use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::vtable::EncodeVTable;
-use crate::Canonical;
 
 impl EncodeVTable<ConstantVTable> for ConstantVTable {
     fn encode(

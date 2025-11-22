@@ -6,6 +6,7 @@ use std::sync::Arc;
 use vortex_dtype::FieldNames;
 use vortex_error::{VortexExpect, VortexResult};
 
+use crate::ArraySession;
 use crate::array::transform::{ArrayParentReduceRule, ArrayReduceRule, ArrayRuleContext};
 use crate::array::{ArrayRef, IntoArray};
 use crate::arrays::{
@@ -15,7 +16,6 @@ use crate::arrays::{
 use crate::expr::session::ExprSession;
 use crate::expr::transform::ExprOptimizer;
 use crate::validity::Validity;
-use crate::ArraySession;
 
 /// Test rule that unwraps single-chunk ChunkedArrays
 #[derive(Debug, Default)]

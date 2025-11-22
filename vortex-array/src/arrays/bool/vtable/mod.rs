@@ -3,9 +3,9 @@
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
-use vortex_vector::bool::BoolVector;
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_vector::Vector;
+use vortex_vector::bool::BoolVector;
 
 use crate::arrays::BoolArray;
 use crate::execution::ExecutionCtx;
@@ -13,7 +13,7 @@ use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
 use crate::{
-    vtable, DeserializeMetadata, EncodingId, EncodingRef, ProstMetadata, SerializeMetadata,
+    DeserializeMetadata, EncodingId, EncodingRef, ProstMetadata, SerializeMetadata, vtable,
 };
 
 mod array;

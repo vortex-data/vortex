@@ -12,16 +12,16 @@ use vortex_array::vtable::{
     ValidityVTableFromChild, VisitorVTable,
 };
 use vortex_array::{
-    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef,
-    Canonical, DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata,
-    SerializeMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
+    DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata, SerializeMetadata,
+    vtable,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, vortex_ensure, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_ensure};
 
-use crate::alp::{alp_encode, decompress, Exponents};
 use crate::ALPFloat;
+use crate::alp::{Exponents, alp_encode, decompress};
 
 vtable!(ALP);
 

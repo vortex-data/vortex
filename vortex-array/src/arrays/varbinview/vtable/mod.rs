@@ -5,16 +5,16 @@ use std::sync::Arc;
 
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
-use vortex_vector::binaryview::{BinaryVector, BinaryView, StringVector};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_vector::Vector;
+use vortex_vector::binaryview::{BinaryVector, BinaryView, StringVector};
 
 use crate::arrays::varbinview::VarBinViewArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{vtable, EmptyMetadata, EncodingId, EncodingRef};
+use crate::{EmptyMetadata, EncodingId, EncodingRef, vtable};
 
 mod array;
 mod canonical;

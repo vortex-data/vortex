@@ -3,9 +3,9 @@
 
 use std::ops::Deref;
 
+use pyo3::PyClass;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
-use pyo3::PyClass;
 use vortex::arrays::{
     BoolVTable, ChunkedVTable, ConstantVTable, DecimalVTable, DictVTable, ExtensionVTable,
     FixedSizeListVTable, ListVTable, NullVTable, PrimitiveVTable, StructVTable, VarBinVTable,
@@ -24,6 +24,7 @@ use vortex::error::VortexExpect;
 use vortex::vtable::VTable;
 use vortex::{Array, ArrayAdapter, ArrayRef};
 
+use crate::arrays::PyArray;
 use crate::arrays::builtins::{
     PyBoolArray, PyByteBoolArray, PyChunkedArray, PyConstantArray, PyDecimalArray,
     PyExtensionArray, PyFixedSizeListArray, PyListArray, PyNullArray, PyPrimitiveArray,
@@ -36,7 +37,6 @@ use crate::arrays::compressed::{
 use crate::arrays::fastlanes::{
     PyFastLanesBitPackedArray, PyFastLanesDeltaArray, PyFastLanesFoRArray,
 };
-use crate::arrays::PyArray;
 use crate::dtype::PyDType;
 
 #[pyclass(name = "NativeArray", module = "vortex", extends=PyArray, sequence, subclass, frozen)]

@@ -19,13 +19,13 @@ use vortex_array::vtable::{
     ValidityHelper, ValiditySliceHelper, ValidityVTableFromValiditySliceHelper, VisitorVTable,
 };
 use vortex_array::{
-    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
-    EncodingId, EncodingRef, IntoArray, Precision, ProstMetadata, ToCanonical,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId,
+    EncodingRef, IntoArray, Precision, ProstMetadata, ToCanonical, vtable,
 };
 use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{
-    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult,
+    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
 };
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;

@@ -15,13 +15,13 @@ use vortex_array::vtable::{
     ValidityVTableFromChild, VisitorVTable,
 };
 use vortex_array::{
-    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef,
-    Canonical, DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata,
-    SerializeMetadata, ToCanonical,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
+    DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata, SerializeMetadata,
+    ToCanonical, vtable,
 };
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::alp_rd::alp_rd_decode;
 
@@ -428,11 +428,11 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
-    use vortex_array::{assert_arrays_eq, ProstMetadata, ToCanonical};
+    use vortex_array::{ProstMetadata, ToCanonical, assert_arrays_eq};
     use vortex_dtype::PType;
 
     use super::ALPRDMetadata;
-    use crate::{alp_rd, ALPRDFloat};
+    use crate::{ALPRDFloat, alp_rd};
 
     #[rstest]
     #[case(vec![0.1f32.next_up(); 1024], 1.123_848_f32)]

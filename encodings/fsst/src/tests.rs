@@ -3,12 +3,12 @@
 
 use vortex_array::arrays::builder::VarBinBuilder;
 use vortex_array::compute::{filter, take};
-use vortex_array::{assert_arrays_eq, Array, ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, assert_arrays_eq};
 use vortex_buffer::buffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_mask::Mask;
 
-use crate::{fsst_compress, fsst_train_compressor, FSSTVTable};
+use crate::{FSSTVTable, fsst_compress, fsst_train_compressor};
 
 macro_rules! assert_nth_scalar {
     ($arr:expr, $n:expr, $expected:expr) => {

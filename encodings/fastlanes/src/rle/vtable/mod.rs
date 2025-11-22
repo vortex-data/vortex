@@ -4,7 +4,7 @@
 use prost::Message;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{NotSupported, VTable, ValidityVTableFromChildSliceHelper};
-use vortex_array::{vtable, EncodingId, EncodingRef, ProstMetadata};
+use vortex_array::{EncodingId, EncodingRef, ProstMetadata, vtable};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::VortexResult;

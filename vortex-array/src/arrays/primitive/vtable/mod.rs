@@ -2,17 +2,17 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
-use vortex_dtype::{match_each_native_ptype, DType, PType};
-use vortex_error::{vortex_bail, VortexResult};
-use vortex_vector::primitive::PVector;
+use vortex_dtype::{DType, PType, match_each_native_ptype};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_vector::Vector;
+use vortex_vector::primitive::PVector;
 
 use crate::arrays::PrimitiveArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{vtable, EmptyMetadata, EncodingId, EncodingRef};
+use crate::{EmptyMetadata, EncodingId, EncodingRef, vtable};
 
 mod array;
 mod canonical;
