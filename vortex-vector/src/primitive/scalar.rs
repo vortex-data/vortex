@@ -73,6 +73,11 @@ impl<T: NativePType> PScalar<T> {
     pub fn new(value: Option<T>) -> Self {
         Self(value)
     }
+
+    /// Returns the value of the primitive scalar, or `None` if it is null.
+    pub fn value(&self) -> Option<&T> {
+        self.0.as_ref()
+    }
 }
 
 impl<T: NativePType> From<PScalar<T>> for PrimitiveScalar {
