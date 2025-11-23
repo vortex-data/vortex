@@ -8,7 +8,7 @@ com.google.guava:listenablefuture = 9999.0-empty-to-avoid-conflict-with-guava
 com.jakewharton.nopen:* = 1.0.1
 org.apache.spark:* = 3.5.7
 org.immutables:value = 2.11.6
-com.google.protobuf:protobuf-java = 4.32.1
+com.google.protobuf:protobuf-java = 4.33.1
 org.apache.arrow:* = 18.3.0
 
 # Test dependencies
