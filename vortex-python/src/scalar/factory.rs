@@ -44,7 +44,7 @@ pub fn scalar_helper(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyResul
 /// dtype if necessary.
 fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyResult<Scalar> {
     // If it's already a scalar, return it
-    if let Ok(value) = value.downcast::<PyScalar>() {
+    if let Ok(value) = value.cast::<PyScalar>() {
         return Ok(value.get().inner().clone());
     }
 
@@ -56,7 +56,7 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
     }
 
     // bool
-    if let Ok(bool) = value.downcast::<PyBool>() {
+    if let Ok(bool) = value.cast::<PyBool>() {
         return Ok(Scalar::bool(
             bool.extract::<bool>()?,
             Nullability::NonNullable,
@@ -64,7 +64,7 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
     }
 
     // int
-    if let Ok(integer) = value.downcast::<PyInt>() {
+    if let Ok(integer) = value.cast::<PyInt>() {
         return Ok(Scalar::primitive(
             integer.extract::<i64>()?,
             Nullability::NonNullable,
@@ -72,7 +72,7 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
     }
 
     // float
-    if let Ok(float) = value.downcast::<PyFloat>() {
+    if let Ok(float) = value.cast::<PyFloat>() {
         return Ok(Scalar::primitive(
             float.extract::<f64>()?,
             Nullability::NonNullable,
@@ -80,7 +80,7 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
     }
 
     // str
-    if let Ok(string) = value.downcast::<PyString>() {
+    if let Ok(string) = value.cast::<PyString>() {
         return Ok(Scalar::utf8(
             string.extract::<String>()?,
             Nullability::NonNullable,
@@ -88,7 +88,7 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
     }
 
     // bytes
-    if let Ok(bytes) = value.downcast::<PyBytes>() {
+    if let Ok(bytes) = value.cast::<PyBytes>() {
         return Ok(Scalar::binary(
             bytes.extract::<Vec<u8>>()?,
             Nullability::NonNullable,
@@ -96,7 +96,7 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
     }
 
     // dict
-    if let Ok(dict) = value.downcast::<PyDict>() {
+    if let Ok(dict) = value.cast::<PyDict>() {
         // Extract the field names from the dictionary keys
         let names: FieldNames = dict
             .keys()
@@ -139,7 +139,7 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
         };
     }
 
-    if let Ok(list) = value.downcast::<PyList>() {
+    if let Ok(list) = value.cast::<PyList>() {
         if let Some(DType::List(element_dtype, ..)) = dtype {
             let elements = list
                 .iter()

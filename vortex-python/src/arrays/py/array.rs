@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use pyo3::prelude::*;
-use pyo3::{Bound, FromPyObject, Py, PyAny, PyResult};
+use pyo3::{Bound, FromPyObject, Py, PyAny};
 use vortex::EncodingRef;
 use vortex::dtype::DType;
 use vortex::error::VortexError;
@@ -26,11 +26,14 @@ pub struct PythonArray {
     pub(super) stats: ArrayStats,
 }
 
-impl<'py> FromPyObject<'py> for PythonArray {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let python_array = ob.downcast::<PyPythonArray>()?.get();
+impl<'py> FromPyObject<'_, 'py> for PythonArray {
+    type Error = PyErr;
+
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let ob_cast = ob.cast::<PyPythonArray>()?;
+        let python_array = ob_cast.get();
         Ok(Self {
-            object: Arc::new(ob.clone().unbind()),
+            object: Arc::new(ob.to_owned().unbind()),
             encoding: python_array.encoding.clone(),
             len: python_array.len,
             dtype: python_array.dtype.clone(),
