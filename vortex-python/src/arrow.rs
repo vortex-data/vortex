@@ -201,12 +201,10 @@ impl<'py> FromPyArrow<'_, 'py> for ArrayData {
                 .cast::<FFI_ArrowSchema>()
                 .as_ref()
         };
-        let array_ptr = unsafe {
-            array_capsule
-                .pointer_checked(None)?
-                .cast::<FFI_ArrowArray>()
-                .as_ptr()
-        };
+        let array_ptr = array_capsule
+            .pointer_checked(None)?
+            .cast::<FFI_ArrowArray>()
+            .as_ptr();
 
         let array = unsafe { FFI_ArrowArray::from_raw(array_ptr) };
         unsafe { ffi::from_ffi(array, schema_ptr) }.map_err(to_py_err)
@@ -318,12 +316,10 @@ impl<'py> FromPyArrow<'_, 'py> for ArrowArrayStreamReader {
         let capsule = capsule.cast::<PyCapsule>()?;
         validate_pycapsule(capsule, "arrow_array_stream")?;
 
-        let array_ptr = unsafe {
-            capsule
-                .pointer_checked(None)?
-                .cast::<FFI_ArrowArrayStream>()
-                .as_ptr()
-        };
+        let array_ptr = capsule
+            .pointer_checked(None)?
+            .cast::<FFI_ArrowArrayStream>()
+            .as_ptr();
 
         let stream = unsafe { FFI_ArrowArrayStream::from_raw(array_ptr) };
 
