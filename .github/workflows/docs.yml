@@ -23,7 +23,7 @@ jobs:
           java-version: "17"
           distribution: "temurin"
       - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.18.3
+        uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
         with:
           sync: false
           prune-cache: false
