@@ -1103,7 +1103,7 @@ dependencies = [
  "bitflags",
  "cexpr",
  "clang-sys",
- "itertools 0.12.1",
+ "itertools 0.13.0",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -5124,9 +5124,9 @@ dependencies = [
 
 [[package]]
 name = "noodles-bgzf"
-version = "0.43.0"
+version = "0.44.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a29d42d77c0d9cac346e94e788a1f5627b5721f211edcd268b3ef93a50723208"
+checksum = "7ab0c2585bad37cfc51a55f29c85449400ac51aaade935049d5d9fc5f8add255"
 dependencies = [
  "bytes",
  "crossbeam-channel",
@@ -5148,9 +5148,9 @@ dependencies = [
 
 [[package]]
 name = "noodles-csi"
-version = "0.51.0"
+version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03338575b1537f6fa1006bb6138fafea98b73dd3dd687b96727076531de924cc"
+checksum = "d09e31153abd7996f22a50d70f43af6c2ebf96a44ee250326ed15d4e183744c9"
 dependencies = [
  "bit-vec",
  "bstr",
@@ -5161,9 +5161,9 @@ dependencies = [
 
 [[package]]
 name = "noodles-tabix"
-version = "0.57.0"
+version = "0.58.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "caff826ea6e432861b726ae3be1100e72d07a238c7615c12ddc257ff3c23f555"
+checksum = "3dd8ed06bbf341ce64649717ce0fa1723bf60547eb7d61bd271b79130016dfa4"
 dependencies = [
  "bstr",
  "indexmap",
@@ -5175,9 +5175,9 @@ dependencies = [
 
 [[package]]
 name = "noodles-vcf"
-version = "0.81.0"
+version = "0.82.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4c3edc79cf9c235cc803137a108fa20e6f9c4a3b6fa39e879c78504cc7d19d7"
+checksum = "8d46b26eb1873883e5e6b738c75d4e44c9e1edcc1c6454fc5c25b56202e510bc"
 dependencies = [
  "futures",
  "indexmap",
@@ -6069,7 +6069,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
  "heck",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "log",
  "multimap",
  "once_cell",
@@ -6089,7 +6089,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac6c3320f9abac597dcbc668774ef006702672474aad53c6d596b62e487b40b1"
 dependencies = [
  "heck",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "log",
  "multimap",
  "once_cell",
@@ -6122,7 +6122,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.106",
@@ -6135,7 +6135,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9120690fafc389a67ba3803df527d0ec9cbbc9cc45e4cc20b332996dfb672425"
 dependencies = [
  "anyhow",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.106",
