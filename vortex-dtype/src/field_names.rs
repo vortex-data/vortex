@@ -342,7 +342,7 @@ impl From<&[FieldName]> for FieldNames {
 
 impl<const N: usize> From<&[&str; N]> for FieldNames {
     fn from(value: &[&str; N]) -> Self {
-        Self(value.into_iter().cloned().map(FieldName::from).collect())
+        Self(value.iter().cloned().map(FieldName::from).collect())
     }
 }
 
