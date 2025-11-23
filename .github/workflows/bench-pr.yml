@@ -49,7 +49,7 @@ jobs:
         if: github.event.pull_request.head.repo.fork == false
         with:
           sccache: s3
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - uses: ./.github/actions/setup-rust

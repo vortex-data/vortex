@@ -36,7 +36,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Download fuzzer logs
         uses: actions/download-artifact@v5
