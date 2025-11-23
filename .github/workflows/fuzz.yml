@@ -84,7 +84,7 @@ jobs:
           retention-days: 30
       - name: Archive fuzzer output log
         if: steps.check.outputs.crashes_found == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: io-fuzzing-logs
           path: fuzz_output.log
@@ -217,7 +217,7 @@ jobs:
           retention-days: 30
       - name: Archive fuzzer output log
         if: steps.check.outputs.crashes_found == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ops-fuzzing-logs
           path: fuzz_output.log
