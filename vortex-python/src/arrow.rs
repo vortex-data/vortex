@@ -6,6 +6,7 @@
 #![allow(clippy::same_name_method)]
 
 use std::convert::{From, TryFrom};
+use std::ffi::CStr;
 use std::ptr::addr_of;
 use std::sync::Arc;
 
@@ -17,10 +18,14 @@ use arrow_array::{
 use arrow_data::ArrayData;
 use arrow_schema::{ArrowError, DataType, Field, Schema};
 use pyo3::exceptions::{PyTypeError, PyValueError};
-use pyo3::ffi::Py_uintptr_t;
+use pyo3::ffi::{Py_uintptr_t, c_str};
 use pyo3::import_exception;
 use pyo3::prelude::*;
 use pyo3::types::{PyCapsule, PyTuple};
+
+const SCHEMA_NAME: &CStr = c_str!("arrow_schema");
+const ARRAY_NAME: &CStr = c_str!("arrow_array");
+const ARRAY_STREAM_NAME: &CStr = c_str!("arrow_array_stream");
 
 import_exception!(pyarrow, ArrowException);
 /// Represents an exception raised by PyArrow.
@@ -50,27 +55,6 @@ pub trait IntoPyArrow {
     fn into_pyarrow(self, py: Python) -> PyResult<Py<PyAny>>;
 }
 
-fn validate_pycapsule(capsule: &Bound<PyCapsule>, name: &str) -> PyResult<()> {
-    let Some(capsule_name) = capsule
-        .name()?
-        .map(|s| unsafe { s.as_cstr() }.to_str())
-        .transpose()?
-    else {
-        return Err(PyValueError::new_err(
-            "Expected schema PyCapsule to have name set.",
-        ));
-    };
-
-    if capsule_name != name {
-        return Err(PyValueError::new_err(format!(
-            "Expected name '{}' in PyCapsule, instead got '{}'",
-            name, capsule_name
-        )));
-    }
-
-    Ok(())
-}
-
 impl<'py> FromPyArrow<'_, 'py> for DataType {
     fn from_pyarrow(value: &Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         if !value.hasattr("__arrow_c_schema__")? {
@@ -81,16 +65,15 @@ impl<'py> FromPyArrow<'_, 'py> for DataType {
 
         let capsule = value.getattr("__arrow_c_schema__")?.call0()?;
         let capsule = capsule.cast::<PyCapsule>()?;
-        validate_pycapsule(capsule, "arrow_schema")?;
 
         let schema_ptr = unsafe {
             capsule
-                .pointer_checked(None)?
+                .pointer_checked(Some(SCHEMA_NAME))?
                 .cast::<FFI_ArrowSchema>()
                 .as_ref()
         };
-        let dtype = DataType::try_from(schema_ptr).map_err(to_py_err)?;
-        Ok(dtype)
+
+        DataType::try_from(schema_ptr).map_err(to_py_err)
     }
 }
 
@@ -114,11 +97,10 @@ impl<'py> FromPyArrow<'_, 'py> for Field {
 
         let capsule = value.getattr("__arrow_c_schema__")?.call0()?;
         let capsule = capsule.cast::<PyCapsule>()?;
-        validate_pycapsule(capsule, "arrow_schema")?;
 
         let schema_ptr = unsafe {
             capsule
-                .pointer_checked(None)?
+                .pointer_checked(Some(SCHEMA_NAME))?
                 .cast::<FFI_ArrowSchema>()
                 .as_ref()
         };
@@ -147,11 +129,10 @@ impl<'py> FromPyArrow<'_, 'py> for Schema {
 
         let capsule = value.getattr("__arrow_c_schema__")?.call0()?;
         let capsule = capsule.cast::<PyCapsule>()?;
-        validate_pycapsule(capsule, "arrow_schema")?;
 
         let schema_ptr = unsafe {
             capsule
-                .pointer_checked(None)?
+                .pointer_checked(Some(SCHEMA_NAME))?
                 .cast::<FFI_ArrowSchema>()
                 .as_ref()
         };
@@ -192,17 +173,15 @@ impl<'py> FromPyArrow<'_, 'py> for ArrayData {
         let schema_capsule = schema_capsule.cast::<PyCapsule>()?;
         let array_capsule = tuple.get_item(1)?;
         let array_capsule = array_capsule.cast::<PyCapsule>()?;
-        validate_pycapsule(schema_capsule, "arrow_schema")?;
-        validate_pycapsule(array_capsule, "arrow_array")?;
 
         let schema_ptr = unsafe {
             schema_capsule
-                .pointer_checked(None)?
+                .pointer_checked(Some(SCHEMA_NAME))?
                 .cast::<FFI_ArrowSchema>()
                 .as_ref()
         };
         let array_ptr = array_capsule
-            .pointer_checked(None)?
+            .pointer_checked(Some(ARRAY_NAME))?
             .cast::<FFI_ArrowArray>()
             .as_ptr();
 
@@ -249,21 +228,17 @@ impl<'py> FromPyArrow<'_, 'py> for RecordBatch {
         let schema_capsule = schema_capsule.cast::<PyCapsule>()?;
         let array_capsule = tuple.get_item(1)?;
         let array_capsule = array_capsule.cast::<PyCapsule>()?;
-        validate_pycapsule(schema_capsule, "arrow_schema")?;
-        validate_pycapsule(array_capsule, "arrow_array")?;
 
         let schema_ptr = unsafe {
             schema_capsule
-                .pointer_checked(None)?
+                .pointer_checked(Some(SCHEMA_NAME))?
                 .cast::<FFI_ArrowSchema>()
                 .as_ref()
         };
-        let array_ptr = unsafe {
-            array_capsule
-                .pointer_checked(None)?
-                .cast::<FFI_ArrowArray>()
-                .as_ptr()
-        };
+        let array_ptr = array_capsule
+            .pointer_checked(Some(ARRAY_NAME))?
+            .cast::<FFI_ArrowArray>()
+            .as_ptr();
 
         let ffi_array = unsafe { FFI_ArrowArray::from_raw(array_ptr) };
         let mut array_data = unsafe { ffi::from_ffi(ffi_array, schema_ptr) }.map_err(to_py_err)?;
@@ -314,10 +289,9 @@ impl<'py> FromPyArrow<'_, 'py> for ArrowArrayStreamReader {
 
         let capsule = value.getattr("__arrow_c_stream__")?.call0()?;
         let capsule = capsule.cast::<PyCapsule>()?;
-        validate_pycapsule(capsule, "arrow_array_stream")?;
 
         let array_ptr = capsule
-            .pointer_checked(None)?
+            .pointer_checked(Some(ARRAY_STREAM_NAME))?
             .cast::<FFI_ArrowArrayStream>()
             .as_ptr();
 
