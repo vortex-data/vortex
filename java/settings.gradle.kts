@@ -20,4 +20,3 @@ rootProject.name = "vortex-root"
 // API bindings
 include("vortex-jni")
 include("vortex-spark")
-
