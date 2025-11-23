@@ -1038,7 +1038,7 @@ dependencies = [
  "lance-encoding",
  "log",
  "mimalloc",
- "noodles-bgzf",
+ "noodles-bgzf 0.43.0",
  "noodles-vcf",
  "object_store",
  "opentelemetry",
@@ -5140,6 +5140,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "noodles-bgzf"
+version = "0.44.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ab0c2585bad37cfc51a55f29c85449400ac51aaade935049d5d9fc5f8add255"
+dependencies = [
+ "bytes",
+ "crossbeam-channel",
+ "flate2",
+ "futures",
+ "pin-project-lite",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "noodles-core"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5150,26 +5165,26 @@ dependencies = [
 
 [[package]]
 name = "noodles-csi"
-version = "0.51.0"
+version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03338575b1537f6fa1006bb6138fafea98b73dd3dd687b96727076531de924cc"
+checksum = "d09e31153abd7996f22a50d70f43af6c2ebf96a44ee250326ed15d4e183744c9"
 dependencies = [
  "bit-vec",
  "bstr",
  "indexmap",
- "noodles-bgzf",
+ "noodles-bgzf 0.44.0",
  "noodles-core",
 ]
 
 [[package]]
 name = "noodles-tabix"
-version = "0.57.0"
+version = "0.58.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "caff826ea6e432861b726ae3be1100e72d07a238c7615c12ddc257ff3c23f555"
+checksum = "3dd8ed06bbf341ce64649717ce0fa1723bf60547eb7d61bd271b79130016dfa4"
 dependencies = [
  "bstr",
  "indexmap",
- "noodles-bgzf",
+ "noodles-bgzf 0.44.0",
  "noodles-core",
  "noodles-csi",
  "tokio",
@@ -5177,14 +5192,14 @@ dependencies = [
 
 [[package]]
 name = "noodles-vcf"
-version = "0.81.0"
+version = "0.82.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4c3edc79cf9c235cc803137a108fa20e6f9c4a3b6fa39e879c78504cc7d19d7"
+checksum = "8d46b26eb1873883e5e6b738c75d4e44c9e1edcc1c6454fc5c25b56202e510bc"
 dependencies = [
  "futures",
  "indexmap",
  "memchr",
- "noodles-bgzf",
+ "noodles-bgzf 0.44.0",
  "noodles-core",
  "noodles-csi",
  "noodles-tabix",
