@@ -1934,9 +1934,9 @@ dependencies = [
 
 [[package]]
 name = "cudarc"
-version = "0.17.7"
+version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff0da1a70ec91e66731c1752deb9fda3044f1154fe4ceb5873e3f96ed34cafa3"
+checksum = "ef0cfc5e22a6b6f7d04ee45b0151232ca236ede8ca3534210fd4072bdead0d60"
 dependencies = [
  "half",
  "libloading 0.8.9",

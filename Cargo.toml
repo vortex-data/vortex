@@ -88,7 +88,7 @@ clap = "4.5"
 crossbeam-deque = "0.8.6"
 crossbeam-queue = "0.3.12"
 crossterm = "0.29"
-cudarc = { version = "0.17.3", features = [
+cudarc = { version = "0.18.0", features = [
     "std",
     "driver",
     "cuda-12080",
