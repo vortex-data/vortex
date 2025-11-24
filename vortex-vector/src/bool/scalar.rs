@@ -2,7 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::bool::BoolVectorMut;
-use crate::{Scalar, ScalarOps, VectorMut, VectorMutOps};
+use crate::{
+    Scalar,
+    ScalarOps,
+    VectorMut,
+    VectorMutOps,
+};
 
 /// A scalar value for boolean types.
 #[derive(Debug)]

@@ -3,11 +3,24 @@
 
 use std::sync::Arc;
 
-use vortex_mask::{Mask, MaskMut};
+use vortex_mask::{
+    Mask,
+    MaskMut,
+};
 
-use crate::listview::{ListViewVector, ListViewVectorMut};
-use crate::primitive::{PVectorMut, PrimitiveVector};
-use crate::{Vector, VectorMutOps, VectorOps};
+use crate::listview::{
+    ListViewVector,
+    ListViewVectorMut,
+};
+use crate::primitive::{
+    PVectorMut,
+    PrimitiveVector,
+};
+use crate::{
+    Vector,
+    VectorMutOps,
+    VectorOps,
+};
 
 // TODO(connor): This should probably be a method directly on the vector.
 // Helper function to get list values at index

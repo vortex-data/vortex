@@ -4,12 +4,24 @@
 //! Definition and implementation of [`PrimitiveVectorMut`].
 
 use vortex_dtype::half::f16;
-use vortex_dtype::{NativePType, PType, PTypeDowncast, PTypeUpcast};
+use vortex_dtype::{
+    NativePType,
+    PType,
+    PTypeDowncast,
+    PTypeUpcast,
+};
 use vortex_error::vortex_panic;
 use vortex_mask::MaskMut;
 
-use crate::primitive::{PVectorMut, PrimitiveScalar, PrimitiveVector};
-use crate::{VectorMutOps, match_each_pvector_mut};
+use crate::primitive::{
+    PVectorMut,
+    PrimitiveScalar,
+    PrimitiveVector,
+};
+use crate::{
+    VectorMutOps,
+    match_each_pvector_mut,
+};
 
 /// A mutable vector of primitive values.
 ///

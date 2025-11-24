@@ -3,7 +3,10 @@
 
 use vortex_error::vortex_panic;
 
-use crate::binaryview::{BinaryScalar, StringScalar};
+use crate::binaryview::{
+    BinaryScalar,
+    StringScalar,
+};
 use crate::bool::BoolScalar;
 use crate::decimal::DecimalScalar;
 use crate::fixed_size_list::FixedSizeListScalar;
@@ -11,7 +14,11 @@ use crate::listview::ListViewScalar;
 use crate::null::NullScalar;
 use crate::primitive::PrimitiveScalar;
 use crate::struct_::StructScalar;
-use crate::{ScalarOps, VectorMut, match_each_scalar};
+use crate::{
+    ScalarOps,
+    VectorMut,
+    match_each_scalar,
+};
 
 /// Represents a scalar value of any supported type.
 #[derive(Debug)]

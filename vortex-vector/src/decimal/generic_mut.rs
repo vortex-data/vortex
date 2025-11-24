@@ -4,12 +4,25 @@
 //! Definition and implementation of [`DVectorMut<D>`].
 
 use vortex_buffer::BufferMut;
-use vortex_dtype::{NativeDecimalType, PrecisionScale};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_dtype::{
+    NativeDecimalType,
+    PrecisionScale,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+};
 use vortex_mask::MaskMut;
 
-use crate::decimal::{DScalar, DVector};
-use crate::{VectorMutOps, VectorOps};
+use crate::decimal::{
+    DScalar,
+    DVector,
+};
+use crate::{
+    VectorMutOps,
+    VectorOps,
+};
 
 /// A mutable vector of decimal values with fixed precision and scale.
 ///

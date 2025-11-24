@@ -2,7 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::fixed_size_list::FixedSizeListVector;
-use crate::{Scalar, ScalarOps, VectorMut, VectorOps};
+use crate::{
+    Scalar,
+    ScalarOps,
+    VectorMut,
+    VectorOps,
+};
 
 /// A scalar value for fixed-size list types.
 ///

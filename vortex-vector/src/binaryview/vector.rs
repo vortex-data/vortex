@@ -7,14 +7,28 @@ use std::fmt::Debug;
 use std::ops::RangeBounds;
 use std::sync::Arc;
 
-use vortex_buffer::{Alignment, Buffer, ByteBuffer};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_buffer::{
+    Alignment,
+    Buffer,
+    ByteBuffer,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_ensure,
+};
 use vortex_mask::Mask;
 
 use crate::VectorOps;
 use crate::binaryview::vector_mut::BinaryViewVectorMut;
-use crate::binaryview::view::{BinaryView, validate_views};
-use crate::binaryview::{BinaryViewScalar, BinaryViewType};
+use crate::binaryview::view::{
+    BinaryView,
+    validate_views,
+};
+use crate::binaryview::{
+    BinaryViewScalar,
+    BinaryViewType,
+};
 
 /// A variable-length binary vector.
 ///
@@ -282,12 +296,21 @@ impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_buffer::{ByteBuffer, buffer};
+    use vortex_buffer::{
+        ByteBuffer,
+        buffer,
+    };
     use vortex_mask::Mask;
 
     use crate::binaryview::view::BinaryView;
-    use crate::binaryview::{StringVector, StringVectorMut};
-    use crate::{VectorMutOps, VectorOps};
+    use crate::binaryview::{
+        StringVector,
+        StringVectorMut,
+    };
+    use crate::{
+        VectorMutOps,
+        VectorOps,
+    };
 
     #[test]
     #[should_panic(expected = "views buffer length 1 != validity length 100")]

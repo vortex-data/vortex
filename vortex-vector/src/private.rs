@@ -8,21 +8,64 @@
 //! usage, which gives us the freedom to add new trait methods in the future without breaking
 //! backward compatibility.
 
-use vortex_dtype::{NativeDecimalType, NativePType};
+use vortex_dtype::{
+    NativeDecimalType,
+    NativePType,
+};
 
-use crate::binaryview::{BinaryViewScalar, BinaryViewType, BinaryViewVector, BinaryViewVectorMut};
-use crate::bool::{BoolScalar, BoolVector, BoolVectorMut};
+use crate::binaryview::{
+    BinaryViewScalar,
+    BinaryViewType,
+    BinaryViewVector,
+    BinaryViewVectorMut,
+};
+use crate::bool::{
+    BoolScalar,
+    BoolVector,
+    BoolVectorMut,
+};
 use crate::decimal::{
-    DScalar, DVector, DVectorMut, DecimalScalar, DecimalVector, DecimalVectorMut,
+    DScalar,
+    DVector,
+    DVectorMut,
+    DecimalScalar,
+    DecimalVector,
+    DecimalVectorMut,
 };
-use crate::fixed_size_list::{FixedSizeListScalar, FixedSizeListVector, FixedSizeListVectorMut};
-use crate::listview::{ListViewScalar, ListViewVector, ListViewVectorMut};
-use crate::null::{NullScalar, NullVector, NullVectorMut};
+use crate::fixed_size_list::{
+    FixedSizeListScalar,
+    FixedSizeListVector,
+    FixedSizeListVectorMut,
+};
+use crate::listview::{
+    ListViewScalar,
+    ListViewVector,
+    ListViewVectorMut,
+};
+use crate::null::{
+    NullScalar,
+    NullVector,
+    NullVectorMut,
+};
 use crate::primitive::{
-    PScalar, PVector, PVectorMut, PrimitiveScalar, PrimitiveVector, PrimitiveVectorMut,
+    PScalar,
+    PVector,
+    PVectorMut,
+    PrimitiveScalar,
+    PrimitiveVector,
+    PrimitiveVectorMut,
 };
-use crate::struct_::{StructScalar, StructVector, StructVectorMut};
-use crate::{Datum, Scalar, Vector, VectorMut};
+use crate::struct_::{
+    StructScalar,
+    StructVector,
+    StructVectorMut,
+};
+use crate::{
+    Datum,
+    Scalar,
+    Vector,
+    VectorMut,
+};
 
 /// A private trait for sealing implementations of other traits.
 pub trait Sealed {}

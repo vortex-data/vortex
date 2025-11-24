@@ -1,11 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::{DecimalTypeUpcast, NativeDecimalType, PrecisionScale, i256};
+use vortex_dtype::{
+    DecimalTypeUpcast,
+    NativeDecimalType,
+    PrecisionScale,
+    i256,
+};
 use vortex_error::VortexExpect;
 
 use crate::decimal::DVectorMut;
-use crate::{Scalar, ScalarOps, VectorMut, VectorMutOps};
+use crate::{
+    Scalar,
+    ScalarOps,
+    VectorMut,
+    VectorMutOps,
+};
 
 /// Represents a decimal scalar value.
 #[derive(Debug)]

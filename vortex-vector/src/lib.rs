@@ -31,7 +31,10 @@ pub use scalar::Scalar;
 pub use scalar_ops::ScalarOps;
 pub use vector::Vector;
 pub use vector_mut::VectorMut;
-pub use vector_ops::{VectorMutOps, VectorOps};
+pub use vector_ops::{
+    VectorMutOps,
+    VectorOps,
+};
 use vortex_dtype::DType;
 
 mod macros;

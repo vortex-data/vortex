@@ -2,7 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::null::NullVectorMut;
-use crate::{Scalar, ScalarOps, VectorMut};
+use crate::{
+    Scalar,
+    ScalarOps,
+    VectorMut,
+};
 
 /// Represents a null scalar value.
 #[derive(Debug)]

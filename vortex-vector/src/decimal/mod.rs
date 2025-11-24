@@ -152,13 +152,19 @@ mod vector_mut;
 pub use vector_mut::DecimalVectorMut;
 
 mod scalar;
-pub use scalar::{DScalar, DecimalScalar};
+pub use scalar::{
+    DScalar,
+    DecimalScalar,
+};
 
 mod macros;
 
 use vortex_dtype::NativeDecimalType;
 
-use crate::{Vector, VectorMut};
+use crate::{
+    Vector,
+    VectorMut,
+};
 
 impl From<DecimalVector> for Vector {
     fn from(v: DecimalVector) -> Self {

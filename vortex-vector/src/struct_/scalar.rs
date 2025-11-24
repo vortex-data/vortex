@@ -2,7 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::struct_::StructVector;
-use crate::{Scalar, ScalarOps, VectorMut, VectorOps};
+use crate::{
+    Scalar,
+    ScalarOps,
+    VectorMut,
+    VectorOps,
+};
 
 /// Represents a struct scalar value.
 ///

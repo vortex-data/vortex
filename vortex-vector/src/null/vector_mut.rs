@@ -6,7 +6,10 @@
 use vortex_mask::MaskMut;
 
 use crate::VectorMutOps;
-use crate::null::{NullScalar, NullVector};
+use crate::null::{
+    NullScalar,
+    NullVector,
+};
 
 /// A mutable vector of null values.
 ///

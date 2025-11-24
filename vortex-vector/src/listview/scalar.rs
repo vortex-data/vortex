@@ -2,7 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::listview::ListViewVector;
-use crate::{Scalar, ScalarOps, VectorMut, VectorOps};
+use crate::{
+    Scalar,
+    ScalarOps,
+    VectorMut,
+    VectorOps,
+};
 
 /// A scalar value for list view types.
 ///

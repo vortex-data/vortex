@@ -10,7 +10,10 @@ use vortex_dtype::DType;
 use vortex_error::vortex_panic;
 use vortex_mask::MaskMut;
 
-use crate::binaryview::{BinaryVectorMut, StringVectorMut};
+use crate::binaryview::{
+    BinaryVectorMut,
+    StringVectorMut,
+};
 use crate::bool::BoolVectorMut;
 use crate::decimal::DecimalVectorMut;
 use crate::fixed_size_list::FixedSizeListVectorMut;
@@ -18,7 +21,13 @@ use crate::listview::ListViewVectorMut;
 use crate::null::NullVectorMut;
 use crate::primitive::PrimitiveVectorMut;
 use crate::struct_::StructVectorMut;
-use crate::{Vector, VectorMutOps, VectorOps, match_each_vector_mut, match_vector_pair};
+use crate::{
+    Vector,
+    VectorMutOps,
+    VectorOps,
+    match_each_vector_mut,
+    match_vector_pair,
+};
 
 /// An enum over all kinds of mutable vectors, which represent fully decompressed (canonical) array
 /// data.
@@ -282,7 +291,11 @@ impl VectorMut {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DecimalDType, Nullability, PType};
+    use vortex_dtype::{
+        DecimalDType,
+        Nullability,
+        PType,
+    };
 
     use super::*;
     use crate::VectorOps;
