@@ -9,9 +9,9 @@ use crate::Precision;
 use crate::arrays::{ChunkedArray, ChunkedVTable};
 use crate::hash::{ArrayEq, ArrayHash};
 use crate::stats::StatsSetRef;
-use crate::vtable::ArrayVTable;
+use crate::vtable::BaseArrayVTable;
 
-impl ArrayVTable<ChunkedVTable> for ChunkedVTable {
+impl BaseArrayVTable<ChunkedVTable> for ChunkedVTable {
     fn len(array: &ChunkedArray) -> usize {
         array.len
     }

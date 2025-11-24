@@ -36,10 +36,11 @@ mod test {
     use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
+    use vortex_array::vtable::ArrayVTableExt;
     use vortex_array::{ArrayRef, IntoArray};
     use vortex_buffer::buffer;
 
-    use crate::ALPEncoding;
+    use crate::ALPVTable;
 
     #[rstest]
     #[case(buffer![1.23f32, 4.56, 7.89, 10.11, 12.13].into_array())]
@@ -51,7 +52,8 @@ mod test {
         11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0
     ].into_array())]
     fn test_filter_alp_conformance(#[case] array: ArrayRef) {
-        let alp = ALPEncoding
+        let alp = ALPVTable
+            .as_vtable()
             .encode(&array.to_canonical(), None)
             .unwrap()
             .unwrap();

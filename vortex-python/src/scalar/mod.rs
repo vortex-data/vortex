@@ -122,7 +122,7 @@ impl PyScalar {
             PyClassInitializer::from(PyScalar(scalar)).add_subclass(subclass),
         )?
         .into_any()
-        .downcast_into::<PyScalar>()?)
+        .cast_into::<PyScalar>()?)
     }
 
     /// Return the inner [`Scalar`] value.

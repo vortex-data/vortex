@@ -19,17 +19,17 @@ use crate::arrays::expr::ExprArray;
 use crate::execution::ExecutionCtx;
 use crate::expr::Expression;
 use crate::serde::ArrayChildren;
-use crate::vtable::{NotSupported, VTable};
-use crate::{Array, ArrayOperator, EncodingId, EncodingRef, vtable};
+use crate::vtable::{ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable};
+use crate::{Array, ArrayOperator, vtable};
 
 vtable!(Expr);
 
 #[derive(Clone, Debug)]
-pub struct ExprEncoding;
+pub struct ExprVTable;
 
 impl VTable for ExprVTable {
     type Array = ExprArray;
-    type Encoding = ExprEncoding;
+
     type Metadata = ExprArrayMetadata;
 
     type ArrayVTable = Self;
@@ -41,12 +41,12 @@ impl VTable for ExprVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.expr")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.expr")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ExprEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ExprVTable.as_vtable()
     }
 
     fn metadata(array: &ExprArray) -> VortexResult<Self::Metadata> {
@@ -62,7 +62,7 @@ impl VTable for ExprVTable {
     }
 
     fn build(
-        _encoding: &ExprEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         ExprArrayMetadata((expr, root_dtype)): &Self::Metadata,

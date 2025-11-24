@@ -5,6 +5,7 @@ use std::ops::Deref;
 
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PTypeUpcast};
+use vortex_error::VortexExpect;
 
 use crate::primitive::{PVectorMut, PrimitiveVectorMut};
 use crate::{Scalar, ScalarOps, VectorMut, VectorMutOps};
@@ -160,5 +161,30 @@ impl<T: NativePType> Deref for PScalar<T> {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl PrimitiveScalar {
+    /// Returns the scalar value as `usize` if possible.
+    ///
+    /// Returns `None` if the scalar cannot be cast to a usize.
+    ///
+    /// # Panics
+    ///
+    /// If the scalar is null.
+    pub fn to_usize(&self) -> Option<usize> {
+        match self {
+            PrimitiveScalar::I8(v) => usize::try_from(v.vortex_expect("null scalar")).ok(),
+            PrimitiveScalar::I16(v) => usize::try_from(v.vortex_expect("null scalar")).ok(),
+            PrimitiveScalar::I32(v) => usize::try_from(v.vortex_expect("null scalar")).ok(),
+            PrimitiveScalar::I64(v) => usize::try_from(v.vortex_expect("null scalar")).ok(),
+            PrimitiveScalar::U8(v) => Some(v.vortex_expect("null scalar") as usize),
+            PrimitiveScalar::U16(v) => Some(v.vortex_expect("null scalar") as usize),
+            PrimitiveScalar::U32(v) => Some(v.vortex_expect("null scalar") as usize),
+            PrimitiveScalar::U64(v) => usize::try_from(v.vortex_expect("null scalar")).ok(),
+            PrimitiveScalar::F16(_) => None,
+            PrimitiveScalar::F32(_) => None,
+            PrimitiveScalar::F64(_) => None,
+        }
     }
 }

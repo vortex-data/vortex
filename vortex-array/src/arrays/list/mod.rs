@@ -7,7 +7,7 @@ pub use array::ListArray;
 mod compute;
 
 mod vtable;
-pub use vtable::{ListEncoding, ListVTable};
+pub use vtable::ListVTable;
 
 #[cfg(feature = "test-harness")]
 mod test_harness;

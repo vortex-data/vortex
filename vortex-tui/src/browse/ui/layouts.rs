@@ -191,8 +191,10 @@ fn render_array(app: &AppState<'_>, area: Rect, buf: &mut Buffer, is_stats_table
             .constraints(vec![Constraint::Percentage(70), Constraint::Percentage(30)])
             .split(widget_area);
         let table = Table::new(rows, [Constraint::Min(6), Constraint::Min(6)]).header(header);
-        // Tree-display the active array
-        let tree = Paragraph::new(array.display_tree().to_string()).wrap(Wrap { trim: false });
+        // Tree-display the active array with scroll support
+        let tree = Paragraph::new(array.display_tree().to_string())
+            .wrap(Wrap { trim: false })
+            .scroll((app.tree_scroll_offset, 0));
 
         let stats_container = Block::new()
             .title("Statistics")
@@ -282,7 +284,6 @@ fn render_child_list_items(
     container.render(area, buf);
 
     // Render the List view.
-    // TODO: add state so we can scroll
     StatefulWidget::render(
         List::new(list_items).highlight_style(Style::default().black().on_white().bold()),
         inner_area,

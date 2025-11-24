@@ -13,8 +13,10 @@ use crate::arrays::varbinview::VarBinViewArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{EmptyMetadata, EncodingId, EncodingRef, vtable};
+use crate::vtable::{
+    ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable, ValidityVTableFromValidityHelper,
+};
+use crate::{EmptyMetadata, vtable};
 
 mod array;
 mod canonical;
@@ -27,7 +29,7 @@ vtable!(VarBinView);
 
 impl VTable for VarBinViewVTable {
     type Array = VarBinViewArray;
-    type Encoding = VarBinViewEncoding;
+
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
@@ -39,12 +41,12 @@ impl VTable for VarBinViewVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.varbinview")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.varbinview")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(VarBinViewEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        VarBinViewVTable.as_vtable()
     }
 
     fn metadata(_array: &VarBinViewArray) -> VortexResult<Self::Metadata> {
@@ -60,7 +62,7 @@ impl VTable for VarBinViewVTable {
     }
 
     fn build(
-        _encoding: &VarBinViewEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
@@ -115,4 +117,4 @@ impl VTable for VarBinViewVTable {
 }
 
 #[derive(Clone, Debug)]
-pub struct VarBinViewEncoding;
+pub struct VarBinViewVTable;

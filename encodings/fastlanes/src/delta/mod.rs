@@ -8,4 +8,4 @@ pub use array::delta_compress::delta_compress;
 mod compute;
 
 mod vtable;
-pub use vtable::{DeltaEncoding, DeltaVTable};
+pub use vtable::DeltaVTable;

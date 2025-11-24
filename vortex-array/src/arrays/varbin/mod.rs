@@ -9,7 +9,7 @@ pub(crate) use compute::varbin_compute_min_max;
 // For use in `varbinview`.
 
 mod vtable;
-pub use vtable::{VarBinEncoding, VarBinVTable};
+pub use vtable::VarBinVTable;
 
 pub mod builder;
 

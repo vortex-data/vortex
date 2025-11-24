@@ -11,8 +11,8 @@ use vortex_dtype::{NativePType, PType, PTypeDowncast, PTypeUpcast};
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
-use crate::primitive::{PVector, PrimitiveVectorMut};
-use crate::{Scalar, VectorOps, match_each_pvector};
+use crate::primitive::{PVector, PrimitiveScalar, PrimitiveVectorMut};
+use crate::{VectorOps, match_each_pvector};
 
 /// An immutable vector of primitive values.
 ///
@@ -69,6 +69,7 @@ impl PrimitiveVector {
 
 impl VectorOps for PrimitiveVector {
     type Mutable = PrimitiveVectorMut;
+    type Scalar = PrimitiveScalar;
 
     fn len(&self) -> usize {
         match_each_pvector!(self, |v| { v.len() })
@@ -78,8 +79,8 @@ impl VectorOps for PrimitiveVector {
         match_each_pvector!(self, |v| { v.validity() })
     }
 
-    fn scalar_at(&self, index: usize) -> Scalar {
-        match_each_pvector!(self, |v| { v.scalar_at(index) })
+    fn scalar_at(&self, index: usize) -> PrimitiveScalar {
+        match_each_pvector!(self, |v| { v.scalar_at(index).into() })
     }
 
     fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self {

@@ -9,4 +9,4 @@ mod compute;
 mod vector;
 mod vtable;
 
-pub use vtable::{ConstantEncoding, ConstantVTable};
+pub use vtable::ConstantVTable;

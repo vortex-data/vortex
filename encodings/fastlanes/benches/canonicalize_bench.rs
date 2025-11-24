@@ -45,8 +45,8 @@ fn into_canonical_non_nullable(
     let chunked = ChunkedArray::from_iter(chunks).into_array();
 
     bencher
-        .with_inputs(|| chunked.clone())
-        .bench_values(|chunked| chunked.to_canonical());
+        .with_inputs(|| &chunked)
+        .bench_refs(|chunked| chunked.to_canonical());
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -63,16 +63,14 @@ fn canonical_into_non_nullable(
         .collect::<Vec<_>>();
     let chunked = ChunkedArray::from_iter(chunks).into_array();
 
-    bencher
-        .with_inputs(|| chunked.clone())
-        .bench_values(|chunked| {
-            let mut primitive_builder = PrimitiveBuilder::<i32>::with_capacity(
-                chunked.dtype().nullability(),
-                chunk_len * chunk_count,
-            );
-            chunked.append_to_builder(&mut primitive_builder);
-            primitive_builder.finish()
-        });
+    bencher.with_inputs(|| &chunked).bench_refs(|chunked| {
+        let mut primitive_builder = PrimitiveBuilder::<i32>::with_capacity(
+            chunked.dtype().nullability(),
+            chunk_len * chunk_count,
+        );
+        chunked.append_to_builder(&mut primitive_builder);
+        primitive_builder.finish()
+    });
 }
 
 const NULLABLE_BENCH_ARGS: &[(usize, usize, f64)] = &[
@@ -101,8 +99,8 @@ fn into_canonical_nullable(
     let chunked = ChunkedArray::from_iter(chunks).into_array();
 
     bencher
-        .with_inputs(|| chunked.clone())
-        .bench_values(|chunked| chunked.to_canonical());
+        .with_inputs(|| &chunked)
+        .bench_refs(|chunked| chunked.to_canonical());
 }
 
 #[divan::bench(args = NULLABLE_BENCH_ARGS)]
@@ -120,14 +118,12 @@ fn canonical_into_nullable(
         .collect::<Vec<_>>();
     let chunked = ChunkedArray::from_iter(chunks).into_array();
 
-    bencher
-        .with_inputs(|| chunked.clone())
-        .bench_values(|chunked| {
-            let mut primitive_builder = PrimitiveBuilder::<i32>::with_capacity(
-                chunked.dtype().nullability(),
-                chunk_len * chunk_count,
-            );
-            chunked.append_to_builder(&mut primitive_builder);
-            primitive_builder.finish()
-        });
+    bencher.with_inputs(|| &chunked).bench_refs(|chunked| {
+        let mut primitive_builder = PrimitiveBuilder::<i32>::with_capacity(
+            chunked.dtype().nullability(),
+            chunk_len * chunk_count,
+        );
+        chunked.append_to_builder(&mut primitive_builder);
+        primitive_builder.finish()
+    });
 }

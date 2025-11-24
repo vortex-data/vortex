@@ -128,7 +128,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getFieldTypes(
     let dtype = unsafe { &*(dtype_ptr as *const DType) };
 
     try_or_throw(&mut env, |env| {
-        let array_list = env.new_object("java/util/ArrayList", "()V", &[])?;
+        let array_list = env
+            .new_object("java/util/ArrayList", "()V", &[])
+            .map_err(|e| JNIError::Vortex(vortex_err!("failure constructing ArrayList: {e}")))?;
         let field_types = env.get_list(&array_list)?;
         let Some(struct_dtype) = dtype.as_struct_fields_opt() else {
             throw_runtime!("DType should be STRUCT, was {dtype}");

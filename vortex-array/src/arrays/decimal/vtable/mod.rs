@@ -12,10 +12,8 @@ use crate::arrays::DecimalArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{
-    DeserializeMetadata, EncodingId, EncodingRef, ProstMetadata, SerializeMetadata, vtable,
-};
+use crate::vtable::{ArrayVTableExt, NotSupported, VTable, ValidityVTableFromValidityHelper};
+use crate::{DeserializeMetadata, ProstMetadata, SerializeMetadata, vtable};
 
 mod array;
 mod canonical;
@@ -25,6 +23,8 @@ mod validity;
 mod visitor;
 
 pub use operator::DecimalMaskedValidityRule;
+
+use crate::vtable::{ArrayId, ArrayVTable};
 
 vtable!(Decimal);
 
@@ -37,7 +37,7 @@ pub struct DecimalMetadata {
 
 impl VTable for DecimalVTable {
     type Array = DecimalArray;
-    type Encoding = DecimalEncoding;
+
     type Metadata = ProstMetadata<DecimalMetadata>;
 
     type ArrayVTable = Self;
@@ -49,12 +49,12 @@ impl VTable for DecimalVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.decimal")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.decimal")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(DecimalEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        DecimalVTable.as_vtable()
     }
 
     fn metadata(array: &DecimalArray) -> VortexResult<Self::Metadata> {
@@ -73,7 +73,7 @@ impl VTable for DecimalVTable {
     }
 
     fn build(
-        _encoding: &DecimalEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -125,17 +125,18 @@ impl VTable for DecimalVTable {
 }
 
 #[derive(Clone, Debug)]
-pub struct DecimalEncoding;
+pub struct DecimalVTable;
 
 #[cfg(test)]
 mod tests {
     use vortex_buffer::{ByteBufferMut, buffer};
     use vortex_dtype::DecimalDType;
 
-    use crate::arrays::{DecimalArray, DecimalEncoding};
+    use crate::arrays::{DecimalArray, DecimalVTable};
     use crate::serde::{ArrayParts, SerializeOptions};
     use crate::validity::Validity;
-    use crate::{ArrayContext, EncodingRef, IntoArray};
+    use crate::vtable::ArrayVTableExt;
+    use crate::{ArrayContext, IntoArray};
 
     #[test]
     fn test_array_serde() {
@@ -145,7 +146,7 @@ mod tests {
             Validity::NonNullable,
         );
         let dtype = array.dtype().clone();
-        let ctx = ArrayContext::empty().with(EncodingRef::new_ref(DecimalEncoding.as_ref()));
+        let ctx = ArrayContext::empty().with(DecimalVTable.as_vtable());
         let out = array
             .into_array()
             .serialize(&ctx, &SerializeOptions::default())
@@ -161,6 +162,6 @@ mod tests {
         let parts = ArrayParts::try_from(concat).unwrap();
 
         let decoded = parts.decode(&ctx, &dtype, 5).unwrap();
-        assert_eq!(decoded.encoding_id(), DecimalEncoding.id());
+        assert!(decoded.is::<DecimalVTable>());
     }
 }

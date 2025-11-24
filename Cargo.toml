@@ -88,7 +88,7 @@ clap = "4.5"
 crossbeam-deque = "0.8.6"
 crossbeam-queue = "0.3.12"
 crossterm = "0.29"
-cudarc = { version = "0.17.3", features = [
+cudarc = { version = "0.18.0", features = [
     "std",
     "driver",
     "cuda-12080",
@@ -112,7 +112,7 @@ datafusion-physical-plan = { version = "50" }
 datafusion-pruning = { version = "50" }
 dirs = "6.0.0"
 divan = { package = "codspeed-divan-compat", version = "4.0.4" }
-dyn-hash = "0.2.0"
+dyn-hash = "1.0.0"
 enum-iterator = "2.0.0"
 enum-map = "2.7.3"
 erased-serde = "0.4"
@@ -140,8 +140,8 @@ memmap2 = "0.9.5"
 mimalloc = "0.1.42"
 moka = { version = "0.12.10", default-features = false }
 multiversion = "0.8.0"
-noodles-bgzf = "0.43.0"
-noodles-vcf = "0.81.0"
+noodles-bgzf = "0.44.0"
+noodles-vcf = "0.82.0"
 num-traits = "0.2.19"
 num_enum = { version = "0.7.3", default-features = false }
 object_store = { version = "0.12.3", default-features = false }
@@ -159,8 +159,8 @@ primitive-types = { version = "0.14.0" }
 prost = "0.14"
 prost-build = "0.14"
 prost-types = "0.14"
-pyo3 = { version = "0.26.0" }
-pyo3-bytes = "0.4"
+pyo3 = { version = "0.27.0" }
+pyo3-bytes = "0.5"
 pyo3-log = "0.13.0"
 rand = "0.9.0"
 rand_distr = "0.5"

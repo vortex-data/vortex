@@ -5,11 +5,11 @@ use vortex_array::Canonical;
 use vortex_array::vtable::EncodeVTable;
 use vortex_error::VortexResult;
 
-use crate::{BitPackedArray, BitPackedEncoding, BitPackedVTable, bitpack_compress};
+use crate::{BitPackedArray, BitPackedVTable, bitpack_compress};
 
 impl EncodeVTable<BitPackedVTable> for BitPackedVTable {
     fn encode(
-        _encoding: &BitPackedEncoding,
+        _vtable: &BitPackedVTable,
         canonical: &Canonical,
         like: Option<&BitPackedArray>,
     ) -> VortexResult<Option<BitPackedArray>> {

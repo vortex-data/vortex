@@ -24,11 +24,7 @@ impl TakeKernel for DictVTable {
         let codes = take(array.codes(), indices)?;
         // SAFETY: selecting codes doesn't change the invariants of DictArray
         // Preserve all_values_referenced since taking codes doesn't affect which values are referenced
-        Ok(unsafe {
-            DictArray::new_unchecked(codes, array.values().clone())
-                .set_all_values_referenced(array.has_all_values_referenced())
-                .into_array()
-        })
+        Ok(unsafe { DictArray::new_unchecked(codes, array.values().clone()).into_array() })
     }
 }
 
@@ -40,11 +36,7 @@ impl FilterKernel for DictVTable {
 
         // SAFETY: filtering codes doesn't change invariants
         // Preserve all_values_referenced since filtering codes doesn't affect which values are referenced
-        unsafe {
-            Ok(DictArray::new_unchecked(codes, array.values().clone())
-                .set_all_values_referenced(array.has_all_values_referenced())
-                .into_array())
-        }
+        unsafe { Ok(DictArray::new_unchecked(codes, array.values().clone()).into_array()) }
     }
 }
 

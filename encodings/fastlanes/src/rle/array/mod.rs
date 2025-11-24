@@ -211,11 +211,12 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::serde::{ArrayParts, SerializeOptions};
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayContext, EncodingRef, IntoArray, ToCanonical};
+    use vortex_array::vtable::ArrayVTableExt;
+    use vortex_array::{Array, ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::{Buffer, ByteBufferMut};
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::{RLEArray, RLEEncoding};
+    use crate::{RLEArray, RLEVTable};
 
     #[test]
     fn test_try_new() {
@@ -419,7 +420,7 @@ mod tests {
         let original_data = rle_array.to_primitive();
         let original_values = original_data.as_slice::<u32>();
 
-        let ctx = ArrayContext::empty().with(EncodingRef::new_ref(RLEEncoding.as_ref()));
+        let ctx = ArrayContext::empty().with(RLEVTable.as_vtable());
         let serialized = rle_array
             .to_array()
             .serialize(&ctx, &SerializeOptions::default())
@@ -453,7 +454,7 @@ mod tests {
         let sliced = rle_array.slice(100..200);
         assert_eq!(sliced.len(), 100);
 
-        let ctx = ArrayContext::empty().with(EncodingRef::new_ref(RLEEncoding.as_ref()));
+        let ctx = ArrayContext::empty().with(RLEVTable.as_vtable());
         let serialized = sliced
             .serialize(&ctx, &SerializeOptions::default())
             .unwrap();

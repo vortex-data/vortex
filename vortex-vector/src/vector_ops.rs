@@ -9,12 +9,14 @@ use std::ops::RangeBounds;
 
 use vortex_mask::{Mask, MaskMut};
 
-use crate::{Scalar, Vector, VectorMut, private};
+use crate::{ScalarOps, Vector, VectorMut, private};
 
 /// Common operations for immutable vectors (all the variants of [`Vector`]).
 pub trait VectorOps: private::Sealed + Into<Vector> + Sized {
     /// The mutable equivalent of this immutable vector.
     type Mutable: VectorMutOps<Immutable = Self>;
+    /// The scalar type for this vector.
+    type Scalar: ScalarOps;
 
     /// Returns the number of elements in the vector, also referred to as its "length".
     fn len(&self) -> usize;
@@ -42,7 +44,7 @@ pub trait VectorOps: private::Sealed + Into<Vector> + Sized {
     /// # Panics
     ///
     /// Panics if the index is out of bounds.
-    fn scalar_at(&self, index: usize) -> Scalar;
+    fn scalar_at(&self, index: usize) -> Self::Scalar;
 
     /// Slice the vector from `start` to `end` (exclusive).
     fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self;
@@ -131,6 +133,15 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> + Sized {
     /// Implementors should ensure that they correctly append "null" or garbage values to their
     /// elements in addition to adding nulls to their validity mask.
     fn append_nulls(&mut self, n: usize);
+
+    /// Appends `n` zero elements to the vector.
+    fn append_zeros(&mut self, n: usize);
+
+    /// Appends `n` scalar values to the vector.
+    ///
+    /// **Warning**: This method has terrible performance. You should prefer to use a typed
+    /// API for building vectors by downcasting into a specific type.
+    fn append_scalars(&mut self, scalar: &<Self::Immutable as VectorOps>::Scalar, n: usize);
 
     /// Converts `self` into an immutable vector.
     fn freeze(self) -> Self::Immutable;

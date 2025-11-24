@@ -4,14 +4,14 @@
 use std::hash::Hash;
 
 use vortex_array::stats::StatsSetRef;
-use vortex_array::vtable::ArrayVTable;
+use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::{ArrayEq, ArrayHash, Precision};
 use vortex_dtype::DType;
 
 use super::DeltaVTable;
 use crate::DeltaArray;
 
-impl ArrayVTable<DeltaVTable> for DeltaVTable {
+impl BaseArrayVTable<DeltaVTable> for DeltaVTable {
     fn len(array: &DeltaArray) -> usize {
         array.len()
     }

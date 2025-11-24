@@ -6,19 +6,21 @@ use std::hash::Hash;
 
 use vortex_buffer::{BitBuffer, ByteBuffer};
 use vortex_dtype::{DType, Nullability, PType, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_err};
+use vortex_error::{
+    VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_ensure, vortex_err,
+};
 use vortex_mask::{AllOr, Mask};
 
 use crate::builders::dict::dict_encode;
 use crate::serde::ArrayChildren;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::vtable::{
-    ArrayVTable, EncodeVTable, NotSupported, VTable, ValidityVTable, VisitorVTable,
+    ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, EncodeVTable, NotSupported, VTable,
+    ValidityVTable, VisitorVTable,
 };
 use crate::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
-    DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata, SerializeMetadata,
-    ToCanonical, vtable,
+    DeserializeMetadata, Precision, ProstMetadata, SerializeMetadata, ToCanonical, vtable,
 };
 
 vtable!(Dict);
@@ -41,7 +43,7 @@ pub struct DictMetadata {
 
 impl VTable for DictVTable {
     type Array = DictArray;
-    type Encoding = DictEncoding;
+
     type Metadata = ProstMetadata<DictMetadata>;
 
     type ArrayVTable = Self;
@@ -53,12 +55,12 @@ impl VTable for DictVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.dict")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.dict")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(DictEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        DictVTable.as_vtable()
     }
 
     fn metadata(array: &DictArray) -> VortexResult<Self::Metadata> {
@@ -85,7 +87,7 @@ impl VTable for DictVTable {
     }
 
     fn build(
-        _encoding: &DictEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -131,7 +133,7 @@ pub struct DictArray {
 }
 
 #[derive(Clone, Debug)]
-pub struct DictEncoding;
+pub struct DictVTable;
 
 impl DictArray {
     /// Build a new `DictArray` without validating the codes or values.
@@ -163,14 +165,13 @@ impl DictArray {
     /// This is typically only set to `true` during dictionary encoding when we know for certain
     /// that all values are referenced.
     pub unsafe fn set_all_values_referenced(mut self, all_values_referenced: bool) -> Self {
-        // In debug builds, verify the claim when setting to true
+        self.all_values_referenced = all_values_referenced;
+
         #[cfg(debug_assertions)]
         {
-            use vortex_error::VortexUnwrap;
             self.validate_all_values_referenced().vortex_unwrap()
         }
 
-        self.all_values_referenced = all_values_referenced;
         self
     }
 
@@ -285,7 +286,7 @@ impl DictArray {
     }
 }
 
-impl ArrayVTable<DictVTable> for DictVTable {
+impl BaseArrayVTable<DictVTable> for DictVTable {
     fn len(array: &DictArray) -> usize {
         array.codes.len()
     }
@@ -367,7 +368,7 @@ impl ValidityVTable<DictVTable> for DictVTable {
 
 impl EncodeVTable<DictVTable> for DictVTable {
     fn encode(
-        _encoding: &DictEncoding,
+        _vtable: &DictVTable,
         canonical: &Canonical,
         _like: Option<&DictArray>,
     ) -> VortexResult<Option<DictArray>> {

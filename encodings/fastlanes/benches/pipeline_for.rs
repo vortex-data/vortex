@@ -64,7 +64,7 @@ pub fn decompress_for_early_filter<T: NativePType>(bencher: Bencher, fraction_ke
 
     bencher
         .with_inputs(|| Mask::from_buffer(mask.clone()))
-        .bench_local_values(|mask| filter(array.as_ref(), &mask).unwrap().to_canonical());
+        .bench_refs(|mask| filter(array.as_ref(), mask).unwrap().to_canonical());
 }
 
 // TODO(ngates): bring back benchmarks once operator API is stable.

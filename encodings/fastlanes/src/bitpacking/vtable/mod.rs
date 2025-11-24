@@ -5,10 +5,10 @@ use vortex_array::execution::ExecutionCtx;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use vortex_array::{
-    DeserializeMetadata, EncodingId, EncodingRef, ProstMetadata, SerializeMetadata, vtable,
+use vortex_array::vtable::{
+    ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable, ValidityVTableFromValidityHelper,
 };
+use vortex_array::{DeserializeMetadata, ProstMetadata, SerializeMetadata, vtable};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
@@ -38,7 +38,7 @@ pub struct BitPackedMetadata {
 
 impl VTable for BitPackedVTable {
     type Array = BitPackedArray;
-    type Encoding = BitPackedEncoding;
+
     type Metadata = ProstMetadata<BitPackedMetadata>;
 
     type ArrayVTable = Self;
@@ -50,12 +50,12 @@ impl VTable for BitPackedVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("fastlanes.bitpacked")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("fastlanes.bitpacked")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(BitPackedEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        BitPackedVTable.as_vtable()
     }
 
     fn metadata(array: &BitPackedArray) -> VortexResult<Self::Metadata> {
@@ -84,7 +84,7 @@ impl VTable for BitPackedVTable {
     /// - No patches: `[validity?]`
     /// - With patches: `[patch_indices, patch_values, chunk_offsets?, validity?]`
     fn build(
-        _encoding: &BitPackedEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -167,4 +167,4 @@ impl VTable for BitPackedVTable {
 }
 
 #[derive(Clone, Debug)]
-pub struct BitPackedEncoding;
+pub struct BitPackedVTable;

@@ -4,14 +4,14 @@
 use std::hash::Hash;
 
 use vortex_array::stats::StatsSetRef;
-use vortex_array::vtable::ArrayVTable;
+use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::{ArrayEq, ArrayHash, Precision};
 use vortex_dtype::DType;
 
 use super::RLEVTable;
 use crate::RLEArray;
 
-impl ArrayVTable<RLEVTable> for RLEVTable {
+impl BaseArrayVTable<RLEVTable> for RLEVTable {
     fn len(array: &RLEArray) -> usize {
         array.len()
     }
