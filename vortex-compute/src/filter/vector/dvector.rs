@@ -4,8 +4,8 @@
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::NativeDecimalType;
 use vortex_mask::{Mask, MaskMut};
-use vortex_vector::VectorOps;
 use vortex_vector::decimal::{DVector, DVectorMut};
+use vortex_vector::{VectorMutOps, VectorOps};
 
 use crate::filter::Filter;
 
@@ -36,6 +36,26 @@ where
         unsafe {
             self.elements_mut().filter(selection);
             self.validity_mut().filter(selection);
+        }
+    }
+}
+
+impl<M, D: NativeDecimalType> Filter<M> for DVector<D>
+where
+    for<'a> &'a DVector<D>: Filter<M, Output = DVector<D>>,
+    for<'a> &'a mut DVectorMut<D>: Filter<M, Output = ()>,
+{
+    type Output = Self;
+
+    fn filter(self, selection: &M) -> Self {
+        match self.try_into_mut() {
+            // If we have exclusive access, we can perform the filter in place.
+            Ok(mut vector_mut) => {
+                (&mut vector_mut).filter(selection);
+                vector_mut.freeze()
+            }
+            // Otherwise, allocate a new buffer and fill it in (delegate to the `&DVector` impl).
+            Err(vector) => (&vector).filter(selection),
         }
     }
 }

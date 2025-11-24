@@ -3,7 +3,7 @@
 
 use vortex_dtype::i256;
 use vortex_vector::decimal::{DVector, DVectorMut, DecimalVector, DecimalVectorMut};
-use vortex_vector::{match_each_dvector, match_each_dvector_mut};
+use vortex_vector::{VectorMutOps, VectorOps, match_each_dvector, match_each_dvector_mut};
 
 use crate::filter::Filter;
 
@@ -36,5 +36,26 @@ where
 
     fn filter(self, selection: &M) -> Self::Output {
         match_each_dvector_mut!(self, |d| { d.filter(selection) });
+    }
+}
+
+impl<M> Filter<M> for DecimalVector
+where
+    for<'a> &'a DecimalVector: Filter<M, Output = DecimalVector>,
+    for<'a> &'a mut DecimalVectorMut: Filter<M, Output = ()>,
+{
+    type Output = Self;
+
+    fn filter(self, selection: &M) -> Self {
+        match self.try_into_mut() {
+            // If we have exclusive access, we can perform the filter in place.
+            Ok(mut vector_mut) => {
+                (&mut vector_mut).filter(selection);
+                vector_mut.freeze()
+            }
+            // Otherwise, allocate a new buffer and fill it in (delegate to the `&DecimalVector`
+            // impl).
+            Err(vector) => (&vector).filter(selection),
+        }
     }
 }
