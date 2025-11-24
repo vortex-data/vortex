@@ -4,6 +4,7 @@
 pub mod transform;
 
 use std::fmt::{Display, Formatter};
+use std::sync::Arc;
 
 use itertools::Itertools;
 use prost::Message;
@@ -12,10 +13,11 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr::select_opts::Opts;
 use vortex_proto::expr::{FieldNames as ProtoFieldNames, SelectOpts};
 use vortex_vector::Vector;
+use vortex_vector::struct_::StructVector;
 
 use crate::expr::expression::Expression;
 use crate::expr::field::DisplayFieldNames;
-use crate::expr::{ChildName, ExprId, ExpressionView, VTable, VTableExt};
+use crate::expr::{ChildName, ExecutionArgs, ExprId, ExpressionView, VTable, VTableExt};
 use crate::{ArrayRef, IntoArray, ToCanonical};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -146,15 +148,45 @@ impl VTable for Select {
         .into_array())
     }
 
-    fn execute(
-        &self,
-        _expr: &ExpressionView<Self>,
-        _vector: &Vector,
-        _dtype: &DType,
-    ) -> VortexResult<Vector> {
-        vortex_bail!(
-            "Select expressions cannot be executed. They must be removed during optimization."
-        )
+    fn execute(&self, selection: &FieldSelection, mut args: ExecutionArgs) -> VortexResult<Vector> {
+        let child = args
+            .vectors
+            .pop()
+            .vortex_expect("Missing input child")
+            .into_struct();
+        let child_fields = args
+            .dtypes
+            .pop()
+            .vortex_expect("Missing input dtype")
+            .into_struct_fields();
+
+        let field_indices: Vec<usize> = match selection {
+            FieldSelection::Include(f) => f
+                .iter()
+                .map(|name| {
+                    child_fields
+                        .find(name)
+                        .ok_or_else(|| vortex_err!("Field {} not found in struct dtype", name))
+                })
+                .try_collect(),
+            FieldSelection::Exclude(names) => child_fields
+                .names()
+                .iter()
+                .filter(|&f| !names.as_ref().contains(f))
+                .map(|name| {
+                    child_fields
+                        .find(name)
+                        .ok_or_else(|| vortex_err!("Field {} not found in struct dtype", name))
+                })
+                .try_collect(),
+        }?;
+
+        let (fields, mask) = child.into_parts();
+        let new_fields = field_indices
+            .iter()
+            .map(|&idx| fields[idx].clone())
+            .collect();
+        Ok(unsafe { StructVector::new_unchecked(Arc::new(new_fields), mask) }.into())
     }
 }
 

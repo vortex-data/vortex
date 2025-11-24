@@ -9,13 +9,15 @@ use std::ops::Not;
 use prost::Message;
 use vortex_compute::mask::MaskValidity;
 use vortex_dtype::{DType, FieldName, FieldPath, Nullability};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 use vortex_vector::{Vector, VectorOps};
 
 use crate::compute::mask;
 use crate::expr::exprs::root::root;
-use crate::expr::{ChildName, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt};
+use crate::expr::{
+    ChildName, ExecutionArgs, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt,
+};
 use crate::stats::Stat;
 use crate::{ArrayRef, ToCanonical};
 
@@ -98,29 +100,6 @@ impl VTable for GetItem {
         }
     }
 
-    fn execute(
-        &self,
-        expr: &ExpressionView<Self>,
-        vector: &Vector,
-        dtype: &DType,
-    ) -> VortexResult<Vector> {
-        let child_dtype = expr.child(0).return_dtype(dtype)?;
-        let struct_dtype = child_dtype
-            .as_struct_fields_opt()
-            .ok_or_else(|| vortex_err!("Expected struct dtype for child of GetItem expression"))?;
-        let field_idx = struct_dtype
-            .find(expr.data())
-            .ok_or_else(|| vortex_err!("Field {} not found in struct dtype", expr.data()))?;
-
-        let struct_vector = expr.child(0).execute(vector, dtype)?.into_struct();
-
-        // We must intersect the validity with that of the parent struct
-        let field = struct_vector.fields()[field_idx].clone();
-        let field = MaskValidity::mask_validity(field, struct_vector.validity());
-
-        Ok(field)
-    }
-
     fn stat_expression(
         &self,
         expr: &ExpressionView<Self>,
@@ -136,6 +115,27 @@ impl VTable for GetItem {
         //  name as a field in the root struct. This should be resolved with upcoming change to
         //  falsify expressions, but for now I'm preserving the existing buggy behavior.
         catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), stat)
+    }
+
+    fn execute(&self, field_name: &FieldName, mut args: ExecutionArgs) -> VortexResult<Vector> {
+        let struct_dtype = args.dtypes[0]
+            .as_struct_fields_opt()
+            .ok_or_else(|| vortex_err!("Expected struct dtype for child of GetItem expression"))?;
+        let field_idx = struct_dtype
+            .find(field_name)
+            .ok_or_else(|| vortex_err!("Field {} not found in struct dtype", field_name))?;
+
+        let struct_vector = args
+            .vectors
+            .pop()
+            .vortex_expect("missing input")
+            .into_struct();
+
+        // We must intersect the validity with that of the parent struct
+        let field = struct_vector.fields()[field_idx].clone();
+        let field = MaskValidity::mask_validity(field, struct_vector.validity());
+
+        Ok(field)
     }
 }
 

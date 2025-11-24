@@ -5,12 +5,14 @@ use std::fmt::Formatter;
 
 use vortex_compute::logical::LogicalNot;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_vector::Vector;
 
 use crate::ArrayRef;
 use crate::compute::invert;
-use crate::expr::{ChildName, ExprId, Expression, ExpressionView, VTable, VTableExt};
+use crate::expr::{
+    ChildName, ExecutionArgs, ExprId, Expression, ExpressionView, VTable, VTableExt,
+};
 
 /// Expression that logically inverts boolean values.
 pub struct Not;
@@ -69,13 +71,8 @@ impl VTable for Not {
         invert(&child_result)
     }
 
-    fn execute(
-        &self,
-        expr: &ExpressionView<Self>,
-        vector: &Vector,
-        dtype: &DType,
-    ) -> VortexResult<Vector> {
-        let child = expr.child(0).execute(vector, dtype)?;
+    fn execute(&self, _data: &Self::Instance, mut args: ExecutionArgs) -> VortexResult<Vector> {
+        let child = args.vectors.pop().vortex_expect("Missing input child");
         Ok(child.into_bool().not().into())
     }
 }
