@@ -11,8 +11,8 @@ use crate::arrays::PrimitiveArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{EmptyMetadata, EncodingId, EncodingRef, vtable};
+use crate::vtable::{ArrayVTableExt, NotSupported, VTable, ValidityVTableFromValidityHelper};
+use crate::{EmptyMetadata, vtable};
 
 mod array;
 mod canonical;
@@ -23,11 +23,13 @@ mod visitor;
 
 pub use operator::PrimitiveMaskedValidityRule;
 
+use crate::vtable::{ArrayId, ArrayVTable};
+
 vtable!(Primitive);
 
 impl VTable for PrimitiveVTable {
     type Array = PrimitiveArray;
-    type Encoding = PrimitiveEncoding;
+
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
@@ -39,12 +41,12 @@ impl VTable for PrimitiveVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.primitive")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.primitive")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(PrimitiveEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        PrimitiveVTable.as_vtable()
     }
 
     fn metadata(_array: &PrimitiveArray) -> VortexResult<Self::Metadata> {
@@ -60,7 +62,7 @@ impl VTable for PrimitiveVTable {
     }
 
     fn build(
-        _encoding: &PrimitiveEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
@@ -113,4 +115,4 @@ impl VTable for PrimitiveVTable {
 }
 
 #[derive(Clone, Debug)]
-pub struct PrimitiveEncoding;
+pub struct PrimitiveVTable;

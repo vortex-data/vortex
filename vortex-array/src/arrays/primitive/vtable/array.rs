@@ -9,9 +9,9 @@ use crate::Precision;
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::hash::{ArrayEq, ArrayHash};
 use crate::stats::StatsSetRef;
-use crate::vtable::ArrayVTable;
+use crate::vtable::BaseArrayVTable;
 
-impl ArrayVTable<PrimitiveVTable> for PrimitiveVTable {
+impl BaseArrayVTable<PrimitiveVTable> for PrimitiveVTable {
     fn len(array: &PrimitiveArray) -> usize {
         array.byte_buffer().len() / array.ptype().byte_width()
     }

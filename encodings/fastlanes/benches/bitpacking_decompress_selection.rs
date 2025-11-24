@@ -13,7 +13,7 @@ use rand::rngs::StdRng;
 use rand::{Rng as _, SeedableRng as _};
 use vortex_array::compute::{filter, warm_up_vtables};
 use vortex_array::{Array, IntoArray as _, ToCanonical};
-use vortex_buffer::BufferMut;
+use vortex_buffer::{BitBuffer, BufferMut};
 use vortex_dtype::IntegerPType;
 use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
 use vortex_mask::Mask;
@@ -35,12 +35,11 @@ fn decompress_bitpacking_early_filter<T: IntegerPType>(bencher: Bencher, fractio
     let array = bitpack_to_best_bit_width(&values).unwrap();
     let mask = (0..100_000)
         .map(|_| rng.random_bool(fraction_kept))
-        .collect();
-
-    let mask = Mask::from_buffer(mask);
+        .collect::<BitBuffer>();
 
     bencher
-        .with_inputs(|| (array.clone(), mask.clone()))
+        // Be sure to reconstruct the mask to avoid cached set_indices
+        .with_inputs(|| (&array, Mask::from_buffer(mask.clone())))
         .bench_refs(|(array, mask)| filter(array.as_ref(), mask).unwrap().to_canonical());
 }
 
@@ -58,11 +57,10 @@ fn decompress_bitpacking_late_filter<T: IntegerPType>(bencher: Bencher, fraction
 
     let mask = (0..100_000)
         .map(|_| rng.random_bool(fraction_kept))
-        .collect();
-
-    let mask = Mask::from_buffer(mask);
+        .collect::<BitBuffer>();
 
     bencher
-        .with_inputs(|| (array.clone(), mask.clone()))
+        // Be sure to reconstruct the mask to avoid cached set_indices
+        .with_inputs(|| (&array, Mask::from_buffer(mask.clone())))
         .bench_refs(|(array, mask)| filter(array.to_canonical().as_ref(), mask).unwrap());
 }

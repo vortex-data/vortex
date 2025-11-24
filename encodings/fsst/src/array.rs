@@ -10,13 +10,12 @@ use vortex_array::arrays::{VarBinArray, VarBinVTable};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
-    ArrayVTable, EncodeVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
-    VisitorVTable,
+    ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, EncodeVTable, NotSupported, VTable,
+    ValidityChild, ValidityVTableFromChild, VisitorVTable,
 };
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
-    DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata, SerializeMetadata,
-    vtable,
+    DeserializeMetadata, Precision, ProstMetadata, SerializeMetadata, vtable,
 };
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, Nullability, PType};
@@ -41,7 +40,7 @@ impl FSSTMetadata {
 
 impl VTable for FSSTVTable {
     type Array = FSSTArray;
-    type Encoding = FSSTEncoding;
+
     type Metadata = ProstMetadata<FSSTMetadata>;
 
     type ArrayVTable = Self;
@@ -53,12 +52,12 @@ impl VTable for FSSTVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.fsst")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.fsst")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(FSSTEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        FSSTVTable.as_vtable()
     }
 
     fn metadata(array: &FSSTArray) -> VortexResult<Self::Metadata> {
@@ -79,7 +78,7 @@ impl VTable for FSSTVTable {
     }
 
     fn build(
-        _encoding: &FSSTEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -151,7 +150,7 @@ impl Debug for FSSTArray {
 }
 
 #[derive(Clone, Debug)]
-pub struct FSSTEncoding;
+pub struct FSSTVTable;
 
 impl FSSTArray {
     /// Build an FSST array from a set of `symbols` and `codes`.
@@ -272,7 +271,7 @@ impl FSSTArray {
     }
 }
 
-impl ArrayVTable<FSSTVTable> for FSSTVTable {
+impl BaseArrayVTable<FSSTVTable> for FSSTVTable {
     fn len(array: &FSSTArray) -> usize {
         array.codes().len()
     }
@@ -317,7 +316,7 @@ impl ValidityChild<FSSTVTable> for FSSTVTable {
 
 impl EncodeVTable<FSSTVTable> for FSSTVTable {
     fn encode(
-        _encoding: &FSSTEncoding,
+        _vtable: &FSSTVTable,
         canonical: &Canonical,
         like: Option<&FSSTArray>,
     ) -> VortexResult<Option<FSSTArray>> {

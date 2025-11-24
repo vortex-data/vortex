@@ -8,9 +8,9 @@ use vortex_dtype::DType;
 use crate::Precision;
 use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::stats::StatsSetRef;
-use crate::vtable::ArrayVTable;
+use crate::vtable::BaseArrayVTable;
 
-impl ArrayVTable<ConstantVTable> for ConstantVTable {
+impl BaseArrayVTable<ConstantVTable> for ConstantVTable {
     fn len(array: &ConstantArray) -> usize {
         array.len
     }

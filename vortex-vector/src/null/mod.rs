@@ -12,7 +12,8 @@ pub use scalar::NullScalar;
 mod vector_mut;
 pub use vector_mut::NullVectorMut;
 
-use crate::{Vector, VectorMut};
+use crate::Vector;
+use crate::VectorMut;
 
 impl From<NullVector> for Vector {
     fn from(v: NullVector) -> Self {

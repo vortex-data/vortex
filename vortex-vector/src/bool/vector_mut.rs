@@ -4,11 +4,15 @@
 //! Definition and implementation of [`BoolVectorMut`].
 
 use vortex_buffer::BitBufferMut;
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::MaskMut;
 
-use crate::bool::{BoolScalar, BoolVector};
-use crate::{VectorMutOps, VectorOps};
+use crate::VectorMutOps;
+use crate::VectorOps;
+use crate::bool::BoolScalar;
+use crate::bool::BoolVector;
 
 /// A mutable vector of boolean values.
 ///

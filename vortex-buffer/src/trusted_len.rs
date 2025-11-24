@@ -162,5 +162,6 @@ where
 }
 
 // Arrow bit iterators
+unsafe impl<'a> TrustedLen for crate::bit::BitIterator<'a> {}
 unsafe impl<'a> TrustedLen for crate::bit::BitChunkIterator<'a> {}
 unsafe impl<'a> TrustedLen for crate::bit::UnalignedBitChunkIterator<'a> {}

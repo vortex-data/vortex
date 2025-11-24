@@ -7,4 +7,4 @@ pub use array::ExtensionArray;
 mod compute;
 
 mod vtable;
-pub use vtable::{ExtensionEncoding, ExtensionVTable};
+pub use vtable::ExtensionVTable;

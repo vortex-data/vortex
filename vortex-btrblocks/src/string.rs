@@ -429,7 +429,7 @@ mod tests {
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
     use vortex_dtype::{DType, Nullability};
-    use vortex_sparse::SparseEncoding;
+    use vortex_sparse::SparseVTable;
 
     use crate::string::StringCompressor;
     use crate::{Compressor, MAX_CASCADE};
@@ -462,6 +462,6 @@ mod tests {
         let strings = strings.finish_into_varbinview();
 
         let compressed = StringCompressor::compress(&strings, false, MAX_CASCADE, &[]).unwrap();
-        assert_eq!(compressed.encoding_id(), SparseEncoding.id());
+        assert!(compressed.is::<SparseVTable>());
     }
 }

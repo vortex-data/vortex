@@ -11,6 +11,7 @@ use vortex_dtype::{DType, FieldNames};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr::select_opts::Opts;
 use vortex_proto::expr::{FieldNames as ProtoFieldNames, SelectOpts};
+use vortex_vector::Vector;
 
 use crate::expr::expression::Expression;
 use crate::expr::field::DisplayFieldNames;
@@ -143,6 +144,17 @@ impl VTable for Select {
             }
         }?
         .into_array())
+    }
+
+    fn execute(
+        &self,
+        _expr: &ExpressionView<Self>,
+        _vector: &Vector,
+        _dtype: &DType,
+    ) -> VortexResult<Vector> {
+        vortex_bail!(
+            "Select expressions cannot be executed. They must be removed during optimization."
+        )
     }
 }
 

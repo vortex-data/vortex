@@ -8,11 +8,14 @@ use std::ops::RangeBounds;
 
 use vortex_buffer::Buffer;
 use vortex_dtype::NativePType;
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
 use crate::VectorOps;
-use crate::primitive::{PScalar, PVectorMut};
+use crate::primitive::PScalar;
+use crate::primitive::PVectorMut;
 
 /// An immutable vector of generic primitive values.
 ///

@@ -7,6 +7,7 @@ use vortex_dtype::half::f16;
 
 mod buffer;
 mod buffer_checked;
+mod pscalar;
 mod pvector;
 mod pvector_checked;
 

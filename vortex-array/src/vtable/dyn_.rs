@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Traits and types to define shared unique encoding identifiers.
-
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
+use std::mem::transmute;
 use std::sync::Arc;
 
 use arcref::ArcRef;
@@ -16,20 +15,17 @@ use crate::serde::ArrayChildren;
 use crate::vtable::{EncodeVTable, VTable};
 use crate::{Array, ArrayRef, Canonical, IntoArray};
 
-/// EncodingId is a globally unique name of the array's encoding.
-pub type EncodingId = ArcRef<str>;
+/// ArrayId is a globally unique name for the array's vtable.
+pub type ArrayId = ArcRef<str>;
+pub type ArrayVTable = ArcRef<dyn DynVTable>;
 
-pub type EncodingRef = ArcRef<dyn Encoding>;
-
-/// Marker trait for array encodings with their associated Array type.
-pub trait Encoding: 'static + private::Sealed + Send + Sync + Debug {
+/// Dynamically typed trait for invoking array vtables.
+pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
     /// Downcast the encoding to [`Any`].
     fn as_any(&self) -> &dyn Any;
 
-    fn to_encoding(&self) -> EncodingRef;
-
     /// Returns the ID of the encoding.
-    fn id(&self) -> EncodingId;
+    fn id(&self) -> ArrayId;
 
     /// Build an array from its parts.
     fn build(
@@ -56,25 +52,21 @@ pub trait Encoding: 'static + private::Sealed + Send + Sync + Debug {
     -> VortexResult<Option<ArrayRef>>;
 }
 
-/// Adapter struct used to lift the [`VTable`] trait into an object-safe [`Encoding`]
+/// Adapter struct used to lift the [`VTable`] trait into an object-safe [`DynVTable`]
 /// implementation.
 ///
 /// Since this is a unit struct with `repr(transparent)`, we are able to turn un-adapted array
-/// structs into [`dyn Encoding`] using some cheeky casting inside [`std::ops::Deref`] and
+/// structs into [`DynVTable`] using some cheeky casting inside [`std::ops::Deref`] and
 /// [`AsRef`]. See the `vtable!` macro for more details.
 #[repr(transparent)]
-pub struct EncodingAdapter<V: VTable>(V::Encoding);
+pub struct ArrayVTableAdapter<V: VTable>(V);
 
-impl<V: VTable> Encoding for EncodingAdapter<V> {
+impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
-    fn to_encoding(&self) -> EncodingRef {
-        ArcRef::new_arc(Arc::new(EncodingAdapter::<V>(self.0.clone())))
-    }
-
-    fn id(&self) -> EncodingId {
+    fn id(&self) -> ArrayId {
         V::id(&self.0)
     }
 
@@ -152,39 +144,58 @@ impl<V: VTable> Encoding for EncodingAdapter<V> {
     }
 }
 
-impl<V: VTable> Debug for EncodingAdapter<V> {
+impl<V: VTable> Debug for ArrayVTableAdapter<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Encoding").field("id", &self.id()).finish()
     }
 }
 
-impl Display for dyn Encoding + '_ {
+impl Display for dyn DynVTable + '_ {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.id())
     }
 }
 
-impl PartialEq for dyn Encoding + '_ {
+impl PartialEq for dyn DynVTable + '_ {
     fn eq(&self, other: &Self) -> bool {
         self.id() == other.id()
     }
 }
 
-impl Eq for dyn Encoding + '_ {}
+impl Eq for dyn DynVTable + '_ {}
 
-impl dyn Encoding + '_ {
-    pub fn as_<V: VTable>(&self) -> &V::Encoding {
+impl dyn DynVTable + '_ {
+    pub fn as_<V: VTable>(&self) -> &V {
         self.as_any()
-            .downcast_ref::<EncodingAdapter<V>>()
+            .downcast_ref::<ArrayVTableAdapter<V>>()
             .map(|e| &e.0)
             .vortex_expect("Encoding is not of the expected type")
     }
 }
 
+pub trait ArrayVTableExt {
+    /// Wraps the vtable into an `ArrayVTable` by static reference.
+    fn as_vtable(&'static self) -> ArrayVTable;
+
+    /// Wraps the vtable into an `ArrayVTable` by owned reference.
+    fn into_vtable(self) -> ArrayVTable;
+}
+
+impl<V: VTable> ArrayVTableExt for V {
+    fn as_vtable(&'static self) -> ArrayVTable {
+        let dyn_vtable: &'static ArrayVTableAdapter<V> =
+            unsafe { transmute::<&'static V, &'static ArrayVTableAdapter<V>>(self) };
+        ArrayVTable::new_ref(dyn_vtable)
+    }
+
+    fn into_vtable(self) -> ArrayVTable {
+        ArrayVTable::new_arc(Arc::new(ArrayVTableAdapter(self)))
+    }
+}
+
 mod private {
-    use super::*;
+    use crate::vtable::{ArrayVTableAdapter, VTable};
 
     pub trait Sealed {}
-
-    impl<V: VTable> Sealed for EncodingAdapter<V> {}
+    impl<V: VTable> Sealed for ArrayVTableAdapter<V> {}
 }

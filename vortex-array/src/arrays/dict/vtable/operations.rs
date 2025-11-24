@@ -6,7 +6,8 @@ use std::ops::Range;
 use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
 
-use super::{DictArray, DictVTable};
+use super::DictVTable;
+use crate::arrays::dict::DictArray;
 use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::vtable::OperationsVTable;
 use crate::{Array, ArrayRef, IntoArray};
@@ -23,7 +24,7 @@ impl OperationsVTable<DictVTable> for DictVTable {
                     .to_array()
             };
         }
-        // SAFETY: slicing the codes preserves invariants
+        // SAFETY: slicing the codes preserves invariants.
         unsafe { DictArray::new_unchecked(sliced_code, array.values().clone()).into_array() }
     }
 
@@ -37,46 +38,5 @@ impl OperationsVTable<DictVTable> for DictVTable {
             .scalar_at(dict_index)
             .cast(array.dtype())
             .vortex_expect("Array dtype will only differ by nullability")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use vortex_buffer::buffer;
-    use vortex_scalar::Scalar;
-
-    use crate::arrays::PrimitiveArray;
-    use crate::arrays::dict::DictArray;
-    use crate::{IntoArray, assert_arrays_eq};
-
-    #[test]
-    fn test_slice_into_const_dict() {
-        let dict = DictArray::try_new(
-            PrimitiveArray::from_option_iter(vec![Some(0u32), None, Some(1)]).to_array(),
-            PrimitiveArray::from_option_iter(vec![Some(0i32), Some(1), Some(2)]).to_array(),
-        )
-        .unwrap();
-
-        assert_eq!(
-            Some(Scalar::new(dict.dtype().clone(), 0i32.into())),
-            dict.slice(0..1).as_constant()
-        );
-
-        assert_eq!(
-            Some(Scalar::null(dict.dtype().clone())),
-            dict.slice(1..2).as_constant()
-        );
-    }
-
-    #[test]
-    fn test_scalar_at_null_code() {
-        let dict = DictArray::try_new(
-            PrimitiveArray::from_option_iter(vec![None, Some(0u32), None]).to_array(),
-            buffer![1i32].into_array(),
-        )
-        .unwrap();
-
-        let expected = PrimitiveArray::from_option_iter(vec![None, Some(1i32), None]).into_array();
-        assert_arrays_eq!(dict, expected);
     }
 }

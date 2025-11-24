@@ -6,11 +6,19 @@
 use std::sync::Arc;
 
 use vortex_dtype::StructFields;
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::MaskMut;
 
-use crate::struct_::{StructScalar, StructVector};
-use crate::{ScalarOps, Vector, VectorMut, VectorMutOps, VectorOps, match_vector_pair};
+use crate::ScalarOps;
+use crate::Vector;
+use crate::VectorMut;
+use crate::VectorMutOps;
+use crate::VectorOps;
+use crate::match_vector_pair;
+use crate::struct_::StructScalar;
+use crate::struct_::StructVector;
 
 /// A mutable vector of struct values (values with named fields).
 ///
@@ -342,13 +350,20 @@ impl VectorMutOps for StructVectorMut {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, FieldNames, Nullability, PType, PTypeDowncast, StructFields};
-    use vortex_mask::{Mask, MaskMut};
+    use vortex_dtype::DType;
+    use vortex_dtype::FieldNames;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
+    use vortex_dtype::PTypeDowncast;
+    use vortex_dtype::StructFields;
+    use vortex_mask::Mask;
+    use vortex_mask::MaskMut;
 
     use super::*;
     use crate::VectorMut;
     use crate::bool::BoolVectorMut;
-    use crate::null::{NullVector, NullVectorMut};
+    use crate::null::NullVector;
+    use crate::null::NullVectorMut;
     use crate::primitive::PVectorMut;
 
     #[test]

@@ -8,6 +8,7 @@ use prost::Message;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
+use vortex_vector::Vector;
 
 use crate::ArrayRef;
 use crate::compute::cast as compute_cast;
@@ -85,6 +86,16 @@ impl VTable for Cast {
                 expr.deref()
             ))
         })
+    }
+
+    fn execute(
+        &self,
+        expr: &ExpressionView<Self>,
+        vector: &Vector,
+        dtype: &DType,
+    ) -> VortexResult<Vector> {
+        let input = expr.child(0).execute(vector, dtype)?;
+        vortex_compute::cast::Cast::cast(&input, dtype)
     }
 
     fn stat_expression(

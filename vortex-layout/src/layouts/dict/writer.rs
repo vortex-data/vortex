@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use futures::future::BoxFuture;
 use futures::stream::{BoxStream, once};
 use futures::{FutureExt, Stream, StreamExt, TryStreamExt, pin_mut, try_join};
-use vortex_array::arrays::DictEncoding;
+use vortex_array::arrays::DictVTable;
 use vortex_array::builders::dict::{DictConstraints, DictEncoder, dict_encoder};
 use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
@@ -117,7 +117,7 @@ impl LayoutStrategy for DictStrategy {
             None => true, // empty stream
             Some(chunk) => {
                 let compressed = BtrBlocksCompressor::default().compress(&chunk)?;
-                !compressed.is_encoding(DictEncoding.id())
+                !compressed.is::<DictVTable>()
             }
         };
         if should_fallback {
@@ -182,9 +182,7 @@ impl LayoutStrategy for DictStrategy {
             .map(|result| {
                 let (codes_layout, values_layout) = result?;
                 // All values are referenced when created via dictionary encoding
-                Ok::<_, VortexError>(
-                    DictLayout::new_with_metadata(values_layout, codes_layout, true).into_layout(),
-                )
+                Ok::<_, VortexError>(DictLayout::new(values_layout, codes_layout).into_layout())
             })
             .try_collect::<Vec<_>>()
             .await?;

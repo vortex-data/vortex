@@ -5,14 +5,21 @@
 
 use std::sync::Arc;
 
-use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_buffer::BufferMut;
+use vortex_buffer::ByteBuffer;
+use vortex_buffer::ByteBufferMut;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::MaskMut;
 
+use crate::VectorMutOps;
+use crate::VectorOps;
+use crate::binaryview::BinaryViewScalar;
+use crate::binaryview::BinaryViewType;
 use crate::binaryview::vector::BinaryViewVector;
-use crate::binaryview::view::{BinaryView, validate_views};
-use crate::binaryview::{BinaryViewScalar, BinaryViewType};
-use crate::{VectorMutOps, VectorOps};
+use crate::binaryview::view::BinaryView;
+use crate::binaryview::view::validate_views;
 
 // Default capacity for new string data buffers of 2MiB.
 const BUFFER_CAPACITY: usize = 2 * 1024 * 1024;
@@ -310,12 +317,17 @@ mod tests {
     use std::ops::Deref;
     use std::sync::Arc;
 
-    use vortex_buffer::{ByteBuffer, buffer, buffer_mut};
-    use vortex_mask::{Mask, MaskMut};
+    use vortex_buffer::ByteBuffer;
+    use vortex_buffer::buffer;
+    use vortex_buffer::buffer_mut;
+    use vortex_mask::Mask;
+    use vortex_mask::MaskMut;
 
+    use crate::VectorMutOps;
+    use crate::VectorOps;
+    use crate::binaryview::StringVector;
+    use crate::binaryview::StringVectorMut;
     use crate::binaryview::view::BinaryView;
-    use crate::binaryview::{StringVector, StringVectorMut};
-    use crate::{VectorMutOps, VectorOps};
 
     #[test]
     fn test_basic() {

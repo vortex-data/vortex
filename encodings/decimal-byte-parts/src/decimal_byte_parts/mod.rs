@@ -11,13 +11,13 @@ use vortex_array::arrays::DecimalArray;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityChild,
-    ValidityHelper, ValidityVTableFromChild, VisitorVTable,
+    ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, CanonicalVTable, NotSupported,
+    OperationsVTable, VTable, ValidityChild, ValidityHelper, ValidityVTableFromChild,
+    VisitorVTable,
 };
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
-    EncodingId, EncodingRef, IntoArray, Precision, ProstMetadata, SerializeMetadata, ToCanonical,
-    vtable,
+    IntoArray, Precision, ProstMetadata, SerializeMetadata, ToCanonical, vtable,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, DecimalDType, PType, match_each_signed_integer_ptype};
@@ -36,7 +36,7 @@ pub struct DecimalBytesPartsMetadata {
 
 impl VTable for DecimalBytePartsVTable {
     type Array = DecimalBytePartsArray;
-    type Encoding = DecimalBytePartsEncoding;
+
     type Metadata = ProstMetadata<DecimalBytesPartsMetadata>;
 
     type ArrayVTable = Self;
@@ -48,12 +48,12 @@ impl VTable for DecimalBytePartsVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.decimal_byte_parts")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.decimal_byte_parts")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(DecimalBytePartsEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        DecimalBytePartsVTable.as_vtable()
     }
 
     fn metadata(array: &DecimalBytePartsArray) -> VortexResult<Self::Metadata> {
@@ -72,7 +72,7 @@ impl VTable for DecimalBytePartsVTable {
     }
 
     fn build(
-        _encoding: &DecimalBytePartsEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -149,9 +149,9 @@ impl DecimalBytePartsArray {
 }
 
 #[derive(Clone, Debug)]
-pub struct DecimalBytePartsEncoding;
+pub struct DecimalBytePartsVTable;
 
-impl ArrayVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
+impl BaseArrayVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
     fn len(array: &DecimalBytePartsArray) -> usize {
         array.msp.len()
     }

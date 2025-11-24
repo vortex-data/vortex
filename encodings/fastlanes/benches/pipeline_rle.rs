@@ -70,6 +70,6 @@ fn decompress<T: IntegerPType>(bencher: Bencher, (length, run_step): (usize, usi
     let rle_array = RLEArray::encode(&values).unwrap();
 
     bencher
-        .with_inputs(|| rle_array.clone())
+        .with_inputs(|| &rle_array)
         .bench_refs(|rle_array| rle_array.to_canonical());
 }

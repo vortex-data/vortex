@@ -10,8 +10,8 @@ use futures::{StreamExt, TryStreamExt, pin_mut};
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
-    ChunkedArray, ConstantArray, DecimalArray, DictEncoding, DictVTable, ListArray, PrimitiveArray,
-    StructArray, VarBinArray, VarBinViewArray,
+    ChunkedArray, ConstantArray, DecimalArray, DictVTable, ListArray, PrimitiveArray, StructArray,
+    VarBinArray, VarBinViewArray,
 };
 use vortex_array::expr::session::ExprSession;
 use vortex_array::expr::{
@@ -1298,9 +1298,8 @@ async fn test_array_stream_no_double_dict_encode() -> VortexResult<()> {
     let dict = read_array
         .as_opt::<DictVTable>()
         .expect("expected root to be dictionary");
-    assert_ne!(
-        dict.codes().encoding().id(),
-        DictEncoding.id(),
+    assert!(
+        !dict.codes().is::<DictVTable>(),
         "dictionary codes should not be dictionary encoded"
     );
     Ok(())

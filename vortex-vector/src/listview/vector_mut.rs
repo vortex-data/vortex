@@ -5,16 +5,23 @@
 
 use std::sync::Arc;
 
-use vortex_dtype::{DType, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_dtype::DType;
+use vortex_dtype::PType;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::MaskMut;
 
-use super::{ListViewScalar, ListViewVector};
-use crate::primitive::{PrimitiveVector, PrimitiveVectorMut};
+use super::ListViewScalar;
+use super::ListViewVector;
+use crate::ScalarOps;
+use crate::VectorMut;
+use crate::VectorOps;
+use crate::match_each_integer_pvector;
+use crate::match_each_integer_pvector_mut;
+use crate::primitive::PrimitiveVector;
+use crate::primitive::PrimitiveVectorMut;
 use crate::vector_ops::VectorMutOps;
-use crate::{
-    ScalarOps, VectorMut, VectorOps, match_each_integer_pvector, match_each_integer_pvector_mut,
-};
 
 /// A mutable vector of variable-width lists.
 ///

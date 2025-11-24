@@ -4,12 +4,17 @@
 //! The 16-byte view struct stored in variable-length binary vectors.
 
 use std::fmt;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::ops::Range;
 
-use static_assertions::{assert_eq_align, assert_eq_size};
+use static_assertions::assert_eq_align;
+use static_assertions::assert_eq_size;
 use vortex_buffer::ByteBuffer;
-use vortex_error::{VortexResult, VortexUnwrap, vortex_ensure, vortex_err};
+use vortex_error::VortexResult;
+use vortex_error::VortexUnwrap;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 
 /// A view over a variable-length binary value.
 ///

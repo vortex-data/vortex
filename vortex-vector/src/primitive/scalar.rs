@@ -3,12 +3,17 @@
 
 use std::ops::Deref;
 
+use vortex_dtype::NativePType;
+use vortex_dtype::PTypeUpcast;
 use vortex_dtype::half::f16;
-use vortex_dtype::{NativePType, PTypeUpcast};
 use vortex_error::VortexExpect;
 
-use crate::primitive::{PVectorMut, PrimitiveVectorMut};
-use crate::{Scalar, ScalarOps, VectorMut, VectorMutOps};
+use crate::Scalar;
+use crate::ScalarOps;
+use crate::VectorMut;
+use crate::VectorMutOps;
+use crate::primitive::PVectorMut;
+use crate::primitive::PrimitiveVectorMut;
 
 /// Represents a primitive scalar value.
 #[derive(Debug)]
@@ -75,7 +80,7 @@ impl<T: NativePType> PScalar<T> {
         Self(value)
     }
 
-    /// Returns the value of the primitive scalar, or `None` if the scalar is null.
+    /// Returns the value of the primitive scalar, or `None` if it is null.
     pub fn value(&self) -> Option<T> {
         self.0
     }

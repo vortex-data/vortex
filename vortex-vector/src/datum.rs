@@ -1,17 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::{NativeDecimalType, NativePType};
+use vortex_dtype::NativeDecimalType;
+use vortex_dtype::NativePType;
 
-use crate::binaryview::{BinaryViewScalar, BinaryViewType, BinaryViewVector};
-use crate::bool::{BoolScalar, BoolVector};
-use crate::decimal::{DScalar, DVector, DecimalScalar, DecimalVector};
-use crate::fixed_size_list::{FixedSizeListScalar, FixedSizeListVector};
-use crate::listview::{ListViewScalar, ListViewVector};
-use crate::null::{NullScalar, NullVector};
-use crate::primitive::{PScalar, PVector, PrimitiveScalar, PrimitiveVector};
-use crate::struct_::{StructScalar, StructVector};
-use crate::{Scalar, Vector};
+use crate::Scalar;
+use crate::Vector;
+use crate::binaryview::BinaryViewScalar;
+use crate::binaryview::BinaryViewType;
+use crate::binaryview::BinaryViewVector;
+use crate::bool::BoolScalar;
+use crate::bool::BoolVector;
+use crate::decimal::DScalar;
+use crate::decimal::DVector;
+use crate::decimal::DecimalScalar;
+use crate::decimal::DecimalVector;
+use crate::fixed_size_list::FixedSizeListScalar;
+use crate::fixed_size_list::FixedSizeListVector;
+use crate::listview::ListViewScalar;
+use crate::listview::ListViewVector;
+use crate::null::NullScalar;
+use crate::null::NullVector;
+use crate::primitive::PScalar;
+use crate::primitive::PVector;
+use crate::primitive::PrimitiveScalar;
+use crate::primitive::PrimitiveVector;
+use crate::struct_::StructScalar;
+use crate::struct_::StructVector;
 
 /// Represents either a scalar or vector value.
 pub enum Datum {

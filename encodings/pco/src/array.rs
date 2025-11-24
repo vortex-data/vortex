@@ -18,13 +18,13 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, EncodeVTable, NotSupported, OperationsVTable, OperatorVTable,
-    VTable, ValidityHelper, ValiditySliceHelper, ValidityVTableFromValiditySliceHelper,
-    VisitorVTable,
+    ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, CanonicalVTable, EncodeVTable,
+    NotSupported, OperationsVTable, OperatorVTable, VTable, ValidityHelper, ValiditySliceHelper,
+    ValidityVTableFromValiditySliceHelper, VisitorVTable,
 };
 use vortex_array::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId,
-    EncodingRef, IntoArray, Precision, ProstMetadata, ToCanonical, vtable,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical, IntoArray,
+    Precision, ProstMetadata, ToCanonical, vtable,
 };
 use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::{DType, PType, half};
@@ -59,7 +59,7 @@ vtable!(Pco);
 
 impl VTable for PcoVTable {
     type Array = PcoArray;
-    type Encoding = PcoEncoding;
+
     type Metadata = ProstMetadata<PcoMetadata>;
 
     type ArrayVTable = Self;
@@ -71,12 +71,12 @@ impl VTable for PcoVTable {
     type EncodeVTable = Self;
     type OperatorVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.pco")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.pco")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(PcoEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        PcoVTable.as_vtable()
     }
 
     fn metadata(array: &PcoArray) -> VortexResult<Self::Metadata> {
@@ -92,7 +92,7 @@ impl VTable for PcoVTable {
     }
 
     fn build(
-        _encoding: &PcoEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -162,7 +162,7 @@ pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
 }
 
 #[derive(Clone, Debug)]
-pub struct PcoEncoding;
+pub struct PcoVTable;
 
 #[derive(Clone, Debug)]
 pub struct PcoArray {
@@ -413,7 +413,7 @@ impl ValiditySliceHelper for PcoArray {
     }
 }
 
-impl ArrayVTable<PcoVTable> for PcoVTable {
+impl BaseArrayVTable<PcoVTable> for PcoVTable {
     fn len(array: &PcoArray) -> usize {
         array.slice_stop - array.slice_start
     }
@@ -486,7 +486,7 @@ impl OperationsVTable<PcoVTable> for PcoVTable {
 
 impl EncodeVTable<PcoVTable> for PcoVTable {
     fn encode(
-        _encoding: &<PcoVTable as VTable>::Encoding,
+        _vtable: &PcoVTable,
         canonical: &Canonical,
         _like: Option<&PcoArray>,
     ) -> VortexResult<Option<PcoArray>> {
