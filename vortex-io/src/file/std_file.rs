@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::{Read, Seek};
 #[cfg(unix)]
 use std::os::unix::fs::FileExt;
-#[cfg(all(not(unix), windows))]
+#[cfg(windows)]
 use std::os::windows::fs::FileExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

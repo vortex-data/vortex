@@ -125,9 +125,8 @@ impl ReadSource for ObjectStoreIoSource {
                         )
                         .await?;
 
-                    #[cfg_attr(unix, allow(unused_mut))]
                     let buffer = match response.payload {
-                        object_store::GetResultPayload::File(mut file, _) => {
+                        object_store::GetResultPayload::File(file, _) => {
                             // SAFETY: We're setting the length to the exact size we're about to read.
                             // The read_exact_at call will either fill the entire buffer or return an error,
                             // ensuring no uninitialized memory is exposed.
