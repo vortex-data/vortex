@@ -1,0 +1,115 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use fastlanes::FastLanes;
+use prost::Message;
+use vortex_array::serde::ArrayChildren;
+use vortex_array::vtable::{NotSupported, VTable, ValidityVTableFromChildSliceHelper};
+use vortex_array::{EncodingId, EncodingRef, ProstMetadata, vtable};
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::{DType, PType, match_each_unsigned_integer_ptype};
+use vortex_error::{VortexResult, vortex_err};
+
+use crate::DeltaArray;
+
+mod array;
+mod canonical;
+mod operations;
+mod validity;
+mod visitor;
+
+vtable!(Delta);
+
+#[derive(Clone, prost::Message)]
+#[repr(C)]
+pub struct DeltaMetadata {
+    #[prost(uint64, tag = "1")]
+    deltas_len: u64,
+    #[prost(uint32, tag = "2")]
+    offset: u32, // must be <1024
+}
+
+impl VTable for DeltaVTable {
+    type Array = DeltaArray;
+    type Encoding = DeltaEncoding;
+    type Metadata = ProstMetadata<DeltaMetadata>;
+
+    type ArrayVTable = Self;
+    type CanonicalVTable = Self;
+    type OperationsVTable = Self;
+    type ValidityVTable = ValidityVTableFromChildSliceHelper;
+    type VisitorVTable = Self;
+    type ComputeVTable = NotSupported;
+    type EncodeVTable = NotSupported;
+    type OperatorVTable = NotSupported;
+
+    fn id(_encoding: &Self::Encoding) -> EncodingId {
+        EncodingId::new_ref("fastlanes.delta")
+    }
+
+    fn encoding(_array: &Self::Array) -> EncodingRef {
+        EncodingRef::new_ref(DeltaEncoding.as_ref())
+    }
+
+    fn metadata(array: &DeltaArray) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(DeltaMetadata {
+            deltas_len: array.deltas().len() as u64,
+            offset: array.offset() as u32,
+        }))
+    }
+
+    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.0.encode_to_vec()))
+    }
+
+    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(DeltaMetadata::decode(buffer)?))
+    }
+
+    fn build(
+        _encoding: &DeltaEncoding,
+        dtype: &DType,
+        len: usize,
+        metadata: &Self::Metadata,
+        _buffers: &[ByteBuffer],
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<DeltaArray> {
+        assert_eq!(children.len(), 2);
+        let ptype = PType::try_from(dtype)?;
+        let lanes = match_each_unsigned_integer_ptype!(ptype, |T| { <T as FastLanes>::LANES });
+
+        // Compute the length of the bases array
+        let deltas_len = usize::try_from(metadata.0.deltas_len)
+            .map_err(|_| vortex_err!("deltas_len {} overflowed usize", metadata.0.deltas_len))?;
+        let num_chunks = deltas_len / 1024;
+        let remainder_base_size = if deltas_len % 1024 > 0 { 1 } else { 0 };
+        let bases_len = num_chunks * lanes + remainder_base_size;
+
+        let bases = children.get(0, dtype, bases_len)?;
+        let deltas = children.get(1, dtype, deltas_len)?;
+
+        DeltaArray::try_new(bases, deltas, metadata.0.offset as usize, len)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct DeltaEncoding;
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::test_harness::check_metadata;
+
+    use super::{DeltaMetadata, ProstMetadata};
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_delta_metadata() {
+        check_metadata(
+            "delta.metadata",
+            ProstMetadata(DeltaMetadata {
+                offset: u32::MAX,
+                deltas_len: u64::MAX,
+            }),
+        );
+    }
+}

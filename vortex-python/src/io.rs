@@ -297,9 +297,11 @@ impl PyVortexWriteOptions {
 /// Conversion type for converting Python objects into a [`vortex::ArrayIterator`].
 pub type PyIntoArrayIterator = PyVortex<Box<dyn ArrayIterator + Send>>;
 
-impl<'py> FromPyObject<'py> for PyIntoArrayIterator {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        if let Ok(py_iter) = ob.downcast::<PyArrayIterator>() {
+impl<'py> FromPyObject<'_, 'py> for PyIntoArrayIterator {
+    type Error = PyErr;
+
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(py_iter) = ob.cast::<PyArrayIterator>() {
             return Ok(PyVortex(py_iter.get().take().unwrap_or_else(|| {
                 Box::new(
                     Canonical::empty(py_iter.get().dtype())
@@ -309,7 +311,7 @@ impl<'py> FromPyObject<'py> for PyIntoArrayIterator {
             })));
         }
 
-        if let Ok(py_array) = ob.downcast::<PyArray>() {
+        if let Ok(py_array) = ob.cast::<PyArray>() {
             return Ok(PyVortex(Box::new(
                 py_array
                     .extract::<PyArrayRef>()?
@@ -319,7 +321,7 @@ impl<'py> FromPyObject<'py> for PyIntoArrayIterator {
         }
 
         // Try to convert from Arrow objects (Table, RecordBatchReader, etc.)
-        if let Ok(arrow_iter) = try_arrow_stream_to_iterator(ob) {
+        if let Ok(arrow_iter) = try_arrow_stream_to_iterator(&ob) {
             return Ok(PyVortex(arrow_iter));
         }
 
@@ -330,7 +332,9 @@ impl<'py> FromPyObject<'py> for PyIntoArrayIterator {
 }
 
 /// Try to convert a PyArrow object to a Vortex ArrayIterator using Arrow FFI streams.
-fn try_arrow_stream_to_iterator(ob: &Bound<'_, PyAny>) -> PyResult<Box<dyn ArrayIterator + Send>> {
+fn try_arrow_stream_to_iterator(
+    ob: &Borrowed<'_, '_, PyAny>,
+) -> PyResult<Box<dyn ArrayIterator + Send>> {
     let py = ob.py();
     let pa = py.import("pyarrow")?;
     let pa_table = pa.getattr("Table")?;
@@ -338,7 +342,7 @@ fn try_arrow_stream_to_iterator(ob: &Bound<'_, PyAny>) -> PyResult<Box<dyn Array
 
     if ob.is_instance(&pa_table)? || ob.is_instance(&pa_record_batch_reader)? {
         // Convert to Arrow stream using FFI
-        let arrow_stream = ArrowArrayStreamReader::from_pyarrow_bound(ob)?;
+        let arrow_stream = ArrowArrayStreamReader::from_pyarrow(ob)?;
         let dtype = DType::from_arrow(arrow_stream.schema());
 
         // Convert Arrow RecordBatch stream to Vortex ArrayIterator

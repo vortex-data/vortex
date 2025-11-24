@@ -63,7 +63,7 @@ pub fn read_array_from_reader(
 fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<Expression> {
     fn field_from_pyany(field: &Bound<PyAny>) -> PyResult<FieldName> {
         if field.clone().is_instance_of::<PyString>() {
-            Ok(FieldName::from(field.downcast::<PyString>()?.to_str()?))
+            Ok(FieldName::from(field.cast::<PyString>()?.to_str()?))
         } else {
             Err(PyTypeError::new_err(format!(
                 "projection: expected list of strings or None, but found: {field}.",

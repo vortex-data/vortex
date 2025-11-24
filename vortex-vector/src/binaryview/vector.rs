@@ -11,10 +11,10 @@ use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 
+use crate::VectorOps;
 use crate::binaryview::vector_mut::BinaryViewVectorMut;
 use crate::binaryview::view::{BinaryView, validate_views};
 use crate::binaryview::{BinaryViewScalar, BinaryViewType};
-use crate::{Scalar, VectorOps};
 
 /// A variable-length binary vector.
 ///
@@ -193,6 +193,7 @@ impl<T: BinaryViewType> BinaryViewVector<T> {
 
 impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
     type Mutable = BinaryViewVectorMut<T>;
+    type Scalar = BinaryViewScalar<T>;
 
     fn len(&self) -> usize {
         self.views.len()
@@ -202,9 +203,9 @@ impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
         &self.validity
     }
 
-    fn scalar_at(&self, index: usize) -> Scalar {
+    fn scalar_at(&self, index: usize) -> BinaryViewScalar<T> {
         assert!(index < self.len());
-        BinaryViewScalar::<T>::from(self.get(index)).into()
+        BinaryViewScalar::<T>::new(self.get(index))
     }
 
     fn slice(&self, _range: impl RangeBounds<usize> + Clone + Debug) -> Self {

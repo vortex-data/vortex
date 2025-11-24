@@ -11,8 +11,8 @@ use vortex_dtype::{NativeDecimalType, PrecisionScale};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
+use crate::VectorOps;
 use crate::decimal::{DScalar, DVectorMut};
-use crate::{Scalar, VectorOps};
 
 /// An immutable vector of generic decimal values.
 ///
@@ -159,6 +159,7 @@ impl<D: NativeDecimalType> AsRef<[D]> for DVector<D> {
 
 impl<D: NativeDecimalType> VectorOps for DVector<D> {
     type Mutable = DVectorMut<D>;
+    type Scalar = DScalar<D>;
 
     fn len(&self) -> usize {
         self.elements.len()
@@ -168,14 +169,14 @@ impl<D: NativeDecimalType> VectorOps for DVector<D> {
         &self.validity
     }
 
-    fn scalar_at(&self, index: usize) -> Scalar {
+    fn scalar_at(&self, index: usize) -> DScalar<D> {
         assert!(index < self.len());
 
         let is_valid = self.validity.value(index);
         let value = is_valid.then(|| self.elements[index]);
 
         // SAFETY: We have already checked the validity on construction of the vector
-        Scalar::Decimal(unsafe { DScalar::<D>::new_unchecked(self.ps, value) }.into())
+        unsafe { DScalar::<D>::new_unchecked(self.ps, value) }
     }
 
     fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self {

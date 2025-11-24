@@ -1,0 +1,65 @@
+labels: ["needs-confirmation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > [!IMPORTANT]
+        > Please check for both existing [Discussions](https://github.com/vortex-data/vortex/discussions) and [Issues](https://github.com/vortex-data/vortex/issues) prior to opening a new Discussion.
+  - type: markdown
+    attributes:
+      value: "# Issue Details"
+  - type: textarea
+    attributes:
+      label: Issue Description
+      description: |
+        Provide a detailed description of the issue.  Include relevant information, such as:
+        - Which integration you are using if any, e.g. DataFusion, DuckDB, Polars, etc.
+        - Which language you are using, e.g. Python, Rust, Java, etc.
+        - The Vortex package version you are using.
+        - If this is a regression of an existing issue that was closed or resolved, please include the previous item reference (Discussion, Issue, PR, commit) in your description.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Expected Behavior
+      description: |
+        Describe how you expect Vortex to behave in this situation.  Include any relevant documentation links.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Actual Behavior
+      description: |
+        Describe how Vortex actually behaves in this situation.  If it is not immediately obvious how the actual behavior differs from the expected behavior described above, please be sure to mention the deviation specifically.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Reproduction Steps
+      description: |
+        Provide a detailed set of step-by-step instructions for reproducing this issue.
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: OS Version Information
+      description: |
+        Please tell us what operating system (name and version) you are using.
+      placeholder: Ubuntu 24.04.1 (Noble Numbat)
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        # User Acknowledgements
+        > [!TIP]
+        > Use these links to review the existing Vortex [Discussions](https://github.com/vortex-data/vortex/discussions) and [Issues](https://github.com/vortex-data/vortex/issues).
+  - type: checkboxes
+    attributes:
+      label: "I acknowledge that:"
+      options:
+        - label: I have searched the Vortex repository (both open and closed Discussions and Issues) and confirm this is not a duplicate of an existing issue or discussion.
+          required: true
+        - label: I have checked the "Preview" tab on all text fields to ensure that everything looks right, and have wrapped all configuration and code in code blocks with a group of three backticks (` ``` `) on separate lines.
+          required: true

@@ -60,7 +60,7 @@ impl VTable for PythonVTable {
 
             let bytes = obj
                 .call_method("__vx_metadata__", (), None)?
-                .downcast::<PyBytes>()
+                .cast::<PyBytes>()
                 .map_err(|_| vortex_err!("Expected array metadata to be Python bytes"))?
                 .as_bytes()
                 .to_vec();

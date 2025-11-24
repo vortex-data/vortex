@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::execution::ExecutionCtx;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
@@ -11,14 +12,15 @@ use vortex_array::{
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_vector::{Vector, VectorMutOps};
 
 use crate::BitPackedArray;
+use crate::bitpack_decompress::unpack_to_primitive_vector;
 
 mod array;
 mod canonical;
 mod encode;
 mod operations;
-mod operator;
 mod validity;
 mod visitor;
 
@@ -46,7 +48,7 @@ impl VTable for BitPackedVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type OperatorVTable = Self;
+    type OperatorVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("fastlanes.bitpacked")
@@ -157,6 +159,10 @@ impl VTable for BitPackedVTable {
                 )
             })?,
         )
+    }
+
+    fn execute(array: &BitPackedArray, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+        Ok(unpack_to_primitive_vector(array).freeze().into())
     }
 }
 

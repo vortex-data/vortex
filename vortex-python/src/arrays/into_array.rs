@@ -6,7 +6,7 @@ use arrow_array::{RecordBatchReader as _, make_array};
 use arrow_data::ArrayData;
 use pyo3::exceptions::PyTypeError;
 use pyo3::types::PyAnyMethods;
-use pyo3::{Bound, FromPyObject, PyAny, PyResult};
+use pyo3::{Borrowed, FromPyObject, PyAny, PyErr};
 use vortex::ArrayRef;
 use vortex::arrow::FromArrowArray as _;
 use vortex::dtype::DType;
@@ -34,17 +34,19 @@ impl PyIntoArray {
     }
 }
 
-impl<'py> FromPyObject<'py> for PyIntoArray {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for PyIntoArray {
+    type Error = PyErr;
+
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
         if ob.is_instance_of::<PyNativeArray>() || ob.is_instance_of::<PyPythonArray>() {
-            return PyArrayRef::extract_bound(ob).map(PyIntoArray);
+            return PyArrayRef::extract(ob).map(PyIntoArray);
         }
 
         let py = ob.py();
         let pa = py.import("pyarrow")?;
 
         if ob.is_instance(&pa.getattr("Array")?)? {
-            let arrow_array_data = ArrayData::from_pyarrow_bound(ob)?;
+            let arrow_array_data = ArrayData::from_pyarrow(&ob.as_borrowed())?;
             return Ok(PyIntoArray(PyVortex(ArrayRef::from_arrow(
                 make_array(arrow_array_data).as_ref(),
                 false,
@@ -52,7 +54,7 @@ impl<'py> FromPyObject<'py> for PyIntoArray {
         }
 
         if ob.is_instance(&pa.getattr("Table")?)? {
-            let arrow_stream = ArrowArrayStreamReader::from_pyarrow_bound(ob)?;
+            let arrow_stream = ArrowArrayStreamReader::from_pyarrow(&ob.as_borrowed())?;
             let dtype = DType::from_arrow(arrow_stream.schema());
             let vortex_iter = arrow_stream
                 .into_iter()

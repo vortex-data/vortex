@@ -6,7 +6,7 @@
 use vortex_mask::MaskMut;
 
 use crate::VectorMutOps;
-use crate::null::NullVector;
+use crate::null::{NullScalar, NullVector};
 
 /// A mutable vector of null values.
 ///
@@ -65,6 +65,14 @@ impl VectorMutOps for NullVectorMut {
     }
 
     fn append_nulls(&mut self, n: usize) {
+        self.len += n;
+    }
+
+    fn append_zeros(&mut self, n: usize) {
+        self.len += n;
+    }
+
+    fn append_scalars(&mut self, _scalar: &NullScalar, n: usize) {
         self.len += n;
     }
 
