@@ -115,12 +115,10 @@ impl VTable for DictVTable {
             // see [`SerdeVTable<DictVTable>::build`].
             .unwrap_or_else(|| dtype.nullability());
         let codes = children.child(1, &DType::Primitive(metadata.codes_ptype(), codes_nullable))?;
-        let all_values_referenced = metadata.all_values_referenced.unwrap_or(false);
-        Ok(DictLayout::new_with_metadata(
-            values,
-            codes,
-            all_values_referenced,
-        ))
+        Ok(unsafe {
+            DictLayout::new(values, codes)
+                .set_all_values_referenced(metadata.all_values_referenced.unwrap_or(false))
+        })
     }
 }
 
@@ -138,16 +136,17 @@ pub struct DictLayout {
 }
 
 impl DictLayout {
-    pub(crate) fn new_with_metadata(
-        values: LayoutRef,
-        codes: LayoutRef,
-        all_values_referenced: bool,
-    ) -> Self {
+    pub(crate) fn new(values: LayoutRef, codes: LayoutRef) -> Self {
         Self {
             values,
             codes,
-            all_values_referenced,
+            all_values_referenced: false,
         }
+    }
+
+    pub unsafe fn set_all_values_referenced(mut self, all_values_referenced: bool) -> Self {
+        self.all_values_referenced = all_values_referenced;
+        self
     }
 
     pub fn has_all_values_referenced(&self) -> bool {
