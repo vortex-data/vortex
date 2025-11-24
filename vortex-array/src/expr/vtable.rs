@@ -78,13 +78,9 @@ pub trait VTable: 'static + Sized + Send + Sync {
     fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef>;
 
     /// Execute the expression on the given vector with the given dtype.
-    fn execute(
-        &self,
-        _expr: &ExpressionView<Self>,
-        _vector: &Vector,
-        _dtype: &DType,
-    ) -> VortexResult<Vector> {
+    fn execute(&self, _data: &Self::Instance, _args: ExecutionArgs) -> VortexResult<Vector> {
         // TODO(ngates): remove this once we port to vector execution
+        // TODO(ngates): I think we should take/return an enum of Vector/Scalar.
         vortex_bail!("Expression {} does not support execution", self.id());
     }
 
@@ -106,6 +102,18 @@ pub trait VTable: 'static + Sized + Send + Sync {
     ) -> Option<Expression> {
         None
     }
+}
+
+/// Arguments for expression execution.
+pub struct ExecutionArgs {
+    /// The input vectors for the expression, one per child.
+    pub vectors: Vec<Vector>,
+    /// The input dtypes for the expression, one per child.
+    pub dtypes: Vec<DType>,
+    /// The row count of the execution scope.
+    pub row_count: usize,
+    /// The expected return dtype of the expression, as computed by [`Expression::return_dtype`].
+    pub return_dtype: DType,
 }
 
 /// Factory functions for static vtables.
@@ -154,12 +162,7 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     fn fmt_data(&self, instance: &dyn Any, f: &mut Formatter<'_>) -> fmt::Result;
     fn return_dtype(&self, expression: &Expression, scope: &DType) -> VortexResult<DType>;
     fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef>;
-    fn execute(
-        &self,
-        expression: &Expression,
-        vector: &Vector,
-        dtype: &DType,
-    ) -> VortexResult<Vector>;
+    fn execute(&self, data: &dyn Any, args: ExecutionArgs) -> VortexResult<Vector>;
 
     fn stat_falsification(
         &self,
@@ -237,33 +240,32 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         V::evaluate(&self.0, &expr, scope)
     }
 
-    fn execute(
-        &self,
-        expression: &Expression,
-        vector: &Vector,
-        dtype: &DType,
-    ) -> VortexResult<Vector> {
-        let expr = ExpressionView::new(expression);
-        let result = V::execute(&self.0, &expr, vector, dtype)?;
+    fn execute(&self, data: &dyn Any, args: ExecutionArgs) -> VortexResult<Vector> {
+        let data = data
+            .downcast_ref::<V::Instance>()
+            .vortex_expect("Failed to downcast expression instance to expected type");
+
+        let expected_row_count = args.row_count;
+        #[cfg(debug_assertions)]
+        let expected_dtype = args.return_dtype.clone();
+
+        let result = V::execute(&self.0, data, args)?;
 
         assert_eq!(
             result.len(),
-            vector.len(),
+            expected_row_count,
             "Expression execution returned vector of length {}, but expected {}",
             result.len(),
-            vector.len()
+            expected_row_count,
         );
 
+        // In debug mode, validate that the output dtype matches the expected return dtype.
         #[cfg(debug_assertions)]
-        {
-            // In debug mode, validate that the output dtype matches the expected return dtype.
-            let expected_dtype = V::return_dtype(&self.0, &expr, dtype)?;
-            vortex_ensure!(
-                vector_matches_dtype(&result, &expected_dtype),
-                "Expression execution invalid for dtype {}",
-                expected_dtype
-            );
-        }
+        vortex_ensure!(
+            vector_matches_dtype(&result, &expected_dtype),
+            "Expression execution invalid for dtype {}",
+            expected_dtype
+        );
 
         Ok(result)
     }

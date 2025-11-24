@@ -13,7 +13,9 @@ use vortex_vector::Vector;
 use crate::ArrayRef;
 use crate::compute::cast as compute_cast;
 use crate::expr::expression::Expression;
-use crate::expr::{ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt};
+use crate::expr::{
+    ChildName, ExecutionArgs, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt,
+};
 use crate::stats::Stat;
 
 /// A cast expression that converts values to a target data type.
@@ -88,16 +90,6 @@ impl VTable for Cast {
         })
     }
 
-    fn execute(
-        &self,
-        expr: &ExpressionView<Self>,
-        vector: &Vector,
-        dtype: &DType,
-    ) -> VortexResult<Vector> {
-        let input = expr.child(0).execute(vector, dtype)?;
-        vortex_compute::cast::Cast::cast(&input, dtype)
-    }
-
     fn stat_expression(
         &self,
         expr: &ExpressionView<Self>,
@@ -128,6 +120,14 @@ impl VTable for Cast {
                 None
             }
         }
+    }
+
+    fn execute(&self, target_dtype: &DType, mut args: ExecutionArgs) -> VortexResult<Vector> {
+        let input = args
+            .vectors
+            .pop()
+            .vortex_expect("missing input for Cast expression");
+        vortex_compute::cast::Cast::cast(&input, target_dtype)
     }
 }
 

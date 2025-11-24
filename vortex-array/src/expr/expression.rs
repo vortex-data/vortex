@@ -7,13 +7,16 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_vector::Vector;
+use vortex_vector::{Vector, VectorOps};
 
 use crate::ArrayRef;
 use crate::expr::display::DisplayTreeExpr;
-use crate::expr::{ChildName, ExprId, ExprVTable, ExpressionView, StatsCatalog, VTable};
+use crate::expr::{
+    ChildName, ExecutionArgs, ExprId, ExprVTable, ExpressionView, Root, StatsCatalog, VTable,
+};
 use crate::stats::Stat;
 
 /// A node in a Vortex expression tree.
@@ -144,7 +147,31 @@ impl Expression {
 
     /// Executes the expression over the given vector input scope.
     pub fn execute(&self, vector: &Vector, dtype: &DType) -> VortexResult<Vector> {
-        self.vtable.as_dyn().execute(self, vector, dtype)
+        // We special-case the "root" expression that must extract that scope vector directly.
+        if self.is::<Root>() {
+            return Ok(vector.clone());
+        }
+
+        let return_dtype = self.return_dtype(dtype)?;
+        let child_dtypes: Vec<_> = self
+            .children
+            .iter()
+            .map(|child| child.return_dtype(dtype))
+            .try_collect()?;
+        let child_vectors: Vec<_> = self
+            .children
+            .iter()
+            .map(|child| child.execute(vector, dtype))
+            .try_collect()?;
+
+        let args = ExecutionArgs {
+            vectors: child_vectors,
+            dtypes: child_dtypes,
+            row_count: vector.len(),
+            return_dtype,
+        };
+
+        self.vtable.as_dyn().execute(&self.data, args)
     }
 
     /// An expression over zone-statistics which implies all records in the zone evaluate to false.

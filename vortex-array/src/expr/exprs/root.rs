@@ -9,7 +9,9 @@ use vortex_vector::Vector;
 
 use crate::ArrayRef;
 use crate::expr::expression::Expression;
-use crate::expr::{ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt};
+use crate::expr::{
+    ChildName, ExecutionArgs, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt,
+};
 use crate::stats::Stat;
 
 /// An expression that returns the full scope of the expression evaluation.
@@ -60,13 +62,8 @@ impl VTable for Root {
         Ok(scope.clone())
     }
 
-    fn execute(
-        &self,
-        _expr: &ExpressionView<Self>,
-        vector: &Vector,
-        _dtype: &DType,
-    ) -> VortexResult<Vector> {
-        Ok(vector.clone())
+    fn execute(&self, _data: &Self::Instance, _args: ExecutionArgs) -> VortexResult<Vector> {
+        vortex_bail!("Root expression is not executable")
     }
 
     fn stat_expression(
