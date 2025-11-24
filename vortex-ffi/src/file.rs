@@ -108,7 +108,6 @@ impl vx_file_scan_options {
     /// Processes FFI scan options.
     ///
     /// Extracts and converts a scan configuration from an FFI options struct.
-    #[allow(clippy::useless_conversion)] // c_ulong is u32 on Windows, u64 on Unix
     fn process_scan_options(&self, session: &VortexSession) -> VortexResult<ScanOptions> {
         // Extract field names for projection.
         let projection_expr = extract_expression(
@@ -123,12 +122,14 @@ impl vx_file_scan_options {
             self.filter_expression_len,
         )?;
 
+        #[allow(clippy::useless_conversion)] // c_ulong is u32 on Windows, u64 on Unix
         let row_range = (self.row_range_end > self.row_range_start)
             .then_some(u64::from(self.row_range_start)..u64::from(self.row_range_end));
 
         let split_by = (self.split_by_row_count > 0)
             .then_some(SplitBy::RowCount(self.split_by_row_count as usize));
 
+        #[allow(clippy::useless_conversion)]
         Ok(ScanOptions {
             projection_expr,
             filter_expr,
