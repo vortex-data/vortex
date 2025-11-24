@@ -6,7 +6,9 @@ use std::hash::Hash;
 
 use vortex_buffer::{BitBuffer, ByteBuffer};
 use vortex_dtype::{DType, Nullability, PType, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_err};
+use vortex_error::{
+    VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_ensure, vortex_err,
+};
 use vortex_mask::{AllOr, Mask};
 
 use crate::builders::dict::dict_encode;
@@ -163,14 +165,13 @@ impl DictArray {
     /// This is typically only set to `true` during dictionary encoding when we know for certain
     /// that all values are referenced.
     pub unsafe fn set_all_values_referenced(mut self, all_values_referenced: bool) -> Self {
-        // In debug builds, verify the claim when setting to true
+        self.all_values_referenced = all_values_referenced;
+
         #[cfg(debug_assertions)]
         {
-            use vortex_error::VortexUnwrap;
             self.validate_all_values_referenced().vortex_unwrap()
         }
 
-        self.all_values_referenced = all_values_referenced;
         self
     }
 
