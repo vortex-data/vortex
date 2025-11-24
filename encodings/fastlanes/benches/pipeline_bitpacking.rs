@@ -43,7 +43,7 @@ pub fn decompress_bitpacking_early_filter<T: NativePType>(bencher: Bencher, frac
     bencher
         // Be sure to reconstruct the mask to avoid cached set_indices
         .with_inputs(|| Mask::from_buffer(mask.clone()))
-        .bench_local_values(|mask| filter(array.as_ref(), &mask).unwrap().to_canonical());
+        .bench_refs(|mask| filter(array.as_ref(), mask).unwrap().to_canonical());
 }
 
 #[divan::bench(types = [i8, i16, i32, i64], args = TRUE_COUNT)]
@@ -63,7 +63,7 @@ pub fn decompress_bitpacking_late_filter<T: NativePType>(bencher: Bencher, fract
 
     bencher
         .with_inputs(|| Mask::from_buffer(mask.clone()))
-        .bench_values(|mask| filter(array.to_canonical().as_ref(), &mask).unwrap());
+        .bench_refs(|mask| filter(array.to_canonical().as_ref(), mask).unwrap());
 }
 
 #[divan::bench(types = [i8, i16, i32, i64], args = TRUE_COUNT)]
@@ -82,5 +82,5 @@ pub fn decompress_bitpacking_pipeline_filter<T: NativePType>(bencher: Bencher, f
 
     bencher
         .with_inputs(|| Mask::from(mask.clone()))
-        .bench_local_values(|mask| array.execute_with_selection(&mask).unwrap());
+        .bench_refs(|mask| array.execute_with_selection(mask).unwrap());
 }
