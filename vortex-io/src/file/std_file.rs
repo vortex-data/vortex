@@ -2,7 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fs::File;
+#[cfg(unix)]
 use std::os::unix::fs::FileExt;
+#[cfg(windows)]
+use std::os::windows::fs::FileExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -85,10 +88,16 @@ impl ReadSource for FileIoSource {
 
                         #[cfg(unix)]
                         let buffer_res = file.read_exact_at(&mut buffer, offset);
-                        #[cfg(not(unix))]
-                        let buffer_res = file
-                            .seek(io::SeekFrom::Start(offset))
-                            .and_then(|_| file.read_exact(&mut buffer));
+                        #[cfg(windows)]
+                        let buffer_res = file.seek_read(&mut buffer, offset);
+                        #[cfg(not(any(unix, windows)))]
+                        let buffer_res = {
+                            use std::io::{Read, Seek, SeekFrom};
+                            let mut file_ref = file.as_ref();
+                            file_ref
+                                .seek(SeekFrom::Start(offset))
+                                .and_then(|_| file_ref.read_exact(&mut buffer))
+                        };
 
                         req.resolve(
                             buffer_res
