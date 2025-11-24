@@ -121,7 +121,6 @@ use vortex_sequence::SequenceVTable;
 use vortex_session::VortexSession;
 use vortex_sparse::SparseVTable;
 use vortex_zigzag::ZigZagVTable;
-use vortex_zstd::ZstdVTable;
 pub use writer::*;
 
 /// The current version of the Vortex file format
@@ -179,6 +178,6 @@ pub fn register_default_encodings(session: &VortexSession) {
         SparseVTable.as_vtable(),
         ZigZagVTable.as_vtable(),
         #[cfg(feature = "zstd")]
-        ZstdVTable.as_vtable(),
+        vortex_zstd::ZstdVTable.as_vtable(),
     ]);
 }
