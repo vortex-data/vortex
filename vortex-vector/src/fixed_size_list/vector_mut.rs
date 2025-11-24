@@ -163,6 +163,38 @@ impl FixedSizeListVectorMut {
     pub fn list_size(&self) -> u32 {
         self.list_size
     }
+
+    /// Returns a mutable handle to the child elements vector.
+    ///
+    /// # Safety
+    ///
+    /// Callers must ensure that any modifications to the elements vector do not violate the
+    /// invariants of this type, namely that the length of the elements vector is equal to
+    /// `len * list_size`.
+    pub unsafe fn elements_mut(&mut self) -> &mut VectorMut {
+        self.elements.as_mut()
+    }
+
+    /// Returns a mutable handle to the validity mask of the vector.
+    ///
+    /// # Safety
+    ///
+    /// Callers must ensure that if the length of the mask is modified, the length of the vector
+    /// and the elements vector should be updated accordingly to continue meeting the invariants
+    /// of the type.
+    pub unsafe fn validity_mut(&mut self) -> &mut MaskMut {
+        &mut self.validity
+    }
+
+    /// Sets the length of the vector.
+    ///
+    /// # Safety
+    ///
+    /// Callers must ensure that the new length is consistent with the validity mask length
+    /// and that `elements.len() == len * list_size`.
+    pub unsafe fn set_len(&mut self, len: usize) {
+        self.len = len;
+    }
 }
 
 impl VectorMutOps for FixedSizeListVectorMut {
