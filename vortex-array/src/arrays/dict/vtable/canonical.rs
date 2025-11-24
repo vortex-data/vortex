@@ -9,7 +9,8 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
 
-use super::{DictArray, DictVTable};
+use super::DictVTable;
+use crate::arrays::dict::DictArray;
 use crate::arrays::{BoolArray, ConstantArray};
 use crate::compute::{Operator, cast, compare, mask, take};
 use crate::validity::Validity;
@@ -60,7 +61,7 @@ fn dict_bool_take(dict_array: &DictArray) -> VortexResult<Canonical> {
     };
 
     Ok(match (first_match, second_match) {
-        // Couldn't find a value match, so the result is all false
+        // Couldn't find a value match, so the result is all false.
         (None, _) => match result_validity {
             Mask::AllTrue(_) => BoolArray::from_bit_buffer(
                 BitBuffer::new_unset(codes.len()),
@@ -115,7 +116,7 @@ fn dict_bool_take(dict_array: &DictArray) -> VortexResult<Canonical> {
             )?
             .to_canonical(),
         },
-        // more than one value matches
+        // More than one value matches.
         _ => take(bool_values.as_ref(), codes)
             .vortex_expect("taking codes from dictionary values shouldn't fail")
             .to_canonical(),
