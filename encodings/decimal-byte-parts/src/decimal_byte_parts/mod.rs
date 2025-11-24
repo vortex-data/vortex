@@ -212,7 +212,6 @@ impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
         }
     }
 
-    #[allow(clippy::useless_conversion)]
     fn scalar_at(array: &DecimalBytePartsArray, index: usize) -> Scalar {
         // TODO(joe): support parts len != 1
         let scalar = array.msp.scalar_at(index);
