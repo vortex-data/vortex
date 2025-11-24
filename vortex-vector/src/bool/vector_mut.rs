@@ -7,7 +7,7 @@ use vortex_buffer::BitBufferMut;
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::MaskMut;
 
-use crate::bool::BoolVector;
+use crate::bool::{BoolScalar, BoolVector};
 use crate::{VectorMutOps, VectorOps};
 
 /// A mutable vector of boolean values.
@@ -145,6 +145,18 @@ impl VectorMutOps for BoolVectorMut {
     fn append_nulls(&mut self, n: usize) {
         self.bits.append_n(false, n); // Note that the value we push doesn't actually matter.
         self.validity.append_n(false, n);
+    }
+
+    fn append_zeros(&mut self, n: usize) {
+        self.bits.append_n(false, n);
+        self.validity.append_n(true, n);
+    }
+
+    fn append_scalars(&mut self, scalar: &BoolScalar, n: usize) {
+        match scalar.value() {
+            None => self.append_nulls(n),
+            Some(value) => self.append_values(value, n),
+        }
     }
 
     fn freeze(self) -> BoolVector {

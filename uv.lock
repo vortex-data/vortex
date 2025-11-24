@@ -1701,6 +1701,7 @@ source = { editable = "vortex-python" }
 dependencies = [
     { name = "pyarrow" },
     { name = "substrait" },
+    { name = "typing-extensions" },
 ]
 
 [package.optional-dependencies]
@@ -1739,6 +1740,7 @@ requires-dist = [
     { name = "pyarrow", specifier = ">=17.0.0" },
     { name = "ray", marker = "extra == 'ray'", specifier = ">=2.48" },
     { name = "substrait", specifier = ">=0.23.0" },
+    { name = "typing-extensions", specifier = ">=4.5.0" },
 ]
 provides-extras = ["polars", "pandas", "numpy", "duckdb", "ray"]
 

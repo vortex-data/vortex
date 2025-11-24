@@ -12,7 +12,7 @@ pub trait EncodeVTable<V: VTable> {
     /// The given `like` array is passed as a template, for example if the caller knows that
     /// this encoding was successfully used previously for a similar array.
     ///
-    /// If the encoding does not support the given array (e.g. [`crate::arrays::ConstantEncoding`]
+    /// If the encoding does not support the given array (e.g. [`crate::arrays::ConstantVTable`]
     /// was passed a non-constant array), then `None` is returned.
     fn encode(
         vtable: &V,

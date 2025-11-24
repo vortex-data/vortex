@@ -46,7 +46,7 @@ fn into_canonical_non_nullable(
 
     bencher
         .with_inputs(|| chunked.clone())
-        .bench_values(|chunked| chunked.to_canonical());
+        .bench_refs(|chunked| chunked.to_canonical());
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -65,7 +65,7 @@ fn canonical_into_non_nullable(
 
     bencher
         .with_inputs(|| chunked.clone())
-        .bench_values(|chunked| {
+        .bench_refs(|chunked| {
             let mut primitive_builder = PrimitiveBuilder::<i32>::with_capacity(
                 chunked.dtype().nullability(),
                 chunk_len * chunk_count,
@@ -102,7 +102,7 @@ fn into_canonical_nullable(
 
     bencher
         .with_inputs(|| chunked.clone())
-        .bench_values(|chunked| chunked.to_canonical());
+        .bench_refs(|chunked| chunked.to_canonical());
 }
 
 #[divan::bench(args = NULLABLE_BENCH_ARGS)]
@@ -122,7 +122,7 @@ fn canonical_into_nullable(
 
     bencher
         .with_inputs(|| chunked.clone())
-        .bench_values(|chunked| {
+        .bench_refs(|chunked| {
             let mut primitive_builder = PrimitiveBuilder::<i32>::with_capacity(
                 chunked.dtype().nullability(),
                 chunk_len * chunk_count,

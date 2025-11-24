@@ -8,8 +8,8 @@ use std::ops::RangeBounds;
 
 use vortex_mask::Mask;
 
+use crate::VectorOps;
 use crate::null::{NullScalar, NullVectorMut};
-use crate::{Scalar, VectorOps};
 
 /// An immutable vector of null values.
 ///
@@ -38,6 +38,7 @@ impl NullVector {
 
 impl VectorOps for NullVector {
     type Mutable = NullVectorMut;
+    type Scalar = NullScalar;
 
     fn len(&self) -> usize {
         self.len
@@ -47,9 +48,9 @@ impl VectorOps for NullVector {
         &self.validity
     }
 
-    fn scalar_at(&self, index: usize) -> Scalar {
+    fn scalar_at(&self, index: usize) -> NullScalar {
         assert!(index < self.len, "Index out of bounds in `NullVector`");
-        NullScalar.into()
+        NullScalar
     }
 
     fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self {

@@ -25,6 +25,7 @@ runs:
       run: echo "version=$(cat rust-toolchain.toml | grep channel | awk -F'\"' '{print $2}')" >> $GITHUB_OUTPUT
 
     - name: Install Mold
+      if: runner.os == 'Linux'
       uses: rui314/setup-mold@v1
 
     - name: Rust Toolchain
@@ -50,6 +51,7 @@ runs:
       run: echo "PATH=$PATH" >> $GITHUB_ENV
 
     - name: Install Protoc (for lance-encoding build step)
+      if: runner.os != 'Windows'
       uses: arduino/setup-protoc@v3
       with:
         version: "29.3"

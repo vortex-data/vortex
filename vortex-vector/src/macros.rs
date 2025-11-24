@@ -187,4 +187,5 @@ macro_rules! match_vector_pair {
     ($left:expr, $right:expr, | $a:ident : Vector, $b:ident : VectorMut | $body:expr) => {{ $crate::__match_vector_pair_arms!($left, $right, Vector, VectorMut, $a, $b, $body) }};
     ($left:expr, $right:expr, | $a:ident : VectorMut, $b:ident : Vector | $body:expr) => {{ $crate::__match_vector_pair_arms!($left, $right, VectorMut, Vector, $a, $b, $body) }};
     ($left:expr, $right:expr, | $a:ident : VectorMut, $b:ident : VectorMut | $body:expr) => {{ $crate::__match_vector_pair_arms!($left, $right, VectorMut, VectorMut, $a, $b, $body) }};
+    ($left:expr, $right:expr, | $a:ident : VectorMut, $b:ident : Scalar | $body:expr) => {{ $crate::__match_vector_pair_arms!($left, $right, VectorMut, Scalar, $a, $b, $body) }};
 }

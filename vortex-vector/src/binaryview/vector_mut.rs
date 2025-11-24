@@ -9,9 +9,9 @@ use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::MaskMut;
 
-use crate::binaryview::BinaryViewType;
 use crate::binaryview::vector::BinaryViewVector;
 use crate::binaryview::view::{BinaryView, validate_views};
+use crate::binaryview::{BinaryViewScalar, BinaryViewType};
 use crate::{VectorMutOps, VectorOps};
 
 // Default capacity for new string data buffers of 2MiB.
@@ -262,6 +262,20 @@ impl<T: BinaryViewType> VectorMutOps for BinaryViewVectorMut<T> {
     fn append_nulls(&mut self, n: usize) {
         self.views.push_n(BinaryView::empty_view(), n);
         self.validity.append_n(false, n);
+    }
+
+    fn append_zeros(&mut self, n: usize) {
+        self.views.push_n(BinaryView::empty_view(), n);
+        self.validity.append_n(true, n);
+    }
+
+    fn append_scalars(&mut self, scalar: &BinaryViewScalar<T>, n: usize) {
+        match scalar.value() {
+            None => self.append_nulls(n),
+            Some(v) => {
+                self.append_owned_values(v.clone(), n);
+            }
+        }
     }
 
     fn freeze(mut self) -> BinaryViewVector<T> {

@@ -25,14 +25,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v5
-      - uses: spiraldb/actions/.github/actions/lint-toml@0.18.3
+      - uses: actions/checkout@v6
+      - uses: spiraldb/actions/.github/actions/lint-toml@0.18.5
 
   validate-workflow-yaml:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Validate YAML file
         run: |
           # Lint the workflows and yamllint's configuration file.
@@ -47,9 +47,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.18.3
+        uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
         with:
           sync: false
           prune-cache: false
@@ -67,12 +67,12 @@ jobs:
     env:
       RUST_LOG: "info,uv=debug"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.18.3
+        uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
         with:
           sync: false
           prune-cache: false
@@ -134,7 +134,7 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -180,7 +180,7 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -210,7 +210,7 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -232,7 +232,7 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-rust
         with:
           toolchain: nightly
@@ -260,7 +260,7 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -300,7 +300,7 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -369,7 +369,7 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Install llvm
         uses: aminya/setup-cpp@v1
         with:
@@ -400,12 +400,65 @@ jobs:
             --target x86_64-unknown-linux-gnu \
             --verbose
 
+  rust-test-other:
+    name: "Rust tests (${{ matrix.os }})"
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-x64
+            runner:
+              - runs-on=${{ github.run_id }}
+              - family=m7i
+              - cpu=8
+              - image=windows22-full-x64
+              - tag=rust-test-windows
+          - os: linux-arm64
+            runner:
+              - runs-on=${{ github.run_id }}
+              - family=m7g
+              - cpu=8
+              - image=ubuntu24-full-arm64
+              - extras=s3-cache
+              - tag=rust-test-linux-arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: runs-on/action@v2
+        if: matrix.os == 'linux-arm64'
+        with:
+          sccache: s3
+      - uses: actions/checkout@v5
+      - name: Install Visual Studio Build Tools (Windows)
+        if: matrix.os == 'windows-x64'
+        shell: bash
+        run: |
+          choco install visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --passive" -y
+      - name: Setup Python (Windows)
+        if: matrix.os == 'windows-x64'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+      - name: Rust Tests (Windows)
+        if: matrix.os == 'windows-x64'
+        run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude bench-vortex --exclude vortex-python --exclude vortex-duckdb --exclude vortex-fuzz
+      - name: Rust Tests (Other)
+        if: matrix.os != 'windows-x64'
+        run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude bench-vortex --exclude vortex-duckdb
+
   build-java:
     name: "Java"
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: actions/setup-java@v5
         with:
           distribution: "corretto"
@@ -432,7 +485,7 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -529,7 +582,7 @@ jobs:
             --profile bench
 
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@6a8e2b874c338bf81cc5e8be715ada75908d3871
+        uses: CodSpeedHQ/action@346a2d8a8d9d38909abd0bc3d23f773110f076ad
         with:
           run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
@@ -547,7 +600,7 @@ jobs:
     # Prevent sudden announcement of a new advisory from failing ci:
     continue-on-error: ${{ matrix.checks == 'advisories' }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check ${{ matrix.checks }}
@@ -563,7 +616,7 @@ jobs:
       - extras=s3-cache
       - tag=cxx-build
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -589,7 +642,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -613,7 +666,7 @@ jobs:
       RUSTFLAGS: "-A warnings"
       RUST_BACKTRACE: full
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -630,7 +683,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}

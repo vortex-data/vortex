@@ -2,7 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fs::File;
+#[cfg(not(unix))]
+use std::io::{Read, Seek};
+#[cfg(unix)]
 use std::os::unix::fs::FileExt;
+#[cfg(windows)]
+use std::os::windows::fs::FileExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -14,6 +19,23 @@ use vortex_error::{VortexError, VortexResult};
 
 use crate::file::{CoalesceWindow, IntoReadSource, IoRequest, ReadSource, ReadSourceRef};
 use crate::runtime::Handle;
+
+/// Read exactly `buffer.len()` bytes from `file` starting at `offset`.
+/// This is a platform-specific helper that uses the most efficient method available.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn read_exact_at(file: &File, buffer: &mut [u8], offset: u64) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        file.read_exact_at(buffer, offset)
+    }
+    #[cfg(not(unix))]
+    {
+        use std::io::SeekFrom;
+        let mut file_ref = file;
+        file_ref.seek(SeekFrom::Start(offset))?;
+        file_ref.read_exact(buffer)
+    }
+}
 
 const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {
     // TODO(ngates): these numbers don't make sense if we're using spawn_blocking..
@@ -83,12 +105,7 @@ impl ReadSource for FileIoSource {
                         let mut buffer = ByteBufferMut::with_capacity_aligned(len, req.alignment());
                         unsafe { buffer.set_len(len) };
 
-                        #[cfg(unix)]
-                        let buffer_res = file.read_exact_at(&mut buffer, offset);
-                        #[cfg(not(unix))]
-                        let buffer_res = file
-                            .seek(io::SeekFrom::Start(offset))
-                            .and_then(|_| file.read_exact(&mut buffer));
+                        let buffer_res = read_exact_at(&file, &mut buffer, offset);
 
                         req.resolve(
                             buffer_res

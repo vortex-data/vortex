@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use pyo3::conversion::FromPyObjectBound;
+use pyo3::conversion::FromPyObject;
 use pyo3::prelude::*;
 use pyo3::types::PyType;
 use vortex::dtype::DType;
@@ -33,8 +33,7 @@ impl PyPythonArray {
         len: usize,
         dtype: PyDType,
     ) -> PyResult<PyClassInitializer<Self>> {
-        let vtable =
-            PythonVTable::from_py_object_bound(cls.as_any().as_borrowed())?.into_array_vtable();
+        let vtable = PythonVTable::extract(cls.as_any().as_borrowed())?.into_array_vtable();
         Ok(PyClassInitializer::from(PyArray).add_subclass(Self {
             vtable,
             len,

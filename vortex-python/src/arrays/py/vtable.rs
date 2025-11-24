@@ -38,16 +38,18 @@ pub struct PythonVTable {
     pub(super) cls: Arc<Py<PyType>>,
 }
 
-/// Convert a Python class into a [`PythonEncoding`].
-impl<'py> FromPyObject<'py> for PythonVTable {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let cls = ob.downcast::<PyType>()?;
+/// Convert a Python class into a [`PythonVTable`].
+impl<'py> FromPyObject<'_, 'py> for PythonVTable {
+    type Error = PyErr;
+
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let cls = ob.cast::<PyType>()?;
 
         let id = ArrayId::new_arc(
             cls.getattr("id")
                 .map_err(|_| {
                     PyValueError::new_err(format!(
-                        "PyEncoding subclass {ob} must have an 'id' attribute"
+                        "PyEncoding subclass {cls:?} must have an 'id' attribute"
                     ))
                 })?
                 .extract::<String>()
@@ -57,7 +59,7 @@ impl<'py> FromPyObject<'py> for PythonVTable {
 
         Ok(PythonVTable {
             id,
-            cls: Arc::new(cls.clone().unbind()),
+            cls: Arc::new(cls.to_owned().unbind()),
         })
     }
 }
@@ -94,7 +96,7 @@ impl VTable for PythonVTable {
 
             let bytes = obj
                 .call_method("__vx_metadata__", (), None)?
-                .downcast::<PyBytes>()
+                .cast::<PyBytes>()
                 .map_err(|_| vortex_err!("Expected array metadata to be Python bytes"))?
                 .as_bytes()
                 .to_vec();

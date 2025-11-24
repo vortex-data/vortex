@@ -8,9 +8,15 @@ use crate::{Scalar, ScalarOps, VectorMut, VectorMutOps};
 #[derive(Debug)]
 pub struct BoolScalar(Option<bool>);
 
-impl From<Option<bool>> for BoolScalar {
-    fn from(value: Option<bool>) -> Self {
+impl BoolScalar {
+    /// Creates a new bool scalar with the given value.
+    pub fn new(value: Option<bool>) -> Self {
         Self(value)
+    }
+
+    /// Returns the value of the bool scalar, or `None` if the scalar is null.
+    pub fn value(&self) -> Option<bool> {
+        self.0
     }
 }
 

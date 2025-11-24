@@ -11,7 +11,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 
 use crate::struct_::{StructScalar, StructVectorMut};
-use crate::{Scalar, Vector, VectorMutOps, VectorOps};
+use crate::{Vector, VectorMutOps, VectorOps};
 
 /// An immutable vector of struct values.
 ///
@@ -124,6 +124,7 @@ impl StructVector {
 
 impl VectorOps for StructVector {
     type Mutable = StructVectorMut;
+    type Scalar = StructScalar;
 
     fn len(&self) -> usize {
         self.len
@@ -133,9 +134,9 @@ impl VectorOps for StructVector {
         &self.validity
     }
 
-    fn scalar_at(&self, index: usize) -> Scalar {
+    fn scalar_at(&self, index: usize) -> StructScalar {
         assert!(index < self.len());
-        StructScalar::new(self.slice(index..index + 1)).into()
+        StructScalar::new(self.slice(index..index + 1))
     }
 
     fn slice(&self, _range: impl RangeBounds<usize> + Clone + Debug) -> Self {

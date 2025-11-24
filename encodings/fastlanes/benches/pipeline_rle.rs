@@ -71,5 +71,5 @@ fn decompress<T: IntegerPType>(bencher: Bencher, (length, run_step): (usize, usi
 
     bencher
         .with_inputs(|| rle_array.clone())
-        .bench_values(|rle_array| rle_array.to_canonical());
+        .bench_refs(|rle_array| rle_array.to_canonical());
 }

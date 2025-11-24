@@ -86,7 +86,7 @@ mod primitive {
         let mut rng = StdRng::seed_from_u64(0);
         let arr = generate_primitive_array::<T>(&mut rng, len);
 
-        bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
+        bencher.with_inputs(|| arr.clone()).bench_refs(|arr| {
             boolean(
                 &compare(
                     arr.as_ref(),
@@ -120,7 +120,7 @@ mod primitive {
         let mut rng = StdRng::seed_from_u64(0);
         let arr = generate_primitive_array::<T>(&mut rng, len);
 
-        bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
+        bencher.with_inputs(|| arr.clone()).bench_refs(|arr| {
             between(
                 arr.as_ref(),
                 ConstantArray::new(min, arr.len()).as_ref(),
@@ -164,7 +164,7 @@ mod bitpack {
         let mut rng = StdRng::seed_from_u64(0);
         let arr = generate_bit_pack_primitive_array::<T>(&mut rng, len);
 
-        bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
+        bencher.with_inputs(|| arr.clone()).bench_refs(|arr| {
             boolean(
                 &compare(
                     arr.as_ref(),
@@ -197,7 +197,7 @@ mod bitpack {
         let mut rng = StdRng::seed_from_u64(0);
         let arr = generate_bit_pack_primitive_array::<T>(&mut rng, len);
 
-        bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
+        bencher.with_inputs(|| arr.clone()).bench_refs(|arr| {
             between(
                 arr.as_ref(),
                 ConstantArray::new(min, arr.len()).as_ref(),
@@ -240,7 +240,7 @@ mod alp {
         let mut rng = StdRng::seed_from_u64(0);
         let arr = generate_alp_bit_pack_primitive_array::<T>(&mut rng, len);
 
-        bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
+        bencher.with_inputs(|| arr.clone()).bench_refs(|arr| {
             boolean(
                 &compare(
                     arr.as_ref(),
@@ -273,7 +273,7 @@ mod alp {
         let mut rng = StdRng::seed_from_u64(0);
         let arr = generate_alp_bit_pack_primitive_array::<T>(&mut rng, len);
 
-        bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
+        bencher.with_inputs(|| arr.clone()).bench_refs(|arr| {
             between(
                 arr.as_ref(),
                 ConstantArray::new(min, arr.len()).as_ref(),

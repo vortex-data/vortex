@@ -120,7 +120,6 @@ fn data_type_no_views(data_type: DataType) -> DataType {
             DataType::LargeList(FieldRef::new(new_inner))
         }
         DataType::Struct(fields) => {
-            // Things
             let viewless_fields: Vec<FieldRef> = fields
                 .iter()
                 .map(|field_ref| {

@@ -9,8 +9,8 @@ use vortex_dtype::StructFields;
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::MaskMut;
 
-use crate::struct_::StructVector;
-use crate::{Vector, VectorMut, VectorMutOps, VectorOps, match_vector_pair};
+use crate::struct_::{StructScalar, StructVector};
+use crate::{ScalarOps, Vector, VectorMut, VectorMutOps, VectorOps, match_vector_pair};
 
 /// A mutable vector of struct values (values with named fields).
 ///
@@ -236,12 +236,37 @@ impl VectorMutOps for StructVectorMut {
 
     fn append_nulls(&mut self, n: usize) {
         for field in &mut self.fields {
-            field.append_nulls(n); // Note that the value we push to each doesn't actually matter.
+            field.append_zeros(n);
         }
 
         self.validity.append_n(false, n);
         self.len += n;
         debug_assert_eq!(self.len, self.validity.len());
+    }
+
+    fn append_zeros(&mut self, n: usize) {
+        for field in &mut self.fields {
+            field.append_zeros(n);
+        }
+
+        self.validity.append_n(true, n);
+        self.len += n;
+        debug_assert_eq!(self.len, self.validity.len());
+    }
+
+    fn append_scalars(&mut self, scalar: &StructScalar, n: usize) {
+        if scalar.is_valid() {
+            for (v, s) in self.fields.iter_mut().zip(scalar.value().fields.iter()) {
+                v.append_scalars(&s.scalar_at(0), n)
+            }
+            self.validity.append_n(true, n)
+        } else {
+            for field in &mut self.fields {
+                field.append_zeros(n);
+            }
+            self.validity.append_n(false, n)
+        }
+        self.len += n;
     }
 
     fn freeze(self) -> StructVector {
@@ -462,7 +487,7 @@ mod tests {
         struct_vec.append_nulls(2);
         assert_eq!(struct_vec.len(), 7);
 
-        // Verify final values include nulls.
+        // Verify final values include zeros.
         if let VectorMut::Bool(bool_vec) = struct_vec.fields[1].clone() {
             let values: Vec<_> = bool_vec.into_iter().collect();
             assert_eq!(
@@ -473,8 +498,8 @@ mod tests {
                     Some(true),
                     Some(false),
                     Some(true),
-                    None,
-                    None
+                    Some(false),
+                    Some(false)
                 ]
             );
         }
