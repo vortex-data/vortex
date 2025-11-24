@@ -37,6 +37,8 @@ arrow = ["dep:arrow-array", "dep:arrow-buffer", "dep:arrow-schema"]
 
 [dev-dependencies]
 divan = { workspace = true }
+itertools = { workspace = true }
+rand = { workspace = true }
 
 [[bench]]
 name = "filter_buffer_mut"
@@ -44,4 +46,8 @@ harness = false
 
 [[bench]]
 name = "expand_buffer"
+harness = false
+
+[[bench]]
+name = "avx512"
 harness = false

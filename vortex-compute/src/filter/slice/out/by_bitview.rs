@@ -1,78 +1,90 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! In-place filter implementations over mutable slices.
-//!
-//! Note that there is no `slice` module in `vortex-buffer` because slices always require a copy
-//! to filter them. Therefore, it's likely better to implement the filter against the actual
-//! zero-copy container type e.g. Buffer.
-
 use std::ptr;
 
 use vortex_buffer::BitView;
-use vortex_mask::Mask;
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 
 use crate::filter::Filter;
 
-impl<T: Copy> Filter<Mask> for &mut [T] {
-    type Output = Self;
+impl<const NB: usize, T: Copy> Filter<BitView<'_, NB>> for &[T] {
+    type Output = Buffer<T>;
 
-    fn filter(self, selection: &Mask) -> Self::Output {
+    fn filter(self, mask: &BitView<NB>) -> Self::Output {
         assert_eq!(
             self.len(),
-            selection.len(),
+            BitView::<NB>::N,
             "Mask length must equal the slice length"
         );
-        match selection {
-            Mask::AllTrue(_) => self,
-            Mask::AllFalse(_) => &mut self[..0],
-            Mask::Values(v) => {
-                // We choose to _always_ use slices here because iterating over indices will have
-                // strictly more loop iterations than slices, and the overhead over batched
-                // `ptr::copy(len)` is not worth it.
-                let slices = v.slices();
 
-                // SAFETY: We checked above that the selection mask has the same length as the
-                // buffer.
-                unsafe { filter_slices_in_place(self, slices) }
+        let mut read_ptr = self.as_ptr();
+
+        let mut write = BufferMut::<T>::with_capacity(mask.true_count());
+        unsafe { write.set_len(mask.true_count()) };
+
+        let mut write_ptr = write.as_mut_ptr();
+
+        // First we loop 64 elements at a time (usize::BITS)
+        for mut word in mask.iter_words() {
+            match word {
+                0usize => {
+                    // No bits set => skip usize::BITS slice.
+                    unsafe {
+                        read_ptr = read_ptr.add(usize::BITS as usize);
+                    }
+                }
+                usize::MAX => {
+                    // All slice => copy usize::BITS slice.
+                    unsafe {
+                        ptr::copy_nonoverlapping(read_ptr, write_ptr, usize::BITS as usize);
+                        read_ptr = read_ptr.add(usize::BITS as usize);
+                        write_ptr = write_ptr.add(usize::BITS as usize);
+                    }
+                }
+                _ => {
+                    // Iterate the bits in a word, attempting to copy contiguous runs of values.
+                    let mut read_pos = 0;
+                    let mut write_pos = 0;
+                    while word != 0 {
+                        let tz = word.trailing_zeros();
+                        if tz > 0 {
+                            // shift off the trailing zeros since they are unselected.
+                            // this advances the read head, but not the write head.
+                            read_pos += tz;
+                            word >>= tz;
+                            continue;
+                        }
+
+                        // copy the next several values to our out pointer.
+                        let extent = word.trailing_ones();
+                        unsafe {
+                            ptr::copy_nonoverlapping(
+                                read_ptr.add(read_pos as usize),
+                                write_ptr.add(write_pos as usize),
+                                extent as usize,
+                            );
+                        }
+                        // Advance the reader and writer by the number of values
+                        // we just copied.
+                        read_pos += extent;
+                        write_pos += extent;
+
+                        // shift off the low bits of the word so we can copy the next run.
+                        word >>= extent;
+                    }
+
+                    unsafe {
+                        read_ptr = read_ptr.add(usize::BITS as usize);
+                        write_ptr = write_ptr.add(write_pos as usize);
+                    };
+                }
             }
         }
+
+        write.freeze()
     }
-}
-
-/// Filters a buffer in-place using slice ranges to determine which values to keep.
-///
-/// Returns the new length of the buffer.
-///
-/// # Safety
-///
-/// The slice ranges must be in the range of the `buffer`.
-unsafe fn filter_slices_in_place<'a, T: Copy>(
-    buffer: &'a mut [T],
-    slices: &[(usize, usize)],
-) -> &'a mut [T] {
-    let mut write_pos = 0;
-
-    // For each range in the selection, copy all of the elements to the current write position.
-    for &(start, end) in slices {
-        // Note that we could add an if statement here that checks `if read_idx != write_idx`, but
-        // it's probably better to just avoid the branch misprediction.
-
-        let len = end - start;
-
-        // SAFETY: The safety contract enforces that all ranges are within bounds.
-        unsafe {
-            ptr::copy(
-                buffer.as_ptr().add(start),
-                buffer.as_mut_ptr().add(write_pos),
-                len,
-            )
-        };
-
-        write_pos += len;
-    }
-
-    &mut buffer[..write_pos]
 }
 
 impl<'a, const NB: usize, T: Copy> Filter<BitView<'a, NB>> for &mut [T] {
