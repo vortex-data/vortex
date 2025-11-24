@@ -619,15 +619,23 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: nightly-2025-06-26
-          targets: "wasm32-wasip1"
-          components: "rust-src"
+          targets: "wasm32-wasip1,wasm32-unknown-unknown"
+
       - name: Setup Wasmer
         uses: wasmerio/setup-wasmer@v3.1
-        # there is a compiler bug in nightly (but not in nightly-2025-06-26)
-      - run: cargo +nightly-2025-06-26 -Zbuild-std=panic_abort,std build --target wasm32-wasip1
+      - name: Build WASI binary
+        run: cargo build --target wasm32-wasip1
         working-directory: ./wasm-test
-      - run: wasmer run ./target/wasm32-wasip1/debug/wasm-test.wasm
+      - name: Run WASI test
+        run: wasmer run ./target/wasm32-wasip1/debug/wasm-test.wasm
+        working-directory: ./wasm-test
+
+      # wasm-bindgen-test with headless browser
+      # wasm-pack automatically installs matching wasm-bindgen-cli from Cargo.lock
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Run wasm-bindgen tests (headless Firefox)
+        run: wasm-pack test --headless --firefox
         working-directory: ./wasm-test
 
   miri:

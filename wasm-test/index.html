@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Vortex WASM Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            margin: 10px 5px;
+            cursor: pointer;
+        }
+        #output {
+            border: 1px solid #ccc;
+            padding: 15px;
+            margin-top: 20px;
+            background-color: #f5f5f5;
+            min-height: 100px;
+            white-space: pre-wrap;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <h1>Vortex WASM Test</h1>
+    <p>Test the Vortex library compiled to WebAssembly.</p>
+
+    <div>
+        <button onclick="testBasic()">Test Basic Function (add)</button>
+        <button onclick="testVersion()">Get Version</button>
+        <button onclick="testVortex()">Test Vortex Arrays</button>
+        <button onclick="testCompression()">Test Compression</button>
+        <button onclick="testArrayTypes()">Test Array Types</button>
+        <button onclick="testComputeOps()">Test Compute Operations</button>
+    </div>
+
+    <div id="status"></div>
+    <div id="output"></div>
+
+    <script type="module">
+        import init, { add, get_version, VortexBenchmark } from './pkg/wasm_test.js';
+
+        let wasm;
+        let output = document.getElementById('output');
+        let status = document.getElementById('status');
+
+        // Initialize WASM module.
+        async function loadWasm() {
+            try {
+                wasm = await init();
+                showStatus('WASM module loaded successfully!', 'success');
+            } catch (error) {
+                showStatus('Error loading WASM: ' + error, 'error');
+            }
+        }
+
+        function showStatus(message, type) {
+            status.innerHTML = `<div class="status ${type}">${message}</div>`;
+        }
+
+        function appendOutput(text) {
+            output.innerHTML += text + '\n';
+        }
+
+        function clearOutput() {
+            output.innerHTML = '';
+        }
+
+        // Export functions to window for button onclick.
+        window.testBasic = function() {
+            clearOutput();
+            try {
+                const result = add(5, 7);
+                appendOutput('Testing basic function: add(5, 7)');
+                appendOutput('Result: ' + result);
+                showStatus('Basic test passed!', 'success');
+            } catch (error) {
+                appendOutput('Error: ' + error);
+                showStatus('Basic test failed!', 'error');
+            }
+        };
+
+        window.testVersion = function() {
+            clearOutput();
+            try {
+                const version = get_version();
+                appendOutput('Version: ' + version);
+                showStatus('Version retrieved successfully!', 'success');
+            } catch (error) {
+                appendOutput('Error: ' + error);
+                showStatus('Failed to get version!', 'error');
+            }
+        };
+
+        window.testVortex = function() {
+            clearOutput();
+            appendOutput('Testing Vortex arrays...');
+            try {
+                const benchmark = new VortexBenchmark(1000);
+                appendOutput('Created VortexBenchmark with size: ' + benchmark.get_size());
+
+                benchmark.test_vortex();
+                appendOutput('Vortex test completed successfully!');
+                showStatus('Vortex test passed!', 'success');
+            } catch (error) {
+                appendOutput('Error: ' + error);
+                showStatus('Vortex test failed!', 'error');
+            }
+        };
+
+        window.testCompression = function() {
+            clearOutput();
+            appendOutput('Testing compression...');
+            try {
+                const benchmark = new VortexBenchmark(1024);
+                benchmark.test_compression();
+                appendOutput('Compression test completed successfully!');
+                showStatus('Compression test passed!', 'success');
+            } catch (error) {
+                appendOutput('Error: ' + error);
+                showStatus('Compression test failed!', 'error');
+            }
+        };
+
+        window.testArrayTypes = function() {
+            clearOutput();
+            appendOutput('Testing different array types...');
+            try {
+                const benchmark = new VortexBenchmark(100);
+                benchmark.test_array_types();
+                appendOutput('Array types test completed successfully!');
+                showStatus('Array types test passed!', 'success');
+            } catch (error) {
+                appendOutput('Error: ' + error);
+                showStatus('Array types test failed!', 'error');
+            }
+        };
+
+        window.testComputeOps = function() {
+            clearOutput();
+            appendOutput('Testing compute operations...');
+            try {
+                const benchmark = new VortexBenchmark(100);
+                benchmark.test_compute_ops();
+                appendOutput('Compute operations test completed successfully!');
+                showStatus('Compute operations test passed!', 'success');
+            } catch (error) {
+                appendOutput('Error: ' + error);
+                showStatus('Compute operations test failed!', 'error');
+            }
+        };
+
+        // Capture console.log from WASM.
+        const originalLog = console.log;
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            appendOutput('> ' + args.join(' '));
+        };
+
+        // Load WASM on page load.
+        loadWasm();
+    </script>
+</body>
+</html>
