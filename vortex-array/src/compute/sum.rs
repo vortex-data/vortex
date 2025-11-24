@@ -106,7 +106,7 @@ impl ComputeFnVTable for Sum {
             // For floats only use stats if accumulator is zero. otherwise we might have numerical stability issues.
             match sum_dtype {
                 DType::Primitive(p, _) => {
-                    if p.is_float() {
+                    if p.is_float() && accumulator.is_zero() {
                         return Ok(sum.into());
                     }
                     let sum_from_stat = accumulator
