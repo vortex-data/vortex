@@ -11,8 +11,8 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{
-    ArrayId, ArrayVTable, BaseArrayVTable, CanonicalVTable, EncodeVTable, NotSupported, VTable,
-    ValidityChild, ValidityVTableFromChild, VisitorVTable,
+    ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, CanonicalVTable, EncodeVTable,
+    NotSupported, VTable, ValidityChild, ValidityVTableFromChild, VisitorVTable,
 };
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
@@ -59,7 +59,7 @@ impl VTable for ALPRDVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(ALPRDVTable.as_ref())
+        ALPRDVTable.as_vtable()
     }
 
     fn metadata(array: &ALPRDArray) -> VortexResult<Self::Metadata> {

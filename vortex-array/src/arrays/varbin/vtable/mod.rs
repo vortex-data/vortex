@@ -8,7 +8,9 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use crate::arrays::varbin::VarBinArray;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{ArrayId, ArrayVTable, NotSupported, VTable, ValidityVTableFromValidityHelper};
+use crate::vtable::{
+    ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable, ValidityVTableFromValidityHelper,
+};
 use crate::{DeserializeMetadata, ProstMetadata, SerializeMetadata, vtable};
 
 mod array;
@@ -45,7 +47,7 @@ impl VTable for VarBinVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(VarBinVTable.as_ref())
+        VarBinVTable.as_vtable()
     }
 
     fn metadata(array: &VarBinArray) -> VortexResult<Self::Metadata> {

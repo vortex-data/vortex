@@ -13,7 +13,9 @@ use crate::arrays::FixedSizeListArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{ArrayId, ArrayVTable, NotSupported, VTable, ValidityVTableFromValidityHelper};
+use crate::vtable::{
+    ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable, ValidityVTableFromValidityHelper,
+};
 use crate::{ArrayOperator, EmptyMetadata, vtable};
 
 mod array;
@@ -46,7 +48,7 @@ impl VTable for FixedSizeListVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(FixedSizeListVTable.as_ref())
+        FixedSizeListVTable.as_vtable()
     }
 
     fn metadata(_array: &FixedSizeListArray) -> VortexResult<Self::Metadata> {

@@ -9,7 +9,8 @@ use vortex_array::search_sorted::{SearchSorted, SearchSortedSide};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
-    ArrayId, ArrayVTable, BaseArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTable,
+    ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, CanonicalVTable, NotSupported, VTable,
+    ValidityVTable,
 };
 use vortex_array::{
     Array, ArrayEq, ArrayHash, ArrayRef, Canonical, DeserializeMetadata, IntoArray, Precision,
@@ -54,7 +55,7 @@ impl VTable for RunEndVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(RunEndVTable.as_ref())
+        RunEndVTable.as_vtable()
     }
 
     fn metadata(array: &RunEndArray) -> VortexResult<Self::Metadata> {

@@ -11,7 +11,7 @@ use crate::arrays::BoolArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
+use crate::vtable::{ArrayVTableExt, NotSupported, VTable, ValidityVTableFromValidityHelper};
 use crate::{DeserializeMetadata, ProstMetadata, SerializeMetadata, vtable};
 
 mod array;
@@ -53,7 +53,7 @@ impl VTable for BoolVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(BoolVTable.as_ref())
+        BoolVTable.as_vtable()
     }
 
     fn metadata(array: &BoolArray) -> VortexResult<Self::Metadata> {

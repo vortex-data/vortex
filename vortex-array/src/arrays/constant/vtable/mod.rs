@@ -11,7 +11,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::constant::vector::to_vector;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
-use crate::vtable::{ArrayId, ArrayVTable, NotSupported, VTable};
+use crate::vtable::{ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable};
 use crate::{EmptyMetadata, vtable};
 
 mod array;
@@ -46,7 +46,7 @@ impl VTable for ConstantVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(ConstantVTable.as_ref())
+        ConstantVTable.as_vtable()
     }
 
     fn metadata(_array: &ConstantArray) -> VortexResult<Self::Metadata> {

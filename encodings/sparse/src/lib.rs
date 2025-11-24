@@ -13,8 +13,8 @@ use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
-    ArrayId, ArrayVTable, BaseArrayVTable, EncodeVTable, NotSupported, VTable, ValidityVTable,
-    VisitorVTable,
+    ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, EncodeVTable, NotSupported, VTable,
+    ValidityVTable, VisitorVTable,
 };
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
@@ -58,7 +58,7 @@ impl VTable for SparseVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(SparseVTable.as_ref())
+        SparseVTable.as_vtable()
     }
 
     fn metadata(array: &SparseArray) -> VortexResult<Self::Metadata> {

@@ -16,7 +16,9 @@ use vortex_vector::Vector;
 use crate::arrays::extension::ExtensionArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
-use crate::vtable::{ArrayId, ArrayVTable, NotSupported, VTable, ValidityVTableFromChild};
+use crate::vtable::{
+    ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable, ValidityVTableFromChild,
+};
 use crate::{ArrayOperator, EmptyMetadata, vtable};
 
 vtable!(Extension);
@@ -40,7 +42,7 @@ impl VTable for ExtensionVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(ExtensionVTable.as_ref())
+        ExtensionVTable.as_vtable()
     }
 
     fn metadata(_array: &ExtensionArray) -> VortexResult<Self::Metadata> {

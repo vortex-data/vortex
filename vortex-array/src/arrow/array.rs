@@ -17,8 +17,8 @@ use crate::arrow::FromArrowArray;
 use crate::serde::ArrayChildren;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::vtable::{
-    ArrayId, ArrayVTable, BaseArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable,
-    ValidityVTable, VisitorVTable,
+    ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, CanonicalVTable, NotSupported,
+    OperationsVTable, VTable, ValidityVTable, VisitorVTable,
 };
 use crate::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EmptyMetadata, IntoArray,
@@ -46,7 +46,7 @@ impl VTable for ArrowVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(ArrowVTable.as_ref())
+        ArrowVTable.as_vtable()
     }
 
     fn metadata(_array: &Self::Array) -> VortexResult<Self::Metadata> {

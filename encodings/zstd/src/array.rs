@@ -15,8 +15,8 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{
-    ArrayId, ArrayVTable, BaseArrayVTable, CanonicalVTable, EncodeVTable, NotSupported,
-    OperationsVTable, VTable, ValidityHelper, ValiditySliceHelper,
+    ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, CanonicalVTable, EncodeVTable,
+    NotSupported, OperationsVTable, VTable, ValidityHelper, ValiditySliceHelper,
     ValidityVTableFromValiditySliceHelper, VisitorVTable,
 };
 use vortex_array::{
@@ -77,7 +77,7 @@ impl VTable for ZstdVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(ZstdVTable.as_ref())
+        ZstdVTable.as_vtable()
     }
 
     fn metadata(array: &ZstdArray) -> VortexResult<Self::Metadata> {

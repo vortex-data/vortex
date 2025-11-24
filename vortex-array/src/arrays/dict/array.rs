@@ -13,8 +13,8 @@ use crate::builders::dict::dict_encode;
 use crate::serde::ArrayChildren;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::vtable::{
-    ArrayId, ArrayVTable, BaseArrayVTable, EncodeVTable, NotSupported, VTable, ValidityVTable,
-    VisitorVTable,
+    ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, EncodeVTable, NotSupported, VTable,
+    ValidityVTable, VisitorVTable,
 };
 use crate::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
@@ -58,7 +58,7 @@ impl VTable for DictVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(DictVTable.as_ref())
+        DictVTable.as_vtable()
     }
 
     fn metadata(array: &DictArray) -> VortexResult<Self::Metadata> {

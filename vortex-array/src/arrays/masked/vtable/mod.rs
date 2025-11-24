@@ -18,7 +18,8 @@ use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{
-    ArrayId, ArrayVTable, NotSupported, VTable, ValidityVTableFromValidityHelper, VisitorVTable,
+    ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable, ValidityVTableFromValidityHelper,
+    VisitorVTable,
 };
 use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayOperator, EmptyMetadata, vtable};
 
@@ -55,7 +56,7 @@ impl VTable for MaskedVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(MaskedVTable.as_ref())
+        MaskedVTable.as_vtable()
     }
 
     fn metadata(_array: &MaskedArray) -> VortexResult<Self::Metadata> {
@@ -113,7 +114,7 @@ mod tests {
     use crate::arrays::{MaskedArray, PrimitiveArray};
     use crate::serde::{ArrayParts, SerializeOptions};
     use crate::validity::Validity;
-    use crate::vtable::ArrayVTable;
+    use crate::vtable::ArrayVTableExt;
     use crate::{ArrayContext, IntoArray, MaskedVTable};
 
     #[rstest]
@@ -138,7 +139,7 @@ mod tests {
     fn test_serde_roundtrip(#[case] array: MaskedArray) {
         let dtype = array.dtype().clone();
         let len = array.len();
-        let ctx = ArrayContext::empty().with(ArrayVTable::new_ref(MaskedVTable.as_ref()));
+        let ctx = ArrayContext::empty().with(MaskedVTable.as_vtable());
 
         let serialized = array
             .to_array()
@@ -155,7 +156,7 @@ mod tests {
         let parts = ArrayParts::try_from(concat).unwrap();
         let decoded = parts.decode(&ctx, &dtype, len).unwrap();
 
-        assert_eq!(decoded.encoding_id(), MaskedVTable.id());
+        assert!(decoded.is::<MaskedVTable>());
         assert_eq!(
             array.as_ref().display_values().to_string(),
             decoded.display_values().to_string()

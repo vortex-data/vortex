@@ -11,7 +11,7 @@ use crate::arrays::{ChunkedArray, PrimitiveArray};
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{ArrayId, ArrayVTable, NotSupported, VTable};
+use crate::vtable::{ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable};
 use crate::{ArrayOperator, EmptyMetadata, ToCanonical, vtable};
 
 mod array;
@@ -42,7 +42,7 @@ impl VTable for ChunkedVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(ChunkedVTable.as_ref())
+        ChunkedVTable.as_vtable()
     }
 
     fn metadata(_array: &ChunkedArray) -> VortexResult<Self::Metadata> {

@@ -9,7 +9,9 @@ use crate::arrays::ListArray;
 use crate::metadata::{DeserializeMetadata, SerializeMetadata};
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{ArrayId, ArrayVTable, NotSupported, VTable, ValidityVTableFromValidityHelper};
+use crate::vtable::{
+    ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable, ValidityVTableFromValidityHelper,
+};
 use crate::{ProstMetadata, vtable};
 
 mod array;
@@ -47,7 +49,7 @@ impl VTable for ListVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(ListVTable.as_ref())
+        ListVTable.as_vtable()
     }
 
     fn metadata(array: &ListArray) -> VortexResult<Self::Metadata> {

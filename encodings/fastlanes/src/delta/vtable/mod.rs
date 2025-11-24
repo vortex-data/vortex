@@ -5,7 +5,7 @@ use fastlanes::FastLanes;
 use prost::Message;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{
-    ArrayId, ArrayVTable, NotSupported, VTable, ValidityVTableFromChildSliceHelper,
+    ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable, ValidityVTableFromChildSliceHelper,
 };
 use vortex_array::{ProstMetadata, vtable};
 use vortex_buffer::ByteBuffer;
@@ -50,7 +50,7 @@ impl VTable for DeltaVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(DeltaVTable.as_ref())
+        DeltaVTable.as_vtable()
     }
 
     fn metadata(array: &DeltaArray) -> VortexResult<Self::Metadata> {

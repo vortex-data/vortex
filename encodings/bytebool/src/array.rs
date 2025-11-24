@@ -10,8 +10,8 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{
-    ArrayId, ArrayVTable, BaseArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable,
-    ValidityHelper, ValidityVTableFromValidityHelper, VisitorVTable,
+    ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, CanonicalVTable, NotSupported,
+    OperationsVTable, VTable, ValidityHelper, ValidityVTableFromValidityHelper, VisitorVTable,
 };
 use vortex_array::{
     ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical, EmptyMetadata,
@@ -43,7 +43,7 @@ impl VTable for ByteBoolVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(ByteBoolVTable.as_ref())
+        ByteBoolVTable.as_vtable()
     }
 
     fn metadata(_array: &ByteBoolArray) -> VortexResult<Self::Metadata> {

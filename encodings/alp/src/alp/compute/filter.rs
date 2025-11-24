@@ -36,6 +36,7 @@ mod test {
     use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
+    use vortex_array::vtable::ArrayVTableExt;
     use vortex_array::{ArrayRef, IntoArray};
     use vortex_buffer::buffer;
 
@@ -52,6 +53,7 @@ mod test {
     ].into_array())]
     fn test_filter_alp_conformance(#[case] array: ArrayRef) {
         let alp = ALPVTable
+            .as_vtable()
             .encode(&array.to_canonical(), None)
             .unwrap()
             .unwrap();

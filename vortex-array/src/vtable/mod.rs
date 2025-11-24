@@ -50,9 +50,7 @@ use crate::{Array, IntoArray};
 /// implementations so do not need to be checked in the vtable implementations (for example, index
 /// out of bounds). Post-conditions are validated after invocation of the vtable function and will
 /// panic if violated.
-pub trait VTable:
-    'static + Sized + Send + Sync + Clone + Debug + Deref<Target = dyn DynVTable>
-{
+pub trait VTable: 'static + Sized + Send + Sync + Clone + Debug {
     type Array: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn Array> + IntoArray;
     type Metadata: Debug;
 
@@ -186,22 +184,6 @@ macro_rules! vtable {
                 fn from(value: [<$V Array>]) -> $crate::ArrayRef {
                     use $crate::IntoArray;
                     value.into_array()
-                }
-            }
-
-            impl AsRef<dyn $crate::vtable::DynVTable> for [<$V VTable>] {
-                fn as_ref(&self) -> &dyn $crate::vtable::DynVTable {
-                    // We can unsafe cast ourselves to an ArrayVTableAdapter.
-                    unsafe { &*(self as *const [<$V VTable>] as *const $crate::vtable::ArrayVTableAdapter<[<$V VTable>]>) }
-                }
-            }
-
-            impl std::ops::Deref for [<$V VTable>] {
-                type Target = dyn $crate::vtable::DynVTable;
-
-                fn deref(&self) -> &Self::Target {
-                    // We can unsafe cast ourselves to an ArrayVTableAdapter.
-                    unsafe { &*(self as *const [<$V VTable>] as *const $crate::vtable::ArrayVTableAdapter<[<$V VTable>]>) }
                 }
             }
         }

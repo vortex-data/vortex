@@ -35,6 +35,7 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::take::test_take_conformance;
+    use vortex_array::vtable::ArrayVTableExt;
     use vortex_buffer::buffer;
 
     use crate::ALPVTable;
@@ -46,6 +47,7 @@ mod test {
     #[case(buffer![42.42f64].into_array())]
     fn test_take_alp_conformance(#[case] array: vortex_array::ArrayRef) {
         let alp = ALPVTable
+            .as_vtable()
             .encode(&array.to_canonical(), None)
             .unwrap()
             .unwrap();

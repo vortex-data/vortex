@@ -4,7 +4,9 @@
 use std::fmt::{Debug, Formatter};
 
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{ArrayId, ArrayVTable, NotSupported, VTable, ValidityVTableFromChild};
+use vortex_array::vtable::{
+    ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable, ValidityVTableFromChild,
+};
 use vortex_array::{DeserializeMetadata, SerializeMetadata, vtable};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -42,7 +44,7 @@ impl VTable for FoRVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(FoRVTable.as_ref())
+        FoRVTable.as_vtable()
     }
 
     fn metadata(array: &FoRArray) -> VortexResult<Self::Metadata> {

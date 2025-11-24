@@ -6,7 +6,7 @@ use vortex_array::arrays::{BoolArray, PrimitiveArray};
 use vortex_array::arrow::compute::to_arrow_preferred;
 use vortex_array::serde::{ArrayParts, SerializeOptions};
 use vortex_array::validity::Validity;
-use vortex_array::vtable::{ArrayVTable, ValidityHelper};
+use vortex_array::vtable::{ArrayVTableExt, ValidityHelper};
 use vortex_array::{ArrayContext, ArraySession, IntoArray, ToCanonical, assert_arrays_eq};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{DType, Nullability, PType};
@@ -139,7 +139,7 @@ fn test_serde() {
         session
             .registry()
             .items()
-            .chain([ArrayVTable::new_ref(PcoVTable.as_ref())])
+            .chain([PcoVTable.as_vtable()])
             .collect(),
     );
 

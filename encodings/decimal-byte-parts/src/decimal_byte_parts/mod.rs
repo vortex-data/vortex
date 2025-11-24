@@ -11,8 +11,9 @@ use vortex_array::arrays::DecimalArray;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
-    ArrayId, ArrayVTable, BaseArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable,
-    ValidityChild, ValidityHelper, ValidityVTableFromChild, VisitorVTable,
+    ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, CanonicalVTable, NotSupported,
+    OperationsVTable, VTable, ValidityChild, ValidityHelper, ValidityVTableFromChild,
+    VisitorVTable,
 };
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
@@ -52,7 +53,7 @@ impl VTable for DecimalBytePartsVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(DecimalBytePartsVTable.as_ref())
+        DecimalBytePartsVTable.as_vtable()
     }
 
     fn metadata(array: &DecimalBytePartsArray) -> VortexResult<Self::Metadata> {

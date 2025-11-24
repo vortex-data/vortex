@@ -3,6 +3,7 @@
 
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
+use std::mem::transmute;
 use std::sync::Arc;
 
 use arcref::ArcRef;
@@ -174,18 +175,20 @@ impl dyn DynVTable + '_ {
 
 pub trait ArrayVTableExt {
     /// Wraps the vtable into an `ArrayVTable` by static reference.
-    fn to_array_vtable(&'static self) -> ArrayVTable;
+    fn as_vtable(&'static self) -> ArrayVTable;
 
     /// Wraps the vtable into an `ArrayVTable` by owned reference.
-    fn into_array_vtable(self) -> ArrayVTable;
+    fn into_vtable(self) -> ArrayVTable;
 }
 
 impl<V: VTable> ArrayVTableExt for V {
-    fn to_array_vtable(&'static self) -> ArrayVTable {
-        ArrayVTable::new_ref(self.deref())
+    fn as_vtable(&'static self) -> ArrayVTable {
+        let dyn_vtable: &'static ArrayVTableAdapter<V> =
+            unsafe { transmute::<&'static V, &'static ArrayVTableAdapter<V>>(self) };
+        ArrayVTable::new_ref(dyn_vtable)
     }
 
-    fn into_array_vtable(self) -> ArrayVTable {
+    fn into_vtable(self) -> ArrayVTable {
         ArrayVTable::new_arc(Arc::new(ArrayVTableAdapter(self)))
     }
 }

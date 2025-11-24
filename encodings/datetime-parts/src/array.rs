@@ -8,8 +8,8 @@ use vortex_array::arrays::TemporalArray;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
-    ArrayId, ArrayVTable, BaseArrayVTable, EncodeVTable, NotSupported, VTable, ValidityChild,
-    ValidityVTableFromChild, VisitorVTable,
+    ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, EncodeVTable, NotSupported, VTable,
+    ValidityChild, ValidityVTableFromChild, VisitorVTable,
 };
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
@@ -70,7 +70,7 @@ impl VTable for DateTimePartsVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(DateTimePartsVTable.as_ref())
+        DateTimePartsVTable.as_vtable()
     }
 
     fn metadata(array: &DateTimePartsArray) -> VortexResult<Self::Metadata> {

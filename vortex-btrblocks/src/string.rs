@@ -462,6 +462,6 @@ mod tests {
         let strings = strings.finish_into_varbinview();
 
         let compressed = StringCompressor::compress(&strings, false, MAX_CASCADE, &[]).unwrap();
-        assert_eq!(compressed.encoding_id(), SparseVTable.id());
+        assert!(compressed.is::<SparseVTable>());
     }
 }

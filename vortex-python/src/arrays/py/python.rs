@@ -33,7 +33,7 @@ impl PyPythonArray {
         len: usize,
         dtype: PyDType,
     ) -> PyResult<PyClassInitializer<Self>> {
-        let vtable = PythonVTable::extract(cls.as_any().as_borrowed())?.into_array_vtable();
+        let vtable = PythonVTable::extract(cls.as_any().as_borrowed())?.into_vtable();
         Ok(PyClassInitializer::from(PyArray).add_subclass(Self {
             vtable,
             len,

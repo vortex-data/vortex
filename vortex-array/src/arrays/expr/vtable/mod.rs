@@ -19,7 +19,7 @@ use crate::arrays::expr::ExprArray;
 use crate::execution::ExecutionCtx;
 use crate::expr::Expression;
 use crate::serde::ArrayChildren;
-use crate::vtable::{ArrayId, ArrayVTable, NotSupported, VTable};
+use crate::vtable::{ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable};
 use crate::{Array, ArrayOperator, vtable};
 
 vtable!(Expr);
@@ -46,7 +46,7 @@ impl VTable for ExprVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(ExprVTable.as_ref())
+        ExprVTable.as_vtable()
     }
 
     fn metadata(array: &ExprArray) -> VortexResult<Self::Metadata> {

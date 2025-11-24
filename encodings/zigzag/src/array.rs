@@ -7,8 +7,8 @@ use std::ops::Range;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
-    ArrayId, ArrayVTable, BaseArrayVTable, CanonicalVTable, EncodeVTable, NotSupported,
-    OperationsVTable, VTable, ValidityChild, ValidityVTableFromChild, VisitorVTable,
+    ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, CanonicalVTable, EncodeVTable,
+    NotSupported, OperationsVTable, VTable, ValidityChild, ValidityVTableFromChild, VisitorVTable,
 };
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
@@ -44,7 +44,7 @@ impl VTable for ZigZagVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(ZigZagVTable.as_ref())
+        ZigZagVTable.as_vtable()
     }
 
     fn metadata(_array: &ZigZagArray) -> VortexResult<Self::Metadata> {
@@ -219,7 +219,11 @@ mod test {
     fn test_compute_statistics() {
         let array = buffer![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array();
         let canonical = array.to_canonical();
-        let zigzag = ZigZagVTable.encode(&canonical, None).unwrap().unwrap();
+        let zigzag = ZigZagVTable
+            .as_vtable()
+            .encode(&canonical, None)
+            .unwrap()
+            .unwrap();
 
         assert_eq!(
             zigzag.statistics().compute_max::<i32>(),

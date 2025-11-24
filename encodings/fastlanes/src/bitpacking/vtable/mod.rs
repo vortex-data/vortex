@@ -6,7 +6,7 @@ use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{
-    ArrayId, ArrayVTable, NotSupported, VTable, ValidityVTableFromValidityHelper,
+    ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable, ValidityVTableFromValidityHelper,
 };
 use vortex_array::{DeserializeMetadata, ProstMetadata, SerializeMetadata, vtable};
 use vortex_buffer::ByteBuffer;
@@ -55,7 +55,7 @@ impl VTable for BitPackedVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(BitPackedVTable.as_ref())
+        BitPackedVTable.as_vtable()
     }
 
     fn metadata(array: &BitPackedArray) -> VortexResult<Self::Metadata> {

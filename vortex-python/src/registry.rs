@@ -25,7 +25,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// It's not currently possible to register a layout encoding from Python.
 #[pyfunction]
 pub(crate) fn register(cls: PythonVTable) -> PyResult<()> {
-    let vtable = ArrayVTableExt::into_array_vtable(cls);
+    let vtable = ArrayVTableExt::into_vtable(cls);
     SESSION.arrays().register(vtable);
     Ok(())
 }

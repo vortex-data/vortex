@@ -13,7 +13,9 @@ use crate::arrays::varbinview::VarBinViewArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{ArrayId, ArrayVTable, NotSupported, VTable, ValidityVTableFromValidityHelper};
+use crate::vtable::{
+    ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable, ValidityVTableFromValidityHelper,
+};
 use crate::{EmptyMetadata, vtable};
 
 mod array;
@@ -44,7 +46,7 @@ impl VTable for VarBinViewVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(VarBinViewVTable.as_ref())
+        VarBinViewVTable.as_vtable()
     }
 
     fn metadata(_array: &VarBinViewArray) -> VortexResult<Self::Metadata> {

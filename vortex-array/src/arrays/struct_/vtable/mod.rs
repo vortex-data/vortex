@@ -14,7 +14,7 @@ use crate::arrays::struct_::StructArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
+use crate::vtable::{ArrayVTableExt, NotSupported, VTable, ValidityVTableFromValidityHelper};
 use crate::{ArrayOperator, EmptyMetadata, vtable};
 
 mod array;
@@ -50,7 +50,7 @@ impl VTable for StructVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(StructVTable.as_ref())
+        StructVTable.as_vtable()
     }
 
     fn metadata(_array: &StructArray) -> VortexResult<Self::Metadata> {

@@ -16,8 +16,8 @@ use crate::execution::{BatchKernelRef, BindCtx, ExecutionCtx, kernel};
 use crate::serde::ArrayChildren;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::vtable::{
-    ArrayId, ArrayVTable, BaseArrayVTable, CanonicalVTable, NotSupported, OperationsVTable,
-    OperatorVTable, VTable, ValidityVTable, VisitorVTable,
+    ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, CanonicalVTable, NotSupported,
+    OperationsVTable, OperatorVTable, VTable, ValidityVTable, VisitorVTable,
 };
 use crate::{
     ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EmptyMetadata, IntoArray,
@@ -47,7 +47,7 @@ impl VTable for NullVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(NullVTable.as_ref())
+        NullVTable.as_vtable()
     }
 
     fn metadata(_array: &NullArray) -> VortexResult<Self::Metadata> {

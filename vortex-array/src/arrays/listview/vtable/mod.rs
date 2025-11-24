@@ -13,7 +13,9 @@ use crate::arrays::ListViewArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{ArrayId, ArrayVTable, NotSupported, VTable, ValidityVTableFromValidityHelper};
+use crate::vtable::{
+    ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable, ValidityVTableFromValidityHelper,
+};
 use crate::{ArrayOperator, DeserializeMetadata, ProstMetadata, SerializeMetadata, vtable};
 
 mod array;
@@ -57,7 +59,7 @@ impl VTable for ListViewVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(ListViewVTable.as_ref())
+        ListViewVTable.as_vtable()
     }
 
     fn metadata(array: &ListViewArray) -> VortexResult<Self::Metadata> {

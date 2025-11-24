@@ -36,6 +36,7 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
+    use vortex_array::vtable::ArrayVTableExt;
     use vortex_buffer::buffer;
 
     use crate::ALPVTable;
@@ -51,6 +52,7 @@ mod test {
     ].into_array())]
     fn test_mask_alp_conformance(#[case] array: vortex_array::ArrayRef) {
         let alp = ALPVTable
+            .as_vtable()
             .encode(&array.to_canonical(), None)
             .unwrap()
             .unwrap();

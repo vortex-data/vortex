@@ -11,8 +11,8 @@ use vortex_array::execution::ExecutionCtx;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
-    ArrayId, ArrayVTable, BaseArrayVTable, CanonicalVTable, EncodeVTable, NotSupported,
-    OperationsVTable, VTable, ValidityVTable, VisitorVTable,
+    ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, CanonicalVTable, EncodeVTable,
+    NotSupported, OperationsVTable, VTable, ValidityVTable, VisitorVTable,
 };
 use vortex_array::{
     ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata, Precision,
@@ -181,7 +181,7 @@ impl VTable for SequenceVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(SequenceVTable.as_ref())
+        SequenceVTable.as_vtable()
     }
 
     fn metadata(array: &SequenceArray) -> VortexResult<Self::Metadata> {

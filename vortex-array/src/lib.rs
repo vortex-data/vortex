@@ -34,7 +34,7 @@ use crate::arrays::{
     ListVTable, ListViewVTable, MaskedVTable, NullVTable, PrimitiveVTable, StructVTable,
     VarBinVTable, VarBinViewVTable,
 };
-use crate::vtable::{ArrayVTable, VTable};
+use crate::vtable::{ArrayVTable, ArrayVTableExt, VTable};
 
 pub mod accessor;
 #[doc(hidden)]
@@ -152,24 +152,24 @@ impl Default for ArraySession {
 
         // Register the canonical encodings.
         encodings.register_many([
-            ArrayVTable::new_ref(NullVTable.as_ref()),
-            ArrayVTable::new_ref(BoolVTable.as_ref()),
-            ArrayVTable::new_ref(PrimitiveVTable.as_ref()),
-            ArrayVTable::new_ref(DecimalVTable.as_ref()),
-            ArrayVTable::new_ref(VarBinViewVTable.as_ref()),
-            ArrayVTable::new_ref(ListViewVTable.as_ref()),
-            ArrayVTable::new_ref(FixedSizeListVTable.as_ref()),
-            ArrayVTable::new_ref(StructVTable.as_ref()),
-            ArrayVTable::new_ref(ExtensionVTable.as_ref()),
+            NullVTable.as_vtable(),
+            BoolVTable.as_vtable(),
+            PrimitiveVTable.as_vtable(),
+            DecimalVTable.as_vtable(),
+            VarBinViewVTable.as_vtable(),
+            ListViewVTable.as_vtable(),
+            FixedSizeListVTable.as_vtable(),
+            StructVTable.as_vtable(),
+            ExtensionVTable.as_vtable(),
         ]);
 
         // Register the utility encodings.
         encodings.register_many([
-            ArrayVTable::new_ref(ChunkedVTable.as_ref()),
-            ArrayVTable::new_ref(ConstantVTable.as_ref()),
-            ArrayVTable::new_ref(MaskedVTable.as_ref()),
-            ArrayVTable::new_ref(ListVTable.as_ref()),
-            ArrayVTable::new_ref(VarBinVTable.as_ref()),
+            ChunkedVTable.as_vtable(),
+            ConstantVTable.as_vtable(),
+            MaskedVTable.as_vtable(),
+            ListVTable.as_vtable(),
+            VarBinVTable.as_vtable(),
         ]);
 
         let session = Self {

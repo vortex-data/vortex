@@ -11,7 +11,7 @@ use crate::arrays::PrimitiveArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
+use crate::vtable::{ArrayVTableExt, NotSupported, VTable, ValidityVTableFromValidityHelper};
 use crate::{EmptyMetadata, vtable};
 
 mod array;
@@ -46,7 +46,7 @@ impl VTable for PrimitiveVTable {
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrayVTable::new_ref(PrimitiveVTable.as_ref())
+        PrimitiveVTable.as_vtable()
     }
 
     fn metadata(_array: &PrimitiveArray) -> VortexResult<Self::Metadata> {

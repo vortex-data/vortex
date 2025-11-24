@@ -1298,9 +1298,8 @@ async fn test_array_stream_no_double_dict_encode() -> VortexResult<()> {
     let dict = read_array
         .as_opt::<DictVTable>()
         .expect("expected root to be dictionary");
-    assert_ne!(
-        dict.codes().encoding().id(),
-        DictVTable.id(),
+    assert!(
+        !dict.codes().is::<DictVTable>(),
         "dictionary codes should not be dictionary encoded"
     );
     Ok(())
