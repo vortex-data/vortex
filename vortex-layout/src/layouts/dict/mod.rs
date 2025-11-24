@@ -144,6 +144,16 @@ impl DictLayout {
         }
     }
 
+    /// Set whether all dictionary values are definitely referenced.
+    ///
+    /// # Safety
+    /// The caller must ensure that when setting `all_values_referenced = true`, ALL dictionary
+    /// values are actually referenced by at least one valid code. Setting this incorrectly can
+    /// lead to incorrect query results in operations like min/max.
+    ///
+    /// This is typically only set to `true` during dictionary encoding when we know for certain
+    /// that all values are referenced.
+    /// See `DictArray::set_all_values_referenced`.
     pub unsafe fn set_all_values_referenced(mut self, all_values_referenced: bool) -> Self {
         self.all_values_referenced = all_values_referenced;
         self
