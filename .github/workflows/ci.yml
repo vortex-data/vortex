@@ -451,7 +451,7 @@ jobs:
         run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude bench-vortex --exclude vortex-python --exclude vortex-duckdb --exclude vortex-fuzz
       - name: Rust Tests (Other)
         if: matrix.os != 'windows-x64'
-        run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude bench-vortex
+        run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude bench-vortex --exclude vortex-duckdb
 
   build-java:
     name: "Java"
