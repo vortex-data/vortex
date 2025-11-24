@@ -400,6 +400,59 @@ jobs:
             --target x86_64-unknown-linux-gnu \
             --verbose
 
+  rust-test-other:
+    name: "Rust tests (${{ matrix.os }})"
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-x64
+            runner:
+              - runs-on=${{ github.run_id }}
+              - family=m7i
+              - cpu=8
+              - image=windows22-full-x64
+              - tag=rust-test-windows
+          - os: linux-arm64
+            runner:
+              - runs-on=${{ github.run_id }}
+              - family=m7g
+              - cpu=8
+              - image=ubuntu24-full-arm64
+              - extras=s3-cache
+              - tag=rust-test-linux-arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: runs-on/action@v2
+        if: matrix.os == 'linux-arm64'
+        with:
+          sccache: s3
+      - uses: actions/checkout@v5
+      - name: Install Visual Studio Build Tools (Windows)
+        if: matrix.os == 'windows-x64'
+        shell: bash
+        run: |
+          choco install visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --passive" -y
+      - name: Setup Python (Windows)
+        if: matrix.os == 'windows-x64'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+      - name: Rust Tests (Windows)
+        if: matrix.os == 'windows-x64'
+        run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude bench-vortex --exclude vortex-python --exclude vortex-duckdb
+      - name: Rust Tests (Other)
+        if: matrix.os != 'windows-x64'
+        run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude bench-vortex
+
   build-java:
     name: "Java"
     runs-on: ubuntu-latest
