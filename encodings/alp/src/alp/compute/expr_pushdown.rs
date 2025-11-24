@@ -3,14 +3,14 @@
 
 use vortex_array::arrays::{ConstantArray, ExprArray, ExprVTable};
 use vortex_array::compute::Operator;
-use vortex_array::expr::{Binary, Literal, Root, VTableExt, lit, root};
+use vortex_array::expr::{lit, root, Binary, Literal, Root, VTableExt};
 use vortex_array::transform::{ArrayParentReduceRule, ArrayRuleContext};
 use vortex_array::{ArrayRef, IntoArray};
-use vortex_error::{VortexExpect, VortexResult};
-use vortex_scalar::{PrimitiveScalar, Scalar};
+use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
-use super::compare_common::{EncodedComparison, encode_for_comparison};
-use crate::{ALPArray, ALPFloat, ALPVTable, match_each_alp_float_ptype};
+use super::compare_common::{encode_for_comparison, EncodedComparison};
+use crate::{match_each_alp_float_ptype, ALPArray, ALPFloat, ALPVTable};
 
 /// Rule to push down comparison operations into the ALP compressed domain.
 ///
@@ -39,6 +39,7 @@ use crate::{ALPArray, ALPFloat, ALPVTable, match_each_alp_float_ptype};
 /// Note: The operator may change (e.g., `>` becomes `>=`) when the scalar doesn't
 /// encode exactly in the ALP domain. This follows the exact same logic as
 /// `alp_scalar_compare` in `compare.rs`.
+#[derive(Debug)]
 pub struct ALPExprPushdownRule;
 
 impl ArrayParentReduceRule<ALPVTable, ExprVTable> for ALPExprPushdownRule {
@@ -129,12 +130,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::{Operator as ComputeOp, compare};
+    use vortex_array::arrays::{ConstantVTable, PrimitiveArray};
+    use vortex_array::compute::{compare, Operator as ComputeOp};
     use vortex_array::expr::session::ExprSession;
     use vortex_array::expr::transform::ExprOptimizer;
-    use vortex_array::expr::{Binary, Literal, Root, gt, lit, root};
-    use vortex_array::{Array, ArraySession, IntoArray, ToCanonical, assert_arrays_eq};
+    use vortex_array::expr::{gt, lit, root, Binary, Literal, Root};
+    use vortex_array::{assert_arrays_eq, Array, ArraySession, IntoArray, ToCanonical};
 
     use super::*;
     use crate::alp_encode;
@@ -283,13 +284,13 @@ mod tests {
         // For unencodable Eq comparison, pushdown returns ConstantArray (not ExprArray)
         // This is the optimization: we know the result without any computation
         assert!(
-            optimized.is::<vortex_array::arrays::ConstantVTable>(),
+            optimized.is::<ConstantVTable>(),
             "Pushdown should have returned ConstantArray for unencodable Eq, got {:?}",
             optimized.encoding().id()
         );
 
         // Downcast to ConstantArray and verify structure
-        let constant_array = optimized.as_::<vortex_array::arrays::ConstantVTable>();
+        let constant_array = optimized.as_::<ConstantVTable>();
         assert_eq!(constant_array.len(), 100);
         let false_scalar: Scalar = false.into();
         assert_eq!(*constant_array.scalar(), false_scalar);
@@ -402,11 +403,6 @@ mod tests {
                     .child()
                     .is::<vortex_array::arrays::PrimitiveVTable>()
                 {
-                    println!(
-                        "✓ Operator {:?}: Pushed down to PrimitiveArray with expr {:?}",
-                        compute_op,
-                        opt_expr.expr()
-                    );
                     pushdown_count += 1;
 
                     // Verify the expression structure for ExprArray optimizations
@@ -421,30 +417,13 @@ mod tests {
                         "Right side should be a literal for operator {:?}",
                         compute_op
                     );
-                } else {
-                    println!(
-                        "✗ Operator {:?}: Still ExprArray but child is {:?}",
-                        compute_op,
-                        opt_expr.child().encoding().id()
-                    );
                 }
-            } else if optimized.is::<vortex_array::arrays::ConstantVTable>() {
-                println!(
-                    "✓ Operator {:?}: Optimized to {:?} (constant result)",
-                    compute_op,
-                    optimized.encoding().id()
-                );
+            } else if optimized.is::<ConstantVTable>() {
                 pushdown_count += 1;
 
                 // Verify ConstantArray structure
-                let constant_array = optimized.as_::<vortex_array::arrays::ConstantVTable>();
+                let constant_array = optimized.as_::<ConstantVTable>();
                 assert_eq!(constant_array.len(), 10);
-            } else {
-                println!(
-                    "✗ Operator {:?}: Optimized to unexpected type {:?}",
-                    compute_op,
-                    optimized.encoding().id()
-                );
             }
 
             // Verify correctness matches the eager comparison kernel
