@@ -1,28 +1,171 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
+use vortex_mask::{Mask, MaskIter, MaskMut};
 use vortex_vector::fixed_size_list::{FixedSizeListVector, FixedSizeListVectorMut};
+use vortex_vector::{Vector, VectorMut, VectorMutOps, VectorOps};
 
 use crate::filter::Filter;
 
-// TODO(aduffy): there really isn't a cheap way to implement these is there.
+// TODO(connor): Implement filtering for the other mask types (`BitView`).
 
-impl<M> Filter<M> for &FixedSizeListVector {
+/// Density threshold for choosing between indices and slices representation when expanding masks.
+///
+/// When the mask density is below this threshold, we use indices. Otherwise, we use slices.
+///
+/// Note that this is somewhat arbitrarily chosen...
+const MASK_EXPANSION_DENSITY_THRESHOLD: f64 = 0.05;
+
+impl<M> Filter<M> for &FixedSizeListVector
+where
+    for<'a> &'a Mask: Filter<M, Output = Mask>,
+    for<'a> &'a Vector: Filter<Mask, Output = Vector>,
+{
     type Output = FixedSizeListVector;
 
-    fn filter(self, _selection: &M) -> Self::Output {
-        // We need to spread the mask out to point to offsets from
-        // the inner vector type
-        todo!()
+    fn filter(self, selection: &M) -> Self::Output {
+        let list_size = self.list_size();
+        let filtered_validity = self.validity().filter(selection);
+
+        let filtered_elements = if list_size != 0 {
+            // Expand the mask to cover all elements within selected lists.
+            let elements_mask = compute_fsl_elements_mask(&filtered_validity, list_size as usize);
+
+            // Filter the child elements vector.
+            self.elements().as_ref().filter(&elements_mask)
+        } else {
+            debug_assert!(
+                self.elements().is_empty(),
+                "degenerate FixedSizeListVector is invalid, it should have no elements"
+            );
+
+            self.elements().as_ref().clone()
+        };
+
+        // SAFETY: We have verified that:
+        // - The case when `list_size == 0` is safe (elements is empty and stays empty).
+        // - The `filtered_elements` is guaranteed to have length that is a multiple of `list_size`.
+        // - `filtered_validity` has the correct length because we filter with the same
+        //   `selection` mask.
+        unsafe {
+            FixedSizeListVector::new_unchecked(
+                Arc::new(filtered_elements),
+                list_size,
+                filtered_validity,
+            )
+        }
     }
 }
 
-impl<M> Filter<M> for &mut FixedSizeListVectorMut {
+impl<M> Filter<M> for &mut FixedSizeListVectorMut
+where
+    for<'a> &'a mut MaskMut: Filter<M, Output = ()>,
+    for<'a> &'a mut VectorMut: Filter<Mask, Output = ()>,
+{
     type Output = ();
 
-    fn filter(self, _selection: &M) -> Self::Output {
-        // We need to spread the mask out to point to offsets from
-        // the inner vector type
-        todo!()
+    fn filter(self, selection: &M) -> Self::Output {
+        let list_size = self.list_size();
+
+        // Filter validity first to get the new length.
+        // SAFETY: We will ensure the elements vector is filtered with an appropriately sized mask
+        // to maintain the invariant `elements.len() == len * list_size`.
+        unsafe {
+            self.validity_mut().filter(selection);
+            self.set_len(self.validity().len());
+        }
+
+        if list_size != 0 {
+            // Expand the mask to cover all elements within selected lists.
+            // We need to freeze a copy of the validity to get a Mask for the computation.
+            let validity_frozen = self.validity().clone().freeze();
+            let elements_mask = compute_fsl_elements_mask(&validity_frozen, list_size as usize);
+
+            // Filter the elements vector with the expanded mask.
+            // SAFETY: The expanded mask has the correct length (`validity.len() * list_size`),
+            // which maintains the invariant after filtering.
+            unsafe {
+                self.elements_mut().filter(&elements_mask);
+            }
+
+            debug_assert_eq!(
+                self.elements().len(),
+                self.len() * list_size as usize,
+                "elements length must equal len * list_size after filtering"
+            );
+        } else {
+            debug_assert!(
+                self.elements().is_empty(),
+                "degenerate FixedSizeListVector is invalid, it should have no elements"
+            );
+        }
     }
+}
+
+impl<M> Filter<M> for FixedSizeListVector
+where
+    for<'a> &'a FixedSizeListVector: Filter<M, Output = FixedSizeListVector>,
+    for<'a> &'a mut FixedSizeListVectorMut: Filter<M, Output = ()>,
+{
+    type Output = Self;
+
+    fn filter(self, selection: &M) -> Self {
+        match self.try_into_mut() {
+            // If we have exclusive access, we can perform the filter in place.
+            Ok(mut vector_mut) => {
+                (&mut vector_mut).filter(selection);
+                vector_mut.freeze()
+            }
+            // Otherwise, allocate a new vector and fill it in (delegate to the
+            // `&FixedSizeListVector` impl).
+            Err(vector) => (&vector).filter(selection),
+        }
+    }
+}
+
+/// Given a mask for a fixed-size list array, creates a new mask for the underlying elements.
+///
+/// This function simply "expands" out the input `selection_mask` by duplicating each bit
+/// `list_size` times.
+///
+/// The output [`Mask`] is guaranteed to have a length equal to `selection_mask.len() * list_size`.
+fn compute_fsl_elements_mask(selection_mask: &Mask, list_size: usize) -> Mask {
+    let expanded_len = selection_mask.len() * list_size;
+
+    let values = match selection_mask {
+        Mask::AllTrue(_) => return Mask::AllTrue(expanded_len),
+        Mask::AllFalse(_) => return Mask::AllFalse(expanded_len),
+        Mask::Values(values) => values,
+    };
+
+    // Use threshold_iter to choose the optimal representation based on density.
+    let expanded_slices = match values.threshold_iter(MASK_EXPANSION_DENSITY_THRESHOLD) {
+        MaskIter::Slices(slices) => {
+            // Expand a dense mask (represented as slices) by scaling each slice by `list_size`.
+            slices
+                .iter()
+                .map(|&(start, end)| (start * list_size, end * list_size))
+                .collect()
+        }
+        MaskIter::Indices(indices) => {
+            // Expand a sparse mask (represented as indices) by duplicating each index `list_size`
+            // times.
+            //
+            // Note that in the worst case, it is possible that we create only a few slices with a
+            // small range (for example, when list_size <= 2). This could be further optimized,
+            // but we choose simplicity for now.
+            indices
+                .iter()
+                .map(|&idx| {
+                    let start = idx * list_size;
+                    let end = (idx + 1) * list_size;
+                    (start, end)
+                })
+                .collect()
+        }
+    };
+
+    Mask::from_slices(expanded_len, expanded_slices)
 }
