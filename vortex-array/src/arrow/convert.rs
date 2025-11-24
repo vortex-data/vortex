@@ -5,18 +5,19 @@ use std::sync::Arc;
 
 use arrow_array::cast::{AsArray, as_null_array};
 use arrow_array::types::{
-    ByteArrayType, ByteViewType, Date32Type, Date64Type, Decimal32Type, Decimal64Type,
-    Decimal128Type, Decimal256Type, Float16Type, Float32Type, Float64Type, Int8Type, Int16Type,
-    Int32Type, Int64Type, Time32MillisecondType, Time32SecondType, Time64MicrosecondType,
-    Time64NanosecondType, TimestampMicrosecondType, TimestampMillisecondType,
-    TimestampNanosecondType, TimestampSecondType, UInt8Type, UInt16Type, UInt32Type, UInt64Type,
+    ArrowDictionaryKeyType, ByteArrayType, ByteViewType, Date32Type, Date64Type, Decimal32Type,
+    Decimal64Type, Decimal128Type, Decimal256Type, Float16Type, Float32Type, Float64Type, Int8Type,
+    Int16Type, Int32Type, Int64Type, Time32MillisecondType, Time32SecondType,
+    Time64MicrosecondType, Time64NanosecondType, TimestampMicrosecondType,
+    TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType, UInt8Type, UInt16Type,
+    UInt32Type, UInt64Type,
 };
 use arrow_array::{
-    Array as ArrowArray, ArrowPrimitiveType, BooleanArray as ArrowBooleanArray,
-    FixedSizeListArray as ArrowFixedSizeListArray, GenericByteArray, GenericByteViewArray,
-    GenericListArray, GenericListViewArray, NullArray as ArrowNullArray, OffsetSizeTrait,
-    PrimitiveArray as ArrowPrimitiveArray, RecordBatch, StructArray as ArrowStructArray,
-    make_array,
+    AnyDictionaryArray, Array as ArrowArray, ArrowPrimitiveType, BooleanArray as ArrowBooleanArray,
+    DictionaryArray, FixedSizeListArray as ArrowFixedSizeListArray, GenericByteArray,
+    GenericByteViewArray, GenericListArray, GenericListViewArray, NullArray as ArrowNullArray,
+    OffsetSizeTrait, PrimitiveArray as ArrowPrimitiveArray, RecordBatch,
+    StructArray as ArrowStructArray, make_array,
 };
 use arrow_buffer::buffer::{NullBuffer, OffsetBuffer};
 use arrow_buffer::{ArrowNativeType, BooleanBuffer, Buffer as ArrowBuffer, ScalarBuffer};
@@ -398,6 +399,16 @@ impl FromArrowArray<&ArrowNullArray> for ArrayRef {
     fn from_arrow(value: &ArrowNullArray, nullable: bool) -> Self {
         assert!(nullable);
         NullArray::new(value.len()).into_array()
+    }
+}
+
+impl<K: ArrowDictionaryKeyType> FromArrowArray<&DictionaryArray<K>> for DictArray {
+    fn from_arrow(array: &DictionaryArray<K>, nullable: bool) -> Self {
+        let keys = AnyDictionaryArray::keys(array);
+        let keys = ArrayRef::from_arrow(keys, keys.is_nullable());
+        let values = ArrayRef::from_arrow(array.values().as_ref(), nullable);
+        // SAFETY: we assume that Arrow has checked the invariants on construction.
+        unsafe { DictArray::new_unchecked(keys, values) }
     }
 }
 
