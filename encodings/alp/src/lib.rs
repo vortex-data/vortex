@@ -18,13 +18,16 @@
 
 pub use alp::*;
 pub use alp_rd::*;
+use vortex_array::EncodingRef;
 
 mod alp;
 mod alp_rd;
 
 /// Register ALP optimization rules with an ArraySession.
-pub fn register_alp_rules(session: &vortex_array::ArraySession) {
+pub fn initialize(session: &vortex_array::ArraySession) {
     use vortex_array::arrays::{ExprEncoding, ExprVTable};
+
+    session.register(EncodingRef::new_ref(ALPEncoding.as_ref()));
 
     // Register the comparison pushdown rule for ALP arrays wrapped in ExprArray
     session.register_parent_rule::<ALPVTable, ExprVTable, _>(

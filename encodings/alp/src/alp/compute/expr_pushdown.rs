@@ -6,7 +6,7 @@ use vortex_array::compute::Operator;
 use vortex_array::expr::{Binary, Literal, Root, VTableExt, lit, root};
 use vortex_array::transform::{ArrayParentReduceRule, ArrayRuleContext};
 use vortex_array::{ArrayRef, IntoArray};
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{PrimitiveScalar, Scalar};
 
 use super::compare_common::{EncodedComparison, encode_for_comparison};
@@ -57,29 +57,10 @@ impl ArrayParentReduceRule<ALPVTable, ExprVTable> for ALPExprPushdownRule {
             return Ok(None);
         };
 
-        // Get the comparison operator - only handle comparison operators
         let operator = binary_view.operator();
-        if !matches!(
-            operator,
-            vortex_array::expr::Operator::Eq
-                | vortex_array::expr::Operator::NotEq
-                | vortex_array::expr::Operator::Lt
-                | vortex_array::expr::Operator::Lte
-                | vortex_array::expr::Operator::Gt
-                | vortex_array::expr::Operator::Gte
-        ) {
-            return Ok(None);
-        }
 
-        // Convert to compute operator
-        let compute_op = match operator {
-            vortex_array::expr::Operator::Eq => Operator::Eq,
-            vortex_array::expr::Operator::NotEq => Operator::NotEq,
-            vortex_array::expr::Operator::Lt => Operator::Lt,
-            vortex_array::expr::Operator::Lte => Operator::Lte,
-            vortex_array::expr::Operator::Gt => Operator::Gt,
-            vortex_array::expr::Operator::Gte => Operator::Gte,
-            _ => return Ok(None),
+        let Some(compute_op) = operator.maybe_cmp_operator() else {
+            return Ok(None);
         };
 
         // Check if this is a comparison of root() with a literal
@@ -95,16 +76,13 @@ impl ArrayParentReduceRule<ALPVTable, ExprVTable> for ALPExprPushdownRule {
                 return Ok(None);
             };
 
-        // Get the literal scalar - literals evaluate to a constant array with one element
         let literal_value = literal_expr.as_::<Literal>().data().clone();
 
-        // Don't optimize nullable comparisons
         if literal_value.dtype().is_nullable() {
             return Ok(None);
         }
 
-        // Convert to primitive scalar
-        let Ok(pscalar) = PrimitiveScalar::try_from(&literal_value) else {
+        let Some(pscalar) =  literal_value.as_primitive_opt() else {
             return Ok(None);
         };
 
@@ -183,7 +161,7 @@ mod tests {
 
         // Apply the optimization
         let session = ArraySession::default();
-        crate::register_alp_rules(&session);
+        crate::initialize(&session);
         let expr_session = ExprSession::default();
         let optimizer = session.optimizer(ExprOptimizer::new(&expr_session));
         let optimized = optimizer.optimize_array(expr_array.into_array()).unwrap();
@@ -242,7 +220,7 @@ mod tests {
         let expr_array = ExprArray::new_infer_dtype(alp.clone().into_array(), expr).unwrap();
 
         let session = ArraySession::default();
-        crate::register_alp_rules(&session);
+        crate::initialize(&session);
         let expr_session = ExprSession::default();
         let optimizer = session.optimizer(ExprOptimizer::new(&expr_session));
         let optimized = optimizer.optimize_array(expr_array.into_array()).unwrap();
@@ -297,7 +275,7 @@ mod tests {
         assert!(expr_array.child().is::<ALPVTable>());
 
         let session = ArraySession::default();
-        crate::register_alp_rules(&session);
+        crate::initialize(&session);
         let expr_session = ExprSession::default();
         let optimizer = session.optimizer(ExprOptimizer::new(&expr_session));
         let optimized = optimizer.optimize_array(expr_array.into_array()).unwrap();
@@ -343,7 +321,7 @@ mod tests {
             ExprArray::new_infer_dtype(alp.clone().into_array(), expr.clone()).unwrap();
 
         let session = ArraySession::default();
-        crate::register_alp_rules(&session);
+        crate::initialize(&session);
         let expr_session = ExprSession::default();
         let optimizer = session.optimizer(ExprOptimizer::new(&expr_session));
         let optimized = optimizer.optimize_array(expr_array.into_array()).unwrap();
@@ -398,7 +376,7 @@ mod tests {
         let test_value = 0.06051f32;
 
         let session = ArraySession::default();
-        crate::register_alp_rules(&session);
+        crate::initialize(&session);
         let expr_session = ExprSession::default();
         let expr_optimizer = ExprOptimizer::new(&expr_session);
 
