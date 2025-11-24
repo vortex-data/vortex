@@ -1,0 +1,6 @@
+# WASM build artifacts.
+/target
+/pkg
+
+# Cargo lock file for binary projects.
+Cargo.lock
