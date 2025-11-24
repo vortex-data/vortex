@@ -7,4 +7,4 @@ pub use array::{BitPackedArray, bitpack_compress, bitpack_decompress, unpack_ite
 mod compute;
 
 mod vtable;
-pub use vtable::{BitPackedEncoding, BitPackedVTable};
+pub use vtable::BitPackedVTable;

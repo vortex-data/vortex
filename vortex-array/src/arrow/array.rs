@@ -17,19 +17,19 @@ use crate::arrow::FromArrowArray;
 use crate::serde::ArrayChildren;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityVTable,
-    VisitorVTable,
+    ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, CanonicalVTable, NotSupported,
+    OperationsVTable, VTable, ValidityVTable, VisitorVTable,
 };
 use crate::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EmptyMetadata, EncodingId,
-    EncodingRef, IntoArray, Precision, vtable,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EmptyMetadata, IntoArray,
+    Precision, vtable,
 };
 
 vtable!(Arrow);
 
 impl VTable for ArrowVTable {
     type Array = ArrowArray;
-    type Encoding = ArrowEncoding;
+
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
@@ -41,12 +41,12 @@ impl VTable for ArrowVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.arrow")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.arrow")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ArrowEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ArrowVTable.as_vtable()
     }
 
     fn metadata(_array: &Self::Array) -> VortexResult<Self::Metadata> {
@@ -62,7 +62,7 @@ impl VTable for ArrowVTable {
     }
 
     fn build(
-        _encoding: &Self::Encoding,
+        &self,
         _dtype: &DType,
         _len: usize,
         _metadata: &Self::Metadata,
@@ -76,7 +76,7 @@ impl VTable for ArrowVTable {
 /// A Vortex array that wraps an in-memory Arrow array.
 // TODO(ngates): consider having each Arrow encoding be a separate encoding ID.
 #[derive(Clone, Debug)]
-pub struct ArrowEncoding;
+pub struct ArrowVTable;
 
 #[derive(Clone, Debug)]
 pub struct ArrowArray {
@@ -100,7 +100,7 @@ impl ArrowArray {
     }
 }
 
-impl ArrayVTable<ArrowVTable> for ArrowVTable {
+impl BaseArrayVTable<ArrowVTable> for ArrowVTable {
     fn len(array: &ArrowArray) -> usize {
         array.inner.len()
     }

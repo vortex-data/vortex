@@ -24,7 +24,6 @@ impl CastKernel for DictVTable {
         };
 
         // SAFETY: casting does not alter invariants of the codes
-        // Preserve all_values_referenced since casting only changes values, not which are referenced
         Ok(Some(
             unsafe {
                 DictArray::new_unchecked(casted_codes, casted_values)

@@ -7,4 +7,4 @@ pub use array::FoRArray;
 mod compute;
 
 mod vtable;
-pub use vtable::{FoREncoding, FoRVTable};
+pub use vtable::FoRVTable;

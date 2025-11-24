@@ -75,7 +75,7 @@ impl<T: NativePType> PScalar<T> {
         Self(value)
     }
 
-    /// Returns the value of the primitive scalar, or `None` if the scalar is null.
+    /// Returns the value of the primitive scalar, or `None` if it is null.
     pub fn value(&self) -> Option<T> {
         self.0
     }

@@ -11,8 +11,8 @@ use crate::arrays::ConstantArray;
 use crate::arrays::constant::vector::to_vector;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
-use crate::vtable::{NotSupported, VTable};
-use crate::{EmptyMetadata, EncodingId, EncodingRef, vtable};
+use crate::vtable::{ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable};
+use crate::{EmptyMetadata, vtable};
 
 mod array;
 mod canonical;
@@ -24,11 +24,11 @@ mod visitor;
 vtable!(Constant);
 
 #[derive(Clone, Debug)]
-pub struct ConstantEncoding;
+pub struct ConstantVTable;
 
 impl VTable for ConstantVTable {
     type Array = ConstantArray;
-    type Encoding = ConstantEncoding;
+
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
@@ -41,12 +41,12 @@ impl VTable for ConstantVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.constant")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.constant")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ConstantEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ConstantVTable.as_vtable()
     }
 
     fn metadata(_array: &ConstantArray) -> VortexResult<Self::Metadata> {
@@ -62,7 +62,7 @@ impl VTable for ConstantVTable {
     }
 
     fn build(
-        _encoding: &ConstantEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,

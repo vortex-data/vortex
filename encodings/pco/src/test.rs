@@ -6,15 +6,13 @@ use vortex_array::arrays::{BoolArray, PrimitiveArray};
 use vortex_array::arrow::compute::to_arrow_preferred;
 use vortex_array::serde::{ArrayParts, SerializeOptions};
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ValidityHelper;
-use vortex_array::{
-    ArrayContext, ArraySession, EncodingRef, IntoArray, ToCanonical, assert_arrays_eq,
-};
+use vortex_array::vtable::{ArrayVTableExt, ValidityHelper};
+use vortex_array::{ArrayContext, ArraySession, IntoArray, ToCanonical, assert_arrays_eq};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_mask::Mask;
 
-use crate::{PcoArray, PcoEncoding};
+use crate::{PcoArray, PcoVTable};
 
 macro_rules! assert_nth_scalar {
     ($arr:expr, $n:expr, $expected:expr) => {
@@ -141,7 +139,7 @@ fn test_serde() {
         session
             .registry()
             .items()
-            .chain([EncodingRef::new_ref(PcoEncoding.as_ref())])
+            .chain([PcoVTable.as_vtable()])
             .collect(),
     );
 

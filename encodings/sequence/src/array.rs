@@ -11,12 +11,12 @@ use vortex_array::execution::ExecutionCtx;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, EncodeVTable, NotSupported, OperationsVTable, VTable,
-    ValidityVTable, VisitorVTable,
+    ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, CanonicalVTable, EncodeVTable,
+    NotSupported, OperationsVTable, VTable, ValidityVTable, VisitorVTable,
 };
 use vortex_array::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata, EncodingId,
-    EncodingRef, Precision, ProstMetadata, SerializeMetadata, vtable,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata, Precision,
+    ProstMetadata, SerializeMetadata, vtable,
 };
 use vortex_buffer::{BufferMut, ByteBuffer};
 use vortex_dtype::Nullability::NonNullable;
@@ -164,7 +164,7 @@ impl SequenceArray {
 
 impl VTable for SequenceVTable {
     type Array = SequenceArray;
-    type Encoding = SequenceEncoding;
+
     type Metadata = ProstMetadata<SequenceMetadata>;
 
     type ArrayVTable = Self;
@@ -176,12 +176,12 @@ impl VTable for SequenceVTable {
     type EncodeVTable = Self;
     type OperatorVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.sequence")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.sequence")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(SequenceEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        SequenceVTable.as_vtable()
     }
 
     fn metadata(array: &SequenceArray) -> VortexResult<Self::Metadata> {
@@ -202,7 +202,7 @@ impl VTable for SequenceVTable {
     }
 
     fn build(
-        _encoding: &SequenceEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -268,7 +268,7 @@ impl VTable for SequenceVTable {
     }
 }
 
-impl ArrayVTable<SequenceVTable> for SequenceVTable {
+impl BaseArrayVTable<SequenceVTable> for SequenceVTable {
     fn len(array: &SequenceArray) -> usize {
         array.length
     }
@@ -363,11 +363,11 @@ impl VisitorVTable<SequenceVTable> for SequenceVTable {
 }
 
 #[derive(Clone, Debug)]
-pub struct SequenceEncoding;
+pub struct SequenceVTable;
 
 impl EncodeVTable<SequenceVTable> for SequenceVTable {
     fn encode(
-        _encoding: &SequenceEncoding,
+        _vtable: &SequenceVTable,
         _canonical: &Canonical,
         _like: Option<&SequenceArray>,
     ) -> VortexResult<Option<SequenceArray>> {

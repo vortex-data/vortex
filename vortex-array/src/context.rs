@@ -9,9 +9,9 @@ use parking_lot::RwLock;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_session::registry::Registry;
 
-use crate::EncodingRef;
+use crate::vtable::ArrayVTable;
 
-pub type ArrayContext = VTableContext<EncodingRef>;
+pub type ArrayContext = VTableContext<ArrayVTable>;
 
 /// A collection of encodings that can be addressed by a u16 positional index.
 /// This is used to map array encodings and layout encodings when reading from a file.

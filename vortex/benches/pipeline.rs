@@ -137,15 +137,13 @@ const T: usize = 32;
 const S: usize = N * W / T;
 
 /// Benchmark sizes to test for performance benchmarks.
-const BENCHMARK_SIZES: [usize; 8] = [
+const BENCHMARK_SIZES: [usize; 6] = [
     1024,   // 1K
     8192,   // 8K
     16384,  // 16K
     65536,  // 64K
-    73728,  // 72K
     86016,  // 84K
     100352, // 98K
-    262144, // 256K
 ];
 
 /// Sizes to test for correctness verification.
@@ -793,81 +791,92 @@ fn compare_outputs(function_name: &str, expected: &[f32], actual: &[f32], expect
 // Benchmarks
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#[divan::bench(consts = BENCHMARK_SIZES)]
+#[divan::bench(consts = BENCHMARK_SIZES, sample_size = 512)]
 fn batch<const SIZE: usize>(bencher: Bencher) {
-    bencher
-        .with_inputs(|| setup(SIZE))
-        .bench_refs(|(input_data, buffers)| {
-            decompress_batch(
-                &input_data.bitpacked,
-                input_data.reference,
-                input_data.exponents,
-                &mut buffers.bitpacked_output,
-                &mut buffers.for_decoded,
-                &mut buffers.alp_decoded,
-            );
-        });
+    let (input_data, mut buffers) = setup(SIZE);
+
+    bencher.bench_local(|| {
+        let input_data = std::hint::black_box(&input_data);
+        let buffers = std::hint::black_box(&mut buffers);
+
+        decompress_batch(
+            &input_data.bitpacked,
+            input_data.reference,
+            input_data.exponents,
+            &mut buffers.bitpacked_output,
+            &mut buffers.for_decoded,
+            &mut buffers.alp_decoded,
+        );
+    });
 }
 
-#[divan::bench(consts = BENCHMARK_SIZES)]
+#[divan::bench(consts = BENCHMARK_SIZES, sample_size = 512)]
 fn pipeline<const SIZE: usize>(bencher: Bencher) {
-    bencher
-        .with_inputs(|| setup(SIZE))
-        .bench_refs(|(input_data, buffers)| {
-            decompress_pipeline(
-                &input_data.bitpacked,
-                input_data.reference,
-                input_data.exponents,
-                &mut buffers.bitpacked_output,
-                &mut buffers.for_decoded,
-                &mut buffers.pipeline_output,
-            );
-        });
+    let (input_data, mut buffers) = setup(SIZE);
+    bencher.bench_local(|| {
+        let input_data = std::hint::black_box(&input_data);
+        let buffers = std::hint::black_box(&mut buffers);
+
+        decompress_pipeline(
+            &input_data.bitpacked,
+            input_data.reference,
+            input_data.exponents,
+            &mut buffers.bitpacked_output,
+            &mut buffers.for_decoded,
+            &mut buffers.pipeline_output,
+        );
+    });
 }
 
-#[divan::bench(consts = BENCHMARK_SIZES)]
+#[divan::bench(consts = BENCHMARK_SIZES, sample_size = 512)]
 fn pipeline_extra_copy<const SIZE: usize>(bencher: Bencher) {
-    bencher
-        .with_inputs(|| setup(SIZE))
-        .bench_refs(|(input_data, buffers)| {
-            decompress_pipeline_extra_copy(
-                &input_data.bitpacked,
-                input_data.reference,
-                input_data.exponents,
-                &mut buffers.bitpacked_output,
-                &mut buffers.for_decoded,
-                &mut buffers.alp_decoded,
-                &mut buffers.pipeline_output,
-            );
-        });
+    let (input_data, mut buffers) = setup(SIZE);
+    bencher.bench_local(|| {
+        let input_data = std::hint::black_box(&input_data);
+        let buffers = std::hint::black_box(&mut buffers);
+
+        decompress_pipeline_extra_copy(
+            &input_data.bitpacked,
+            input_data.reference,
+            input_data.exponents,
+            &mut buffers.bitpacked_output,
+            &mut buffers.for_decoded,
+            &mut buffers.alp_decoded,
+            &mut buffers.pipeline_output,
+        );
+    });
 }
 
-#[divan::bench(consts = BENCHMARK_SIZES)]
+#[divan::bench(consts = BENCHMARK_SIZES, sample_size = 512)]
 fn in_place_batch<const SIZE: usize>(bencher: Bencher) {
-    bencher
-        .with_inputs(|| setup(SIZE))
-        .bench_refs(|(input_data, buffers)| {
-            decompress_in_place_batch(
-                &input_data.bitpacked,
-                input_data.reference,
-                input_data.exponents,
-                &mut buffers.alp_decoded_inplace_batch,
-            );
-        });
+    let (input_data, mut buffers) = setup(SIZE);
+    bencher.bench_local(|| {
+        let input_data = std::hint::black_box(&input_data);
+        let buffers = std::hint::black_box(&mut buffers);
+
+        decompress_in_place_batch(
+            &input_data.bitpacked,
+            input_data.reference,
+            input_data.exponents,
+            &mut buffers.alp_decoded_inplace_batch,
+        );
+    });
 }
 
-#[divan::bench(consts = BENCHMARK_SIZES)]
+#[divan::bench(consts = BENCHMARK_SIZES, sample_size = 512)]
 fn in_place_pipeline<const SIZE: usize>(bencher: Bencher) {
-    bencher
-        .with_inputs(|| setup(SIZE))
-        .bench_refs(|(input_data, buffers)| {
-            decompress_in_place_pipeline(
-                &input_data.bitpacked,
-                input_data.reference,
-                input_data.exponents,
-                &mut buffers.alp_decoded_inplace_pipeline,
-            );
-        });
+    let (input_data, mut buffers) = setup(SIZE);
+    bencher.bench_local(|| {
+        let input_data = std::hint::black_box(&input_data);
+        let buffers = std::hint::black_box(&mut buffers);
+
+        decompress_in_place_pipeline(
+            &input_data.bitpacked,
+            input_data.reference,
+            input_data.exponents,
+            &mut buffers.alp_decoded_inplace_pipeline,
+        );
+    });
 }
 
 // Correctness verification benchmarks.

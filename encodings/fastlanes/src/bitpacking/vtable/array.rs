@@ -4,13 +4,13 @@
 use std::hash::Hash;
 
 use vortex_array::stats::StatsSetRef;
-use vortex_array::vtable::ArrayVTable;
+use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::{ArrayEq, ArrayHash, Precision};
 use vortex_dtype::DType;
 
 use crate::{BitPackedArray, BitPackedVTable};
 
-impl ArrayVTable<BitPackedVTable> for BitPackedVTable {
+impl BaseArrayVTable<BitPackedVTable> for BitPackedVTable {
     fn len(array: &BitPackedArray) -> usize {
         array.len
     }

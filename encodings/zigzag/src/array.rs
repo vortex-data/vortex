@@ -7,12 +7,12 @@ use std::ops::Range;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, EncodeVTable, NotSupported, OperationsVTable, VTable,
-    ValidityChild, ValidityVTableFromChild, VisitorVTable,
+    ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, CanonicalVTable, EncodeVTable,
+    NotSupported, OperationsVTable, VTable, ValidityChild, ValidityVTableFromChild, VisitorVTable,
 };
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
-    EmptyMetadata, EncodingId, EncodingRef, IntoArray, Precision, ToCanonical, vtable,
+    EmptyMetadata, IntoArray, Precision, ToCanonical, vtable,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType, match_each_unsigned_integer_ptype};
@@ -27,7 +27,7 @@ vtable!(ZigZag);
 
 impl VTable for ZigZagVTable {
     type Array = ZigZagArray;
-    type Encoding = ZigZagEncoding;
+
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
@@ -39,12 +39,12 @@ impl VTable for ZigZagVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.zigzag")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.zigzag")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ZigZagEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ZigZagVTable.as_vtable()
     }
 
     fn metadata(_array: &ZigZagArray) -> VortexResult<Self::Metadata> {
@@ -60,7 +60,7 @@ impl VTable for ZigZagVTable {
     }
 
     fn build(
-        _encoding: &ZigZagEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
@@ -87,7 +87,7 @@ pub struct ZigZagArray {
 }
 
 #[derive(Clone, Debug)]
-pub struct ZigZagEncoding;
+pub struct ZigZagVTable;
 
 impl ZigZagArray {
     pub fn new(encoded: ArrayRef) -> Self {
@@ -119,7 +119,7 @@ impl ZigZagArray {
     }
 }
 
-impl ArrayVTable<ZigZagVTable> for ZigZagVTable {
+impl BaseArrayVTable<ZigZagVTable> for ZigZagVTable {
     fn len(array: &ZigZagArray) -> usize {
         array.encoded.len()
     }
@@ -181,7 +181,7 @@ impl ValidityChild<ZigZagVTable> for ZigZagVTable {
 
 impl EncodeVTable<ZigZagVTable> for ZigZagVTable {
     fn encode(
-        encoding: &ZigZagEncoding,
+        encoding: &ZigZagVTable,
         canonical: &Canonical,
         _like: Option<&ZigZagArray>,
     ) -> VortexResult<Option<ZigZagArray>> {
@@ -219,7 +219,11 @@ mod test {
     fn test_compute_statistics() {
         let array = buffer![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array();
         let canonical = array.to_canonical();
-        let zigzag = ZigZagEncoding.encode(&canonical, None).unwrap().unwrap();
+        let zigzag = ZigZagVTable
+            .as_vtable()
+            .encode(&canonical, None)
+            .unwrap()
+            .unwrap();
 
         assert_eq!(
             zigzag.statistics().compute_max::<i32>(),
