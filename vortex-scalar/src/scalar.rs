@@ -239,6 +239,44 @@ impl Scalar {
         }
     }
 
+    /// Returns true if the scalar is a zero value i.e., equal to a scalar returned from the ` zero_value ` method.
+    pub fn is_zero(&self) -> bool {
+        match self.dtype() {
+            DType::Null => true,
+            DType::Bool(_) => self.as_bool().value() == Some(false),
+            DType::Primitive(pt, _) => self.as_primitive().pvalue() == Some(PValue::zero(*pt)),
+            DType::Decimal(..) => {
+                self.as_decimal().decimal_value() == Some(DecimalValue::from(0i8))
+            }
+            DType::Utf8(_) => self
+                .as_utf8()
+                .value()
+                .map(|v| v.is_empty())
+                .unwrap_or(false),
+            DType::Binary(_) => self
+                .as_binary()
+                .value()
+                .map(|v| v.is_empty())
+                .unwrap_or(false),
+            DType::Struct(..) => self
+                .as_struct()
+                .fields()
+                .map(|mut sf| sf.all(|f| f.is_zero()))
+                .unwrap_or(false),
+            DType::List(..) => self
+                .as_list()
+                .elements()
+                .map(|vals| vals.is_empty())
+                .unwrap_or(false),
+            DType::FixedSizeList(..) => self
+                .as_list()
+                .elements()
+                .map(|vals| vals.iter().all(|f| f.is_zero()))
+                .unwrap_or(false),
+            DType::Extension(..) => self.as_extension().storage().is_zero(),
+        }
+    }
+
     /// Creates a "default" scalar value for the given data type.
     ///
     /// For nullable types, returns null. For non-nullable types, returns an appropriate zero/empty

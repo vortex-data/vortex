@@ -13,7 +13,7 @@ use vortex_mask::Mask;
 use super::{ListViewScalar, ListViewVectorMut};
 use crate::primitive::PrimitiveVector;
 use crate::vector_ops::{VectorMutOps, VectorOps};
-use crate::{Scalar, Vector, match_each_integer_pvector};
+use crate::{Vector, match_each_integer_pvector};
 
 /// A vector of variable-width lists.
 ///
@@ -202,6 +202,7 @@ impl ListViewVector {
 
 impl VectorOps for ListViewVector {
     type Mutable = ListViewVectorMut;
+    type Scalar = ListViewScalar;
 
     fn len(&self) -> usize {
         self.len
@@ -211,9 +212,9 @@ impl VectorOps for ListViewVector {
         &self.validity
     }
 
-    fn scalar_at(&self, index: usize) -> Scalar {
+    fn scalar_at(&self, index: usize) -> ListViewScalar {
         assert!(index < self.len());
-        ListViewScalar::new(self.slice(index..index + 1)).into()
+        ListViewScalar::new(self.slice(index..index + 1))
     }
 
     fn slice(&self, _range: impl RangeBounds<usize> + Clone + Debug) -> Self {

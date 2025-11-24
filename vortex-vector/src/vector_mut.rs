@@ -18,7 +18,7 @@ use crate::listview::ListViewVectorMut;
 use crate::null::NullVectorMut;
 use crate::primitive::PrimitiveVectorMut;
 use crate::struct_::StructVectorMut;
-use crate::{Vector, VectorMutOps, match_each_vector_mut, match_vector_pair};
+use crate::{Vector, VectorMutOps, VectorOps, match_each_vector_mut, match_vector_pair};
 
 /// An enum over all kinds of mutable vectors, which represent fully decompressed (canonical) array
 /// data.
@@ -122,6 +122,16 @@ impl VectorMutOps for VectorMut {
 
     fn append_nulls(&mut self, n: usize) {
         match_each_vector_mut!(self, |v| { v.append_nulls(n) })
+    }
+
+    fn append_zeros(&mut self, n: usize) {
+        match_each_vector_mut!(self, |v| { v.append_zeros(n) })
+    }
+
+    fn append_scalars(&mut self, scalar: &<Self::Immutable as VectorOps>::Scalar, n: usize) {
+        match_vector_pair!(self, scalar, |a: VectorMut, b: Scalar| {
+            a.append_scalars(b, n)
+        })
     }
 
     fn freeze(self) -> Vector {

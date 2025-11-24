@@ -18,7 +18,7 @@ use std::ops::Deref;
 
 use arrow_schema::{DataType, Field};
 pub(crate) use ptype::*;
-use pyo3::prelude::{PyAnyMethods, PyModule, PyModuleMethods};
+use pyo3::prelude::{PyModule, PyModuleMethods};
 use pyo3::types::PyType;
 use pyo3::{
     Bound, Py, PyAny, PyClass, PyClassInitializer, PyResult, Python, pyclass, pymethods,
@@ -127,7 +127,7 @@ impl PyDType {
             PyClassInitializer::from(PyDType(dtype)).add_subclass(subclass),
         )?
         .into_any()
-        .downcast_into::<PyDType>()?)
+        .cast_into::<PyDType>()?)
     }
 
     /// Return the inner [`DType`] value.
@@ -176,5 +176,5 @@ impl PyDType {
 }
 
 fn import_arrow_dtype(obj: &Bound<PyAny>) -> PyResult<DataType> {
-    DataType::from_pyarrow_bound(obj)
+    DataType::from_pyarrow(&obj.as_borrowed())
 }

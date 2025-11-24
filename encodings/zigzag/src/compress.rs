@@ -71,12 +71,12 @@ mod test {
     use vortex_array::ToCanonical;
 
     use super::*;
-    use crate::ZigZagEncoding;
+    use crate::ZigZagVTable;
 
     #[test]
     fn test_compress_i8() {
         let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i8..100)).unwrap();
-        assert_eq!(compressed.encoding_id(), ZigZagEncoding.id());
+        assert!(compressed.is::<ZigZagVTable>());
         assert_eq!(
             compressed.to_primitive().as_slice::<i8>(),
             (-100_i8..100).collect::<Vec<_>>()
@@ -85,7 +85,7 @@ mod test {
     #[test]
     fn test_compress_i16() {
         let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i16..100)).unwrap();
-        assert_eq!(compressed.encoding_id(), ZigZagEncoding.id());
+        assert!(compressed.is::<ZigZagVTable>());
         assert_eq!(
             compressed.to_primitive().as_slice::<i16>(),
             (-100_i16..100).collect::<Vec<_>>()
@@ -94,7 +94,7 @@ mod test {
     #[test]
     fn test_compress_i32() {
         let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i32..100)).unwrap();
-        assert_eq!(compressed.encoding_id(), ZigZagEncoding.id());
+        assert!(compressed.is::<ZigZagVTable>());
         assert_eq!(
             compressed.to_primitive().as_slice::<i32>(),
             (-100_i32..100).collect::<Vec<_>>()
@@ -103,7 +103,7 @@ mod test {
     #[test]
     fn test_compress_i64() {
         let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i64..100)).unwrap();
-        assert_eq!(compressed.encoding_id(), ZigZagEncoding.id());
+        assert!(compressed.is::<ZigZagVTable>());
         assert_eq!(
             compressed.to_primitive().as_slice::<i64>(),
             (-100_i64..100).collect::<Vec<_>>()

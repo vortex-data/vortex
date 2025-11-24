@@ -13,11 +13,12 @@ use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
-    ArrayVTable, EncodeVTable, NotSupported, VTable, ValidityVTable, VisitorVTable,
+    ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, EncodeVTable, NotSupported, VTable,
+    ValidityVTable, VisitorVTable,
 };
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
-    EncodingId, EncodingRef, IntoArray, Precision, ProstMetadata, ToCanonical, vtable,
+    IntoArray, Precision, ProstMetadata, ToCanonical, vtable,
 };
 use vortex_buffer::{BitBufferMut, Buffer, ByteBuffer, ByteBufferMut};
 use vortex_dtype::{DType, NativePType, Nullability, match_each_integer_ptype};
@@ -40,7 +41,7 @@ pub struct SparseMetadata {
 
 impl VTable for SparseVTable {
     type Array = SparseArray;
-    type Encoding = SparseEncoding;
+
     type Metadata = ProstMetadata<SparseMetadata>;
 
     type ArrayVTable = Self;
@@ -52,12 +53,12 @@ impl VTable for SparseVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.sparse")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.sparse")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(SparseEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        SparseVTable.as_vtable()
     }
 
     fn metadata(array: &SparseArray) -> VortexResult<Self::Metadata> {
@@ -75,7 +76,7 @@ impl VTable for SparseVTable {
     }
 
     fn build(
-        _encoding: &SparseEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -118,7 +119,7 @@ pub struct SparseArray {
 }
 
 #[derive(Clone, Debug)]
-pub struct SparseEncoding;
+pub struct SparseVTable;
 
 impl SparseArray {
     pub fn try_new(
@@ -304,7 +305,7 @@ impl SparseArray {
     }
 }
 
-impl ArrayVTable<SparseVTable> for SparseVTable {
+impl BaseArrayVTable<SparseVTable> for SparseVTable {
     fn len(array: &SparseArray) -> usize {
         array.patches.array_len()
     }
@@ -415,7 +416,7 @@ fn patch_validity<I: NativePType + AsPrimitive<usize>>(
 
 impl EncodeVTable<SparseVTable> for SparseVTable {
     fn encode(
-        _encoding: &SparseEncoding,
+        _vtable: &SparseVTable,
         input: &Canonical,
         like: Option<&SparseArray>,
     ) -> VortexResult<Option<SparseArray>> {

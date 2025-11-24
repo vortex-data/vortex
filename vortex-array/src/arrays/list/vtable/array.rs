@@ -9,9 +9,9 @@ use crate::Precision;
 use crate::arrays::{ListArray, ListVTable};
 use crate::hash::{ArrayEq, ArrayHash};
 use crate::stats::StatsSetRef;
-use crate::vtable::ArrayVTable;
+use crate::vtable::BaseArrayVTable;
 
-impl ArrayVTable<ListVTable> for ListVTable {
+impl BaseArrayVTable<ListVTable> for ListVTable {
     fn len(array: &ListArray) -> usize {
         array.offsets.len().saturating_sub(1)
     }

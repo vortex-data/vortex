@@ -5,12 +5,12 @@ use vortex_array::Canonical;
 use vortex_array::vtable::EncodeVTable;
 use vortex_error::VortexResult;
 
-use super::{FoREncoding, FoRVTable};
+use super::FoRVTable;
 use crate::FoRArray;
 
 impl EncodeVTable<FoRVTable> for FoRVTable {
     fn encode(
-        _encoding: &FoREncoding,
+        _vtable: &FoRVTable,
         canonical: &Canonical,
         _like: Option<&FoRArray>,
     ) -> VortexResult<Option<FoRArray>> {

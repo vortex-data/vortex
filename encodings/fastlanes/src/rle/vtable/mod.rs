@@ -3,8 +3,10 @@
 
 use prost::Message;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{NotSupported, VTable, ValidityVTableFromChildSliceHelper};
-use vortex_array::{EncodingId, EncodingRef, ProstMetadata, vtable};
+use vortex_array::vtable::{
+    ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable, ValidityVTableFromChildSliceHelper,
+};
+use vortex_array::{ProstMetadata, vtable};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::VortexResult;
@@ -38,7 +40,7 @@ pub struct RLEMetadata {
 
 impl VTable for RLEVTable {
     type Array = RLEArray;
-    type Encoding = RLEEncoding;
+
     type Metadata = ProstMetadata<RLEMetadata>;
 
     type ArrayVTable = Self;
@@ -50,12 +52,12 @@ impl VTable for RLEVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("fastlanes.rle")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("fastlanes.rle")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(RLEEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        RLEVTable.as_vtable()
     }
 
     fn metadata(array: &RLEArray) -> VortexResult<Self::Metadata> {
@@ -78,7 +80,7 @@ impl VTable for RLEVTable {
     }
 
     fn build(
-        _encoding: &RLEEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -118,7 +120,7 @@ impl VTable for RLEVTable {
 }
 
 #[derive(Clone, Debug)]
-pub struct RLEEncoding;
+pub struct RLEVTable;
 
 #[cfg(test)]
 mod tests {

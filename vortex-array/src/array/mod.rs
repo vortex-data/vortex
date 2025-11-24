@@ -22,21 +22,18 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{
-    BoolEncoding, ConstantVTable, DecimalEncoding, ExtensionEncoding, FixedSizeListEncoding,
-    ListViewEncoding, NullEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding,
-    VarBinViewEncoding,
+    BoolVTable, ConstantVTable, DecimalVTable, ExtensionVTable, FixedSizeListVTable,
+    ListViewVTable, NullVTable, PrimitiveVTable, StructVTable, VarBinVTable, VarBinViewVTable,
 };
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output, is_constant_opts};
 use crate::serde::ArrayChildren;
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
 use crate::vtable::{
-    ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, VTable, ValidityVTable,
-    VisitorVTable,
+    ArrayId, ArrayVTable, BaseArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable,
+    VTable, ValidityVTable, VisitorVTable,
 };
-use crate::{
-    ArrayEq, ArrayHash, Canonical, DynArrayEq, DynArrayHash, EncodingId, EncodingRef, hash,
-};
+use crate::{ArrayEq, ArrayHash, Canonical, DynArrayEq, DynArrayHash, hash};
 
 /// The public API trait for all Vortex arrays.
 pub trait Array:
@@ -68,10 +65,10 @@ pub trait Array:
     fn dtype(&self) -> &DType;
 
     /// Returns the encoding of the array.
-    fn encoding(&self) -> EncodingRef;
+    fn encoding(&self) -> ArrayVTable;
 
     /// Returns the encoding ID of the array.
-    fn encoding_id(&self) -> EncodingId;
+    fn encoding_id(&self) -> ArrayId;
 
     /// Performs a constant-time slice of the array.
     fn slice(&self, range: Range<usize>) -> ArrayRef;
@@ -82,32 +79,32 @@ pub trait Array:
     fn scalar_at(&self, index: usize) -> Scalar;
 
     /// Returns whether the array is of the given encoding.
-    fn is_encoding(&self, encoding: EncodingId) -> bool {
+    fn is_encoding(&self, encoding: ArrayId) -> bool {
         self.encoding_id() == encoding
     }
 
     /// Returns whether this array is an arrow encoding.
     // TODO(ngates): this shouldn't live here.
     fn is_arrow(&self) -> bool {
-        self.is_encoding(NullEncoding.id())
-            || self.is_encoding(BoolEncoding.id())
-            || self.is_encoding(PrimitiveEncoding.id())
-            || self.is_encoding(VarBinEncoding.id())
-            || self.is_encoding(VarBinViewEncoding.id())
+        self.is_encoding(NullVTable.id())
+            || self.is_encoding(BoolVTable.id())
+            || self.is_encoding(PrimitiveVTable.id())
+            || self.is_encoding(VarBinVTable.id())
+            || self.is_encoding(VarBinViewVTable.id())
     }
 
     /// Whether the array is of a canonical encoding.
     // TODO(ngates): this shouldn't live here.
     fn is_canonical(&self) -> bool {
-        self.is_encoding(NullEncoding.id())
-            || self.is_encoding(BoolEncoding.id())
-            || self.is_encoding(PrimitiveEncoding.id())
-            || self.is_encoding(DecimalEncoding.id())
-            || self.is_encoding(StructEncoding.id())
-            || self.is_encoding(ListViewEncoding.id())
-            || self.is_encoding(FixedSizeListEncoding.id())
-            || self.is_encoding(VarBinViewEncoding.id())
-            || self.is_encoding(ExtensionEncoding.id())
+        self.is_encoding(NullVTable.id())
+            || self.is_encoding(BoolVTable.id())
+            || self.is_encoding(PrimitiveVTable.id())
+            || self.is_encoding(DecimalVTable.id())
+            || self.is_encoding(StructVTable.id())
+            || self.is_encoding(ListViewVTable.id())
+            || self.is_encoding(FixedSizeListVTable.id())
+            || self.is_encoding(VarBinViewVTable.id())
+            || self.is_encoding(ExtensionVTable.id())
     }
 
     /// Returns whether the item at `index` is valid.
@@ -192,12 +189,12 @@ impl Array for Arc<dyn Array> {
     }
 
     #[inline]
-    fn encoding(&self) -> EncodingRef {
+    fn encoding(&self) -> ArrayVTable {
         self.as_ref().encoding()
     }
 
     #[inline]
-    fn encoding_id(&self) -> EncodingId {
+    fn encoding_id(&self) -> ArrayId {
         self.as_ref().encoding_id()
     }
 
@@ -394,18 +391,18 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn len(&self) -> usize {
-        <V::ArrayVTable as ArrayVTable<V>>::len(&self.0)
+        <V::ArrayVTable as BaseArrayVTable<V>>::len(&self.0)
     }
 
     fn dtype(&self) -> &DType {
-        <V::ArrayVTable as ArrayVTable<V>>::dtype(&self.0)
+        <V::ArrayVTable as BaseArrayVTable<V>>::dtype(&self.0)
     }
 
-    fn encoding(&self) -> EncodingRef {
+    fn encoding(&self) -> ArrayVTable {
         V::encoding(&self.0)
     }
 
-    fn encoding_id(&self) -> EncodingId {
+    fn encoding_id(&self) -> ArrayId {
         V::encoding(&self.0).id()
     }
 
@@ -583,7 +580,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn statistics(&self) -> StatsSetRef<'_> {
-        <V::ArrayVTable as ArrayVTable<V>>::stats(&self.0)
+        <V::ArrayVTable as BaseArrayVTable<V>>::stats(&self.0)
     }
 
     fn with_children(&self, children: &[ArrayRef]) -> VortexResult<ArrayRef> {
@@ -636,13 +633,13 @@ impl<V: VTable> Array for ArrayAdapter<V> {
 impl<V: VTable> ArrayHash for ArrayAdapter<V> {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: hash::Precision) {
         self.0.encoding_id().hash(state);
-        <V::ArrayVTable as ArrayVTable<V>>::array_hash(&self.0, state, precision);
+        <V::ArrayVTable as BaseArrayVTable<V>>::array_hash(&self.0, state, precision);
     }
 }
 
 impl<V: VTable> ArrayEq for ArrayAdapter<V> {
     fn array_eq(&self, other: &Self, precision: hash::Precision) -> bool {
-        <V::ArrayVTable as ArrayVTable<V>>::array_eq(&self.0, &other.0, precision)
+        <V::ArrayVTable as BaseArrayVTable<V>>::array_eq(&self.0, &other.0, precision)
     }
 }
 

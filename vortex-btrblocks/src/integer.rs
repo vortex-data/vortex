@@ -763,13 +763,13 @@ mod tests {
     use log::LevelFilter;
     use rand::rngs::StdRng;
     use rand::{RngCore, SeedableRng};
-    use vortex_array::arrays::{DictEncoding, PrimitiveArray};
+    use vortex_array::arrays::{DictVTable, PrimitiveArray};
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
     use vortex_array::{Array, IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::{Buffer, BufferMut, buffer, buffer_mut};
-    use vortex_sequence::SequenceEncoding;
-    use vortex_sparse::SparseEncoding;
+    use vortex_sequence::SequenceVTable;
+    use vortex_sparse::SparseVTable;
     use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::integer::{
@@ -813,7 +813,7 @@ mod tests {
 
         let primitive = codes.freeze().into_array().to_primitive();
         let compressed = IntCompressor::compress(&primitive, false, 3, &[]).unwrap();
-        assert_eq!(compressed.encoding_id(), DictEncoding.id());
+        assert!(compressed.is::<DictVTable>());
     }
 
     #[test]
@@ -851,7 +851,7 @@ mod tests {
         let compressed = SparseScheme
             .compress(&IntegerStats::generate(&array), false, 3, &[])
             .unwrap();
-        assert_eq!(compressed.encoding_id(), SparseEncoding.id());
+        assert!(compressed.is::<SparseVTable>());
         let decoded = compressed.clone();
         let expected =
             PrimitiveArray::new(buffer![189u8, 189, 189, 0, 0], array.validity().clone())
@@ -870,7 +870,7 @@ mod tests {
         let compressed = SparseScheme
             .compress(&IntegerStats::generate(&array), false, 3, &[])
             .unwrap();
-        assert_eq!(compressed.encoding_id(), SparseEncoding.id());
+        assert!(compressed.is::<SparseVTable>());
         let decoded = compressed.clone();
         let expected = PrimitiveArray::new(
             buffer![0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 46],
@@ -887,7 +887,7 @@ mod tests {
         let compressed = SequenceScheme
             .compress(&IntegerStats::generate(&array), false, 3, &[])
             .unwrap();
-        assert_eq!(compressed.encoding_id(), SequenceEncoding.id());
+        assert!(compressed.is::<SequenceVTable>());
         let decoded = compressed;
         let expected = PrimitiveArray::from_option_iter(values.into_iter().map(Some)).into_array();
         assert_arrays_eq!(decoded.as_ref(), expected.as_ref());

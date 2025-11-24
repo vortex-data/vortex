@@ -11,8 +11,8 @@ use crate::arrays::{ChunkedArray, PrimitiveArray};
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{NotSupported, VTable};
-use crate::{ArrayOperator, EmptyMetadata, EncodingId, EncodingRef, ToCanonical, vtable};
+use crate::vtable::{ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable};
+use crate::{ArrayOperator, EmptyMetadata, ToCanonical, vtable};
 
 mod array;
 mod canonical;
@@ -25,7 +25,7 @@ vtable!(Chunked);
 
 impl VTable for ChunkedVTable {
     type Array = ChunkedArray;
-    type Encoding = ChunkedEncoding;
+
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
@@ -37,12 +37,12 @@ impl VTable for ChunkedVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.chunked")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.chunked")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ChunkedEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ChunkedVTable.as_vtable()
     }
 
     fn metadata(_array: &ChunkedArray) -> VortexResult<Self::Metadata> {
@@ -58,7 +58,7 @@ impl VTable for ChunkedVTable {
     }
 
     fn build(
-        _encoding: &ChunkedEncoding,
+        &self,
         dtype: &DType,
         _len: usize,
         _metadata: &Self::Metadata,
@@ -124,4 +124,4 @@ impl VTable for ChunkedVTable {
 }
 
 #[derive(Clone, Debug)]
-pub struct ChunkedEncoding;
+pub struct ChunkedVTable;

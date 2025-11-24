@@ -188,10 +188,12 @@ impl PyVortexFile {
 
 pub struct PyIntoProjection(Expression);
 
-impl<'py> FromPyObject<'py> for PyIntoProjection {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for PyIntoProjection {
+    type Error = PyErr;
+
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
         // If it's a list of strings, convert to a column selection.
-        if let Ok(py_list) = ob.downcast::<PyList>() {
+        if let Ok(py_list) = ob.cast::<PyList>() {
             let cols = py_list
                 .iter()
                 .map(|item| item.extract::<String>())
@@ -203,7 +205,7 @@ impl<'py> FromPyObject<'py> for PyIntoProjection {
         }
 
         // If it's an expression, just return it.
-        if let Ok(py_expr) = ob.downcast::<PyExpr>() {
+        if let Ok(py_expr) = ob.cast::<PyExpr>() {
             return Ok(PyIntoProjection(py_expr.get().inner().clone()));
         }
 

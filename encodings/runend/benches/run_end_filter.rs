@@ -42,12 +42,11 @@ const BENCH_ARGS: &[(usize, usize, f64)] = &[
 
 #[divan::bench(args = BENCH_ARGS)]
 fn take_indices(bencher: Bencher, (n, run_step, filter_density): (usize, usize, f64)) {
-    let (array, mask) = fixture(n, run_step, filter_density);
-
-    let indices = mask.values().unwrap().indices();
-
     bencher
-        .with_inputs(|| (&array, indices))
+        .with_inputs(|| {
+            let (array, mask) = fixture(n, run_step, filter_density);
+            (array, mask.values().unwrap().indices().to_owned())
+        })
         .bench_refs(|(array, indices)| {
             take_indices_unchecked(array, indices, &Validity::NonNullable).unwrap()
         });
@@ -55,10 +54,8 @@ fn take_indices(bencher: Bencher, (n, run_step, filter_density): (usize, usize, 
 
 #[divan::bench(args = BENCH_ARGS)]
 fn filter_runend(bencher: Bencher, (n, run_step, filter_density): (usize, usize, f64)) {
-    let (array, mask) = fixture(n, run_step, filter_density);
-
     bencher
-        .with_inputs(|| (&array, &mask))
+        .with_inputs(|| fixture(n, run_step, filter_density))
         .bench_refs(|(array, mask)| filter_run_end(array, mask).unwrap());
 }
 

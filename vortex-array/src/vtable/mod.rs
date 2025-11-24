@@ -6,6 +6,7 @@
 mod array;
 mod canonical;
 mod compute;
+mod dyn_;
 mod encode;
 mod operations;
 mod operator;
@@ -18,6 +19,7 @@ use std::ops::Deref;
 pub use array::*;
 pub use canonical::*;
 pub use compute::*;
+pub use dyn_::*;
 pub use encode::*;
 pub use operations::*;
 pub use operator::*;
@@ -30,29 +32,29 @@ use vortex_vector::Vector;
 
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
-use crate::{Array, Encoding, EncodingId, EncodingRef, IntoArray};
+use crate::{Array, IntoArray};
 
-/// The encoding [`VTable`] encapsulates logic for an Encoding type and associated Array type.
+/// The array [`VTable`] encapsulates logic for an Array type within Vortex.
+///
 /// The logic is split across several "VTable" traits to enable easier code organization than
 /// simply lumping everything into a single trait.
 ///
 /// Some of these vtables are optional, such as the [`ComputeVTable`] and [`EncodeVTable`],
 /// which can be disabled by assigning to the [`NotSupported`] type.
 ///
-/// From this [`VTable`] trait, we derive implementations for the sealed [`Array`] and [`Encoding`]
-/// traits via the [`crate::ArrayAdapter`] and [`crate::EncodingAdapter`] types respectively.
+/// From this [`VTable`] trait, we derive implementations for the sealed [`Array`] and [`DynVTable`]
+/// traits via the [`crate::ArrayAdapter`] and [`ArrayVTableAdapter`] types respectively.
 ///
 /// The functions defined in these vtable traits will typically document their pre- and
-/// post-conditions. The pre-conditions are validated inside the [`Array`] and [`Encoding`]
+/// post-conditions. The pre-conditions are validated inside the [`Array`] and [`DynVTable`]
 /// implementations so do not need to be checked in the vtable implementations (for example, index
 /// out of bounds). Post-conditions are validated after invocation of the vtable function and will
 /// panic if violated.
-pub trait VTable: 'static + Sized + Send + Sync + Debug {
+pub trait VTable: 'static + Sized + Send + Sync + Clone + Debug {
     type Array: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn Array> + IntoArray;
-    type Encoding: 'static + Send + Sync + Clone + Deref<Target = dyn Encoding>;
     type Metadata: Debug;
 
-    type ArrayVTable: ArrayVTable<Self>;
+    type ArrayVTable: BaseArrayVTable<Self>;
     type CanonicalVTable: CanonicalVTable<Self>;
     type OperationsVTable: OperationsVTable<Self>;
     type ValidityVTable: ValidityVTable<Self>;
@@ -70,10 +72,10 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type OperatorVTable: OperatorVTable<Self>;
 
     /// Returns the ID of the encoding.
-    fn id(encoding: &Self::Encoding) -> EncodingId;
+    fn id(&self) -> ArrayId;
 
     /// Returns the encoding for the array.
-    fn encoding(array: &Self::Array) -> EncodingRef;
+    fn encoding(array: &Self::Array) -> ArrayVTable;
 
     /// Exports metadata for an array.
     ///
@@ -122,7 +124,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     ///   encoding
     /// * Running UTF-8 validation for any buffers that are expected to hold flat UTF-8 data
     fn build(
-        encoding: &Self::Encoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -155,9 +157,6 @@ pub struct NotSupported;
 macro_rules! vtable {
     ($V:ident) => {
         $crate::aliases::paste::paste! {
-            #[derive(Debug)]
-            pub struct [<$V VTable>];
-
             impl AsRef<dyn $crate::Array> for [<$V Array>] {
                 fn as_ref(&self) -> &dyn $crate::Array {
                     // We can unsafe cast ourselves to an ArrayAdapter.
@@ -185,22 +184,6 @@ macro_rules! vtable {
                 fn from(value: [<$V Array>]) -> $crate::ArrayRef {
                     use $crate::IntoArray;
                     value.into_array()
-                }
-            }
-
-            impl AsRef<dyn $crate::Encoding> for [<$V Encoding>] {
-                fn as_ref(&self) -> &dyn $crate::Encoding {
-                    // We can unsafe cast ourselves to an EncodingAdapter.
-                    unsafe { &*(self as *const [<$V Encoding>] as *const $crate::EncodingAdapter<[<$V VTable>]>) }
-                }
-            }
-
-            impl std::ops::Deref for [<$V Encoding>] {
-                type Target = dyn $crate::Encoding;
-
-                fn deref(&self) -> &Self::Target {
-                    // We can unsafe cast ourselves to an EncodingAdapter.
-                    unsafe { &*(self as *const [<$V Encoding>] as *const $crate::EncodingAdapter<[<$V VTable>]>) }
                 }
             }
         }

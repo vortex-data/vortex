@@ -7,7 +7,7 @@ pub use array::DecimalArray;
 mod compute;
 
 mod vtable;
-pub use vtable::{DecimalEncoding, DecimalMaskedValidityRule, DecimalVTable};
+pub use vtable::{DecimalMaskedValidityRule, DecimalVTable};
 
 mod utils;
 pub use utils::*;

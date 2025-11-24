@@ -20,6 +20,11 @@ impl StructScalar {
         assert_eq!(vector.len(), 1);
         Self(vector)
     }
+
+    /// Returns the inner length-1 vector representing the struct scalar.
+    pub fn value(&self) -> &StructVector {
+        &self.0
+    }
 }
 
 impl ScalarOps for StructScalar {

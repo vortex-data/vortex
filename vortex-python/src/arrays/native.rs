@@ -172,7 +172,7 @@ impl PyNativeArray {
                 .add_subclass(subclass),
         )?
         .into_any()
-        .downcast_into::<PyNativeArray>()?)
+        .cast_into::<PyNativeArray>()?)
     }
 
     pub fn inner(&self) -> &ArrayRef {

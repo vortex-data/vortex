@@ -8,13 +8,12 @@ use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, EncodeVTable, NotSupported, VTable, ValidityChild,
-    ValidityVTableFromChild, VisitorVTable,
+    ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, CanonicalVTable, EncodeVTable,
+    NotSupported, VTable, ValidityChild, ValidityVTableFromChild, VisitorVTable,
 };
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
-    DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata, SerializeMetadata,
-    vtable,
+    DeserializeMetadata, Precision, ProstMetadata, SerializeMetadata, vtable,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
@@ -27,7 +26,7 @@ vtable!(ALP);
 
 impl VTable for ALPVTable {
     type Array = ALPArray;
-    type Encoding = ALPEncoding;
+
     type Metadata = ProstMetadata<ALPMetadata>;
 
     type ArrayVTable = Self;
@@ -39,12 +38,12 @@ impl VTable for ALPVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.alp")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.alp")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ALPEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ALPVTable.as_vtable()
     }
 
     fn metadata(array: &ALPArray) -> VortexResult<Self::Metadata> {
@@ -70,7 +69,7 @@ impl VTable for ALPVTable {
     }
 
     fn build(
-        _encoding: &ALPEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -125,7 +124,7 @@ pub struct ALPArray {
 }
 
 #[derive(Clone, Debug)]
-pub struct ALPEncoding;
+pub struct ALPVTable;
 
 #[derive(Clone, prost::Message)]
 pub struct ALPMetadata {
@@ -334,7 +333,7 @@ impl ValidityChild<ALPVTable> for ALPVTable {
     }
 }
 
-impl ArrayVTable<ALPVTable> for ALPVTable {
+impl BaseArrayVTable<ALPVTable> for ALPVTable {
     fn len(array: &ALPArray) -> usize {
         array.encoded.len()
     }
@@ -370,7 +369,7 @@ impl CanonicalVTable<ALPVTable> for ALPVTable {
 
 impl EncodeVTable<ALPVTable> for ALPVTable {
     fn encode(
-        _encoding: &ALPEncoding,
+        _vtable: &ALPVTable,
         canonical: &Canonical,
         like: Option<&ALPArray>,
     ) -> VortexResult<Option<ALPArray>> {

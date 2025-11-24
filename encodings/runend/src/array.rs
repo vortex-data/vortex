@@ -8,10 +8,13 @@ use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::search_sorted::{SearchSorted, SearchSortedSide};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::{ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTable};
+use vortex_array::vtable::{
+    ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, CanonicalVTable, NotSupported, VTable,
+    ValidityVTable,
+};
 use vortex_array::{
-    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, DeserializeMetadata, EncodingId, EncodingRef,
-    IntoArray, Precision, ProstMetadata, SerializeMetadata, ToCanonical, vtable,
+    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, DeserializeMetadata, IntoArray, Precision,
+    ProstMetadata, SerializeMetadata, ToCanonical, vtable,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
@@ -35,7 +38,7 @@ pub struct RunEndMetadata {
 
 impl VTable for RunEndVTable {
     type Array = RunEndArray;
-    type Encoding = RunEndEncoding;
+
     type Metadata = ProstMetadata<RunEndMetadata>;
 
     type ArrayVTable = Self;
@@ -47,12 +50,12 @@ impl VTable for RunEndVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.runend")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.runend")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(RunEndEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        RunEndVTable.as_vtable()
     }
 
     fn metadata(array: &RunEndArray) -> VortexResult<Self::Metadata> {
@@ -74,7 +77,7 @@ impl VTable for RunEndVTable {
     }
 
     fn build(
-        _encoding: &RunEndEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -106,7 +109,7 @@ pub struct RunEndArray {
 }
 
 #[derive(Clone, Debug)]
-pub struct RunEndEncoding;
+pub struct RunEndVTable;
 
 impl RunEndArray {
     fn validate(
@@ -338,7 +341,7 @@ impl RunEndArray {
     }
 }
 
-impl ArrayVTable<RunEndVTable> for RunEndVTable {
+impl BaseArrayVTable<RunEndVTable> for RunEndVTable {
     fn len(array: &RunEndArray) -> usize {
         array.length
     }

@@ -11,39 +11,39 @@ use crate::{Scalar, ScalarOps, VectorMut, VectorMutOps};
 #[derive(Debug)]
 pub enum DecimalScalar {
     /// 8-bit decimal scalar.
-    I8(DScalar<i8>),
+    D8(DScalar<i8>),
     /// 16-bit decimal scalar.
-    I16(DScalar<i16>),
+    D16(DScalar<i16>),
     /// 32-bit decimal scalar.
-    I32(DScalar<i32>),
+    D32(DScalar<i32>),
     /// 64-bit decimal scalar.
-    I64(DScalar<i64>),
+    D64(DScalar<i64>),
     /// 128-bit decimal scalar.
-    I128(DScalar<i128>),
+    D128(DScalar<i128>),
     /// 256-bit decimal scalar.
-    I256(DScalar<i256>),
+    D256(DScalar<i256>),
 }
 
 impl ScalarOps for DecimalScalar {
     fn is_valid(&self) -> bool {
         match self {
-            DecimalScalar::I8(v) => v.is_valid(),
-            DecimalScalar::I16(v) => v.is_valid(),
-            DecimalScalar::I32(v) => v.is_valid(),
-            DecimalScalar::I64(v) => v.is_valid(),
-            DecimalScalar::I128(v) => v.is_valid(),
-            DecimalScalar::I256(v) => v.is_valid(),
+            DecimalScalar::D8(v) => v.is_valid(),
+            DecimalScalar::D16(v) => v.is_valid(),
+            DecimalScalar::D32(v) => v.is_valid(),
+            DecimalScalar::D64(v) => v.is_valid(),
+            DecimalScalar::D128(v) => v.is_valid(),
+            DecimalScalar::D256(v) => v.is_valid(),
         }
     }
 
     fn repeat(&self, n: usize) -> VectorMut {
         match self {
-            DecimalScalar::I8(v) => v.repeat(n),
-            DecimalScalar::I16(v) => v.repeat(n),
-            DecimalScalar::I32(v) => v.repeat(n),
-            DecimalScalar::I64(v) => v.repeat(n),
-            DecimalScalar::I128(v) => v.repeat(n),
-            DecimalScalar::I256(v) => v.repeat(n),
+            DecimalScalar::D8(v) => v.repeat(n),
+            DecimalScalar::D16(v) => v.repeat(n),
+            DecimalScalar::D32(v) => v.repeat(n),
+            DecimalScalar::D64(v) => v.repeat(n),
+            DecimalScalar::D128(v) => v.repeat(n),
+            DecimalScalar::D256(v) => v.repeat(n),
         }
     }
 }
@@ -85,6 +85,11 @@ impl<D: NativeDecimalType> DScalar<D> {
     pub unsafe fn new_unchecked(ps: PrecisionScale<D>, value: Option<D>) -> Self {
         Self { ps, value }
     }
+
+    /// Returns the value of the decimal scalar, or `None` if the scalar is null.
+    pub fn value(&self) -> Option<D> {
+        self.value
+    }
 }
 
 impl<D: NativeDecimalType> ScalarOps for DScalar<D> {
@@ -118,26 +123,26 @@ impl DecimalTypeUpcast for DecimalScalar {
     type Input<T: NativeDecimalType> = DScalar<T>;
 
     fn from_i8(input: Self::Input<i8>) -> Self {
-        DecimalScalar::I8(input)
+        DecimalScalar::D8(input)
     }
 
     fn from_i16(input: Self::Input<i16>) -> Self {
-        DecimalScalar::I16(input)
+        DecimalScalar::D16(input)
     }
 
     fn from_i32(input: Self::Input<i32>) -> Self {
-        DecimalScalar::I32(input)
+        DecimalScalar::D32(input)
     }
 
     fn from_i64(input: Self::Input<i64>) -> Self {
-        DecimalScalar::I64(input)
+        DecimalScalar::D64(input)
     }
 
     fn from_i128(input: Self::Input<i128>) -> Self {
-        DecimalScalar::I128(input)
+        DecimalScalar::D128(input)
     }
 
     fn from_i256(input: Self::Input<i256>) -> Self {
-        DecimalScalar::I256(input)
+        DecimalScalar::D256(input)
     }
 }

@@ -4,8 +4,10 @@
 use fastlanes::FastLanes;
 use prost::Message;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{NotSupported, VTable, ValidityVTableFromChildSliceHelper};
-use vortex_array::{EncodingId, EncodingRef, ProstMetadata, vtable};
+use vortex_array::vtable::{
+    ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable, ValidityVTableFromChildSliceHelper,
+};
+use vortex_array::{ProstMetadata, vtable};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexResult, vortex_err};
@@ -31,7 +33,7 @@ pub struct DeltaMetadata {
 
 impl VTable for DeltaVTable {
     type Array = DeltaArray;
-    type Encoding = DeltaEncoding;
+
     type Metadata = ProstMetadata<DeltaMetadata>;
 
     type ArrayVTable = Self;
@@ -43,12 +45,12 @@ impl VTable for DeltaVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("fastlanes.delta")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("fastlanes.delta")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(DeltaEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        DeltaVTable.as_vtable()
     }
 
     fn metadata(array: &DeltaArray) -> VortexResult<Self::Metadata> {
@@ -67,7 +69,7 @@ impl VTable for DeltaVTable {
     }
 
     fn build(
-        _encoding: &DeltaEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -93,7 +95,7 @@ impl VTable for DeltaVTable {
 }
 
 #[derive(Clone, Debug)]
-pub struct DeltaEncoding;
+pub struct DeltaVTable;
 
 #[cfg(test)]
 mod tests {

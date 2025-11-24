@@ -91,7 +91,6 @@ tasks.withType<ShadowJar> {
     }
 }
 
-
 tasks.withType<Test>().all {
     classpath +=
         project(":vortex-jni")

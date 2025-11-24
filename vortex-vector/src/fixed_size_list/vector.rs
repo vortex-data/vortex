@@ -11,7 +11,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 
 use crate::fixed_size_list::{FixedSizeListScalar, FixedSizeListVectorMut};
-use crate::{Scalar, Vector, VectorOps};
+use crate::{Vector, VectorOps};
 
 /// An immutable vector of fixed-size lists.
 ///
@@ -147,6 +147,7 @@ impl FixedSizeListVector {
 
 impl VectorOps for FixedSizeListVector {
     type Mutable = FixedSizeListVectorMut;
+    type Scalar = FixedSizeListScalar;
 
     fn len(&self) -> usize {
         self.len
@@ -156,9 +157,9 @@ impl VectorOps for FixedSizeListVector {
         &self.validity
     }
 
-    fn scalar_at(&self, index: usize) -> Scalar {
+    fn scalar_at(&self, index: usize) -> FixedSizeListScalar {
         assert!(index < self.len());
-        FixedSizeListScalar::new(self.slice(index..index + 1)).into()
+        FixedSizeListScalar::new(self.slice(index..index + 1))
     }
 
     fn slice(&self, _range: impl RangeBounds<usize> + Clone + Debug) -> Self {

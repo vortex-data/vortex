@@ -4,9 +4,9 @@
 pub(crate) mod dictionary;
 mod stats;
 
-use vortex_alp::{ALPArray, ALPEncoding, ALPVTable, RDEncoder};
+use vortex_alp::{ALPArray, ALPVTable, RDEncoder};
 use vortex_array::arrays::{ConstantArray, DictArray, MaskedArray, PrimitiveVTable};
-use vortex_array::vtable::ValidityHelper;
+use vortex_array::vtable::{ArrayVTableExt, ValidityHelper};
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::PType;
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
@@ -225,7 +225,8 @@ impl Scheme for ALPScheme {
         allowed_cascading: usize,
         excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
-        let alp_encoded = ALPEncoding
+        let alp_encoded = ALPVTable
+            .as_vtable()
             .encode(&stats.source().to_canonical(), None)?
             .vortex_expect("Input is a supported floating point array");
         let alp = alp_encoded.as_::<ALPVTable>();
@@ -468,7 +469,7 @@ mod tests {
     use vortex_array::{Array, IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::{Buffer, buffer_mut};
     use vortex_dtype::Nullability;
-    use vortex_sparse::SparseEncoding;
+    use vortex_sparse::SparseVTable;
 
     use crate::float::{FloatCompressor, RLE_FLOAT_SCHEME};
     use crate::{Compressor, CompressorStats, MAX_CASCADE, Scheme};
@@ -534,6 +535,6 @@ mod tests {
 
         let compressed = FloatCompressor::compress(&floats, false, MAX_CASCADE, &[]).unwrap();
 
-        assert_eq!(compressed.encoding_id(), SparseEncoding.id());
+        assert!(compressed.is::<SparseVTable>());
     }
 }

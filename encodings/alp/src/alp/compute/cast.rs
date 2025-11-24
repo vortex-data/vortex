@@ -48,16 +48,18 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
+    use vortex_array::vtable::ArrayVTableExt;
     use vortex_array::{IntoArray, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::ALPEncoding;
+    use crate::ALPVTable;
 
     #[test]
     fn test_cast_alp_f32_to_f64() {
         let values = buffer![1.5f32, 2.5, 3.5, 4.5].into_array();
-        let alp = ALPEncoding
+        let alp = ALPVTable
+            .as_vtable()
             .encode(&values.to_canonical(), None)
             .unwrap()
             .unwrap();
@@ -82,7 +84,8 @@ mod tests {
     #[test]
     fn test_cast_alp_to_int() {
         let values = buffer![1.0f32, 2.0, 3.0, 4.0].into_array();
-        let alp = ALPEncoding
+        let alp = ALPVTable
+            .as_vtable()
             .encode(&values.to_canonical(), None)
             .unwrap()
             .unwrap();
@@ -108,7 +111,8 @@ mod tests {
     #[case(buffer![42.42f64].into_array())]
     #[case(buffer![0.0f32, -1.5, 2.5, -3.5, 4.5].into_array())]
     fn test_cast_alp_conformance(#[case] array: vortex_array::ArrayRef) {
-        let alp = ALPEncoding
+        let alp = ALPVTable
+            .as_vtable()
             .encode(&array.to_canonical(), None)
             .unwrap()
             .unwrap();

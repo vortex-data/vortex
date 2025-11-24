@@ -189,6 +189,9 @@ pub struct AppState<'a> {
     pub layouts_list_state: ListState,
     pub segment_grid_state: SegmentGridState<'a>,
     pub frame_size: Size,
+
+    /// Scroll offset for the encoding tree display in FlatLayout view
+    pub tree_scroll_offset: u16,
 }
 
 impl AppState<'_> {
@@ -214,5 +217,6 @@ pub async fn create_file_app<'a>(path: impl AsRef<Path>) -> VortexResult<AppStat
         layouts_list_state: ListState::default().with_selected(Some(0)),
         segment_grid_state: SegmentGridState::default(),
         frame_size: Size::new(0, 0),
+        tree_scroll_offset: 0,
     })
 }

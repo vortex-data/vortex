@@ -8,7 +8,7 @@ mod compute;
 pub use compute::{IS_CONST_LANE_WIDTH, compute_is_constant};
 
 mod vtable;
-pub use vtable::{PrimitiveEncoding, PrimitiveMaskedValidityRule, PrimitiveVTable};
+pub use vtable::{PrimitiveMaskedValidityRule, PrimitiveVTable};
 
 mod native_value;
 pub use native_value::NativeValue;
