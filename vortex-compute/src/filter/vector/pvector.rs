@@ -51,8 +51,8 @@ where
     type Output = Self;
 
     fn filter(self, selection_mask: &M) -> Self {
-        // If we have exclusive access, we can perform the filter in place.
         match self.try_into_mut() {
+            // If we have exclusive access, we can perform the filter in place.
             Ok(mut vector_mut) => {
                 (&mut vector_mut).filter(selection_mask);
                 vector_mut.freeze()
