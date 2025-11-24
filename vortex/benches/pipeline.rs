@@ -152,6 +152,9 @@ const VERIFICATION_SIZES: [usize; 2] = [
     16384, // 16K - medium size
 ];
 
+/// The number of samples (each will run 100 times).
+const SAMPLE_SIZE: u32 = 4096;
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Main
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -791,7 +794,7 @@ fn compare_outputs(function_name: &str, expected: &[f32], actual: &[f32], expect
 // Benchmarks
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#[divan::bench(consts = BENCHMARK_SIZES, sample_size = 512)]
+#[divan::bench(consts = BENCHMARK_SIZES, sample_size = SAMPLE_SIZE)]
 fn batch<const SIZE: usize>(bencher: Bencher) {
     let (input_data, mut buffers) = setup(SIZE);
 
@@ -810,7 +813,7 @@ fn batch<const SIZE: usize>(bencher: Bencher) {
     });
 }
 
-#[divan::bench(consts = BENCHMARK_SIZES, sample_size = 512)]
+#[divan::bench(consts = BENCHMARK_SIZES, sample_size = SAMPLE_SIZE)]
 fn pipeline<const SIZE: usize>(bencher: Bencher) {
     let (input_data, mut buffers) = setup(SIZE);
     bencher.bench_local(|| {
@@ -828,7 +831,7 @@ fn pipeline<const SIZE: usize>(bencher: Bencher) {
     });
 }
 
-#[divan::bench(consts = BENCHMARK_SIZES, sample_size = 512)]
+#[divan::bench(consts = BENCHMARK_SIZES, sample_size = SAMPLE_SIZE)]
 fn pipeline_extra_copy<const SIZE: usize>(bencher: Bencher) {
     let (input_data, mut buffers) = setup(SIZE);
     bencher.bench_local(|| {
@@ -847,7 +850,7 @@ fn pipeline_extra_copy<const SIZE: usize>(bencher: Bencher) {
     });
 }
 
-#[divan::bench(consts = BENCHMARK_SIZES, sample_size = 512)]
+#[divan::bench(consts = BENCHMARK_SIZES, sample_size = SAMPLE_SIZE)]
 fn in_place_batch<const SIZE: usize>(bencher: Bencher) {
     let (input_data, mut buffers) = setup(SIZE);
     bencher.bench_local(|| {
@@ -863,7 +866,7 @@ fn in_place_batch<const SIZE: usize>(bencher: Bencher) {
     });
 }
 
-#[divan::bench(consts = BENCHMARK_SIZES, sample_size = 512)]
+#[divan::bench(consts = BENCHMARK_SIZES, sample_size = SAMPLE_SIZE)]
 fn in_place_pipeline<const SIZE: usize>(bencher: Bencher) {
     let (input_data, mut buffers) = setup(SIZE);
     bencher.bench_local(|| {
