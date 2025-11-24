@@ -62,6 +62,7 @@ pub fn decompress_bitpacking_late_filter<T: NativePType>(bencher: Bencher, fract
         .collect::<BitBuffer>();
 
     bencher
+        // Be sure to reconstruct the mask to avoid cached set_indices
         .with_inputs(|| Mask::from_buffer(mask.clone()))
         .bench_refs(|mask| filter(array.to_canonical().as_ref(), mask).unwrap());
 }
@@ -81,6 +82,7 @@ pub fn decompress_bitpacking_pipeline_filter<T: NativePType>(bencher: Bencher, f
         .collect::<BitBuffer>();
 
     bencher
+        // Be sure to reconstruct the mask to avoid cached set_indices
         .with_inputs(|| Mask::from(mask.clone()))
         .bench_refs(|mask| array.execute_with_selection(mask).unwrap());
 }
