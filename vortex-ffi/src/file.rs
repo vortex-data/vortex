@@ -122,20 +122,29 @@ impl vx_file_scan_options {
             self.filter_expression_len,
         )?;
 
-        #[allow(clippy::useless_conversion)] // c_ulong is u32 on Windows, u64 on Unix
+        // On Windows, c_ulong is u32, so we need to convert to u64
+        // On Unix, c_ulong is already u64, so we can use it directly
+        #[cfg(windows)]
         let row_range = (self.row_range_end > self.row_range_start)
-            .then_some(u64::from(self.row_range_start)..u64::from(self.row_range_end));
+            .then_some(self.row_range_start as u64..self.row_range_end as u64);
+        #[cfg(not(windows))]
+        let row_range = (self.row_range_end > self.row_range_start)
+            .then_some(self.row_range_start..self.row_range_end);
 
         let split_by = (self.split_by_row_count > 0)
             .then_some(SplitBy::RowCount(self.split_by_row_count as usize));
 
-        #[allow(clippy::useless_conversion)]
+        #[cfg(windows)]
+        let row_offset = self.row_offset as u64;
+        #[cfg(not(windows))]
+        let row_offset = self.row_offset;
+
         Ok(ScanOptions {
             projection_expr,
             filter_expr,
             split_by,
             row_range,
-            row_offset: u64::from(self.row_offset),
+            row_offset,
         })
     }
 }

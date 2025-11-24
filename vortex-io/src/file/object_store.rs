@@ -2,10 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::io;
-#[cfg(not(unix))]
-use std::io::{Read, Seek};
-#[cfg(unix)]
-use std::os::unix::fs::FileExt;
 use std::sync::Arc;
 
 use async_compat::Compat;
@@ -18,6 +14,8 @@ use vortex_error::{VortexError, VortexResult, vortex_ensure};
 
 use crate::file::IoRequest;
 use crate::file::read::{CoalesceWindow, IntoReadSource, ReadSource, ReadSourceRef};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::file::std_file::read_exact_at;
 use crate::runtime::Handle;
 
 const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {
@@ -137,15 +135,8 @@ impl ReadSource for ObjectStoreIoSource {
 
                             handle
                                 .spawn_blocking(move || {
-                                    #[cfg(unix)] {
-                                        file.read_exact_at(&mut buffer, range.start)?;
-                                        Ok::<_, io::Error>(buffer)
-                                    }
-                                    #[cfg(not(unix))] {
-                                        file.seek(io::SeekFrom::Start(range.start))?;
-                                        file.read_exact(&mut buffer)?;
-                                        Ok::<_, io::Error>(buffer)
-                                    }
+                                    read_exact_at(&file, &mut buffer, range.start)?;
+                                    Ok::<_, io::Error>(buffer)
                                 })
                                 .await
                                 .map_err(io::Error::other)?
