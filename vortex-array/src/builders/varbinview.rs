@@ -436,7 +436,7 @@ impl DeduplicatedBuffers {
     }
 
     /// Push a new block if not seen before. Returns the idx of the block.
-    fn push(&mut self, block: ByteBuffer) -> u32 {
+    pub(crate) fn push(&mut self, block: ByteBuffer) -> u32 {
         assert!(self.buffers.len() < u32::MAX as usize, "Too many blocks");
 
         let initial_len = self.len();
@@ -452,21 +452,24 @@ impl DeduplicatedBuffers {
         }
     }
 
-    fn extend_from_option_slice(&mut self, buffers: &[Option<ByteBuffer>]) -> Vec<Option<u32>> {
+    pub(crate) fn extend_from_option_slice(
+        &mut self,
+        buffers: &[Option<ByteBuffer>],
+    ) -> Vec<Option<u32>> {
         buffers
             .iter()
             .map(|buffer| buffer.as_ref().map(|buf| self.push(buf.clone())))
             .collect()
     }
 
-    fn extend_from_slice(&mut self, buffers: &[ByteBuffer]) -> Vec<u32> {
+    pub(crate) fn extend_from_slice(&mut self, buffers: &[ByteBuffer]) -> Vec<u32> {
         buffers
             .iter()
             .map(|buffer| self.push(buffer.clone()))
             .collect()
     }
 
-    fn finish(self) -> Arc<[ByteBuffer]> {
+    pub(crate) fn finish(self) -> Arc<[ByteBuffer]> {
         Arc::from(self.buffers)
     }
 }

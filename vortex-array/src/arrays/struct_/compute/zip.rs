@@ -30,14 +30,9 @@ impl ZipKernel for StructVTable {
             return Ok(None);
         };
         assert_eq!(
-            if_true.len(),
-            if_false.len(),
-            "ComputeFn::invoke checks that arrays have the same size"
-        );
-        assert_eq!(
             if_true.names(),
             if_false.names(),
-            "Zip checks that arrays type"
+            "input arrays to zip must have the same field names",
         );
 
         let fields = if_true
