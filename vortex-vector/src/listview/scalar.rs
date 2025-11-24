@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::Scalar;
+use crate::ScalarOps;
+use crate::VectorMut;
+use crate::VectorOps;
 use crate::listview::ListViewVector;
-use crate::{Scalar, ScalarOps, VectorMut, VectorOps};
 
 /// A scalar value for list view types.
 ///

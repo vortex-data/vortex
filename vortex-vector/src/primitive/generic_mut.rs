@@ -5,11 +5,15 @@
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::MaskMut;
 
-use crate::primitive::{PScalar, PVector};
-use crate::{VectorMutOps, VectorOps};
+use crate::VectorMutOps;
+use crate::VectorOps;
+use crate::primitive::PScalar;
+use crate::primitive::PVector;
 
 /// A mutable vector of generic primitive values.
 ///

@@ -7,11 +7,16 @@ use std::fmt::Debug;
 use std::ops::RangeBounds;
 use std::sync::Arc;
 
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
-use crate::struct_::{StructScalar, StructVectorMut};
-use crate::{Vector, VectorMutOps, VectorOps};
+use crate::Vector;
+use crate::VectorMutOps;
+use crate::VectorOps;
+use crate::struct_::StructScalar;
+use crate::struct_::StructVectorMut;
 
 /// An immutable vector of struct values.
 ///

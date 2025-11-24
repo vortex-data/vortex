@@ -114,13 +114,15 @@ mod vector_mut;
 pub use vector_mut::PrimitiveVectorMut;
 
 mod scalar;
-pub use scalar::{PScalar, PrimitiveScalar};
+pub use scalar::PScalar;
+pub use scalar::PrimitiveScalar;
 
 mod macros;
 
 use vortex_dtype::NativePType;
 
-use crate::{Vector, VectorMut};
+use crate::Vector;
+use crate::VectorMut;
 
 impl From<PrimitiveVector> for Vector {
     fn from(v: PrimitiveVector) -> Self {

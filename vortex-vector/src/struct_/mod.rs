@@ -99,7 +99,8 @@ mod scalar;
 
 pub use scalar::StructScalar;
 
-use crate::{Vector, VectorMut};
+use crate::Vector;
+use crate::VectorMut;
 
 impl From<StructVector> for Vector {
     fn from(v: StructVector) -> Self {

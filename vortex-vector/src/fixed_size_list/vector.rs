@@ -7,11 +7,15 @@ use std::fmt::Debug;
 use std::ops::RangeBounds;
 use std::sync::Arc;
 
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
-use crate::fixed_size_list::{FixedSizeListScalar, FixedSizeListVectorMut};
-use crate::{Vector, VectorOps};
+use crate::Vector;
+use crate::VectorOps;
+use crate::fixed_size_list::FixedSizeListScalar;
+use crate::fixed_size_list::FixedSizeListVectorMut;
 
 /// An immutable vector of fixed-size lists.
 ///
@@ -237,8 +241,9 @@ mod tests {
     use vortex_mask::Mask;
 
     use super::*;
+    use crate::Vector;
+    use crate::VectorMutOps;
     use crate::primitive::PVectorMut;
-    use crate::{Vector, VectorMutOps};
 
     #[test]
     fn test_constructor_and_validation() {

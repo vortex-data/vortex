@@ -6,11 +6,17 @@
 use std::sync::Arc;
 
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::MaskMut;
 
-use crate::fixed_size_list::{FixedSizeListScalar, FixedSizeListVector};
-use crate::{ScalarOps, VectorMut, VectorMutOps, match_vector_pair};
+use crate::ScalarOps;
+use crate::VectorMut;
+use crate::VectorMutOps;
+use crate::fixed_size_list::FixedSizeListScalar;
+use crate::fixed_size_list::FixedSizeListVector;
+use crate::match_vector_pair;
 
 /// A mutable vector of fixed-size lists.
 ///
@@ -325,8 +331,10 @@ impl VectorMutOps for FixedSizeListVectorMut {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_dtype::{DType, PType};
-    use vortex_mask::{Mask, MaskMut};
+    use vortex_dtype::DType;
+    use vortex_dtype::PType;
+    use vortex_mask::Mask;
+    use vortex_mask::MaskMut;
 
     use super::*;
     use crate::VectorOps;

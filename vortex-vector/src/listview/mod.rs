@@ -21,7 +21,8 @@ pub use vector_mut::ListViewVectorMut;
 mod scalar;
 pub use scalar::ListViewScalar;
 
-use crate::{Vector, VectorMut};
+use crate::Vector;
+use crate::VectorMut;
 
 impl From<ListViewVector> for Vector {
     fn from(v: ListViewVector) -> Self {

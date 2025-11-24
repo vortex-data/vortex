@@ -6,13 +6,19 @@
 use std::fmt::Debug;
 use std::ops::RangeBounds;
 
+use vortex_dtype::NativePType;
+use vortex_dtype::PType;
+use vortex_dtype::PTypeDowncast;
+use vortex_dtype::PTypeUpcast;
 use vortex_dtype::half::f16;
-use vortex_dtype::{NativePType, PType, PTypeDowncast, PTypeUpcast};
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
-use crate::primitive::{PVector, PrimitiveScalar, PrimitiveVectorMut};
-use crate::{VectorOps, match_each_pvector};
+use crate::VectorOps;
+use crate::match_each_pvector;
+use crate::primitive::PVector;
+use crate::primitive::PrimitiveScalar;
+use crate::primitive::PrimitiveVectorMut;
 
 /// An immutable vector of primitive values.
 ///

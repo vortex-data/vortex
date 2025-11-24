@@ -3,15 +3,22 @@
 
 //! Definition and implementation of [`DecimalVectorMut`].
 
-use vortex_dtype::{
-    DecimalDType, DecimalType, DecimalTypeDowncast, DecimalTypeUpcast, NativeDecimalType,
-    PrecisionScale, i256, match_each_decimal_value_type,
-};
+use vortex_dtype::DecimalDType;
+use vortex_dtype::DecimalType;
+use vortex_dtype::DecimalTypeDowncast;
+use vortex_dtype::DecimalTypeUpcast;
+use vortex_dtype::NativeDecimalType;
+use vortex_dtype::PrecisionScale;
+use vortex_dtype::i256;
+use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::vortex_panic;
 use vortex_mask::MaskMut;
 
-use crate::decimal::{DVectorMut, DecimalScalar, DecimalVector};
-use crate::{VectorMutOps, match_each_dvector_mut};
+use crate::VectorMutOps;
+use crate::decimal::DVectorMut;
+use crate::decimal::DecimalScalar;
+use crate::decimal::DecimalVector;
+use crate::match_each_dvector_mut;
 
 /// An enum over all supported decimal mutable vector types.
 #[derive(Clone, Debug)]

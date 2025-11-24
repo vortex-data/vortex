@@ -3,12 +3,17 @@
 
 use std::ops::Deref;
 
+use vortex_dtype::NativePType;
+use vortex_dtype::PTypeUpcast;
 use vortex_dtype::half::f16;
-use vortex_dtype::{NativePType, PTypeUpcast};
 use vortex_error::VortexExpect;
 
-use crate::primitive::{PVectorMut, PrimitiveVectorMut};
-use crate::{Scalar, ScalarOps, VectorMut, VectorMutOps};
+use crate::Scalar;
+use crate::ScalarOps;
+use crate::VectorMut;
+use crate::VectorMutOps;
+use crate::primitive::PVectorMut;
+use crate::primitive::PrimitiveVectorMut;
 
 /// Represents a primitive scalar value.
 #[derive(Debug)]

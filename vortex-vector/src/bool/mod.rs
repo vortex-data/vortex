@@ -65,7 +65,8 @@ pub use scalar::BoolScalar;
 
 mod iter;
 
-use crate::{Vector, VectorMut};
+use crate::Vector;
+use crate::VectorMut;
 
 impl From<BoolVector> for Vector {
     fn from(v: BoolVector) -> Self {

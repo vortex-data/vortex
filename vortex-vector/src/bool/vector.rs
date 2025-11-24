@@ -7,11 +7,14 @@ use std::fmt::Debug;
 use std::ops::RangeBounds;
 
 use vortex_buffer::BitBuffer;
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
 use crate::VectorOps;
-use crate::bool::{BoolScalar, BoolVectorMut};
+use crate::bool::BoolScalar;
+use crate::bool::BoolVectorMut;
 
 /// An immutable vector of boolean values.
 ///

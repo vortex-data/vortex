@@ -5,10 +5,13 @@
 
 use std::fmt::Debug;
 
-use vortex_buffer::{BufferString, ByteBuffer};
+use vortex_buffer::BufferString;
+use vortex_buffer::ByteBuffer;
 
-use crate::binaryview::{BinaryViewVector, BinaryViewVectorMut};
-use crate::{Vector, VectorMut};
+use crate::Vector;
+use crate::VectorMut;
+use crate::binaryview::BinaryViewVector;
+use crate::binaryview::BinaryViewVectorMut;
 
 impl<T: BinaryViewType> From<BinaryViewVector<T>> for Vector {
     fn from(value: BinaryViewVector<T>) -> Self {

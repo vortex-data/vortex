@@ -7,13 +7,18 @@ use std::fmt::Debug;
 use std::ops::RangeBounds;
 use std::sync::Arc;
 
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
-use super::{ListViewScalar, ListViewVectorMut};
+use super::ListViewScalar;
+use super::ListViewVectorMut;
+use crate::Vector;
+use crate::match_each_integer_pvector;
 use crate::primitive::PrimitiveVector;
-use crate::vector_ops::{VectorMutOps, VectorOps};
-use crate::{Vector, match_each_integer_pvector};
+use crate::vector_ops::VectorMutOps;
+use crate::vector_ops::VectorOps;
 
 /// A vector of variable-width lists.
 ///
