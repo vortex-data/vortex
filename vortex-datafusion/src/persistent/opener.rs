@@ -11,7 +11,6 @@ use arrow_schema::SchemaRef;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::arrow::array::RecordBatch;
-use datafusion_common::internal_datafusion_err;
 use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::file_meta::FileMeta;
 use datafusion_datasource::file_stream::FileOpenFuture;
@@ -347,22 +346,17 @@ impl FileOpener for VortexOpener {
                 );
             }
 
-            let filter = match filter {
-                None => None,
-                Some(f) => {
-                    let exprs = split_conjunction(&f).into_iter().collect::<Vec<_>>();
+            let filter = filter
+                .and_then(|f| {
+                    let exprs = split_conjunction(&f)
+                        .into_iter()
+                        .filter(|expr| can_be_pushed_down(expr, &predicate_file_schema))
+                        .collect::<Vec<_>>();
 
-                    for expr in &exprs {
-                        if !can_be_pushed_down(expr, &predicate_file_schema) {
-                            internal_datafusion_err!("DataFusion predicate {expr} cannot be pushed down to Vortex file {} with schema {predicate_file_schema}",
-                            file_meta.object_meta.location);
-                        }
-                    }
-
-                    make_vortex_predicate(&exprs)
-                        .map_err(|e| DataFusionError::External(e.into()))?
-                }
-            };
+                    make_vortex_predicate(&exprs).transpose()
+                })
+                .transpose()
+                .map_err(|e| DataFusionError::External(e.into()))?;
 
             if let Some(limit) = limit
                 && filter.is_none()
@@ -413,8 +407,8 @@ impl FileOpener for VortexOpener {
 
             Ok(stream)
         }
-            .in_current_span()
-            .boxed())
+        .in_current_span()
+        .boxed())
     }
 }
 
@@ -432,7 +426,6 @@ mod tests {
     use datafusion::arrow::util::display::FormatOptions;
     use datafusion::arrow::util::pretty::pretty_format_batches_with_options;
     use datafusion::common::record_batch;
-    use datafusion::datasource::schema_adapter::DefaultSchemaAdapterFactory;
     use datafusion::logical_expr::col;
     use datafusion::logical_expr::lit;
     use datafusion::physical_expr::planner::logical2physical;
@@ -461,6 +454,7 @@ mod tests {
     use super::*;
     use crate::VortexSource;
 
+    /// Fixtures used for integration testing the FileSource and FileOpener
     struct TestFixtures {
         object_store: Arc<dyn ObjectStore>,
         // We need to return this to the caller to prevent the session context from
@@ -468,7 +462,24 @@ mod tests {
         #[allow(dead_code)]
         session_context: SessionContext,
         source: Arc<dyn FileSource>,
+        files: Files,
+    }
+
+    struct Files {
         file_meta: HashMap<String, FileMeta>,
+    }
+
+    impl Files {
+        fn get(&self, path: &str) -> (FileMeta, PartitionedFile) {
+            let file = self
+                .file_meta
+                .get(path)
+                .unwrap_or_else(|| panic!("Missing file {}", path));
+            (
+                file.clone(),
+                PartitionedFile::new(path, file.object_meta.size),
+            )
+        }
     }
 
     // Make a set of files and record batches
@@ -521,7 +532,7 @@ mod tests {
         Ok(TestFixtures {
             session_context: ctx,
             object_store: store,
-            file_meta,
+            files: Files { file_meta },
             source,
         })
     }
@@ -541,7 +552,7 @@ mod tests {
         let TestFixtures {
             source,
             object_store,
-            file_meta,
+            files,
             ..
         } = make_source(files, &file_schema).await?;
 
@@ -564,8 +575,7 @@ mod tests {
         // Create an opener with this
         let opener = source.create_file_opener(object_store.clone(), &base_config, 0);
 
-        let file1 = file_meta.get("part=1/file.vortex").unwrap().clone();
-        let part_file1 = PartitionedFile::new("part=1/file.vortex", file1.object_meta.size);
+        let (file1, part_file1) = files.get("part=1/file.vortex");
 
         let open_result = opener.open(file1, part_file1)?.await?;
 
@@ -597,16 +607,14 @@ mod tests {
         let table_schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, true)]));
 
         let TestFixtures {
-            file_meta,
             object_store,
             source,
+            files,
             ..
         } = make_source(files, &table_schema).await?;
 
-        let file1 = file_meta.get("path/file1.vortex").unwrap().clone();
-        let part_file1 = PartitionedFile::new("path/file1.vortex", file1.object_meta.size);
-        let file2 = file_meta.get("path/file2.vortex").unwrap().clone();
-        let part_file2 = PartitionedFile::new("path/file2.vortex", file1.object_meta.size);
+        let (file1, part_file1) = files.get("path/file1.vortex");
+        let (file2, part_file2) = files.get("path/file2.vortex");
 
         // Try and push filters into the source.
         let filter = col("a").lt(lit(100_i32));
@@ -615,10 +623,6 @@ mod tests {
             source.try_pushdown_filters(vec![filter], &ConfigOptions::default())?;
         // filter should've succeeded pushing
         assert!(matches!(pushdown_result.filters[0], PushedDown::Yes));
-
-        // // Use a SchemaAdapter to allow for reading with evolution.
-        // Why does this not matter?
-        // let schema_adapter = DefaultSchemaAdapterFactory::default();
 
         let base_config = FileScanConfigBuilder::new(
             ObjectStoreUrl::parse("s3://in-memory")?,
@@ -660,7 +664,6 @@ mod tests {
         Ok(())
     }
 
-    //
     #[tokio::test]
     // This test verifies that files with different column order than the
     // table schema can be opened without errors. The fix ensures that the
@@ -669,18 +672,30 @@ mod tests {
     async fn test_schema_different_column_order() -> anyhow::Result<()> {
         use datafusion::arrow::util::pretty::pretty_format_batches_with_options;
 
-        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
-        let file_path = "/path/file.vortex";
-
-        // File has columns in order: c, b, a
+        // File has field order c,b,a
         let batch = record_batch!(
             ("c", Int32, vec![Some(300), Some(301), Some(302)]),
             ("b", Int32, vec![Some(200), Some(201), Some(202)]),
             ("a", Int32, vec![Some(100), Some(101), Some(102)])
-        )
-        .unwrap();
-        let data_size = write_arrow_to_vortex(object_store.clone(), file_path, batch).await?;
-        let file = PartitionedFile::new(file_path.to_string(), data_size);
+        )?;
+
+        // table schema has field order a,b,c
+        let table_schema = Arc::new(Schema::new(vec![
+            Field::new("a", DataType::Int32, true),
+            Field::new("b", DataType::Int32, true),
+            Field::new("c", DataType::Int32, true),
+        ]));
+
+        let files = HashMap::from_iter([("path/file1.vortex".to_string(), batch)]);
+
+        let TestFixtures {
+            source,
+            files,
+            object_store,
+            ..
+        } = make_source(files, &table_schema).await?;
+
+        let (file1, part_file1) = files.get("path/file1.vortex");
 
         // Table schema has columns in different order: a, b, c
         let table_schema = Arc::new(Schema::new(vec![
@@ -689,26 +704,16 @@ mod tests {
             Field::new("c", DataType::Int32, true),
         ]));
 
-        let opener = VortexOpener {
-            session: SESSION.clone(),
-            object_store: object_store.clone(),
-            projection: Some([0, 1, 2].into()),
-            filter: None,
-            file_pruning_predicate: None,
-            expr_adapter_factory: Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _),
-            schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
-            partition_fields: vec![],
-            file_cache: VortexFileCache::new(1, 1, SESSION.clone()),
-            logical_schema: table_schema.clone(),
-            batch_size: 100,
-            limit: None,
-            metrics: Default::default(),
-            layout_readers: Default::default(),
-            has_output_ordering: false,
-        };
+        let base_config = FileScanConfigBuilder::new(
+            ObjectStoreUrl::parse("s3://in-memory")?,
+            table_schema.clone(),
+            source.clone(),
+        )
+        .build();
+        let opener = source.create_file_opener(object_store, &base_config, 0);
 
         // The opener should successfully open the file and reorder columns
-        let stream = opener.open(make_meta(file_path, data_size), file)?.await?;
+        let stream = opener.open(file1, part_file1)?.await?;
 
         let format_opts = FormatOptions::new().with_types_info(true);
         let data = stream.try_collect::<Vec<_>>().await?;
@@ -773,7 +778,7 @@ mod tests {
 
         let TestFixtures {
             source,
-            file_meta,
+            files,
             object_store,
             ..
         } = make_source(files, &table_schema).await?;
@@ -794,8 +799,7 @@ mod tests {
 
         let opener = source.create_file_opener(object_store.clone(), &base_config, 0);
 
-        let file = file_meta.get("path/file.vortex").unwrap().clone();
-        let part_file = PartitionedFile::new("path/file.vortex", file.object_meta.size);
+        let (file, part_file) = files.get("path/file.vortex");
 
         let data = opener
             .open(file, part_file)?

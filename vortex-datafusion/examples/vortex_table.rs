@@ -79,7 +79,11 @@ async fn main() -> anyhow::Result<()> {
 
     ctx.register_table("vortex_tbl", listing_table as _)?;
 
-    run_query(&ctx, "SELECT * FROM vortex_tbl").await?;
+    run_query(
+        &ctx,
+        "SELECT * FROM vortex_tbl where numbers % 2 = 0 AND strings LIKE 'b%'",
+    )
+    .await?;
 
     Ok(())
 }

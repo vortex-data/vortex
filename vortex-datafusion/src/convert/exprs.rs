@@ -305,7 +305,6 @@ mod tests {
 
     use arrow_schema::DataType;
     use arrow_schema::Field;
-    use arrow_schema::Fields;
     use arrow_schema::Schema;
     use arrow_schema::SchemaBuilder;
     use arrow_schema::SchemaRef;
@@ -324,11 +323,9 @@ mod tests {
     use datafusion_expr::ScalarUDFImpl;
     use datafusion_expr::Volatility;
     use datafusion_expr::col;
-    use datafusion_expr::execution_props::ExecutionProps;
     use datafusion_expr::expr::ScalarFunction;
     use datafusion_functions::expr_fn::get_field;
     use datafusion_physical_expr::PhysicalExpr;
-    use datafusion_physical_expr::create_physical_expr;
     use datafusion_physical_expr::planner::logical2physical;
     use datafusion_physical_plan::expressions as df_expr;
     use datafusion_physical_plan::filter_pushdown::PushedDown;
@@ -681,7 +678,7 @@ mod tests {
 
         let df_schema = test_schema.clone().to_dfschema().unwrap();
 
-        let physical_filter = logical2physical(&filter, df_schema.as_ref()).unwrap();
+        let physical_filter = logical2physical(&filter, df_schema.as_ref());
 
         let source = vortex_source(&test_schema);
 
@@ -717,7 +714,7 @@ mod tests {
 
         let deep_filter = get_field(get_field(col("a"), "b"), "c").eq(datafusion_expr::lit(10i32));
 
-        let physical_filter = logical2physical(&deep_filter, &df_schema.as_ref()).unwrap();
+        let physical_filter = logical2physical(&deep_filter, &df_schema.as_ref());
 
         let prop = source
             .try_pushdown_filters(vec![physical_filter], &ConfigOptions::default())
@@ -789,7 +786,7 @@ mod tests {
         // Another weird ScalarFunction that we can't push down
         let deep_filter = unknown_func.eq(datafusion_expr::lit(10i32));
 
-        let physical_filter = logical2physical(&deep_filter, &df_schema.as_ref()).unwrap();
+        let physical_filter = logical2physical(&deep_filter, &df_schema.as_ref());
 
         let prop = source
             .try_pushdown_filters(vec![physical_filter], &ConfigOptions::default())
