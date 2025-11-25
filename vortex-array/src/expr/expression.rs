@@ -238,6 +238,12 @@ impl Expression {
         self.vtable.as_dyn().is_null_sensitive(self.data.as_ref())
     }
 
+    /// Returns whether this expression itself is fallible.
+    /// See [`VTable::is_fallible`].
+    pub fn is_fallible(&self) -> bool {
+        self.vtable.as_dyn().is_fallible(self.data.as_ref())
+    }
+
     /// Format the expression as a compact string.
     ///
     /// Since this is a recursive formatter, it is exposed on the public Expression type.

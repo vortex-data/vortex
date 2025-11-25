@@ -155,6 +155,10 @@ impl VTable for GetItem {
     fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
         true
     }
+
+    fn is_fallible(&self, _instance: &Self::Instance) -> bool {
+        false
+    }
 }
 
 /// Creates an expression that accesses a field from the root array.

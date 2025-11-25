@@ -85,6 +85,10 @@ impl VTable for Not {
     fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
         false
     }
+
+    fn is_fallible(&self, _instance: &Self::Instance) -> bool {
+        false
+    }
 }
 
 /// Creates an expression that logically inverts boolean values.

@@ -201,6 +201,14 @@ impl VTable for Select {
             .collect();
         Ok(unsafe { StructVector::new_unchecked(Arc::new(new_fields), mask) }.into())
     }
+
+    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+        true
+    }
+
+    fn is_fallible(&self, _instance: &Self::Instance) -> bool {
+        false
+    }
 }
 
 /// Creates an expression that selects (includes) specific fields from an array.

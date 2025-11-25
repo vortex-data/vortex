@@ -132,6 +132,17 @@ pub trait VTable: 'static + Sized + Send + Sync {
     fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
         true
     }
+
+    /// Returns whether this expression itself is fallible. Conservatively default to *true*.
+    ///
+    /// An expression is runtime fallible is there is an input set that causes the expression to
+    /// panic or return an error, for example checked_add is fallible if there is overflow.
+    ///
+    /// Note: this is only applicable to expressions that pass type-checking
+    /// [`VTable::return_dtype`].
+    fn is_fallible(&self, _instance: &Self::Instance) -> bool {
+        true
+    }
 }
 
 /// Arguments for expression execution.
@@ -207,6 +218,7 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     ) -> Option<Expression>;
 
     fn is_null_sensitive(&self, instance: &dyn Any) -> bool;
+    fn is_fallible(&self, instance: &dyn Any) -> bool;
 
     fn dyn_eq(&self, instance: &dyn Any, other: &dyn Any) -> bool;
     fn dyn_hash(&self, instance: &dyn Any, state: &mut dyn Hasher);
@@ -326,6 +338,13 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
             .downcast_ref::<V::Instance>()
             .vortex_expect("Failed to downcast expression instance to expected type");
         V::is_null_sensitive(&self.0, instance)
+    }
+
+    fn is_fallible(&self, instance: &dyn Any) -> bool {
+        let instance = instance
+            .downcast_ref::<V::Instance>()
+            .vortex_expect("Failed to downcast expression instance to expected type");
+        V::is_fallible(&self.0, instance)
     }
 
     fn dyn_eq(&self, instance: &dyn Any, other: &dyn Any) -> bool {

@@ -166,6 +166,14 @@ impl VTable for Merge {
                 .into_array(),
         )
     }
+
+    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+        true
+    }
+
+    fn is_fallible(&self, instance: &Self::Instance) -> bool {
+        matches!(instance, DuplicateHandling::Error)
+    }
 }
 
 /// What to do when merged structs share a field name.
