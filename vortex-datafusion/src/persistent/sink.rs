@@ -3,19 +3,25 @@
 
 use std::any::Any;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
-use datafusion_common::{DataFusionError, Result as DFResult};
-use datafusion_common_runtime::{JoinSet, SpawnedTask};
-use datafusion_datasource::file_sink_config::{FileSink, FileSinkConfig};
+use datafusion_common::DataFusionError;
+use datafusion_common::Result as DFResult;
+use datafusion_common_runtime::JoinSet;
+use datafusion_common_runtime::SpawnedTask;
+use datafusion_datasource::file_sink_config::FileSink;
+use datafusion_datasource::file_sink_config::FileSinkConfig;
 use datafusion_datasource::sink::DataSink;
 use datafusion_datasource::write::demux::DemuxedStreamReceiver;
 use datafusion_datasource::write::get_writer_schema;
-use datafusion_execution::{SendableRecordBatchStream, TaskContext};
+use datafusion_execution::SendableRecordBatchStream;
+use datafusion_execution::TaskContext;
+use datafusion_physical_plan::DisplayAs;
+use datafusion_physical_plan::DisplayFormatType;
 use datafusion_physical_plan::metrics::MetricsSet;
-use datafusion_physical_plan::{DisplayAs, DisplayFormatType};
 use futures::StreamExt;
 use object_store::ObjectStore;
 use object_store::path::Path;
@@ -26,7 +32,8 @@ use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexResult;
 use vortex::file::WriteOptionsSessionExt;
-use vortex::io::{ObjectStoreWriter, VortexWrite};
+use vortex::io::ObjectStoreWriter;
+use vortex::io::VortexWrite;
 use vortex::session::VortexSession;
 use vortex::stream::ArrayStreamAdapter;
 
@@ -178,11 +185,17 @@ impl FileSink for VortexSink {
 mod tests {
     use std::sync::Arc;
 
-    use arrow_schema::{DataType, Field, Schema};
-    use datafusion::arrow::array::{Int8Array, RecordBatch};
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
+    use arrow_schema::Schema;
+    use datafusion::arrow::array::Int8Array;
+    use datafusion::arrow::array::RecordBatch;
     use datafusion::datasource::DefaultTableSource;
     use datafusion::execution::SessionStateBuilder;
-    use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, Values};
+    use datafusion::logical_expr::Expr;
+    use datafusion::logical_expr::LogicalPlan;
+    use datafusion::logical_expr::LogicalPlanBuilder;
+    use datafusion::logical_expr::Values;
     use datafusion::prelude::SessionContext;
     use datafusion_common::ScalarValue;
     use datafusion_datasource::file_format::format_as_file_type;
@@ -190,7 +203,8 @@ mod tests {
     use tempfile::TempDir;
     use walkdir::WalkDir;
 
-    use crate::persistent::{VortexFormatFactory, register_vortex_format_factory};
+    use crate::persistent::VortexFormatFactory;
+    use crate::persistent::register_vortex_format_factory;
 
     #[tokio::test]
     async fn test_insert_into() {

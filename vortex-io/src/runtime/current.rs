@@ -3,12 +3,15 @@
 
 use std::sync::Arc;
 
+use futures::Stream;
+use futures::StreamExt;
 use futures::stream::BoxStream;
-use futures::{Stream, StreamExt};
 use smol::block_on;
 
+use crate::runtime::BlockingRuntime;
+use crate::runtime::Executor;
+use crate::runtime::Handle;
 pub use crate::runtime::pool::CurrentThreadWorkerPool;
-use crate::runtime::{BlockingRuntime, Executor, Handle};
 
 /// A current thread runtime allows callers to much more explicitly drive Vortex futures than with
 /// a Tokio runtime.
@@ -152,12 +155,15 @@ impl<T> Iterator for ThreadSafeIterator<T> {
 #[allow(clippy::if_then_some_else_none)] // Clippy is wrong when if/else has await.
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Arc, Barrier};
+    use std::sync::Arc;
+    use std::sync::Barrier;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
     use std::thread;
     use std::time::Duration;
 
-    use futures::{StreamExt, stream};
+    use futures::StreamExt;
+    use futures::stream;
     use parking_lot::Mutex;
 
     use super::*;

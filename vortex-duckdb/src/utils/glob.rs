@@ -4,7 +4,9 @@
 use futures::StreamExt;
 use object_store::ObjectMeta;
 use url::Url;
-use vortex::error::{VortexResult, vortex_bail, vortex_err};
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
+use vortex::error::vortex_err;
 
 use super::object_store::s3_store;
 
@@ -168,7 +170,8 @@ mod local_filesystem {
 #[cfg(test)]
 mod tests {
     use std::env;
-    use std::fs::{self, File};
+    use std::fs::File;
+    use std::fs::{self};
     use std::path::PathBuf;
 
     use tempfile::TempDir;

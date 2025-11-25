@@ -6,16 +6,29 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::VortexError;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_scalar::Scalar;
 
+use crate::Array;
+use crate::ArrayRef;
+use crate::Canonical;
+use crate::IntoArray;
 use crate::arrays::ConstantArray;
-use crate::compute::{
-    BooleanOperator, ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Operator, Options, Output,
-    boolean, compare,
-};
+use crate::compute::BooleanOperator;
+use crate::compute::ComputeFn;
+use crate::compute::ComputeFnVTable;
+use crate::compute::InvocationArgs;
+use crate::compute::Kernel;
+use crate::compute::Operator;
+use crate::compute::Options;
+use crate::compute::Output;
+use crate::compute::boolean;
+use crate::compute::compare;
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef, Canonical, IntoArray};
 
 static BETWEEN_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("between".into(), ArcRef::new_ref(&Between));
@@ -271,7 +284,8 @@ impl StrictComparison {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::{Nullability, PType};
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
 
     use super::*;
     use crate::ToCanonical;

@@ -7,23 +7,38 @@ use std::ops::Range;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
 use vortex_buffer::ByteBuffer;
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
 use vortex_dtype::arrow::FromArrowType;
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexResult, vortex_bail, vortex_panic};
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
+use crate::Array;
+use crate::ArrayBufferVisitor;
+use crate::ArrayChildVisitor;
+use crate::ArrayRef;
+use crate::Canonical;
+use crate::EmptyMetadata;
+use crate::IntoArray;
+use crate::Precision;
 use crate::arrow::FromArrowArray;
 use crate::serde::ArrayChildren;
-use crate::stats::{ArrayStats, StatsSetRef};
-use crate::vtable::{
-    ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, CanonicalVTable, NotSupported,
-    OperationsVTable, VTable, ValidityVTable, VisitorVTable,
-};
-use crate::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EmptyMetadata, IntoArray,
-    Precision, vtable,
-};
+use crate::stats::ArrayStats;
+use crate::stats::StatsSetRef;
+use crate::vtable;
+use crate::vtable::ArrayId;
+use crate::vtable::ArrayVTable;
+use crate::vtable::ArrayVTableExt;
+use crate::vtable::BaseArrayVTable;
+use crate::vtable::CanonicalVTable;
+use crate::vtable::NotSupported;
+use crate::vtable::OperationsVTable;
+use crate::vtable::VTable;
+use crate::vtable::ValidityVTable;
+use crate::vtable::VisitorVTable;
 
 vtable!(Arrow);
 

@@ -1,17 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrayref::{array_mut_ref, array_ref};
+use arrayref::array_mut_ref;
+use arrayref::array_ref;
 use fastlanes::RLE;
 use num_traits::AsPrimitive;
+use vortex_array::Array;
+use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ToCanonical};
 use vortex_buffer::BufferMut;
-use vortex_dtype::{NativePType, match_each_native_ptype, match_each_unsigned_integer_ptype};
+use vortex_dtype::NativePType;
+use vortex_dtype::match_each_native_ptype;
+use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::vortex_panic;
 
-use crate::{FL_CHUNK_SIZE, RLEArray};
+use crate::FL_CHUNK_SIZE;
+use crate::RLEArray;
 
 /// Decompresses an RLE array back into a primitive array.
 #[allow(clippy::cognitive_complexity)]

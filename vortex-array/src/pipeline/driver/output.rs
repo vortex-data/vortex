@@ -4,9 +4,14 @@
 use vortex_compute::filter::Filter;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_vector::{Vector, VectorMut, VectorMutOps, VectorOps};
+use vortex_vector::Vector;
+use vortex_vector::VectorMut;
+use vortex_vector::VectorMutOps;
+use vortex_vector::VectorOps;
 
-use crate::pipeline::{BitView, N, Sink};
+use crate::pipeline::BitView;
+use crate::pipeline::N;
+use crate::pipeline::Sink;
 
 pub struct OutputSink {
     vector: VectorMut,

@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::{
-    BitBuffer, BitBufferMut, BitView, get_bit, get_bit_unchecked, set_bit_unchecked,
-    unset_bit_unchecked,
-};
+use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferMut;
+use vortex_buffer::BitView;
+use vortex_buffer::get_bit;
+use vortex_buffer::get_bit_unchecked;
+use vortex_buffer::set_bit_unchecked;
+use vortex_buffer::unset_bit_unchecked;
 use vortex_mask::Mask;
 
 use crate::filter::Filter;

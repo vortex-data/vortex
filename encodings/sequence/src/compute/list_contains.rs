@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::Array;
+use vortex_array::ArrayRef;
 use vortex_array::arrays::BoolArray;
-use vortex_array::compute::{ListContainsKernel, ListContainsKernelAdapter};
-use vortex_array::{Array, ArrayRef, register_kernel};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_array::compute::ListContainsKernel;
+use vortex_array::compute::ListContainsKernelAdapter;
+use vortex_array::register_kernel;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 
 use crate::array::SequenceVTable;
 use crate::compute::compare::find_intersection_scalar;

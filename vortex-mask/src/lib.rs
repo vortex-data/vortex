@@ -14,14 +14,20 @@ mod mask_mut;
 mod tests;
 
 use std::cmp::Ordering;
-use std::fmt::{Debug, Formatter};
-use std::ops::{Bound, RangeBounds};
-use std::sync::{Arc, OnceLock};
+use std::fmt::Debug;
+use std::fmt::Formatter;
+use std::ops::Bound;
+use std::ops::RangeBounds;
+use std::sync::Arc;
+use std::sync::OnceLock;
 
 use itertools::Itertools;
 pub use mask_mut::*;
-use vortex_buffer::{BitBuffer, BitBufferMut, set_bit_unchecked};
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferMut;
+use vortex_buffer::set_bit_unchecked;
+use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 
 /// Represents a set of values that are all included, all excluded, or some mixture of both.
 pub enum AllOr<T> {

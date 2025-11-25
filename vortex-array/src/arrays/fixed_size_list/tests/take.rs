@@ -3,19 +3,26 @@
 
 use rstest::rstest;
 use vortex_buffer::buffer;
-use vortex_dtype::{DType, Nullability, PType};
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_dtype::PType;
 use vortex_scalar::Scalar;
 
-use super::common::{
-    create_basic_fsl, create_empty_fsl, create_large_fsl, create_nullable_fsl,
-    create_single_element_fsl,
-};
-use crate::arrays::{FixedSizeListArray, FixedSizeListVTable, PrimitiveArray};
-use crate::builders::{ArrayBuilder, FixedSizeListBuilder};
+use super::common::create_basic_fsl;
+use super::common::create_empty_fsl;
+use super::common::create_large_fsl;
+use super::common::create_nullable_fsl;
+use super::common::create_single_element_fsl;
+use crate::Array;
+use crate::IntoArray;
+use crate::arrays::FixedSizeListArray;
+use crate::arrays::FixedSizeListVTable;
+use crate::arrays::PrimitiveArray;
+use crate::builders::ArrayBuilder;
+use crate::builders::FixedSizeListBuilder;
 use crate::compute::conformance::take::test_take_conformance;
 use crate::compute::take;
 use crate::validity::Validity;
-use crate::{Array, IntoArray};
 
 // Conformance tests for common take scenarios.
 #[rstest]

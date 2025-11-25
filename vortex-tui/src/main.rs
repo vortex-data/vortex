@@ -11,8 +11,10 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 
 use browse::exec_tui;
-use clap::{CommandFactory, Parser};
-use tree::{TreeArgs, exec_tree};
+use clap::CommandFactory;
+use clap::Parser;
+use tree::TreeArgs;
+use tree::exec_tree;
 use vortex::VortexSessionDefault;
 use vortex::error::VortexExpect;
 use vortex::io::session::RuntimeSessionExt;

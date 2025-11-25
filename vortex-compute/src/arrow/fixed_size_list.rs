@@ -3,7 +3,8 @@
 
 use std::sync::Arc;
 
-use arrow_array::{ArrayRef, FixedSizeListArray};
+use arrow_array::ArrayRef;
+use arrow_array::FixedSizeListArray;
 use arrow_schema::Field;
 use vortex_error::VortexResult;
 use vortex_vector::fixed_size_list::FixedSizeListVector;

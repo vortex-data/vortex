@@ -4,10 +4,12 @@
 use divan::Bencher;
 use rand::SeedableRng;
 use rand::prelude::StdRng;
+use vortex_array::Array;
+use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder};
+use vortex_array::builders::ArrayBuilder;
+use vortex_array::builders::PrimitiveBuilder;
 use vortex_array::compute::warm_up_vtables;
-use vortex_array::{Array, IntoArray};
 use vortex_error::VortexExpect;
 use vortex_fastlanes::bitpack_compress::test_harness::make_array;
 

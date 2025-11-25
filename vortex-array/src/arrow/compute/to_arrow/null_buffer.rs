@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::{BooleanBuffer, NullBuffer};
+use arrow_buffer::BooleanBuffer;
+use arrow_buffer::NullBuffer;
 use vortex_mask::Mask;
 
 /// Converts a mask to a null buffer.

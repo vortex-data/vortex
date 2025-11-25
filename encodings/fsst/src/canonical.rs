@@ -3,15 +3,23 @@
 
 use std::sync::Arc;
 
+use vortex_array::Canonical;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
-use vortex_array::vtable::{CanonicalVTable, ValidityHelper};
-use vortex_array::{Canonical, IntoArray, ToCanonical};
-use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
+use vortex_array::builders::ArrayBuilder;
+use vortex_array::builders::VarBinViewBuilder;
+use vortex_array::vtable::CanonicalVTable;
+use vortex_array::vtable::ValidityHelper;
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
+use vortex_buffer::ByteBuffer;
+use vortex_buffer::ByteBufferMut;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_vector::binaryview::BinaryView;
 
-use crate::{FSSTArray, FSSTVTable};
+use crate::FSSTArray;
+use crate::FSSTVTable;
 
 impl CanonicalVTable<FSSTVTable> for FSSTVTable {
     fn canonicalize(array: &FSSTArray) -> Canonical {
@@ -95,15 +103,22 @@ fn fsst_decode_views(fsst_array: &FSSTArray, buf_index: u32) -> (ByteBuffer, Buf
 
 #[cfg(test)]
 mod tests {
+    use rand::Rng;
+    use rand::SeedableRng;
     use rand::prelude::StdRng;
-    use rand::{Rng, SeedableRng};
+    use vortex_array::ArrayRef;
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
     use vortex_array::accessor::ArrayAccessor;
-    use vortex_array::arrays::{ChunkedArray, VarBinArray};
-    use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
-    use vortex_array::{ArrayRef, IntoArray, ToCanonical};
-    use vortex_dtype::{DType, Nullability};
+    use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::VarBinArray;
+    use vortex_array::builders::ArrayBuilder;
+    use vortex_array::builders::VarBinViewBuilder;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
 
-    use crate::{fsst_compress, fsst_train_compressor};
+    use crate::fsst_compress;
+    use crate::fsst_train_compressor;
 
     fn make_data() -> (VarBinArray, Vec<Option<Vec<u8>>>) {
         const STRING_COUNT: usize = 1000;

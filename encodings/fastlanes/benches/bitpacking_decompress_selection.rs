@@ -9,11 +9,16 @@
 #![allow(clippy::unwrap_used)]
 
 use divan::Bencher;
+use rand::Rng as _;
+use rand::SeedableRng as _;
 use rand::rngs::StdRng;
-use rand::{Rng as _, SeedableRng as _};
-use vortex_array::compute::{filter, warm_up_vtables};
-use vortex_array::{Array, IntoArray as _, ToCanonical};
-use vortex_buffer::{BitBuffer, BufferMut};
+use vortex_array::Array;
+use vortex_array::IntoArray as _;
+use vortex_array::ToCanonical;
+use vortex_array::compute::filter;
+use vortex_array::compute::warm_up_vtables;
+use vortex_buffer::BitBuffer;
+use vortex_buffer::BufferMut;
 use vortex_dtype::IntegerPType;
 use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
 use vortex_mask::Mask;

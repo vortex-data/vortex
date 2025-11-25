@@ -5,26 +5,40 @@ use std::sync::Arc;
 
 use futures::StreamExt;
 use jni::JNIEnv;
-use jni::objects::{JByteArray, JClass, JLongArray, JObject, JObjectArray, JString, ReleaseMode};
-use jni::sys::{jlong, jobject};
+use jni::objects::JByteArray;
+use jni::objects::JClass;
+use jni::objects::JLongArray;
+use jni::objects::JObject;
+use jni::objects::JObjectArray;
+use jni::objects::JString;
+use jni::objects::ReleaseMode;
+use jni::sys::jlong;
+use jni::sys::jobject;
 use object_store::ObjectStore;
 use object_store::path::Path;
 use prost::Message;
 use url::Url;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
-use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_err};
+use vortex::error::VortexError;
+use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 use vortex::expr::proto::deserialize_expr_proto;
+use vortex::expr::root;
+use vortex::expr::select;
 use vortex::expr::session::ExprSessionExt;
-use vortex::expr::{root, select};
-use vortex::file::{OpenOptionsSessionExt, VortexFile};
+use vortex::file::OpenOptionsSessionExt;
+use vortex::file::VortexFile;
 use vortex::proto::expr as pb;
 use vortex::utils::aliases::hash_map::HashMap;
 
+use crate::RUNTIME;
+use crate::SESSION;
+use crate::TOKIO_RUNTIME;
 use crate::array_iter::NativeArrayIterator;
 use crate::errors::try_or_throw;
 use crate::object_store::make_object_store;
-use crate::{RUNTIME, SESSION, TOKIO_RUNTIME};
 
 pub struct NativeFile {
     inner: VortexFile,

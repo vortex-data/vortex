@@ -5,9 +5,11 @@ use std::io::Cursor;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use futures::{StreamExt, pin_mut};
+use futures::StreamExt;
+use futures::pin_mut;
 use vortex::Array;
-use vortex::file::{OpenOptionsSessionExt, WriteOptionsSessionExt};
+use vortex::file::OpenOptionsSessionExt;
+use vortex::file::WriteOptionsSessionExt;
 
 use crate::SESSION;
 

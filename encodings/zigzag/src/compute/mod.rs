@@ -3,15 +3,24 @@
 
 mod cast;
 
-use vortex_array::compute::{
-    FilterKernel, FilterKernelAdapter, MaskKernel, MaskKernelAdapter, TakeKernel,
-    TakeKernelAdapter, filter, mask, take,
-};
-use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::compute::FilterKernel;
+use vortex_array::compute::FilterKernelAdapter;
+use vortex_array::compute::MaskKernel;
+use vortex_array::compute::MaskKernelAdapter;
+use vortex_array::compute::TakeKernel;
+use vortex_array::compute::TakeKernelAdapter;
+use vortex_array::compute::filter;
+use vortex_array::compute::mask;
+use vortex_array::compute::take;
+use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::{ZigZagArray, ZigZagVTable};
+use crate::ZigZagArray;
+use crate::ZigZagVTable;
 
 impl FilterKernel for ZigZagVTable {
     fn filter(&self, array: &ZigZagArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -63,18 +72,26 @@ impl ZigZagEncoded for u64 {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::Array;
+    use vortex_array::ArrayRef;
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
-    use vortex_array::compute::{filter, take};
+    use vortex_array::compute::filter;
+    use vortex_array::compute::take;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ArrayVTableExt;
-    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, assert_arrays_eq};
-    use vortex_buffer::{BitBuffer, buffer};
+    use vortex_buffer::BitBuffer;
+    use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
-    use crate::{ZigZagArray, ZigZagVTable, zigzag_encode};
+    use crate::ZigZagArray;
+    use crate::ZigZagVTable;
+    use crate::zigzag_encode;
 
     #[test]
     pub fn nullable_scalar_at() {

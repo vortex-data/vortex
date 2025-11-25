@@ -5,19 +5,31 @@ use std::mem;
 use std::mem::MaybeUninit;
 
 use fastlanes::BitPacking;
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::{TakeKernel, TakeKernelAdapter, take};
+use vortex_array::compute::TakeKernel;
+use vortex_array::compute::TakeKernelAdapter;
+use vortex_array::compute::take;
+use vortex_array::register_kernel;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
-use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{
-    IntegerPType, NativePType, PType, match_each_integer_ptype, match_each_unsigned_integer_ptype,
-};
-use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
+use vortex_dtype::IntegerPType;
+use vortex_dtype::NativePType;
+use vortex_dtype::PType;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_dtype::match_each_unsigned_integer_ptype;
+use vortex_error::VortexExpect as _;
+use vortex_error::VortexResult;
 
 use super::chunked_indices;
-use crate::{BitPackedArray, BitPackedVTable, bitpack_decompress};
+use crate::BitPackedArray;
+use crate::BitPackedVTable;
+use crate::bitpack_decompress;
 
 /// assuming the buffer is already allocated (which will happen at most once) then unpacking
 /// all 1024 elements takes ~8.8x as long as unpacking a single element on an M2 Macbook Air.
@@ -133,14 +145,19 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]
 mod test {
+    use rand::Rng;
     use rand::distr::Uniform;
-    use rand::{Rng, rng};
+    use rand::rng;
     use rstest::rstest;
+    use vortex_array::Array;
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::compute::take;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray, ToCanonical, assert_arrays_eq};
-    use vortex_buffer::{Buffer, buffer};
+    use vortex_buffer::Buffer;
+    use vortex_buffer::buffer;
 
     use crate::BitPackedArray;
     use crate::bitpacking::compute::take::take_primitive;

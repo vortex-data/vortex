@@ -10,10 +10,12 @@ use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::array::ArrayRef;
 use crate::array::transform::context::ArrayRuleContext;
-use crate::array::transform::rules::{
-    AnyArrayParent, ArrayParentMatcher, ArrayParentReduceRule, ArrayReduceRule,
-};
-use crate::vtable::{ArrayId, VTable};
+use crate::array::transform::rules::AnyArrayParent;
+use crate::array::transform::rules::ArrayParentMatcher;
+use crate::array::transform::rules::ArrayParentReduceRule;
+use crate::array::transform::rules::ArrayReduceRule;
+use crate::vtable::ArrayId;
+use crate::vtable::VTable;
 
 /// Dynamic trait for array reduce rules
 pub trait DynArrayReduceRule: Debug + Send + Sync {

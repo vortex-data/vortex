@@ -8,18 +8,31 @@ use std::ops::Not;
 
 use prost::Message;
 use vortex_compute::mask::MaskValidity;
-use vortex_dtype::{DType, FieldName, FieldPath, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::DType;
+use vortex_dtype::FieldName;
+use vortex_dtype::FieldPath;
+use vortex_dtype::Nullability;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
-use vortex_vector::{Vector, VectorOps};
+use vortex_vector::Vector;
+use vortex_vector::VectorOps;
 
+use crate::ArrayRef;
+use crate::ToCanonical;
 use crate::compute::mask;
+use crate::expr::ChildName;
+use crate::expr::ExecutionArgs;
+use crate::expr::ExprId;
+use crate::expr::Expression;
+use crate::expr::ExpressionView;
+use crate::expr::StatsCatalog;
+use crate::expr::VTable;
+use crate::expr::VTableExt;
 use crate::expr::exprs::root::root;
-use crate::expr::{
-    ChildName, ExecutionArgs, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt,
-};
 use crate::stats::Stat;
-use crate::{ArrayRef, ToCanonical};
 
 pub struct GetItem;
 
@@ -166,15 +179,18 @@ pub fn get_item(field: impl Into<FieldName>, child: Expression) -> Expression {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::FieldNames;
+    use vortex_dtype::Nullability;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, FieldNames, Nullability};
     use vortex_scalar::Scalar;
 
     use super::get_item;
+    use crate::Array;
+    use crate::IntoArray;
     use crate::arrays::StructArray;
     use crate::expr::exprs::root::root;
     use crate::validity::Validity;
-    use crate::{Array, IntoArray};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[

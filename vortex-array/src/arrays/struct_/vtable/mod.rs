@@ -6,16 +6,23 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_vector::Vector;
 use vortex_vector::struct_::StructVector;
 
+use crate::ArrayOperator;
+use crate::EmptyMetadata;
 use crate::arrays::struct_::StructArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{ArrayVTableExt, NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{ArrayOperator, EmptyMetadata, vtable};
+use crate::vtable;
+use crate::vtable::ArrayVTableExt;
+use crate::vtable::NotSupported;
+use crate::vtable::VTable;
+use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
 mod canonical;
@@ -27,7 +34,8 @@ mod visitor;
 
 pub use operator::StructExprPartitionRule;
 
-use crate::vtable::{ArrayId, ArrayVTable};
+use crate::vtable::ArrayId;
+use crate::vtable::ArrayVTable;
 
 vtable!(Struct);
 

@@ -4,12 +4,22 @@
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
-use vortex_array::arrays::{ConstantArray, StructArray};
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::expr::pruning::field_path_stat_field_name;
-use vortex_array::stats::{Stat, StatsProvider, StatsSet};
+use vortex_array::stats::Stat;
+use vortex_array::stats::StatsProvider;
+use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;
-use vortex_dtype::{Field, FieldName, FieldNames, FieldPath, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::Field;
+use vortex_dtype::FieldName;
+use vortex_dtype::FieldNames;
+use vortex_dtype::FieldPath;
+use vortex_dtype::StructFields;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 

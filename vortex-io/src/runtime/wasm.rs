@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
+use std::sync::LazyLock;
 
 use futures::future::BoxFuture;
 use wasm_bindgen_futures::spawn_local;
 
-use crate::runtime::{AbortHandle, AbortHandleRef, Executor, Handle, IoTask};
+use crate::runtime::AbortHandle;
+use crate::runtime::AbortHandleRef;
+use crate::runtime::Executor;
+use crate::runtime::Handle;
+use crate::runtime::IoTask;
 
 /// A Vortex runtime that drives work in a WebAssembly environment.
 pub struct WasmRuntime;

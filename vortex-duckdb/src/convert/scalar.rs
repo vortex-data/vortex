@@ -21,19 +21,38 @@
 
 use std::sync::Arc;
 
+use vortex::dtype::DType;
+use vortex::dtype::DecimalDType;
+use vortex::dtype::ExtDType;
 use vortex::dtype::Nullability::Nullable;
-use vortex::dtype::PType::{I32, I64};
-use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
+use vortex::dtype::PType;
+use vortex::dtype::PType::I32;
+use vortex::dtype::PType::I64;
+use vortex::dtype::datetime::DATE_ID;
+use vortex::dtype::datetime::TIME_ID;
+use vortex::dtype::datetime::TIMESTAMP_ID;
+use vortex::dtype::datetime::TemporalMetadata;
+use vortex::dtype::datetime::TimeUnit;
 use vortex::dtype::half::f16;
-use vortex::dtype::{DType, DecimalDType, ExtDType, PType, match_each_native_simd_ptype};
-use vortex::error::{VortexError, VortexResult, vortex_bail, vortex_err};
-use vortex::scalar::{
-    BinaryScalar, BoolScalar, DecimalScalar, DecimalValue, ExtScalar, PrimitiveScalar, Scalar,
-    ScalarValue, Utf8Scalar,
-};
+use vortex::dtype::match_each_native_simd_ptype;
+use vortex::error::VortexError;
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
+use vortex::error::vortex_err;
+use vortex::scalar::BinaryScalar;
+use vortex::scalar::BoolScalar;
+use vortex::scalar::DecimalScalar;
+use vortex::scalar::DecimalValue;
+use vortex::scalar::ExtScalar;
+use vortex::scalar::PrimitiveScalar;
+use vortex::scalar::Scalar;
+use vortex::scalar::ScalarValue;
+use vortex::scalar::Utf8Scalar;
 
 use crate::convert::dtype::FromLogicalType;
-use crate::duckdb::{LogicalType, Value, ValueRef};
+use crate::duckdb::LogicalType;
+use crate::duckdb::Value;
+use crate::duckdb::ValueRef;
 
 /// Trait for converting Vortex scalars to DuckDB values.
 pub trait ToDuckDBScalar {
@@ -337,9 +356,15 @@ mod tests {
     fn test_timestamp_roundtrip() {
         use std::sync::Arc;
 
-        use vortex::dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-        use vortex::dtype::{DType, ExtDType, Nullability, PType};
-        use vortex::scalar::{Scalar, ScalarValue};
+        use vortex::dtype::DType;
+        use vortex::dtype::ExtDType;
+        use vortex::dtype::Nullability;
+        use vortex::dtype::PType;
+        use vortex::dtype::datetime::TIMESTAMP_ID;
+        use vortex::dtype::datetime::TemporalMetadata;
+        use vortex::dtype::datetime::TimeUnit;
+        use vortex::scalar::Scalar;
+        use vortex::scalar::ScalarValue;
 
         #[rustfmt::skip]
         let test_cases = [

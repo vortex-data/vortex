@@ -3,13 +3,17 @@
 
 use std::fs;
 use std::future::Future;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::pin::Pin;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
+use anyhow::anyhow;
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
-use futures::{StreamExt, TryStreamExt, stream};
+use futures::StreamExt;
+use futures::TryStreamExt;
+use futures::stream;
 use log::info;
 use parquet::arrow::AsyncArrowWriter;
 use parquet::basic::Compression;
@@ -17,10 +21,14 @@ use parquet::file::properties::WriterProperties;
 use tokio::fs::File as TokioFile;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
-use tpchgen::generators::{
-    CustomerGenerator, LineItemGenerator, NationGenerator, OrderGenerator, PartGenerator,
-    PartSuppGenerator, RegionGenerator, SupplierGenerator,
-};
+use tpchgen::generators::CustomerGenerator;
+use tpchgen::generators::LineItemGenerator;
+use tpchgen::generators::NationGenerator;
+use tpchgen::generators::OrderGenerator;
+use tpchgen::generators::PartGenerator;
+use tpchgen::generators::PartSuppGenerator;
+use tpchgen::generators::RegionGenerator;
+use tpchgen::generators::SupplierGenerator;
 use tpchgen_arrow::RecordBatchIterator;
 use vortex::ArrayRef;
 use vortex::arrow::FromArrowArray;
@@ -30,8 +38,11 @@ use vortex::error::VortexExpect;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::stream::ArrayStreamAdapter;
 
+use crate::CompactionStrategy;
+use crate::Format;
+use crate::IdempotentPath;
+use crate::SESSION;
 use crate::utils::file_utils::idempotent_async;
-use crate::{CompactionStrategy, Format, IdempotentPath, SESSION};
 
 type TableFuture<'a> = Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 

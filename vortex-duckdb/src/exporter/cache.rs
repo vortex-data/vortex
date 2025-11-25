@@ -4,7 +4,8 @@
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use vortex::{ArrayRef, Canonical};
+use vortex::ArrayRef;
+use vortex::Canonical;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::duckdb::Vector;

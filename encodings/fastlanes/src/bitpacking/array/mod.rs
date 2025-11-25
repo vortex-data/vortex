@@ -8,8 +8,12 @@ use vortex_array::patches::Patches;
 use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, NativePType, PType};
-use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
+use vortex_dtype::DType;
+use vortex_dtype::NativePType;
+use vortex_dtype::PType;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 
 pub mod bitpack_compress;
 pub mod bitpack_decompress;
@@ -17,7 +21,8 @@ pub mod bitpack_pipeline;
 pub mod unpack_iter;
 
 use crate::bitpack_compress::bitpack_encode;
-use crate::unpack_iter::{BitPacked, BitUnpackedChunks};
+use crate::unpack_iter::BitPacked;
+use crate::unpack_iter::BitUnpackedChunks;
 
 #[derive(Clone, Debug)]
 pub struct BitPackedArray {
@@ -275,8 +280,9 @@ impl BitPackedArray {
 
 #[cfg(test)]
 mod test {
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::Buffer;
 
     use crate::BitPackedArray;

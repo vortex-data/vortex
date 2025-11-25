@@ -5,10 +5,13 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use divan::Bencher;
+use rand::Rng;
+use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
 use vortex_array::patches::Patches;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
 
 fn main() {

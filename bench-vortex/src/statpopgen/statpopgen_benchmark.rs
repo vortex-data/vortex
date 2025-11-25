@@ -2,22 +2,27 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
 use datafusion::datasource::file_format::parquet::ParquetFormat;
-use datafusion::datasource::listing::{
-    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
-};
+use datafusion::datasource::listing::ListingOptions;
+use datafusion::datasource::listing::ListingTable;
+use datafusion::datasource::listing::ListingTableConfig;
+use datafusion::datasource::listing::ListingTableUrl;
 use datafusion::prelude::SessionContext;
 use tracing::info;
 use url::Url;
 use vortex_datafusion::VortexFormat;
 
+use crate::BenchmarkDataset;
+use crate::Format;
+use crate::SESSION;
+use crate::Target;
 use crate::benchmark_trait::Benchmark;
 use crate::engines::EngineCtx;
-use crate::{BenchmarkDataset, Format, SESSION, Target};
 
 /// Statistical population genetics benchmark implementation.
 ///

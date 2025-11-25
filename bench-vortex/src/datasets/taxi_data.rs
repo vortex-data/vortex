@@ -1,27 +1,34 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#[cfg(feature = "lance")]
+use std::fs::File;
 use std::path::PathBuf;
 
 use anyhow::Result;
 use async_trait::async_trait;
+#[cfg(feature = "lance")]
+use lance::dataset::Dataset as LanceDataset;
+#[cfg(feature = "lance")]
+use lance::dataset::WriteParams;
+#[cfg(feature = "lance")]
+use lance_encoding::version::LanceFileVersion;
+#[cfg(feature = "lance")]
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use tokio::fs::File as TokioFile;
 use tokio::io::AsyncWriteExt;
 use vortex::ArrayRef;
-use vortex::file::{OpenOptionsSessionExt, WriteOptionsSessionExt};
+use vortex::file::OpenOptionsSessionExt;
+use vortex::file::WriteOptionsSessionExt;
 use vortex::stream::ArrayStreamExt;
-#[cfg(feature = "lance")]
-use {
-    lance::dataset::{Dataset as LanceDataset, WriteParams},
-    lance_encoding::version::LanceFileVersion,
-    parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder,
-    std::fs::File,
-};
 
+use crate::CompactionStrategy;
+use crate::IdempotentPath;
+use crate::SESSION;
 use crate::conversions::parquet_to_vortex;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::download_data;
-use crate::{CompactionStrategy, IdempotentPath, SESSION, idempotent_async};
+use crate::idempotent_async;
 
 pub struct TaxiData;
 

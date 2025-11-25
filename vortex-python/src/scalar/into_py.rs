@@ -3,14 +3,31 @@
 
 use std::cmp::Ordering;
 
-use pyo3::prelude::{PyAnyMethods, PyDictMethods};
-use pyo3::types::{PyBytes, PyDict, PyList, PyString};
-use pyo3::{Bound, IntoPyObject, PyAny, PyErr, PyResult, Python};
-use vortex::buffer::{BufferString, ByteBuffer};
+use pyo3::Bound;
+use pyo3::IntoPyObject;
+use pyo3::PyAny;
+use pyo3::PyErr;
+use pyo3::PyResult;
+use pyo3::Python;
+use pyo3::prelude::PyAnyMethods;
+use pyo3::prelude::PyDictMethods;
+use pyo3::types::PyBytes;
+use pyo3::types::PyDict;
+use pyo3::types::PyList;
+use pyo3::types::PyString;
+use vortex::buffer::BufferString;
+use vortex::buffer::ByteBuffer;
+use vortex::dtype::DType;
+use vortex::dtype::PType;
 use vortex::dtype::half::f16;
-use vortex::dtype::{DType, PType, match_each_decimal_value};
-use vortex::error::{VortexExpect, vortex_err};
-use vortex::scalar::{DecimalValue, ListScalar, Scalar, StructScalar, i256};
+use vortex::dtype::match_each_decimal_value;
+use vortex::error::VortexExpect;
+use vortex::error::vortex_err;
+use vortex::scalar::DecimalValue;
+use vortex::scalar::ListScalar;
+use vortex::scalar::Scalar;
+use vortex::scalar::StructScalar;
+use vortex::scalar::i256;
 
 use crate::PyVortex;
 

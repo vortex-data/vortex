@@ -3,9 +3,11 @@
 
 use std::hash::Hash;
 
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
+use vortex_array::Precision;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::{ArrayEq, ArrayHash, Precision};
 use vortex_dtype::DType;
 
 use super::FoRVTable;

@@ -1,17 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
+use std::fmt::Formatter;
 
+use vortex_array::DeserializeMetadata;
+use vortex_array::SerializeMetadata;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{
-    ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable, ValidityVTableFromChild,
-};
-use vortex_array::{DeserializeMetadata, SerializeMetadata, vtable};
+use vortex_array::vtable;
+use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayVTable;
+use vortex_array::vtable::ArrayVTableExt;
+use vortex_array::vtable::NotSupported;
+use vortex_array::vtable::VTable;
+use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
 use crate::FoRArray;
 

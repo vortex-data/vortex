@@ -4,13 +4,24 @@
 use std::fmt::Formatter;
 
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
 use crate::compute::list_contains as compute_list_contains;
-use crate::expr::exprs::binary::{and, gt, lt, or};
-use crate::expr::exprs::literal::{Literal, lit};
-use crate::expr::{ChildName, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt};
+use crate::expr::ChildName;
+use crate::expr::ExprId;
+use crate::expr::Expression;
+use crate::expr::ExpressionView;
+use crate::expr::StatsCatalog;
+use crate::expr::VTable;
+use crate::expr::VTableExt;
+use crate::expr::exprs::binary::and;
+use crate::expr::exprs::binary::gt;
+use crate::expr::exprs::binary::lt;
+use crate::expr::exprs::binary::or;
+use crate::expr::exprs::literal::Literal;
+use crate::expr::exprs::literal::lit;
 
 pub struct ListContains;
 
@@ -145,22 +156,35 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_buffer::BitBuffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::Field;
+    use vortex_dtype::FieldPath;
+    use vortex_dtype::FieldPathSet;
+    use vortex_dtype::Nullability;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, Field, FieldPath, FieldPathSet, Nullability, StructFields};
+    use vortex_dtype::StructFields;
     use vortex_scalar::Scalar;
     use vortex_utils::aliases::hash_map::HashMap;
     use vortex_utils::aliases::hash_set::HashSet;
 
     use super::list_contains;
-    use crate::arrays::{BoolArray, ListArray, PrimitiveArray};
-    use crate::expr::exprs::binary::{and, gt, lt, or};
-    use crate::expr::exprs::get_item::{col, get_item};
+    use crate::Array;
+    use crate::ArrayRef;
+    use crate::IntoArray;
+    use crate::arrays::BoolArray;
+    use crate::arrays::ListArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::expr::exprs::binary::and;
+    use crate::expr::exprs::binary::gt;
+    use crate::expr::exprs::binary::lt;
+    use crate::expr::exprs::binary::or;
+    use crate::expr::exprs::get_item::col;
+    use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::root::root;
     use crate::expr::pruning::checked_pruning_expr;
     use crate::stats::Stat;
     use crate::validity::Validity;
-    use crate::{Array, ArrayRef, IntoArray};
 
     fn test_array() -> ArrayRef {
         ListArray::try_new(

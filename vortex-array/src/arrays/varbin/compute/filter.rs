@@ -3,17 +3,28 @@
 
 use itertools::Itertools;
 use num_traits::AsPrimitive;
-use vortex_dtype::{DType, IntegerPType, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
-use vortex_mask::{AllOr, Mask, MaskIter};
+use vortex_dtype::DType;
+use vortex_dtype::IntegerPType;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
+use vortex_mask::AllOr;
+use vortex_mask::Mask;
+use vortex_mask::MaskIter;
 
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::ToCanonical;
 use crate::arrays::VarBinVTable;
 use crate::arrays::varbin::VarBinArray;
 use crate::arrays::varbin::builder::VarBinBuilder;
-use crate::compute::{FilterKernel, FilterKernelAdapter};
+use crate::compute::FilterKernel;
+use crate::compute::FilterKernelAdapter;
+use crate::register_kernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl FilterKernel for VarBinVTable {
     fn filter(&self, array: &VarBinArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -182,18 +193,20 @@ fn filter_select_var_bin_by_index_primitive_offset<O: IntegerPType>(
 
 #[cfg(test)]
 mod test {
-    use vortex_buffer::{ByteBuffer, buffer};
+    use vortex_buffer::ByteBuffer;
+    use vortex_buffer::buffer;
     use vortex_dtype::DType;
-    use vortex_dtype::Nullability::{NonNullable, Nullable};
+    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::Nullability::Nullable;
 
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::arrays::varbin::VarBinArray;
-    use crate::arrays::varbin::compute::filter::{
-        filter_select_var_bin_by_index, filter_select_var_bin_by_slice,
-    };
+    use crate::arrays::varbin::compute::filter::filter_select_var_bin_by_index;
+    use crate::arrays::varbin::compute::filter::filter_select_var_bin_by_slice;
+    use crate::assert_arrays_eq;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::validity::Validity;
-    use crate::{IntoArray, assert_arrays_eq};
 
     #[test]
     fn filter_var_bin_test() {

@@ -1,13 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{CompareKernel, CompareKernelAdapter, Operator, compare};
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use vortex_array::compute::CompareKernel;
+use vortex_array::compute::CompareKernelAdapter;
+use vortex_array::compute::Operator;
+use vortex_array::compute::compare;
+use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
+use crate::RunEndArray;
+use crate::RunEndVTable;
 use crate::compress::runend_decode_bools;
-use crate::{RunEndArray, RunEndVTable};
 
 impl CompareKernel for RunEndVTable {
     fn compare(
@@ -44,9 +52,12 @@ register_kernel!(CompareKernelAdapter(RunEndVTable).lift());
 
 #[cfg(test)]
 mod test {
-    use vortex_array::arrays::{ConstantArray, PrimitiveArray};
-    use vortex_array::compute::{Operator, compare};
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
+    use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::compute::Operator;
+    use vortex_array::compute::compare;
     use vortex_buffer::BitBuffer;
 
     use crate::RunEndArray;

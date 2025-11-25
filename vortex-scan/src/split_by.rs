@@ -54,14 +54,17 @@ impl SplitBy {
 mod test {
     use std::sync::Arc;
 
-    use vortex_array::{ArrayContext, IntoArray};
+    use vortex_array::ArrayContext;
+    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::FieldPath;
     use vortex_io::runtime::single::block_on;
+    use vortex_layout::LayoutReaderRef;
+    use vortex_layout::LayoutStrategy;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     use vortex_layout::segments::TestSegments;
-    use vortex_layout::sequence::{SequenceId, SequentialArrayStreamExt};
-    use vortex_layout::{LayoutReaderRef, LayoutStrategy};
+    use vortex_layout::sequence::SequenceId;
+    use vortex_layout::sequence::SequentialArrayStreamExt;
 
     use super::*;
     use crate::test::SESSION;

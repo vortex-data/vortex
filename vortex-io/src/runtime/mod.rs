@@ -16,7 +16,8 @@
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 
-use crate::file::{IoRequest, ReadSourceRef};
+use crate::file::IoRequest;
+use crate::file::ReadSourceRef;
 
 mod blocking;
 pub use blocking::*;

@@ -5,19 +5,32 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use num_traits::ToPrimitive;
-use vortex_buffer::{Buffer, ByteBuffer};
-use vortex_dtype::{DType, IntegerPType, PTypeDowncastExt, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::DType;
+use vortex_dtype::IntegerPType;
+use vortex_dtype::PTypeDowncastExt;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 use vortex_vector::Vector;
-use vortex_vector::binaryview::{
-    BinaryType, BinaryView, BinaryViewType, BinaryViewVector, StringType,
-};
+use vortex_vector::binaryview::BinaryType;
+use vortex_vector::binaryview::BinaryView;
+use vortex_vector::binaryview::BinaryViewType;
+use vortex_vector::binaryview::BinaryViewVector;
+use vortex_vector::binaryview::StringType;
 
 use crate::ArrayRef;
-use crate::arrays::{VarBinArray, VarBinVTable};
-use crate::execution::{BatchKernel, BatchKernelRef, BindCtx, MaskExecution};
-use crate::vtable::{OperatorVTable, ValidityHelper};
+use crate::arrays::VarBinArray;
+use crate::arrays::VarBinVTable;
+use crate::execution::BatchKernel;
+use crate::execution::BatchKernelRef;
+use crate::execution::BindCtx;
+use crate::execution::MaskExecution;
+use crate::vtable::OperatorVTable;
+use crate::vtable::ValidityHelper;
 
 impl OperatorVTable<VarBinVTable> for VarBinVTable {
     fn bind(
@@ -171,12 +184,15 @@ fn make_views_filtered<OffsetType: IntegerPType>(
 
 #[cfg(test)]
 mod tests {
-    use rstest::{fixture, rstest};
-    use vortex_dtype::{DType, Nullability};
+    use rstest::fixture;
+    use rstest::rstest;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
 
     use crate::IntoArray;
+    use crate::arrays::BoolArray;
+    use crate::arrays::VarBinArray;
     use crate::arrays::builder::VarBinBuilder;
-    use crate::arrays::{BoolArray, VarBinArray};
 
     #[fixture]
     fn strings() -> VarBinArray {

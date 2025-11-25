@@ -6,7 +6,10 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use parking_lot::RwLock;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_session::registry::Registry;
 
 use crate::vtable::ArrayVTable;

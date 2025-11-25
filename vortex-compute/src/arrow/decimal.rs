@@ -3,12 +3,17 @@
 
 use std::sync::Arc;
 
-use arrow_array::types::{Decimal32Type, Decimal64Type, Decimal128Type, Decimal256Type};
-use arrow_array::{ArrayRef, PrimitiveArray};
+use arrow_array::ArrayRef;
+use arrow_array::PrimitiveArray;
+use arrow_array::types::Decimal32Type;
+use arrow_array::types::Decimal64Type;
+use arrow_array::types::Decimal128Type;
+use arrow_array::types::Decimal256Type;
 use vortex_buffer::Buffer;
 use vortex_dtype::i256;
 use vortex_error::VortexResult;
-use vortex_vector::decimal::{DVector, DecimalVector};
+use vortex_vector::decimal::DVector;
+use vortex_vector::decimal::DecimalVector;
 
 use crate::arrow::IntoArrow;
 

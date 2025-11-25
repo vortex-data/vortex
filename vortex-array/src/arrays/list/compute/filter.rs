@@ -1,16 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::{BitBufferMut, BufferMut};
-use vortex_dtype::{IntegerPType, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult};
-use vortex_mask::{Mask, MaskIter};
+use vortex_buffer::BitBufferMut;
+use vortex_buffer::BufferMut;
+use vortex_dtype::IntegerPType;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_mask::Mask;
+use vortex_mask::MaskIter;
 
-use crate::arrays::{ListArray, ListVTable, PrimitiveArray};
-use crate::compute::{FilterKernel, FilterKernelAdapter, filter};
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::ToCanonical;
+use crate::arrays::ListArray;
+use crate::arrays::ListVTable;
+use crate::arrays::PrimitiveArray;
+use crate::compute::FilterKernel;
+use crate::compute::FilterKernelAdapter;
+use crate::compute::filter;
+use crate::register_kernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 /// Density threshold for choosing between indices and slices representation when expanding masks.
 ///

@@ -5,9 +5,12 @@ use std::ops::Range;
 
 use vortex_scalar::Scalar;
 
-use crate::arrays::{FixedSizeListArray, FixedSizeListVTable};
-use crate::vtable::{OperationsVTable, ValidityHelper};
-use crate::{ArrayRef, IntoArray};
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::FixedSizeListArray;
+use crate::arrays::FixedSizeListVTable;
+use crate::vtable::OperationsVTable;
+use crate::vtable::ValidityHelper;
 
 impl OperationsVTable<FixedSizeListVTable> for FixedSizeListVTable {
     fn slice(array: &FixedSizeListArray, range: Range<usize>) -> ArrayRef {

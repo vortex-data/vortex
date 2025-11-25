@@ -4,9 +4,11 @@
 //! Field mask represents a field projection, which leads to a set of field paths under a given layout.
 // TODO(ngates): this API needs work. It could be made a lot easier to use.
 
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
-use crate::{Field, FieldPath};
+use crate::Field;
+use crate::FieldPath;
 
 /// A projection of fields under a layout.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,7 +76,8 @@ impl FieldMask {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Field, FieldPath};
+    use crate::Field;
+    use crate::FieldPath;
 
     // Test helper functions
     fn all() -> FieldMask {

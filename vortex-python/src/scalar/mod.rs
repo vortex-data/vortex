@@ -22,10 +22,13 @@ mod utf8;
 use pyo3::PyClass;
 use pyo3::prelude::*;
 use vortex::dtype::DType;
-use vortex::error::{VortexError, VortexExpect};
+use vortex::error::VortexError;
+use vortex::error::VortexExpect;
 use vortex::scalar::Scalar;
 
+use crate::PyVortex;
 use crate::dtype::PyDType;
+use crate::install_module;
 use crate::scalar::binary::PyBinaryScalar;
 use crate::scalar::bool::PyBoolScalar;
 use crate::scalar::decimal::PyDecimalScalar;
@@ -35,7 +38,6 @@ use crate::scalar::null::PyNullScalar;
 use crate::scalar::primitive::PyPrimitiveScalar;
 use crate::scalar::struct_::PyStructScalar;
 use crate::scalar::utf8::PyUtf8Scalar;
-use crate::{PyVortex, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "scalar")?;

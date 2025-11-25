@@ -3,7 +3,8 @@
 
 use core::fmt;
 use std::any::Any;
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
@@ -13,15 +14,31 @@ use arrow_ord::cmp;
 use arrow_ord::ord::make_comparator;
 use arrow_schema::SortOptions;
 use vortex_buffer::BitBuffer;
-use vortex_dtype::{DType, IntegerPType, Nullability};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::DType;
+use vortex_dtype::IntegerPType;
+use vortex_dtype::Nullability;
+use vortex_error::VortexError;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_scalar::Scalar;
 
+use crate::Array;
+use crate::ArrayRef;
+use crate::Canonical;
+use crate::IntoArray;
 use crate::arrays::ConstantArray;
-use crate::arrow::{Datum, IntoArrowArray, from_arrow_array_with_len};
-use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
+use crate::arrow::Datum;
+use crate::arrow::IntoArrowArray;
+use crate::arrow::from_arrow_array_with_len;
+use crate::compute::ComputeFn;
+use crate::compute::ComputeFnVTable;
+use crate::compute::InvocationArgs;
+use crate::compute::Kernel;
+use crate::compute::Options;
+use crate::compute::Output;
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef, Canonical, IntoArray};
 
 static COMPARE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("compare".into(), ArcRef::new_ref(&Compare));
@@ -377,15 +394,22 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::{FieldName, FieldNames};
+    use vortex_dtype::FieldName;
+    use vortex_dtype::FieldNames;
 
     use super::*;
     use crate::ToCanonical;
-    use crate::arrays::{
-        BoolArray, ConstantArray, ListArray, ListViewArray, PrimitiveArray, StructArray,
-        VarBinArray, VarBinViewArray,
-    };
-    use crate::expr::{get_item, lt, root};
+    use crate::arrays::BoolArray;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::ListArray;
+    use crate::arrays::ListViewArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
+    use crate::arrays::VarBinArray;
+    use crate::arrays::VarBinViewArray;
+    use crate::expr::get_item;
+    use crate::expr::lt;
+    use crate::expr::root;
     use crate::test_harness::to_int_indices;
     use crate::validity::Validity;
 
@@ -523,7 +547,8 @@ mod tests {
     fn test_list_array_constant_comparison() {
         use std::sync::Arc;
 
-        use vortex_dtype::{DType, PType};
+        use vortex_dtype::DType;
+        use vortex_dtype::PType;
 
         // Create a list array
         let values = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);

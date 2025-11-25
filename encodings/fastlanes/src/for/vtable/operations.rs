@@ -3,8 +3,9 @@
 
 use std::ops::Range;
 
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::vtable::OperationsVTable;
-use vortex_array::{ArrayRef, IntoArray};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;

@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::sync::Arc;
 
-use crate::{DType, Nullability};
+use crate::DType;
+use crate::Nullability;
 
 /// A unique identifier for an extension type
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
@@ -154,8 +156,11 @@ impl ExtDType {
 mod test {
     use std::sync::Arc;
 
-    use super::{ExtDType, ExtID};
-    use crate::{DType, Nullability, PType};
+    use super::ExtDType;
+    use super::ExtID;
+    use crate::DType;
+    use crate::Nullability;
+    use crate::PType;
 
     #[test]
     fn different_ids_are_not_equal() {

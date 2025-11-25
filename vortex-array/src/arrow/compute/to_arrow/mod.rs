@@ -15,11 +15,21 @@ use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
 use vortex_dtype::DType;
 use vortex_dtype::arrow::FromArrowType;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::VortexError;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 
 use crate::Array;
-use crate::arrow::array::{ArrowArray, ArrowVTable};
-use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
+use crate::arrow::array::ArrowArray;
+use crate::arrow::array::ArrowVTable;
+use crate::compute::ComputeFn;
+use crate::compute::ComputeFnVTable;
+use crate::compute::InvocationArgs;
+use crate::compute::Kernel;
+use crate::compute::Options;
+use crate::compute::Output;
 use crate::vtable::VTable;
 
 static TO_ARROW_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
@@ -224,12 +234,16 @@ impl<V: VTable + ToArrowKernel> Kernel for ToArrowKernelAdapter<V> {
 mod tests {
     use std::sync::Arc;
 
+    use arrow_array::ArrayRef;
+    use arrow_array::PrimitiveArray;
+    use arrow_array::StringViewArray;
+    use arrow_array::StructArray;
     use arrow_array::types::Int32Type;
-    use arrow_array::{ArrayRef, PrimitiveArray, StringViewArray, StructArray};
     use arrow_buffer::NullBuffer;
 
     use super::to_arrow;
-    use crate::{IntoArray, arrays};
+    use crate::IntoArray;
+    use crate::arrays;
 
     #[test]
     fn test_to_arrow() {

@@ -5,11 +5,17 @@ use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{StructArray, StructVTable};
-use crate::compute::{self, TakeKernel, TakeKernelAdapter};
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::StructArray;
+use crate::arrays::StructVTable;
+use crate::compute::TakeKernel;
+use crate::compute::TakeKernelAdapter;
+use crate::compute::{self};
+use crate::register_kernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl TakeKernel for StructVTable {
     fn take(&self, array: &StructArray, indices: &dyn Array) -> VortexResult<ArrayRef> {

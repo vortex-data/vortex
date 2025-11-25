@@ -3,9 +3,14 @@
 
 use std::sync::Arc;
 
-use vortex_mask::{Mask, MaskMut};
-use vortex_vector::struct_::{StructVector, StructVectorMut};
-use vortex_vector::{Vector, VectorMut, VectorMutOps, VectorOps};
+use vortex_mask::Mask;
+use vortex_mask::MaskMut;
+use vortex_vector::Vector;
+use vortex_vector::VectorMut;
+use vortex_vector::VectorMutOps;
+use vortex_vector::VectorOps;
+use vortex_vector::struct_::StructVector;
+use vortex_vector::struct_::StructVectorMut;
 
 use crate::filter::Filter;
 

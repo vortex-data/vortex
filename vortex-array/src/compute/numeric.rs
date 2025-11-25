@@ -6,14 +6,26 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
-use vortex_scalar::{NumericOperator, Scalar};
+use vortex_error::VortexError;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_scalar::NumericOperator;
+use vortex_scalar::Scalar;
 
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::ConstantArray;
-use crate::arrow::{Datum, from_arrow_array_with_len};
-use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
+use crate::arrow::Datum;
+use crate::arrow::from_arrow_array_with_len;
+use crate::compute::ComputeFn;
+use crate::compute::ComputeFnVTable;
+use crate::compute::InvocationArgs;
+use crate::compute::Kernel;
+use crate::compute::Options;
+use crate::compute::Output;
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef, IntoArray};
 
 static NUMERIC_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("numeric".into(), ArcRef::new_ref(&Numeric));

@@ -4,15 +4,20 @@
 use std::ops::Not;
 
 use vortex_dtype::match_each_decimal_value_type;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::ToCanonical;
 use crate::arrays::DecimalVTable;
 use crate::arrays::decimal::DecimalArray;
-use crate::compute::{FillNullKernel, FillNullKernelAdapter};
+use crate::compute::FillNullKernel;
+use crate::compute::FillNullKernelAdapter;
+use crate::register_kernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl FillNullKernel for DecimalVTable {
     fn fill_null(&self, array: &DecimalArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
@@ -45,8 +50,10 @@ register_kernel!(FillNullKernelAdapter(DecimalVTable).lift());
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::{DecimalDType, Nullability};
-    use vortex_scalar::{DecimalValue, Scalar};
+    use vortex_dtype::DecimalDType;
+    use vortex_dtype::Nullability;
+    use vortex_scalar::DecimalValue;
+    use vortex_scalar::Scalar;
 
     use crate::arrays::decimal::DecimalArray;
     use crate::assert_arrays_eq;

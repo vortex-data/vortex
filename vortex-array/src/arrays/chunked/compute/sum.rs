@@ -4,8 +4,11 @@
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ChunkedArray, ChunkedVTable};
-use crate::compute::{SumKernel, SumKernelAdapter, sum_with_accumulator};
+use crate::arrays::ChunkedArray;
+use crate::arrays::ChunkedVTable;
+use crate::compute::SumKernel;
+use crate::compute::SumKernelAdapter;
+use crate::compute::sum_with_accumulator;
 use crate::register_kernel;
 
 impl SumKernel for ChunkedVTable {
@@ -24,11 +27,18 @@ register_kernel!(SumKernelAdapter(ChunkedVTable).lift());
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, DecimalDType, Nullability};
-    use vortex_scalar::{DecimalValue, Scalar, i256};
+    use vortex_dtype::DType;
+    use vortex_dtype::DecimalDType;
+    use vortex_dtype::Nullability;
+    use vortex_scalar::DecimalValue;
+    use vortex_scalar::Scalar;
+    use vortex_scalar::i256;
 
     use crate::array::IntoArray;
-    use crate::arrays::{ChunkedArray, ConstantArray, DecimalArray, PrimitiveArray};
+    use crate::arrays::ChunkedArray;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::DecimalArray;
+    use crate::arrays::PrimitiveArray;
     use crate::compute::sum;
     use crate::validity::Validity;
 

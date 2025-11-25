@@ -3,14 +3,20 @@
 
 pub mod registry;
 
-use std::any::{Any, TypeId, type_name};
+use std::any::Any;
+use std::any::TypeId;
+use std::any::type_name;
 use std::fmt::Debug;
-use std::hash::{BuildHasherDefault, Hasher};
-use std::ops::{Deref, DerefMut};
+use std::hash::BuildHasherDefault;
+use std::hash::Hasher;
+use std::ops::Deref;
+use std::ops::DerefMut;
 use std::sync::Arc;
 
-use dashmap::{DashMap, Entry};
-use vortex_error::{VortexExpect, vortex_panic};
+use dashmap::DashMap;
+use dashmap::Entry;
+use vortex_error::VortexExpect;
+use vortex_error::vortex_panic;
 
 /// A Vortex session encapsulates the set of extensible arrays, layouts, compute functions, dtypes,
 /// etc. that are available for use in a given context.

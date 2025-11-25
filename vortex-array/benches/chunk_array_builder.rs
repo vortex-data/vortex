@@ -2,11 +2,17 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use divan::Bencher;
+use rand::Rng;
+use rand::SeedableRng;
 use rand::prelude::StdRng;
-use rand::{Rng, SeedableRng};
-use vortex_array::arrays::{BoolArray, ChunkedArray};
-use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder, builder_with_capacity};
-use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ChunkedArray;
+use vortex_array::builders::ArrayBuilder;
+use vortex_array::builders::VarBinViewBuilder;
+use vortex_array::builders::builder_with_capacity;
 use vortex_dtype::DType;
 
 fn main() {

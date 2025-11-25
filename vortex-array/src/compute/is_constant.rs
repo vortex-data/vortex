@@ -5,14 +5,27 @@ use std::any::Any;
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_error::VortexError;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_scalar::Scalar;
 
 use crate::Array;
-use crate::arrays::{ConstantVTable, NullVTable};
-use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
-use crate::stats::{Precision, Stat, StatsProvider, StatsProviderExt};
+use crate::arrays::ConstantVTable;
+use crate::arrays::NullVTable;
+use crate::compute::ComputeFn;
+use crate::compute::ComputeFnVTable;
+use crate::compute::InvocationArgs;
+use crate::compute::Kernel;
+use crate::compute::Options;
+use crate::compute::Output;
+use crate::stats::Precision;
+use crate::stats::Stat;
+use crate::stats::StatsProvider;
+use crate::stats::StatsProviderExt;
 use crate::vtable::VTable;
 
 static IS_CONSTANT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {

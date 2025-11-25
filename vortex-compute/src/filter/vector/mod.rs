@@ -33,7 +33,10 @@
 
 use vortex_buffer::BitView;
 use vortex_mask::Mask;
-use vortex_vector::{Vector, VectorMut, match_each_vector, match_each_vector_mut};
+use vortex_vector::Vector;
+use vortex_vector::VectorMut;
+use vortex_vector::match_each_vector;
+use vortex_vector::match_each_vector_mut;
 
 use crate::filter::Filter;
 

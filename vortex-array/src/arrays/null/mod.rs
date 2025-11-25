@@ -12,17 +12,32 @@ use vortex_scalar::Scalar;
 use vortex_vector::Vector;
 use vortex_vector::null::NullVector;
 
-use crate::execution::{BatchKernelRef, BindCtx, ExecutionCtx, kernel};
+use crate::ArrayBufferVisitor;
+use crate::ArrayChildVisitor;
+use crate::ArrayRef;
+use crate::Canonical;
+use crate::EmptyMetadata;
+use crate::IntoArray;
+use crate::Precision;
+use crate::execution::BatchKernelRef;
+use crate::execution::BindCtx;
+use crate::execution::ExecutionCtx;
+use crate::execution::kernel;
 use crate::serde::ArrayChildren;
-use crate::stats::{ArrayStats, StatsSetRef};
-use crate::vtable::{
-    ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, CanonicalVTable, NotSupported,
-    OperationsVTable, OperatorVTable, VTable, ValidityVTable, VisitorVTable,
-};
-use crate::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EmptyMetadata, IntoArray,
-    Precision, vtable,
-};
+use crate::stats::ArrayStats;
+use crate::stats::StatsSetRef;
+use crate::vtable;
+use crate::vtable::ArrayId;
+use crate::vtable::ArrayVTable;
+use crate::vtable::ArrayVTableExt;
+use crate::vtable::BaseArrayVTable;
+use crate::vtable::CanonicalVTable;
+use crate::vtable::NotSupported;
+use crate::vtable::OperationsVTable;
+use crate::vtable::OperatorVTable;
+use crate::vtable::VTable;
+use crate::vtable::ValidityVTable;
+use crate::vtable::VisitorVTable;
 
 mod compute;
 

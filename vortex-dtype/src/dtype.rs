@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::hash::Hash;
 use std::sync::Arc;
 
@@ -10,9 +12,13 @@ use itertools::Itertools;
 use static_assertions::const_assert_eq;
 use vortex_error::vortex_panic;
 
+use crate::ExtDType;
+use crate::FieldDType;
+use crate::FieldName;
+use crate::PType;
+use crate::StructFields;
 use crate::decimal::DecimalDType;
 use crate::nullability::Nullability;
-use crate::{ExtDType, FieldDType, FieldName, PType, StructFields};
 
 /// The logical types of elements in Vortex arrays.
 ///

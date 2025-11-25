@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use divan::Bencher;
-use rand::distr::{Distribution, StandardUniform};
+use rand::distr::Distribution;
+use rand::distr::StandardUniform;
 use vortex_array::Array;
 use vortex_array::arrays::dict_test::gen_dict_primitive_chunks;
 use vortex_array::builders::builder_with_capacity;

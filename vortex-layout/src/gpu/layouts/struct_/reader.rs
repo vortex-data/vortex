@@ -8,22 +8,35 @@ use std::sync::Arc;
 use cudarc::driver::CudaContext;
 use futures::future::try_join_all;
 use itertools::Itertools;
+use vortex_array::expr::ExactExpr;
+use vortex_array::expr::Expression;
+use vortex_array::expr::col;
+use vortex_array::expr::root;
+use vortex_array::expr::transform::PartitionedExpr;
 use vortex_array::expr::transform::immediate_access::annotate_scope_access;
-use vortex_array::expr::transform::{
-    PartitionedExpr, partition, replace, replace_root_fields, simplify_typed,
-};
-use vortex_array::expr::{ExactExpr, Expression, col, root};
+use vortex_array::expr::transform::partition;
+use vortex_array::expr::transform::replace;
+use vortex_array::expr::transform::replace_root_fields;
+use vortex_array::expr::transform::simplify_typed;
 use vortex_array::stats::Precision;
-use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_gpu::{GpuStructVector, GpuVector};
+use vortex_dtype::DType;
+use vortex_dtype::FieldMask;
+use vortex_dtype::FieldName;
+use vortex_dtype::StructFields;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
+use vortex_gpu::GpuStructVector;
+use vortex_gpu::GpuVector;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::GpuArrayFuture;
+use crate::GpuLayoutReader;
+use crate::GpuLayoutReaderRef;
 use crate::gpu::children::LazyGpuReaderChildren;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSource;
-use crate::{GpuArrayFuture, GpuLayoutReader, GpuLayoutReaderRef};
 
 pub struct GpuStructReader {
     layout: StructLayout,

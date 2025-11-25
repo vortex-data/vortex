@@ -5,7 +5,8 @@ use std::ops::Deref;
 
 use vortex_error::VortexExpect;
 
-use crate::expr::{Expression, VTable};
+use crate::expr::Expression;
+use crate::expr::VTable;
 
 /// A view over an [`Expression`] with an associated vtable, allowing typed access to the
 /// expression's instance data.

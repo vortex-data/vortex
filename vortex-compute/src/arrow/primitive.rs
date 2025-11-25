@@ -3,15 +3,24 @@
 
 use std::sync::Arc;
 
-use arrow_array::types::{
-    Float16Type, Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type, UInt8Type,
-    UInt16Type, UInt32Type, UInt64Type,
-};
-use arrow_array::{ArrayRef, PrimitiveArray};
+use arrow_array::ArrayRef;
+use arrow_array::PrimitiveArray;
+use arrow_array::types::Float16Type;
+use arrow_array::types::Float32Type;
+use arrow_array::types::Float64Type;
+use arrow_array::types::Int8Type;
+use arrow_array::types::Int16Type;
+use arrow_array::types::Int32Type;
+use arrow_array::types::Int64Type;
+use arrow_array::types::UInt8Type;
+use arrow_array::types::UInt16Type;
+use arrow_array::types::UInt32Type;
+use arrow_array::types::UInt64Type;
 use vortex_dtype::half::f16;
 use vortex_error::VortexResult;
 use vortex_vector::match_each_pvector;
-use vortex_vector::primitive::{PVector, PrimitiveVector};
+use vortex_vector::primitive::PVector;
+use vortex_vector::primitive::PrimitiveVector;
 
 use crate::arrow::IntoArrow;
 

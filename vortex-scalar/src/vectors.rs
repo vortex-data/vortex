@@ -6,20 +6,29 @@
 use std::sync::Arc;
 
 use vortex_buffer::Buffer;
-use vortex_dtype::{
-    DType, DecimalType, PrecisionScale, match_each_decimal_value_type, match_each_native_ptype,
-};
+use vortex_dtype::DType;
+use vortex_dtype::DecimalType;
+use vortex_dtype::PrecisionScale;
+use vortex_dtype::match_each_decimal_value_type;
+use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
-use vortex_vector::binaryview::{BinaryScalar, StringScalar};
+use vortex_vector::VectorMut;
+use vortex_vector::VectorMutOps;
+use vortex_vector::binaryview::BinaryScalar;
+use vortex_vector::binaryview::StringScalar;
 use vortex_vector::bool::BoolScalar;
 use vortex_vector::decimal::DScalar;
-use vortex_vector::fixed_size_list::{FixedSizeListScalar, FixedSizeListVector};
-use vortex_vector::listview::{ListViewScalar, ListViewVector, ListViewVectorMut};
+use vortex_vector::fixed_size_list::FixedSizeListScalar;
+use vortex_vector::fixed_size_list::FixedSizeListVector;
+use vortex_vector::listview::ListViewScalar;
+use vortex_vector::listview::ListViewVector;
+use vortex_vector::listview::ListViewVectorMut;
 use vortex_vector::null::NullScalar;
-use vortex_vector::primitive::{PScalar, PVector};
-use vortex_vector::struct_::{StructScalar, StructVector};
-use vortex_vector::{VectorMut, VectorMutOps};
+use vortex_vector::primitive::PScalar;
+use vortex_vector::primitive::PVector;
+use vortex_vector::struct_::StructScalar;
+use vortex_vector::struct_::StructVector;
 
 use crate::Scalar;
 

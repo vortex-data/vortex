@@ -2,12 +2,19 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
-use crate::arrays::{ConstantArray, NullArray, NullVTable};
-use crate::compute::{CastKernel, CastKernelAdapter};
-use crate::{ArrayRef, IntoArray, register_kernel};
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::NullArray;
+use crate::arrays::NullVTable;
+use crate::compute::CastKernel;
+use crate::compute::CastKernelAdapter;
+use crate::register_kernel;
 
 impl CastKernel for NullVTable {
     fn cast(&self, array: &NullArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -28,7 +35,9 @@ register_kernel!(CastKernelAdapter(NullVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
 
     use crate::arrays::NullArray;
     use crate::compute::cast;

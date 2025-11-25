@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::{Buffer, BufferMut};
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 
-use crate::arithmetic::{CheckedArithmetic, CheckedOperator};
+use crate::arithmetic::CheckedArithmetic;
+use crate::arithmetic::CheckedOperator;
 
 /// Implementation that attempts to downcast to a mutable buffer and operates in-place.
 impl<Op, T> CheckedArithmetic<Op, &Buffer<T>> for Buffer<T>
@@ -147,7 +149,11 @@ where
 mod tests {
     use vortex_buffer::buffer;
 
-    use crate::arithmetic::{Add, CheckedArithmetic, Div, Mul, Sub};
+    use crate::arithmetic::Add;
+    use crate::arithmetic::CheckedArithmetic;
+    use crate::arithmetic::Div;
+    use crate::arithmetic::Mul;
+    use crate::arithmetic::Sub;
 
     #[test]
     fn test_add_buffers() {

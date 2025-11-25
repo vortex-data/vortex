@@ -4,10 +4,18 @@
 use bytes::bytes_dict_builder;
 use primitive::primitive_dict_builder;
 use vortex_dtype::match_each_native_ptype;
-use vortex_error::{VortexResult, vortex_bail, vortex_panic};
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_panic;
 
-use crate::arrays::{DictArray, PrimitiveVTable, VarBinVTable, VarBinViewVTable};
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::ToCanonical;
+use crate::arrays::DictArray;
+use crate::arrays::PrimitiveVTable;
+use crate::arrays::VarBinVTable;
+use crate::arrays::VarBinViewVTable;
 
 mod bytes;
 mod primitive;

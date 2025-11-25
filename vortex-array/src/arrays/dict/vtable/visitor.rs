@@ -2,9 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use super::DictVTable;
+use crate::ArrayBufferVisitor;
+use crate::ArrayChildVisitor;
 use crate::arrays::dict::DictArray;
 use crate::vtable::VisitorVTable;
-use crate::{ArrayBufferVisitor, ArrayChildVisitor};
 
 impl VisitorVTable<DictVTable> for DictVTable {
     fn visit_buffers(_array: &DictArray, _visitor: &mut dyn ArrayBufferVisitor) {}

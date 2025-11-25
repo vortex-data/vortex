@@ -6,9 +6,14 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::FutureExt;
 use futures::future::BoxFuture;
-use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
-use vortex_metrics::{Histogram, Timer, VortexMetrics};
+use vortex_buffer::Alignment;
+use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_metrics::Histogram;
+use vortex_metrics::Timer;
+use vortex_metrics::VortexMetrics;
 
 /// The read trait used within Vortex.
 ///
@@ -228,7 +233,8 @@ impl<T: VortexReadAt> VortexReadAt for InstrumentedReadAt<T> {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_buffer::{Alignment, ByteBuffer};
+    use vortex_buffer::Alignment;
+    use vortex_buffer::ByteBuffer;
 
     use super::*;
 

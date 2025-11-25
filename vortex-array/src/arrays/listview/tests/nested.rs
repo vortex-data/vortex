@@ -2,11 +2,19 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::buffer;
-use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
+use vortex_dtype::DType;
+use vortex_dtype::FieldNames;
+use vortex_dtype::Nullability;
+use vortex_dtype::PType;
+use vortex_dtype::StructFields;
 
-use crate::arrays::{ListViewArray, ListViewVTable, PrimitiveArray, StructArray};
+use crate::Array;
+use crate::IntoArray;
+use crate::arrays::ListViewArray;
+use crate::arrays::ListViewVTable;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::StructArray;
 use crate::validity::Validity;
-use crate::{Array, IntoArray};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // ListView of ListView with overlapping data

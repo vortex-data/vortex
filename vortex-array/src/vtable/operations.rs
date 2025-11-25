@@ -7,7 +7,8 @@ use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
-use crate::vtable::{NotSupported, VTable};
+use crate::vtable::NotSupported;
+use crate::vtable::VTable;
 
 pub trait OperationsVTable<V: VTable> {
     /// Perform a constant-time slice of the array.

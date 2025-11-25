@@ -6,9 +6,15 @@ use std::sync::Arc;
 use vortex_dtype::ExtDType;
 use vortex_error::VortexResult;
 
-use crate::arrays::{ExtensionArray, ExtensionVTable};
-use crate::compute::{self, TakeKernel, TakeKernelAdapter};
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ExtensionArray;
+use crate::arrays::ExtensionVTable;
+use crate::compute::TakeKernel;
+use crate::compute::TakeKernelAdapter;
+use crate::compute::{self};
+use crate::register_kernel;
 
 impl TakeKernel for ExtensionVTable {
     fn take(&self, array: &ExtensionArray, indices: &dyn Array) -> VortexResult<ArrayRef> {

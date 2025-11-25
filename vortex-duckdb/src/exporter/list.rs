@@ -6,12 +6,16 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use vortex::ToCanonical;
-use vortex::arrays::{ListViewArray, PrimitiveArray};
-use vortex::dtype::{IntegerPType, match_each_integer_ptype};
-use vortex::error::{VortexResult, vortex_err};
+use vortex::arrays::ListViewArray;
+use vortex::arrays::PrimitiveArray;
+use vortex::dtype::IntegerPType;
+use vortex::dtype::match_each_integer_ptype;
+use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 use vortex::mask::Mask;
 
-use super::{ConversionCache, new_array_exporter_with_flatten};
+use super::ConversionCache;
+use super::new_array_exporter_with_flatten;
 use crate::cpp;
 use crate::duckdb::Vector;
 use crate::exporter::ColumnExporter;
@@ -141,12 +145,14 @@ impl<O: IntegerPType, S: IntegerPType> ColumnExporter for ListExporter<O, S> {
 mod tests {
     use vortex::IntoArray as _;
     use vortex::arrays::VarBinArray;
-    use vortex::buffer::{Buffer, buffer};
+    use vortex::buffer::Buffer;
+    use vortex::buffer::buffer;
     use vortex::error::VortexUnwrap;
     use vortex::validity::Validity;
 
     use super::*;
-    use crate::duckdb::{DataChunk, LogicalType};
+    use crate::duckdb::DataChunk;
+    use crate::duckdb::LogicalType;
     use crate::exporter::new_array_exporter;
 
     #[test]

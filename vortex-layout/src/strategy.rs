@@ -8,7 +8,8 @@ use vortex_io::runtime::Handle;
 
 use crate::LayoutRef;
 use crate::segments::SegmentSinkRef;
-use crate::sequence::{SendableSequentialStream, SequencePointer};
+use crate::sequence::SendableSequentialStream;
+use crate::sequence::SequencePointer;
 
 // [layout writer]
 #[async_trait]

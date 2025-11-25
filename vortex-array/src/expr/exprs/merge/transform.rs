@@ -2,14 +2,19 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools as _;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::expr::Expression;
+use crate::expr::ExpressionView;
 use crate::expr::exprs::get_item::get_item;
-use crate::expr::exprs::merge::{DuplicateHandling, Merge};
+use crate::expr::exprs::merge::DuplicateHandling;
+use crate::expr::exprs::merge::Merge;
 use crate::expr::exprs::pack::pack;
-use crate::expr::transform::rules::{ReduceRule, TypedRuleContext};
-use crate::expr::{Expression, ExpressionView};
+use crate::expr::transform::rules::ReduceRule;
+use crate::expr::transform::rules::TypedRuleContext;
 
 /// Rule that removes Merge expressions by converting them to Pack + GetItem.
 ///
@@ -75,14 +80,20 @@ impl ReduceRule<Merge, TypedRuleContext> for RemoveMergeRule {
 mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::PType::{I32, I64, U32, U64};
+    use vortex_dtype::PType::I32;
+    use vortex_dtype::PType::I64;
+    use vortex_dtype::PType::U32;
+    use vortex_dtype::PType::U64;
 
     use super::RemoveMergeRule;
     use crate::expr::exprs::get_item::get_item;
-    use crate::expr::exprs::merge::{DuplicateHandling, Merge, merge_opts};
+    use crate::expr::exprs::merge::DuplicateHandling;
+    use crate::expr::exprs::merge::Merge;
+    use crate::expr::exprs::merge::merge_opts;
     use crate::expr::exprs::pack::Pack;
     use crate::expr::exprs::root::root;
-    use crate::expr::transform::rules::{ReduceRule, TypedRuleContext};
+    use crate::expr::transform::rules::ReduceRule;
+    use crate::expr::transform::rules::TypedRuleContext;
 
     #[test]
     fn test_remove_merge() {

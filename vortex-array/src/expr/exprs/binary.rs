@@ -5,16 +5,30 @@ use std::fmt::Formatter;
 
 use prost::Message;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_proto::expr as pb;
 
-use crate::compute::{add, and_kleene, compare, div, mul, or_kleene, sub};
+use crate::ArrayRef;
+use crate::compute;
+use crate::compute::add;
+use crate::compute::and_kleene;
+use crate::compute::compare;
+use crate::compute::div;
+use crate::compute::mul;
+use crate::compute::or_kleene;
+use crate::compute::sub;
+use crate::expr::ChildName;
+use crate::expr::ExprId;
+use crate::expr::ExpressionView;
+use crate::expr::StatsCatalog;
+use crate::expr::VTable;
+use crate::expr::VTableExt;
 use crate::expr::expression::Expression;
 use crate::expr::exprs::literal::lit;
 use crate::expr::exprs::operators::Operator;
-use crate::expr::{ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt};
 use crate::stats::Stat;
-use crate::{ArrayRef, compute};
 
 pub struct Binary;
 
@@ -506,12 +520,23 @@ pub fn checked_add(lhs: Expression, rhs: Expression) -> Expression {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
 
-    use super::{and, and_collect, and_collect_right, eq, gt, gt_eq, lt, lt_eq, not_eq, or};
+    use super::and;
+    use super::and_collect;
+    use super::and_collect_right;
+    use super::eq;
+    use super::gt;
+    use super::gt_eq;
+    use super::lt;
+    use super::lt_eq;
+    use super::not_eq;
+    use super::or;
+    use crate::expr::Expression;
     use crate::expr::exprs::get_item::col;
     use crate::expr::exprs::literal::lit;
-    use crate::expr::{Expression, test_harness};
+    use crate::expr::test_harness;
 
     #[test]
     fn and_collect_left_assoc() {

@@ -1,19 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::mem::{transmute, transmute_copy};
+use std::mem::transmute;
+use std::mem::transmute_copy;
 
-use fastlanes::{BitPacking, FastLanes};
+use fastlanes::BitPacking;
+use fastlanes::FastLanes;
 use static_assertions::const_assert_eq;
-use vortex_array::pipeline::{
-    BindContext, BitView, Kernel, KernelCtx, N, PipelineInputs, PipelinedNode,
-};
+use vortex_array::pipeline::BindContext;
+use vortex_array::pipeline::BitView;
+use vortex_array::pipeline::Kernel;
+use vortex_array::pipeline::KernelCtx;
+use vortex_array::pipeline::N;
+use vortex_array::pipeline::PipelineInputs;
+use vortex_array::pipeline::PipelinedNode;
 use vortex_buffer::Buffer;
-use vortex_dtype::{PTypeDowncastExt, PhysicalPType, match_each_integer_ptype};
+use vortex_dtype::PTypeDowncastExt;
+use vortex_dtype::PhysicalPType;
+use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_vector::Vector;
+use vortex_vector::VectorOps;
 use vortex_vector::primitive::PVector;
-use vortex_vector::{Vector, VectorOps};
 
 use crate::BitPackedArray;
 
@@ -203,7 +212,8 @@ mod tests {
     use itertools::Itertools;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_dtype::{PTypeDowncast, PTypeDowncastExt};
+    use vortex_dtype::PTypeDowncast;
+    use vortex_dtype::PTypeDowncastExt;
     use vortex_mask::Mask;
     use vortex_vector::VectorOps;
 

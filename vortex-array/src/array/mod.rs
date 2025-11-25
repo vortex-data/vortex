@@ -8,32 +8,63 @@ pub mod transform;
 mod visitor;
 
 use std::any::Any;
-use std::fmt::{Debug, Formatter};
-use std::hash::{Hash, Hasher};
+use std::fmt::Debug;
+use std::fmt::Formatter;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::ops::Range;
 use std::sync::Arc;
 
 pub use operator::*;
 pub use visitor::*;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{
-    BoolVTable, ConstantVTable, DecimalVTable, ExtensionVTable, FixedSizeListVTable,
-    ListViewVTable, NullVTable, PrimitiveVTable, StructVTable, VarBinVTable, VarBinViewVTable,
-};
+use crate::ArrayEq;
+use crate::ArrayHash;
+use crate::Canonical;
+use crate::DynArrayEq;
+use crate::DynArrayHash;
+use crate::arrays::BoolVTable;
+use crate::arrays::ConstantVTable;
+use crate::arrays::DecimalVTable;
+use crate::arrays::ExtensionVTable;
+use crate::arrays::FixedSizeListVTable;
+use crate::arrays::ListViewVTable;
+use crate::arrays::NullVTable;
+use crate::arrays::PrimitiveVTable;
+use crate::arrays::StructVTable;
+use crate::arrays::VarBinVTable;
+use crate::arrays::VarBinViewVTable;
 use crate::builders::ArrayBuilder;
-use crate::compute::{ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output, is_constant_opts};
+use crate::compute::ComputeFn;
+use crate::compute::Cost;
+use crate::compute::InvocationArgs;
+use crate::compute::IsConstantOpts;
+use crate::compute::Output;
+use crate::compute::is_constant_opts;
+use crate::hash;
 use crate::serde::ArrayChildren;
-use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
-use crate::vtable::{
-    ArrayId, ArrayVTable, BaseArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable,
-    VTable, ValidityVTable, VisitorVTable,
-};
-use crate::{ArrayEq, ArrayHash, Canonical, DynArrayEq, DynArrayHash, hash};
+use crate::stats::Precision;
+use crate::stats::Stat;
+use crate::stats::StatsProviderExt;
+use crate::stats::StatsSetRef;
+use crate::vtable::ArrayId;
+use crate::vtable::ArrayVTable;
+use crate::vtable::BaseArrayVTable;
+use crate::vtable::CanonicalVTable;
+use crate::vtable::ComputeVTable;
+use crate::vtable::OperationsVTable;
+use crate::vtable::VTable;
+use crate::vtable::ValidityVTable;
+use crate::vtable::VisitorVTable;
 
 /// The public API trait for all Vortex arrays.
 pub trait Array:

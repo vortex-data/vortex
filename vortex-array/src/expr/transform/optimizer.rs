@@ -5,7 +5,8 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::expr::Expression;
-use crate::expr::session::{ExprSession, RewriteRuleRegistry};
+use crate::expr::session::ExprSession;
+use crate::expr::session::RewriteRuleRegistry;
 use crate::expr::transform::simplify::simplify;
 use crate::expr::transform::simplify_typed::simplify_typed;
 

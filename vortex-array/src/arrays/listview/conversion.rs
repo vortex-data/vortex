@@ -3,15 +3,24 @@
 
 use std::sync::Arc;
 
-use vortex_dtype::{IntegerPType, Nullability, match_each_integer_ptype};
+use vortex_dtype::IntegerPType;
+use vortex_dtype::Nullability;
+use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 
-use crate::arrays::{
-    ExtensionArray, FixedSizeListArray, ListArray, ListViewArray, ListViewRebuildMode, StructArray,
-};
+use crate::Array;
+use crate::ArrayRef;
+use crate::Canonical;
+use crate::IntoArray;
+use crate::ToCanonical;
+use crate::arrays::ExtensionArray;
+use crate::arrays::FixedSizeListArray;
+use crate::arrays::ListArray;
+use crate::arrays::ListViewArray;
+use crate::arrays::ListViewRebuildMode;
+use crate::arrays::StructArray;
 use crate::builders::PrimitiveBuilder;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 
 /// Creates a [`ListViewArray`] from a [`ListArray`] by computing `sizes` from `offsets`.
 ///
@@ -268,18 +277,23 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::FieldNames;
 
-    use super::super::tests::common::{
-        create_basic_listview, create_empty_lists_listview, create_nullable_listview,
-        create_overlapping_listview,
-    };
+    use super::super::tests::common::create_basic_listview;
+    use super::super::tests::common::create_empty_lists_listview;
+    use super::super::tests::common::create_nullable_listview;
+    use super::super::tests::common::create_overlapping_listview;
     use super::recursive_list_from_list_view;
-    use crate::arrays::{
-        BoolArray, FixedSizeListArray, ListArray, ListViewArray, PrimitiveArray, StructArray,
-        list_from_list_view, list_view_from_list,
-    };
+    use crate::IntoArray;
+    use crate::arrays::BoolArray;
+    use crate::arrays::FixedSizeListArray;
+    use crate::arrays::ListArray;
+    use crate::arrays::ListViewArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
+    use crate::arrays::list_from_list_view;
+    use crate::arrays::list_view_from_list;
+    use crate::assert_arrays_eq;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
-    use crate::{IntoArray, assert_arrays_eq};
 
     #[test]
     fn test_list_to_listview_basic() {

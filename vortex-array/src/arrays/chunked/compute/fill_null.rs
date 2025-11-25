@@ -4,9 +4,14 @@
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ChunkedArray, ChunkedVTable};
-use crate::compute::{FillNullKernel, FillNullKernelAdapter, fill_null};
-use crate::{ArrayRef, IntoArray, register_kernel};
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ChunkedArray;
+use crate::arrays::ChunkedVTable;
+use crate::compute::FillNullKernel;
+use crate::compute::FillNullKernelAdapter;
+use crate::compute::fill_null;
+use crate::register_kernel;
 
 impl FillNullKernel for ChunkedVTable {
     fn fill_null(&self, array: &ChunkedArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
@@ -30,10 +35,12 @@ register_kernel!(FillNullKernelAdapter(ChunkedVTable).lift());
 #[cfg(test)]
 mod tests {
     use vortex_buffer::BitBuffer;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
 
     use crate::array::Array;
-    use crate::arrays::{BoolArray, ChunkedArray};
+    use crate::arrays::BoolArray;
+    use crate::arrays::ChunkedArray;
     use crate::compute::fill_null;
     use crate::validity::Validity;
 

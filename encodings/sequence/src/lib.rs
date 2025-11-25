@@ -8,7 +8,10 @@ mod operator;
 
 /// Represents the equation A\[i\] = a * i + b.
 /// This can be used for compression, fast comparisons and also for row ids.
-pub use array::{SequenceArray, SequenceVTable};
+pub use array::SequenceArray;
+/// Represents the equation A\[i\] = a * i + b.
+/// This can be used for compression, fast comparisons and also for row ids.
+pub use array::SequenceVTable;
 pub use compress::sequence_encode;
 
 // TODO(joe): hook up to the compressor

@@ -4,9 +4,14 @@
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ConstantArray, ConstantVTable};
-use crate::compute::{FillNullKernel, FillNullKernelAdapter, cast};
-use crate::{ArrayRef, IntoArray, register_kernel};
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
+use crate::compute::FillNullKernel;
+use crate::compute::FillNullKernelAdapter;
+use crate::compute::cast;
+use crate::register_kernel;
 
 impl FillNullKernel for ConstantVTable {
     fn fill_null(&self, array: &ConstantArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {

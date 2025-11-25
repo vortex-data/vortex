@@ -1,16 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::{Buffer, BufferMut};
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_dtype::match_each_native_ptype;
-use vortex_error::{VortexExpect, VortexResult};
-use vortex_mask::{Mask, MaskIter};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_mask::Mask;
+use vortex_mask::MaskIter;
 
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
-use crate::compute::{FilterKernel, FilterKernelAdapter};
+use crate::compute::FilterKernel;
+use crate::compute::FilterKernelAdapter;
+use crate::register_kernel;
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray, register_kernel};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
@@ -79,7 +85,9 @@ mod test {
 
     use crate::arrays::primitive::PrimitiveArray;
     use crate::canonical::ToCanonical;
-    use crate::compute::conformance::filter::{LARGE_SIZE, MEDIUM_SIZE, test_filter_conformance};
+    use crate::compute::conformance::filter::LARGE_SIZE;
+    use crate::compute::conformance::filter::MEDIUM_SIZE;
+    use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::filter;
 
     #[test]

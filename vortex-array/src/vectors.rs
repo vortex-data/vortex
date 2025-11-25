@@ -4,27 +4,39 @@
 use std::ops::Deref;
 use std::sync::Arc;
 
+use vortex_dtype::DType;
+use vortex_dtype::NativeDecimalType;
+use vortex_dtype::NativePType;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{
-    DType, NativeDecimalType, NativePType, match_each_decimal_value_type, match_each_native_ptype,
-};
+use vortex_dtype::match_each_decimal_value_type;
+use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
-use vortex_vector::binaryview::{BinaryViewType, BinaryViewVector};
+use vortex_vector::Vector;
+use vortex_vector::VectorOps;
+use vortex_vector::binaryview::BinaryViewType;
+use vortex_vector::binaryview::BinaryViewVector;
 use vortex_vector::bool::BoolVector;
-use vortex_vector::decimal::{DVector, DecimalVector};
+use vortex_vector::decimal::DVector;
+use vortex_vector::decimal::DecimalVector;
 use vortex_vector::fixed_size_list::FixedSizeListVector;
 use vortex_vector::listview::ListViewVector;
 use vortex_vector::null::NullVector;
-use vortex_vector::primitive::{PVector, PrimitiveVector};
+use vortex_vector::primitive::PVector;
+use vortex_vector::primitive::PrimitiveVector;
 use vortex_vector::struct_::StructVector;
-use vortex_vector::{Vector, VectorOps};
 
-use crate::arrays::{
-    BoolArray, DecimalArray, ExtensionArray, FixedSizeListArray, ListViewArray, NullArray,
-    PrimitiveArray, StructArray, VarBinViewArray,
-};
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::BoolArray;
+use crate::arrays::DecimalArray;
+use crate::arrays::ExtensionArray;
+use crate::arrays::FixedSizeListArray;
+use crate::arrays::ListViewArray;
+use crate::arrays::NullArray;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::StructArray;
+use crate::arrays::VarBinViewArray;
 use crate::validity::Validity;
-use crate::{ArrayRef, IntoArray};
 
 /// Trait for converting vector types into arrays.
 pub trait VectorIntoArray {

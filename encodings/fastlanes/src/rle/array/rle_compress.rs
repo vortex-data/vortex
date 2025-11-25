@@ -1,17 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrayref::{array_mut_ref, array_ref};
+use arrayref::array_mut_ref;
+use arrayref::array_ref;
 use fastlanes::RLE;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{IntoArray, ToCanonical};
-use vortex_buffer::{BitBufferMut, BufferMut};
-use vortex_dtype::{NativePType, match_each_native_ptype};
+use vortex_buffer::BitBufferMut;
+use vortex_buffer::BufferMut;
+use vortex_dtype::NativePType;
+use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 
-use crate::{FL_CHUNK_SIZE, RLEArray};
+use crate::FL_CHUNK_SIZE;
+use crate::RLEArray;
 
 impl RLEArray {
     /// Encodes a primitive array of unsigned integers using FastLanes RLE.
@@ -124,7 +129,9 @@ fn padded_validity(array: &PrimitiveArray) -> Validity {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::{IntoArray, ToCanonical, assert_arrays_eq};
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
+    use vortex_array::assert_arrays_eq;
     use vortex_buffer::Buffer;
     use vortex_dtype::half::f16;
 

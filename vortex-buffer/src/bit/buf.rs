@@ -1,14 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::{BitAnd, BitOr, BitXor, Not, RangeBounds};
+use std::ops::BitAnd;
+use std::ops::BitOr;
+use std::ops::BitXor;
+use std::ops::Not;
+use std::ops::RangeBounds;
 
-use crate::bit::ops::{bitwise_binary_op, bitwise_unary_op};
-use crate::bit::{
-    BitChunks, BitIndexIterator, BitIterator, BitSliceIterator, UnalignedBitChunk,
-    get_bit_unchecked,
-};
-use crate::{Alignment, BitBufferMut, Buffer, ByteBuffer, buffer};
+use crate::Alignment;
+use crate::BitBufferMut;
+use crate::Buffer;
+use crate::ByteBuffer;
+use crate::bit::BitChunks;
+use crate::bit::BitIndexIterator;
+use crate::bit::BitIterator;
+use crate::bit::BitSliceIterator;
+use crate::bit::UnalignedBitChunk;
+use crate::bit::get_bit_unchecked;
+use crate::bit::ops::bitwise_binary_op;
+use crate::bit::ops::bitwise_unary_op;
+use crate::buffer;
 
 /// An immutable bitset stored as a packed byte buffer.
 #[derive(Debug, Clone, Eq)]
@@ -466,8 +477,9 @@ impl<'a> IntoIterator for &'a BitBuffer {
 mod tests {
     use rstest::rstest;
 
+    use crate::ByteBuffer;
     use crate::bit::BitBuffer;
-    use crate::{ByteBuffer, buffer};
+    use crate::buffer;
 
     #[test]
     fn test_bool() {

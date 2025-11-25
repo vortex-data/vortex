@@ -4,23 +4,34 @@
 use std::fmt::Debug;
 use std::iter;
 
+use futures::SinkExt;
+use futures::TryStreamExt;
 use futures::channel::mpsc;
 use futures::channel::mpsc::Sender;
-use futures::{SinkExt, TryStreamExt};
 use parking_lot::Mutex;
 use vortex::ArrayRef;
-use vortex::dtype::Nullability::{NonNullable, Nullable};
-use vortex::dtype::{DType, StructFields};
-use vortex::error::{VortexExpect, VortexResult, vortex_err};
-use vortex::file::{WriteOptionsSessionExt, WriteSummary};
+use vortex::dtype::DType;
+use vortex::dtype::Nullability::NonNullable;
+use vortex::dtype::Nullability::Nullable;
+use vortex::dtype::StructFields;
+use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
+use vortex::error::vortex_err;
+use vortex::file::WriteOptionsSessionExt;
+use vortex::file::WriteSummary;
+use vortex::io::runtime::BlockingRuntime;
+use vortex::io::runtime::Task;
 use vortex::io::runtime::current::CurrentThreadWorkerPool;
-use vortex::io::runtime::{BlockingRuntime, Task};
 use vortex::io::session::RuntimeSessionExt;
 use vortex::stream::ArrayStreamAdapter;
 
-use crate::convert::{data_chunk_to_vortex, from_duckdb_table};
-use crate::duckdb::{CopyFunction, DataChunk, LogicalType};
-use crate::{RUNTIME, SESSION};
+use crate::RUNTIME;
+use crate::SESSION;
+use crate::convert::data_chunk_to_vortex;
+use crate::convert::from_duckdb_table;
+use crate::duckdb::CopyFunction;
+use crate::duckdb::DataChunk;
+use crate::duckdb::LogicalType;
 
 #[derive(Debug)]
 pub struct VortexCopyFunction;

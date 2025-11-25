@@ -2,9 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_vector::Vector;
+use vortex_vector::VectorMut;
+use vortex_vector::VectorMutOps;
+use vortex_vector::VectorOps;
 use vortex_vector::null::NullVector;
-use vortex_vector::{Vector, VectorMut, VectorMutOps, VectorOps};
 
 use crate::cast::Cast;
 

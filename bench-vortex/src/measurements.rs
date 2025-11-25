@@ -3,17 +3,25 @@
 
 use std::borrow::Cow;
 use std::cmp::Ordering;
-use std::fmt::{Display, Formatter};
-use std::ops::{Add, Div, Sub};
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::ops::Add;
+use std::ops::Div;
+use std::ops::Sub;
 use std::time::Duration;
 
 use itertools::Itertools;
-use serde::{Serialize, Serializer};
+use serde::Serialize;
+use serde::Serializer;
 use target_lexicon::Triple;
-use vortex::error::{VortexUnwrap, vortex_panic};
+use vortex::error::VortexUnwrap;
+use vortex::error::vortex_panic;
 
+use crate::BenchmarkDataset;
+use crate::Engine;
+use crate::Format;
+use crate::Target;
 use crate::engines::df::GIT_COMMIT_ID;
-use crate::{BenchmarkDataset, Engine, Format, Target};
 
 pub trait ToJson {
     fn to_json(&self) -> Box<dyn erased_serde::Serialize>;

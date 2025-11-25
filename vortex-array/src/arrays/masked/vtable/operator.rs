@@ -5,8 +5,11 @@ use vortex_compute::mask::MaskValidity;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::arrays::{MaskedArray, MaskedVTable};
-use crate::execution::{BatchKernelRef, BindCtx, kernel};
+use crate::arrays::MaskedArray;
+use crate::arrays::MaskedVTable;
+use crate::execution::BatchKernelRef;
+use crate::execution::BindCtx;
+use crate::execution::kernel;
 use crate::vtable::OperatorVTable;
 
 impl OperatorVTable<MaskedVTable> for MaskedVTable {

@@ -4,18 +4,30 @@
 use std::ops::Not;
 
 use vortex_buffer::BitBuffer;
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult};
-use vortex_mask::{AllOr, Mask};
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_mask::AllOr;
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use super::DictVTable;
+use crate::Array;
+use crate::ArrayRef;
+use crate::Canonical;
+use crate::IntoArray;
+use crate::ToCanonical;
+use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::dict::DictArray;
-use crate::arrays::{BoolArray, ConstantArray};
-use crate::compute::{Operator, cast, compare, mask, take};
+use crate::compute::Operator;
+use crate::compute::cast;
+use crate::compute::compare;
+use crate::compute::mask;
+use crate::compute::take;
 use crate::validity::Validity;
 use crate::vtable::CanonicalVTable;
-use crate::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 
 impl CanonicalVTable<DictVTable> for DictVTable {
     fn canonicalize(array: &DictArray) -> Canonical {

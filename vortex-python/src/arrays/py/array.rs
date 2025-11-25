@@ -3,8 +3,11 @@
 
 use std::sync::Arc;
 
+use pyo3::Bound;
+use pyo3::FromPyObject;
+use pyo3::Py;
+use pyo3::PyAny;
 use pyo3::prelude::*;
-use pyo3::{Bound, FromPyObject, Py, PyAny};
 use vortex::dtype::DType;
 use vortex::error::VortexError;
 use vortex::stats::ArrayStats;

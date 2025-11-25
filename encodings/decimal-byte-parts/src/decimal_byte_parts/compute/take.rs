@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{TakeKernel, TakeKernelAdapter, take};
-use vortex_array::{Array, ArrayRef, register_kernel};
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::compute::TakeKernel;
+use vortex_array::compute::TakeKernelAdapter;
+use vortex_array::compute::take;
+use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
-use crate::{DecimalBytePartsArray, DecimalBytePartsVTable};
+use crate::DecimalBytePartsArray;
+use crate::DecimalBytePartsVTable;
 
 impl TakeKernel for DecimalBytePartsVTable {
     fn take(&self, array: &DecimalBytePartsArray, indices: &dyn Array) -> VortexResult<ArrayRef> {

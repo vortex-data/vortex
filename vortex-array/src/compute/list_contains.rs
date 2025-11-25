@@ -12,17 +12,35 @@ use arcref::ArcRef;
 use arrow_buffer::bit_iterator::BitIndexIterator;
 use num_traits::Zero;
 use vortex_buffer::BitBuffer;
-use vortex_dtype::{DType, IntegerPType, Nullability, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
-use vortex_scalar::{ListScalar, Scalar};
+use vortex_dtype::DType;
+use vortex_dtype::IntegerPType;
+use vortex_dtype::Nullability;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_scalar::ListScalar;
+use vortex_scalar::Scalar;
 
-use crate::arrays::{BoolArray, ConstantArray, ListViewArray, PrimitiveArray};
-use crate::compute::{
-    self, BinaryArgs, ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Operator, Output,
-};
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::ToCanonical;
+use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::ListViewArray;
+use crate::arrays::PrimitiveArray;
+use crate::compute::BinaryArgs;
+use crate::compute::ComputeFn;
+use crate::compute::ComputeFnVTable;
+use crate::compute::InvocationArgs;
+use crate::compute::Kernel;
+use crate::compute::Operator;
+use crate::compute::Output;
+use crate::compute::{self};
 use crate::validity::Validity;
-use crate::vtable::{VTable, ValidityHelper};
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::vtable::VTable;
+use crate::vtable::ValidityHelper;
 
 static LIST_CONTAINS_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("list_contains".into(), ArcRef::new_ref(&ListContains));
@@ -401,19 +419,29 @@ mod tests {
 
     use itertools::Itertools;
     use rstest::rstest;
-    use vortex_buffer::{Buffer, bitbuffer};
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_buffer::Buffer;
+    use vortex_buffer::bitbuffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
     use vortex_scalar::Scalar;
 
-    use crate::arrays::{
-        BoolArray, ConstantArray, ConstantVTable, ListArray, ListVTable, ListViewArray,
-        PrimitiveArray, VarBinArray, list_view_from_list,
-    };
+    use crate::Array;
+    use crate::ArrayRef;
+    use crate::IntoArray;
+    use crate::arrays::BoolArray;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::ConstantVTable;
+    use crate::arrays::ListArray;
+    use crate::arrays::ListVTable;
+    use crate::arrays::ListViewArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::VarBinArray;
+    use crate::arrays::list_view_from_list;
     use crate::canonical::ToCanonical;
     use crate::compute::list_contains;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
-    use crate::{Array, ArrayRef, IntoArray};
 
     fn nonnull_strings(values: Vec<Vec<&str>>) -> ArrayRef {
         list_view_from_list(

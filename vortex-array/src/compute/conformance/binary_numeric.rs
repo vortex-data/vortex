@@ -25,13 +25,22 @@
 
 use itertools::Itertools;
 use num_traits::Num;
-use vortex_dtype::{DType, NativePType, PType};
-use vortex_error::{VortexUnwrap, vortex_err, vortex_panic};
-use vortex_scalar::{NumericOperator, PrimitiveScalar, Scalar};
+use vortex_dtype::DType;
+use vortex_dtype::NativePType;
+use vortex_dtype::PType;
+use vortex_error::VortexUnwrap;
+use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
+use vortex_scalar::NumericOperator;
+use vortex_scalar::PrimitiveScalar;
+use vortex_scalar::Scalar;
 
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::ToCanonical;
 use crate::arrays::ConstantArray;
 use crate::compute::numeric::numeric;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 fn to_vec_of_scalar(array: &dyn Array) -> Vec<Scalar> {
     // Not fast, but obviously correct

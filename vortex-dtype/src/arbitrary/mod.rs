@@ -3,12 +3,19 @@
 
 use std::sync::Arc;
 
-use arbitrary::{Arbitrary, Result, Unstructured};
+use arbitrary::Arbitrary;
+use arbitrary::Result;
+use arbitrary::Unstructured;
 
-use crate::{
-    DType, DecimalDType, FieldName, FieldNames, NativeDecimalType, Nullability, PType,
-    StructFields, i256,
-};
+use crate::DType;
+use crate::DecimalDType;
+use crate::FieldName;
+use crate::FieldNames;
+use crate::NativeDecimalType;
+use crate::Nullability;
+use crate::PType;
+use crate::StructFields;
+use crate::i256;
 
 mod decimal;
 

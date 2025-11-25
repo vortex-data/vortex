@@ -3,38 +3,48 @@
 
 use std::borrow::Cow;
 use std::fmt;
-use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(feature = "lance")]
+use std::fs;
+#[cfg(feature = "lance")]
+use std::path::PathBuf;
+#[cfg(feature = "lance")]
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use anyhow::Result;
+#[cfg(feature = "lance")]
+use arrow_array::RecordBatch;
 use bytes::Bytes;
 use clap::ValueEnum;
-use parquet::basic::{Compression, ZstdLevel};
+#[cfg(feature = "lance")]
+use parking_lot::Mutex;
+use parquet::basic::Compression;
+use parquet::basic::ZstdLevel;
 use serde::Serialize;
 use tokio::runtime::Runtime;
 use vortex::Array;
 use vortex::arrays::ChunkedVTable;
 use vortex::utils::aliases::hash_map::HashMap;
-#[cfg(feature = "lance")]
-use {
-    super::lance::*,
-    crate::{
-        bench_run::run_with_setup,
-        utils::{convert_utf8view_batch, convert_utf8view_schema},
-    },
-    arrow_array::RecordBatch,
-    parking_lot::Mutex,
-    std::fs,
-    std::path::PathBuf,
-    std::sync::Arc,
-};
 
+#[cfg(feature = "lance")]
+use super::lance::*;
 use crate::Format;
 use crate::bench_run::run;
+#[cfg(feature = "lance")]
+use crate::bench_run::run_with_setup;
 use crate::compress::chunked_to_vec_record_batch;
-use crate::compress::parquet::{parquet_compress_write, parquet_decompress_read};
-use crate::compress::vortex::{vortex_compress_write, vortex_decompress_read};
-use crate::measurements::{CompressionTimingMeasurement, CustomUnitMeasurement};
+use crate::compress::parquet::parquet_compress_write;
+use crate::compress::parquet::parquet_decompress_read;
+use crate::compress::vortex::vortex_compress_write;
+use crate::compress::vortex::vortex_decompress_read;
+use crate::measurements::CompressionTimingMeasurement;
+use crate::measurements::CustomUnitMeasurement;
+#[cfg(feature = "lance")]
+use crate::utils::convert_utf8view_batch;
+#[cfg(feature = "lance")]
+use crate::utils::convert_utf8view_schema;
 
 #[derive(Default)]
 pub struct CompressMeasurements {

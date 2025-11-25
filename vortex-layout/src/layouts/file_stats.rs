@@ -7,15 +7,21 @@ use std::sync::Arc;
 use futures::StreamExt;
 use itertools::Itertools;
 use parking_lot::Mutex;
-use vortex_array::stats::{Stat, StatsSet};
-use vortex_array::{ArrayRef, ToCanonical as _};
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_array::ArrayRef;
+use vortex_array::ToCanonical as _;
+use vortex_array::stats::Stat;
+use vortex_array::stats::StatsSet;
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 
 use crate::layouts::zoned::zone_map::StatsAccumulator;
-use crate::sequence::{
-    SendableSequentialStream, SequenceId, SequentialStreamAdapter, SequentialStreamExt,
-};
+use crate::sequence::SendableSequentialStream;
+use crate::sequence::SequenceId;
+use crate::sequence::SequentialStreamAdapter;
+use crate::sequence::SequentialStreamExt;
 
 pub fn accumulate_stats(
     stream: SendableSequentialStream,

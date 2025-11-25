@@ -6,26 +6,46 @@
 //! Only enabled for x86_64 hosts and it is gated at runtime behind feature detection to
 //! ensure AVX2 instructions are available.
 
-use std::arch::x86_64::{
-    __m256i, _mm_loadu_si128, _mm_setzero_si128, _mm_shuffle_epi32, _mm_storeu_si128,
-    _mm_unpacklo_epi64, _mm256_cmpgt_epi32, _mm256_cmpgt_epi64, _mm256_cvtepu8_epi32,
-    _mm256_cvtepu8_epi64, _mm256_cvtepu16_epi32, _mm256_cvtepu16_epi64, _mm256_cvtepu32_epi64,
-    _mm256_extracti128_si256, _mm256_loadu_si256, _mm256_mask_i32gather_epi32,
-    _mm256_mask_i64gather_epi32, _mm256_mask_i64gather_epi64, _mm256_set1_epi32,
-    _mm256_set1_epi64x, _mm256_setzero_si256, _mm256_storeu_si256,
-};
+use std::arch::x86_64::__m256i;
+use std::arch::x86_64::_mm_loadu_si128;
+use std::arch::x86_64::_mm_setzero_si128;
+use std::arch::x86_64::_mm_shuffle_epi32;
+use std::arch::x86_64::_mm_storeu_si128;
+use std::arch::x86_64::_mm_unpacklo_epi64;
+use std::arch::x86_64::_mm256_cmpgt_epi32;
+use std::arch::x86_64::_mm256_cmpgt_epi64;
+use std::arch::x86_64::_mm256_cvtepu8_epi32;
+use std::arch::x86_64::_mm256_cvtepu8_epi64;
+use std::arch::x86_64::_mm256_cvtepu16_epi32;
+use std::arch::x86_64::_mm256_cvtepu16_epi64;
+use std::arch::x86_64::_mm256_cvtepu32_epi64;
+use std::arch::x86_64::_mm256_extracti128_si256;
+use std::arch::x86_64::_mm256_loadu_si256;
+use std::arch::x86_64::_mm256_mask_i32gather_epi32;
+use std::arch::x86_64::_mm256_mask_i64gather_epi32;
+use std::arch::x86_64::_mm256_mask_i64gather_epi64;
+use std::arch::x86_64::_mm256_set1_epi32;
+use std::arch::x86_64::_mm256_set1_epi64x;
+use std::arch::x86_64::_mm256_setzero_si256;
+use std::arch::x86_64::_mm256_storeu_si256;
 use std::convert::identity;
 
-use vortex_buffer::{Alignment, Buffer, BufferMut};
-use vortex_dtype::{
-    NativePType, PType, UnsignedPType, match_each_native_ptype, match_each_unsigned_integer_ptype,
-};
+use vortex_buffer::Alignment;
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
+use vortex_dtype::NativePType;
+use vortex_dtype::PType;
+use vortex_dtype::UnsignedPType;
+use vortex_dtype::match_each_native_ptype;
+use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
 
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::primitive::PrimitiveArray;
-use crate::arrays::primitive::compute::take::{TakeImpl, take_primitive_scalar};
+use crate::arrays::primitive::compute::take::TakeImpl;
+use crate::arrays::primitive::compute::take::take_primitive_scalar;
 use crate::validity::Validity;
-use crate::{ArrayRef, IntoArray};
 
 #[allow(unused)]
 pub(super) struct TakeKernelAVX2;

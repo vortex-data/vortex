@@ -2,14 +2,17 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
+use std::hash::Hasher;
 
-use vortex_buffer::{BitBuffer, Buffer};
+use vortex_buffer::BitBuffer;
+use vortex_buffer::Buffer;
 use vortex_mask::Mask;
 
+use crate::Array;
+use crate::ArrayRef;
 use crate::patches::Patches;
 use crate::validity::Validity;
-use crate::{Array, ArrayRef};
 
 /// The precision level for structural equality and hashing of arrays.
 ///
@@ -74,7 +77,8 @@ impl<T: ArrayEq + 'static> DynArrayEq for T {
 }
 
 mod private {
-    use crate::{ArrayEq, ArrayHash};
+    use crate::ArrayEq;
+    use crate::ArrayHash;
 
     pub trait SealedHash {}
     impl<T: ArrayHash + ?Sized> SealedHash for T {}

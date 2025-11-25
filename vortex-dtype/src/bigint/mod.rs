@@ -4,12 +4,27 @@
 mod bigcast;
 
 use std::fmt::Display;
-use std::ops::{Add, AddAssign, BitOr, Div, Mul, Neg, Rem, Shl, Shr, Sub};
+use std::ops::Add;
+use std::ops::AddAssign;
+use std::ops::BitOr;
+use std::ops::Div;
+use std::ops::Mul;
+use std::ops::Neg;
+use std::ops::Rem;
+use std::ops::Shl;
+use std::ops::Shr;
+use std::ops::Sub;
 
 pub use bigcast::*;
-use num_traits::{
-    CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, ConstZero, One, WrappingAdd, WrappingSub, Zero,
-};
+use num_traits::CheckedAdd;
+use num_traits::CheckedDiv;
+use num_traits::CheckedMul;
+use num_traits::CheckedSub;
+use num_traits::ConstZero;
+use num_traits::One;
+use num_traits::WrappingAdd;
+use num_traits::WrappingSub;
+use num_traits::Zero;
 use vortex_error::VortexExpect;
 
 /// Signed 256-bit integer type.
@@ -623,7 +638,8 @@ mod tests {
     #[test]
     fn test_i256_hash() {
         use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
+        use std::hash::Hash;
+        use std::hash::Hasher;
 
         let value1 = i256::from_i128(42);
         let value2 = i256::from_i128(42);

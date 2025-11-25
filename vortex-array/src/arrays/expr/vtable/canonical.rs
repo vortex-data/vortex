@@ -4,7 +4,8 @@
 use vortex_error::VortexExpect;
 
 use crate::Canonical;
-use crate::arrays::expr::{ExprArray, ExprVTable};
+use crate::arrays::expr::ExprArray;
+use crate::arrays::expr::ExprVTable;
 use crate::vtable::CanonicalVTable;
 
 impl CanonicalVTable<ExprVTable> for ExprVTable {
@@ -20,15 +21,18 @@ impl CanonicalVTable<ExprVTable> for ExprVTable {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
+    use vortex_dtype::DType;
     use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::{DType, PType};
+    use vortex_dtype::PType;
 
+    use crate::Array;
+    use crate::IntoArray;
     use crate::arrays::expr::ExprArray;
     use crate::arrays::primitive::PrimitiveArray;
+    use crate::assert_arrays_eq;
     use crate::expr::binary::checked_add;
     use crate::expr::literal::lit;
     use crate::validity::Validity;
-    use crate::{Array, IntoArray, assert_arrays_eq};
 
     #[test]
     fn test_expr_array_canonicalize() {
