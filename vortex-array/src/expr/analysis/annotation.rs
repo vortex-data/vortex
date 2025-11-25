@@ -35,7 +35,7 @@ pub type Annotations<'a, A> = HashMap<&'a Expression, HashSet<A>>;
 ///
 /// Returns a map of each expression to all annotations that any of its descendent (child)
 /// expressions are annotated with.
-pub fn descendent_annotation_union_set<A: AnnotationFn>(
+pub fn descendent_annotations<A: AnnotationFn>(
     expr: &Expression,
     annotate: A,
 ) -> Annotations<'_, A::Annotation> {
