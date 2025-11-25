@@ -152,7 +152,10 @@ pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "all arguments needed for benchmark execution"
+)]
 fn execute_queries<B: Benchmark>(
     queries: &[(usize, String)],
     iterations: usize,

@@ -477,7 +477,10 @@ impl VectorMutOps for ListViewVectorMut {
 // TODO(connor): It would be better to separate everything inside the macros into its own function,
 // but that would require adding another macro that sets a type `$type` to be used by the caller.
 /// Checks that all views are `<= elements_len`.
-#[allow(clippy::cognitive_complexity)]
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "complexity from nested match_each_* macros"
+)]
 fn validate_views_bound(
     elements_len: u64,
     offsets: &PrimitiveVectorMut,
@@ -505,7 +508,10 @@ fn validate_views_bound(
 // TODO(connor): It would be better to separate everything inside the macros into its own function,
 // but that would require adding another macro that sets a type `$type` to be used by the caller.
 /// Checks that all views are `<= elements_len`.
-#[allow(clippy::cognitive_complexity)]
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "complexity from nested match_each_* macros"
+)]
 fn adjust_and_extend_offsets(
     our_offsets: &mut PrimitiveVectorMut,
     other: &PrimitiveVector,

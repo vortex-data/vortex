@@ -74,7 +74,6 @@ impl FilterExpr {
     }
 
     /// Report the selectivity of a conjunct, i.e. 0 means no rows matched the predicate.
-    #[allow(clippy::cast_possible_truncation)]
     pub fn report_selectivity(&self, conjunct_idx: usize, selectivity: f64) {
         if !(0.0..=1.0).contains(&selectivity) {
             vortex_panic!(

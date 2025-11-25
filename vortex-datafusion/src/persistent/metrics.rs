@@ -167,7 +167,10 @@ fn df_gauge(name: String, value: usize) -> DatafusionMetricValue {
     }
 }
 
-#[allow(clippy::cast_possible_truncation)]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "truncation is checked before cast"
+)]
 fn f_to_u(f: f64) -> Option<usize> {
     (f.is_finite() && f >= usize::MIN as f64 && f <= usize::MAX as f64).then(||
         // After the range check, truncation is guaranteed to keep the value in usize bounds.

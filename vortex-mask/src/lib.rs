@@ -668,7 +668,6 @@ impl MaskValues {
     }
 
     /// Constructs a slices vector from one of the other representations.
-    #[allow(clippy::cast_possible_truncation)]
     #[inline]
     pub fn slices(&self) -> &[(usize, usize)] {
         self.slices.get_or_init(|| {

@@ -76,7 +76,7 @@ impl<V: DeviceRepr + NativePType, I, O> GPUTask for RLETask<V, I, O> {
     }
 }
 
-#[allow(clippy::cognitive_complexity)]
+#[expect(clippy::cognitive_complexity, reason = "complexity from nested match_each_* macros")]
 pub fn new_task(
     rle: &RLEArray,
     ctx: Arc<CudaContext>,

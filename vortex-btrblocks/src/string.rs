@@ -41,7 +41,7 @@ pub struct StringStats {
 }
 
 /// Estimate the number of distinct strings in the var bin view array.
-#[allow(clippy::cast_possible_truncation)]
+
 fn estimate_distinct_count(strings: &VarBinViewArray) -> u32 {
     let views = strings.views();
     // Iterate the views. Two strings which are equal must have the same first 8-bytes.
@@ -49,6 +49,10 @@ fn estimate_distinct_count(strings: &VarBinViewArray) -> u32 {
     // share a 4-byte prefix and have the same length.
     let mut distinct = HashSet::with_capacity(views.len() / 2);
     views.iter().for_each(|&view| {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "approximate uniqueness with view prefix"
+        )]
         let len_and_prefix = view.as_u128() as u64;
         distinct.insert(len_and_prefix);
     });

@@ -264,7 +264,6 @@ impl<'a> GnomADBuilder<'a> {
         }
     }
 
-    #[allow(clippy::cognitive_complexity)]
     pub fn consume_record(&mut self, header: &Header, record: &mut Record) -> VortexResult<()> {
         self.CHROM_builder
             .append_value(record.reference_sequence_name());
@@ -352,7 +351,6 @@ impl<'a> GnomADBuilder<'a> {
         Ok(())
     }
 
-    #[allow(clippy::cognitive_complexity)]
     pub fn consume_info(&mut self, header: &Header, info: Info) -> VortexResult<()> {
         info.iter(header)
             .process_results(|iter| -> VortexResult<()> {
@@ -376,7 +374,6 @@ impl<'a> GnomADBuilder<'a> {
             })?
     }
 
-    #[allow(clippy::cognitive_complexity)]
     pub fn finish(mut self) -> Result<RecordBatch, ArrowError> {
         let len = self.CHROM_builder.len();
         assert_eq!(len, self.POS_builder.len());

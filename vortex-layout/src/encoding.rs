@@ -28,7 +28,6 @@ pub trait LayoutEncoding: 'static + Send + Sync + Debug + private::Sealed {
 
     fn id(&self) -> LayoutEncodingId;
 
-    #[allow(clippy::too_many_arguments)]
     fn build(
         &self,
         dtype: &DType,
