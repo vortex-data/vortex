@@ -524,7 +524,6 @@ mod tests {
         // "write" all the record batches to the named file paths
         let mut file_meta = HashMap::with_capacity(files.len());
 
-        // TODO: make file schema by superset of fields?
         for (path_str, rb) in files.iter() {
             let array = ArrayRef::from_arrow(rb, false);
             let path = Path::from_url_path(path_str.as_str())?;
