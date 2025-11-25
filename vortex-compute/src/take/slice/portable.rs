@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Take function implementations on slices using `portable_simd`.
+
 #![cfg(vortex_nightly)]
 
 use std::mem::MaybeUninit;
@@ -16,6 +18,7 @@ use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 use vortex_dtype::UnsignedPType;
 
+/// Takes the specified indices into a new [`Buffer`] using portable SIMD.
 #[inline]
 pub fn take_portable<T, I>(buffer: &[T], indices: &[I]) -> Buffer<T>
 where
@@ -44,7 +47,7 @@ where
 ///
 /// Returns a `Buffer<T>` where each element corresponds to `values[indices[i]]`.
 #[multiversion(targets("x86_64+avx2", "x86_64+avx", "aarch64+neon"))]
-fn take_portable_simd<T, I, const LANE_COUNT: usize>(values: &[T], indices: &[I]) -> Buffer<T>
+pub fn take_portable_simd<T, I, const LANE_COUNT: usize>(values: &[T], indices: &[I]) -> Buffer<T>
 where
     T: NativePType + simd::SimdElement,
     I: UnsignedPType + simd::SimdElement,

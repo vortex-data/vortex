@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Take function implementations on slices.
+
 use vortex_buffer::Buffer;
 use vortex_dtype::NativePType;
 use vortex_dtype::UnsignedPType;
 
 use crate::take::Take;
 
-mod avx2;
-mod portable;
+pub mod avx2;
+pub mod portable;
 
 /// Specialized implementation for non-nullable indices.
 impl<T: NativePType, I: UnsignedPType> Take<[I]> for &[T] {
