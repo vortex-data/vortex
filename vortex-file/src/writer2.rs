@@ -45,10 +45,10 @@ pub async fn write_file<W: VortexWrite, S: ArrayStream + Send + 'static>(
 
         // Push each chunk. We await to allow for it to provide backpressure.
         while let Some(chunk) = stream.next().await.transpose()? {
-            pipeline.push_chunk(chunk, ptr.advance()).await?;
+            pipeline.push_chunk(chunk, ptr.advance())?;
         }
 
-        pipeline.finish().await
+        pipeline.finish()
     });
 
     // Flush buffers as they arrive
@@ -94,6 +94,9 @@ fn field_writer(
     let _dtype = dtype.clone();
     let _sink = sink.clone();
     let _ctx = ctx.clone();
+
+    // Segment writer this way instead.
+
     let make_writer: Box<dyn Fn() -> Box<dyn Writer> + Send + Sync + 'static> =
         Box::new(move || {
             let result: Box<dyn Writer + 'static> = Box::new(CompressedWriter::new_btrblocks(

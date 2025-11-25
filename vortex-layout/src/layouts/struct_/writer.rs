@@ -83,19 +83,24 @@ impl Writer for StructWriter {
         // Attempt to finish all of the field writers.
         // This also works in parallel as well.
 
-        let children: Mutex<Vec<LayoutRef>> =
-            Mutex::new(Vec::with_capacity(self.field_writers.len()));
-        let error: Mutex<Option<VortexError>> = Mutex::new(None);
+        let children: Arc<Mutex<Vec<LayoutRef>>> =
+            Arc::new(Mutex::new(Vec::with_capacity(self.field_writers.len())));
+        let error: Arc<Mutex<Option<VortexError>>> = Arc::new(Mutex::new(None));
 
         // Push into a channel, extract in priority order
 
         let writers = std::mem::take(&mut self.field_writers);
 
+        // We should allow some number of columns to run concurrently.
+        // We also want to buffer the tasks based on how much memory they are holding
+        // reference to.
         rayon::scope(|scope| {
             for (index, writer) in writers.into_iter().enumerate() {
                 let index = index;
                 let mut writer = writer;
-                scope.spawn(|_s| match writer.finish() {
+                let children = children.clone();
+                let error = error.clone();
+                scope.spawn(move |_s| match writer.finish() {
                     Ok(layout) => {
                         children.lock().spare_capacity_mut()[index].write(layout);
                     }
@@ -112,10 +117,10 @@ impl Writer for StructWriter {
         }
 
         // If no errors, all slots were initialized
-        // let mut children: Vec<LayoutRef> = { std::mem::take(children.lock().as_mut()) };
-        // unsafe {
-        //     children.set_len(children.capacity());
-        // }
+        let mut children: Vec<LayoutRef> = { std::mem::take(children.lock().as_mut()) };
+        unsafe {
+            children.set_len(children.capacity());
+        }
 
         Ok(StructLayout::new(self.row_count, self.schema.clone(), vec![]).into_layout())
     }
