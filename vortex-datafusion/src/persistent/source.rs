@@ -24,7 +24,6 @@ use datafusion_physical_plan::DisplayFormatType;
 use datafusion_physical_plan::PhysicalExpr;
 use datafusion_physical_plan::filter_pushdown::FilterPushdownPropagation;
 use datafusion_physical_plan::filter_pushdown::PushedDown;
-use datafusion_physical_plan::filter_pushdown::PushedDownPredicate;
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use object_store::ObjectStore;
 use object_store::path::Path;
@@ -52,11 +51,11 @@ pub struct VortexSource {
     pub(crate) full_predicate: Option<PhysicalExprRef>,
     /// Subset of predicates that can be pushed down into Vortex scan operations.
     /// These are expressions that Vortex can efficiently evaluate during scanning.
-    pub(crate) vortex_predicate: Option<PhysicalExprRef>,
+    pub(crate) pushed_predicate: Option<PhysicalExprRef>,
     pub(crate) batch_size: Option<usize>,
     pub(crate) projected_statistics: Option<Statistics>,
     /// This is the file schema the table expects, which is the table's schema without partition columns, and **not** the file's physical schema.
-    pub(crate) arrow_file_schema: Option<SchemaRef>,
+    pub(crate) table_schema: Option<SchemaRef>,
     pub(crate) schema_adapter_factory: Option<Arc<dyn SchemaAdapterFactory>>,
     pub(crate) expr_adapter_factory: Option<Arc<dyn PhysicalExprAdapterFactory>>,
     _unused_df_metrics: ExecutionPlanMetricsSet,
@@ -72,10 +71,10 @@ impl VortexSource {
             session,
             file_cache,
             full_predicate: None,
-            vortex_predicate: None,
+            pushed_predicate: None,
             batch_size: None,
             projected_statistics: None,
-            arrow_file_schema: None,
+            table_schema: None,
             schema_adapter_factory: None,
             expr_adapter_factory: None,
             _unused_df_metrics: Default::default(),
@@ -144,7 +143,7 @@ impl FileSource for VortexSource {
             session: self.session.clone(),
             object_store,
             projection,
-            filter: self.vortex_predicate.clone(),
+            filter: self.pushed_predicate.clone(),
             file_pruning_predicate: self.full_predicate.clone(),
             expr_adapter_factory,
             schema_adapter_factory,
@@ -173,7 +172,7 @@ impl FileSource for VortexSource {
 
     fn with_schema(&self, schema: SchemaRef) -> Arc<dyn FileSource> {
         let mut source = self.clone();
-        source.arrow_file_schema = Some(schema);
+        source.table_schema = Some(schema);
         Arc::new(source)
     }
 
@@ -188,7 +187,7 @@ impl FileSource for VortexSource {
     }
 
     fn filter(&self) -> Option<Arc<dyn PhysicalExpr>> {
-        self.vortex_predicate.clone()
+        self.pushed_predicate.clone()
     }
 
     fn metrics(&self) -> &ExecutionPlanMetricsSet {
@@ -201,7 +200,7 @@ impl FileSource for VortexSource {
             .clone()
             .vortex_expect("projected_statistics must be set");
 
-        if self.vortex_predicate.is_some() {
+        if self.pushed_predicate.is_some() {
             Ok(statistics.to_inexact())
         } else {
             Ok(statistics)
@@ -215,13 +214,13 @@ impl FileSource for VortexSource {
     fn fmt_extra(&self, t: DisplayFormatType, f: &mut Formatter) -> std::fmt::Result {
         match t {
             DisplayFormatType::Default | DisplayFormatType::Verbose => {
-                if let Some(ref predicate) = self.vortex_predicate {
+                if let Some(ref predicate) = self.pushed_predicate {
                     write!(f, ", predicate: {predicate}")?;
                 }
             }
             // Use TreeRender style key=value formatting to display the predicate
             DisplayFormatType::TreeRender => {
-                if let Some(ref predicate) = self.vortex_predicate {
+                if let Some(ref predicate) = self.pushed_predicate {
                     writeln!(f, "predicate={}", fmt_sql(predicate.as_ref()))?;
                 };
             }
@@ -234,13 +233,16 @@ impl FileSource for VortexSource {
         filters: Vec<Arc<dyn PhysicalExpr>>,
         _config: &ConfigOptions,
     ) -> DFResult<FilterPushdownPropagation<Arc<dyn FileSource>>> {
+        let num_filters = filters.len();
+
         if filters.is_empty() {
             return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
                 vec![],
             ));
         }
 
-        let Some(schema) = self.arrow_file_schema.as_ref() else {
+        // only try and push filters if we know the schema
+        let Some(schema) = self.table_schema.as_ref() else {
             return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
                 vec![PushedDown::No; filters.len()],
             ));
@@ -257,47 +259,31 @@ impl FileSource for VortexSource {
             None => Some(conjunction(filters.clone())),
         };
 
+        // Update the predicate with any pushed filters
         let supported_filters = filters
             .into_iter()
-            .map(|expr| {
-                if can_be_pushed_down(&expr, schema) {
-                    PushedDownPredicate::supported(expr)
-                } else {
-                    PushedDownPredicate::unsupported(expr)
-                }
-            })
+            .filter(|expr| can_be_pushed_down(&expr, schema))
             .collect::<Vec<_>>();
 
-        if supported_filters
-            .iter()
-            .all(|p| matches!(p.discriminant, PushedDown::No))
-        {
-            return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
-                vec![PushedDown::No; supported_filters.len()],
-            )
-            .with_updated_node(Arc::new(source) as _));
-        }
-
-        let supported = supported_filters
-            .iter()
-            .filter_map(|p| match p.discriminant {
-                PushedDown::Yes => Some(&p.predicate),
-                PushedDown::No => None,
-            })
-            .cloned();
-
-        let predicate = match source.vortex_predicate {
-            Some(predicate) => conjunction(std::iter::once(predicate).chain(supported)),
-            None => conjunction(supported),
+        let predicate = match source.pushed_predicate {
+            Some(predicate) => conjunction(std::iter::once(predicate).chain(supported_filters)),
+            None => conjunction(supported_filters),
         };
 
-        tracing::debug!(%predicate, "Saving predicate");
+        tracing::debug!(%predicate, "updating predicate with new filters");
 
-        source.vortex_predicate = Some(predicate);
+        source.pushed_predicate = Some(predicate);
 
-        Ok(FilterPushdownPropagation::with_parent_pushdown_result(
-            supported_filters.iter().map(|f| f.discriminant).collect(),
-        )
+        // NOTE: we always report no pushdown to DataFusion, which forces it to postfilter our
+        // results. Due to schema evolution and schema adapters/expression adapters, we can't
+        // guarantee that filters over missing columns can be executed directly in Vortex.
+        //
+        // But, we still return the updated source node so that the filters are used for
+        // zone map pruning.
+        Ok(FilterPushdownPropagation::with_parent_pushdown_result(vec![
+            PushedDown::No;
+            num_filters
+        ])
         .with_updated_node(Arc::new(source) as _))
     }
 
