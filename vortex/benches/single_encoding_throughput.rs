@@ -275,7 +275,7 @@ fn bench_pcodec_decompress_f64(bencher: Bencher) {
 #[divan::bench(name = "zstd_compress_u32")]
 fn bench_zstd_compress_u32(bencher: Bencher) {
     let (uint_array, ..) = setup_primitive_arrays();
-    let array = uint_array.clone().into_array();
+    let array = uint_array.into_array();
 
     with_counter!(bencher, NUM_VALUES * 4)
         .with_inputs(|| array.clone())
