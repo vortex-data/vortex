@@ -358,6 +358,13 @@ impl FileOpener for VortexOpener {
                 .transpose()
                 .map_err(|e| DataFusionError::External(e.into()))?;
 
+            tracing::debug!(
+                ?filter,
+                ?projection,
+                ?projection_expr,
+                "opening file with predicate and projection"
+            );
+
             if let Some(limit) = limit
                 && filter.is_none()
             {
@@ -435,8 +442,6 @@ mod tests {
     use datafusion_datasource::file::FileSource;
     use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
     use datafusion_execution::object_store::ObjectStoreUrl;
-    use datafusion_physical_expr::utils::conjunction;
-    use datafusion_physical_plan::filter_pushdown::FilterPushdownPropagation;
     use datafusion_physical_plan::filter_pushdown::PushedDown;
     use futures::pin_mut;
     use insta::assert_snapshot;
@@ -455,30 +460,6 @@ mod tests {
 
     use super::*;
     use crate::VortexSource;
-
-    fn check_pushdown_result(
-        filters: Vec<PhysicalExprRef>,
-        expected_pushed_filters: impl IntoIterator<Item = PhysicalExprRef>,
-        pushdown_result: &FilterPushdownPropagation<Arc<dyn FileSource>>,
-    ) {
-        assert_eq!(filters.len(), pushdown_result.filters.len());
-
-        for filter in &pushdown_result.filters {
-            assert!(matches!(filter, PushedDown::No));
-        }
-
-        let updated_src = pushdown_result
-            .updated_node
-            .as_ref()
-            .expect("try_pushdown_filters for VortexSource should always return updated node");
-        let vortex_src = updated_src
-            .as_any()
-            .downcast_ref::<VortexSource>()
-            .expect("downcast to VortexSource");
-
-        let expected = conjunction(expected_pushed_filters);
-        assert_eq!(Some(expected), vortex_src.pushed_predicate);
-    }
 
     /// Fixtures used for integration testing the FileSource and FileOpener
     struct TestFixtures {
@@ -649,9 +630,9 @@ mod tests {
         let pushdown_result =
             source.try_pushdown_filters(vec![filter.clone()], &ConfigOptions::default())?;
 
-        check_pushdown_result(vec![filter.clone()], vec![filter.clone()], &pushdown_result);
-
         let source = pushdown_result.updated_node.unwrap();
+
+        assert_eq!(source.filter(), Some(filter));
 
         let base_config = FileScanConfigBuilder::new(
             ObjectStoreUrl::parse("s3://in-memory")?,
@@ -816,9 +797,8 @@ mod tests {
         let pushdown_result =
             source.try_pushdown_filters(vec![filter.clone()], &ConfigOptions::default())?;
 
-        check_pushdown_result(vec![filter.clone()], vec![filter], &pushdown_result);
-
         let source = pushdown_result.updated_node.unwrap();
+        assert_eq!(source.filter(), Some(filter));
 
         let base_config = FileScanConfigBuilder::new(
             ObjectStoreUrl::parse("s3://in-memory")?,
