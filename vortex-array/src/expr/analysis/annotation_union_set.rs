@@ -35,12 +35,6 @@ pub type Annotations<'a, A> = HashMap<&'a Expression, HashSet<A>>;
 ///
 /// Returns a map of each expression to all annotations that any of its descendent (child)
 /// expressions are annotated with.
-///
-/// This "skip" behavior makes this function different from [`label_tree`], which always
-/// visits all nodes. Use this when you want to find the "shallowest" matches in a tree.
-///
-/// Note: This cannot use [`label_tree`] because the early termination (skip) requires
-/// conditional traversal based on the node's direct annotations.
 pub fn descendent_annotation_union_set<A: AnnotationFn>(
     expr: &Expression,
     annotate: A,

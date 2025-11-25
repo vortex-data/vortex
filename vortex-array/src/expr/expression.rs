@@ -233,21 +233,7 @@ impl Expression {
     }
 
     /// Returns whether this expression itself is null-sensitive.
-    ///
-    /// An expression is null-sensitive if it directly operates on null values,
-    /// such as `is_null`. Most expressions are not null-sensitive.
-    ///
-    /// The property we are interested in is if the expression (e) distributes over
-    /// mask.
-    /// Define a `mask(a, m)` expression that applies the boolean array `m` to the validity of the
-    /// array `a`.
-    /// An unary expression `e` to be null-sensitive iff forall arrays `a` and masks `m`.
-    /// `e(mask(a, m)) == mask(e(a), m)`.
-    /// This can be extended to an n-ary expression.
-    ///
-    /// This method only checks the expression itself, not its children. To check
-    /// if an expression or any of its descendants are null-sensitive, use the
-    /// [`crate::expr::analysis::label_null_sensitive`] function.
+    /// See [`VTable::is_null_sensitive`].
     pub fn is_null_sensitive(&self) -> bool {
         self.vtable.as_dyn().is_null_sensitive(self.data.as_ref())
     }

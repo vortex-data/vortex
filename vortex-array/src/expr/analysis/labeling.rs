@@ -84,15 +84,12 @@ where
     type NodeTy = Expression;
 
     fn visit_down(&mut self, _node: &'a Self::NodeTy) -> VortexResult<TraversalOrder> {
-        // Continue traversing down
         Ok(TraversalOrder::Continue)
     }
 
     fn visit_up(&mut self, node: &'a Expression) -> VortexResult<TraversalOrder> {
-        // Compute self-label for this node
         let self_label = (self.label_edge)(node);
 
-        // Fold all child labels into the self label
         let final_label = node.children().iter().fold(self_label, |acc, child| {
             let child_label = self
                 .labels
