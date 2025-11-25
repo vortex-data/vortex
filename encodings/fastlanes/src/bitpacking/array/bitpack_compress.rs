@@ -332,7 +332,10 @@ pub fn find_best_bit_width(ptype: PType, bit_width_freq: &[usize]) -> VortexResu
 
 /// Assuming exceptions cost 1 value + 1 u32 index, figure out the best bit-width to use.
 /// We could try to be clever, but we can never really predict how the exceptions will compress.
-#[allow(clippy::cast_possible_truncation)]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "bit_width is bounded by check above and result fits in u8"
+)]
 fn best_bit_width(bit_width_freq: &[usize], bytes_per_exception: usize) -> VortexResult<u8> {
     if bit_width_freq.len() > u8::MAX as usize {
         vortex_bail!("Too many bit widths");

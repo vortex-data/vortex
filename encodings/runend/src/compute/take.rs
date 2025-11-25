@@ -25,7 +25,10 @@ use crate::RunEndArray;
 use crate::RunEndVTable;
 
 impl TakeKernel for RunEndVTable {
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "index cast to usize inside macro"
+    )]
     fn take(&self, array: &RunEndArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let primitive_indices = indices.to_primitive();
 

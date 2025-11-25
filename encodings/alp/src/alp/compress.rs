@@ -63,7 +63,10 @@ pub fn alp_encode(parray: &PrimitiveArray, exponents: Option<Exponents>) -> Vort
     }
 }
 
-#[allow(clippy::cast_possible_truncation)]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "u64 index cast to usize is safe for reasonable array sizes"
+)]
 fn alp_encode_components_typed<T>(
     values: &PrimitiveArray,
     exponents: Option<Exponents>,
