@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#[cfg(feature = "lance")]
-use std::fs;
 use std::fs::File;
-#[cfg(feature = "lance")]
-use std::path::Path;
 #[cfg(not(feature = "lance"))]
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -14,20 +10,17 @@ use anyhow::anyhow;
 use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_cast::cast;
 use arrow_schema::{ArrowError, DataType, Field, Schema, SchemaRef};
-#[cfg(feature = "lance")]
-use lance::dataset::Dataset as LanceDataset;
-#[cfg(feature = "lance")]
-use lance::dataset::WriteParams;
-#[cfg(feature = "lance")]
-use lance_encoding::version::LanceFileVersion;
-#[cfg(feature = "lance")]
-use log::info;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 #[cfg(feature = "lance")]
-use tokio::fs::create_dir_all;
-
-#[cfg(feature = "lance")]
-use crate::utils::idempotent_async;
+use {
+    crate::utils::idempotent_async,
+    lance::dataset::{Dataset as LanceDataset, WriteParams},
+    lance_encoding::version::LanceFileVersion,
+    log::info,
+    std::fs,
+    std::path::{Path, PathBuf},
+    tokio::fs::create_dir_all,
+};
 
 /// A streaming iterator that reads RecordBatches from multiple Parquet files sequentially.
 /// Works equally well for single files and multiple files.

@@ -6,9 +6,7 @@ use std::io::{Write, stdout};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use bench_vortex::compress::bench::{
-    CompressMeasurements, CompressOp, {self as compress},
-};
+use bench_vortex::compress::bench::{self as compress, CompressMeasurements, CompressOp};
 use bench_vortex::datasets::Dataset;
 use bench_vortex::datasets::struct_list_of_ints::StructListOfInts;
 use bench_vortex::datasets::taxi_data::TaxiData;

@@ -2,9 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
-use std::fmt::{
-    Display, {self},
-};
+use std::fmt::{self, Display};
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};

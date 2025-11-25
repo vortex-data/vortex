@@ -11,9 +11,7 @@ use arrow_select::take::take_record_batch;
 use futures::stream;
 use itertools::Itertools;
 #[cfg(feature = "lance")]
-use lance::dataset::Dataset;
-#[cfg(feature = "lance")]
-use lance::dataset::ProjectionRequest;
+use lance::dataset::{Dataset, ProjectionRequest};
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::arrow_reader::ArrowReaderOptions;
 use parquet::arrow::async_reader::AsyncFileReader;
