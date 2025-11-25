@@ -44,7 +44,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::primitive::compute::take::TakeImpl;
-use crate::arrays::primitive::compute::take::take_primitive_scalar;
+use crate::arrays::primitive::compute::take::scalar::take_primitive_scalar;
 use crate::validity::Validity;
 
 #[allow(unused)]

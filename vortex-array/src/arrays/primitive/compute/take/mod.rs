@@ -39,7 +39,7 @@ static PRIMITIVE_TAKE_KERNEL: LazyLock<&'static dyn TakeImpl> = LazyLock::new(||
             if is_x86_feature_detected!("avx2") {
                 &avx2::TakeKernelAVX2
             } else {
-                &TakeKernelScalar
+                &scalar::TakeKernelScalar
             }
         } else {
             // stable all other platforms: scalar kernel
