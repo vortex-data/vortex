@@ -36,12 +36,6 @@ pub type Annotations<'a, A> = HashMap<&'a Expression, HashSet<A>>;
 /// Returns a map of each expression to all annotations that any of its descendent (child)
 /// expressions are annotated with.
 ///
-/// This uses a specialized traversal strategy with early termination:
-/// - If a node is directly annotated (non-empty), it uses only those annotations and
-///   **skips traversing its children entirely**
-/// - If a node is not directly annotated (empty), it traverses children and bubbles up
-///   their annotations
-///
 /// This "skip" behavior makes this function different from [`label_tree`], which always
 /// visits all nodes. Use this when you want to find the "shallowest" matches in a tree.
 ///
@@ -70,11 +64,8 @@ impl<'a, A: AnnotationFn> NodeVisitor<'a> for AnnotationVisitor<'a, A> {
     fn visit_down(&mut self, node: &'a Self::NodeTy) -> VortexResult<TraversalOrder> {
         let annotations = (self.annotate)(node);
         if annotations.is_empty() {
-            // If the annotate fn returns empty, we do not annotate this node directly.
-            // Continue traversing to check children.
             Ok(TraversalOrder::Continue)
         } else {
-            // Node is directly annotated - store these annotations and skip children
             self.annotations
                 .entry(node)
                 .or_default()
@@ -84,7 +75,6 @@ impl<'a, A: AnnotationFn> NodeVisitor<'a> for AnnotationVisitor<'a, A> {
     }
 
     fn visit_up(&mut self, node: &'a Expression) -> VortexResult<TraversalOrder> {
-        // Bubble up child annotations to this node
         let child_annotations = node
             .children()
             .iter()
@@ -99,6 +89,3 @@ impl<'a, A: AnnotationFn> NodeVisitor<'a> for AnnotationVisitor<'a, A> {
         Ok(TraversalOrder::Continue)
     }
 }
-
-// Keep the old name for backwards compatibility
-pub use descendent_annotation_union_set as descendent_annotations;
