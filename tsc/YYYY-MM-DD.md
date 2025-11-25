@@ -16,6 +16,12 @@ Topics that require less discussion should be covered first.
 * Review Action Items
 * Discussion
 
+### Votes
+
+Any votes to be held during the meeting will be listed here.
+
+- [ ]
+
 ### Discussion Topics
 
 To propose discussion topics, please add them here along with your name and organization in the attendees section.
