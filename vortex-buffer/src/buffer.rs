@@ -412,6 +412,27 @@ impl<T> Buffer<T> {
         }
     }
 
+    /// Cast a `Buffer<T>` into a `Buffer<U>`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the type `U` does not have the same size and alignment as `T`.
+    pub fn cast_into<U>(self) -> Buffer<U> {
+        assert_eq!(size_of::<T>(), size_of::<U>(), "Buffer type size mismatch");
+        assert_eq!(
+            align_of::<T>(),
+            align_of::<U>(),
+            "Buffer type alignment mismatch"
+        );
+
+        Buffer {
+            bytes: self.bytes,
+            length: self.length,
+            alignment: self.alignment,
+            _marker: PhantomData,
+        }
+    }
+
     /// Try to convert self into `BufferMut<T>` if there is only a single strong reference.
     pub fn try_into_mut(self) -> Result<BufferMut<T>, Self> {
         self.bytes

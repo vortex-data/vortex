@@ -8498,6 +8498,7 @@ dependencies = [
  "arrow-buffer",
  "arrow-schema",
  "codspeed-divan-compat",
+ "multiversion",
  "num-traits",
  "vortex-buffer",
  "vortex-dtype",
