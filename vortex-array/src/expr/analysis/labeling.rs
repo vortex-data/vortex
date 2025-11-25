@@ -18,39 +18,18 @@ use crate::expr::traversal::TraversalOrder;
 ///
 /// The labeling process:
 /// - First, `label_edge` is called on the node to produce its self-label
-/// - Then, for each child, `merge_child` is called with `(accumulator, child_label)`
-///   to fold the child label into the accumulator, starting with the self-label
+/// - Then, for each child, `merge_child` is called with `(self_label, child_label)`
+///   to fold the child label into the self_label
 /// - This produces the final label for the node
-///
-/// This approach avoids allocating a Vec for child labels by processing them one at a time.
 ///
 /// # Parameters
 ///
 /// - `expr`: The root expression to label
 /// - `label_edge`: Function that computes a label for a single node
 /// - `merge_child`: Mutable function that folds child labels into an accumulator.
-///   Takes `(accumulator, child_label)` and returns the updated accumulator.
+///   Takes `(self_label, child_label)` and returns the updated accumulator.
 ///   Called once per child, with the initial accumulator being the node's self-label.
 ///
-/// # Examples
-///
-/// ```ignore
-/// // Count depth of each subtree
-/// let depths = label_tree(
-///     expr,
-///     |_node| 1,  // Each node has depth 1 by itself
-///     |self_depth, child_depth| self_depth.max(*child_depth + 1)
-/// );
-/// ```
-///
-/// ```ignore
-/// // Check if any node in subtree is null-sensitive
-/// let sensitive = label_tree(
-///     expr,
-///     |node| node.is_null_sensitive(),
-///     |acc, child| acc || *child  // OR all children with self
-/// );
-/// ```
 pub fn label_tree<L: Clone>(
     expr: &Expression,
     label_edge: impl Fn(&Expression) -> L,

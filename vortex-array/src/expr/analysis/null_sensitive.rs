@@ -30,7 +30,6 @@ mod tests {
 
     #[test]
     fn test_null_sensitive_with_is_null() {
-        // Expression: is_null($.col1)
         let expr = is_null(col("col1"));
         let labels = label_null_sensitive(&expr);
 
@@ -40,7 +39,6 @@ mod tests {
 
     #[test]
     fn test_null_sensitive_without_is_null() {
-        // Expression: $.col1 = 5
         let expr = eq(col("col1"), lit(5));
         let labels = label_null_sensitive(&expr);
 
@@ -50,7 +48,6 @@ mod tests {
 
     #[test]
     fn test_null_sensitive_nested() {
-        // Expression: ($.col1 = 5) = is_null($.col2)
         let left = eq(col("col1"), lit(5));
         let right = is_null(col("col2"));
         let expr = eq(left.clone(), right.clone());
