@@ -15,9 +15,10 @@ use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::expr::Expression;
-use crate::expr::analysis::{
-    Annotation, AnnotationFn, Annotations, descendent_annotation_union_set,
-};
+use crate::expr::analysis::Annotation;
+use crate::expr::analysis::AnnotationFn;
+use crate::expr::analysis::Annotations;
+use crate::expr::analysis::descendent_annotation_union_set;
 use crate::expr::exprs::get_item::get_item;
 use crate::expr::exprs::pack::pack;
 use crate::expr::exprs::root::root;
