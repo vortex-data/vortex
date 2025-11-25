@@ -41,7 +41,6 @@ pub struct StringStats {
 }
 
 /// Estimate the number of distinct strings in the var bin view array.
-
 fn estimate_distinct_count(strings: &VarBinViewArray) -> u32 {
     let views = strings.views();
     // Iterate the views. Two strings which are equal must have the same first 8-bytes.
