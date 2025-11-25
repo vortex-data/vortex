@@ -58,6 +58,7 @@ impl<'a, A: AnnotationFn> NodeVisitor<'a> for AnnotationVisitor<'a, A> {
     fn visit_down(&mut self, node: &'a Self::NodeTy) -> VortexResult<TraversalOrder> {
         let annotations = (self.annotate)(node);
         if annotations.is_empty() {
+            // If the annotate fn returns empty, we do not annotate this node.
             Ok(TraversalOrder::Continue)
         } else {
             self.annotations
