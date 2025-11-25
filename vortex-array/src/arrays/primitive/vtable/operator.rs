@@ -7,11 +7,19 @@ use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 use vortex_vector::primitive::PVector;
 
-use crate::array::transform::{ArrayParentReduceRule, ArrayRuleContext};
-use crate::arrays::{MaskedArray, MaskedVTable, PrimitiveArray, PrimitiveVTable};
-use crate::execution::{BatchKernelRef, BindCtx, kernel};
-use crate::vtable::{OperatorVTable, ValidityHelper};
-use crate::{ArrayRef, IntoArray};
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::array::transform::ArrayParentReduceRule;
+use crate::array::transform::ArrayRuleContext;
+use crate::arrays::MaskedArray;
+use crate::arrays::MaskedVTable;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::PrimitiveVTable;
+use crate::execution::BatchKernelRef;
+use crate::execution::BindCtx;
+use crate::execution::kernel;
+use crate::vtable::OperatorVTable;
+use crate::vtable::ValidityHelper;
 
 impl OperatorVTable<PrimitiveVTable> for PrimitiveVTable {
     fn bind(
@@ -42,6 +50,7 @@ impl OperatorVTable<PrimitiveVTable> for PrimitiveVTable {
 ///
 /// When a PrimitiveArray is wrapped by a MaskedArray, this rule merges the mask's validity
 /// with the PrimitiveArray's existing validity, eliminating the need for the MaskedArray wrapper.
+#[derive(Default, Debug)]
 pub struct PrimitiveMaskedValidityRule;
 
 impl ArrayParentReduceRule<PrimitiveVTable, MaskedVTable> for PrimitiveMaskedValidityRule {

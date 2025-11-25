@@ -4,20 +4,28 @@
 use std::sync::Arc;
 
 use vortex_dtype::FieldNames;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 
 use crate::ArraySession;
-use crate::array::transform::{ArrayParentReduceRule, ArrayReduceRule, ArrayRuleContext};
-use crate::array::{ArrayRef, IntoArray};
-use crate::arrays::{
-    ChunkedArray, ChunkedEncoding, ChunkedVTable, ConstantArray, ConstantEncoding, ConstantVTable,
-    PrimitiveArray, StructArray, StructVTable,
-};
+use crate::array::ArrayRef;
+use crate::array::IntoArray;
+use crate::array::transform::ArrayParentReduceRule;
+use crate::array::transform::ArrayReduceRule;
+use crate::array::transform::ArrayRuleContext;
+use crate::arrays::ChunkedArray;
+use crate::arrays::ChunkedVTable;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::StructArray;
+use crate::arrays::StructVTable;
 use crate::expr::session::ExprSession;
 use crate::expr::transform::ExprOptimizer;
 use crate::validity::Validity;
 
 /// Test rule that unwraps single-chunk ChunkedArrays
+#[derive(Debug, Default)]
 struct UnwrapSingleChunkRule;
 
 impl ArrayReduceRule<ChunkedVTable> for UnwrapSingleChunkRule {
@@ -42,8 +50,9 @@ fn test_unwrap_single_chunk_rule() -> VortexResult<()> {
     let primitive = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
     let chunked = ChunkedArray::from_iter([primitive.clone()]);
 
-    let rule = UnwrapSingleChunkRule;
-    let result = rule.reduce(&chunked, &ctx)?.vortex_expect("transformed");
+    let result = UnwrapSingleChunkRule
+        .reduce(&chunked, &ctx)?
+        .vortex_expect("transformed");
 
     assert!(Arc::ptr_eq(&primitive, &result));
     Ok(())
@@ -60,8 +69,7 @@ fn test_unwrap_single_chunk_rule_no_op() -> VortexResult<()> {
         PrimitiveArray::from_iter([3i32, 4]).into_array(),
     ]);
 
-    let rule = UnwrapSingleChunkRule;
-    let result = rule.reduce(&chunked, &ctx)?;
+    let result = UnwrapSingleChunkRule.reduce(&chunked, &ctx)?;
 
     assert!(result.is_none());
     Ok(())
@@ -72,7 +80,10 @@ fn test_reduce_rules_traverse_whole_tree() -> VortexResult<()> {
     let array_session = ArraySession::default();
     let expr_session = ExprSession::default();
 
-    array_session.register_reduce_rule::<ChunkedVTable, _>(&ChunkedEncoding, UnwrapSingleChunkRule);
+    array_session.register_reduce_rule::<ChunkedVTable, UnwrapSingleChunkRule>(
+        &ChunkedVTable,
+        UnwrapSingleChunkRule,
+    );
 
     let expr_optimizer = ExprOptimizer::new(&expr_session);
     let optimizer = array_session.optimizer(expr_optimizer);
@@ -121,6 +132,7 @@ fn test_reduce_rules_traverse_whole_tree() -> VortexResult<()> {
 }
 
 // Odd rule for testing
+#[derive(Debug, Default)]
 struct ConstantInStructRule;
 
 impl ArrayParentReduceRule<ConstantVTable, StructVTable> for ConstantInStructRule {
@@ -161,9 +173,9 @@ fn test_parent_rules_traverse_whole_tree() -> VortexResult<()> {
     let array_session = ArraySession::default();
     let expr_session = ExprSession::default();
 
-    array_session.register_parent_rule::<ConstantVTable, StructVTable, _>(
-        &ConstantEncoding,
-        &crate::arrays::StructEncoding,
+    array_session.register_parent_rule::<ConstantVTable, StructVTable, ConstantInStructRule>(
+        &ConstantVTable,
+        &StructVTable,
         ConstantInStructRule,
     );
 

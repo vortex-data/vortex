@@ -2,17 +2,24 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use rstest::rstest;
-use vortex_buffer::{BitBuffer, buffer};
+use vortex_buffer::BitBuffer;
+use vortex_buffer::buffer;
 use vortex_dtype::Nullability;
 use vortex_mask::Mask;
 
-use crate::arrays::{ConstantVTable, FixedSizeListArray, FixedSizeListVTable, PrimitiveArray};
-use crate::compute::conformance::filter::{
-    LARGE_SIZE, MEDIUM_SIZE, SMALL_SIZE, test_filter_conformance,
-};
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ConstantVTable;
+use crate::arrays::FixedSizeListArray;
+use crate::arrays::FixedSizeListVTable;
+use crate::arrays::PrimitiveArray;
+use crate::compute::conformance::filter::LARGE_SIZE;
+use crate::compute::conformance::filter::MEDIUM_SIZE;
+use crate::compute::conformance::filter::SMALL_SIZE;
+use crate::compute::conformance::filter::test_filter_conformance;
 use crate::compute::filter;
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, IntoArray};
 
 // Consolidated parameterized test for degenerate (list_size=0) cases.
 #[rstest]

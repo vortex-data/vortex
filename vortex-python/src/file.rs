@@ -7,24 +7,34 @@ use arrow_array::RecordBatchReader;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
+use vortex::ArrayRef;
+use vortex::ToCanonical;
 use vortex::compute::cast;
+use vortex::dtype::DType;
+use vortex::dtype::FieldNames;
 use vortex::dtype::Nullability::NonNullable;
-use vortex::dtype::{DType, FieldNames, PType};
+use vortex::dtype::PType;
 use vortex::error::VortexResult;
-use vortex::expr::{Expression, root, select};
-use vortex::file::{OpenOptionsSessionExt, VortexFile};
+use vortex::expr::Expression;
+use vortex::expr::root;
+use vortex::expr::select;
+use vortex::file::OpenOptionsSessionExt;
+use vortex::file::VortexFile;
 use vortex::layout::segments::MokaSegmentCache;
-use vortex::scan::{ScanBuilder, SplitBy};
-use vortex::{ArrayRef, ToCanonical};
+use vortex::scan::ScanBuilder;
+use vortex::scan::SplitBy;
 
+use crate::RUNTIME;
+use crate::SESSION;
+use crate::TOKIO_RUNTIME;
 use crate::arrays::PyArrayRef;
 use crate::arrow::IntoPyArrow;
 use crate::dataset::PyVortexDataset;
 use crate::dtype::PyDType;
 use crate::expr::PyExpr;
+use crate::install_module;
 use crate::iter::PyArrayIterator;
 use crate::scan::PyRepeatedScan;
-use crate::{RUNTIME, SESSION, TOKIO_RUNTIME, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "file")?;
@@ -188,10 +198,12 @@ impl PyVortexFile {
 
 pub struct PyIntoProjection(Expression);
 
-impl<'py> FromPyObject<'py> for PyIntoProjection {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for PyIntoProjection {
+    type Error = PyErr;
+
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
         // If it's a list of strings, convert to a column selection.
-        if let Ok(py_list) = ob.downcast::<PyList>() {
+        if let Ok(py_list) = ob.cast::<PyList>() {
             let cols = py_list
                 .iter()
                 .map(|item| item.extract::<String>())
@@ -203,7 +215,7 @@ impl<'py> FromPyObject<'py> for PyIntoProjection {
         }
 
         // If it's an expression, just return it.
-        if let Ok(py_expr) = ob.downcast::<PyExpr>() {
+        if let Ok(py_expr) = ob.cast::<PyExpr>() {
             return Ok(PyIntoProjection(py_expr.get().inner().clone()));
         }
 

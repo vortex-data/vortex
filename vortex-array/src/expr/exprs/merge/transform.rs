@@ -2,18 +2,24 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools as _;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::expr::Expression;
+use crate::expr::ExpressionView;
 use crate::expr::exprs::get_item::get_item;
-use crate::expr::exprs::merge::{DuplicateHandling, Merge};
+use crate::expr::exprs::merge::DuplicateHandling;
+use crate::expr::exprs::merge::Merge;
 use crate::expr::exprs::pack::pack;
-use crate::expr::transform::rules::{ReduceRule, TypedRuleContext};
-use crate::expr::{Expression, ExpressionView};
+use crate::expr::transform::rules::ReduceRule;
+use crate::expr::transform::rules::TypedRuleContext;
 
 /// Rule that removes Merge expressions by converting them to Pack + GetItem.
 ///
 /// Transforms: `merge([struct1, struct2])` → `pack(field1: get_item("field1", struct1), field2: get_item("field2", struct2), ...)`
+#[derive(Debug, Default)]
 pub struct RemoveMergeRule;
 
 impl ReduceRule<Merge, TypedRuleContext> for RemoveMergeRule {
@@ -74,14 +80,20 @@ impl ReduceRule<Merge, TypedRuleContext> for RemoveMergeRule {
 mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::PType::{I32, I64, U32, U64};
+    use vortex_dtype::PType::I32;
+    use vortex_dtype::PType::I64;
+    use vortex_dtype::PType::U32;
+    use vortex_dtype::PType::U64;
 
     use super::RemoveMergeRule;
     use crate::expr::exprs::get_item::get_item;
-    use crate::expr::exprs::merge::{DuplicateHandling, Merge, merge_opts};
+    use crate::expr::exprs::merge::DuplicateHandling;
+    use crate::expr::exprs::merge::Merge;
+    use crate::expr::exprs::merge::merge_opts;
     use crate::expr::exprs::pack::Pack;
     use crate::expr::exprs::root::root;
-    use crate::expr::transform::rules::{ReduceRule, TypedRuleContext};
+    use crate::expr::transform::rules::ReduceRule;
+    use crate::expr::transform::rules::TypedRuleContext;
 
     #[test]
     fn test_remove_merge() {
@@ -99,9 +111,8 @@ mod tests {
         );
 
         let ctx = TypedRuleContext::new(dtype.clone());
-        let rule = RemoveMergeRule;
         let merge_view = e.as_::<Merge>();
-        let result = rule.reduce(&merge_view, &ctx).unwrap();
+        let result = RemoveMergeRule.reduce(&merge_view, &ctx).unwrap();
 
         assert!(result.is_some());
         let result = result.unwrap();

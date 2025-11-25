@@ -4,17 +4,28 @@
 use std::any::Any;
 
 use itertools::Itertools;
-use vortex_dtype::{DType, Nullability, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_panic};
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_dtype::StructFields;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_scalar::{Scalar, StructScalar};
+use vortex_scalar::Scalar;
+use vortex_scalar::StructScalar;
 
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::StructArray;
-use crate::builders::{
-    ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyBitBufferBuilder, builder_with_capacity,
-};
-use crate::canonical::{Canonical, ToCanonical};
-use crate::{Array, ArrayRef, IntoArray};
+use crate::builders::ArrayBuilder;
+use crate::builders::DEFAULT_BUILDER_CAPACITY;
+use crate::builders::LazyBitBufferBuilder;
+use crate::builders::builder_with_capacity;
+use crate::canonical::Canonical;
+use crate::canonical::ToCanonical;
 
 /// The builder for building a [`StructArray`].
 pub struct StructBuilder {
@@ -193,15 +204,20 @@ impl ArrayBuilder for StructBuilder {
 
 #[cfg(test)]
 mod tests {
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, Nullability, StructFields};
+    use vortex_dtype::StructFields;
     use vortex_scalar::Scalar;
 
-    use crate::arrays::{PrimitiveArray, StructArray, VarBinArray};
+    use crate::IntoArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
+    use crate::arrays::VarBinArray;
+    use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::struct_::StructBuilder;
     use crate::validity::Validity;
-    use crate::{IntoArray, assert_arrays_eq};
 
     #[test]
     fn test_struct_builder() {

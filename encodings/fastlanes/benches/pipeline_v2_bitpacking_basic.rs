@@ -6,8 +6,9 @@
 
 use divan::Bencher;
 use mimalloc::MiMalloc;
+use rand::Rng;
+use rand::SeedableRng;
 use rand::prelude::StdRng;
-use rand::{Rng, SeedableRng};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_fastlanes::BitPackedArray;
 
@@ -30,46 +31,43 @@ const BENCH_PARAMS: &[(usize, f64)] = &[
 
 #[divan::bench(args = BENCH_PARAMS)]
 fn bitpack_pipeline_unpack(bencher: Bencher, (num_elements, validity_pct): (usize, f64)) {
+    let mut rng = StdRng::seed_from_u64(42);
+
+    // Create array with randomized validity.
+    // Keep values small enough to fit in the bit width (0-1023 for 10 bits).
+    let values = (0..num_elements).map(|_| {
+        let is_valid = rng.random_bool(validity_pct);
+        is_valid.then(|| rng.random_range(0u32..1024))
+    });
+
+    let primitive = PrimitiveArray::from_option_iter(values).to_array();
+
+    // Encode with 10-bit width (supports values up to 1023).
+    let bitpacked = BitPackedArray::encode(&primitive, 10).unwrap();
+
     bencher
-        .with_inputs(|| {
-            let mut rng = StdRng::seed_from_u64(42);
-
-            // Create array with randomized validity.
-            // Keep values small enough to fit in the bit width (0-1023 for 10 bits).
-            let values = (0..num_elements).map(|_| {
-                let is_valid = rng.random_bool(validity_pct);
-                is_valid.then(|| rng.random_range(0u32..1024))
-            });
-
-            let primitive = PrimitiveArray::from_option_iter(values).to_array();
-
-            // Encode with 10-bit width (supports values up to 1023).
-            let bitpacked = BitPackedArray::encode(&primitive, 10).unwrap();
-
-            bitpacked.to_array()
-        })
-        .bench_local_values(|array| array.execute().unwrap());
+        .with_inputs(|| bitpacked.to_array())
+        .bench_refs(|array| array.execute().unwrap());
 }
 
 #[divan::bench(args = BENCH_PARAMS)]
 fn bitpack_canonical_unpack(bencher: Bencher, (num_elements, validity_pct): (usize, f64)) {
+    let mut rng = StdRng::seed_from_u64(42);
+
+    // Create array with randomized validity.
+    // Keep values small enough to fit in the bit width (0-1023 for 10 bits).
+    let values = (0..num_elements).map(|_| {
+        let is_valid = rng.random_bool(validity_pct);
+        is_valid.then(|| rng.random_range(0u32..1024))
+    });
+
+    let primitive = PrimitiveArray::from_option_iter(values).to_array();
+
+    // Encode with 10-bit width (supports values up to 1023).
+    let bitpacked = BitPackedArray::encode(&primitive, 10).unwrap();
+    let array = bitpacked.to_array();
+
     bencher
-        .with_inputs(|| {
-            let mut rng = StdRng::seed_from_u64(42);
-
-            // Create array with randomized validity.
-            // Keep values small enough to fit in the bit width (0-1023 for 10 bits).
-            let values = (0..num_elements).map(|_| {
-                let is_valid = rng.random_bool(validity_pct);
-                is_valid.then(|| rng.random_range(0u32..1024))
-            });
-
-            let primitive = PrimitiveArray::from_option_iter(values).to_array();
-
-            // Encode with 10-bit width (supports values up to 1023).
-            let bitpacked = BitPackedArray::encode(&primitive, 10).unwrap();
-
-            bitpacked.to_array()
-        })
-        .bench_local_values(|array| array.to_canonical());
+        .with_inputs(|| &array)
+        .bench_refs(|array| array.to_canonical());
 }

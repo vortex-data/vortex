@@ -4,19 +4,25 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use futures::{Stream, TryStreamExt};
+use futures::Stream;
+use futures::TryStreamExt;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::expr::Expression;
-use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
-use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
+use vortex_array::iter::ArrayIterator;
+use vortex_array::iter::ArrayIteratorAdapter;
+use vortex_array::stream::ArrayStream;
+use vortex_array::stream::ArrayStreamAdapter;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_gpu::GpuVector;
-use vortex_io::runtime::{BlockingRuntime, Handle};
+use vortex_io::runtime::BlockingRuntime;
+use vortex_io::runtime::Handle;
 use vortex_layout::GpuLayoutReaderRef;
 
-use crate::gpu::gputask::{GpuTaskContext, TaskFuture, gpu_split_exec};
+use crate::gpu::gputask::GpuTaskContext;
+use crate::gpu::gputask::TaskFuture;
+use crate::gpu::gputask::gpu_split_exec;
 
 pub struct GpuScan<A: 'static + Send> {
     handle: Handle,

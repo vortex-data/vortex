@@ -8,24 +8,43 @@ use std::ops::Range;
 
 use itertools::Itertools;
 use num_traits::NumCast;
-use vortex_buffer::{BitBuffer, BufferMut};
+use vortex_buffer::BitBuffer;
+use vortex_buffer::BufferMut;
+use vortex_dtype::DType;
+use vortex_dtype::IntegerPType;
+use vortex_dtype::NativePType;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{
-    DType, IntegerPType, NativePType, PType, UnsignedPType, match_each_integer_ptype,
-    match_each_unsigned_integer_ptype,
-};
-use vortex_error::{
-    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
-};
-use vortex_mask::{AllOr, Mask};
-use vortex_scalar::{PValue, Scalar};
+use vortex_dtype::PType;
+use vortex_dtype::UnsignedPType;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_dtype::match_each_unsigned_integer_ptype;
+use vortex_error::VortexError;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
+use vortex_mask::AllOr;
+use vortex_mask::Mask;
+use vortex_mask::MaskMut;
+use vortex_scalar::PValue;
+use vortex_scalar::Scalar;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
-use crate::compute::{cast, filter, is_sorted, take};
-use crate::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
+use crate::compute::cast;
+use crate::compute::filter;
+use crate::compute::is_sorted;
+use crate::compute::take;
+use crate::search_sorted::SearchResult;
+use crate::search_sorted::SearchSorted;
+use crate::search_sorted::SearchSortedSide;
+use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// One patch index offset is stored for each chunk.
 /// This allows for constant time patch index lookups.
@@ -797,6 +816,43 @@ impl Patches {
         }))
     }
 
+    /// Apply patches to a mutable buffer and validity mask.
+    ///
+    /// This method applies the patch values to the given buffer at the positions specified by the
+    /// patch indices. For non-null patch values, it updates the buffer and marks the position as
+    /// valid. For null patch values, it marks the position as invalid.
+    ///
+    /// # Safety
+    ///
+    /// - All patch indices after offset adjustment must be valid indices into the buffer.
+    /// - The buffer and validity mask must have the same length.
+    pub unsafe fn apply_to_buffer<P: NativePType>(&self, buffer: &mut [P], validity: &mut MaskMut) {
+        let patch_indices = self.indices.to_primitive();
+        let patch_values = self.values.to_primitive();
+        let patches_validity = patch_values.validity();
+
+        let patch_values_slice = patch_values.as_slice::<P>();
+        match_each_unsigned_integer_ptype!(patch_indices.ptype(), |I| {
+            let patch_indices_slice = patch_indices.as_slice::<I>();
+
+            // SAFETY:
+            // - `Patches` invariant guarantees indices are sorted and within array bounds.
+            // - `patch_indices` and `patch_values` have equal length (from `Patches` invariant).
+            // - `buffer` and `validity` have equal length (precondition).
+            // - All patch indices are valid after offset adjustment (precondition).
+            unsafe {
+                apply_patches_to_buffer_inner(
+                    buffer,
+                    validity,
+                    patch_indices_slice,
+                    self.offset,
+                    patch_values_slice,
+                    patches_validity,
+                );
+            }
+        });
+    }
+
     pub fn map_values<F>(self, f: F) -> VortexResult<Self>
     where
         F: FnOnce(ArrayRef) -> VortexResult<ArrayRef>,
@@ -818,6 +874,78 @@ impl Patches {
             chunk_offsets: self.chunk_offsets,
             offset_within_chunk: self.offset_within_chunk,
         })
+    }
+}
+
+/// Helper function to apply patches to a buffer.
+///
+/// # Safety
+///
+/// - All indices in `patch_indices` after subtracting `patch_offset` must be valid indices
+///   into both `buffer` and `validity`.
+/// - `patch_indices` must be sorted in ascending order.
+/// - `patch_indices` and `patch_values` must have the same length.
+/// - `buffer` and `validity` must have the same length.
+unsafe fn apply_patches_to_buffer_inner<P, I>(
+    buffer: &mut [P],
+    validity: &mut MaskMut,
+    patch_indices: &[I],
+    patch_offset: usize,
+    patch_values: &[P],
+    patches_validity: &Validity,
+) where
+    P: NativePType,
+    I: UnsignedPType,
+{
+    debug_assert!(!patch_indices.is_empty());
+    debug_assert_eq!(patch_indices.len(), patch_values.len());
+    debug_assert_eq!(buffer.len(), validity.len());
+
+    match patches_validity {
+        Validity::NonNullable | Validity::AllValid => {
+            // All patch values are valid, apply them all.
+            for (&i, &value) in patch_indices.iter().zip_eq(patch_values) {
+                let index = i.as_() - patch_offset;
+
+                // SAFETY: `index` is valid because caller guarantees all patch indices are within
+                // bounds after offset adjustment.
+                unsafe {
+                    validity.set_unchecked(index);
+                }
+                buffer[index] = value;
+            }
+        }
+        Validity::AllInvalid => {
+            // All patch values are null, just mark positions as invalid.
+            for &i in patch_indices {
+                let index = i.as_() - patch_offset;
+
+                // SAFETY: `index` is valid because caller guarantees all patch indices are within
+                // bounds after offset adjustment.
+                unsafe {
+                    validity.unset_unchecked(index);
+                }
+            }
+        }
+        Validity::Array(array) => {
+            // Some patch values may be null, check each one.
+            let bool_array = array.to_bool();
+            let mask = bool_array.bit_buffer();
+            for (patch_idx, (&i, &value)) in patch_indices.iter().zip_eq(patch_values).enumerate() {
+                let index = i.as_() - patch_offset;
+
+                // SAFETY: `index` and `patch_idx` are valid because caller guarantees all patch
+                // indices are within bounds after offset adjustment.
+                unsafe {
+                    if mask.value_unchecked(patch_idx) {
+                        buffer[index] = value;
+                        validity.set_unchecked(index);
+                    } else {
+                        validity.unset_unchecked(index);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1006,14 +1134,16 @@ fn take_indices_with_search_fn<I: UnsignedPType, T: IntegerPType, F: Fn(I) -> Se
 
 #[cfg(test)]
 mod test {
-    use vortex_buffer::{BufferMut, buffer};
+    use vortex_buffer::BufferMut;
+    use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
+    use crate::IntoArray;
+    use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;
     use crate::patches::Patches;
     use crate::search_sorted::SearchResult;
     use crate::validity::Validity;
-    use crate::{IntoArray, ToCanonical};
 
     #[test]
     fn test_filter() {

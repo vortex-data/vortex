@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::{AllOr, Mask};
+use crate::AllOr;
+use crate::Mask;
 
 impl Mask {
     /// Take the intersection of the `mask` with the set of true values in `self`.

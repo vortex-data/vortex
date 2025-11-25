@@ -4,9 +4,15 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use super::{DictArray, DictVTable};
-use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult, mask, min_max};
-use crate::{Array as _, register_kernel};
+use super::DictArray;
+use super::DictVTable;
+use crate::Array as _;
+use crate::compute::MinMaxKernel;
+use crate::compute::MinMaxKernelAdapter;
+use crate::compute::MinMaxResult;
+use crate::compute::mask;
+use crate::compute::min_max;
+use crate::register_kernel;
 
 impl MinMaxKernel for DictVTable {
     fn min_max(&self, array: &DictArray) -> VortexResult<Option<MinMaxResult>> {
@@ -34,10 +40,11 @@ mod tests {
     use vortex_buffer::buffer;
 
     use super::DictArray;
+    use crate::Array;
+    use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::builders::dict::dict_encode;
     use crate::compute::min_max;
-    use crate::{Array, IntoArray};
 
     fn assert_min_max(array: &dyn Array, expected: Option<(i32, i32)>) {
         match (min_max(array).unwrap(), expected) {

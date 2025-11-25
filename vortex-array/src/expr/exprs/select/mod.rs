@@ -3,19 +3,35 @@
 
 pub mod transform;
 
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::sync::Arc;
 
 use itertools::Itertools;
 use prost::Message;
-use vortex_dtype::{DType, FieldNames};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::DType;
+use vortex_dtype::FieldNames;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_proto::expr::FieldNames as ProtoFieldNames;
+use vortex_proto::expr::SelectOpts;
 use vortex_proto::expr::select_opts::Opts;
-use vortex_proto::expr::{FieldNames as ProtoFieldNames, SelectOpts};
+use vortex_vector::Vector;
+use vortex_vector::struct_::StructVector;
 
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::ToCanonical;
+use crate::expr::ChildName;
+use crate::expr::ExecutionArgs;
+use crate::expr::ExprId;
+use crate::expr::ExpressionView;
+use crate::expr::VTable;
+use crate::expr::VTableExt;
 use crate::expr::expression::Expression;
 use crate::expr::field::DisplayFieldNames;
-use crate::expr::{ChildName, ExprId, ExpressionView, VTable, VTableExt};
-use crate::{ArrayRef, IntoArray, ToCanonical};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FieldSelection {
@@ -144,6 +160,47 @@ impl VTable for Select {
         }?
         .into_array())
     }
+
+    fn execute(&self, selection: &FieldSelection, mut args: ExecutionArgs) -> VortexResult<Vector> {
+        let child = args
+            .vectors
+            .pop()
+            .vortex_expect("Missing input child")
+            .into_struct();
+        let child_fields = args
+            .dtypes
+            .pop()
+            .vortex_expect("Missing input dtype")
+            .into_struct_fields();
+
+        let field_indices: Vec<usize> = match selection {
+            FieldSelection::Include(f) => f
+                .iter()
+                .map(|name| {
+                    child_fields
+                        .find(name)
+                        .ok_or_else(|| vortex_err!("Field {} not found in struct dtype", name))
+                })
+                .try_collect(),
+            FieldSelection::Exclude(names) => child_fields
+                .names()
+                .iter()
+                .filter(|&f| !names.as_ref().contains(f))
+                .map(|name| {
+                    child_fields
+                        .find(name)
+                        .ok_or_else(|| vortex_err!("Field {} not found in struct dtype", name))
+                })
+                .try_collect(),
+        }?;
+
+        let (fields, mask) = child.into_parts();
+        let new_fields = field_indices
+            .iter()
+            .map(|&idx| fields[idx].clone())
+            .collect();
+        Ok(unsafe { StructVector::new_unchecked(Arc::new(new_fields), mask) }.into())
+    }
 }
 
 /// Creates an expression that selects (includes) specific fields from an array.
@@ -261,14 +318,19 @@ impl Display for FieldSelection {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
+    use vortex_dtype::DType;
+    use vortex_dtype::FieldName;
+    use vortex_dtype::FieldNames;
+    use vortex_dtype::Nullability;
 
-    use super::{select, select_exclude};
+    use super::select;
+    use super::select_exclude;
+    use crate::IntoArray;
+    use crate::ToCanonical;
     use crate::arrays::StructArray;
     use crate::expr::exprs::root::root;
     use crate::expr::exprs::select::Select;
     use crate::expr::test_harness;
-    use crate::{IntoArray, ToCanonical};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[

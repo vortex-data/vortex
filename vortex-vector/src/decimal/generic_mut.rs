@@ -4,12 +4,17 @@
 //! Definition and implementation of [`DVectorMut<D>`].
 
 use vortex_buffer::BufferMut;
-use vortex_dtype::{NativeDecimalType, PrecisionScale};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_dtype::NativeDecimalType;
+use vortex_dtype::PrecisionScale;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_mask::MaskMut;
 
+use crate::VectorMutOps;
+use crate::VectorOps;
+use crate::decimal::DScalar;
 use crate::decimal::DVector;
-use crate::{VectorMutOps, VectorOps};
 
 /// A mutable vector of decimal values with fixed precision and scale.
 ///
@@ -241,6 +246,18 @@ impl<D: NativeDecimalType> VectorMutOps for DVectorMut<D> {
     fn append_nulls(&mut self, n: usize) {
         self.elements.extend((0..n).map(|_| D::default()));
         self.validity.append_n(false, n);
+    }
+
+    fn append_zeros(&mut self, n: usize) {
+        self.elements.extend((0..n).map(|_| D::default()));
+        self.validity.append_n(true, n);
+    }
+
+    fn append_scalars(&mut self, scalar: &DScalar<D>, n: usize) {
+        match scalar.value() {
+            None => self.append_nulls(n),
+            Some(value) => self.try_append_n(value, n).vortex_expect("known to fit"),
+        }
     }
 
     fn freeze(self) -> DVector<D> {

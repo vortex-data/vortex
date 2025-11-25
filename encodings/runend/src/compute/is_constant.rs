@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{
-    IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, is_constant_opts,
-};
+use vortex_array::Array;
+use vortex_array::compute::IsConstantKernel;
+use vortex_array::compute::IsConstantKernelAdapter;
+use vortex_array::compute::IsConstantOpts;
+use vortex_array::compute::is_constant_opts;
+use vortex_array::register_kernel;
 use vortex_array::stats::Stat;
-use vortex_array::{Array, register_kernel};
 use vortex_error::VortexResult;
 
 use crate::RunEndVTable;

@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{MaskKernel, MaskKernelAdapter, mask};
-use vortex_array::{ArrayRef, register_kernel};
+use vortex_array::ArrayRef;
+use vortex_array::compute::MaskKernel;
+use vortex_array::compute::MaskKernelAdapter;
+use vortex_array::compute::mask;
+use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::{ALPArray, ALPVTable};
+use crate::ALPArray;
+use crate::ALPVTable;
 
 impl MaskKernel for ALPVTable {
     fn mask(&self, array: &ALPArray, filter_mask: &Mask) -> VortexResult<ArrayRef> {
@@ -36,9 +40,10 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
+    use vortex_array::vtable::ArrayVTableExt;
     use vortex_buffer::buffer;
 
-    use crate::ALPEncoding;
+    use crate::ALPVTable;
 
     #[rstest]
     #[case(buffer![10.5f32, 20.5, 30.5, 40.5, 50.5].into_array())]
@@ -50,7 +55,8 @@ mod test {
         1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0
     ].into_array())]
     fn test_mask_alp_conformance(#[case] array: vortex_array::ArrayRef) {
-        let alp = ALPEncoding
+        let alp = ALPVTable
+            .as_vtable()
             .encode(&array.to_canonical(), None)
             .unwrap()
             .unwrap();

@@ -3,13 +3,19 @@
 
 use std::ops::Range;
 
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
+use vortex_array::search_sorted::SearchResult;
+use vortex_array::search_sorted::SearchSorted;
+use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::vtable::OperationsVTable;
-use vortex_array::{Array, ArrayRef, IntoArray};
-use vortex_scalar::{PValue, Scalar};
+use vortex_scalar::PValue;
+use vortex_scalar::Scalar;
 
-use crate::{RunEndArray, RunEndVTable};
+use crate::RunEndArray;
+use crate::RunEndVTable;
 
 impl OperationsVTable<RunEndVTable> for RunEndVTable {
     fn slice(array: &RunEndArray, range: Range<usize>) -> ArrayRef {
@@ -64,10 +70,14 @@ pub(crate) fn find_slice_end_index(array: &dyn Array, index: usize) -> usize {
 #[cfg(test)]
 mod tests {
 
+    use vortex_array::Array;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::{Array, IntoArray, assert_arrays_eq};
+    use vortex_array::assert_arrays_eq;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
 
     use crate::RunEndArray;
 

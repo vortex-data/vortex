@@ -6,18 +6,26 @@
 
 use std::sync::Arc;
 
-use vortex_dtype::{FieldName, FieldNames};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_dtype::FieldName;
+use vortex_dtype::FieldNames;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 
-use crate::arrays::{ExprArray, StructArray};
-use crate::expr::analysis::annotate_scope_access;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ExprArray;
+use crate::arrays::StructArray;
+use crate::expr::Expression;
+use crate::expr::col;
+use crate::expr::root;
 use crate::expr::session::ExprSession;
-use crate::expr::transform::{
-    ExprOptimizer, PartitionedExpr, partition, replace, replace_root_fields,
-};
-use crate::expr::{Expression, col, root};
+use crate::expr::transform::ExprOptimizer;
+use crate::expr::transform::PartitionedExpr;
+use crate::expr::transform::immediate_access::annotate_scope_access;
+use crate::expr::transform::partition;
+use crate::expr::transform::replace;
+use crate::expr::transform::replace_root_fields;
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray};
 
 /// Result of partitioning an expression over a struct.
 #[derive(Debug)]
@@ -166,7 +174,13 @@ mod tests {
     use super::*;
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
-    use crate::expr::{and, eq, get_item, gt, lit, lt, root};
+    use crate::expr::and;
+    use crate::expr::eq;
+    use crate::expr::get_item;
+    use crate::expr::gt;
+    use crate::expr::lit;
+    use crate::expr::lt;
+    use crate::expr::root;
     use crate::validity::Validity;
 
     fn make_test_struct() -> StructArray {

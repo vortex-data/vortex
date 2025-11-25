@@ -2,12 +2,22 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
-use super::{DictArray, DictVTable};
+use super::DictArray;
+use super::DictVTable;
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::ToCanonical;
 use crate::arrays::ConstantArray;
-use crate::compute::{FillNullKernel, FillNullKernelAdapter, Operator, compare, fill_null};
-use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use crate::compute::FillNullKernel;
+use crate::compute::FillNullKernelAdapter;
+use crate::compute::Operator;
+use crate::compute::compare;
+use crate::compute::fill_null;
+use crate::register_kernel;
 
 impl FillNullKernel for DictVTable {
     fn fill_null(&self, array: &DictArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
@@ -44,8 +54,6 @@ impl FillNullKernel for DictVTable {
         // SAFETY: invariants are still satisfied after patching nulls
         unsafe {
             Ok(DictArray::new_unchecked(codes, values)
-                // Preserve all_values_referenced since filling nulls cannot make values
-                // unreferenced.
                 .set_all_values_referenced(array.has_all_values_referenced())
                 .into_array())
         }
@@ -56,16 +64,19 @@ register_kernel!(FillNullKernelAdapter(DictVTable).lift());
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::{BitBuffer, buffer};
+    use vortex_buffer::BitBuffer;
+    use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_error::VortexUnwrap;
     use vortex_scalar::Scalar;
 
+    use crate::IntoArray;
+    use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::dict::DictArray;
+    use crate::assert_arrays_eq;
     use crate::compute::fill_null;
     use crate::validity::Validity;
-    use crate::{IntoArray, ToCanonical, assert_arrays_eq};
 
     #[test]
     fn nullable_codes_fill_in_values() {

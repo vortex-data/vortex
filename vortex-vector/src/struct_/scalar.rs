@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::Scalar;
+use crate::ScalarOps;
+use crate::VectorMut;
+use crate::VectorOps;
 use crate::struct_::StructVector;
-use crate::{Scalar, ScalarOps, VectorMut, VectorOps};
 
 /// Represents a struct scalar value.
 ///
@@ -19,6 +22,11 @@ impl StructScalar {
     pub fn new(vector: StructVector) -> Self {
         assert_eq!(vector.len(), 1);
         Self(vector)
+    }
+
+    /// Returns the inner length-1 vector representing the struct scalar.
+    pub fn value(&self) -> &StructVector {
+        &self.0
     }
 }
 

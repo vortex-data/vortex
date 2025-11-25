@@ -1,11 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{BetweenKernel, BetweenKernelAdapter, BetweenOptions, between};
-use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::compute::BetweenKernel;
+use vortex_array::compute::BetweenKernelAdapter;
+use vortex_array::compute::BetweenOptions;
+use vortex_array::compute::between;
+use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
-use crate::{BitPackedArray, BitPackedVTable};
+use crate::BitPackedArray;
+use crate::BitPackedVTable;
 
 impl BetweenKernel for BitPackedVTable {
     fn between(

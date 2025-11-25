@@ -6,17 +6,33 @@
 
 use std::backtrace::Backtrace;
 
-use libfuzzer_sys::{Corpus, fuzz_target};
+use libfuzzer_sys::Corpus;
+use libfuzzer_sys::fuzz_target;
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{
-    MinMaxResult, cast, compare, fill_null, filter, mask, min_max, sum, take,
-};
-use vortex_array::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
-use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_array::compute::MinMaxResult;
+use vortex_array::compute::cast;
+use vortex_array::compute::compare;
+use vortex_array::compute::fill_null;
+use vortex_array::compute::filter;
+use vortex_array::compute::mask;
+use vortex_array::compute::min_max;
+use vortex_array::compute::sum;
+use vortex_array::compute::take;
+use vortex_array::search_sorted::SearchResult;
+use vortex_array::search_sorted::SearchSorted;
+use vortex_array::search_sorted::SearchSortedSide;
 use vortex_btrblocks::BtrBlocksCompressor;
-use vortex_error::{VortexUnwrap, vortex_panic};
-use vortex_fuzz::error::{VortexFuzzError, VortexFuzzResult};
-use vortex_fuzz::{Action, CompressorStrategy, FuzzArrayAction, sort_canonical_array};
+use vortex_error::VortexUnwrap;
+use vortex_error::vortex_panic;
+use vortex_fuzz::Action;
+use vortex_fuzz::CompressorStrategy;
+use vortex_fuzz::FuzzArrayAction;
+use vortex_fuzz::error::VortexFuzzError;
+use vortex_fuzz::error::VortexFuzzResult;
+use vortex_fuzz::sort_canonical_array;
 use vortex_layout::layouts::compact::CompactCompressor;
 use vortex_scalar::Scalar;
 

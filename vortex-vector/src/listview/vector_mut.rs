@@ -5,14 +5,23 @@
 
 use std::sync::Arc;
 
-use vortex_dtype::{DType, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_dtype::DType;
+use vortex_dtype::PType;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::MaskMut;
 
+use super::ListViewScalar;
 use super::ListViewVector;
-use crate::primitive::{PrimitiveVector, PrimitiveVectorMut};
+use crate::ScalarOps;
+use crate::VectorMut;
+use crate::VectorOps;
+use crate::match_each_integer_pvector;
+use crate::match_each_integer_pvector_mut;
+use crate::primitive::PrimitiveVector;
+use crate::primitive::PrimitiveVectorMut;
 use crate::vector_ops::VectorMutOps;
-use crate::{VectorMut, VectorOps, match_each_integer_pvector, match_each_integer_pvector_mut};
 
 /// A mutable vector of variable-width lists.
 ///
@@ -355,6 +364,89 @@ impl VectorMutOps for ListViewVectorMut {
         });
 
         self.validity.append_n(false, n);
+        self.len += n;
+        debug_assert_eq!(self.len, self.validity.len());
+    }
+
+    fn append_zeros(&mut self, n: usize) {
+        // To support easier copying to Arrow `List`s, we point the null views towards the ends of
+        // the `elements` vector (with size 0) to hopefully keep offsets sorted if they were already
+        // sorted.
+        let elements_len = self.elements.len();
+
+        debug_assert!(
+            (elements_len as u64) < self.offsets.ptype().max_value_as_u64(),
+            "the elements length {elements_len} is somehow not representable by the offsets type {}",
+            self.offsets.ptype()
+        );
+
+        self.offsets.reserve(n);
+        self.sizes.reserve(n);
+
+        match_each_integer_pvector_mut!(&mut self.offsets, |offsets_vec| {
+            for _ in 0..n {
+                // SAFETY: We just reserved capacity for `n` elements above, and the cast must
+                // succeed because the elements length must be representable by the offset type.
+                #[allow(clippy::cast_possible_truncation)]
+                unsafe {
+                    offsets_vec.push_unchecked(elements_len as _)
+                };
+            }
+        });
+
+        match_each_integer_pvector_mut!(&mut self.sizes, |sizes_vec| {
+            for _ in 0..n {
+                // SAFETY: We just reserved capacity for `n` elements above, and `0` is
+                // representable by all integer types.
+                #[allow(clippy::cast_possible_truncation)]
+                unsafe {
+                    sizes_vec.push_unchecked(0 as _)
+                };
+            }
+        });
+
+        self.validity.append_n(true, n);
+        self.len += n;
+        debug_assert_eq!(self.len, self.validity.len());
+    }
+
+    fn append_scalars(&mut self, scalar: &ListViewScalar, n: usize) {
+        if scalar.is_invalid() {
+            self.append_nulls(n);
+            return;
+        }
+
+        let offset = scalar
+            .value()
+            .offsets()
+            .scalar_at(0)
+            .to_usize()
+            .vortex_expect("offset must be representable as usize");
+        let size = scalar
+            .value()
+            .sizes()
+            .scalar_at(0)
+            .to_usize()
+            .vortex_expect("size must be representable as usize");
+
+        // Slice the elements vector to get the relevant elements for this list view.
+        let elements = scalar.value().elements().slice(offset..offset + size);
+
+        // Push the new elements onto our elements vector.
+        let new_offset = self.elements.len();
+        self.elements.extend_from_vector(&elements);
+
+        match_each_integer_pvector_mut!(&mut self.offsets, |offsets_vec| {
+            #[allow(clippy::cast_possible_truncation)]
+            offsets_vec.append_values(new_offset as _, n)
+        });
+
+        match_each_integer_pvector_mut!(&mut self.sizes, |sizes_vec| {
+            #[allow(clippy::cast_possible_truncation)]
+            sizes_vec.append_values(size as _, n)
+        });
+
+        self.validity.append_n(true, n);
         self.len += n;
         debug_assert_eq!(self.len, self.validity.len());
     }

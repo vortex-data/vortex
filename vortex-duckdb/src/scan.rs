@@ -4,36 +4,65 @@
 use std::cmp::max;
 use std::ffi::CString;
 use std::fmt;
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::task::{Context, Poll};
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
+use std::task::Context;
+use std::task::Poll;
 
 use async_compat::Compat;
-use futures::stream::{BoxStream, SelectAll};
-use futures::{FutureExt, Stream, StreamExt, stream};
+use futures::FutureExt;
+use futures::Stream;
+use futures::StreamExt;
+use futures::stream;
+use futures::stream::BoxStream;
+use futures::stream::SelectAll;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use url::Url;
+use vortex::ArrayRef;
+use vortex::ToCanonical;
 use vortex::dtype::FieldNames;
-use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{Expression, and, and_collect, col, lit, root, select};
-use vortex::file::{OpenOptionsSessionExt, VortexFile, VortexOpenOptions};
+use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
+use vortex::error::vortex_err;
+use vortex::expr::Expression;
+use vortex::expr::and;
+use vortex::expr::and_collect;
+use vortex::expr::col;
+use vortex::expr::lit;
+use vortex::expr::root;
+use vortex::expr::select;
+use vortex::file::OpenOptionsSessionExt;
+use vortex::file::VortexFile;
+use vortex::file::VortexOpenOptions;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::ThreadSafeIterator;
-use vortex::{ArrayRef, ToCanonical};
 
-use crate::convert::{try_from_bound_expression, try_from_table_filter};
+use crate::RUNTIME;
+use crate::SESSION;
+use crate::convert::try_from_bound_expression;
+use crate::convert::try_from_table_filter;
+use crate::duckdb;
+use crate::duckdb::BindInput;
+use crate::duckdb::BindResult;
+use crate::duckdb::Cardinality;
+use crate::duckdb::ClientContext;
+use crate::duckdb::DataChunk;
+use crate::duckdb::ExtractedValue;
+use crate::duckdb::LogicalType;
+use crate::duckdb::TableFunction;
+use crate::duckdb::TableInitInput;
+use crate::duckdb::VirtualColumnsResult;
 use crate::duckdb::footer_cache::FooterCache;
-use crate::duckdb::{
-    BindInput, BindResult, Cardinality, ClientContext, DataChunk, ExtractedValue, LogicalType,
-    TableFunction, TableInitInput, VirtualColumnsResult,
-};
-use crate::exporter::{ArrayExporter, ConversionCache};
+use crate::exporter::ArrayExporter;
+use crate::exporter::ConversionCache;
 use crate::utils::glob::expand_glob;
 use crate::utils::object_store::s3_store;
-use crate::{RUNTIME, SESSION, duckdb};
 
 pub struct VortexBindData {
     first_file: VortexFile,

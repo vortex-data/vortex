@@ -6,9 +6,13 @@ use std::fmt::Display;
 use std::marker::PhantomData;
 use std::num::NonZero;
 
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 
-use crate::{DecimalDType, NativeDecimalType};
+use crate::DecimalDType;
+use crate::NativeDecimalType;
 
 /// A struct representing the precision and scale of a decimal type, to be represented
 /// by the native type `D`.

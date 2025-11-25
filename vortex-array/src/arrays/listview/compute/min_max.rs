@@ -3,8 +3,11 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::{ListViewArray, ListViewVTable};
-use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
+use crate::arrays::ListViewArray;
+use crate::arrays::ListViewVTable;
+use crate::compute::MinMaxKernel;
+use crate::compute::MinMaxKernelAdapter;
+use crate::compute::MinMaxResult;
 use crate::register_kernel;
 
 impl MinMaxKernel for ListViewVTable {

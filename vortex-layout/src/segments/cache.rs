@@ -5,14 +5,19 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::FutureExt;
-use moka::future::{Cache, CacheBuilder};
+use moka::future::Cache;
+use moka::future::CacheBuilder;
 use moka::policy::EvictionPolicy;
 use rustc_hash::FxBuildHasher;
 use vortex_buffer::ByteBuffer;
-use vortex_error::{VortexExpect, VortexResult};
-use vortex_metrics::{Counter, VortexMetrics};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_metrics::Counter;
+use vortex_metrics::VortexMetrics;
 
-use crate::segments::{SegmentFuture, SegmentId, SegmentSource};
+use crate::segments::SegmentFuture;
+use crate::segments::SegmentId;
+use crate::segments::SegmentSource;
 
 /// A cache for storing and retrieving individual segment data.
 #[async_trait]

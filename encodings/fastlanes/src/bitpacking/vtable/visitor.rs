@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::vtable::{ValidityHelper, VisitorVTable};
-use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor};
+use vortex_array::ArrayBufferVisitor;
+use vortex_array::ArrayChildVisitor;
+use vortex_array::vtable::ValidityHelper;
+use vortex_array::vtable::VisitorVTable;
 
-use crate::{BitPackedArray, BitPackedVTable};
+use crate::BitPackedArray;
+use crate::BitPackedVTable;
 
 impl VisitorVTable<BitPackedVTable> for BitPackedVTable {
     fn visit_buffers(array: &BitPackedArray, visitor: &mut dyn ArrayBufferVisitor) {

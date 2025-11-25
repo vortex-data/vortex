@@ -3,8 +3,11 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::{StructArray, StructVTable};
-use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
+use crate::arrays::StructArray;
+use crate::arrays::StructVTable;
+use crate::compute::MinMaxKernel;
+use crate::compute::MinMaxKernelAdapter;
+use crate::compute::MinMaxResult;
 use crate::register_kernel;
 
 impl MinMaxKernel for StructVTable {

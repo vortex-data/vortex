@@ -5,14 +5,21 @@
 
 use std::sync::Arc;
 
-use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_buffer::BufferMut;
+use vortex_buffer::ByteBuffer;
+use vortex_buffer::ByteBufferMut;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::MaskMut;
 
+use crate::VectorMutOps;
+use crate::VectorOps;
+use crate::binaryview::BinaryViewScalar;
 use crate::binaryview::BinaryViewType;
 use crate::binaryview::vector::BinaryViewVector;
-use crate::binaryview::view::{BinaryView, validate_views};
-use crate::{VectorMutOps, VectorOps};
+use crate::binaryview::view::BinaryView;
+use crate::binaryview::view::validate_views;
 
 // Default capacity for new string data buffers of 2MiB.
 const BUFFER_CAPACITY: usize = 2 * 1024 * 1024;
@@ -264,6 +271,20 @@ impl<T: BinaryViewType> VectorMutOps for BinaryViewVectorMut<T> {
         self.validity.append_n(false, n);
     }
 
+    fn append_zeros(&mut self, n: usize) {
+        self.views.push_n(BinaryView::empty_view(), n);
+        self.validity.append_n(true, n);
+    }
+
+    fn append_scalars(&mut self, scalar: &BinaryViewScalar<T>, n: usize) {
+        match scalar.value() {
+            None => self.append_nulls(n),
+            Some(v) => {
+                self.append_owned_values(v.clone(), n);
+            }
+        }
+    }
+
     fn freeze(mut self) -> BinaryViewVector<T> {
         // Freeze all components, close any in-progress views
         self.flush_open_buffer();
@@ -296,12 +317,17 @@ mod tests {
     use std::ops::Deref;
     use std::sync::Arc;
 
-    use vortex_buffer::{ByteBuffer, buffer, buffer_mut};
-    use vortex_mask::{Mask, MaskMut};
+    use vortex_buffer::ByteBuffer;
+    use vortex_buffer::buffer;
+    use vortex_buffer::buffer_mut;
+    use vortex_mask::Mask;
+    use vortex_mask::MaskMut;
 
+    use crate::VectorMutOps;
+    use crate::VectorOps;
+    use crate::binaryview::StringVector;
+    use crate::binaryview::StringVectorMut;
     use crate::binaryview::view::BinaryView;
-    use crate::binaryview::{StringVector, StringVectorMut};
-    use crate::{VectorMutOps, VectorOps};
 
     #[test]
     fn test_basic() {

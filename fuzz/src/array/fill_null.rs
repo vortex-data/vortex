@@ -1,16 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::arrays::{
-    BoolArray, ConstantArray, DecimalArray, PrimitiveArray, VarBinViewArray,
-};
+use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::compute::fill_null;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{ArrayRef, Canonical, IntoArray, ToCanonical};
-use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{DType, Nullability, match_each_decimal_value_type, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_dtype::match_each_decimal_value_type;
+use vortex_dtype::match_each_native_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::VortexUnwrap;
 use vortex_scalar::Scalar;
 
 /// Apply fill_null on the canonical form of the array to get a consistent baseline.
@@ -240,13 +251,22 @@ fn fill_varbinview_array(
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::{BoolArray, DecimalArray, PrimitiveArray, VarBinViewArray};
+    use vortex_array::Array;
+    use vortex_array::IntoArray;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::DecimalArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::compute::cast;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray, assert_arrays_eq};
     use vortex_buffer::BitBuffer;
-    use vortex_dtype::{DType, DecimalDType, Nullability, PType};
-    use vortex_scalar::{DecimalValue, Scalar};
+    use vortex_dtype::DType;
+    use vortex_dtype::DecimalDType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
+    use vortex_scalar::DecimalValue;
+    use vortex_scalar::Scalar;
 
     use super::fill_null_canonical_array;
 

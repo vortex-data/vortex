@@ -9,7 +9,8 @@ use crate::Precision;
 use crate::stats::StatsSetRef;
 use crate::vtable::VTable;
 
-pub trait ArrayVTable<V: VTable> {
+// FIXME(ngates): inline into VTable when possible
+pub trait BaseArrayVTable<V: VTable> {
     fn len(array: &V::Array) -> usize;
 
     fn dtype(array: &V::Array) -> &DType;

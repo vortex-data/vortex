@@ -6,16 +6,23 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_vector::Vector;
 use vortex_vector::struct_::StructVector;
 
+use crate::ArrayOperator;
+use crate::EmptyMetadata;
 use crate::arrays::struct_::StructArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{ArrayOperator, EmptyMetadata, EncodingId, EncodingRef, vtable};
+use crate::vtable;
+use crate::vtable::ArrayVTableExt;
+use crate::vtable::NotSupported;
+use crate::vtable::VTable;
+use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
 mod canonical;
@@ -27,11 +34,14 @@ mod visitor;
 
 pub use operator::StructExprPartitionRule;
 
+use crate::vtable::ArrayId;
+use crate::vtable::ArrayVTable;
+
 vtable!(Struct);
 
 impl VTable for StructVTable {
     type Array = StructArray;
-    type Encoding = StructEncoding;
+
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
@@ -43,12 +53,12 @@ impl VTable for StructVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.struct")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.struct")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(StructEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        StructVTable.as_vtable()
     }
 
     fn metadata(_array: &StructArray) -> VortexResult<Self::Metadata> {
@@ -64,7 +74,7 @@ impl VTable for StructVTable {
     }
 
     fn build(
-        _encoding: &StructEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
@@ -114,4 +124,4 @@ impl VTable for StructVTable {
 }
 
 #[derive(Clone, Debug)]
-pub struct StructEncoding;
+pub struct StructVTable;

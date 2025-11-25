@@ -5,18 +5,24 @@ use std::sync::Arc;
 
 use async_stream::stream;
 use async_trait::async_trait;
-use futures::{StreamExt, TryStreamExt, stream};
+use futures::StreamExt;
+use futures::TryStreamExt;
+use futures::stream;
 use vortex_array::ArrayContext;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 
+use crate::IntoLayout;
+use crate::LayoutRef;
+use crate::LayoutStrategy;
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::segments::SegmentSinkRef;
-use crate::sequence::{
-    SendableSequentialStream, SequencePointer, SequentialStreamAdapter, SequentialStreamExt as _,
-};
-use crate::{IntoLayout, LayoutRef, LayoutStrategy};
+use crate::sequence::SendableSequentialStream;
+use crate::sequence::SequencePointer;
+use crate::sequence::SequentialStreamAdapter;
+use crate::sequence::SequentialStreamExt as _;
 
 #[derive(Clone)]
 pub struct ChunkedLayoutStrategy {

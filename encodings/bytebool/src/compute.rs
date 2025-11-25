@@ -2,16 +2,25 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::AsPrimitive;
-use vortex_array::compute::{
-    CastKernel, CastKernelAdapter, MaskKernel, MaskKernelAdapter, TakeKernel, TakeKernelAdapter,
-};
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
+use vortex_array::compute::CastKernel;
+use vortex_array::compute::CastKernelAdapter;
+use vortex_array::compute::MaskKernel;
+use vortex_array::compute::MaskKernelAdapter;
+use vortex_array::compute::TakeKernel;
+use vortex_array::compute::TakeKernelAdapter;
+use vortex_array::register_kernel;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
-use vortex_dtype::{DType, match_each_integer_ptype};
+use vortex_dtype::DType;
+use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use super::{ByteBoolArray, ByteBoolVTable};
+use super::ByteBoolArray;
+use super::ByteBoolVTable;
 
 impl CastKernel for ByteBoolVTable {
     fn cast(&self, array: &ByteBoolArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -75,10 +84,11 @@ register_kernel!(TakeKernelAdapter(ByteBoolVTable).lift());
 mod tests {
     use rstest::rstest;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::compute::Operator;
+    use vortex_array::compute::compare;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
     use vortex_array::compute::conformance::take::test_take_conformance;
-    use vortex_array::compute::{Operator, compare};
 
     use super::*;
 
@@ -155,7 +165,8 @@ mod tests {
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
 
     #[test]
     fn test_cast_bytebool_to_nullable() {

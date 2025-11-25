@@ -3,7 +3,9 @@
 
 use std::sync::Arc;
 
-use vortex_dtype::{DType, ExtDType, ExtID};
+use vortex_dtype::DType;
+use vortex_dtype::ExtDType;
+use vortex_dtype::ExtID;
 
 use crate::ArrayRef;
 use crate::stats::ArrayStats;

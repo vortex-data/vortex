@@ -7,7 +7,8 @@ use crate::expr::Expression;
 use crate::expr::session::RewriteRuleRegistry;
 use crate::expr::transform::match_between::find_between;
 use crate::expr::transform::rules::RuleContext;
-use crate::expr::traversal::{NodeExt, Transformed};
+use crate::expr::traversal::NodeExt;
+use crate::expr::traversal::Transformed;
 
 /// Simplifies an expression into an equivalent expression which is faster and easier to analyze.
 ///
@@ -92,14 +93,21 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use super::*;
-    use crate::expr::exprs::binary::{Binary, checked_add};
-    use crate::expr::exprs::literal::{Literal, lit};
+    use crate::expr::Expression;
+    use crate::expr::ExpressionView;
+    use crate::expr::col;
+    use crate::expr::exprs::binary::Binary;
+    use crate::expr::exprs::binary::checked_add;
+    use crate::expr::exprs::literal::Literal;
+    use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::operators::Operator;
     use crate::expr::session::ExprSession;
-    use crate::expr::transform::rules::{AnyParent, ParentReduceRule, RuleContext};
-    use crate::expr::{Expression, ExpressionView, col};
+    use crate::expr::transform::rules::AnyParent;
+    use crate::expr::transform::rules::ParentReduceRule;
+    use crate::expr::transform::rules::RuleContext;
 
     /// Test rule: simplifies addition with zero: 0 + x -> x when literal zero is a child of an Add
+    #[derive(Debug)]
     struct AddZeroRule;
 
     impl ParentReduceRule<Literal, Binary, RuleContext> for AddZeroRule {
@@ -128,6 +136,7 @@ mod tests {
     }
 
     /// Test rule: remove identity 0 + x -> x without matching parent directly (equiv to above).
+    #[derive(Debug)]
     struct AddZeroRuleAnyParent;
 
     impl ParentReduceRule<Literal, AnyParent, RuleContext> for AddZeroRuleAnyParent {
@@ -161,7 +170,11 @@ mod tests {
     #[test]
     fn test_add_zero_with_specific_parent_rule() {
         let mut session = ExprSession::default();
-        session.register_parent_rule(&Literal, &Binary, AddZeroRule);
+        session.register_parent_rule::<Literal, Binary, AddZeroRule>(
+            &Literal,
+            &Binary,
+            AddZeroRule,
+        );
 
         let x = col("x");
         let zero = lit(0);
@@ -175,7 +188,10 @@ mod tests {
     #[test]
     fn test_add_zero_with_any_parent_rule() {
         let mut session = ExprSession::default();
-        session.register_any_parent_rule(&Literal, AddZeroRuleAnyParent);
+        session.register_any_parent_rule::<Literal, AddZeroRuleAnyParent>(
+            &Literal,
+            AddZeroRuleAnyParent,
+        );
 
         let x = col("x");
         let zero = lit(0);
@@ -189,8 +205,15 @@ mod tests {
     #[test]
     fn test_add_zero_with_both_rules() {
         let mut session = ExprSession::default();
-        session.register_parent_rule(&Literal, &Binary, AddZeroRule);
-        session.register_any_parent_rule(&Literal, AddZeroRuleAnyParent);
+        session.register_parent_rule::<Literal, Binary, AddZeroRule>(
+            &Literal,
+            &Binary,
+            AddZeroRule,
+        );
+        session.register_any_parent_rule::<Literal, AddZeroRuleAnyParent>(
+            &Literal,
+            AddZeroRuleAnyParent,
+        );
 
         let x = col("x");
         let zero = lit(0);
@@ -204,7 +227,11 @@ mod tests {
     #[test]
     fn test_add_zero_parent_rule_nested() {
         let mut session = ExprSession::default();
-        session.register_parent_rule(&Literal, &Binary, AddZeroRule);
+        session.register_parent_rule::<Literal, Binary, AddZeroRule>(
+            &Literal,
+            &Binary,
+            AddZeroRule,
+        );
 
         // Test: (0 + x) + 0 should simplify to x
         let x = col("x");

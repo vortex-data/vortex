@@ -6,12 +6,14 @@ use std::hash::Hash;
 use vortex_dtype::DType;
 
 use crate::Precision;
-use crate::arrays::varbin::{VarBinArray, VarBinVTable};
-use crate::hash::{ArrayEq, ArrayHash};
+use crate::arrays::varbin::VarBinArray;
+use crate::arrays::varbin::VarBinVTable;
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
 use crate::stats::StatsSetRef;
-use crate::vtable::ArrayVTable;
+use crate::vtable::BaseArrayVTable;
 
-impl ArrayVTable<VarBinVTable> for VarBinVTable {
+impl BaseArrayVTable<VarBinVTable> for VarBinVTable {
     fn len(array: &VarBinArray) -> usize {
         array.offsets().len().saturating_sub(1)
     }

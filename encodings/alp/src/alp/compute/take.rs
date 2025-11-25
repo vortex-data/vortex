@@ -1,11 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{TakeKernel, TakeKernelAdapter, take};
-use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::compute::TakeKernel;
+use vortex_array::compute::TakeKernelAdapter;
+use vortex_array::compute::take;
+use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
-use crate::{ALPArray, ALPVTable};
+use crate::ALPArray;
+use crate::ALPVTable;
 
 impl TakeKernel for ALPVTable {
     fn take(&self, array: &ALPArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -35,9 +41,10 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::take::test_take_conformance;
+    use vortex_array::vtable::ArrayVTableExt;
     use vortex_buffer::buffer;
 
-    use crate::ALPEncoding;
+    use crate::ALPVTable;
 
     #[rstest]
     #[case(buffer![1.23f32, 4.56, 7.89, 10.11, 12.13].into_array())]
@@ -45,7 +52,8 @@ mod test {
     #[case(PrimitiveArray::from_option_iter([Some(1.1f32), None, Some(2.2), Some(3.3), None]).into_array())]
     #[case(buffer![42.42f64].into_array())]
     fn test_take_alp_conformance(#[case] array: vortex_array::ArrayRef) {
-        let alp = ALPEncoding
+        let alp = ALPVTable
+            .as_vtable()
             .encode(&array.to_canonical(), None)
             .unwrap()
             .unwrap();

@@ -3,8 +3,12 @@
 
 use vortex_error::VortexResult;
 
-use super::{DictArray, DictVTable};
-use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, is_constant_opts};
+use super::DictArray;
+use super::DictVTable;
+use crate::compute::IsConstantKernel;
+use crate::compute::IsConstantKernelAdapter;
+use crate::compute::IsConstantOpts;
+use crate::compute::is_constant_opts;
 use crate::register_kernel;
 
 impl IsConstantKernel for DictVTable {

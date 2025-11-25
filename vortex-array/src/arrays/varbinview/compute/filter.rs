@@ -4,9 +4,12 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::ArrayRef;
 use crate::arrays::VarBinViewVTable;
-use crate::compute::{FilterKernel, FilterKernelAdapter, arrow_filter_fn};
-use crate::{ArrayRef, register_kernel};
+use crate::compute::FilterKernel;
+use crate::compute::FilterKernelAdapter;
+use crate::compute::arrow_filter_fn;
+use crate::register_kernel;
 
 impl FilterKernel for VarBinViewVTable {
     fn filter(&self, array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef> {

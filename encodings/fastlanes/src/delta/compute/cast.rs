@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
-use vortex_array::{ArrayRef, IntoArray, register_kernel};
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::compute::CastKernel;
+use vortex_array::compute::CastKernelAdapter;
+use vortex_array::compute::cast;
+use vortex_array::register_kernel;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 
-use crate::delta::{DeltaArray, DeltaVTable};
+use crate::delta::DeltaArray;
+use crate::delta::DeltaVTable;
 
 impl CastKernel for DeltaVTable {
     fn cast(&self, array: &DeltaArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -44,12 +50,15 @@ register_kernel!(CastKernelAdapter(DeltaVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_array::{ToCanonical, assert_arrays_eq};
     use vortex_buffer::Buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
 
     use crate::delta::DeltaArray;
 

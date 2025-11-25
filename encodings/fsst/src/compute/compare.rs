@@ -1,18 +1,30 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::arrays::{BoolArray, ConstantArray};
-use vortex_array::compute::{
-    CompareKernel, CompareKernelAdapter, Operator, compare, compare_lengths_to_empty,
-};
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::compute::CompareKernel;
+use vortex_array::compute::CompareKernelAdapter;
+use vortex_array::compute::Operator;
+use vortex_array::compute::compare;
+use vortex_array::compute::compare_lengths_to_empty;
+use vortex_array::register_kernel;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
-use vortex_buffer::{BitBuffer, ByteBuffer};
-use vortex_dtype::{DType, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_buffer::BitBuffer;
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::DType;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_scalar::Scalar;
 
-use crate::{FSSTArray, FSSTVTable};
+use crate::FSSTArray;
+use crate::FSSTVTable;
 
 impl CompareKernel for FSSTVTable {
     fn compare(
@@ -110,13 +122,18 @@ fn compare_fsst_constant(
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::{ConstantArray, VarBinArray};
-    use vortex_array::compute::{Operator, compare};
-    use vortex_array::{Array, ToCanonical};
-    use vortex_dtype::{DType, Nullability};
+    use vortex_array::Array;
+    use vortex_array::ToCanonical;
+    use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::VarBinArray;
+    use vortex_array::compute::Operator;
+    use vortex_array::compute::compare;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
-    use crate::{fsst_compress, fsst_train_compressor};
+    use crate::fsst_compress;
+    use crate::fsst_train_compressor;
 
     #[test]
     #[cfg_attr(miri, ignore)]

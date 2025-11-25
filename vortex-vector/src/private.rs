@@ -8,21 +8,44 @@
 //! usage, which gives us the freedom to add new trait methods in the future without breaking
 //! backward compatibility.
 
-use vortex_dtype::{NativeDecimalType, NativePType};
+use vortex_dtype::NativeDecimalType;
+use vortex_dtype::NativePType;
 
-use crate::binaryview::{BinaryViewScalar, BinaryViewType, BinaryViewVector, BinaryViewVectorMut};
-use crate::bool::{BoolScalar, BoolVector, BoolVectorMut};
-use crate::decimal::{
-    DScalar, DVector, DVectorMut, DecimalScalar, DecimalVector, DecimalVectorMut,
-};
-use crate::fixed_size_list::{FixedSizeListScalar, FixedSizeListVector, FixedSizeListVectorMut};
-use crate::listview::{ListViewScalar, ListViewVector, ListViewVectorMut};
-use crate::null::{NullScalar, NullVector, NullVectorMut};
-use crate::primitive::{
-    PScalar, PVector, PVectorMut, PrimitiveScalar, PrimitiveVector, PrimitiveVectorMut,
-};
-use crate::struct_::{StructScalar, StructVector, StructVectorMut};
-use crate::{Datum, Scalar, Vector, VectorMut};
+use crate::Datum;
+use crate::Scalar;
+use crate::Vector;
+use crate::VectorMut;
+use crate::binaryview::BinaryViewScalar;
+use crate::binaryview::BinaryViewType;
+use crate::binaryview::BinaryViewVector;
+use crate::binaryview::BinaryViewVectorMut;
+use crate::bool::BoolScalar;
+use crate::bool::BoolVector;
+use crate::bool::BoolVectorMut;
+use crate::decimal::DScalar;
+use crate::decimal::DVector;
+use crate::decimal::DVectorMut;
+use crate::decimal::DecimalScalar;
+use crate::decimal::DecimalVector;
+use crate::decimal::DecimalVectorMut;
+use crate::fixed_size_list::FixedSizeListScalar;
+use crate::fixed_size_list::FixedSizeListVector;
+use crate::fixed_size_list::FixedSizeListVectorMut;
+use crate::listview::ListViewScalar;
+use crate::listview::ListViewVector;
+use crate::listview::ListViewVectorMut;
+use crate::null::NullScalar;
+use crate::null::NullVector;
+use crate::null::NullVectorMut;
+use crate::primitive::PScalar;
+use crate::primitive::PVector;
+use crate::primitive::PVectorMut;
+use crate::primitive::PrimitiveScalar;
+use crate::primitive::PrimitiveVector;
+use crate::primitive::PrimitiveVectorMut;
+use crate::struct_::StructScalar;
+use crate::struct_::StructVector;
+use crate::struct_::StructVectorMut;
 
 /// A private trait for sealing implementations of other traits.
 pub trait Sealed {}

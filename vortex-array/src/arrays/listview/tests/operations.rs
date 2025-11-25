@@ -5,15 +5,26 @@ use std::sync::Arc;
 
 use rstest::rstest;
 use vortex_buffer::buffer;
-use vortex_dtype::{DType, Nullability, PType};
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_dtype::PType;
 use vortex_mask::Mask;
 
-use super::common::{create_basic_listview, create_large_listview, create_nullable_listview};
-use crate::arrays::{BoolArray, ConstantArray, ListViewArray, ListViewVTable};
+use super::common::create_basic_listview;
+use super::common::create_large_listview;
+use super::common::create_nullable_listview;
+use crate::Array;
+use crate::IntoArray;
+use crate::ToCanonical;
+use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::ListViewArray;
+use crate::arrays::ListViewVTable;
+use crate::compute::cast;
 use crate::compute::conformance::mask::test_mask_conformance;
-use crate::compute::{cast, is_constant, mask};
+use crate::compute::is_constant;
+use crate::compute::mask;
 use crate::validity::Validity;
-use crate::{Array, IntoArray, ToCanonical};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Slice tests

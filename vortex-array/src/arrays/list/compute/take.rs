@@ -2,16 +2,28 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BitBufferMut;
-use vortex_dtype::{IntegerPType, Nullability, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_dtype::IntegerPType;
+use vortex_dtype::Nullability;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
-use crate::arrays::{ListArray, ListVTable, PrimitiveArray};
-use crate::builders::{ArrayBuilder, PrimitiveBuilder};
-use crate::compute::{TakeKernel, TakeKernelAdapter, take};
+use crate::Array;
+use crate::ArrayRef;
+use crate::ToCanonical;
+use crate::arrays::ListArray;
+use crate::arrays::ListVTable;
+use crate::arrays::PrimitiveArray;
+use crate::builders::ArrayBuilder;
+use crate::builders::PrimitiveBuilder;
+use crate::compute::TakeKernel;
+use crate::compute::TakeKernelAdapter;
+use crate::compute::take;
+use crate::register_kernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
 // TODO(connor)[ListView]: Re-revert to the version where we simply convert to a `ListView` and call
 // the `ListView::take` compute function once `ListView` is more stable.
@@ -184,16 +196,20 @@ mod test {
 
     use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
+    use crate::Array;
+    use crate::IntoArray as _;
+    use crate::ToCanonical;
+    use crate::arrays::BoolArray;
+    use crate::arrays::PrimitiveArray;
     use crate::arrays::list::ListArray;
-    use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::validity::Validity;
-    use crate::{Array, IntoArray as _, ToCanonical};
 
     #[test]
     fn nullable_take() {

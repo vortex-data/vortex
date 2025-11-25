@@ -3,25 +3,43 @@
 
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
-use humansize::{DECIMAL, make_format};
+use humansize::DECIMAL;
+use humansize::make_format;
 use itertools::Itertools;
 use ratatui::buffer::Buffer;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Style, Stylize};
+use ratatui::layout::Constraint;
+use ratatui::layout::Direction;
+use ratatui::layout::Layout;
+use ratatui::layout::Rect;
+use ratatui::style::Color;
+use ratatui::style::Style;
+use ratatui::style::Stylize;
 use ratatui::text::Text;
-use ratatui::widgets::{
-    Block, BorderType, Borders, Cell, List, Paragraph, Row, StatefulWidget, Table, Widget, Wrap,
-};
+use ratatui::widgets::Block;
+use ratatui::widgets::BorderType;
+use ratatui::widgets::Borders;
+use ratatui::widgets::Cell;
+use ratatui::widgets::List;
+use ratatui::widgets::Paragraph;
+use ratatui::widgets::Row;
+use ratatui::widgets::StatefulWidget;
+use ratatui::widgets::Table;
+use ratatui::widgets::Widget;
+use ratatui::widgets::Wrap;
 use tokio::runtime::Handle;
 use tokio::task::block_in_place;
+use vortex::Array;
+use vortex::ArrayRef;
+use vortex::MaskFuture;
+use vortex::ToCanonical;
 use vortex::error::VortexExpect;
 use vortex::expr::root;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
-use vortex::{Array, ArrayRef, MaskFuture, ToCanonical};
 
 use crate::SESSION;
-use crate::browse::app::{AppState, LayoutCursor};
+use crate::browse::app::AppState;
+use crate::browse::app::LayoutCursor;
 
 /// Render the Layouts tab.
 pub fn render_layouts(app_state: &mut AppState<'_>, area: Rect, buf: &mut Buffer) {
@@ -191,8 +209,10 @@ fn render_array(app: &AppState<'_>, area: Rect, buf: &mut Buffer, is_stats_table
             .constraints(vec![Constraint::Percentage(70), Constraint::Percentage(30)])
             .split(widget_area);
         let table = Table::new(rows, [Constraint::Min(6), Constraint::Min(6)]).header(header);
-        // Tree-display the active array
-        let tree = Paragraph::new(array.display_tree().to_string()).wrap(Wrap { trim: false });
+        // Tree-display the active array with scroll support
+        let tree = Paragraph::new(array.display_tree().to_string())
+            .wrap(Wrap { trim: false })
+            .scroll((app.tree_scroll_offset, 0));
 
         let stats_container = Block::new()
             .title("Statistics")
@@ -282,7 +302,6 @@ fn render_child_list_items(
     container.render(area, buf);
 
     // Render the List view.
-    // TODO: add state so we can scroll
     StatefulWidget::render(
         List::new(list_items).highlight_style(Style::default().black().on_white().bold()),
         inner_area,

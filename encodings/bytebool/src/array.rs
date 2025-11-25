@@ -5,28 +5,45 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::Range;
 
+use vortex_array::ArrayBufferVisitor;
+use vortex_array::ArrayChildVisitor;
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
+use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::EmptyMetadata;
+use vortex_array::IntoArray;
+use vortex_array::Precision;
 use vortex_array::arrays::BoolArray;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::{ArrayStats, StatsSetRef};
+use vortex_array::stats::ArrayStats;
+use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
-    ValidityVTableFromValidityHelper, VisitorVTable,
-};
-use vortex_array::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical, EmptyMetadata,
-    EncodingId, EncodingRef, IntoArray, Precision, vtable,
-};
-use vortex_buffer::{BitBuffer, ByteBuffer};
+use vortex_array::vtable;
+use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayVTable;
+use vortex_array::vtable::ArrayVTableExt;
+use vortex_array::vtable::BaseArrayVTable;
+use vortex_array::vtable::CanonicalVTable;
+use vortex_array::vtable::NotSupported;
+use vortex_array::vtable::OperationsVTable;
+use vortex_array::vtable::VTable;
+use vortex_array::vtable::ValidityHelper;
+use vortex_array::vtable::ValidityVTableFromValidityHelper;
+use vortex_array::vtable::VisitorVTable;
+use vortex_buffer::BitBuffer;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_panic};
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
 
 vtable!(ByteBool);
 
 impl VTable for ByteBoolVTable {
     type Array = ByteBoolArray;
-    type Encoding = ByteBoolEncoding;
+
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
@@ -38,12 +55,12 @@ impl VTable for ByteBoolVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.bytebool")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.bytebool")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ByteBoolEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ByteBoolVTable.as_vtable()
     }
 
     fn metadata(_array: &ByteBoolArray) -> VortexResult<Self::Metadata> {
@@ -59,7 +76,7 @@ impl VTable for ByteBoolVTable {
     }
 
     fn build(
-        _encoding: &ByteBoolEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
@@ -93,7 +110,7 @@ pub struct ByteBoolArray {
 }
 
 #[derive(Clone, Debug)]
-pub struct ByteBoolEncoding;
+pub struct ByteBoolVTable;
 
 impl ByteBoolArray {
     pub fn new(buffer: ByteBuffer, validity: Validity) -> Self {
@@ -139,7 +156,7 @@ impl ValidityHelper for ByteBoolArray {
     }
 }
 
-impl ArrayVTable<ByteBoolVTable> for ByteBoolVTable {
+impl BaseArrayVTable<ByteBoolVTable> for ByteBoolVTable {
     fn len(array: &ByteBoolArray) -> usize {
         array.buffer.len()
     }

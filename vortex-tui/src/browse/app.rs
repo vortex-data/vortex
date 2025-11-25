@@ -8,12 +8,19 @@ use futures::executor::block_on;
 use ratatui::prelude::Size;
 use ratatui::widgets::ListState;
 use vortex::dtype::DType;
-use vortex::error::{VortexExpect, VortexResult, VortexUnwrap};
-use vortex::file::{Footer, OpenOptionsSessionExt, SegmentSpec, VortexFile};
+use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
+use vortex::error::VortexUnwrap;
+use vortex::file::Footer;
+use vortex::file::OpenOptionsSessionExt;
+use vortex::file::SegmentSpec;
+use vortex::file::VortexFile;
+use vortex::layout::LayoutRef;
+use vortex::layout::VTable;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
-use vortex::layout::segments::{SegmentId, SegmentSource};
-use vortex::layout::{LayoutRef, VTable};
+use vortex::layout::segments::SegmentId;
+use vortex::layout::segments::SegmentSource;
 use vortex::serde::ArrayParts;
 
 use crate::SESSION;
@@ -189,6 +196,9 @@ pub struct AppState<'a> {
     pub layouts_list_state: ListState,
     pub segment_grid_state: SegmentGridState<'a>,
     pub frame_size: Size,
+
+    /// Scroll offset for the encoding tree display in FlatLayout view
+    pub tree_scroll_offset: u16,
 }
 
 impl AppState<'_> {
@@ -214,5 +224,6 @@ pub async fn create_file_app<'a>(path: impl AsRef<Path>) -> VortexResult<AppStat
         layouts_list_state: ListState::default().with_selected(Some(0)),
         segment_grid_state: SegmentGridState::default(),
         frame_size: Size::new(0, 0),
+        tree_scroll_offset: 0,
     })
 }

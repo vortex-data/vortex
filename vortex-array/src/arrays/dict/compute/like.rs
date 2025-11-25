@@ -3,10 +3,17 @@
 
 use vortex_error::VortexResult;
 
-use super::{DictArray, DictVTable};
+use super::DictArray;
+use super::DictVTable;
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::ConstantArray;
-use crate::compute::{LikeKernel, LikeKernelAdapter, LikeOptions, like};
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
+use crate::compute::LikeKernel;
+use crate::compute::LikeKernelAdapter;
+use crate::compute::LikeOptions;
+use crate::compute::like;
+use crate::register_kernel;
 
 impl LikeKernel for DictVTable {
     fn like(

@@ -9,4 +9,7 @@ mod tests;
 
 pub use context::ArrayRuleContext;
 pub use optimizer::ArrayOptimizer;
-pub use rules::{AnyParent, ArrayParentMatcher, ArrayParentReduceRule, ArrayReduceRule};
+pub use rules::AnyArrayParent;
+pub use rules::ArrayParentMatcher;
+pub use rules::ArrayParentReduceRule;
+pub use rules::ArrayReduceRule;

@@ -6,12 +6,14 @@ use std::hash::Hash;
 use vortex_dtype::DType;
 
 use crate::Precision;
-use crate::arrays::{FixedSizeListArray, FixedSizeListVTable};
-use crate::hash::{ArrayEq, ArrayHash};
+use crate::arrays::FixedSizeListArray;
+use crate::arrays::FixedSizeListVTable;
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
 use crate::stats::StatsSetRef;
-use crate::vtable::ArrayVTable;
+use crate::vtable::BaseArrayVTable;
 
-impl ArrayVTable<FixedSizeListVTable> for FixedSizeListVTable {
+impl BaseArrayVTable<FixedSizeListVTable> for FixedSizeListVTable {
     fn len(array: &FixedSizeListArray) -> usize {
         array.len
     }

@@ -1,27 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Debug;
-use std::hash::Hash;
+use vortex_buffer::BitBuffer;
+use vortex_dtype::DType;
+use vortex_dtype::PType;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::VortexUnwrap;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_mask::AllOr;
 
-use vortex_buffer::{BitBuffer, ByteBuffer};
-use vortex_dtype::{DType, Nullability, PType, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_err};
-use vortex_mask::{AllOr, Mask};
-
-use crate::builders::dict::dict_encode;
-use crate::serde::ArrayChildren;
-use crate::stats::{ArrayStats, StatsSetRef};
-use crate::vtable::{
-    ArrayVTable, EncodeVTable, NotSupported, VTable, ValidityVTable, VisitorVTable,
-};
-use crate::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
-    DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata, SerializeMetadata,
-    ToCanonical, vtable,
-};
-
-vtable!(Dict);
+use crate::Array;
+use crate::ArrayRef;
+use crate::ToCanonical;
+use crate::stats::ArrayStats;
 
 #[derive(Clone, prost::Message)]
 pub struct DictMetadata {
@@ -29,109 +23,29 @@ pub struct DictMetadata {
     pub(super) values_len: u32,
     #[prost(enumeration = "PType", tag = "2")]
     pub(super) codes_ptype: i32,
-    // nullable codes are optional since they were added after stabilisation
+    // nullable codes are optional since they were added after stabilisation.
     #[prost(optional, bool, tag = "3")]
     pub(super) is_nullable_codes: Option<bool>,
-    // all_values_referenced is optional for backward compatibility
-    // true = all dictionary values are definitely referenced by at least one code
-    // false/None = unknown whether all values are referenced (conservative default)
+    // all_values_referenced is optional for backward compatibility.
+    // true = all dictionary values are definitely referenced by at least one code.
+    // false/None = unknown whether all values are referenced (conservative default).
     #[prost(optional, bool, tag = "4")]
     pub(super) all_values_referenced: Option<bool>,
 }
 
-impl VTable for DictVTable {
-    type Array = DictArray;
-    type Encoding = DictEncoding;
-    type Metadata = ProstMetadata<DictMetadata>;
-
-    type ArrayVTable = Self;
-    type CanonicalVTable = Self;
-    type OperationsVTable = Self;
-    type ValidityVTable = Self;
-    type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
-    type OperatorVTable = NotSupported;
-
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.dict")
-    }
-
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(DictEncoding.as_ref())
-    }
-
-    fn metadata(array: &DictArray) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(DictMetadata {
-            codes_ptype: PType::try_from(array.codes().dtype())? as i32,
-            values_len: u32::try_from(array.values().len()).map_err(|_| {
-                vortex_err!(
-                    "Dictionary values size {} overflowed u32",
-                    array.values().len()
-                )
-            })?,
-            is_nullable_codes: Some(array.codes().dtype().is_nullable()),
-            all_values_referenced: Some(array.all_values_referenced),
-        }))
-    }
-
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
-    }
-
-    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
-        let metadata = <Self::Metadata as DeserializeMetadata>::deserialize(buffer)?;
-        Ok(ProstMetadata(metadata))
-    }
-
-    fn build(
-        _encoding: &DictEncoding,
-        dtype: &DType,
-        len: usize,
-        metadata: &Self::Metadata,
-        _buffers: &[ByteBuffer],
-        children: &dyn ArrayChildren,
-    ) -> VortexResult<DictArray> {
-        if children.len() != 2 {
-            vortex_bail!(
-                "Expected 2 children for dict encoding, found {}",
-                children.len()
-            )
-        }
-        let codes_nullable = metadata
-            .is_nullable_codes
-            .map(Nullability::from)
-            // If no `is_nullable_codes` metadata use the nullability of the values
-            // (and whole array) as before.
-            .unwrap_or_else(|| dtype.nullability());
-        let codes_dtype = DType::Primitive(metadata.codes_ptype(), codes_nullable);
-        let codes = children.get(0, &codes_dtype, len)?;
-        let values = children.get(1, dtype, metadata.values_len as usize)?;
-        let all_values_referenced = metadata.all_values_referenced.unwrap_or(false);
-
-        // SAFETY: We've validated the metadata and children
-        Ok(unsafe {
-            DictArray::new_unchecked(codes, values).set_all_values_referenced(all_values_referenced)
-        })
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct DictArray {
-    codes: ArrayRef,
-    values: ArrayRef,
-    stats_set: ArrayStats,
-    dtype: DType,
+    pub(super) codes: ArrayRef,
+    pub(super) values: ArrayRef,
+    pub(super) stats_set: ArrayStats,
+    pub(super) dtype: DType,
     /// Indicates whether all dictionary values are definitely referenced by at least one code.
     /// `true` = all values are referenced (computed during encoding).
     /// `false` = unknown/might have unreferenced values.
     /// In case this is incorrect never use this to enable memory unsafe behaviour just semantically
     /// incorrect behaviour.
-    all_values_referenced: bool,
+    pub(super) all_values_referenced: bool,
 }
-
-#[derive(Clone, Debug)]
-pub struct DictEncoding;
 
 impl DictArray {
     /// Build a new `DictArray` without validating the codes or values.
@@ -163,14 +77,13 @@ impl DictArray {
     /// This is typically only set to `true` during dictionary encoding when we know for certain
     /// that all values are referenced.
     pub unsafe fn set_all_values_referenced(mut self, all_values_referenced: bool) -> Self {
-        // In debug builds, verify the claim when setting to true
+        self.all_values_referenced = all_values_referenced;
+
         #[cfg(debug_assertions)]
         {
-            use vortex_error::VortexUnwrap;
             self.validate_all_values_referenced().vortex_unwrap()
         }
 
-        self.all_values_referenced = all_values_referenced;
         self
     }
 
@@ -285,123 +198,37 @@ impl DictArray {
     }
 }
 
-impl ArrayVTable<DictVTable> for DictVTable {
-    fn len(array: &DictArray) -> usize {
-        array.codes.len()
-    }
-
-    fn dtype(array: &DictArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &DictArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &DictArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
-        array.codes.array_hash(state, precision);
-        array.values.array_hash(state, precision);
-    }
-
-    fn array_eq(array: &DictArray, other: &DictArray, precision: Precision) -> bool {
-        array.dtype == other.dtype
-            && array.codes.array_eq(&other.codes, precision)
-            && array.values.array_eq(&other.values, precision)
-    }
-}
-
-impl ValidityVTable<DictVTable> for DictVTable {
-    fn is_valid(array: &DictArray, index: usize) -> bool {
-        let scalar = array.codes().scalar_at(index);
-
-        if scalar.is_null() {
-            return false;
-        };
-        let values_index: usize = scalar
-            .as_ref()
-            .try_into()
-            .vortex_expect("Failed to convert dictionary code to usize");
-        array.values().is_valid(values_index)
-    }
-
-    fn all_valid(array: &DictArray) -> bool {
-        array.codes().all_valid() && array.values().all_valid()
-    }
-
-    fn all_invalid(array: &DictArray) -> bool {
-        array.codes().all_invalid() || array.values().all_invalid()
-    }
-
-    fn validity_mask(array: &DictArray) -> Mask {
-        let codes_validity = array.codes().validity_mask();
-        match codes_validity.bit_buffer() {
-            AllOr::All => {
-                let primitive_codes = array.codes().to_primitive();
-                let values_mask = array.values().validity_mask();
-                let is_valid_buffer = match_each_integer_ptype!(primitive_codes.ptype(), |P| {
-                    let codes_slice = primitive_codes.as_slice::<P>();
-                    BitBuffer::collect_bool(array.len(), |idx| {
-                        #[allow(clippy::cast_possible_truncation)]
-                        values_mask.value(codes_slice[idx] as usize)
-                    })
-                });
-                Mask::from_buffer(is_valid_buffer)
-            }
-            AllOr::None => Mask::AllFalse(array.len()),
-            AllOr::Some(validity_buff) => {
-                let primitive_codes = array.codes().to_primitive();
-                let values_mask = array.values().validity_mask();
-                let is_valid_buffer = match_each_integer_ptype!(primitive_codes.ptype(), |P| {
-                    let codes_slice = primitive_codes.as_slice::<P>();
-                    #[allow(clippy::cast_possible_truncation)]
-                    BitBuffer::collect_bool(array.len(), |idx| {
-                        validity_buff.value(idx) && values_mask.value(codes_slice[idx] as usize)
-                    })
-                });
-                Mask::from_buffer(is_valid_buffer)
-            }
-        }
-    }
-}
-
-impl EncodeVTable<DictVTable> for DictVTable {
-    fn encode(
-        _encoding: &DictEncoding,
-        canonical: &Canonical,
-        _like: Option<&DictArray>,
-    ) -> VortexResult<Option<DictArray>> {
-        Ok(Some(dict_encode(canonical.as_ref())?))
-    }
-}
-
-impl VisitorVTable<DictVTable> for DictVTable {
-    fn visit_buffers(_array: &DictArray, _visitor: &mut dyn ArrayBufferVisitor) {}
-
-    fn visit_children(array: &DictArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("codes", array.codes());
-        visitor.visit_child("values", array.values());
-    }
-}
-
 #[cfg(test)]
 mod test {
     #[allow(unused_imports)]
     use itertools::Itertools;
-    use rand::distr::{Distribution, StandardUniform};
+    use rand::Rng;
+    use rand::SeedableRng;
+    use rand::distr::Distribution;
+    use rand::distr::StandardUniform;
     use rand::prelude::StdRng;
-    use rand::{Rng, SeedableRng};
-    use vortex_buffer::{BitBuffer, buffer};
+    use vortex_buffer::BitBuffer;
+    use vortex_buffer::buffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::NativePType;
     use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::{DType, NativePType, PType, UnsignedPType};
-    use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
+    use vortex_dtype::PType;
+    use vortex_dtype::UnsignedPType;
+    use vortex_error::VortexExpect;
+    use vortex_error::VortexUnwrap;
+    use vortex_error::vortex_panic;
     use vortex_mask::AllOr;
 
+    use crate::Array;
+    use crate::ArrayRef;
+    use crate::IntoArray;
+    use crate::ToCanonical;
+    use crate::arrays::ChunkedArray;
+    use crate::arrays::PrimitiveArray;
     use crate::arrays::dict::DictArray;
-    use crate::arrays::{ChunkedArray, PrimitiveArray};
+    use crate::assert_arrays_eq;
     use crate::builders::builder_with_capacity;
     use crate::validity::Validity;
-    use crate::{Array, ArrayRef, IntoArray, ToCanonical, assert_arrays_eq};
 
     #[test]
     fn nullable_codes_validity() {

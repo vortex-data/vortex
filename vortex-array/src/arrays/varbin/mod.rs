@@ -9,7 +9,7 @@ pub(crate) use compute::varbin_compute_min_max;
 // For use in `varbinview`.
 
 mod vtable;
-pub use vtable::{VarBinEncoding, VarBinVTable};
+pub use vtable::VarBinVTable;
 
 pub mod builder;
 
@@ -17,7 +17,8 @@ mod accessor;
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexUnwrap, vortex_err};
+use vortex_error::VortexUnwrap;
+use vortex_error::vortex_err;
 use vortex_scalar::Scalar;
 
 pub fn varbin_scalar(value: ByteBuffer, dtype: &DType) -> Scalar {

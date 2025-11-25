@@ -7,12 +7,14 @@ use vortex_dtype::DType;
 use vortex_scalar::DecimalType;
 
 use crate::Precision;
-use crate::arrays::{DecimalArray, DecimalVTable};
-use crate::hash::{ArrayEq, ArrayHash};
+use crate::arrays::DecimalArray;
+use crate::arrays::DecimalVTable;
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
 use crate::stats::StatsSetRef;
-use crate::vtable::ArrayVTable;
+use crate::vtable::BaseArrayVTable;
 
-impl ArrayVTable<DecimalVTable> for DecimalVTable {
+impl BaseArrayVTable<DecimalVTable> for DecimalVTable {
     fn len(array: &DecimalArray) -> usize {
         let divisor = match array.values_type {
             DecimalType::I8 => 1,

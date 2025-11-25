@@ -8,14 +8,26 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
-use vortex_dtype::{DType, FieldNames, Nullability, StructFields};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_dtype::DType;
+use vortex_dtype::FieldNames;
+use vortex_dtype::Nullability;
+use vortex_dtype::StructFields;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray as _;
+use crate::ToCanonical;
 use crate::arrays::StructArray;
-use crate::expr::{ChildName, ExprId, Expression, ExpressionView, VTable, VTableExt};
+use crate::expr::ChildName;
+use crate::expr::ExprId;
+use crate::expr::Expression;
+use crate::expr::ExpressionView;
+use crate::expr::VTable;
+use crate::expr::VTableExt;
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, IntoArray as _, ToCanonical};
 
 /// Merge zero or more expressions that ALL return structs.
 ///
@@ -192,15 +204,20 @@ pub fn merge_opts(
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_error::{VortexResult, vortex_bail};
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_bail;
 
     use super::merge;
-    use crate::arrays::{PrimitiveArray, StructArray};
+    use crate::Array;
+    use crate::IntoArray;
+    use crate::ToCanonical;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
     use crate::expr::Expression;
     use crate::expr::exprs::get_item::get_item;
-    use crate::expr::exprs::merge::{DuplicateHandling, merge_opts};
+    use crate::expr::exprs::merge::DuplicateHandling;
+    use crate::expr::exprs::merge::merge_opts;
     use crate::expr::exprs::root::root;
-    use crate::{Array, IntoArray, ToCanonical};
 
     fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();

@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::error::{VortexResult, vortex_ensure};
+use vortex::error::VortexResult;
+use vortex::error::vortex_ensure;
 
-use crate::duckdb::{LogicalType, Value, Vector};
+use crate::duckdb::LogicalType;
+use crate::duckdb::Value;
+use crate::duckdb::Vector;
 use crate::exporter::ColumnExporter;
 
 struct AllInvalidExporter {
@@ -35,7 +38,8 @@ mod tests {
     use vortex::arrays::PrimitiveArray;
 
     use super::*;
-    use crate::duckdb::{DataChunk, LogicalType};
+    use crate::duckdb::DataChunk;
+    use crate::duckdb::LogicalType;
 
     #[test]
     fn all_null_array() {

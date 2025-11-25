@@ -3,23 +3,43 @@
 
 use std::sync::Arc;
 
-use arrow_array::types::{
-    ArrowTemporalType, ArrowTimestampType, Date32Type, Date64Type, Time32MillisecondType,
-    Time32SecondType, Time64MicrosecondType, Time64NanosecondType, TimestampMicrosecondType,
-    TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType,
-};
-use arrow_array::{ArrayRef as ArrowArrayRef, PrimitiveArray as ArrowPrimitiveArray};
-use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
-use vortex_dtype::datetime::{TemporalMetadata, TimeUnit, is_temporal_ext_type};
-use vortex_dtype::{DType, NativePType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_array::PrimitiveArray as ArrowPrimitiveArray;
+use arrow_array::types::ArrowTemporalType;
+use arrow_array::types::ArrowTimestampType;
+use arrow_array::types::Date32Type;
+use arrow_array::types::Date64Type;
+use arrow_array::types::Time32MillisecondType;
+use arrow_array::types::Time32SecondType;
+use arrow_array::types::Time64MicrosecondType;
+use arrow_array::types::Time64NanosecondType;
+use arrow_array::types::TimestampMicrosecondType;
+use arrow_array::types::TimestampMillisecondType;
+use arrow_array::types::TimestampNanosecondType;
+use arrow_array::types::TimestampSecondType;
+use arrow_schema::DataType;
+use arrow_schema::TimeUnit as ArrowTimeUnit;
+use vortex_dtype::DType;
+use vortex_dtype::NativePType;
+use vortex_dtype::datetime::TemporalMetadata;
+use vortex_dtype::datetime::TimeUnit;
+use vortex_dtype::datetime::is_temporal_ext_type;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
-use crate::arrays::{ExtensionVTable, TemporalArray};
+use crate::Array as _;
+use crate::IntoArray;
+use crate::ToCanonical;
+use crate::arrays::ExtensionVTable;
+use crate::arrays::TemporalArray;
 use crate::arrow::array::ArrowArray;
 use crate::arrow::compute::to_arrow::ToArrowArgs;
 use crate::arrow::compute::to_arrow::null_buffer::to_null_buffer;
-use crate::compute::{InvocationArgs, Kernel, Output, cast};
-use crate::{Array as _, IntoArray, ToCanonical};
+use crate::compute::InvocationArgs;
+use crate::compute::Kernel;
+use crate::compute::Output;
+use crate::compute::cast;
 
 /// Implementation of `ToArrow` kernel for canonical Vortex arrays.
 #[derive(Debug)]

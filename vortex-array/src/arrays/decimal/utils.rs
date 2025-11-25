@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::{Itertools, MinMaxResult};
+use itertools::Itertools;
+use itertools::MinMaxResult;
 use vortex_error::VortexExpect;
-use vortex_scalar::{DecimalType, i256};
+use vortex_scalar::DecimalType;
+use vortex_scalar::i256;
 
 use crate::arrays::DecimalArray;
 use crate::vtable::ValidityHelper;

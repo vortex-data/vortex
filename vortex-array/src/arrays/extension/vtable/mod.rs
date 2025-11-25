@@ -10,20 +10,28 @@ mod visitor;
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_vector::Vector;
 
+use crate::ArrayOperator;
+use crate::EmptyMetadata;
 use crate::arrays::extension::ExtensionArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
-use crate::vtable::{NotSupported, VTable, ValidityVTableFromChild};
-use crate::{ArrayOperator, EmptyMetadata, EncodingId, EncodingRef, vtable};
+use crate::vtable;
+use crate::vtable::ArrayId;
+use crate::vtable::ArrayVTable;
+use crate::vtable::ArrayVTableExt;
+use crate::vtable::NotSupported;
+use crate::vtable::VTable;
+use crate::vtable::ValidityVTableFromChild;
 
 vtable!(Extension);
 
 impl VTable for ExtensionVTable {
     type Array = ExtensionArray;
-    type Encoding = ExtensionEncoding;
+
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
@@ -35,12 +43,12 @@ impl VTable for ExtensionVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.ext")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.ext")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ExtensionEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ExtensionVTable.as_vtable()
     }
 
     fn metadata(_array: &ExtensionArray) -> VortexResult<Self::Metadata> {
@@ -56,7 +64,7 @@ impl VTable for ExtensionVTable {
     }
 
     fn build(
-        _encoding: &ExtensionEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
@@ -79,4 +87,4 @@ impl VTable for ExtensionVTable {
 }
 
 #[derive(Clone, Debug)]
-pub struct ExtensionEncoding;
+pub struct ExtensionVTable;

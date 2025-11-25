@@ -4,22 +4,47 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use vortex_array::Array;
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
+use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::DeserializeMetadata;
+use vortex_array::IntoArray;
+use vortex_array::Precision;
+use vortex_array::ProstMetadata;
+use vortex_array::SerializeMetadata;
+use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveVTable;
-use vortex_array::search_sorted::{SearchSorted, SearchSortedSide};
+use vortex_array::search_sorted::SearchSorted;
+use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::{ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTable};
-use vortex_array::{
-    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, DeserializeMetadata, EncodingId, EncodingRef,
-    IntoArray, Precision, ProstMetadata, SerializeMetadata, ToCanonical, vtable,
-};
+use vortex_array::stats::ArrayStats;
+use vortex_array::stats::StatsSetRef;
+use vortex_array::vtable;
+use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayVTable;
+use vortex_array::vtable::ArrayVTableExt;
+use vortex_array::vtable::BaseArrayVTable;
+use vortex_array::vtable::CanonicalVTable;
+use vortex_array::vtable::NotSupported;
+use vortex_array::vtable::VTable;
+use vortex_array::vtable::ValidityVTable;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_ensure, vortex_panic};
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_dtype::PType;
+use vortex_error::VortexExpect as _;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 
-use crate::compress::{runend_decode_bools, runend_decode_primitive, runend_encode};
+use crate::compress::runend_decode_bools;
+use crate::compress::runend_decode_primitive;
+use crate::compress::runend_encode;
 
 vtable!(RunEnd);
 
@@ -35,7 +60,7 @@ pub struct RunEndMetadata {
 
 impl VTable for RunEndVTable {
     type Array = RunEndArray;
-    type Encoding = RunEndEncoding;
+
     type Metadata = ProstMetadata<RunEndMetadata>;
 
     type ArrayVTable = Self;
@@ -47,12 +72,12 @@ impl VTable for RunEndVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.runend")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.runend")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(RunEndEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        RunEndVTable.as_vtable()
     }
 
     fn metadata(array: &RunEndArray) -> VortexResult<Self::Metadata> {
@@ -74,7 +99,7 @@ impl VTable for RunEndVTable {
     }
 
     fn build(
-        _encoding: &RunEndEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -106,7 +131,7 @@ pub struct RunEndArray {
 }
 
 #[derive(Clone, Debug)]
-pub struct RunEndEncoding;
+pub struct RunEndVTable;
 
 impl RunEndArray {
     fn validate(
@@ -338,7 +363,7 @@ impl RunEndArray {
     }
 }
 
-impl ArrayVTable<RunEndVTable> for RunEndVTable {
+impl BaseArrayVTable<RunEndVTable> for RunEndVTable {
     fn len(array: &RunEndArray) -> usize {
         array.length
     }
@@ -431,9 +456,12 @@ impl CanonicalVTable<RunEndVTable> for RunEndVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::{IntoArray, assert_arrays_eq};
+    use vortex_array::IntoArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
 
     use crate::RunEndArray;
 

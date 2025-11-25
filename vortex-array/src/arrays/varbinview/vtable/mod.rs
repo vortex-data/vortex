@@ -3,18 +3,29 @@
 
 use std::sync::Arc;
 
-use vortex_buffer::{Buffer, ByteBuffer};
+use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_vector::Vector;
-use vortex_vector::binaryview::{BinaryVector, BinaryView, StringVector};
+use vortex_vector::binaryview::BinaryVector;
+use vortex_vector::binaryview::BinaryView;
+use vortex_vector::binaryview::StringVector;
 
+use crate::EmptyMetadata;
 use crate::arrays::varbinview::VarBinViewArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{EmptyMetadata, EncodingId, EncodingRef, vtable};
+use crate::vtable;
+use crate::vtable::ArrayId;
+use crate::vtable::ArrayVTable;
+use crate::vtable::ArrayVTableExt;
+use crate::vtable::NotSupported;
+use crate::vtable::VTable;
+use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
 mod canonical;
@@ -27,7 +38,7 @@ vtable!(VarBinView);
 
 impl VTable for VarBinViewVTable {
     type Array = VarBinViewArray;
-    type Encoding = VarBinViewEncoding;
+
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
@@ -39,12 +50,12 @@ impl VTable for VarBinViewVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.varbinview")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.varbinview")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(VarBinViewEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        VarBinViewVTable.as_vtable()
     }
 
     fn metadata(_array: &VarBinViewArray) -> VortexResult<Self::Metadata> {
@@ -60,7 +71,7 @@ impl VTable for VarBinViewVTable {
     }
 
     fn build(
-        _encoding: &VarBinViewEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
@@ -115,4 +126,4 @@ impl VTable for VarBinViewVTable {
 }
 
 #[derive(Clone, Debug)]
-pub struct VarBinViewEncoding;
+pub struct VarBinViewVTable;

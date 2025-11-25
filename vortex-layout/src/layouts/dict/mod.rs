@@ -7,16 +7,28 @@ pub mod writer;
 use std::sync::Arc;
 
 use reader::DictReader;
-use vortex_array::{ArrayContext, DeserializeMetadata, ProstMetadata};
-use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_array::ArrayContext;
+use vortex_array::DeserializeMetadata;
+use vortex_array::ProstMetadata;
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_dtype::PType;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::LayoutChildType;
+use crate::LayoutEncodingRef;
+use crate::LayoutId;
+use crate::LayoutReaderRef;
+use crate::LayoutRef;
+use crate::VTable;
 use crate::children::LayoutChildren;
-use crate::segments::{SegmentId, SegmentSource};
-use crate::{
-    LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
-};
+use crate::segments::SegmentId;
+use crate::segments::SegmentSource;
+use crate::vtable;
 
 vtable!(Dict);
 
@@ -115,12 +127,10 @@ impl VTable for DictVTable {
             // see [`SerdeVTable<DictVTable>::build`].
             .unwrap_or_else(|| dtype.nullability());
         let codes = children.child(1, &DType::Primitive(metadata.codes_ptype(), codes_nullable))?;
-        let all_values_referenced = metadata.all_values_referenced.unwrap_or(false);
-        Ok(DictLayout::new_with_metadata(
-            values,
-            codes,
-            all_values_referenced,
-        ))
+        Ok(unsafe {
+            DictLayout::new(values, codes)
+                .set_all_values_referenced(metadata.all_values_referenced.unwrap_or(false))
+        })
     }
 }
 
@@ -138,16 +148,27 @@ pub struct DictLayout {
 }
 
 impl DictLayout {
-    pub(crate) fn new_with_metadata(
-        values: LayoutRef,
-        codes: LayoutRef,
-        all_values_referenced: bool,
-    ) -> Self {
+    pub(crate) fn new(values: LayoutRef, codes: LayoutRef) -> Self {
         Self {
             values,
             codes,
-            all_values_referenced,
+            all_values_referenced: false,
         }
+    }
+
+    /// Set whether all dictionary values are definitely referenced.
+    ///
+    /// # Safety
+    /// The caller must ensure that when setting `all_values_referenced = true`, ALL dictionary
+    /// values are actually referenced by at least one valid code. Setting this incorrectly can
+    /// lead to incorrect query results in operations like min/max.
+    ///
+    /// This is typically only set to `true` during dictionary encoding when we know for certain
+    /// that all values are referenced.
+    /// See `DictArray::set_all_values_referenced`.
+    pub unsafe fn set_all_values_referenced(mut self, all_values_referenced: bool) -> Self {
+        self.all_values_referenced = all_values_referenced;
+        self
     }
 
     pub fn has_all_values_referenced(&self) -> bool {

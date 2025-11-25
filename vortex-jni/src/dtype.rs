@@ -4,13 +4,35 @@
 use std::sync::Arc;
 
 use jni::JNIEnv;
-use jni::objects::{JClass, JLongArray, JObject, JObjectArray, JString, JValue};
-use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jbyte, jint, jlong, jobject, jstring};
-use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-use vortex::dtype::{DType, DecimalDType, ExtDType, Nullability, PType, StructFields};
+use jni::objects::JClass;
+use jni::objects::JLongArray;
+use jni::objects::JObject;
+use jni::objects::JObjectArray;
+use jni::objects::JString;
+use jni::objects::JValue;
+use jni::sys::JNI_FALSE;
+use jni::sys::JNI_TRUE;
+use jni::sys::jboolean;
+use jni::sys::jbyte;
+use jni::sys::jint;
+use jni::sys::jlong;
+use jni::sys::jobject;
+use jni::sys::jstring;
+use vortex::dtype::DType;
+use vortex::dtype::DecimalDType;
+use vortex::dtype::ExtDType;
+use vortex::dtype::Nullability;
+use vortex::dtype::PType;
+use vortex::dtype::StructFields;
+use vortex::dtype::datetime::DATE_ID;
+use vortex::dtype::datetime::TIME_ID;
+use vortex::dtype::datetime::TIMESTAMP_ID;
+use vortex::dtype::datetime::TemporalMetadata;
+use vortex::dtype::datetime::TimeUnit;
 use vortex::error::vortex_err;
 
-use crate::errors::{JNIError, try_or_throw};
+use crate::errors::JNIError;
+use crate::errors::try_or_throw;
 
 pub const DTYPE_NULL: jbyte = 0;
 pub const DTYPE_BOOL: jbyte = 1;
@@ -128,7 +150,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getFieldTypes(
     let dtype = unsafe { &*(dtype_ptr as *const DType) };
 
     try_or_throw(&mut env, |env| {
-        let array_list = env.new_object("java/util/ArrayList", "()V", &[])?;
+        let array_list = env
+            .new_object("java/util/ArrayList", "()V", &[])
+            .map_err(|e| JNIError::Vortex(vortex_err!("failure constructing ArrayList: {e}")))?;
         let field_types = env.get_list(&array_list)?;
         let Some(struct_dtype) = dtype.as_struct_fields_opt() else {
             throw_runtime!("DType should be STRUCT, was {dtype}");

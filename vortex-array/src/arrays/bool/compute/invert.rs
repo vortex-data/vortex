@@ -5,10 +5,14 @@ use std::ops::Not;
 
 use vortex_error::VortexResult;
 
-use crate::arrays::{BoolArray, BoolVTable};
-use crate::compute::{InvertKernel, InvertKernelAdapter};
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::BoolArray;
+use crate::arrays::BoolVTable;
+use crate::compute::InvertKernel;
+use crate::compute::InvertKernelAdapter;
+use crate::register_kernel;
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl InvertKernel for BoolVTable {
     fn invert(&self, array: &BoolArray) -> VortexResult<ArrayRef> {

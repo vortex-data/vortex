@@ -3,7 +3,9 @@
 
 use jni::JNIEnv;
 use jni::objects::JObject;
-use jni::sys::{JNI_FALSE, jboolean, jobject};
+use jni::sys::JNI_FALSE;
+use jni::sys::jboolean;
+use jni::sys::jobject;
 use vortex::error::VortexError;
 
 #[derive(Debug, thiserror::Error)]
@@ -76,7 +78,7 @@ impl JNIDefault for jobject {
     }
 }
 
-/// Run the provided function inside of the JNIEnv context. Throws an exception if the function returns an error.
+/// Run the provided function inside the JNIEnv context. Throws an exception if the function returns an error.
 #[allow(clippy::expect_used)]
 #[inline]
 pub fn try_or_throw<'a, F, T>(env: &mut JNIEnv<'a>, function: F) -> T
@@ -87,12 +89,21 @@ where
     match function(env) {
         Ok(result) => result,
         Err(error) => {
+            // Propagate the exception instead of throwing our own.
+            if env
+                .exception_check()
+                .expect("checking exception should succeed")
+            {
+                return T::jni_default();
+            }
+
             let msg = error.to_string();
-            env.throw((RUNTIME_EXC_CLASS, msg))
-                .expect("throwing exception back to Java failed, everything is bad");
+            match env.throw(msg) {
+                Ok(()) => {}
+                Err(err) => log::warn!("Failed throwing exception back up to Java: {err}"),
+            }
+
             T::jni_default()
         }
     }
 }
-
-pub static RUNTIME_EXC_CLASS: &str = "java/lang/RuntimeException";

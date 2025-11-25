@@ -2,15 +2,28 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BitBufferMut;
-use vortex_dtype::{IntegerPType, Nullability, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_dtype::IntegerPType;
+use vortex_dtype::Nullability;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 
-use crate::arrays::{FixedSizeListArray, FixedSizeListVTable, PrimitiveArray};
-use crate::builders::{ArrayBuilder, PrimitiveBuilder};
-use crate::compute::{self, TakeKernel, TakeKernelAdapter};
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::ToCanonical;
+use crate::arrays::FixedSizeListArray;
+use crate::arrays::FixedSizeListVTable;
+use crate::arrays::PrimitiveArray;
+use crate::builders::ArrayBuilder;
+use crate::builders::PrimitiveBuilder;
+use crate::compute::TakeKernel;
+use crate::compute::TakeKernelAdapter;
+use crate::compute::{self};
+use crate::register_kernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 /// Take implementation for [`FixedSizeListArray`].
 ///

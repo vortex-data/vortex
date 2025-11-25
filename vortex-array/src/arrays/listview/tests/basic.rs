@@ -5,14 +5,20 @@ use std::sync::Arc;
 
 use rstest::rstest;
 use vortex_buffer::buffer;
-use vortex_dtype::{DType, Nullability, PType};
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_dtype::PType;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{
-    BoolArray, ConstantArray, ListArray, ListViewArray, PrimitiveArray, list_view_from_list,
-};
+use crate::Array;
+use crate::IntoArray;
+use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::ListArray;
+use crate::arrays::ListViewArray;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::list_view_from_list;
 use crate::validity::Validity;
-use crate::{Array, IntoArray};
 
 #[test]
 fn test_basic_listview_comprehensive() {

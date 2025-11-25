@@ -7,13 +7,25 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::hash::Hash;
 
-use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub};
-use vortex_dtype::{
-    DType, DecimalDType, NativeDecimalType, Nullability, ToI256, i256, match_each_decimal_value,
-};
-use vortex_error::{VortexError, VortexExpect, vortex_err};
+use num_traits::CheckedAdd;
+use num_traits::CheckedDiv;
+use num_traits::CheckedMul;
+use num_traits::CheckedSub;
+use vortex_dtype::DType;
+use vortex_dtype::DecimalDType;
+use vortex_dtype::NativeDecimalType;
+use vortex_dtype::Nullability;
+use vortex_dtype::ToI256;
+use vortex_dtype::i256;
+use vortex_dtype::match_each_decimal_value;
+use vortex_error::VortexError;
+use vortex_error::VortexExpect;
+use vortex_error::vortex_err;
 
-use crate::{DecimalScalar, InnerScalarValue, Scalar, ScalarValue};
+use crate::DecimalScalar;
+use crate::InnerScalarValue;
+use crate::Scalar;
+use crate::ScalarValue;
 
 impl Scalar {
     /// Creates a new decimal scalar with the given value, precision, scale, and nullability.
@@ -169,7 +181,8 @@ impl Hash for DecimalValue {
     }
 }
 
-use super::macros::{decimal_scalar_pack, decimal_scalar_unpack};
+use super::macros::decimal_scalar_pack;
+use super::macros::decimal_scalar_unpack;
 
 decimal_scalar_unpack!(i8, I8);
 decimal_scalar_unpack!(i16, I16);

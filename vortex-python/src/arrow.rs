@@ -5,22 +5,39 @@
 // SPDX-FileNotice: https://github.com/apache/arrow-rs/blob/549709fbdf91cd1f6c263a7e4540c542b6fecf6b/NOTICE.txt
 #![allow(clippy::same_name_method)]
 
-use std::convert::{From, TryFrom};
+use std::convert::From;
+use std::convert::TryFrom;
+use std::ffi::CStr;
 use std::ptr::addr_of;
 use std::sync::Arc;
 
-use arrow_array::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
-use arrow_array::ffi_stream::{ArrowArrayStreamReader, FFI_ArrowArrayStream};
-use arrow_array::{
-    RecordBatch, RecordBatchIterator, RecordBatchOptions, RecordBatchReader, StructArray, ffi,
-};
+use arrow_array::RecordBatch;
+use arrow_array::RecordBatchIterator;
+use arrow_array::RecordBatchOptions;
+use arrow_array::RecordBatchReader;
+use arrow_array::StructArray;
+use arrow_array::ffi;
+use arrow_array::ffi::FFI_ArrowArray;
+use arrow_array::ffi::FFI_ArrowSchema;
+use arrow_array::ffi_stream::ArrowArrayStreamReader;
+use arrow_array::ffi_stream::FFI_ArrowArrayStream;
 use arrow_data::ArrayData;
-use arrow_schema::{ArrowError, DataType, Field, Schema};
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use arrow_schema::ArrowError;
+use arrow_schema::DataType;
+use arrow_schema::Field;
+use arrow_schema::Schema;
+use pyo3::exceptions::PyTypeError;
+use pyo3::exceptions::PyValueError;
 use pyo3::ffi::Py_uintptr_t;
+use pyo3::ffi::c_str;
 use pyo3::import_exception;
 use pyo3::prelude::*;
-use pyo3::types::{PyCapsule, PyTuple};
+use pyo3::types::PyCapsule;
+use pyo3::types::PyTuple;
+
+const SCHEMA_NAME: &CStr = c_str!("arrow_schema");
+const ARRAY_NAME: &CStr = c_str!("arrow_array");
+const ARRAY_STREAM_NAME: &CStr = c_str!("arrow_array_stream");
 
 import_exception!(pyarrow, ArrowException);
 /// Represents an exception raised by PyArrow.
@@ -31,11 +48,11 @@ fn to_py_err(err: ArrowError) -> PyErr {
 }
 
 /// Trait for converting Python objects to arrow-rs types.
-pub trait FromPyArrow: Sized {
+pub trait FromPyArrow<'a, 'py>: Sized {
     /// Convert a Python object to an arrow-rs type.
     ///
     /// Takes a GIL-bound value from Python and returns a result with the arrow-rs type.
-    fn from_pyarrow_bound(value: &Bound<PyAny>) -> PyResult<Self>;
+    fn from_pyarrow(value: &Borrowed<'a, 'py, PyAny>) -> PyResult<Self>;
 }
 
 /// Create a new PyArrow object from a arrow-rs type.
@@ -50,25 +67,8 @@ pub trait IntoPyArrow {
     fn into_pyarrow(self, py: Python) -> PyResult<Py<PyAny>>;
 }
 
-fn validate_pycapsule(capsule: &Bound<PyCapsule>, name: &str) -> PyResult<()> {
-    let Some(capsule_name) = capsule.name()?.map(|s| s.to_str()).transpose()? else {
-        return Err(PyValueError::new_err(
-            "Expected schema PyCapsule to have name set.",
-        ));
-    };
-
-    if capsule_name != name {
-        return Err(PyValueError::new_err(format!(
-            "Expected name '{}' in PyCapsule, instead got '{}'",
-            name, capsule_name
-        )));
-    }
-
-    Ok(())
-}
-
-impl FromPyArrow for DataType {
-    fn from_pyarrow_bound(value: &Bound<PyAny>) -> PyResult<Self> {
+impl<'py> FromPyArrow<'_, 'py> for DataType {
+    fn from_pyarrow(value: &Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         if !value.hasattr("__arrow_c_schema__")? {
             return Err(PyValueError::new_err(
                 "Expected __arrow_c_schema__ attribute to be set.",
@@ -76,12 +76,16 @@ impl FromPyArrow for DataType {
         }
 
         let capsule = value.getattr("__arrow_c_schema__")?.call0()?;
-        let capsule = capsule.downcast::<PyCapsule>()?;
-        validate_pycapsule(capsule, "arrow_schema")?;
+        let capsule = capsule.cast::<PyCapsule>()?;
 
-        let schema_ptr = unsafe { capsule.reference::<FFI_ArrowSchema>() };
-        let dtype = DataType::try_from(schema_ptr).map_err(to_py_err)?;
-        Ok(dtype)
+        let schema_ptr = unsafe {
+            capsule
+                .pointer_checked(Some(SCHEMA_NAME))?
+                .cast::<FFI_ArrowSchema>()
+                .as_ref()
+        };
+
+        DataType::try_from(schema_ptr).map_err(to_py_err)
     }
 }
 
@@ -95,8 +99,8 @@ impl ToPyArrow for DataType {
     }
 }
 
-impl FromPyArrow for Field {
-    fn from_pyarrow_bound(value: &Bound<PyAny>) -> PyResult<Self> {
+impl<'py> FromPyArrow<'_, 'py> for Field {
+    fn from_pyarrow(value: &Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         if !value.hasattr("__arrow_c_schema__")? {
             return Err(PyValueError::new_err(
                 "Expected __arrow_c_schema__ attribute to be set.",
@@ -104,10 +108,14 @@ impl FromPyArrow for Field {
         }
 
         let capsule = value.getattr("__arrow_c_schema__")?.call0()?;
-        let capsule = capsule.downcast::<PyCapsule>()?;
-        validate_pycapsule(capsule, "arrow_schema")?;
+        let capsule = capsule.cast::<PyCapsule>()?;
 
-        let schema_ptr = unsafe { capsule.reference::<FFI_ArrowSchema>() };
+        let schema_ptr = unsafe {
+            capsule
+                .pointer_checked(Some(SCHEMA_NAME))?
+                .cast::<FFI_ArrowSchema>()
+                .as_ref()
+        };
         let field = Field::try_from(schema_ptr).map_err(to_py_err)?;
         Ok(field)
     }
@@ -123,8 +131,8 @@ impl ToPyArrow for Field {
     }
 }
 
-impl FromPyArrow for Schema {
-    fn from_pyarrow_bound(value: &Bound<PyAny>) -> PyResult<Self> {
+impl<'py> FromPyArrow<'_, 'py> for Schema {
+    fn from_pyarrow(value: &Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         if !value.hasattr("__arrow_c_schema__")? {
             return Err(PyValueError::new_err(
                 "Expected __arrow_c_schema__ attribute to be set.",
@@ -132,10 +140,15 @@ impl FromPyArrow for Schema {
         }
 
         let capsule = value.getattr("__arrow_c_schema__")?.call0()?;
-        let capsule = capsule.downcast::<PyCapsule>()?;
-        validate_pycapsule(capsule, "arrow_schema")?;
+        let capsule = capsule.cast::<PyCapsule>()?;
 
-        let schema_ptr = unsafe { capsule.reference::<FFI_ArrowSchema>() };
+        let schema_ptr = unsafe {
+            capsule
+                .pointer_checked(Some(SCHEMA_NAME))?
+                .cast::<FFI_ArrowSchema>()
+                .as_ref()
+        };
+
         let schema = Schema::try_from(schema_ptr).map_err(to_py_err)?;
         Ok(schema)
     }
@@ -152,8 +165,8 @@ impl ToPyArrow for Schema {
     }
 }
 
-impl FromPyArrow for ArrayData {
-    fn from_pyarrow_bound(value: &Bound<PyAny>) -> PyResult<Self> {
+impl<'py> FromPyArrow<'_, 'py> for ArrayData {
+    fn from_pyarrow(value: &Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         if !value.hasattr("__arrow_c_array__")? {
             return Err(PyValueError::new_err(
                 "Expected __arrow_c_array__ attribute to be set.",
@@ -169,15 +182,22 @@ impl FromPyArrow for ArrayData {
         }
 
         let schema_capsule = tuple.get_item(0)?;
-        let schema_capsule = schema_capsule.downcast::<PyCapsule>()?;
+        let schema_capsule = schema_capsule.cast::<PyCapsule>()?;
         let array_capsule = tuple.get_item(1)?;
-        let array_capsule = array_capsule.downcast::<PyCapsule>()?;
+        let array_capsule = array_capsule.cast::<PyCapsule>()?;
 
-        validate_pycapsule(schema_capsule, "arrow_schema")?;
-        validate_pycapsule(array_capsule, "arrow_array")?;
+        let schema_ptr = unsafe {
+            schema_capsule
+                .pointer_checked(Some(SCHEMA_NAME))?
+                .cast::<FFI_ArrowSchema>()
+                .as_ref()
+        };
+        let array_ptr = array_capsule
+            .pointer_checked(Some(ARRAY_NAME))?
+            .cast::<FFI_ArrowArray>()
+            .as_ptr();
 
-        let schema_ptr = unsafe { schema_capsule.reference::<FFI_ArrowSchema>() };
-        let array = unsafe { FFI_ArrowArray::from_raw(array_capsule.pointer() as _) };
+        let array = unsafe { FFI_ArrowArray::from_raw(array_ptr) };
         unsafe { ffi::from_ffi(array, schema_ptr) }.map_err(to_py_err)
     }
 }
@@ -200,8 +220,8 @@ impl ToPyArrow for ArrayData {
     }
 }
 
-impl FromPyArrow for RecordBatch {
-    fn from_pyarrow_bound(value: &Bound<PyAny>) -> PyResult<Self> {
+impl<'py> FromPyArrow<'_, 'py> for RecordBatch {
+    fn from_pyarrow(value: &Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         if !value.hasattr("__arrow_c_array__")? {
             return Err(PyValueError::new_err(
                 "Expected __arrow_c_array__ attribute to be set.",
@@ -217,15 +237,22 @@ impl FromPyArrow for RecordBatch {
         }
 
         let schema_capsule = tuple.get_item(0)?;
-        let schema_capsule = schema_capsule.downcast::<PyCapsule>()?;
+        let schema_capsule = schema_capsule.cast::<PyCapsule>()?;
         let array_capsule = tuple.get_item(1)?;
-        let array_capsule = array_capsule.downcast::<PyCapsule>()?;
+        let array_capsule = array_capsule.cast::<PyCapsule>()?;
 
-        validate_pycapsule(schema_capsule, "arrow_schema")?;
-        validate_pycapsule(array_capsule, "arrow_array")?;
+        let schema_ptr = unsafe {
+            schema_capsule
+                .pointer_checked(Some(SCHEMA_NAME))?
+                .cast::<FFI_ArrowSchema>()
+                .as_ref()
+        };
+        let array_ptr = array_capsule
+            .pointer_checked(Some(ARRAY_NAME))?
+            .cast::<FFI_ArrowArray>()
+            .as_ptr();
 
-        let schema_ptr = unsafe { schema_capsule.reference::<FFI_ArrowSchema>() };
-        let ffi_array = unsafe { FFI_ArrowArray::from_raw(array_capsule.pointer().cast()) };
+        let ffi_array = unsafe { FFI_ArrowArray::from_raw(array_ptr) };
         let mut array_data = unsafe { ffi::from_ffi(ffi_array, schema_ptr) }.map_err(to_py_err)?;
         if !matches!(array_data.data_type(), DataType::Struct(_)) {
             return Err(PyTypeError::new_err(
@@ -264,8 +291,8 @@ impl ToPyArrow for RecordBatch {
 }
 
 /// Supports conversion from `pyarrow.RecordBatchReader` to [ArrowArrayStreamReader].
-impl FromPyArrow for ArrowArrayStreamReader {
-    fn from_pyarrow_bound(value: &Bound<PyAny>) -> PyResult<Self> {
+impl<'py> FromPyArrow<'_, 'py> for ArrowArrayStreamReader {
+    fn from_pyarrow(value: &Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         if !value.hasattr("__arrow_c_stream__")? {
             return Err(PyValueError::new_err(
                 "Expected __arrow_c_stream__ attribute to be set.",
@@ -273,10 +300,14 @@ impl FromPyArrow for ArrowArrayStreamReader {
         }
 
         let capsule = value.getattr("__arrow_c_stream__")?.call0()?;
-        let capsule = capsule.downcast::<PyCapsule>()?;
-        validate_pycapsule(capsule, "arrow_array_stream")?;
+        let capsule = capsule.cast::<PyCapsule>()?;
 
-        let stream = unsafe { FFI_ArrowArrayStream::from_raw(capsule.pointer() as _) };
+        let array_ptr = capsule
+            .pointer_checked(Some(ARRAY_STREAM_NAME))?
+            .cast::<FFI_ArrowArrayStream>()
+            .as_ptr();
+
+        let stream = unsafe { FFI_ArrowArrayStream::from_raw(array_ptr) };
 
         let stream_reader = ArrowArrayStreamReader::try_new(stream)
             .map_err(|err| PyValueError::new_err(err.to_string()))?;

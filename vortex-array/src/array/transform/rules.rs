@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Debug;
+
 use vortex_error::VortexResult;
 
 use crate::array::ArrayRef;
@@ -16,9 +18,10 @@ pub trait ArrayParentMatcher: Send + Sync + 'static {
 }
 
 /// Matches any parent type (wildcard matcher)
-pub struct AnyParent;
+#[derive(Debug)]
+pub struct AnyArrayParent;
 
-impl ArrayParentMatcher for AnyParent {
+impl ArrayParentMatcher for AnyArrayParent {
     type View<'a> = &'a ArrayRef;
 
     fn try_match(parent: &ArrayRef) -> Option<Self::View<'_>> {
@@ -36,7 +39,7 @@ impl<V: VTable> ArrayParentMatcher for V {
 }
 
 /// A rewrite rule that transforms arrays based on the array itself and its children
-pub trait ArrayReduceRule<V: VTable>: Send + Sync {
+pub trait ArrayReduceRule<V: VTable>: Debug + Send + Sync + 'static {
     /// Attempt to rewrite this array.
     ///
     /// Returns:
@@ -47,7 +50,9 @@ pub trait ArrayReduceRule<V: VTable>: Send + Sync {
 }
 
 /// A rewrite rule that transforms arrays based on parent context
-pub trait ArrayParentReduceRule<Child: VTable, Parent: ArrayParentMatcher>: Send + Sync {
+pub trait ArrayParentReduceRule<Child: VTable, Parent: ArrayParentMatcher>:
+    Debug + Send + Sync + 'static
+{
     /// Attempt to rewrite this child array given information about its parent.
     ///
     /// Returns:

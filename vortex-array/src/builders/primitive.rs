@@ -5,15 +5,24 @@ use std::any::Any;
 use std::mem::MaybeUninit;
 
 use vortex_buffer::BufferMut;
-use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{VortexResult, vortex_ensure};
+use vortex_dtype::DType;
+use vortex_dtype::NativePType;
+use vortex_dtype::Nullability;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
-use vortex_scalar::{PrimitiveScalar, Scalar};
+use vortex_scalar::PrimitiveScalar;
+use vortex_scalar::Scalar;
 
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
-use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyBitBufferBuilder};
-use crate::canonical::{Canonical, ToCanonical};
-use crate::{Array, ArrayRef, IntoArray};
+use crate::builders::ArrayBuilder;
+use crate::builders::DEFAULT_BUILDER_CAPACITY;
+use crate::builders::LazyBitBufferBuilder;
+use crate::canonical::Canonical;
+use crate::canonical::ToCanonical;
 
 /// The builder for building a [`PrimitiveArray`], parametrized by the `PType`.
 pub struct PrimitiveBuilder<T> {

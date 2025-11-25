@@ -4,10 +4,16 @@
 use vortex_error::VortexResult;
 use vortex_scalar::NumericOperator;
 
-use super::{DictArray, DictVTable};
+use super::DictArray;
+use super::DictVTable;
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::ConstantArray;
-use crate::compute::{NumericKernel, NumericKernelAdapter, numeric};
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
+use crate::compute::NumericKernel;
+use crate::compute::NumericKernelAdapter;
+use crate::compute::numeric;
+use crate::register_kernel;
 
 impl NumericKernel for DictVTable {
     fn numeric(
@@ -60,10 +66,12 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_scalar::NumericOperator;
 
+    use crate::IntoArray;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::PrimitiveArray;
     use crate::arrays::dict::DictArray;
-    use crate::arrays::{ConstantArray, PrimitiveArray};
+    use crate::assert_arrays_eq;
     use crate::compute::numeric;
-    use crate::{IntoArray, assert_arrays_eq};
 
     #[test]
     fn test_add_const() {

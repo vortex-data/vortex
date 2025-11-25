@@ -1,11 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 
-use crate::arrays::{ChunkedArray, ChunkedVTable};
-use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, is_constant_opts};
-use crate::{Array, register_kernel};
+use crate::Array;
+use crate::arrays::ChunkedArray;
+use crate::arrays::ChunkedVTable;
+use crate::compute::IsConstantKernel;
+use crate::compute::IsConstantKernelAdapter;
+use crate::compute::IsConstantOpts;
+use crate::compute::is_constant_opts;
+use crate::register_kernel;
 
 impl IsConstantKernel for ChunkedVTable {
     fn is_constant(
@@ -49,11 +55,15 @@ register_kernel!(IsConstantKernelAdapter(ChunkedVTable).lift());
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::{Buffer, buffer};
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_buffer::Buffer;
+    use vortex_buffer::buffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
 
+    use crate::Array;
+    use crate::IntoArray;
     use crate::arrays::ChunkedArray;
-    use crate::{Array, IntoArray};
 
     #[test]
     fn empty_chunk_is_constant() {

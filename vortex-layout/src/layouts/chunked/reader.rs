@@ -5,22 +5,28 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
+use futures::FutureExt;
+use futures::TryStreamExt;
 use futures::future::BoxFuture;
 use futures::stream::FuturesOrdered;
-use futures::{FutureExt, TryStreamExt};
 use itertools::Itertools;
+use vortex_array::ArrayRef;
+use vortex_array::MaskFuture;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::expr::Expression;
-use vortex_array::{ArrayRef, MaskFuture};
-use vortex_dtype::{DType, FieldMask};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_dtype::DType;
+use vortex_dtype::FieldMask;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
+use crate::LayoutReaderRef;
+use crate::LazyReaderChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
 use crate::segments::SegmentSource;
-use crate::{LayoutReaderRef, LazyReaderChildren};
 
 /// A [`LayoutReader`] for chunked layouts.
 pub struct ChunkedReader {
@@ -306,20 +312,29 @@ mod test {
     use std::sync::Arc;
 
     use futures::stream;
-    use rstest::{fixture, rstest};
+    use rstest::fixture;
+    use rstest::rstest;
+    use vortex_array::ArrayContext;
+    use vortex_array::IntoArray;
+    use vortex_array::MaskFuture;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::expr::root;
-    use vortex_array::{ArrayContext, IntoArray, MaskFuture, assert_arrays_eq};
     use vortex_buffer::buffer;
+    use vortex_dtype::DType;
     use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::{DType, PType};
+    use vortex_dtype::PType;
     use vortex_io::runtime::single::block_on;
 
+    use crate::LayoutRef;
+    use crate::LayoutStrategy;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::segments::{SegmentSource, TestSegments};
-    use crate::sequence::{SequenceId, SequentialStreamAdapter, SequentialStreamExt as _};
+    use crate::segments::SegmentSource;
+    use crate::segments::TestSegments;
+    use crate::sequence::SequenceId;
+    use crate::sequence::SequentialStreamAdapter;
+    use crate::sequence::SequentialStreamExt as _;
     use crate::test::SESSION;
-    use crate::{LayoutRef, LayoutStrategy};
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.

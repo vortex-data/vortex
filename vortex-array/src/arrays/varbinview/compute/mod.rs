@@ -8,6 +8,7 @@ mod is_sorted;
 mod mask;
 mod min_max;
 mod take;
+mod zip;
 
 #[cfg(test)]
 mod tests {
@@ -43,7 +44,8 @@ mod tests {
     }
     // Consistency tests
     use rstest::rstest;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
 
     use crate::compute::conformance::consistency::test_array_consistency;
 

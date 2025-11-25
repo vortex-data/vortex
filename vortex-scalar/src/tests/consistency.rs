@@ -8,7 +8,9 @@ mod tests {
 
     use vortex_dtype::Nullability;
 
-    use crate::{BoolScalar, PrimitiveScalar, Scalar};
+    use crate::BoolScalar;
+    use crate::PrimitiveScalar;
+    use crate::Scalar;
 
     // Demonstrates inconsistent null comparison behavior
     #[test]

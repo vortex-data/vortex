@@ -3,11 +3,13 @@
 
 use std::fmt::{self};
 
-use humansize::{DECIMAL, format_size};
+use humansize::DECIMAL;
+use humansize::format_size;
 
-use crate::arrays::ChunkedEncoding;
+use crate::ArrayRef;
+use crate::ArrayVisitor;
+use crate::arrays::ChunkedVTable;
 use crate::display::DisplayOptions;
-use crate::{Array, ArrayRef, ArrayVisitor};
 
 pub(super) struct TreeDisplayWrapper(pub(super) ArrayRef);
 
@@ -70,7 +72,7 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
         })?;
 
         let old_total_size = self.total_size;
-        if array.is_encoding(ChunkedEncoding.id()) {
+        if array.is::<ChunkedVTable>() {
             // Clear the total size so each chunk is treated as a new root.
             self.total_size = None
         } else {

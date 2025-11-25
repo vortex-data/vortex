@@ -4,9 +4,13 @@
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::arrays::{ConstantArray, ConstantVTable};
-use crate::compute::{CastKernel, CastKernelAdapter};
-use crate::{ArrayRef, IntoArray, register_kernel};
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
+use crate::compute::CastKernel;
+use crate::compute::CastKernelAdapter;
+use crate::register_kernel;
 
 impl CastKernel for ConstantVTable {
     fn cast(&self, array: &ConstantArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {

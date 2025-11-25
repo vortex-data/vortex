@@ -5,9 +5,11 @@
 
 use std::iter::Iterator;
 
-use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
+use arrow_buffer::BooleanBuffer;
+use arrow_buffer::BooleanBufferBuilder;
 use divan::Bencher;
-use vortex_buffer::{BitBuffer, BitBufferMut};
+use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferMut;
 
 fn main() {
     divan::main();

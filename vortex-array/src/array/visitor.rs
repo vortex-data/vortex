@@ -8,10 +8,11 @@ use std::sync::Arc;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 
+use crate::Array;
+use crate::ArrayRef;
 use crate::arrays::ConstantArray;
 use crate::patches::Patches;
 use crate::validity::Validity;
-use crate::{Array, ArrayRef};
 
 pub trait ArrayVisitor {
     /// Returns the children of the array.

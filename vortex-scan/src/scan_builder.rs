@@ -8,26 +8,36 @@ use futures::Stream;
 use futures::future::BoxFuture;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
-use vortex_array::expr::analysis::immediate_access::immediate_scope_access;
+use vortex_array::expr::Expression;
+use vortex_array::expr::root;
 use vortex_array::expr::session::ExprSessionExt;
 use vortex_array::expr::transform::ExprOptimizer;
-use vortex_array::expr::{Expression, root};
-use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
+use vortex_array::expr::transform::immediate_access::immediate_scope_access;
+use vortex_array::iter::ArrayIterator;
+use vortex_array::iter::ArrayIteratorAdapter;
 use vortex_array::stats::StatsSet;
-use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
+use vortex_array::stream::ArrayStream;
+use vortex_array::stream::ArrayStreamAdapter;
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_dtype::DType;
+use vortex_dtype::Field;
+use vortex_dtype::FieldMask;
+use vortex_dtype::FieldName;
+use vortex_dtype::FieldPath;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_io::runtime::BlockingRuntime;
+use vortex_layout::LayoutReader;
+use vortex_layout::LayoutReaderRef;
 use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
-use vortex_layout::{LayoutReader, LayoutReaderRef};
 use vortex_metrics::VortexMetrics;
 use vortex_session::VortexSession;
 
 use crate::RepeatedScan;
 use crate::selection::Selection;
 use crate::split_by::SplitBy;
-use crate::splits::{Splits, attempt_split_ranges};
+use crate::splits::Splits;
+use crate::splits::attempt_split_ranges;
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder<A> {

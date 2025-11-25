@@ -5,17 +5,21 @@ use std::sync::Arc;
 
 use async_stream::try_stream;
 use async_trait::async_trait;
-use futures::{StreamExt, pin_mut};
+use futures::StreamExt;
+use futures::pin_mut;
 use vortex_array::ArrayContext;
 use vortex_array::arrays::ChunkedArray;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 
+use crate::LayoutRef;
+use crate::LayoutStrategy;
 use crate::segments::SegmentSinkRef;
-use crate::sequence::{
-    SendableSequentialStream, SequencePointer, SequentialStream, SequentialStreamAdapter,
-};
-use crate::{LayoutRef, LayoutStrategy};
+use crate::sequence::SendableSequentialStream;
+use crate::sequence::SequencePointer;
+use crate::sequence::SequentialStream;
+use crate::sequence::SequentialStreamAdapter;
 
 /// A strategy that collects all chunks and turns them into a single array chunk to pass into
 /// a child strategy.

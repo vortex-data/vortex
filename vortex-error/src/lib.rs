@@ -12,12 +12,17 @@ pub mod python;
 use std::backtrace::Backtrace;
 use std::borrow::Cow;
 use std::convert::Infallible;
+use std::env;
 use std::error::Error;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt;
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::io;
 use std::num::TryFromIntError;
 use std::ops::Deref;
-use std::sync::{Arc, PoisonError};
-use std::{env, fmt, io};
+use std::sync::Arc;
+use std::sync::PoisonError;
 
 /// A string that can be used as an error message.
 #[derive(Debug)]

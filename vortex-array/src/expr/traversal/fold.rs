@@ -140,12 +140,16 @@ impl<T: NodeFolder> NodeFolderContext for NodeFolderContextWrapper<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use vortex_error::{VortexExpect, vortex_bail};
+    use vortex_error::VortexExpect;
+    use vortex_error::vortex_bail;
 
     use super::*;
     use crate::expr::Expression;
-    use crate::expr::exprs::binary::{Binary, checked_add, gt};
-    use crate::expr::exprs::literal::{Literal, lit};
+    use crate::expr::exprs::binary::Binary;
+    use crate::expr::exprs::binary::checked_add;
+    use crate::expr::exprs::binary::gt;
+    use crate::expr::exprs::literal::Literal;
+    use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::operators::Operator;
     use crate::expr::traversal::NodeExt;
 

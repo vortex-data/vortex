@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ffi::{CString, c_void};
+use std::ffi::CString;
+use std::ffi::c_void;
 use std::ptr;
 
-use vortex::error::{VortexResult, vortex_err};
+use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 
+use crate::cpp;
 use crate::duckdb::Value;
-use crate::{cpp, duckdb_try, wrapper};
+use crate::duckdb_try;
+use crate::wrapper;
 
 wrapper!(
     /// A DuckDB configuration instance.

@@ -3,15 +3,24 @@
 
 mod cast;
 
-use vortex_array::compute::{
-    FilterKernel, FilterKernelAdapter, MaskKernel, MaskKernelAdapter, TakeKernel,
-    TakeKernelAdapter, filter, mask, take,
-};
-use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::compute::FilterKernel;
+use vortex_array::compute::FilterKernelAdapter;
+use vortex_array::compute::MaskKernel;
+use vortex_array::compute::MaskKernelAdapter;
+use vortex_array::compute::TakeKernel;
+use vortex_array::compute::TakeKernelAdapter;
+use vortex_array::compute::filter;
+use vortex_array::compute::mask;
+use vortex_array::compute::take;
+use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::{ZigZagArray, ZigZagVTable};
+use crate::ZigZagArray;
+use crate::ZigZagVTable;
 
 impl FilterKernel for ZigZagVTable {
     fn filter(&self, array: &ZigZagArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -63,21 +72,31 @@ impl ZigZagEncoded for u64 {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::Array;
+    use vortex_array::ArrayRef;
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
-    use vortex_array::compute::{filter, take};
+    use vortex_array::compute::filter;
+    use vortex_array::compute::take;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, assert_arrays_eq};
-    use vortex_buffer::{BitBuffer, buffer};
+    use vortex_array::vtable::ArrayVTableExt;
+    use vortex_buffer::BitBuffer;
+    use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
-    use crate::{ZigZagArray, ZigZagEncoding, zigzag_encode};
+    use crate::ZigZagArray;
+    use crate::ZigZagVTable;
+    use crate::zigzag_encode;
 
     #[test]
     pub fn nullable_scalar_at() {
-        let zigzag = ZigZagEncoding
+        let zigzag = ZigZagVTable
+            .as_vtable()
             .encode(
                 &PrimitiveArray::new(buffer![-189, -160, 1], Validity::AllValid).to_canonical(),
                 None,
@@ -92,14 +111,16 @@ mod tests {
 
     #[test]
     fn take_zigzag() {
-        let zigzag = ZigZagEncoding
+        let zigzag = ZigZagVTable
+            .as_vtable()
             .encode(&buffer![-189, -160, 1].into_array().to_canonical(), None)
             .unwrap()
             .unwrap();
 
         let indices = buffer![0, 2].into_array();
         let actual = take(&zigzag, &indices).unwrap().to_primitive();
-        let expected = ZigZagEncoding
+        let expected = ZigZagVTable
+            .as_vtable()
             .encode(&buffer![-189, 1].into_array().to_canonical(), None)
             .unwrap()
             .unwrap()
@@ -109,13 +130,15 @@ mod tests {
 
     #[test]
     fn filter_zigzag() {
-        let zigzag = ZigZagEncoding
+        let zigzag = ZigZagVTable
+            .as_vtable()
             .encode(&buffer![-189, -160, 1].into_array().to_canonical(), None)
             .unwrap()
             .unwrap();
         let filter_mask = BitBuffer::from(vec![true, false, true]).into();
         let actual = filter(&zigzag, &filter_mask).unwrap().to_primitive();
-        let expected = ZigZagEncoding
+        let expected = ZigZagVTable
+            .as_vtable()
             .encode(&buffer![-189, 1].into_array().to_canonical(), None)
             .unwrap()
             .unwrap()
@@ -128,7 +151,8 @@ mod tests {
         use vortex_array::compute::conformance::filter::test_filter_conformance;
 
         // Test with i32 values
-        let zigzag = ZigZagEncoding
+        let zigzag = ZigZagVTable
+            .as_vtable()
             .encode(
                 &buffer![-189i32, -160, 1, 42, -73]
                     .into_array()
@@ -140,7 +164,8 @@ mod tests {
         test_filter_conformance(zigzag.as_ref());
 
         // Test with i64 values
-        let zigzag = ZigZagEncoding
+        let zigzag = ZigZagVTable
+            .as_vtable()
             .encode(
                 &buffer![1000i64, -2000, 3000, -4000, 5000]
                     .into_array()
@@ -154,7 +179,8 @@ mod tests {
         // Test with nullable values
         let array =
             PrimitiveArray::from_option_iter([Some(-10i16), None, Some(20), Some(-30), None]);
-        let zigzag = ZigZagEncoding
+        let zigzag = ZigZagVTable
+            .as_vtable()
             .encode(&array.to_canonical(), None)
             .unwrap()
             .unwrap();
@@ -166,7 +192,8 @@ mod tests {
         use vortex_array::compute::conformance::mask::test_mask_conformance;
 
         // Test with i32 values
-        let zigzag = ZigZagEncoding
+        let zigzag = ZigZagVTable
+            .as_vtable()
             .encode(
                 &buffer![-100i32, 200, -300, 400, -500]
                     .into_array()
@@ -178,7 +205,8 @@ mod tests {
         test_mask_conformance(zigzag.as_ref());
 
         // Test with i8 values
-        let zigzag = ZigZagEncoding
+        let zigzag = ZigZagVTable
+            .as_vtable()
             .encode(
                 &buffer![-127i8, 0, 127, -1, 1].into_array().to_canonical(),
                 None,
@@ -196,7 +224,8 @@ mod tests {
     fn test_take_zigzag_conformance(#[case] array: ArrayRef) {
         use vortex_array::compute::conformance::take::test_take_conformance;
 
-        let zigzag = ZigZagEncoding
+        let zigzag = ZigZagVTable
+            .as_vtable()
             .encode(&array.to_canonical(), None)
             .unwrap()
             .unwrap();

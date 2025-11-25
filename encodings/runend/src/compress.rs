@@ -2,14 +2,23 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_array::arrays::{BoolArray, ConstantArray, PrimitiveArray};
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
-use vortex_buffer::{BitBuffer, BitBufferMut, Buffer, BufferMut, buffer};
-use vortex_dtype::{
-    NativePType, Nullability, match_each_native_ptype, match_each_unsigned_integer_ptype,
-};
+use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferMut;
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
+use vortex_buffer::buffer;
+use vortex_dtype::NativePType;
+use vortex_dtype::Nullability;
+use vortex_dtype::match_each_native_ptype;
+use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -278,12 +287,15 @@ pub fn runend_decode_typed_bool(
 
 #[cfg(test)]
 mod test {
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
-    use vortex_array::{ToCanonical, assert_arrays_eq};
-    use vortex_buffer::{BitBuffer, buffer};
+    use vortex_buffer::BitBuffer;
+    use vortex_buffer::buffer;
 
-    use crate::compress::{runend_decode_primitive, runend_encode};
+    use crate::compress::runend_decode_primitive;
+    use crate::compress::runend_encode;
 
     #[test]
     fn encode() {

@@ -5,8 +5,9 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use futures::Stream;
+use vortex_array::expr::Expression;
+use vortex_array::expr::root;
 use vortex_array::expr::transform::simplify_typed;
-use vortex_array::expr::{Expression, root};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_gpu::GpuVector;

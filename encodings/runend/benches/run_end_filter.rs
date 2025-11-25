@@ -5,12 +5,14 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use divan::Bencher;
+use vortex_array::Array;
+use vortex_array::IntoArray;
 use vortex_array::compute::warm_up_vtables;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, IntoArray};
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
-use vortex_runend::_benchmarking::{filter_run_end, take_indices_unchecked};
+use vortex_runend::_benchmarking::filter_run_end;
+use vortex_runend::_benchmarking::take_indices_unchecked;
 use vortex_runend::RunEndArray;
 
 fn main() {
@@ -42,12 +44,11 @@ const BENCH_ARGS: &[(usize, usize, f64)] = &[
 
 #[divan::bench(args = BENCH_ARGS)]
 fn take_indices(bencher: Bencher, (n, run_step, filter_density): (usize, usize, f64)) {
-    let (array, mask) = fixture(n, run_step, filter_density);
-
-    let indices = mask.values().unwrap().indices();
-
     bencher
-        .with_inputs(|| (&array, indices))
+        .with_inputs(|| {
+            let (array, mask) = fixture(n, run_step, filter_density);
+            (array, mask.values().unwrap().indices().to_owned())
+        })
         .bench_refs(|(array, indices)| {
             take_indices_unchecked(array, indices, &Validity::NonNullable).unwrap()
         });
@@ -55,10 +56,8 @@ fn take_indices(bencher: Bencher, (n, run_step, filter_density): (usize, usize, 
 
 #[divan::bench(args = BENCH_ARGS)]
 fn filter_runend(bencher: Bencher, (n, run_step, filter_density): (usize, usize, f64)) {
-    let (array, mask) = fixture(n, run_step, filter_density);
-
     bencher
-        .with_inputs(|| (&array, &mask))
+        .with_inputs(|| fixture(n, run_step, filter_density))
         .bench_refs(|(array, mask)| filter_run_end(array, mask).unwrap());
 }
 

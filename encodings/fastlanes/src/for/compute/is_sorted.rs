@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{IsSortedKernel, IsSortedKernelAdapter, is_sorted, is_strict_sorted};
-use vortex_array::{ToCanonical, register_kernel};
+use vortex_array::ToCanonical;
+use vortex_array::compute::IsSortedKernel;
+use vortex_array::compute::IsSortedKernelAdapter;
+use vortex_array::compute::is_sorted;
+use vortex_array::compute::is_strict_sorted;
+use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
-use crate::{FoRArray, FoRVTable};
+use crate::FoRArray;
+use crate::FoRVTable;
 
 /// FoR can express sortedness directly on its encoded form.
 ///

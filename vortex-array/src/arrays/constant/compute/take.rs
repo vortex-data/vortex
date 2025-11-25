@@ -5,10 +5,16 @@ use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ConstantArray, ConstantVTable, MaskedArray};
-use crate::compute::{TakeKernel, TakeKernelAdapter};
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
+use crate::arrays::MaskedArray;
+use crate::compute::TakeKernel;
+use crate::compute::TakeKernelAdapter;
+use crate::register_kernel;
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl TakeKernel for ConstantVTable {
     fn take(&self, array: &ConstantArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -55,11 +61,14 @@ mod tests {
     use vortex_mask::AllOr;
     use vortex_scalar::Scalar;
 
-    use crate::arrays::{ConstantArray, PrimitiveArray};
+    use crate::Array;
+    use crate::IntoArray;
+    use crate::ToCanonical;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::validity::Validity;
-    use crate::{Array, IntoArray, ToCanonical};
 
     #[test]
     fn take_nullable_indices() {

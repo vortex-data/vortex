@@ -3,18 +3,28 @@
 
 use std::sync::Arc;
 
-use arrow_array::{
-    ArrayRef as ArrowArrayRef, GenericBinaryArray, GenericStringArray, OffsetSizeTrait,
-};
+use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_array::GenericBinaryArray;
+use arrow_array::GenericStringArray;
+use arrow_array::OffsetSizeTrait;
 use arrow_schema::DataType;
-use vortex_dtype::{DType, IntegerPType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail, vortex_panic};
+use vortex_dtype::DType;
+use vortex_dtype::IntegerPType;
+use vortex_dtype::Nullability;
+use vortex_dtype::PType;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_panic;
 
-use crate::arrays::{VarBinArray, VarBinVTable};
+use crate::Array;
+use crate::ToCanonical;
+use crate::arrays::VarBinArray;
+use crate::arrays::VarBinVTable;
+use crate::arrow::compute::ToArrowKernel;
+use crate::arrow::compute::ToArrowKernelAdapter;
 use crate::arrow::compute::to_arrow::null_buffer::to_null_buffer;
-use crate::arrow::compute::{ToArrowKernel, ToArrowKernelAdapter};
 use crate::compute::cast;
-use crate::{Array, ToCanonical, register_kernel};
+use crate::register_kernel;
 
 impl ToArrowKernel for VarBinVTable {
     fn to_arrow(

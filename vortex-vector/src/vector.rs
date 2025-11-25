@@ -11,15 +11,19 @@ use std::ops::RangeBounds;
 
 use vortex_error::vortex_panic;
 
-use crate::binaryview::{BinaryVector, StringVector};
+use crate::Scalar;
+use crate::VectorMut;
+use crate::VectorOps;
+use crate::binaryview::BinaryVector;
+use crate::binaryview::StringVector;
 use crate::bool::BoolVector;
 use crate::decimal::DecimalVector;
 use crate::fixed_size_list::FixedSizeListVector;
 use crate::listview::ListViewVector;
+use crate::match_each_vector;
 use crate::null::NullVector;
 use crate::primitive::PrimitiveVector;
 use crate::struct_::StructVector;
-use crate::{Scalar, VectorMut, VectorOps, match_each_vector};
 
 /// An enum over all kinds of immutable vectors, which represent fully decompressed (canonical)
 /// array data.
@@ -64,6 +68,7 @@ pub enum Vector {
 
 impl VectorOps for Vector {
     type Mutable = VectorMut;
+    type Scalar = Scalar;
 
     fn len(&self) -> usize {
         match_each_vector!(self, |v| { v.len() })
@@ -74,7 +79,7 @@ impl VectorOps for Vector {
     }
 
     fn scalar_at(&self, index: usize) -> Scalar {
-        match_each_vector!(self, |v| { v.scalar_at(index) })
+        match_each_vector!(self, |v| { v.scalar_at(index).into() })
     }
 
     fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self {

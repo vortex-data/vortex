@@ -2,15 +2,21 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::Buffer;
-use vortex_dtype::{
-    IntegerPType, NativeDecimalType, match_each_decimal_value_type, match_each_integer_ptype,
-};
+use vortex_dtype::IntegerPType;
+use vortex_dtype::NativeDecimalType;
+use vortex_dtype::match_each_decimal_value_type;
+use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
-use crate::arrays::{DecimalArray, DecimalVTable};
-use crate::compute::{TakeKernel, TakeKernelAdapter};
+use crate::Array;
+use crate::ArrayRef;
+use crate::ToCanonical;
+use crate::arrays::DecimalArray;
+use crate::arrays::DecimalVTable;
+use crate::compute::TakeKernel;
+use crate::compute::TakeKernelAdapter;
+use crate::register_kernel;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
 impl TakeKernel for DecimalVTable {
     fn take(&self, array: &DecimalArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -43,12 +49,17 @@ fn take_to_buffer<I: IntegerPType, T: NativeDecimalType>(indices: &[I], values: 
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_buffer::{Buffer, buffer};
-    use vortex_dtype::{DecimalDType, Nullability};
-    use vortex_scalar::{DecimalValue, Scalar};
+    use vortex_buffer::Buffer;
+    use vortex_buffer::buffer;
+    use vortex_dtype::DecimalDType;
+    use vortex_dtype::Nullability;
+    use vortex_scalar::DecimalValue;
+    use vortex_scalar::Scalar;
 
     use crate::IntoArray;
-    use crate::arrays::{DecimalArray, DecimalVTable, PrimitiveArray};
+    use crate::arrays::DecimalArray;
+    use crate::arrays::DecimalVTable;
+    use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::validity::Validity;

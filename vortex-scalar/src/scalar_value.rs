@@ -7,9 +7,14 @@ use std::sync::Arc;
 use bytes::BufMut;
 use itertools::Itertools;
 use prost::Message;
-use vortex_buffer::{BufferString, ByteBuffer};
-use vortex_dtype::{NativeDType, i256};
-use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
+use vortex_buffer::BufferString;
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::NativeDType;
+use vortex_dtype::i256;
+use vortex_error::VortexResult;
+use vortex_error::VortexUnwrap;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_proto::scalar as pb;
 
 use crate::Scalar;

@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::{NativePType, match_each_float_ptype};
+use vortex_dtype::NativePType;
+use vortex_dtype::match_each_float_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::{PrimitiveArray, PrimitiveVTable};
-use crate::compute::{NaNCountKernel, NaNCountKernelAdapter};
+use crate::arrays::PrimitiveArray;
+use crate::arrays::PrimitiveVTable;
+use crate::compute::NaNCountKernel;
+use crate::compute::NaNCountKernelAdapter;
 use crate::register_kernel;
 
 impl NaNCountKernel for PrimitiveVTable {

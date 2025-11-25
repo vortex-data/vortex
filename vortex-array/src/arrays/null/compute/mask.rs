@@ -4,9 +4,12 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::{NullArray, NullVTable};
-use crate::compute::{MaskKernel, MaskKernelAdapter};
-use crate::{ArrayRef, register_kernel};
+use crate::ArrayRef;
+use crate::arrays::NullArray;
+use crate::arrays::NullVTable;
+use crate::compute::MaskKernel;
+use crate::compute::MaskKernelAdapter;
+use crate::register_kernel;
 
 impl MaskKernel for NullVTable {
     fn mask(&self, array: &NullArray, _mask: &Mask) -> VortexResult<ArrayRef> {

@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use half::f16;
-use num_traits::{FromPrimitive, ToPrimitive};
+use num_traits::FromPrimitive;
+use num_traits::ToPrimitive;
 
 /// A trait for types that can be created from primitive values, including f16.
 ///

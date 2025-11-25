@@ -3,38 +3,56 @@
 
 //! FFI interface for Vortex File I/O.
 
-use std::ffi::{CStr, c_char, c_int, c_uint, c_ulong};
+use std::ffi::CStr;
+use std::ffi::c_char;
+use std::ffi::c_int;
+use std::ffi::c_uint;
+use std::ffi::c_ulong;
 use std::ops::Range;
 use std::slice;
 use std::str::FromStr;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
-use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
-use object_store::gcp::{GoogleCloudStorageBuilder, GoogleConfigKey};
+use object_store::ObjectStore;
+use object_store::ObjectStoreScheme;
+use object_store::aws::AmazonS3Builder;
+use object_store::aws::AmazonS3ConfigKey;
+use object_store::azure::AzureConfigKey;
+use object_store::azure::MicrosoftAzureBuilder;
+use object_store::gcp::GoogleCloudStorageBuilder;
+use object_store::gcp::GoogleConfigKey;
 use object_store::local::LocalFileSystem;
-use object_store::{ObjectStore, ObjectStoreScheme};
 use prost::Message;
 use url::Url;
-use vortex::error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex::error::VortexError;
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
+use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::proto::deserialize_expr_proto;
-use vortex::expr::session::{ExprRegistry, ExprSessionExt};
-use vortex::file::{OpenOptionsSessionExt, VortexFile, WriteOptionsSessionExt};
+use vortex::expr::session::ExprRegistry;
+use vortex::expr::session::ExprSessionExt;
+use vortex::file::OpenOptionsSessionExt;
+use vortex::file::VortexFile;
+use vortex::file::WriteOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::iter::ArrayIteratorAdapter;
 use vortex::proto::expr::Expr;
-use vortex::scan::{ScanBuilder, SplitBy};
+use vortex::scan::ScanBuilder;
+use vortex::scan::SplitBy;
 use vortex::session::VortexSession;
 use vortex::stream::ArrayStream;
 
+use crate::RUNTIME;
+use crate::arc_wrapper;
 use crate::array::vx_array;
 use crate::array_iterator::vx_array_iterator;
 use crate::dtype::vx_dtype;
-use crate::error::{try_or_default, vx_error};
+use crate::error::try_or_default;
+use crate::error::vx_error;
 use crate::session::vx_session;
-use crate::{RUNTIME, arc_wrapper, to_string_vec};
+use crate::to_string_vec;
 
 arc_wrapper!(
     /// A handle to a Vortex file encapsulating the footer and logic for instantiating a reader.
@@ -122,18 +140,29 @@ impl vx_file_scan_options {
             self.filter_expression_len,
         )?;
 
+        // On Windows, c_ulong is u32, so we need to convert to u64
+        // On Unix, c_ulong is already u64, so we can use it directly
+        #[cfg(windows)]
+        let row_range = (self.row_range_end > self.row_range_start)
+            .then_some(self.row_range_start as u64..self.row_range_end as u64);
+        #[cfg(not(windows))]
         let row_range = (self.row_range_end > self.row_range_start)
             .then_some(self.row_range_start..self.row_range_end);
 
         let split_by = (self.split_by_row_count > 0)
             .then_some(SplitBy::RowCount(self.split_by_row_count as usize));
 
+        #[cfg(windows)]
+        let row_offset = self.row_offset as u64;
+        #[cfg(not(windows))]
+        let row_offset = self.row_offset;
+
         Ok(ScanOptions {
             projection_expr,
             filter_expr,
             split_by,
             row_range,
-            row_offset: self.row_offset,
+            row_offset,
         })
     }
 }

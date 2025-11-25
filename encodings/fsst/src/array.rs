@@ -1,28 +1,53 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::hash::Hash;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
+use std::sync::LazyLock;
 
-use fsst::{Compressor, Decompressor, Symbol};
-use vortex_array::arrays::{VarBinArray, VarBinVTable};
+use fsst::Compressor;
+use fsst::Decompressor;
+use fsst::Symbol;
+use vortex_array::Array;
+use vortex_array::ArrayBufferVisitor;
+use vortex_array::ArrayChildVisitor;
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
+use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::DeserializeMetadata;
+use vortex_array::Precision;
+use vortex_array::ProstMetadata;
+use vortex_array::SerializeMetadata;
+use vortex_array::arrays::VarBinArray;
+use vortex_array::arrays::VarBinVTable;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::{
-    ArrayVTable, EncodeVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
-    VisitorVTable,
-};
-use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
-    DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata, SerializeMetadata,
-    vtable,
-};
-use vortex_buffer::{Buffer, ByteBuffer};
-use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_array::stats::ArrayStats;
+use vortex_array::stats::StatsSetRef;
+use vortex_array::vtable;
+use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayVTable;
+use vortex_array::vtable::ArrayVTableExt;
+use vortex_array::vtable::BaseArrayVTable;
+use vortex_array::vtable::EncodeVTable;
+use vortex_array::vtable::NotSupported;
+use vortex_array::vtable::VTable;
+use vortex_array::vtable::ValidityChild;
+use vortex_array::vtable::ValidityVTableFromChild;
+use vortex_array::vtable::VisitorVTable;
+use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_dtype::PType;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 
-use crate::{fsst_compress, fsst_train_compressor};
+use crate::fsst_compress;
+use crate::fsst_train_compressor;
 
 vtable!(FSST);
 
@@ -41,7 +66,7 @@ impl FSSTMetadata {
 
 impl VTable for FSSTVTable {
     type Array = FSSTArray;
-    type Encoding = FSSTEncoding;
+
     type Metadata = ProstMetadata<FSSTMetadata>;
 
     type ArrayVTable = Self;
@@ -53,12 +78,12 @@ impl VTable for FSSTVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.fsst")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.fsst")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(FSSTEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        FSSTVTable.as_vtable()
     }
 
     fn metadata(array: &FSSTArray) -> VortexResult<Self::Metadata> {
@@ -79,7 +104,7 @@ impl VTable for FSSTVTable {
     }
 
     fn build(
-        _encoding: &FSSTEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -151,7 +176,7 @@ impl Debug for FSSTArray {
 }
 
 #[derive(Clone, Debug)]
-pub struct FSSTEncoding;
+pub struct FSSTVTable;
 
 impl FSSTArray {
     /// Build an FSST array from a set of `symbols` and `codes`.
@@ -272,7 +297,7 @@ impl FSSTArray {
     }
 }
 
-impl ArrayVTable<FSSTVTable> for FSSTVTable {
+impl BaseArrayVTable<FSSTVTable> for FSSTVTable {
     fn len(array: &FSSTArray) -> usize {
         array.codes().len()
     }
@@ -317,7 +342,7 @@ impl ValidityChild<FSSTVTable> for FSSTVTable {
 
 impl EncodeVTable<FSSTVTable> for FSSTVTable {
     fn encode(
-        _encoding: &FSSTEncoding,
+        _vtable: &FSSTVTable,
         canonical: &Canonical,
         like: Option<&FSSTArray>,
     ) -> VortexResult<Option<FSSTArray>> {

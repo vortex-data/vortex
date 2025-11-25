@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
+use std::fmt::Formatter;
 
 /// A wrapper around a slice that truncates the debug output if it is too long.
 pub(crate) struct TruncatedDebug<'a, T>(pub(crate) &'a [T]);

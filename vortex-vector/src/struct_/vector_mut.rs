@@ -6,11 +6,19 @@
 use std::sync::Arc;
 
 use vortex_dtype::StructFields;
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::MaskMut;
 
+use crate::ScalarOps;
+use crate::Vector;
+use crate::VectorMut;
+use crate::VectorMutOps;
+use crate::VectorOps;
+use crate::match_vector_pair;
+use crate::struct_::StructScalar;
 use crate::struct_::StructVector;
-use crate::{Vector, VectorMut, VectorMutOps, VectorOps, match_vector_pair};
 
 /// A mutable vector of struct values (values with named fields).
 ///
@@ -236,12 +244,37 @@ impl VectorMutOps for StructVectorMut {
 
     fn append_nulls(&mut self, n: usize) {
         for field in &mut self.fields {
-            field.append_nulls(n); // Note that the value we push to each doesn't actually matter.
+            field.append_zeros(n);
         }
 
         self.validity.append_n(false, n);
         self.len += n;
         debug_assert_eq!(self.len, self.validity.len());
+    }
+
+    fn append_zeros(&mut self, n: usize) {
+        for field in &mut self.fields {
+            field.append_zeros(n);
+        }
+
+        self.validity.append_n(true, n);
+        self.len += n;
+        debug_assert_eq!(self.len, self.validity.len());
+    }
+
+    fn append_scalars(&mut self, scalar: &StructScalar, n: usize) {
+        if scalar.is_valid() {
+            for (v, s) in self.fields.iter_mut().zip(scalar.value().fields.iter()) {
+                v.append_scalars(&s.scalar_at(0), n)
+            }
+            self.validity.append_n(true, n)
+        } else {
+            for field in &mut self.fields {
+                field.append_zeros(n);
+            }
+            self.validity.append_n(false, n)
+        }
+        self.len += n;
     }
 
     fn freeze(self) -> StructVector {
@@ -317,13 +350,20 @@ impl VectorMutOps for StructVectorMut {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, FieldNames, Nullability, PType, PTypeDowncast, StructFields};
-    use vortex_mask::{Mask, MaskMut};
+    use vortex_dtype::DType;
+    use vortex_dtype::FieldNames;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
+    use vortex_dtype::PTypeDowncast;
+    use vortex_dtype::StructFields;
+    use vortex_mask::Mask;
+    use vortex_mask::MaskMut;
 
     use super::*;
     use crate::VectorMut;
     use crate::bool::BoolVectorMut;
-    use crate::null::{NullVector, NullVectorMut};
+    use crate::null::NullVector;
+    use crate::null::NullVectorMut;
     use crate::primitive::PVectorMut;
 
     #[test]
@@ -462,7 +502,7 @@ mod tests {
         struct_vec.append_nulls(2);
         assert_eq!(struct_vec.len(), 7);
 
-        // Verify final values include nulls.
+        // Verify final values include zeros.
         if let VectorMut::Bool(bool_vec) = struct_vec.fields[1].clone() {
             let values: Vec<_> = bool_vec.into_iter().collect();
             assert_eq!(
@@ -473,8 +513,8 @@ mod tests {
                     Some(true),
                     Some(false),
                     Some(true),
-                    None,
-                    None
+                    Some(false),
+                    Some(false)
                 ]
             );
         }

@@ -2,18 +2,49 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fs::File;
+#[cfg(not(unix))]
+use std::io::Read;
+#[cfg(not(unix))]
+use std::io::Seek;
+#[cfg(unix)]
 use std::os::unix::fs::FileExt;
-use std::path::{Path, PathBuf};
+#[cfg(windows)]
+use std::os::windows::fs::FileExt;
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
+use futures::FutureExt;
+use futures::StreamExt;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
-use futures::{FutureExt, StreamExt};
 use vortex_buffer::ByteBufferMut;
-use vortex_error::{VortexError, VortexResult};
+use vortex_error::VortexError;
+use vortex_error::VortexResult;
 
-use crate::file::{CoalesceWindow, IntoReadSource, IoRequest, ReadSource, ReadSourceRef};
+use crate::file::CoalesceWindow;
+use crate::file::IntoReadSource;
+use crate::file::IoRequest;
+use crate::file::ReadSource;
+use crate::file::ReadSourceRef;
 use crate::runtime::Handle;
+
+/// Read exactly `buffer.len()` bytes from `file` starting at `offset`.
+/// This is a platform-specific helper that uses the most efficient method available.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn read_exact_at(file: &File, buffer: &mut [u8], offset: u64) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        file.read_exact_at(buffer, offset)
+    }
+    #[cfg(not(unix))]
+    {
+        use std::io::SeekFrom;
+        let mut file_ref = file;
+        file_ref.seek(SeekFrom::Start(offset))?;
+        file_ref.read_exact(buffer)
+    }
+}
 
 const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {
     // TODO(ngates): these numbers don't make sense if we're using spawn_blocking..
@@ -82,10 +113,14 @@ impl ReadSource for FileIoSource {
                         let offset = req.offset();
                         let mut buffer = ByteBufferMut::with_capacity_aligned(len, req.alignment());
                         unsafe { buffer.set_len(len) };
-                        req.resolve(match file.read_exact_at(&mut buffer, offset) {
-                            Ok(()) => Ok(buffer.freeze()),
-                            Err(e) => Err(VortexError::from(e)),
-                        })
+
+                        let buffer_res = read_exact_at(&file, &mut buffer, offset);
+
+                        req.resolve(
+                            buffer_res
+                                .map(|_| buffer.freeze())
+                                .map_err(VortexError::from),
+                        )
                     }
                 })
             })

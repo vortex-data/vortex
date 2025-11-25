@@ -4,17 +4,24 @@
 use std::any::type_name;
 use std::cmp::Ordering;
 use std::collections::Bound;
-use std::fmt::{Debug, Formatter};
-use std::hash::{Hash, Hasher};
+use std::fmt::Debug;
+use std::fmt::Formatter;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::marker::PhantomData;
-use std::ops::{Deref, RangeBounds};
+use std::ops::Deref;
+use std::ops::RangeBounds;
 
-use bytes::{Buf, Bytes};
-use vortex_error::{VortexExpect, vortex_panic};
+use bytes::Buf;
+use bytes::Bytes;
+use vortex_error::VortexExpect;
+use vortex_error::vortex_panic;
 
+use crate::Alignment;
+use crate::BufferMut;
+use crate::ByteBuffer;
 use crate::debug::TruncatedDebug;
 use crate::trusted_len::TrustedLen;
-use crate::{Alignment, BufferMut, ByteBuffer};
 
 /// An immutable buffer of items of `T`.
 pub struct Buffer<T> {
@@ -657,7 +664,10 @@ impl<T> From<BufferMut<T>> for Buffer<T> {
 mod test {
     use bytes::Buf;
 
-    use crate::{Alignment, Buffer, ByteBuffer, buffer};
+    use crate::Alignment;
+    use crate::Buffer;
+    use crate::ByteBuffer;
+    use crate::buffer;
 
     #[test]
     fn align() {

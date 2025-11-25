@@ -6,26 +6,48 @@ use std::ops::Range;
 
 use num_traits::One;
 use num_traits::cast::FromPrimitive;
+use vortex_array::ArrayBufferVisitor;
+use vortex_array::ArrayChildVisitor;
+use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::DeserializeMetadata;
+use vortex_array::Precision;
+use vortex_array::ProstMetadata;
+use vortex_array::SerializeMetadata;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::execution::ExecutionCtx;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, EncodeVTable, NotSupported, OperationsVTable, VTable,
-    ValidityVTable, VisitorVTable,
-};
-use vortex_array::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata, EncodingId,
-    EncodingRef, Precision, ProstMetadata, SerializeMetadata, vtable,
-};
-use vortex_buffer::{BufferMut, ByteBuffer};
+use vortex_array::stats::ArrayStats;
+use vortex_array::stats::StatsSetRef;
+use vortex_array::vtable;
+use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayVTable;
+use vortex_array::vtable::ArrayVTableExt;
+use vortex_array::vtable::BaseArrayVTable;
+use vortex_array::vtable::CanonicalVTable;
+use vortex_array::vtable::EncodeVTable;
+use vortex_array::vtable::NotSupported;
+use vortex_array::vtable::OperationsVTable;
+use vortex_array::vtable::VTable;
+use vortex_array::vtable::ValidityVTable;
+use vortex_array::vtable::VisitorVTable;
+use vortex_buffer::BufferMut;
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::DType;
+use vortex_dtype::NativePType;
+use vortex_dtype::Nullability;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{
-    DType, NativePType, Nullability, PType, match_each_integer_ptype, match_each_native_ptype,
-};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::PType;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_dtype::match_each_native_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_mask::Mask;
-use vortex_scalar::{PValue, Scalar, ScalarValue};
+use vortex_scalar::PValue;
+use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 use vortex_vector::Vector;
 use vortex_vector::primitive::PVector;
 
@@ -164,7 +186,7 @@ impl SequenceArray {
 
 impl VTable for SequenceVTable {
     type Array = SequenceArray;
-    type Encoding = SequenceEncoding;
+
     type Metadata = ProstMetadata<SequenceMetadata>;
 
     type ArrayVTable = Self;
@@ -176,12 +198,12 @@ impl VTable for SequenceVTable {
     type EncodeVTable = Self;
     type OperatorVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.sequence")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.sequence")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(SequenceEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        SequenceVTable.as_vtable()
     }
 
     fn metadata(array: &SequenceArray) -> VortexResult<Self::Metadata> {
@@ -202,7 +224,7 @@ impl VTable for SequenceVTable {
     }
 
     fn build(
-        _encoding: &SequenceEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -268,7 +290,7 @@ impl VTable for SequenceVTable {
     }
 }
 
-impl ArrayVTable<SequenceVTable> for SequenceVTable {
+impl BaseArrayVTable<SequenceVTable> for SequenceVTable {
     fn len(array: &SequenceArray) -> usize {
         array.length
     }
@@ -363,11 +385,11 @@ impl VisitorVTable<SequenceVTable> for SequenceVTable {
 }
 
 #[derive(Clone, Debug)]
-pub struct SequenceEncoding;
+pub struct SequenceVTable;
 
 impl EncodeVTable<SequenceVTable> for SequenceVTable {
     fn encode(
-        _encoding: &SequenceEncoding,
+        _vtable: &SequenceVTable,
         _canonical: &Canonical,
         _like: Option<&SequenceArray>,
     ) -> VortexResult<Option<SequenceArray>> {
@@ -381,7 +403,8 @@ mod tests {
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_dtype::Nullability;
-    use vortex_scalar::{Scalar, ScalarValue};
+    use vortex_scalar::Scalar;
+    use vortex_scalar::ScalarValue;
 
     use crate::array::SequenceArray;
 

@@ -4,10 +4,11 @@
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyIterator;
+use vortex::Array;
+use vortex::ArrayRef;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::iter::ArrayIterator;
-use vortex::{Array, ArrayRef};
 
 use crate::arrays::PyArrayRef;
 

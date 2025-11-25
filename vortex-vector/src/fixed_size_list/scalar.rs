@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::Scalar;
+use crate::ScalarOps;
+use crate::VectorMut;
+use crate::VectorOps;
 use crate::fixed_size_list::FixedSizeListVector;
-use crate::{Scalar, ScalarOps, VectorMut, VectorOps};
 
 /// A scalar value for fixed-size list types.
 ///
 /// The inner value is a length-1 fsl vector.
-///
 // NOTE(ngates): the reason we don't hold Option<Vector> representing the elements is that we
 //  wouldn't be able to go back to a vector using "repeat".
 #[derive(Debug)]
@@ -22,6 +24,11 @@ impl FixedSizeListScalar {
     pub fn new(vector: FixedSizeListVector) -> Self {
         assert_eq!(vector.len(), 1);
         Self(vector)
+    }
+
+    /// Returns the inner length-1 vector representing the fixed-size list scalar.
+    pub fn value(&self) -> &FixedSizeListVector {
+        &self.0
     }
 }
 

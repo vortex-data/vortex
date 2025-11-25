@@ -3,13 +3,22 @@
 
 use std::fmt::Formatter;
 
-use vortex_dtype::{DType, FieldPath};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_dtype::DType;
+use vortex_dtype::FieldPath;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_vector::Vector;
 
 use crate::ArrayRef;
+use crate::expr::ChildName;
+use crate::expr::ExecutionArgs;
+use crate::expr::ExprId;
+use crate::expr::ExpressionView;
+use crate::expr::StatsCatalog;
+use crate::expr::VTable;
+use crate::expr::VTableExt;
 use crate::expr::expression::Expression;
-use crate::expr::{ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt};
 use crate::stats::Stat;
 
 /// An expression that returns the full scope of the expression evaluation.
@@ -60,13 +69,8 @@ impl VTable for Root {
         Ok(scope.clone())
     }
 
-    fn execute(
-        &self,
-        _expr: &ExpressionView<Self>,
-        vector: &Vector,
-        _dtype: &DType,
-    ) -> VortexResult<Vector> {
-        Ok(vector.clone())
+    fn execute(&self, _data: &Self::Instance, _args: ExecutionArgs) -> VortexResult<Vector> {
+        vortex_bail!("Root expression is not executable")
     }
 
     fn stat_expression(

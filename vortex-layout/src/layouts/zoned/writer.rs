@@ -7,18 +7,22 @@ use async_trait::async_trait;
 use futures::StreamExt as _;
 use parking_lot::Mutex;
 use vortex_array::ArrayContext;
-use vortex_array::stats::{PRUNING_STATS, Stat};
+use vortex_array::stats::PRUNING_STATS;
+use vortex_array::stats::Stat;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 
+use crate::IntoLayout;
+use crate::LayoutRef;
+use crate::LayoutStrategy;
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::StatsAccumulator;
 use crate::segments::SegmentSinkRef;
-use crate::sequence::{
-    SendableSequentialStream, SequencePointer, SequentialArrayStreamExt, SequentialStreamAdapter,
-    SequentialStreamExt,
-};
-use crate::{IntoLayout, LayoutRef, LayoutStrategy};
+use crate::sequence::SendableSequentialStream;
+use crate::sequence::SequencePointer;
+use crate::sequence::SequentialArrayStreamExt;
+use crate::sequence::SequentialStreamAdapter;
+use crate::sequence::SequentialStreamExt;
 
 pub struct ZonedLayoutOptions {
     /// The size of a statistics block

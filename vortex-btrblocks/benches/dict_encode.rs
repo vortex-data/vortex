@@ -5,10 +5,13 @@
 
 use divan::Bencher;
 use vortex_array::IntoArray;
-use vortex_array::arrays::{BoolArray, PrimitiveArray};
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::validity::Validity;
-use vortex_btrblocks::{CompressorStats, IntegerStats, integer_dictionary_encode};
+use vortex_btrblocks::CompressorStats;
+use vortex_btrblocks::IntegerStats;
+use vortex_btrblocks::integer_dictionary_encode;
 use vortex_buffer::BufferMut;
 
 fn make_array() -> PrimitiveArray {
@@ -27,16 +30,18 @@ fn make_array() -> PrimitiveArray {
 
 #[divan::bench]
 fn encode_generic(bencher: Bencher) {
+    let array = make_array().into_array();
     bencher
-        .with_inputs(|| make_array().into_array())
-        .bench_values(|array| dict_encode(&array).unwrap());
+        .with_inputs(|| &array)
+        .bench_refs(|array| dict_encode(array.as_ref()).unwrap());
 }
 
 #[divan::bench]
 fn encode_specialized(bencher: Bencher) {
+    let stats = IntegerStats::generate(&make_array());
     bencher
-        .with_inputs(|| IntegerStats::generate(&make_array()))
-        .bench_values(|stats| integer_dictionary_encode(&stats));
+        .with_inputs(|| &stats)
+        .bench_refs(|stats| integer_dictionary_encode(stats));
 }
 
 fn main() {

@@ -5,11 +5,15 @@
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::MaskMut;
 
+use crate::VectorMutOps;
+use crate::VectorOps;
+use crate::primitive::PScalar;
 use crate::primitive::PVector;
-use crate::{VectorMutOps, VectorOps};
 
 /// A mutable vector of generic primitive values.
 ///
@@ -162,6 +166,22 @@ impl<T: NativePType> VectorMutOps for PVectorMut<T> {
     fn append_nulls(&mut self, n: usize) {
         self.elements.push_n(T::zero(), n); // Note that the value we push doesn't actually matter.
         self.validity.append_n(false, n);
+    }
+
+    fn append_zeros(&mut self, n: usize) {
+        self.elements.push_n(T::zero(), n);
+        self.validity.append_n(true, n);
+    }
+
+    fn append_scalars(&mut self, scalar: &PScalar<T>, n: usize) {
+        match scalar.value() {
+            None => {
+                self.append_nulls(n);
+            }
+            Some(v) => {
+                self.append_values(v, n);
+            }
+        }
     }
 
     /// Freeze the vector into an immutable one.

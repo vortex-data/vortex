@@ -3,13 +3,22 @@
 
 use std::sync::Arc;
 
-use vortex_error::{VortexError, VortexResult, vortex_err};
+use vortex_error::VortexError;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
-use crate::field::{Field, FieldPath};
+use crate::DType;
+use crate::DecimalDType;
+use crate::ExtDType;
+use crate::ExtID;
+use crate::ExtMetadata;
+use crate::PType;
+use crate::StructFields;
+use crate::field::Field;
+use crate::field::FieldPath;
 use crate::proto::dtype as pb;
 use crate::proto::dtype::d_type::DtypeType;
 use crate::proto::dtype::field::FieldType;
-use crate::{DType, DecimalDType, ExtDType, ExtID, ExtMetadata, PType, StructFields};
 
 impl TryFrom<&pb::DType> for DType {
     type Error = VortexError;
@@ -190,12 +199,18 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::DType;
+    use crate::DecimalDType;
+    use crate::ExtDType;
+    use crate::ExtID;
+    use crate::ExtMetadata;
+    use crate::Field;
+    use crate::FieldPath;
+    use crate::Nullability;
+    use crate::PType;
+    use crate::StructFields;
     use crate::proto::dtype::d_type::DtypeType;
     use crate::proto::dtype::field::FieldType;
-    use crate::{
-        DType, DecimalDType, ExtDType, ExtID, ExtMetadata, Field, FieldPath, Nullability, PType,
-        StructFields,
-    };
 
     fn round_trip_dtype(dtype: &DType) -> DType {
         let pb_dtype = pb::DType::from(dtype);

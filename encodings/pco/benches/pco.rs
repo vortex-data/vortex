@@ -5,11 +5,15 @@
 
 use divan::Bencher;
 use mimalloc::MiMalloc;
+use rand::Rng;
+use rand::SeedableRng;
 use rand::prelude::StdRng;
-use rand::{Rng, SeedableRng};
-use vortex_array::compute::{filter, warm_up_vtables};
-use vortex_array::{IntoArray, ToCanonical};
-use vortex_buffer::{BitBuffer, BufferMut};
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
+use vortex_array::compute::filter;
+use vortex_array::compute::warm_up_vtables;
+use vortex_buffer::BitBuffer;
+use vortex_buffer::BufferMut;
 use vortex_mask::Mask;
 use vortex_pco::PcoArray;
 

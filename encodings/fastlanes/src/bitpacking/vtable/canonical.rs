@@ -7,8 +7,10 @@ use vortex_array::vtable::CanonicalVTable;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 
-use crate::bitpack_decompress::{unpack_array, unpack_into_primitive_builder};
-use crate::{BitPackedArray, BitPackedVTable};
+use crate::BitPackedArray;
+use crate::BitPackedVTable;
+use crate::bitpack_decompress::unpack_array;
+use crate::bitpack_decompress::unpack_into_primitive_builder;
 
 impl CanonicalVTable<BitPackedVTable> for BitPackedVTable {
     fn canonicalize(array: &BitPackedArray) -> Canonical {

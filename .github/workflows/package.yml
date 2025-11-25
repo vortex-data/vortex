@@ -27,7 +27,7 @@ jobs:
           - { os: ubuntu, runs-on: "ubuntu-latest", target: aarch64-unknown-linux-gnu }
           - { os: ubuntu, runs-on: "ubuntu-latest", target: x86_64-unknown-linux-gnu }
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -75,7 +75,7 @@ jobs:
   prepare-java-macos:
     runs-on: "macos-latest"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - uses: actions/setup-java@v5
@@ -105,7 +105,7 @@ jobs:
           - { os: ubuntu, runs-on: "ubuntu-24.04-arm", target: aarch64-unknown-linux-gnu }
           - { os: ubuntu, runs-on: "ubuntu-24.04", target: x86_64-unknown-linux-gnu }
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - run: |

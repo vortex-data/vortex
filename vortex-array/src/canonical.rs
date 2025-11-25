@@ -4,14 +4,23 @@
 //! Encodings that enable zero-copy sharing of data with Arrow.
 
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 
-use crate::arrays::{
-    BoolArray, DecimalArray, ExtensionArray, FixedSizeListArray, ListViewArray,
-    ListViewRebuildMode, NullArray, PrimitiveArray, StructArray, VarBinViewArray,
-};
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::BoolArray;
+use crate::arrays::DecimalArray;
+use crate::arrays::ExtensionArray;
+use crate::arrays::FixedSizeListArray;
+use crate::arrays::ListViewArray;
+use crate::arrays::ListViewRebuildMode;
+use crate::arrays::NullArray;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::StructArray;
+use crate::arrays::VarBinViewArray;
 use crate::builders::builder_with_capacity;
-use crate::{Array, ArrayRef, IntoArray};
 
 /// An enum capturing the default uncompressed encodings for each [Vortex type](DType).
 ///
@@ -390,20 +399,29 @@ impl From<Canonical> for ArrayRef {
 mod test {
     use std::sync::Arc;
 
+    use arrow_array::Array as ArrowArray;
+    use arrow_array::ArrayRef as ArrowArrayRef;
+    use arrow_array::ListArray as ArrowListArray;
+    use arrow_array::PrimitiveArray as ArrowPrimitiveArray;
+    use arrow_array::StringArray;
+    use arrow_array::StringViewArray;
+    use arrow_array::StructArray as ArrowStructArray;
     use arrow_array::cast::AsArray;
-    use arrow_array::types::{Int32Type, Int64Type, UInt64Type};
-    use arrow_array::{
-        Array as ArrowArray, ArrayRef as ArrowArrayRef, ListArray as ArrowListArray,
-        PrimitiveArray as ArrowPrimitiveArray, StringArray, StringViewArray,
-        StructArray as ArrowStructArray,
-    };
-    use arrow_buffer::{NullBufferBuilder, OffsetBuffer};
-    use arrow_schema::{DataType, Field};
+    use arrow_array::types::Int32Type;
+    use arrow_array::types::Int64Type;
+    use arrow_array::types::UInt64Type;
+    use arrow_buffer::NullBufferBuilder;
+    use arrow_buffer::OffsetBuffer;
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
     use vortex_buffer::buffer;
 
-    use crate::arrays::{ConstantArray, StructArray};
-    use crate::arrow::{FromArrowArray, IntoArrowArray};
-    use crate::{ArrayRef, IntoArray};
+    use crate::ArrayRef;
+    use crate::IntoArray;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::StructArray;
+    use crate::arrow::FromArrowArray;
+    use crate::arrow::IntoArrowArray;
 
     #[test]
     fn test_canonicalize_nested_struct() {

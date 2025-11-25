@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::Canonical;
-use crate::arrays::{FixedSizeListArray, FixedSizeListVTable};
+use crate::arrays::FixedSizeListArray;
+use crate::arrays::FixedSizeListVTable;
 use crate::vtable::CanonicalVTable;
 
 impl CanonicalVTable<FixedSizeListVTable> for FixedSizeListVTable {

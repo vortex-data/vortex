@@ -5,7 +5,10 @@ use std::marker::PhantomData;
 
 use vortex_error::VortexResult;
 
-use crate::expr::traversal::{Node, NodeExt, NodeVisitor, TraversalOrder};
+use crate::expr::traversal::Node;
+use crate::expr::traversal::NodeExt;
+use crate::expr::traversal::NodeVisitor;
+use crate::expr::traversal::TraversalOrder;
 
 struct FnVisitor<'a, F, T: 'a>
 where

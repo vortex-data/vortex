@@ -6,8 +6,16 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, NativeDType, NativeDecimalType, Nullability, i256};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::DType;
+use vortex_dtype::NativeDType;
+use vortex_dtype::NativeDecimalType;
+use vortex_dtype::Nullability;
+use vortex_dtype::i256;
+use vortex_error::VortexError;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 
 use super::*;
 
@@ -236,6 +244,44 @@ impl Scalar {
                 let scalar = Self::zero_value(dt.storage_dtype().clone());
                 Self::extension(dt, scalar)
             }
+        }
+    }
+
+    /// Returns true if the scalar is a zero value i.e., equal to a scalar returned from the ` zero_value ` method.
+    pub fn is_zero(&self) -> bool {
+        match self.dtype() {
+            DType::Null => true,
+            DType::Bool(_) => self.as_bool().value() == Some(false),
+            DType::Primitive(pt, _) => self.as_primitive().pvalue() == Some(PValue::zero(*pt)),
+            DType::Decimal(..) => {
+                self.as_decimal().decimal_value() == Some(DecimalValue::from(0i8))
+            }
+            DType::Utf8(_) => self
+                .as_utf8()
+                .value()
+                .map(|v| v.is_empty())
+                .unwrap_or(false),
+            DType::Binary(_) => self
+                .as_binary()
+                .value()
+                .map(|v| v.is_empty())
+                .unwrap_or(false),
+            DType::Struct(..) => self
+                .as_struct()
+                .fields()
+                .map(|mut sf| sf.all(|f| f.is_zero()))
+                .unwrap_or(false),
+            DType::List(..) => self
+                .as_list()
+                .elements()
+                .map(|vals| vals.is_empty())
+                .unwrap_or(false),
+            DType::FixedSizeList(..) => self
+                .as_list()
+                .elements()
+                .map(|vals| vals.iter().all(|f| f.is_zero()))
+                .unwrap_or(false),
+            DType::Extension(..) => self.as_extension().storage().is_zero(),
         }
     }
 

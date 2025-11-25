@@ -9,9 +9,13 @@ use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::arrays::{ChunkedArray, ChunkedVTable};
-use crate::stream::{ArrayStream, ArrayStreamAdapter};
-use crate::{Array, ArrayRef, IntoArray};
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ChunkedArray;
+use crate::arrays::ChunkedVTable;
+use crate::stream::ArrayStream;
+use crate::stream::ArrayStreamAdapter;
 
 /// Iterator of array with a known [`DType`].
 ///

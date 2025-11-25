@@ -2,15 +2,25 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_dtype::PType;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
+use crate::ProstMetadata;
 use crate::arrays::ListArray;
-use crate::metadata::{DeserializeMetadata, SerializeMetadata};
+use crate::metadata::DeserializeMetadata;
+use crate::metadata::SerializeMetadata;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{EncodingId, EncodingRef, ProstMetadata, vtable};
+use crate::vtable;
+use crate::vtable::ArrayId;
+use crate::vtable::ArrayVTable;
+use crate::vtable::ArrayVTableExt;
+use crate::vtable::NotSupported;
+use crate::vtable::VTable;
+use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
 mod canonical;
@@ -30,7 +40,7 @@ pub struct ListMetadata {
 
 impl VTable for ListVTable {
     type Array = ListArray;
-    type Encoding = ListEncoding;
+
     type Metadata = ProstMetadata<ListMetadata>;
 
     type ArrayVTable = Self;
@@ -42,12 +52,12 @@ impl VTable for ListVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.list")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.list")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ListEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ListVTable.as_vtable()
     }
 
     fn metadata(array: &ListArray) -> VortexResult<Self::Metadata> {
@@ -68,7 +78,7 @@ impl VTable for ListVTable {
     }
 
     fn build(
-        _encoding: &ListEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -104,4 +114,4 @@ impl VTable for ListVTable {
 }
 
 #[derive(Clone, Debug)]
-pub struct ListEncoding;
+pub struct ListVTable;

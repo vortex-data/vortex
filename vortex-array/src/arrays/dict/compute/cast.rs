@@ -4,9 +4,15 @@
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use super::{DictArray, DictVTable};
-use crate::compute::{CastKernel, CastKernelAdapter, cast};
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
+use super::DictArray;
+use super::DictVTable;
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::compute::CastKernel;
+use crate::compute::CastKernelAdapter;
+use crate::compute::cast;
+use crate::register_kernel;
 
 impl CastKernel for DictVTable {
     fn cast(&self, array: &DictArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -24,7 +30,6 @@ impl CastKernel for DictVTable {
         };
 
         // SAFETY: casting does not alter invariants of the codes
-        // Preserve all_values_referenced since casting only changes values, not which are referenced
         Ok(Some(
             unsafe {
                 DictArray::new_unchecked(casted_codes, casted_values)
@@ -41,14 +46,18 @@ register_kernel!(CastKernelAdapter(DictVTable).lift());
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
 
+    use crate::IntoArray;
+    use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::dict::DictVTable;
+    use crate::assert_arrays_eq;
     use crate::builders::dict::dict_encode;
     use crate::compute::cast;
     use crate::compute::conformance::cast::test_cast_conformance;
-    use crate::{IntoArray, ToCanonical, assert_arrays_eq};
 
     #[test]
     fn test_cast_dict_to_wider_type() {

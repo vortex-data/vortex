@@ -3,9 +3,16 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::{ConstantArray, ConstantVTable};
-use crate::compute::{CompareKernel, CompareKernelAdapter, Operator, scalar_cmp};
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
+use crate::compute::CompareKernel;
+use crate::compute::CompareKernelAdapter;
+use crate::compute::Operator;
+use crate::compute::scalar_cmp;
+use crate::register_kernel;
 
 impl CompareKernel for ConstantVTable {
     fn compare(

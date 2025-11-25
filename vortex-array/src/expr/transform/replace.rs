@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::{Nullability, StructFields};
+use vortex_dtype::Nullability;
+use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 
 use crate::expr::Expression;
 use crate::expr::exprs::get_item::col;
 use crate::expr::exprs::pack::pack;
 use crate::expr::exprs::root::root;
-use crate::expr::traversal::{NodeExt, Transformed, TraversalOrder};
+use crate::expr::traversal::NodeExt;
+use crate::expr::traversal::Transformed;
+use crate::expr::traversal::TraversalOrder;
 
 /// Replaces all occurrences of `needle` in the expression `expr` with `replacement`.
 pub fn replace(expr: Expression, needle: &Expression, replacement: Expression) -> Expression {

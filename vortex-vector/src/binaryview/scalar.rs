@@ -1,17 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::binaryview::{
-    BinaryType, BinaryViewType, BinaryViewTypeUpcast, BinaryViewVectorMut, StringType,
-};
-use crate::{Scalar, ScalarOps, VectorMutOps};
+use crate::Scalar;
+use crate::ScalarOps;
+use crate::VectorMutOps;
+use crate::binaryview::BinaryType;
+use crate::binaryview::BinaryViewType;
+use crate::binaryview::BinaryViewTypeUpcast;
+use crate::binaryview::BinaryViewVectorMut;
+use crate::binaryview::StringType;
 
 /// A scalar value for types that implement [`BinaryViewType`].
 #[derive(Debug)]
 pub struct BinaryViewScalar<T: BinaryViewType>(Option<T::Scalar>);
 
-impl<T: BinaryViewType> From<Option<T::Scalar>> for BinaryViewScalar<T> {
-    fn from(value: Option<T::Scalar>) -> Self {
+impl<T: BinaryViewType> BinaryViewScalar<T> {
+    /// Creates a new binary view scalar with the given value.
+    pub fn new(value: Option<T::Scalar>) -> Self {
         Self(value)
     }
 }

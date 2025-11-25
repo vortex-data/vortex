@@ -3,11 +3,13 @@
 
 #![allow(clippy::missing_safety_doc)]
 
-use std::ffi::{CStr, c_char};
+use std::ffi::CStr;
+use std::ffi::c_char;
 use std::sync::LazyLock;
 
 use vortex::VortexSessionDefault;
-use vortex::error::{VortexExpect, VortexResult};
+use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::session::RuntimeSessionExt;
@@ -15,7 +17,10 @@ use vortex::session::VortexSession;
 
 use crate::copy::VortexCopyFunction;
 use crate::duckdb::Config;
-pub use crate::duckdb::{Connection, Database, LogicalType, Value};
+pub use crate::duckdb::Connection;
+pub use crate::duckdb::Database;
+pub use crate::duckdb::LogicalType;
+pub use crate::duckdb::Value;
 use crate::scan::VortexTableFunction;
 
 mod convert;
@@ -120,7 +125,8 @@ mod tests {
     use std::ffi::CString;
 
     use super::*;
-    use crate::duckdb::{Config, Database};
+    use crate::duckdb::Config;
+    use crate::duckdb::Database;
 
     #[test]
     fn test_vortex_max_threads_option_registration() {

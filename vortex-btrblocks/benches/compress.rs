@@ -7,11 +7,16 @@
 #[cfg(not(codspeed))]
 mod benchmarks {
     use divan::Bencher;
-    use divan::counter::{BytesCount, ItemsCount};
+    use divan::counter::BytesCount;
+    use divan::counter::ItemsCount;
+    use rand::RngCore;
+    use rand::SeedableRng;
     use rand::prelude::StdRng;
-    use rand::{RngCore, SeedableRng};
-    use vortex_array::{ArrayRef, IntoArray, ToCanonical};
-    use vortex_btrblocks::{Compressor, IntCompressor};
+    use vortex_array::ArrayRef;
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
+    use vortex_btrblocks::Compressor;
+    use vortex_btrblocks::IntCompressor;
     use vortex_buffer::buffer_mut;
     use vortex_utils::aliases::hash_set::HashSet;
 
@@ -36,11 +41,12 @@ mod benchmarks {
 
     #[divan::bench]
     fn btrblocks(bencher: Bencher) {
+        let array = make_clickbench_window_name().to_primitive();
         bencher
-            .with_inputs(|| make_clickbench_window_name().to_primitive())
+            .with_inputs(|| &array)
             .input_counter(|array| ItemsCount::new(array.len()))
             .input_counter(|array| BytesCount::of_many::<i32>(array.len()))
-            .bench_values(|array| IntCompressor::compress(&array, false, 3, &[]).unwrap());
+            .bench_refs(|array| IntCompressor::compress(array, false, 3, &[]).unwrap());
     }
 }
 

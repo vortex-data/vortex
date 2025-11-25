@@ -3,15 +3,22 @@
 
 use core::fmt::Display;
 use std::cmp::Ordering;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
+use std::hash::Hasher;
 
-use num_traits::{NumCast, ToPrimitive};
+use num_traits::NumCast;
+use num_traits::ToPrimitive;
 use paste::paste;
+use vortex_dtype::NativePType;
+use vortex_dtype::PType;
+use vortex_dtype::ToBytes;
 use vortex_dtype::half::f16;
-use vortex_dtype::{NativePType, PType, ToBytes};
-use vortex_error::{
-    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_err,
-};
+use vortex_error::VortexError;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 
 /// A primitive value that can represent any primitive type supported by Vortex.
 ///
@@ -526,8 +533,10 @@ impl CoercePValue for f64 {
 mod test {
     use std::cmp::Ordering;
 
+    use vortex_dtype::FromPrimitiveOrF16;
+    use vortex_dtype::PType;
+    use vortex_dtype::ToBytes;
     use vortex_dtype::half::f16;
-    use vortex_dtype::{FromPrimitiveOrF16, PType, ToBytes};
     use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::PValue;

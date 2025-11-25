@@ -4,15 +4,23 @@
 use std::sync::Arc;
 
 use vortex_compute::filter::Filter;
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_vector::{Vector, vector_matches_dtype};
+use vortex_vector::Vector;
+use vortex_vector::vector_matches_dtype;
 
-use crate::execution::{BatchKernelRef, BindCtx, DummyExecutionCtx, ExecutionCtx};
+use crate::Array;
+use crate::ArrayAdapter;
+use crate::ArrayRef;
+use crate::execution::BatchKernelRef;
+use crate::execution::BindCtx;
+use crate::execution::DummyExecutionCtx;
+use crate::execution::ExecutionCtx;
 use crate::pipeline::PipelinedNode;
 use crate::pipeline::driver::PipelineDriver;
-use crate::vtable::{OperatorVTable, VTable};
-use crate::{Array, ArrayAdapter, ArrayRef};
+use crate::vtable::OperatorVTable;
+use crate::vtable::VTable;
 
 /// Array functions as provided by the `OperatorVTable`.
 ///

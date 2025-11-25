@@ -7,7 +7,9 @@
 use rstest::rstest;
 use vortex_buffer::BitBuffer;
 
-use crate::{AllOr, Mask, MaskIter};
+use crate::AllOr;
+use crate::Mask;
+use crate::MaskIter;
 
 // Basic mask creation and properties tests
 #[test]

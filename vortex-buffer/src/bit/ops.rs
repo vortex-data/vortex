@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::BitBuffer;
+use crate::BitBufferMut;
+use crate::Buffer;
 use crate::trusted_len::TrustedLenExt;
-use crate::{BitBuffer, BitBufferMut, Buffer};
 
 pub(super) fn bitwise_unary_op<F: FnMut(u64) -> u64>(buffer: &BitBuffer, op: F) -> BitBuffer {
     let iter = buffer.chunks().iter_padded().map(op);
@@ -67,7 +69,8 @@ pub(super) fn bitwise_binary_op<F: FnMut(u64, u64) -> u64>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{bitbuffer, buffer};
+    use crate::bitbuffer;
+    use crate::buffer;
 
     #[test]
     fn test_bitwise_unary_not() {

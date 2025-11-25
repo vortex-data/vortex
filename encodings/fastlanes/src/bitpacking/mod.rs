@@ -2,9 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
-pub use array::{BitPackedArray, bitpack_compress, bitpack_decompress, unpack_iter};
-
-mod vtable;
-pub use vtable::{BitPackedEncoding, BitPackedVTable};
+pub use array::BitPackedArray;
+pub use array::bitpack_compress;
+pub use array::bitpack_decompress;
+pub use array::unpack_iter;
 
 mod compute;
+
+mod vtable;
+pub use vtable::BitPackedVTable;

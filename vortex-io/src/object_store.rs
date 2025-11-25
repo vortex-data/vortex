@@ -7,11 +7,15 @@ use std::sync::Arc;
 use bytes::BytesMut;
 use futures::TryStreamExt;
 use futures::stream::FuturesUnordered;
+use object_store::MultipartUpload;
+use object_store::ObjectStore;
+use object_store::PutPayload;
+use object_store::PutResult;
 use object_store::path::Path;
-use object_store::{MultipartUpload, ObjectStore, PutPayload, PutResult};
 use vortex_error::VortexResult;
 
-use crate::{IoBuf, VortexWrite};
+use crate::IoBuf;
+use crate::VortexWrite;
 
 /// Adapter type to write data through a [`ObjectStore`] instance.
 ///

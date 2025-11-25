@@ -1,21 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::{Alignment, Buffer, ByteBuffer};
-use vortex_dtype::{DType, NativeDecimalType, PrecisionScale, match_each_decimal_value_type};
-use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
+use vortex_buffer::Alignment;
+use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::DType;
+use vortex_dtype::NativeDecimalType;
+use vortex_dtype::PrecisionScale;
+use vortex_dtype::match_each_decimal_value_type;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_scalar::DecimalType;
 use vortex_vector::Vector;
 use vortex_vector::decimal::DVector;
 
+use crate::DeserializeMetadata;
+use crate::ProstMetadata;
+use crate::SerializeMetadata;
 use crate::arrays::DecimalArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{
-    DeserializeMetadata, EncodingId, EncodingRef, ProstMetadata, SerializeMetadata, vtable,
-};
+use crate::vtable;
+use crate::vtable::ArrayVTableExt;
+use crate::vtable::NotSupported;
+use crate::vtable::VTable;
+use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
 mod canonical;
@@ -25,6 +36,9 @@ mod validity;
 mod visitor;
 
 pub use operator::DecimalMaskedValidityRule;
+
+use crate::vtable::ArrayId;
+use crate::vtable::ArrayVTable;
 
 vtable!(Decimal);
 
@@ -37,7 +51,7 @@ pub struct DecimalMetadata {
 
 impl VTable for DecimalVTable {
     type Array = DecimalArray;
-    type Encoding = DecimalEncoding;
+
     type Metadata = ProstMetadata<DecimalMetadata>;
 
     type ArrayVTable = Self;
@@ -49,12 +63,12 @@ impl VTable for DecimalVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.decimal")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.decimal")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(DecimalEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        DecimalVTable.as_vtable()
     }
 
     fn metadata(array: &DecimalArray) -> VortexResult<Self::Metadata> {
@@ -73,7 +87,7 @@ impl VTable for DecimalVTable {
     }
 
     fn build(
-        _encoding: &DecimalEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -125,17 +139,22 @@ impl VTable for DecimalVTable {
 }
 
 #[derive(Clone, Debug)]
-pub struct DecimalEncoding;
+pub struct DecimalVTable;
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::{ByteBufferMut, buffer};
+    use vortex_buffer::ByteBufferMut;
+    use vortex_buffer::buffer;
     use vortex_dtype::DecimalDType;
 
-    use crate::arrays::{DecimalArray, DecimalEncoding};
-    use crate::serde::{ArrayParts, SerializeOptions};
+    use crate::ArrayContext;
+    use crate::IntoArray;
+    use crate::arrays::DecimalArray;
+    use crate::arrays::DecimalVTable;
+    use crate::serde::ArrayParts;
+    use crate::serde::SerializeOptions;
     use crate::validity::Validity;
-    use crate::{ArrayContext, EncodingRef, IntoArray};
+    use crate::vtable::ArrayVTableExt;
 
     #[test]
     fn test_array_serde() {
@@ -145,7 +164,7 @@ mod tests {
             Validity::NonNullable,
         );
         let dtype = array.dtype().clone();
-        let ctx = ArrayContext::empty().with(EncodingRef::new_ref(DecimalEncoding.as_ref()));
+        let ctx = ArrayContext::empty().with(DecimalVTable.as_vtable());
         let out = array
             .into_array()
             .serialize(&ctx, &SerializeOptions::default())
@@ -161,6 +180,6 @@ mod tests {
         let parts = ArrayParts::try_from(concat).unwrap();
 
         let decoded = parts.decode(&ctx, &dtype, 5).unwrap();
-        assert_eq!(decoded.encoding_id(), DecimalEncoding.id());
+        assert!(decoded.is::<DecimalVTable>());
     }
 }

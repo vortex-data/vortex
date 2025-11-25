@@ -1,18 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::{Alignment, Buffer, ByteBuffer};
-use vortex_dtype::{DType, PType, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_buffer::Alignment;
+use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::DType;
+use vortex_dtype::PType;
+use vortex_dtype::match_each_native_ptype;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_vector::Vector;
 use vortex_vector::primitive::PVector;
 
+use crate::EmptyMetadata;
 use crate::arrays::PrimitiveArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{EmptyMetadata, EncodingId, EncodingRef, vtable};
+use crate::vtable;
+use crate::vtable::ArrayVTableExt;
+use crate::vtable::NotSupported;
+use crate::vtable::VTable;
+use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
 mod canonical;
@@ -23,11 +32,14 @@ mod visitor;
 
 pub use operator::PrimitiveMaskedValidityRule;
 
+use crate::vtable::ArrayId;
+use crate::vtable::ArrayVTable;
+
 vtable!(Primitive);
 
 impl VTable for PrimitiveVTable {
     type Array = PrimitiveArray;
-    type Encoding = PrimitiveEncoding;
+
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
@@ -39,12 +51,12 @@ impl VTable for PrimitiveVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.primitive")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.primitive")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(PrimitiveEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        PrimitiveVTable.as_vtable()
     }
 
     fn metadata(_array: &PrimitiveArray) -> VortexResult<Self::Metadata> {
@@ -60,7 +72,7 @@ impl VTable for PrimitiveVTable {
     }
 
     fn build(
-        _encoding: &PrimitiveEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
@@ -113,4 +125,4 @@ impl VTable for PrimitiveVTable {
 }
 
 #[derive(Clone, Debug)]
-pub struct PrimitiveEncoding;
+pub struct PrimitiveVTable;

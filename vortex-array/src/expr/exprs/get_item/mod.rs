@@ -8,16 +8,31 @@ use std::ops::Not;
 
 use prost::Message;
 use vortex_compute::mask::MaskValidity;
-use vortex_dtype::{DType, FieldName, FieldPath, Nullability};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::DType;
+use vortex_dtype::FieldName;
+use vortex_dtype::FieldPath;
+use vortex_dtype::Nullability;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
-use vortex_vector::{Vector, VectorOps};
+use vortex_vector::Vector;
+use vortex_vector::VectorOps;
 
+use crate::ArrayRef;
+use crate::ToCanonical;
 use crate::compute::mask;
+use crate::expr::ChildName;
+use crate::expr::ExecutionArgs;
+use crate::expr::ExprId;
+use crate::expr::Expression;
+use crate::expr::ExpressionView;
+use crate::expr::StatsCatalog;
+use crate::expr::VTable;
+use crate::expr::VTableExt;
 use crate::expr::exprs::root::root;
-use crate::expr::{ChildName, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt};
 use crate::stats::Stat;
-use crate::{ArrayRef, ToCanonical};
 
 pub struct GetItem;
 
@@ -98,29 +113,6 @@ impl VTable for GetItem {
         }
     }
 
-    fn execute(
-        &self,
-        expr: &ExpressionView<Self>,
-        vector: &Vector,
-        dtype: &DType,
-    ) -> VortexResult<Vector> {
-        let child_dtype = expr.child(0).return_dtype(dtype)?;
-        let struct_dtype = child_dtype
-            .as_struct_fields_opt()
-            .ok_or_else(|| vortex_err!("Expected struct dtype for child of GetItem expression"))?;
-        let field_idx = struct_dtype
-            .find(expr.data())
-            .ok_or_else(|| vortex_err!("Field {} not found in struct dtype", expr.data()))?;
-
-        let struct_vector = expr.child(0).execute(vector, dtype)?.into_struct();
-
-        // We must intersect the validity with that of the parent struct
-        let field = struct_vector.fields()[field_idx].clone();
-        let field = MaskValidity::mask_validity(field, struct_vector.validity());
-
-        Ok(field)
-    }
-
     fn stat_expression(
         &self,
         expr: &ExpressionView<Self>,
@@ -136,6 +128,27 @@ impl VTable for GetItem {
         //  name as a field in the root struct. This should be resolved with upcoming change to
         //  falsify expressions, but for now I'm preserving the existing buggy behavior.
         catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), stat)
+    }
+
+    fn execute(&self, field_name: &FieldName, mut args: ExecutionArgs) -> VortexResult<Vector> {
+        let struct_dtype = args.dtypes[0]
+            .as_struct_fields_opt()
+            .ok_or_else(|| vortex_err!("Expected struct dtype for child of GetItem expression"))?;
+        let field_idx = struct_dtype
+            .find(field_name)
+            .ok_or_else(|| vortex_err!("Field {} not found in struct dtype", field_name))?;
+
+        let struct_vector = args
+            .vectors
+            .pop()
+            .vortex_expect("missing input")
+            .into_struct();
+
+        // We must intersect the validity with that of the parent struct
+        let field = struct_vector.fields()[field_idx].clone();
+        let field = MaskValidity::mask_validity(field, struct_vector.validity());
+
+        Ok(field)
     }
 
     // This will apply struct nullability field. We could add a dtype??
@@ -171,15 +184,18 @@ pub fn get_item(field: impl Into<FieldName>, child: Expression) -> Expression {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::FieldNames;
+    use vortex_dtype::Nullability;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, FieldNames, Nullability};
     use vortex_scalar::Scalar;
 
     use super::get_item;
+    use crate::Array;
+    use crate::IntoArray;
     use crate::arrays::StructArray;
     use crate::expr::exprs::root::root;
     use crate::validity::Validity;
-    use crate::{Array, IntoArray};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[

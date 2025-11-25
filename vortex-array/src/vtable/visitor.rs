@@ -3,8 +3,10 @@
 
 use vortex_buffer::ByteBuffer;
 
+use crate::Array;
+use crate::ArrayBufferVisitor;
+use crate::ArrayChildVisitor;
 use crate::vtable::VTable;
-use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor};
 
 pub trait VisitorVTable<V: VTable> {
     /// Visit the buffers of the array.

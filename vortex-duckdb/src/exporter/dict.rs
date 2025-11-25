@@ -7,15 +7,26 @@ use std::sync::Arc;
 use bitvec::macros::internal::funty::Fundamental;
 use num_traits::AsPrimitive;
 use parking_lot::Mutex;
-use vortex::arrays::{ConstantArray, ConstantVTable, DictArray, PrimitiveArray};
-use vortex::dtype::{IntegerPType, match_each_integer_ptype};
+use vortex::Array;
+use vortex::ToCanonical;
+use vortex::arrays::ConstantArray;
+use vortex::arrays::ConstantVTable;
+use vortex::arrays::DictArray;
+use vortex::arrays::PrimitiveArray;
+use vortex::compute;
+use vortex::dtype::IntegerPType;
+use vortex::dtype::match_each_integer_ptype;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
-use vortex::{Array, ToCanonical, compute};
 
-use crate::duckdb::{LogicalType, SelectionVector, Vector};
+use crate::duckdb::LogicalType;
+use crate::duckdb::SelectionVector;
+use crate::duckdb::Vector;
+use crate::exporter::ColumnExporter;
+use crate::exporter::all_invalid;
 use crate::exporter::cache::ConversionCache;
-use crate::exporter::{ColumnExporter, all_invalid, constant, new_array_exporter};
+use crate::exporter::constant;
+use crate::exporter::new_array_exporter;
 
 struct DictExporter<I: IntegerPType> {
     // Store the dictionary values once and export the same dictionary with each codes chunk.
@@ -148,14 +159,19 @@ impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
 #[cfg(test)]
 mod tests {
     use vortex::IntoArray;
-    use vortex::arrays::{ConstantArray, DictArray, PrimitiveArray};
+    use vortex::arrays::ConstantArray;
+    use vortex::arrays::DictArray;
+    use vortex::arrays::PrimitiveArray;
     use vortex::buffer::Buffer;
     use vortex::error::VortexResult;
 
     use crate::cpp;
-    use crate::duckdb::{DataChunk, LogicalType};
+    use crate::duckdb::DataChunk;
+    use crate::duckdb::LogicalType;
+    use crate::exporter::ColumnExporter;
+    use crate::exporter::ConversionCache;
     use crate::exporter::dict::new_exporter_with_flatten;
-    use crate::exporter::{ColumnExporter, ConversionCache, new_array_exporter};
+    use crate::exporter::new_array_exporter;
 
     pub(crate) fn new_exporter(
         array: &DictArray,

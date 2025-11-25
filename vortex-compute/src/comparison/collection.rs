@@ -3,7 +3,8 @@
 
 use vortex_buffer::BitBuffer;
 
-use crate::comparison::{Compare, ComparisonOperator};
+use crate::comparison::Compare;
+use crate::comparison::ComparisonOperator;
 
 /// Adapter to implement `Compare` for any `ComparableCollection`.
 pub(crate) struct ComparableCollectionAdapter<C>(pub C);
@@ -70,7 +71,10 @@ mod tests {
     use vortex_buffer::bitbuffer;
 
     use super::*;
-    use crate::comparison::{Equal, GreaterThan, LessThan, NotEqual};
+    use crate::comparison::Equal;
+    use crate::comparison::GreaterThan;
+    use crate::comparison::LessThan;
+    use crate::comparison::NotEqual;
 
     #[test]
     fn test_slice_equal() {

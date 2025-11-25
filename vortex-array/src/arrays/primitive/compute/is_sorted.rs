@@ -2,12 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_dtype::{NativePType, match_each_native_ptype};
+use vortex_dtype::NativePType;
+use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::{PrimitiveArray, PrimitiveVTable};
-use crate::compute::{IsSortedIteratorExt, IsSortedKernel, IsSortedKernelAdapter};
+use crate::arrays::PrimitiveArray;
+use crate::arrays::PrimitiveVTable;
+use crate::compute::IsSortedIteratorExt;
+use crate::compute::IsSortedKernel;
+use crate::compute::IsSortedKernelAdapter;
 use crate::register_kernel;
 
 impl IsSortedKernel for PrimitiveVTable {
@@ -91,7 +95,8 @@ mod tests {
     use vortex_error::VortexUnwrap;
 
     use super::*;
-    use crate::compute::{is_sorted, is_strict_sorted};
+    use crate::compute::is_sorted;
+    use crate::compute::is_strict_sorted;
 
     #[rstest]
     #[case(PrimitiveArray::from_iter([1, 2, 3, 4, 5]), true)]

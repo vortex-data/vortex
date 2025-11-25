@@ -3,9 +3,14 @@
 
 use std::sync::Arc;
 
-use vortex_mask::{Mask, MaskMut};
-use vortex_vector::struct_::{StructVector, StructVectorMut};
-use vortex_vector::{Vector, VectorMut, VectorOps};
+use vortex_mask::Mask;
+use vortex_mask::MaskMut;
+use vortex_vector::Vector;
+use vortex_vector::VectorMut;
+use vortex_vector::VectorMutOps;
+use vortex_vector::VectorOps;
+use vortex_vector::struct_::StructVector;
+use vortex_vector::struct_::StructVectorMut;
 
 use crate::filter::Filter;
 
@@ -46,6 +51,26 @@ where
             }
 
             self.validity_mut().filter(selection);
+        }
+    }
+}
+
+impl<M> Filter<M> for StructVector
+where
+    for<'a> &'a StructVector: Filter<M, Output = StructVector>,
+    for<'a> &'a mut StructVectorMut: Filter<M, Output = ()>,
+{
+    type Output = Self;
+
+    fn filter(self, selection: &M) -> Self {
+        match self.try_into_mut() {
+            // If we have exclusive access, we can perform the filter in place.
+            Ok(mut vector_mut) => {
+                (&mut vector_mut).filter(selection);
+                vector_mut.freeze()
+            }
+            // Otherwise, allocate a new buffer and fill it in (delegate to the `&StructVector` impl).
+            Err(vector) => (&vector).filter(selection),
         }
     }
 }

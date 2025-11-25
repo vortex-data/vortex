@@ -7,14 +7,20 @@ use std::fmt::Debug;
 use std::ops::RangeBounds;
 use std::sync::Arc;
 
-use vortex_buffer::{Alignment, Buffer, ByteBuffer};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_buffer::Alignment;
+use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
+use crate::VectorOps;
+use crate::binaryview::BinaryViewScalar;
+use crate::binaryview::BinaryViewType;
 use crate::binaryview::vector_mut::BinaryViewVectorMut;
-use crate::binaryview::view::{BinaryView, validate_views};
-use crate::binaryview::{BinaryViewScalar, BinaryViewType};
-use crate::{Scalar, VectorOps};
+use crate::binaryview::view::BinaryView;
+use crate::binaryview::view::validate_views;
 
 /// A variable-length binary vector.
 ///
@@ -193,6 +199,7 @@ impl<T: BinaryViewType> BinaryViewVector<T> {
 
 impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
     type Mutable = BinaryViewVectorMut<T>;
+    type Scalar = BinaryViewScalar<T>;
 
     fn len(&self) -> usize {
         self.views.len()
@@ -202,9 +209,9 @@ impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
         &self.validity
     }
 
-    fn scalar_at(&self, index: usize) -> Scalar {
+    fn scalar_at(&self, index: usize) -> BinaryViewScalar<T> {
         assert!(index < self.len());
-        BinaryViewScalar::<T>::from(self.get(index)).into()
+        BinaryViewScalar::<T>::new(self.get(index))
     }
 
     fn slice(&self, _range: impl RangeBounds<usize> + Clone + Debug) -> Self {
@@ -281,12 +288,15 @@ impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_buffer::{ByteBuffer, buffer};
+    use vortex_buffer::ByteBuffer;
+    use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
+    use crate::VectorMutOps;
+    use crate::VectorOps;
+    use crate::binaryview::StringVector;
+    use crate::binaryview::StringVectorMut;
     use crate::binaryview::view::BinaryView;
-    use crate::binaryview::{StringVector, StringVectorMut};
-    use crate::{VectorMutOps, VectorOps};
 
     #[test]
     #[should_panic(expected = "views buffer length 1 != validity length 100")]

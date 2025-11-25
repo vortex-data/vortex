@@ -5,9 +5,11 @@ use std::ops::Range;
 
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ConstantArray, ConstantVTable};
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
 use crate::vtable::OperationsVTable;
-use crate::{ArrayRef, IntoArray};
 
 impl OperationsVTable<ConstantVTable> for ConstantVTable {
     fn slice(array: &ConstantArray, range: Range<usize>) -> ArrayRef {

@@ -6,9 +6,18 @@ use std::ops::Deref;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
-use vortex::dtype::{DType, Nullability, PType};
+use vortex::dtype::DType;
+use vortex::dtype::Nullability;
+use vortex::dtype::PType;
 use vortex::expr;
-use vortex::expr::{Binary, Expression, GetItem, Operator, VTableExt, and, lit, not};
+use vortex::expr::Binary;
+use vortex::expr::Expression;
+use vortex::expr::GetItem;
+use vortex::expr::Operator;
+use vortex::expr::VTableExt;
+use vortex::expr::and;
+use vortex::expr::lit;
+use vortex::expr::not;
 
 use crate::arrays::PyArrayRef;
 use crate::arrays::into_array::PyIntoArray;
@@ -82,17 +91,17 @@ fn py_binary_operator<'py>(
 
 fn coerce_expr<'py>(value: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyExpr>> {
     let nonnull = Nullability::NonNullable;
-    if let Ok(value) = value.downcast::<PyExpr>() {
+    if let Ok(value) = value.cast::<PyExpr>() {
         Ok(value.clone())
-    } else if let Ok(value) = value.downcast::<PyNone>() {
+    } else if let Ok(value) = value.cast::<PyNone>() {
         scalar(DType::Null, value)
-    } else if let Ok(value) = value.downcast::<PyInt>() {
+    } else if let Ok(value) = value.cast::<PyInt>() {
         scalar(DType::Primitive(PType::I64, nonnull), value)
-    } else if let Ok(value) = value.downcast::<PyFloat>() {
+    } else if let Ok(value) = value.cast::<PyFloat>() {
         scalar(DType::Primitive(PType::F64, nonnull), value)
-    } else if let Ok(value) = value.downcast::<PyString>() {
+    } else if let Ok(value) = value.cast::<PyString>() {
         scalar(DType::Utf8(nonnull), value)
-    } else if let Ok(value) = value.downcast::<PyBytes>() {
+    } else if let Ok(value) = value.cast::<PyBytes>() {
         scalar(DType::Binary(nonnull), value)
     } else {
         Err(PyValueError::new_err(format!(

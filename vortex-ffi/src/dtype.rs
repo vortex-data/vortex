@@ -4,9 +4,14 @@
 use std::ptr;
 use std::sync::Arc;
 
-use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata};
-use vortex::dtype::{DType, DecimalDType};
-use vortex::error::{VortexExpect, vortex_panic};
+use vortex::dtype::DType;
+use vortex::dtype::DecimalDType;
+use vortex::dtype::datetime::DATE_ID;
+use vortex::dtype::datetime::TIME_ID;
+use vortex::dtype::datetime::TIMESTAMP_ID;
+use vortex::dtype::datetime::TemporalMetadata;
+use vortex::error::VortexExpect;
+use vortex::error::vortex_panic;
 
 use crate::arc_wrapper;
 use crate::ptype::vx_ptype;
@@ -313,24 +318,34 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(dtype: *const DType) -> *cons
 mod tests {
     use std::slice;
 
+    use vortex::ArrayRef;
+    use vortex::IntoArray;
     use vortex::arrays::StructArray;
     use vortex::buffer::Buffer;
-    use vortex::dtype::{DType, DecimalDType};
-    use vortex::{ArrayRef, IntoArray};
+    use vortex::dtype::DType;
+    use vortex::dtype::DecimalDType;
 
     use super::*;
-    use crate::array::{vx_array, vx_array_dtype};
-    use crate::dtype::{
-        vx_dtype, vx_dtype_free, vx_dtype_get_variant, vx_dtype_new_bool, vx_dtype_new_primitive,
-        vx_dtype_new_utf8, vx_dtype_variant,
-    };
+    use crate::array::vx_array;
+    use crate::array::vx_array_dtype;
+    use crate::dtype::vx_dtype;
+    use crate::dtype::vx_dtype_free;
+    use crate::dtype::vx_dtype_get_variant;
+    use crate::dtype::vx_dtype_new_bool;
+    use crate::dtype::vx_dtype_new_primitive;
+    use crate::dtype::vx_dtype_new_utf8;
+    use crate::dtype::vx_dtype_variant;
     use crate::ptype::vx_ptype;
-    use crate::string::{vx_string, vx_string_len, vx_string_ptr};
-    use crate::struct_fields::{
-        vx_struct_fields_builder_add_field, vx_struct_fields_builder_finalize,
-        vx_struct_fields_builder_new, vx_struct_fields_field_dtype, vx_struct_fields_field_name,
-        vx_struct_fields_free, vx_struct_fields_nfields,
-    };
+    use crate::string::vx_string;
+    use crate::string::vx_string_len;
+    use crate::string::vx_string_ptr;
+    use crate::struct_fields::vx_struct_fields_builder_add_field;
+    use crate::struct_fields::vx_struct_fields_builder_finalize;
+    use crate::struct_fields::vx_struct_fields_builder_new;
+    use crate::struct_fields::vx_struct_fields_field_dtype;
+    use crate::struct_fields::vx_struct_fields_field_name;
+    use crate::struct_fields::vx_struct_fields_free;
+    use crate::struct_fields::vx_struct_fields_nfields;
 
     #[test]
     fn test_simple() {

@@ -12,17 +12,32 @@ use vortex_scalar::Scalar;
 use vortex_vector::Vector;
 use vortex_vector::null::NullVector;
 
-use crate::execution::{BatchKernelRef, BindCtx, ExecutionCtx, kernel};
+use crate::ArrayBufferVisitor;
+use crate::ArrayChildVisitor;
+use crate::ArrayRef;
+use crate::Canonical;
+use crate::EmptyMetadata;
+use crate::IntoArray;
+use crate::Precision;
+use crate::execution::BatchKernelRef;
+use crate::execution::BindCtx;
+use crate::execution::ExecutionCtx;
+use crate::execution::kernel;
 use crate::serde::ArrayChildren;
-use crate::stats::{ArrayStats, StatsSetRef};
-use crate::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, OperatorVTable, VTable,
-    ValidityVTable, VisitorVTable,
-};
-use crate::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EmptyMetadata, EncodingId,
-    EncodingRef, IntoArray, Precision, vtable,
-};
+use crate::stats::ArrayStats;
+use crate::stats::StatsSetRef;
+use crate::vtable;
+use crate::vtable::ArrayId;
+use crate::vtable::ArrayVTable;
+use crate::vtable::ArrayVTableExt;
+use crate::vtable::BaseArrayVTable;
+use crate::vtable::CanonicalVTable;
+use crate::vtable::NotSupported;
+use crate::vtable::OperationsVTable;
+use crate::vtable::OperatorVTable;
+use crate::vtable::VTable;
+use crate::vtable::ValidityVTable;
+use crate::vtable::VisitorVTable;
 
 mod compute;
 
@@ -30,7 +45,7 @@ vtable!(Null);
 
 impl VTable for NullVTable {
     type Array = NullArray;
-    type Encoding = NullEncoding;
+
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
@@ -42,12 +57,12 @@ impl VTable for NullVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.null")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.null")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(NullEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        NullVTable.as_vtable()
     }
 
     fn metadata(_array: &NullArray) -> VortexResult<Self::Metadata> {
@@ -63,7 +78,7 @@ impl VTable for NullVTable {
     }
 
     fn build(
-        _encoding: &NullEncoding,
+        &self,
         _dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
@@ -109,7 +124,7 @@ pub struct NullArray {
 }
 
 #[derive(Clone, Debug)]
-pub struct NullEncoding;
+pub struct NullVTable;
 
 impl NullArray {
     pub fn new(len: usize) -> Self {
@@ -120,7 +135,7 @@ impl NullArray {
     }
 }
 
-impl ArrayVTable<NullVTable> for NullVTable {
+impl BaseArrayVTable<NullVTable> for NullVTable {
     fn len(array: &NullArray) -> usize {
         array.len
     }

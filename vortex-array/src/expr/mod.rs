@@ -10,7 +10,8 @@
 //! [Postgres]: https://www.postgresql.org/docs/current/sql-expressions.html
 //! [Apache Datafusion]: https://github.com/apache/datafusion/tree/5fac581efbaffd0e6a9edf931182517524526afd/datafusion/expr
 
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::Arc;
 
 use arcref::ArcRef;
@@ -18,7 +19,8 @@ use vortex_dtype::FieldName;
 use vortex_error::VortexUnwrap;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::expr::traversal::{NodeExt, ReferenceCollector};
+use crate::expr::traversal::NodeExt;
+use crate::expr::traversal::ReferenceCollector;
 
 pub mod aliases;
 pub mod analysis;
@@ -98,7 +100,10 @@ impl Hash for ExactExpr {
 
 #[cfg(feature = "test-harness")]
 pub mod test_harness {
-    use vortex_dtype::{DType, Nullability, PType, StructFields};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
+    use vortex_dtype::StructFields;
 
     pub fn struct_dtype() -> DType {
         DType::Struct(
@@ -119,16 +124,29 @@ pub mod test_harness {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
+    use vortex_dtype::DType;
+    use vortex_dtype::FieldNames;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
+    use vortex_dtype::StructFields;
     use vortex_scalar::Scalar;
 
     use super::*;
-    use crate::expr::exprs::binary::{and, eq, gt, gt_eq, lt, lt_eq, not_eq, or};
-    use crate::expr::exprs::get_item::{col, get_item};
+    use crate::expr::exprs::binary::and;
+    use crate::expr::exprs::binary::eq;
+    use crate::expr::exprs::binary::gt;
+    use crate::expr::exprs::binary::gt_eq;
+    use crate::expr::exprs::binary::lt;
+    use crate::expr::exprs::binary::lt_eq;
+    use crate::expr::exprs::binary::not_eq;
+    use crate::expr::exprs::binary::or;
+    use crate::expr::exprs::get_item::col;
+    use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::not::not;
     use crate::expr::exprs::root::root;
-    use crate::expr::exprs::select::{select, select_exclude};
+    use crate::expr::exprs::select::select;
+    use crate::expr::exprs::select::select_exclude;
 
     #[test]
     fn basic_expr_split_test() {

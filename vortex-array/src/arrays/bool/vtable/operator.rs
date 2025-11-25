@@ -5,11 +5,19 @@ use vortex_compute::filter::Filter;
 use vortex_error::VortexResult;
 use vortex_vector::bool::BoolVector;
 
-use crate::array::transform::{ArrayParentReduceRule, ArrayRuleContext};
-use crate::arrays::{BoolArray, BoolVTable, MaskedArray, MaskedVTable};
-use crate::execution::{BatchKernelRef, BindCtx, kernel};
-use crate::vtable::{OperatorVTable, ValidityHelper};
-use crate::{ArrayRef, IntoArray};
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::array::transform::ArrayParentReduceRule;
+use crate::array::transform::ArrayRuleContext;
+use crate::arrays::BoolArray;
+use crate::arrays::BoolVTable;
+use crate::arrays::MaskedArray;
+use crate::arrays::MaskedVTable;
+use crate::execution::BatchKernelRef;
+use crate::execution::BindCtx;
+use crate::execution::kernel;
+use crate::vtable::OperatorVTable;
+use crate::vtable::ValidityHelper;
 
 impl OperatorVTable<BoolVTable> for BoolVTable {
     fn bind(
@@ -37,6 +45,7 @@ impl OperatorVTable<BoolVTable> for BoolVTable {
 ///
 /// When a BoolArray is wrapped by a MaskedArray, this rule merges the mask's validity
 /// with the BoolArray's existing validity, eliminating the need for the MaskedArray wrapper.
+#[derive(Default, Debug)]
 pub struct BoolMaskedValidityRule;
 
 impl ArrayParentReduceRule<BoolVTable, MaskedVTable> for BoolMaskedValidityRule {

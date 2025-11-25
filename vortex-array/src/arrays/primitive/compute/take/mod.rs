@@ -10,17 +10,26 @@ mod portable;
 use std::sync::LazyLock;
 
 use vortex_buffer::Buffer;
-use vortex_dtype::{
-    DType, IntegerPType, NativePType, match_each_integer_ptype, match_each_native_ptype,
-};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_dtype::DType;
+use vortex_dtype::IntegerPType;
+use vortex_dtype::NativePType;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_dtype::match_each_native_ptype;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::ToCanonical;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
-use crate::compute::{TakeKernel, TakeKernelAdapter, cast};
+use crate::compute::TakeKernel;
+use crate::compute::TakeKernelAdapter;
+use crate::compute::cast;
+use crate::register_kernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 // Kernel selection happens on the first call to `take` and uses a combination of compile-time
 // and runtime feature detection to infer the best kernel for the platform.
@@ -107,12 +116,14 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
+    use crate::Array;
+    use crate::IntoArray;
+    use crate::arrays::BoolArray;
+    use crate::arrays::PrimitiveArray;
     use crate::arrays::primitive::compute::take::take_primitive_scalar;
-    use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::validity::Validity;
-    use crate::{Array, IntoArray};
 
     #[test]
     fn test_take() {

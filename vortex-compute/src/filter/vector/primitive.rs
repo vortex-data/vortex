@@ -2,8 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_dtype::half::f16;
-use vortex_vector::primitive::{PVector, PVectorMut, PrimitiveVector, PrimitiveVectorMut};
-use vortex_vector::{match_each_pvector, match_each_pvector_mut};
+use vortex_vector::VectorMutOps;
+use vortex_vector::VectorOps;
+use vortex_vector::match_each_pvector;
+use vortex_vector::match_each_pvector_mut;
+use vortex_vector::primitive::PVector;
+use vortex_vector::primitive::PVectorMut;
+use vortex_vector::primitive::PrimitiveVector;
+use vortex_vector::primitive::PrimitiveVectorMut;
 
 use crate::filter::Filter;
 
@@ -46,5 +52,26 @@ where
 
     fn filter(self, selection: &M) -> Self::Output {
         match_each_pvector_mut!(self, |v| { v.filter(selection) })
+    }
+}
+
+impl<M> Filter<M> for PrimitiveVector
+where
+    for<'a> &'a PrimitiveVector: Filter<M, Output = PrimitiveVector>,
+    for<'a> &'a mut PrimitiveVectorMut: Filter<M, Output = ()>,
+{
+    type Output = Self;
+
+    fn filter(self, selection: &M) -> Self {
+        match self.try_into_mut() {
+            // If we have exclusive access, we can perform the filter in place.
+            Ok(mut vector_mut) => {
+                (&mut vector_mut).filter(selection);
+                vector_mut.freeze()
+            }
+            // Otherwise, allocate a new buffer and fill it in (delegate to the `&PrimitiveVector`
+            // impl).
+            Err(vector) => (&vector).filter(selection),
+        }
     }
 }

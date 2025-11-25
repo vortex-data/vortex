@@ -3,10 +3,17 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::{ChunkedArray, ChunkedVTable};
-use crate::builders::{ArrayBuilder, BoolBuilder};
-use crate::compute::{CompareKernel, CompareKernelAdapter, Operator, compare};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::Array;
+use crate::ArrayRef;
+use crate::arrays::ChunkedArray;
+use crate::arrays::ChunkedVTable;
+use crate::builders::ArrayBuilder;
+use crate::builders::BoolBuilder;
+use crate::compute::CompareKernel;
+use crate::compute::CompareKernelAdapter;
+use crate::compute::Operator;
+use crate::compute::compare;
+use crate::register_kernel;
 
 impl CompareKernel for ChunkedVTable {
     fn compare(

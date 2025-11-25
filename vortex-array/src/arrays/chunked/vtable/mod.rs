@@ -3,16 +3,30 @@
 
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_vector::{Vector, VectorMut, VectorMutOps};
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_dtype::PType;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_vector::Vector;
+use vortex_vector::VectorMut;
+use vortex_vector::VectorMutOps;
 
-use crate::arrays::{ChunkedArray, PrimitiveArray};
+use crate::ArrayOperator;
+use crate::EmptyMetadata;
+use crate::ToCanonical;
+use crate::arrays::ChunkedArray;
+use crate::arrays::PrimitiveArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{NotSupported, VTable};
-use crate::{ArrayOperator, EmptyMetadata, EncodingId, EncodingRef, ToCanonical, vtable};
+use crate::vtable;
+use crate::vtable::ArrayId;
+use crate::vtable::ArrayVTable;
+use crate::vtable::ArrayVTableExt;
+use crate::vtable::NotSupported;
+use crate::vtable::VTable;
 
 mod array;
 mod canonical;
@@ -25,7 +39,7 @@ vtable!(Chunked);
 
 impl VTable for ChunkedVTable {
     type Array = ChunkedArray;
-    type Encoding = ChunkedEncoding;
+
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
@@ -37,12 +51,12 @@ impl VTable for ChunkedVTable {
     type EncodeVTable = NotSupported;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.chunked")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.chunked")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ChunkedEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ChunkedVTable.as_vtable()
     }
 
     fn metadata(_array: &ChunkedArray) -> VortexResult<Self::Metadata> {
@@ -58,7 +72,7 @@ impl VTable for ChunkedVTable {
     }
 
     fn build(
-        _encoding: &ChunkedEncoding,
+        &self,
         dtype: &DType,
         _len: usize,
         _metadata: &Self::Metadata,
@@ -124,4 +138,4 @@ impl VTable for ChunkedVTable {
 }
 
 #[derive(Clone, Debug)]
-pub struct ChunkedEncoding;
+pub struct ChunkedVTable;

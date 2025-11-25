@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::Scalar;
+use crate::ScalarOps;
+use crate::VectorMut;
+use crate::VectorOps;
 use crate::listview::ListViewVector;
-use crate::{Scalar, ScalarOps, VectorMut, VectorOps};
 
 /// A scalar value for list view types.
 ///
@@ -19,6 +22,11 @@ impl ListViewScalar {
     pub fn new(vector: ListViewVector) -> Self {
         assert_eq!(vector.len(), 1);
         Self(vector)
+    }
+
+    /// Returns the inner length-1 vector representing the list view scalar.
+    pub fn value(&self) -> &ListViewVector {
+        &self.0
     }
 }
 

@@ -3,15 +3,20 @@
 
 use std::ops::Range;
 
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::vtable::OperationsVTable;
-use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::DType;
 use vortex_dtype::datetime::TemporalMetadata;
-use vortex_error::{VortexExpect, vortex_panic};
+use vortex_error::VortexExpect;
+use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
 
+use crate::DateTimePartsArray;
+use crate::DateTimePartsVTable;
+use crate::timestamp;
 use crate::timestamp::TimestampParts;
-use crate::{DateTimePartsArray, DateTimePartsVTable, timestamp};
 
 impl OperationsVTable<DateTimePartsVTable> for DateTimePartsVTable {
     fn slice(array: &DateTimePartsArray, range: Range<usize>) -> ArrayRef {

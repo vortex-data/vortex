@@ -4,8 +4,10 @@
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::arrays::{ExtensionArray, ExtensionVTable};
-use crate::execution::{BatchKernelRef, BindCtx};
+use crate::arrays::ExtensionArray;
+use crate::arrays::ExtensionVTable;
+use crate::execution::BatchKernelRef;
+use crate::execution::BindCtx;
 use crate::vtable::OperatorVTable;
 
 impl OperatorVTable<ExtensionVTable> for ExtensionVTable {

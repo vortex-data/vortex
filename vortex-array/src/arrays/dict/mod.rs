@@ -5,11 +5,14 @@
 //!
 //! Expose a [DictArray] which is zero-copy equivalent to Arrow's
 //! [DictionaryArray](https://docs.rs/arrow/latest/arrow/array/struct.DictionaryArray.html).
-pub use array::*;
 
 mod array;
-mod arrow;
-mod canonical;
+pub use array::*;
+
 mod compute;
-mod display;
-mod ops;
+
+pub mod vtable;
+pub use vtable::*;
+
+#[cfg(test)]
+mod tests;

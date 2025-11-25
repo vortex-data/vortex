@@ -2,14 +2,20 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
+use vortex_dtype::DecimalDType;
+use vortex_dtype::NativeDecimalType;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{DecimalDType, NativeDecimalType, match_each_decimal_value_type};
+use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::{DecimalValue, Scalar};
+use vortex_scalar::DecimalValue;
+use vortex_scalar::Scalar;
 
-use crate::arrays::{DecimalArray, DecimalVTable};
-use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
+use crate::arrays::DecimalArray;
+use crate::arrays::DecimalVTable;
+use crate::compute::MinMaxKernel;
+use crate::compute::MinMaxKernelAdapter;
+use crate::compute::MinMaxResult;
 use crate::register_kernel;
 
 impl MinMaxKernel for DecimalVTable {
@@ -68,10 +74,13 @@ where
 mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::DecimalDType;
-    use vortex_scalar::{DecimalValue, Scalar, ScalarValue};
+    use vortex_scalar::DecimalValue;
+    use vortex_scalar::Scalar;
+    use vortex_scalar::ScalarValue;
 
     use crate::arrays::DecimalArray;
-    use crate::compute::{MinMaxResult, min_max};
+    use crate::compute::MinMaxResult;
+    use crate::compute::min_max;
     use crate::validity::Validity;
 
     #[test]

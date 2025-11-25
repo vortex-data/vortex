@@ -4,11 +4,14 @@
 use std::sync::Arc;
 
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
+use crate::Array;
+use crate::ArrayRef;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::{Array, ArrayRef};
 
 /// The canonical encoding for fixed-size list arrays.
 ///

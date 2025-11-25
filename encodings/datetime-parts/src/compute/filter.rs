@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{FilterKernel, FilterKernelAdapter, filter};
-use vortex_array::{ArrayRef, IntoArray, register_kernel};
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::compute::FilterKernel;
+use vortex_array::compute::FilterKernelAdapter;
+use vortex_array::compute::filter;
+use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::{DateTimePartsArray, DateTimePartsVTable};
+use crate::DateTimePartsArray;
+use crate::DateTimePartsVTable;
 
 impl FilterKernel for DateTimePartsVTable {
     fn filter(&self, array: &DateTimePartsArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -24,7 +29,8 @@ register_kernel!(FilterKernelAdapter(DateTimePartsVTable).lift());
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray;
-    use vortex_array::arrays::{PrimitiveArray, TemporalArray};
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::TemporalArray;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_buffer::buffer;
     use vortex_dtype::datetime::TimeUnit;

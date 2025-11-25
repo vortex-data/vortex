@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 
-use crate::arrays::{ChunkedArray, ChunkedVTable};
-use crate::compute::{ComputeFn, InvocationArgs, Output};
+use crate::Array;
+use crate::IntoArray;
+use crate::arrays::ChunkedArray;
+use crate::arrays::ChunkedVTable;
+use crate::compute::ComputeFn;
+use crate::compute::InvocationArgs;
+use crate::compute::Output;
 use crate::vtable::ComputeVTable;
-use crate::{Array, IntoArray};
 
 impl ComputeVTable<ChunkedVTable> for ChunkedVTable {
     fn invoke(
@@ -80,11 +85,14 @@ fn invoke_elementwise(
 #[cfg(test)]
 mod tests {
     use vortex_buffer::BitBuffer;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
 
-    use crate::arrays::{BoolArray, ChunkedArray};
+    use crate::arrays::BoolArray;
+    use crate::arrays::ChunkedArray;
     use crate::canonical::ToCanonical;
-    use crate::compute::{BooleanOperator, boolean};
+    use crate::compute::BooleanOperator;
+    use crate::compute::boolean;
 
     #[test]
     fn test_bin_bool_chunked() {

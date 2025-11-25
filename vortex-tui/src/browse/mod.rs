@@ -3,12 +3,21 @@
 
 use std::path::Path;
 
-use app::{AppState, KeyMode, Tab, create_file_app};
-use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use app::AppState;
+use app::KeyMode;
+use app::Tab;
+use app::create_file_app;
+use crossterm::event::Event;
+use crossterm::event::KeyCode;
+use crossterm::event::KeyEventKind;
+use crossterm::event::KeyModifiers;
+use crossterm::event::{self};
 use ratatui::DefaultTerminal;
 use ratatui::widgets::ListState;
 use ui::render_app;
-use vortex::error::{VortexExpect, VortexResult};
+use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
+use vortex::layout::layouts::flat::FlatVTable;
 
 mod app;
 mod ui;
@@ -58,24 +67,48 @@ fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
                 // We send the key-up to the list state if we're looking at
                 // the Layouts tab.
                 match app.current_tab {
-                    Tab::Layout => app.layouts_list_state.select_previous(),
+                    Tab::Layout => {
+                        if app.cursor.layout().is::<FlatVTable>() {
+                            app.tree_scroll_offset = app.tree_scroll_offset.saturating_sub(1);
+                        } else {
+                            app.layouts_list_state.select_previous();
+                        }
+                    }
                     Tab::Segments => app.segment_grid_state.scroll_up(10),
                 }
             }
             (KeyCode::Down | KeyCode::Char('j'), _)
             | (KeyCode::Char('n'), KeyModifiers::CONTROL) => match app.current_tab {
-                Tab::Layout => app.layouts_list_state.select_next(),
+                Tab::Layout => {
+                    if app.cursor.layout().is::<FlatVTable>() {
+                        app.tree_scroll_offset = app.tree_scroll_offset.saturating_add(1);
+                    } else {
+                        app.layouts_list_state.select_next();
+                    }
+                }
                 Tab::Segments => app.segment_grid_state.scroll_down(10),
             },
             (KeyCode::PageUp, _) | (KeyCode::Char('v'), KeyModifiers::ALT) => {
                 match app.current_tab {
-                    Tab::Layout => app.layouts_list_state.scroll_up_by(10),
+                    Tab::Layout => {
+                        if app.cursor.layout().is::<FlatVTable>() {
+                            app.tree_scroll_offset = app.tree_scroll_offset.saturating_sub(10);
+                        } else {
+                            app.layouts_list_state.scroll_up_by(10);
+                        }
+                    }
                     Tab::Segments => app.segment_grid_state.scroll_up(100),
                 }
             }
             (KeyCode::PageDown, _) | (KeyCode::Char('v'), KeyModifiers::CONTROL) => {
                 match app.current_tab {
-                    Tab::Layout => app.layouts_list_state.scroll_down_by(10),
+                    Tab::Layout => {
+                        if app.cursor.layout().is::<FlatVTable>() {
+                            app.tree_scroll_offset = app.tree_scroll_offset.saturating_add(10);
+                        } else {
+                            app.layouts_list_state.scroll_down_by(10);
+                        }
+                    }
                     Tab::Segments => app.segment_grid_state.scroll_down(100),
                 }
             }
@@ -93,8 +126,9 @@ fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
                     let selected = app.layouts_list_state.selected().unwrap_or_default();
                     app.cursor = app.cursor.child(selected);
 
-                    // Reset the list scroll state.
+                    // Reset the list scroll state and tree scroll offset.
                     app.layouts_list_state = ListState::default().with_selected(Some(0));
+                    app.tree_scroll_offset = 0;
                 }
             }
             (KeyCode::Left | KeyCode::Char('h'), _)
@@ -103,8 +137,9 @@ fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
                     Tab::Layout => {
                         // Ascend back up to the Parent node
                         app.cursor = app.cursor.parent();
-                        // Reset the list scroll state.
+                        // Reset the list scroll state and tree scroll offset.
                         app.layouts_list_state = ListState::default().with_selected(Some(0));
+                        app.tree_scroll_offset = 0;
                     }
                     Tab::Segments => app.segment_grid_state.scroll_left(20),
                 }
@@ -192,8 +227,9 @@ fn handle_search_mode(app: &mut AppState, event: Event) -> HandleResult {
                             }
                         };
 
-                        // Reset the list scroll state.
+                        // Reset the list scroll state and tree scroll offset.
                         app.layouts_list_state = ListState::default().with_selected(Some(0));
+                        app.tree_scroll_offset = 0;
 
                         app.clear_search();
                         // Return to normal mode.

@@ -16,18 +16,27 @@ mod utf8;
 
 use std::ops::Deref;
 
-use arrow_schema::{DataType, Field};
+use arrow_schema::DataType;
+use arrow_schema::Field;
 pub(crate) use ptype::*;
-use pyo3::prelude::{PyAnyMethods, PyModule, PyModuleMethods};
+use pyo3::Bound;
+use pyo3::Py;
+use pyo3::PyAny;
+use pyo3::PyClass;
+use pyo3::PyClassInitializer;
+use pyo3::PyResult;
+use pyo3::Python;
+use pyo3::prelude::PyModule;
+use pyo3::prelude::PyModuleMethods;
+use pyo3::pyclass;
+use pyo3::pymethods;
 use pyo3::types::PyType;
-use pyo3::{
-    Bound, Py, PyAny, PyClass, PyClassInitializer, PyResult, Python, pyclass, pymethods,
-    wrap_pyfunction,
-};
+use pyo3::wrap_pyfunction;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 
-use crate::arrow::{FromPyArrow, ToPyArrow};
+use crate::arrow::FromPyArrow;
+use crate::arrow::ToPyArrow;
 use crate::dtype::binary::PyBinaryDType;
 use crate::dtype::bool::PyBoolDType;
 use crate::dtype::decimal::PyDecimalDType;
@@ -127,7 +136,7 @@ impl PyDType {
             PyClassInitializer::from(PyDType(dtype)).add_subclass(subclass),
         )?
         .into_any()
-        .downcast_into::<PyDType>()?)
+        .cast_into::<PyDType>()?)
     }
 
     /// Return the inner [`DType`] value.
@@ -176,5 +185,5 @@ impl PyDType {
 }
 
 fn import_arrow_dtype(obj: &Bound<PyAny>) -> PyResult<DataType> {
-    DataType::from_pyarrow_bound(obj)
+    DataType::from_pyarrow(&obj.as_borrowed())
 }

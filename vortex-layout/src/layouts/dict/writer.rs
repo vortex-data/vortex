@@ -3,31 +3,51 @@
 
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
+use std::task::Context;
+use std::task::Poll;
 
-use async_stream::{stream, try_stream};
+use async_stream::stream;
+use async_stream::try_stream;
 use async_trait::async_trait;
+use futures::FutureExt;
+use futures::Stream;
+use futures::StreamExt;
+use futures::TryStreamExt;
 use futures::future::BoxFuture;
-use futures::stream::{BoxStream, once};
-use futures::{FutureExt, Stream, StreamExt, TryStreamExt, pin_mut, try_join};
-use vortex_array::arrays::DictEncoding;
-use vortex_array::builders::dict::{DictConstraints, DictEncoder, dict_encoder};
-use vortex_array::{Array, ArrayContext, ArrayRef};
+use futures::pin_mut;
+use futures::stream::BoxStream;
+use futures::stream::once;
+use futures::try_join;
+use vortex_array::Array;
+use vortex_array::ArrayContext;
+use vortex_array::ArrayRef;
+use vortex_array::arrays::DictVTable;
+use vortex_array::builders::dict::DictConstraints;
+use vortex_array::builders::dict::DictEncoder;
+use vortex_array::builders::dict::dict_encoder;
 use vortex_btrblocks::BtrBlocksCompressor;
+use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexResult, vortex_err};
+use vortex_dtype::PType;
+use vortex_error::VortexError;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::Handle;
 
+use crate::IntoLayout;
+use crate::LayoutRef;
+use crate::LayoutStrategy;
+use crate::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::dict::DictLayout;
 use crate::segments::SegmentSinkRef;
-use crate::sequence::{
-    SendableSequentialStream, SequenceId, SequencePointer, SequentialStream,
-    SequentialStreamAdapter, SequentialStreamExt,
-};
-use crate::{IntoLayout, LayoutRef, LayoutStrategy, OwnedLayoutChildren};
+use crate::sequence::SendableSequentialStream;
+use crate::sequence::SequenceId;
+use crate::sequence::SequencePointer;
+use crate::sequence::SequentialStream;
+use crate::sequence::SequentialStreamAdapter;
+use crate::sequence::SequentialStreamExt;
 
 #[derive(Clone)]
 pub struct DictLayoutConstraints {
@@ -117,7 +137,7 @@ impl LayoutStrategy for DictStrategy {
             None => true, // empty stream
             Some(chunk) => {
                 let compressed = BtrBlocksCompressor::default().compress(&chunk)?;
-                !compressed.is_encoding(DictEncoding.id())
+                !compressed.is::<DictVTable>()
             }
         };
         if should_fallback {
@@ -182,9 +202,7 @@ impl LayoutStrategy for DictStrategy {
             .map(|result| {
                 let (codes_layout, values_layout) = result?;
                 // All values are referenced when created via dictionary encoding
-                Ok::<_, VortexError>(
-                    DictLayout::new_with_metadata(values_layout, codes_layout, true).into_layout(),
-                )
+                Ok::<_, VortexError>(DictLayout::new(values_layout, codes_layout).into_layout())
             })
             .try_collect::<Vec<_>>()
             .await?;

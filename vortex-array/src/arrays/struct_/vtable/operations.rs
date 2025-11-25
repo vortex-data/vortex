@@ -6,9 +6,12 @@ use std::ops::Range;
 use itertools::Itertools;
 use vortex_scalar::Scalar;
 
-use crate::arrays::struct_::{StructArray, StructVTable};
-use crate::vtable::{OperationsVTable, ValidityHelper};
-use crate::{ArrayRef, IntoArray};
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::struct_::StructArray;
+use crate::arrays::struct_::StructVTable;
+use crate::vtable::OperationsVTable;
+use crate::vtable::ValidityHelper;
 
 impl OperationsVTable<StructVTable> for StructVTable {
     fn slice(array: &StructArray, range: Range<usize>) -> ArrayRef {

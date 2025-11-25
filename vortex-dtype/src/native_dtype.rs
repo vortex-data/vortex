@@ -5,8 +5,9 @@ use std::sync::Arc;
 
 use vortex_buffer::ByteBuffer;
 
+use crate::DType;
+use crate::Nullability;
 use crate::dtype::NativeDType;
-use crate::{DType, Nullability};
 
 /// It is common to represent a nullable type `T` as an `Option<T>`, so we implement a blanket
 /// implementation for all `Option<T>` to simply be a nullable `T`.

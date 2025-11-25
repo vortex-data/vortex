@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::file::{Footer, VortexOpenOptions};
+use vortex::file::Footer;
+use vortex::file::VortexOpenOptions;
 
 use crate::duckdb::ObjectCacheRef;
 

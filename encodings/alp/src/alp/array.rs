@@ -4,30 +4,53 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use vortex_array::patches::{Patches, PatchesMetadata};
+use vortex_array::Array;
+use vortex_array::ArrayBufferVisitor;
+use vortex_array::ArrayChildVisitor;
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
+use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::DeserializeMetadata;
+use vortex_array::Precision;
+use vortex_array::ProstMetadata;
+use vortex_array::SerializeMetadata;
+use vortex_array::patches::Patches;
+use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, EncodeVTable, NotSupported, VTable, ValidityChild,
-    ValidityVTableFromChild, VisitorVTable,
-};
-use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
-    DeserializeMetadata, EncodingId, EncodingRef, Precision, ProstMetadata, SerializeMetadata,
-    vtable,
-};
+use vortex_array::stats::ArrayStats;
+use vortex_array::stats::StatsSetRef;
+use vortex_array::vtable;
+use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayVTable;
+use vortex_array::vtable::ArrayVTableExt;
+use vortex_array::vtable::BaseArrayVTable;
+use vortex_array::vtable::CanonicalVTable;
+use vortex_array::vtable::EncodeVTable;
+use vortex_array::vtable::NotSupported;
+use vortex_array::vtable::VTable;
+use vortex_array::vtable::ValidityChild;
+use vortex_array::vtable::ValidityVTableFromChild;
+use vortex_array::vtable::VisitorVTable;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_ensure};
+use vortex_dtype::DType;
+use vortex_dtype::PType;
+use vortex_error::VortexError;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 
 use crate::ALPFloat;
-use crate::alp::{Exponents, alp_encode, decompress};
+use crate::alp::Exponents;
+use crate::alp::alp_encode;
+use crate::alp::decompress;
 
 vtable!(ALP);
 
 impl VTable for ALPVTable {
     type Array = ALPArray;
-    type Encoding = ALPEncoding;
+
     type Metadata = ProstMetadata<ALPMetadata>;
 
     type ArrayVTable = Self;
@@ -39,12 +62,12 @@ impl VTable for ALPVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.alp")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.alp")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ALPEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ALPVTable.as_vtable()
     }
 
     fn metadata(array: &ALPArray) -> VortexResult<Self::Metadata> {
@@ -70,7 +93,7 @@ impl VTable for ALPVTable {
     }
 
     fn build(
-        _encoding: &ALPEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -125,7 +148,7 @@ pub struct ALPArray {
 }
 
 #[derive(Clone, Debug)]
-pub struct ALPEncoding;
+pub struct ALPVTable;
 
 #[derive(Clone, prost::Message)]
 pub struct ALPMetadata {
@@ -334,7 +357,7 @@ impl ValidityChild<ALPVTable> for ALPVTable {
     }
 }
 
-impl ArrayVTable<ALPVTable> for ALPVTable {
+impl BaseArrayVTable<ALPVTable> for ALPVTable {
     fn len(array: &ALPArray) -> usize {
         array.encoded.len()
     }
@@ -370,7 +393,7 @@ impl CanonicalVTable<ALPVTable> for ALPVTable {
 
 impl EncodeVTable<ALPVTable> for ALPVTable {
     fn encode(
-        _encoding: &ALPEncoding,
+        _vtable: &ALPVTable,
         canonical: &Canonical,
         like: Option<&ALPArray>,
     ) -> VortexResult<Option<ALPArray>> {

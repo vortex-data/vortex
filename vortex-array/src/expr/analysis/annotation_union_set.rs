@@ -3,12 +3,15 @@
 
 use std::hash::Hash;
 
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::expr::Expression;
-use crate::expr::traversal::{NodeExt, NodeVisitor, TraversalOrder};
+use crate::expr::traversal::NodeExt;
+use crate::expr::traversal::NodeVisitor;
+use crate::expr::traversal::TraversalOrder;
 
 pub trait Annotation: Clone + Hash + Eq {}
 

@@ -8,20 +8,37 @@ pub mod zone_map;
 
 use std::sync::Arc;
 
-pub use builder::{MAX_IS_TRUNCATED, MIN_IS_TRUNCATED, lower_bound, upper_bound};
-use vortex_array::stats::{Stat, as_stat_bitset_bytes, stats_from_bitset_bytes};
-use vortex_array::{ArrayContext, DeserializeMetadata, SerializeMetadata};
-use vortex_dtype::{DType, TryFromBytes};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+pub use builder::MAX_IS_TRUNCATED;
+pub use builder::MIN_IS_TRUNCATED;
+pub use builder::lower_bound;
+pub use builder::upper_bound;
+use vortex_array::ArrayContext;
+use vortex_array::DeserializeMetadata;
+use vortex_array::SerializeMetadata;
+use vortex_array::stats::Stat;
+use vortex_array::stats::as_stat_bitset_bytes;
+use vortex_array::stats::stats_from_bitset_bytes;
+use vortex_dtype::DType;
+use vortex_dtype::TryFromBytes;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::children::{LayoutChildren, OwnedLayoutChildren};
+use crate::LayoutChildType;
+use crate::LayoutEncodingRef;
+use crate::LayoutId;
+use crate::LayoutReaderRef;
+use crate::LayoutRef;
+use crate::VTable;
+use crate::children::LayoutChildren;
+use crate::children::OwnedLayoutChildren;
 use crate::layouts::zoned::reader::ZonedReader;
 use crate::layouts::zoned::zone_map::ZoneMap;
-use crate::segments::{SegmentId, SegmentSource};
-use crate::{
-    LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
-};
+use crate::segments::SegmentId;
+use crate::segments::SegmentSource;
+use crate::vtable;
 
 vtable!(Zoned);
 

@@ -6,22 +6,32 @@ use std::sync::Arc;
 use arrow_array::RecordBatchReader;
 use arrow_schema::SchemaRef;
 use itertools::Itertools;
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::exceptions::PyTypeError;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyString;
-use vortex::dtype::{FieldName, FieldNames};
+use vortex::ArrayRef;
+use vortex::ToCanonical;
+use vortex::dtype::FieldName;
+use vortex::dtype::FieldNames;
 use vortex::error::VortexResult;
-use vortex::expr::{Expression, root, select};
-use vortex::file::{OpenOptionsSessionExt, VortexFile};
+use vortex::expr::Expression;
+use vortex::expr::root;
+use vortex::expr::select;
+use vortex::file::OpenOptionsSessionExt;
+use vortex::file::VortexFile;
 use vortex::iter::ArrayIteratorExt;
 use vortex::scan::SplitBy;
-use vortex::{ArrayRef, ToCanonical};
 
+use crate::RUNTIME;
+use crate::SESSION;
+use crate::TOKIO_RUNTIME;
 use crate::arrays::PyArrayRef;
-use crate::arrow::{IntoPyArrow, ToPyArrow};
+use crate::arrow::IntoPyArrow;
+use crate::arrow::ToPyArrow;
 use crate::expr::PyExpr;
+use crate::install_module;
 use crate::object_store_urls::object_store_from_url;
-use crate::{RUNTIME, SESSION, TOKIO_RUNTIME, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "dataset")?;
@@ -63,7 +73,7 @@ pub fn read_array_from_reader(
 fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<Expression> {
     fn field_from_pyany(field: &Bound<PyAny>) -> PyResult<FieldName> {
         if field.clone().is_instance_of::<PyString>() {
-            Ok(FieldName::from(field.downcast::<PyString>()?.to_str()?))
+            Ok(FieldName::from(field.cast::<PyString>()?.to_str()?))
         } else {
             Err(PyTypeError::new_err(format!(
                 "projection: expected list of strings or None, but found: {field}.",

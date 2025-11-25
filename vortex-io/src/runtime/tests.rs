@@ -5,17 +5,24 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
+use futures::FutureExt;
+use futures::StreamExt;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
-use futures::{FutureExt, StreamExt};
 use tempfile::NamedTempFile;
-use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
+use vortex_buffer::Alignment;
+use vortex_buffer::ByteBuffer;
+use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 
 use crate::VortexReadAt;
-use crate::file::{IntoReadSource, IoRequest, ReadSource, ReadSourceRef};
+use crate::file::IntoReadSource;
+use crate::file::IoRequest;
+use crate::file::ReadSource;
+use crate::file::ReadSourceRef;
 use crate::runtime::Handle;
 use crate::runtime::single::block_on;
 use crate::runtime::tokio::TokioRuntime;
@@ -326,11 +333,12 @@ async fn test_task_detach() {
     let handle = TokioRuntime::current();
     let counter = Arc::new(AtomicUsize::new(0));
     let c = counter.clone();
+    let (tx, rx) = oneshot::channel::<()>();
 
     let task = handle.spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         c.fetch_add(1, Ordering::SeqCst);
-        42
+        tx.send(())
     });
 
     // Detach the task so it continues running
@@ -338,6 +346,7 @@ async fn test_task_detach() {
 
     // Wait for task to complete
     tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    let _ = rx.await;
 
     // Task should have completed even though we detached it
     assert_eq!(counter.load(Ordering::SeqCst), 1);

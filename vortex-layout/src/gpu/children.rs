@@ -6,10 +6,12 @@ use std::sync::Arc;
 use cudarc::driver::CudaContext;
 use once_cell::sync::OnceCell;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
+use crate::GpuLayoutReaderRef;
+use crate::LayoutChildren;
 use crate::segments::SegmentSource;
-use crate::{GpuLayoutReaderRef, LayoutChildren};
 
 pub struct LazyGpuReaderChildren {
     children: Arc<dyn LayoutChildren>,

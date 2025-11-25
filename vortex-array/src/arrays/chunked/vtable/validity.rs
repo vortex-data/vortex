@@ -4,7 +4,8 @@
 use vortex_mask::Mask;
 
 use crate::Array;
-use crate::arrays::{ChunkedArray, ChunkedVTable};
+use crate::arrays::ChunkedArray;
+use crate::arrays::ChunkedVTable;
 use crate::vtable::ValidityVTable;
 
 impl ValidityVTable<ChunkedVTable> for ChunkedVTable {

@@ -15,23 +15,36 @@
 )]
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::path::Path;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::JoinSet;
-use tracing::{Level, debug, error, info, span, warn};
+use tracing::Level;
+use tracing::debug;
+use tracing::error;
+use tracing::info;
+use tracing::span;
+use tracing::warn;
 use tracing_subscriber::Layer;
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use vortex::arrays::{PrimitiveArray, StructArray, VarBinArray};
+use tracing_subscriber::layer::Context;
+use tracing_subscriber::layer::SubscriberExt;
+use vortex::IntoArray;
+use vortex::VortexSessionDefault;
+use vortex::arrays::PrimitiveArray;
+use vortex::arrays::StructArray;
+use vortex::arrays::VarBinArray;
 use vortex::compressor::CompactCompressor;
-use vortex::dtype::{DType, Nullability};
+use vortex::dtype::DType;
+use vortex::dtype::Nullability;
 use vortex::file::WriteStrategyBuilder;
 use vortex::validity::Validity;
-use vortex::{IntoArray, VortexSessionDefault};
 use vortex_array::stream::ArrayStreamExt;
-use vortex_file::{OpenOptionsSessionExt, WriteOptionsSessionExt};
+use vortex_file::OpenOptionsSessionExt;
+use vortex_file::WriteOptionsSessionExt;
 use vortex_session::VortexSession;
 
 #[tokio::main]

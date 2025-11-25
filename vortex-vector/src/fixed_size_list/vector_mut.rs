@@ -6,11 +6,17 @@
 use std::sync::Arc;
 
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::MaskMut;
 
+use crate::ScalarOps;
+use crate::VectorMut;
+use crate::VectorMutOps;
+use crate::fixed_size_list::FixedSizeListScalar;
 use crate::fixed_size_list::FixedSizeListVector;
-use crate::{VectorMut, VectorMutOps, match_vector_pair};
+use crate::match_vector_pair;
 
 /// A mutable vector of fixed-size lists.
 ///
@@ -163,6 +169,38 @@ impl FixedSizeListVectorMut {
     pub fn list_size(&self) -> u32 {
         self.list_size
     }
+
+    /// Returns a mutable handle to the child elements vector.
+    ///
+    /// # Safety
+    ///
+    /// Callers must ensure that any modifications to the elements vector do not violate the
+    /// invariants of this type, namely that the length of the elements vector is equal to
+    /// `len * list_size`.
+    pub unsafe fn elements_mut(&mut self) -> &mut VectorMut {
+        self.elements.as_mut()
+    }
+
+    /// Returns a mutable handle to the validity mask of the vector.
+    ///
+    /// # Safety
+    ///
+    /// Callers must ensure that if the length of the mask is modified, the length of the vector
+    /// and the elements vector should be updated accordingly to continue meeting the invariants
+    /// of the type.
+    pub unsafe fn validity_mut(&mut self) -> &mut MaskMut {
+        &mut self.validity
+    }
+
+    /// Sets the length of the vector.
+    ///
+    /// # Safety
+    ///
+    /// Callers must ensure that the new length is consistent with the validity mask length
+    /// and that `elements.len() == len * list_size`.
+    pub unsafe fn set_len(&mut self, len: usize) {
+        self.len = len;
+    }
 }
 
 impl VectorMutOps for FixedSizeListVectorMut {
@@ -224,6 +262,22 @@ impl VectorMutOps for FixedSizeListVectorMut {
         debug_assert_eq!(self.len, self.validity.len());
     }
 
+    fn append_zeros(&mut self, n: usize) {
+        self.elements.append_zeros(n * self.list_size as usize);
+        self.validity.append_n(true, n);
+        self.len += n;
+        debug_assert_eq!(self.len, self.validity.len());
+    }
+
+    fn append_scalars(&mut self, scalar: &FixedSizeListScalar, n: usize) {
+        for _ in 0..n {
+            self.elements.extend_from_vector(scalar.value().elements())
+        }
+        self.validity.append_n(scalar.is_valid(), n);
+        self.len += n;
+        debug_assert_eq!(self.len, self.validity.len());
+    }
+
     fn freeze(self) -> FixedSizeListVector {
         FixedSizeListVector {
             elements: Arc::new(self.elements.freeze()),
@@ -277,8 +331,10 @@ impl VectorMutOps for FixedSizeListVectorMut {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_dtype::{DType, PType};
-    use vortex_mask::{Mask, MaskMut};
+    use vortex_dtype::DType;
+    use vortex_dtype::PType;
+    use vortex_mask::Mask;
+    use vortex_mask::MaskMut;
 
     use super::*;
     use crate::VectorOps;

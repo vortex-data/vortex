@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::Canonical;
-use crate::arrays::struct_::{StructArray, StructVTable};
+use crate::arrays::struct_::StructArray;
+use crate::arrays::struct_::StructVTable;
 use crate::vtable::CanonicalVTable;
 
 impl CanonicalVTable<StructVTable> for StructVTable {

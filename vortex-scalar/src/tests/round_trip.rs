@@ -12,13 +12,21 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_buffer::ByteBuffer;
-    use vortex_dtype::{DType, DecimalDType, Nullability, PType, i256};
+    use vortex_dtype::DType;
+    use vortex_dtype::DecimalDType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
+    use vortex_dtype::i256;
     use vortex_proto::scalar as pb;
 
-    use crate::{
-        BinaryScalar, BoolScalar, DecimalScalar, DecimalValue, ListScalar, PrimitiveScalar, Scalar,
-        Utf8Scalar,
-    };
+    use crate::BinaryScalar;
+    use crate::BoolScalar;
+    use crate::DecimalScalar;
+    use crate::DecimalValue;
+    use crate::ListScalar;
+    use crate::PrimitiveScalar;
+    use crate::Scalar;
+    use crate::Utf8Scalar;
 
     // Test that primitive scalars round-trip through ScalarValue
     #[test]

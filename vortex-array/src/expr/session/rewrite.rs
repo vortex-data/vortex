@@ -8,18 +8,32 @@ use std::sync::Arc;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::dash_map::DashMap;
 
-use crate::expr::transform::rules::{
-    AnyParent, ParentMatcher, ParentReduceRule, ReduceRule, RuleContext, TypedRuleContext,
-};
-use crate::expr::transform::{
-    DynParentReduceRule, DynReduceRule, DynTypedParentReduceRule, DynTypedReduceRule,
-};
-use crate::expr::{ExprId, Expression, VTable};
+use crate::expr::ExprId;
+use crate::expr::Expression;
+use crate::expr::VTable;
+use crate::expr::transform::DynParentReduceRule;
+use crate::expr::transform::DynReduceRule;
+use crate::expr::transform::DynTypedParentReduceRule;
+use crate::expr::transform::DynTypedReduceRule;
+use crate::expr::transform::rules::AnyParent;
+use crate::expr::transform::rules::ParentMatcher;
+use crate::expr::transform::rules::ParentReduceRule;
+use crate::expr::transform::rules::ReduceRule;
+use crate::expr::transform::rules::RuleContext;
+use crate::expr::transform::rules::TypedRuleContext;
 
 /// Adapter for ReduceRule
 struct ReduceRuleAdapter<V: VTable, R> {
     rule: R,
     _phantom: PhantomData<V>,
+}
+
+impl<V: VTable, R: Debug> Debug for ReduceRuleAdapter<V, R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReduceRuleAdapter")
+            .field("rule", &self.rule)
+            .finish()
+    }
 }
 
 /// Adapter for ParentReduceRule
@@ -28,10 +42,20 @@ struct ReduceParentRuleAdapter<Child: VTable, Parent: ParentMatcher, R> {
     _phantom: PhantomData<(Child, Parent)>,
 }
 
+impl<Child: VTable, Parent: ParentMatcher, R: Debug> Debug
+    for ReduceParentRuleAdapter<Child, Parent, R>
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReduceParentRuleAdapter")
+            .field("rule", &self.rule)
+            .finish()
+    }
+}
+
 impl<V, R> DynReduceRule for ReduceRuleAdapter<V, R>
 where
     V: VTable,
-    R: ReduceRule<V, RuleContext>,
+    R: Debug + Send + Sync + 'static + ReduceRule<V, RuleContext>,
 {
     fn reduce(&self, expr: &Expression, ctx: &RuleContext) -> VortexResult<Option<Expression>> {
         let Some(view) = expr.as_opt::<V>() else {
@@ -44,7 +68,7 @@ where
 impl<V, R> DynTypedReduceRule for ReduceRuleAdapter<V, R>
 where
     V: VTable,
-    R: ReduceRule<V, TypedRuleContext>,
+    R: Debug + Send + Sync + 'static + ReduceRule<V, TypedRuleContext>,
 {
     fn reduce(
         &self,
@@ -62,7 +86,7 @@ impl<Child, Parent, R> DynParentReduceRule for ReduceParentRuleAdapter<Child, Pa
 where
     Child: VTable,
     Parent: ParentMatcher,
-    R: ParentReduceRule<Child, Parent, RuleContext>,
+    R: Debug + Send + Sync + 'static + ParentReduceRule<Child, Parent, RuleContext>,
 {
     fn reduce_parent(
         &self,
@@ -85,7 +109,7 @@ impl<Child, Parent, R> DynTypedParentReduceRule for ReduceParentRuleAdapter<Chil
 where
     Child: VTable,
     Parent: ParentMatcher,
-    R: ParentReduceRule<Child, Parent, TypedRuleContext>,
+    R: Debug + Send + Sync + 'static + ParentReduceRule<Child, Parent, TypedRuleContext>,
 {
     fn reduce_parent(
         &self,
@@ -109,7 +133,7 @@ type ParentRuleRegistry<Rule> = DashMap<(ExprId, ExprId), Vec<Arc<Rule>>>;
 
 /// Inner struct that holds all the rule registries.
 /// Wrapped in a single Arc by RewriteRuleRegistry for efficient cloning.
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct RewriteRuleRegistryInner {
     /// Typed reduce rules (require TypedRewriteContext), indexed by expression ID
     typed_reduce_rules: RuleRegistry<dyn DynTypedReduceRule>,
@@ -129,7 +153,7 @@ struct RewriteRuleRegistryInner {
 ///
 /// Stores rewrite rules indexed by the expression ID they apply to.
 /// Typed and untyped rules are stored separately for better organization.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RewriteRuleRegistry {
     inner: Arc<RewriteRuleRegistryInner>,
 }
@@ -139,21 +163,6 @@ impl Default for RewriteRuleRegistry {
         Self {
             inner: Arc::new(RewriteRuleRegistryInner::default()),
         }
-    }
-}
-
-// TODO(joe): follow up with rule debug info.
-impl Debug for RewriteRuleRegistry {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RewriteRuleRegistry")
-            .field(
-                "typed_reduce_rules_count",
-                &self.inner.typed_reduce_rules.len(),
-            )
-            .field("reduce_rules_count", &self.inner.reduce_rules.len())
-            .field("typed_parent_rules", &self.inner.typed_parent_rules.len())
-            .field("parent_rules_count", &self.inner.parent_rules.len())
-            .finish()
     }
 }
 
@@ -167,8 +176,7 @@ impl RewriteRuleRegistry {
     pub fn register_typed_reduce_rule<V, R>(&mut self, vtable: &'static V, rule: R)
     where
         V: VTable,
-        R: 'static,
-        R: ReduceRule<V, TypedRuleContext>,
+        R: 'static + ReduceRule<V, TypedRuleContext>,
     {
         let adapter = ReduceRuleAdapter {
             rule,
@@ -186,8 +194,7 @@ impl RewriteRuleRegistry {
     pub fn register_reduce_rule<V, R>(&mut self, vtable: &'static V, rule: R)
     where
         V: VTable,
-        R: 'static,
-        R: ReduceRule<V, RuleContext>,
+        R: 'static + ReduceRule<V, RuleContext>,
     {
         let adapter = ReduceRuleAdapter {
             rule,
@@ -209,8 +216,7 @@ impl RewriteRuleRegistry {
     ) where
         Child: VTable,
         Parent: VTable,
-        R: 'static,
-        R: ParentReduceRule<Child, Parent, RuleContext>,
+        R: 'static + ParentReduceRule<Child, Parent, RuleContext>,
     {
         let adapter = ReduceParentRuleAdapter {
             rule,
@@ -227,8 +233,7 @@ impl RewriteRuleRegistry {
     pub fn register_parent_rule_any<Child, R>(&mut self, child_vtable: &'static Child, rule: R)
     where
         Child: VTable,
-        R: 'static,
-        R: ParentReduceRule<Child, AnyParent, RuleContext>,
+        R: 'static + ParentReduceRule<Child, AnyParent, RuleContext>,
     {
         let adapter = ReduceParentRuleAdapter {
             rule,
@@ -250,8 +255,7 @@ impl RewriteRuleRegistry {
     ) where
         Child: VTable,
         Parent: VTable,
-        R: 'static,
-        R: ParentReduceRule<Child, Parent, TypedRuleContext>,
+        R: 'static + ParentReduceRule<Child, Parent, TypedRuleContext>,
     {
         let adapter = ReduceParentRuleAdapter {
             rule,
@@ -271,8 +275,7 @@ impl RewriteRuleRegistry {
         rule: R,
     ) where
         Child: VTable,
-        R: 'static,
-        R: ParentReduceRule<Child, AnyParent, TypedRuleContext>,
+        R: 'static + ParentReduceRule<Child, AnyParent, TypedRuleContext>,
     {
         let adapter = ReduceParentRuleAdapter {
             rule,

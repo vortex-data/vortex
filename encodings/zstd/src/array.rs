@@ -8,30 +8,57 @@ use std::sync::Arc;
 
 use itertools::Itertools as _;
 use prost::Message as _;
+use vortex_array::ArrayBufferVisitor;
+use vortex_array::ArrayChildVisitor;
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
+use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::IntoArray;
+use vortex_array::Precision;
+use vortex_array::ProstMetadata;
+use vortex_array::ToCanonical;
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::{ConstantArray, PrimitiveArray, VarBinViewArray};
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::compute::filter;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::{ArrayStats, StatsSetRef};
+use vortex_array::stats::ArrayStats;
+use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, EncodeVTable, NotSupported, OperationsVTable, VTable,
-    ValidityHelper, ValiditySliceHelper, ValidityVTableFromValiditySliceHelper, VisitorVTable,
-};
-use vortex_array::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId,
-    EncodingRef, IntoArray, Precision, ProstMetadata, ToCanonical, vtable,
-};
-use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer, ByteBufferMut};
+use vortex_array::vtable;
+use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayVTable;
+use vortex_array::vtable::ArrayVTableExt;
+use vortex_array::vtable::BaseArrayVTable;
+use vortex_array::vtable::CanonicalVTable;
+use vortex_array::vtable::EncodeVTable;
+use vortex_array::vtable::NotSupported;
+use vortex_array::vtable::OperationsVTable;
+use vortex_array::vtable::VTable;
+use vortex_array::vtable::ValidityHelper;
+use vortex_array::vtable::ValiditySliceHelper;
+use vortex_array::vtable::ValidityVTableFromValiditySliceHelper;
+use vortex_array::vtable::VisitorVTable;
+use vortex_buffer::Alignment;
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
+use vortex_buffer::ByteBuffer;
+use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
-use vortex_error::{
-    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
-};
+use vortex_error::VortexError;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
 use vortex_vector::binaryview::BinaryView;
 
-use crate::{ZstdFrameMetadata, ZstdMetadata};
+use crate::ZstdFrameMetadata;
+use crate::ZstdMetadata;
 
 // Zstd doesn't support training dictionaries on very few samples.
 const MIN_SAMPLES_FOR_DICTIONARY: usize = 8;
@@ -59,7 +86,7 @@ vtable!(Zstd);
 
 impl VTable for ZstdVTable {
     type Array = ZstdArray;
-    type Encoding = ZstdEncoding;
+
     type Metadata = ProstMetadata<ZstdMetadata>;
 
     type ArrayVTable = Self;
@@ -71,12 +98,12 @@ impl VTable for ZstdVTable {
     type EncodeVTable = Self;
     type OperatorVTable = NotSupported;
 
-    fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.zstd")
+    fn id(&self) -> ArrayId {
+        ArrayId::new_ref("vortex.zstd")
     }
 
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(ZstdEncoding.as_ref())
+    fn encoding(_array: &Self::Array) -> ArrayVTable {
+        ZstdVTable.as_vtable()
     }
 
     fn metadata(array: &ZstdArray) -> VortexResult<Self::Metadata> {
@@ -92,7 +119,7 @@ impl VTable for ZstdVTable {
     }
 
     fn build(
-        _encoding: &ZstdEncoding,
+        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -128,7 +155,7 @@ impl VTable for ZstdVTable {
 }
 
 #[derive(Clone, Debug)]
-pub struct ZstdEncoding;
+pub struct ZstdVTable;
 
 #[derive(Clone, Debug)]
 pub struct ZstdArray {
@@ -650,7 +677,7 @@ impl ValiditySliceHelper for ZstdArray {
     }
 }
 
-impl ArrayVTable<ZstdVTable> for ZstdVTable {
+impl BaseArrayVTable<ZstdVTable> for ZstdVTable {
     fn len(array: &ZstdArray) -> usize {
         array.slice_stop - array.slice_start
     }
@@ -727,7 +754,7 @@ impl OperationsVTable<ZstdVTable> for ZstdVTable {
 
 impl EncodeVTable<ZstdVTable> for ZstdVTable {
     fn encode(
-        _encoding: &<ZstdVTable as VTable>::Encoding,
+        _vtable: &ZstdVTable,
         canonical: &Canonical,
         _like: Option<&ZstdArray>,
     ) -> VortexResult<Option<ZstdArray>> {

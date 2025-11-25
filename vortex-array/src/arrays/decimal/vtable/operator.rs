@@ -2,15 +2,24 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_compute::filter::Filter;
-use vortex_dtype::{PrecisionScale, match_each_decimal_value_type};
+use vortex_dtype::PrecisionScale;
+use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexResult;
 use vortex_vector::decimal::DVector;
 
-use crate::array::transform::{ArrayParentReduceRule, ArrayRuleContext};
-use crate::arrays::{DecimalArray, DecimalVTable, MaskedArray, MaskedVTable};
-use crate::execution::{BatchKernelRef, BindCtx, kernel};
-use crate::vtable::{OperatorVTable, ValidityHelper};
-use crate::{ArrayRef, IntoArray};
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::array::transform::ArrayParentReduceRule;
+use crate::array::transform::ArrayRuleContext;
+use crate::arrays::DecimalArray;
+use crate::arrays::DecimalVTable;
+use crate::arrays::MaskedArray;
+use crate::arrays::MaskedVTable;
+use crate::execution::BatchKernelRef;
+use crate::execution::BindCtx;
+use crate::execution::kernel;
+use crate::vtable::OperatorVTable;
+use crate::vtable::ValidityHelper;
 
 impl OperatorVTable<DecimalVTable> for DecimalVTable {
     fn bind(
@@ -43,6 +52,7 @@ impl OperatorVTable<DecimalVTable> for DecimalVTable {
 ///
 /// When a DecimalArray is wrapped by a MaskedArray, this rule merges the mask's validity
 /// with the DecimalArray's existing validity, eliminating the need for the MaskedArray wrapper.
+#[derive(Default, Debug)]
 pub struct DecimalMaskedValidityRule;
 
 impl ArrayParentReduceRule<DecimalVTable, MaskedVTable> for DecimalMaskedValidityRule {

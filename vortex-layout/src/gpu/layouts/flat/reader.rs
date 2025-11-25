@@ -10,13 +10,17 @@ use futures::FutureExt;
 use vortex_array::expr::Expression;
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
-use vortex_dtype::{DType, FieldMask};
-use vortex_error::{VortexResult, VortexUnwrap as _};
+use vortex_dtype::DType;
+use vortex_dtype::FieldMask;
+use vortex_error::VortexResult;
+use vortex_error::VortexUnwrap as _;
 use vortex_gpu::create_run_jit_kernel;
 
+use crate::GpuArrayFuture;
+use crate::GpuLayoutReader;
+use crate::ShareGpuArrayFuture;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentSource;
-use crate::{GpuArrayFuture, GpuLayoutReader, ShareGpuArrayFuture};
 
 pub struct GpuFlatReader {
     layout: FlatLayout,

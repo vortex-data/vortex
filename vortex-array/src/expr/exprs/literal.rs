@@ -4,15 +4,26 @@
 use std::fmt::Formatter;
 
 use prost::Message;
-use vortex_dtype::{DType, match_each_float_ptype};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::DType;
+use vortex_dtype::match_each_float_ptype;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::ConstantArray;
-use crate::expr::{ChildName, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt};
+use crate::expr::ChildName;
+use crate::expr::ExprId;
+use crate::expr::Expression;
+use crate::expr::ExpressionView;
+use crate::expr::StatsCatalog;
+use crate::expr::VTable;
+use crate::expr::VTableExt;
 use crate::stats::Stat;
-use crate::{Array, ArrayRef, IntoArray};
 
 /// Expression that represents a literal scalar value.
 pub struct Literal;
@@ -143,7 +154,10 @@ pub fn lit(value: impl Into<Scalar>) -> Expression {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Nullability, PType, StructFields};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
+    use vortex_dtype::StructFields;
     use vortex_scalar::Scalar;
 
     use super::lit;

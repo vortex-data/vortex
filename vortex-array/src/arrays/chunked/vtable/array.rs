@@ -6,12 +6,14 @@ use std::hash::Hash;
 use vortex_dtype::DType;
 
 use crate::Precision;
-use crate::arrays::{ChunkedArray, ChunkedVTable};
-use crate::hash::{ArrayEq, ArrayHash};
+use crate::arrays::ChunkedArray;
+use crate::arrays::ChunkedVTable;
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
 use crate::stats::StatsSetRef;
-use crate::vtable::ArrayVTable;
+use crate::vtable::BaseArrayVTable;
 
-impl ArrayVTable<ChunkedVTable> for ChunkedVTable {
+impl BaseArrayVTable<ChunkedVTable> for ChunkedVTable {
     fn len(array: &ChunkedArray) -> usize {
         array.len
     }

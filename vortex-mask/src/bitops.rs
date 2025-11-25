@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::{BitAnd, BitOr, Not};
+use std::ops::BitAnd;
+use std::ops::BitOr;
+use std::ops::Not;
 
 use vortex_error::vortex_panic;
 
-use crate::{AllOr, Mask};
+use crate::AllOr;
+use crate::Mask;
 
 impl BitAnd for &Mask {
     type Output = Mask;

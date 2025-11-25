@@ -3,24 +3,40 @@
 
 use std::sync::Arc;
 
-use arrow_schema::{DataType, Schema};
+use arrow_schema::DataType;
+use arrow_schema::Schema;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_functions::core::getfield::GetFieldFunc;
-use datafusion_physical_expr::{PhysicalExpr, ScalarFunctionExpr};
-use datafusion_physical_expr_common::physical_expr::{PhysicalExprRef, is_dynamic_physical_expr};
+use datafusion_physical_expr::PhysicalExpr;
+use datafusion_physical_expr::ScalarFunctionExpr;
+use datafusion_physical_expr_common::physical_expr::PhysicalExprRef;
+use datafusion_physical_expr_common::physical_expr::is_dynamic_physical_expr;
 use datafusion_physical_plan::expressions as df_expr;
 use itertools::Itertools;
 use vortex::compute::LikeOptions;
+use vortex::dtype::DType;
+use vortex::dtype::Nullability;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::dtype::{DType, Nullability};
-use vortex::error::{VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{
-    Binary, Expression, Like, Operator, VTableExt, and, cast, get_item, is_null, list_contains,
-    lit, not, root,
-};
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
+use vortex::error::vortex_err;
+use vortex::expr::Binary;
+use vortex::expr::Expression;
+use vortex::expr::Like;
+use vortex::expr::Operator;
+use vortex::expr::VTableExt;
+use vortex::expr::and;
+use vortex::expr::cast;
+use vortex::expr::get_item;
+use vortex::expr::is_null;
+use vortex::expr::list_contains;
+use vortex::expr::lit;
+use vortex::expr::not;
+use vortex::expr::root;
 use vortex::scalar::Scalar;
 
-use crate::convert::{FromDataFusion, TryFromDataFusion};
+use crate::convert::FromDataFusion;
+use crate::convert::TryFromDataFusion;
 
 /// Tries to convert the expressions into a vortex conjunction. Will return Ok(None) iff the input conjunction is empty.
 pub(crate) fn make_vortex_predicate(
@@ -327,16 +343,22 @@ fn can_scalar_fn_be_pushed_down(scalar_fn: &ScalarFunctionExpr, schema: &Schema)
 mod tests {
     use std::sync::Arc;
 
-    use arrow_schema::{DataType, Field, Fields, Schema, TimeUnit as ArrowTimeUnit};
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
+    use arrow_schema::Fields;
+    use arrow_schema::Schema;
+    use arrow_schema::TimeUnit as ArrowTimeUnit;
     use datafusion::functions::core::getfield::GetFieldFunc;
     use datafusion_common::ScalarValue;
     use datafusion_common::config::ConfigOptions;
-    use datafusion_expr::{Operator as DFOperator, ScalarUDF};
+    use datafusion_expr::Operator as DFOperator;
+    use datafusion_expr::ScalarUDF;
     use datafusion_physical_expr::PhysicalExpr;
     use datafusion_physical_plan::expressions as df_expr;
     use insta::assert_snapshot;
     use rstest::rstest;
-    use vortex::expr::{Expression, Operator};
+    use vortex::expr::Expression;
+    use vortex::expr::Operator;
 
     use super::*;
 
