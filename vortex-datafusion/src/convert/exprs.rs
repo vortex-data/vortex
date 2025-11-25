@@ -508,8 +508,7 @@ mod tests {
         DataType::List(Arc::new(Field::new("item", DataType::Int32, true))),
         false
     )]
-    #[case::struct_type(DataType::Struct(vec![Field::new("field", DataType::Int32, true)].into()
-    ), false)]
+    #[case::struct_type(DataType::Struct(vec![Field::new("field", DataType::Int32, true)].into()), true)]
     // Dictionary types - should be supported if value type is supported
     #[case::dict_utf8(
         DataType::Dictionary(Box::new(DataType::UInt32), Box::new(DataType::Utf8)),
@@ -681,9 +680,11 @@ mod tests {
         let source = vortex_source(&test_schema);
 
         let prop = source
-            .try_pushdown_filters(vec![physical_filter], &ConfigOptions::default())
+            .try_pushdown_filters(vec![physical_filter.clone()], &ConfigOptions::default())
             .unwrap();
-        assert!(matches!(prop.filters[0], PushedDown::Yes));
+        let updated_source = prop.updated_node.unwrap();
+        let pushed_filters = updated_source.filter();
+        assert_eq!(pushed_filters, Some(physical_filter))
     }
 
     #[test]
@@ -715,9 +716,11 @@ mod tests {
         let physical_filter = logical2physical(&deep_filter, df_schema.as_ref());
 
         let prop = source
-            .try_pushdown_filters(vec![physical_filter], &ConfigOptions::default())
+            .try_pushdown_filters(vec![physical_filter.clone()], &ConfigOptions::default())
             .unwrap();
-        assert!(matches!(prop.filters[0], PushedDown::Yes));
+        let updated_source = prop.updated_node.unwrap();
+        let pushed_filters = updated_source.filter();
+        assert_eq!(pushed_filters, Some(physical_filter))
     }
 
     #[test]
