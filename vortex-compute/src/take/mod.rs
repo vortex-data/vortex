@@ -3,6 +3,7 @@
 
 //! Take function.
 
+mod bit_buffer;
 mod buffer;
 pub mod slice;
 
