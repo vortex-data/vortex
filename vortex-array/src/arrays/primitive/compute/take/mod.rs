@@ -6,21 +6,16 @@ mod avx2;
 
 #[cfg(vortex_nightly)]
 mod portable;
+mod scalar;
 
 use std::sync::LazyLock;
 
-use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::NativePType;
-use vortex_dtype::match_each_integer_ptype;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::Array;
 use crate::ArrayRef;
-use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
@@ -48,7 +43,7 @@ static PRIMITIVE_TAKE_KERNEL: LazyLock<&'static dyn TakeImpl> = LazyLock::new(||
             }
         } else {
             // stable all other platforms: scalar kernel
-            &TakeKernelScalar
+            &scalar::TakeKernelScalar
         }
     }
 });
@@ -60,25 +55,6 @@ trait TakeImpl: Send + Sync {
         indices: &PrimitiveArray,
         validity: Validity,
     ) -> VortexResult<ArrayRef>;
-}
-
-#[allow(unused)]
-struct TakeKernelScalar;
-
-impl TakeImpl for TakeKernelScalar {
-    fn take(
-        &self,
-        array: &PrimitiveArray,
-        indices: &PrimitiveArray,
-        validity: Validity,
-    ) -> VortexResult<ArrayRef> {
-        match_each_native_ptype!(array.ptype(), |T| {
-            match_each_integer_ptype!(indices.ptype(), |I| {
-                let values = take_primitive_scalar(array.as_slice::<T>(), indices.as_slice::<I>());
-                Ok(PrimitiveArray::new(values, validity).into_array())
-            })
-        })
-    }
 }
 
 impl TakeKernel for PrimitiveVTable {
@@ -101,13 +77,6 @@ impl TakeKernel for PrimitiveVTable {
 }
 
 register_kernel!(TakeKernelAdapter(PrimitiveVTable).lift());
-
-// Compiler may see this as unused based on enabled features
-#[allow(unused)]
-#[inline(always)]
-fn take_primitive_scalar<T: NativePType, I: IntegerPType>(array: &[T], indices: &[I]) -> Buffer<T> {
-    indices.iter().map(|idx| array[idx.as_()]).collect()
-}
 
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 #[cfg(test)]
