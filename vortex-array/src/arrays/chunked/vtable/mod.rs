@@ -3,16 +3,30 @@
 
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_vector::{Vector, VectorMut, VectorMutOps};
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_dtype::PType;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_vector::Vector;
+use vortex_vector::VectorMut;
+use vortex_vector::VectorMutOps;
 
-use crate::arrays::{ChunkedArray, PrimitiveArray};
+use crate::ArrayOperator;
+use crate::EmptyMetadata;
+use crate::ToCanonical;
+use crate::arrays::ChunkedArray;
+use crate::arrays::PrimitiveArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable};
-use crate::{ArrayOperator, EmptyMetadata, ToCanonical, vtable};
+use crate::vtable;
+use crate::vtable::ArrayId;
+use crate::vtable::ArrayVTable;
+use crate::vtable::ArrayVTableExt;
+use crate::vtable::NotSupported;
+use crate::vtable::VTable;
 
 mod array;
 mod canonical;

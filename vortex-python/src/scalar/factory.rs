@@ -6,12 +6,23 @@ use std::sync::Arc;
 use itertools::Itertools;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyBytes, PyDict, PyFloat, PyInt, PyList, PyString};
-use vortex::dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
+use pyo3::types::PyBool;
+use pyo3::types::PyBytes;
+use pyo3::types::PyDict;
+use pyo3::types::PyFloat;
+use pyo3::types::PyInt;
+use pyo3::types::PyList;
+use pyo3::types::PyString;
+use vortex::dtype::DType;
+use vortex::dtype::FieldName;
+use vortex::dtype::FieldNames;
+use vortex::dtype::Nullability;
+use vortex::dtype::StructFields;
 use vortex::scalar::Scalar;
 
 use crate::dtype::PyDType;
-use crate::scalar::{PyScalar, bool};
+use crate::scalar::PyScalar;
+use crate::scalar::bool;
 
 #[allow(unused_variables)]
 #[pyfunction(name = "scalar")]

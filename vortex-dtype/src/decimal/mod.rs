@@ -6,17 +6,22 @@ mod max_precision;
 mod precision;
 mod types;
 
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::num::NonZero;
 
 use num_traits::ToPrimitive;
 pub use precision::*;
 pub use types::*;
-use vortex_error::{
-    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
-};
+use vortex_error::VortexError;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 
-use crate::{DType, i256};
+use crate::DType;
+use crate::i256;
 
 const MAX_PRECISION: u8 = <i256 as NativeDecimalType>::MAX_PRECISION;
 const MAX_SCALE: i8 = <i256 as NativeDecimalType>::MAX_SCALE;
@@ -131,7 +136,8 @@ impl TryFrom<DType> for DecimalDType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DType, Nullability};
+    use crate::DType;
+    use crate::Nullability;
 
     #[test]
     fn test_decimal_valid_construction() {

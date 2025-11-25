@@ -6,12 +6,22 @@ mod test;
 
 use std::sync::Arc;
 
-use vortex_dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-use vortex_dtype::{DType, ExtDType};
-use vortex_error::{VortexError, vortex_err, vortex_panic};
+use vortex_dtype::DType;
+use vortex_dtype::ExtDType;
+use vortex_dtype::datetime::DATE_ID;
+use vortex_dtype::datetime::TIME_ID;
+use vortex_dtype::datetime::TIMESTAMP_ID;
+use vortex_dtype::datetime::TemporalMetadata;
+use vortex_dtype::datetime::TimeUnit;
+use vortex_error::VortexError;
+use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 
-use crate::arrays::{ExtensionArray, ExtensionVTable};
-use crate::{Array, ArrayRef, IntoArray};
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ExtensionArray;
+use crate::arrays::ExtensionVTable;
 
 /// An array wrapper for primitive values that have an associated temporal meaning.
 ///

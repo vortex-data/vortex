@@ -3,8 +3,12 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::{StructArray, StructVTable};
-use crate::compute::{self, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
+use crate::arrays::StructArray;
+use crate::arrays::StructVTable;
+use crate::compute::IsConstantKernel;
+use crate::compute::IsConstantKernelAdapter;
+use crate::compute::IsConstantOpts;
+use crate::compute::{self};
 use crate::register_kernel;
 
 impl IsConstantKernel for StructVTable {

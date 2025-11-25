@@ -4,14 +4,19 @@
 use vortex_buffer::buffer;
 use vortex_scalar::PValue;
 
-use crate::arrays::{BoolArray, PrimitiveArray};
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::BoolArray;
+use crate::arrays::PrimitiveArray;
 use crate::compute::conformance::filter::test_filter_conformance;
 use crate::compute::conformance::mask::test_mask_conformance;
 use crate::compute::conformance::search_sorted::rstest_reuse::apply;
-use crate::compute::conformance::search_sorted::{search_sorted_conformance, *};
-use crate::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
+use crate::compute::conformance::search_sorted::search_sorted_conformance;
+use crate::compute::conformance::search_sorted::*;
+use crate::search_sorted::SearchResult;
+use crate::search_sorted::SearchSorted;
+use crate::search_sorted::SearchSortedSide;
 use crate::validity::Validity;
-use crate::{ArrayRef, IntoArray};
 
 #[apply(search_sorted_conformance)]
 fn test_search_sorted_primitive(

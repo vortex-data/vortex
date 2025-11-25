@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::{BitAnd, BitOr, Not};
+use std::ops::BitAnd;
+use std::ops::BitOr;
+use std::ops::Not;
 
 use vortex_buffer::BitBuffer;
 use vortex_mask::Mask;

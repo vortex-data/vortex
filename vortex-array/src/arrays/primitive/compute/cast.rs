@@ -1,16 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{DType, NativePType, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_err};
-use vortex_mask::{AllOr, Mask};
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
+use vortex_dtype::DType;
+use vortex_dtype::NativePType;
+use vortex_dtype::match_each_native_ptype;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
+use vortex_mask::AllOr;
+use vortex_mask::Mask;
 
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
-use crate::compute::{CastKernel, CastKernelAdapter};
+use crate::compute::CastKernel;
+use crate::compute::CastKernelAdapter;
+use crate::register_kernel;
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl CastKernel for PrimitiveVTable {
     fn cast(&self, array: &PrimitiveArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -88,8 +96,11 @@ fn cast<F: NativePType, T: NativePType>(array: &[F], mask: Mask) -> VortexResult
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_buffer::{BitBuffer, buffer};
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_buffer::BitBuffer;
+    use vortex_buffer::buffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
     use vortex_error::VortexError;
     use vortex_mask::Mask;
 

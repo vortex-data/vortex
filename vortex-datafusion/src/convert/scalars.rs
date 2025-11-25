@@ -5,14 +5,24 @@ use std::sync::Arc;
 
 use datafusion_common::ScalarValue;
 use vortex::buffer::ByteBuffer;
+use vortex::dtype::DType;
+use vortex::dtype::DecimalDType;
+use vortex::dtype::NativeDecimalType;
+use vortex::dtype::Nullability;
+use vortex::dtype::PType;
+use vortex::dtype::datetime::TemporalMetadata;
+use vortex::dtype::datetime::TimeUnit;
 use vortex::dtype::datetime::arrow::make_temporal_ext_dtype;
-use vortex::dtype::datetime::{TemporalMetadata, TimeUnit, is_temporal_ext_type};
+use vortex::dtype::datetime::is_temporal_ext_type;
 use vortex::dtype::half::f16;
-use vortex::dtype::{DType, DecimalDType, NativeDecimalType, Nullability, PType};
-use vortex::error::{VortexResult, vortex_bail};
-use vortex::scalar::{DecimalValue, Scalar, i256};
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
+use vortex::scalar::DecimalValue;
+use vortex::scalar::Scalar;
+use vortex::scalar::i256;
 
-use crate::convert::{FromDataFusion, TryToDataFusion};
+use crate::convert::FromDataFusion;
+use crate::convert::TryToDataFusion;
 
 impl TryToDataFusion<ScalarValue> for Scalar {
     fn try_to_df(&self) -> VortexResult<ScalarValue> {
@@ -248,8 +258,13 @@ mod tests {
     use datafusion_common::arrow::datatypes::i256 as arrow_i256;
     use rstest::rstest;
     use vortex::buffer::ByteBuffer;
-    use vortex::dtype::{DType, DecimalDType, Nullability, PType};
-    use vortex::scalar::{DecimalValue, Scalar, i256};
+    use vortex::dtype::DType;
+    use vortex::dtype::DecimalDType;
+    use vortex::dtype::Nullability;
+    use vortex::dtype::PType;
+    use vortex::scalar::DecimalValue;
+    use vortex::scalar::Scalar;
+    use vortex::scalar::i256;
 
     use super::*;
 

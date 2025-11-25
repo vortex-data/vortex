@@ -1,13 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrayref::{array_mut_ref, array_ref};
-use fastlanes::{Delta, FastLanes, Transpose};
+use arrayref::array_mut_ref;
+use arrayref::array_ref;
+use fastlanes::Delta;
+use fastlanes::FastLanes;
+use fastlanes::Transpose;
 use num_traits::WrappingSub;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::vtable::ValidityHelper;
-use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{NativePType, match_each_unsigned_integer_ptype};
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
+use vortex_dtype::NativePType;
+use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
 
 pub fn delta_compress(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, PrimitiveArray)> {

@@ -3,10 +3,12 @@
 
 use vortex_error::VortexResult;
 
+use crate::expr::Expression;
+use crate::expr::ExpressionView;
 use crate::expr::exprs::get_item::GetItem;
 use crate::expr::exprs::pack::Pack;
-use crate::expr::transform::rules::{ReduceRule, RuleContext};
-use crate::expr::{Expression, ExpressionView};
+use crate::expr::transform::rules::ReduceRule;
+use crate::expr::transform::rules::RuleContext;
 
 /// Rewrite rule: `pack(l_1: e_1, ..., l_i: e_i, ..., l_n: e_n).get_item(l_i) = e_i`
 ///
@@ -32,17 +34,20 @@ impl ReduceRule<GetItem, RuleContext> for PackGetItemRule {
 
 #[cfg(test)]
 mod tests {
+    use vortex_dtype::DType;
     use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::{DType, PType};
+    use vortex_dtype::PType;
 
     use super::PackGetItemRule;
     use crate::expr::exprs::binary::checked_add;
-    use crate::expr::exprs::get_item::{GetItem, get_item};
+    use crate::expr::exprs::get_item::GetItem;
+    use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::pack::pack;
     use crate::expr::session::ExprSession;
     use crate::expr::transform::ExprOptimizer;
-    use crate::expr::transform::rules::{ReduceRule, RuleContext};
+    use crate::expr::transform::rules::ReduceRule;
+    use crate::expr::transform::rules::RuleContext;
 
     #[test]
     fn test_pack_get_item_rule() {

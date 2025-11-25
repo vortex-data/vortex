@@ -3,16 +3,25 @@
 
 use itertools::Itertools as _;
 use num_traits::AsPrimitive;
-use vortex_buffer::{BitBuffer, get_bit};
+use vortex_buffer::BitBuffer;
+use vortex_buffer::get_bit;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{BoolArray, BoolVTable, ConstantArray};
-use crate::compute::{TakeKernel, TakeKernelAdapter, fill_null};
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::ToCanonical;
+use crate::arrays::BoolArray;
+use crate::arrays::BoolVTable;
+use crate::arrays::ConstantArray;
+use crate::compute::TakeKernel;
+use crate::compute::TakeKernelAdapter;
+use crate::compute::fill_null;
+use crate::register_kernel;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl TakeKernel for BoolVTable {
     fn take(&self, array: &BoolArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -70,12 +79,15 @@ mod test {
     use rstest::rstest;
     use vortex_buffer::buffer;
 
+    use crate::Array;
+    use crate::IntoArray as _;
+    use crate::ToCanonical;
     use crate::arrays::BoolArray;
     use crate::arrays::primitive::PrimitiveArray;
+    use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::validity::Validity;
-    use crate::{Array, IntoArray as _, ToCanonical, assert_arrays_eq};
 
     #[test]
     fn take_nullable() {

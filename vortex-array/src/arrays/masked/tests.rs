@@ -2,12 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use rstest::rstest;
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
 
 use super::*;
+use crate::Array;
+use crate::IntoArray;
+use crate::ToCanonical as _;
 use crate::arrays::PrimitiveArray;
 use crate::validity::Validity;
-use crate::{Array, IntoArray, ToCanonical as _};
 
 #[rstest]
 #[case(Validity::AllValid, Nullability::Nullable)]

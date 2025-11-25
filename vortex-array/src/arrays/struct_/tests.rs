@@ -2,14 +2,21 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::buffer;
-use vortex_dtype::{DType, FieldName, FieldNames, Nullability, PType};
+use vortex_dtype::DType;
+use vortex_dtype::FieldName;
+use vortex_dtype::FieldNames;
+use vortex_dtype::Nullability;
+use vortex_dtype::PType;
 
+use crate::Array;
+use crate::IntoArray;
+use crate::ToCanonical;
+use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::struct_::StructArray;
 use crate::arrays::varbin::VarBinArray;
-use crate::arrays::{BoolArray, ConstantArray};
 use crate::validity::Validity;
-use crate::{Array, IntoArray, ToCanonical};
 
 #[test]
 fn test_project() {

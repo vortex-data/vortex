@@ -12,20 +12,26 @@
 
 use std::clone::Clone;
 use std::env;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::LazyLock;
 
-use vortex::arrays::{ChunkedArray, StructArray};
+use vortex::Array;
+use vortex::ArrayRef;
+use vortex::IntoArray;
+use vortex::VortexSessionDefault;
+use vortex::arrays::ChunkedArray;
+use vortex::arrays::StructArray;
 use vortex::buffer::Buffer;
-use vortex::error::{VortexResult, vortex_err};
+use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::VortexWrite;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
-use vortex::{Array, ArrayRef, IntoArray, VortexSessionDefault};
 
 static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
 static SESSION: LazyLock<VortexSession> =

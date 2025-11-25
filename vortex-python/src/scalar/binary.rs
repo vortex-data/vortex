@@ -4,7 +4,8 @@
 use pyo3::pyclass;
 use vortex::scalar::BinaryScalar;
 
-use crate::scalar::{PyScalar, ScalarSubclass};
+use crate::scalar::PyScalar;
+use crate::scalar::ScalarSubclass;
 
 /// Concrete class for binary scalars.
 #[pyclass(name = "BinaryScalar", module = "vortex", extends=PyScalar, frozen)]

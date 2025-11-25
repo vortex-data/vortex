@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{FilterKernel, FilterKernelAdapter};
-use vortex_array::{ArrayRef, IntoArray, register_kernel};
+use vortex_array::compute::FilterKernel;
+use vortex_array::compute::FilterKernelAdapter;
+use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::{SparseArray, SparseVTable};
+use crate::SparseArray;
+use crate::SparseVTable;
 
 mod binary_numeric;
 mod cast;
@@ -33,20 +37,28 @@ register_kernel!(FilterKernelAdapter(SparseVTable).lift());
 
 #[cfg(test)]
 mod test {
-    use rstest::{fixture, rstest};
+    use rstest::fixture;
+    use rstest::rstest;
+    use vortex_array::Array;
+    use vortex_array::ArrayRef;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::compute::cast;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
-    use vortex_array::compute::{cast, filter};
+    use vortex_array::compute::filter;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayRef, IntoArray, assert_arrays_eq};
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
-    use crate::{SparseArray, SparseVTable};
+    use crate::SparseArray;
+    use crate::SparseVTable;
 
     #[fixture]
     fn array() -> ArrayRef {
@@ -176,7 +188,9 @@ mod tests {
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
     use vortex_scalar::Scalar;
 
     use crate::SparseArray;

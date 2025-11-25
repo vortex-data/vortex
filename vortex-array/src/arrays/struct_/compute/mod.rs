@@ -11,21 +11,35 @@ mod zip;
 
 #[cfg(test)]
 mod tests {
-    use Nullability::{NonNullable, Nullable};
+    use Nullability::NonNullable;
+    use Nullability::Nullable;
     use rstest::rstest;
-    use vortex_buffer::{BitBuffer, buffer};
-    use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
+    use vortex_buffer::BitBuffer;
+    use vortex_buffer::buffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::FieldNames;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
+    use vortex_dtype::StructFields;
     use vortex_error::VortexUnwrap;
     use vortex_mask::Mask;
 
-    use crate::arrays::{BoolArray, PrimitiveArray, StructArray, VarBinArray};
+    use crate::Array;
+    use crate::IntoArray as _;
+    use crate::arrays::BoolArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
+    use crate::arrays::VarBinArray;
+    use crate::assert_arrays_eq;
+    use crate::compute::cast;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::compute::conformance::take::test_take_conformance;
-    use crate::compute::{cast, filter, is_constant, take};
+    use crate::compute::filter;
+    use crate::compute::is_constant;
+    use crate::compute::take;
     use crate::validity::Validity;
-    use crate::{Array, IntoArray as _, assert_arrays_eq};
 
     #[test]
     fn filter_empty_struct() {

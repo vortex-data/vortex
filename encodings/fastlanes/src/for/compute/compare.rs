@@ -4,14 +4,26 @@
 use std::ops::Shr;
 
 use num_traits::WrappingSub;
+use vortex_array::Array;
+use vortex_array::ArrayRef;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{CompareKernel, CompareKernelAdapter, Operator, compare};
-use vortex_array::{Array, ArrayRef, register_kernel};
-use vortex_dtype::{NativePType, Nullability, match_each_integer_ptype};
-use vortex_error::{VortexError, VortexExpect as _, VortexResult};
-use vortex_scalar::{PValue, PrimitiveScalar, Scalar};
+use vortex_array::compute::CompareKernel;
+use vortex_array::compute::CompareKernelAdapter;
+use vortex_array::compute::Operator;
+use vortex_array::compute::compare;
+use vortex_array::register_kernel;
+use vortex_dtype::NativePType;
+use vortex_dtype::Nullability;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_error::VortexError;
+use vortex_error::VortexExpect as _;
+use vortex_error::VortexResult;
+use vortex_scalar::PValue;
+use vortex_scalar::PrimitiveScalar;
+use vortex_scalar::Scalar;
 
-use crate::{FoRArray, FoRVTable};
+use crate::FoRArray;
+use crate::FoRVTable;
 
 impl CompareKernel for FoRVTable {
     fn compare(
@@ -80,10 +92,12 @@ where
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, ToCanonical};
-    use vortex_buffer::{BitBuffer, buffer};
+    use vortex_buffer::BitBuffer;
+    use vortex_buffer::buffer;
     use vortex_dtype::DType;
 
     use super::*;

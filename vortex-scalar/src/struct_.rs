@@ -2,18 +2,28 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::cmp::Ordering;
-use std::fmt::{Display, Formatter};
-use std::hash::{Hash, Hasher};
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::ops::Deref;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::{DType, FieldName, FieldNames, StructFields};
-use vortex_error::{
-    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
-};
+use vortex_dtype::DType;
+use vortex_dtype::FieldName;
+use vortex_dtype::FieldNames;
+use vortex_dtype::StructFields;
+use vortex_error::VortexError;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 
-use crate::{InnerScalarValue, Scalar, ScalarValue};
+use crate::InnerScalarValue;
+use crate::Scalar;
+use crate::ScalarValue;
 
 /// A scalar value representing a struct with named fields.
 ///
@@ -307,8 +317,10 @@ impl<'a> TryFrom<&'a Scalar> for StructScalar<'a> {
 
 #[cfg(test)]
 mod tests {
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, Nullability, StructFields};
+    use vortex_dtype::StructFields;
 
     use super::*;
 
@@ -621,7 +633,8 @@ mod tests {
     #[test]
     fn test_struct_hash() {
         use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
+        use std::hash::Hash;
+        use std::hash::Hasher;
 
         let (_, _, dtype) = setup_types();
 

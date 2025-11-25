@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{NaNCountKernel, NaNCountKernelAdapter, nan_count};
+use vortex_array::compute::NaNCountKernel;
+use vortex_array::compute::NaNCountKernelAdapter;
+use vortex_array::compute::nan_count;
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
-use crate::{ALPArray, ALPVTable};
+use crate::ALPArray;
+use crate::ALPVTable;
 
 impl NaNCountKernel for ALPVTable {
     fn nan_count(&self, array: &ALPArray) -> VortexResult<usize> {

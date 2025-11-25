@@ -7,9 +7,12 @@ use bit_vec::BitVec;
 use itertools::Itertools;
 use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
+use vortex_array::expr::DynamicExprUpdates;
+use vortex_array::expr::Expression;
 use vortex_array::expr::forms::conjuncts;
-use vortex_array::expr::{DynamicExprUpdates, Expression};
-use vortex_error::{VortexExpect, vortex_err, vortex_panic};
+use vortex_error::VortexExpect;
+use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
 const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;

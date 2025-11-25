@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::{
-    IntegerPType, NativePType, UnsignedPType, match_each_integer_ptype, match_each_native_ptype,
-};
+use vortex_dtype::IntegerPType;
+use vortex_dtype::NativePType;
+use vortex_dtype::UnsignedPType;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_dtype::match_each_native_ptype;
 
 use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;

@@ -2,12 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #![allow(clippy::cast_possible_truncation)]
 
-use vortex_array::arrays::{BoolArray, PrimitiveArray, VarBinViewArray};
+use vortex_array::ToCanonical;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::assert_arrays_eq;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{ToCanonical, assert_arrays_eq};
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
 use vortex_mask::Mask;
 
 use crate::ZstdArray;

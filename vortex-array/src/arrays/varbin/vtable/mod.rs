@@ -2,16 +2,26 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_dtype::PType;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
+use crate::DeserializeMetadata;
+use crate::ProstMetadata;
+use crate::SerializeMetadata;
 use crate::arrays::varbin::VarBinArray;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{
-    ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable, ValidityVTableFromValidityHelper,
-};
-use crate::{DeserializeMetadata, ProstMetadata, SerializeMetadata, vtable};
+use crate::vtable;
+use crate::vtable::ArrayId;
+use crate::vtable::ArrayVTable;
+use crate::vtable::ArrayVTableExt;
+use crate::vtable::NotSupported;
+use crate::vtable::VTable;
+use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
 mod canonical;

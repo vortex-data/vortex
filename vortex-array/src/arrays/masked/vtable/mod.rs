@@ -10,18 +10,26 @@ mod validity;
 use vortex_buffer::ByteBuffer;
 use vortex_compute::mask::MaskValidity;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_vector::Vector;
 
+use crate::ArrayBufferVisitor;
+use crate::ArrayChildVisitor;
+use crate::ArrayOperator;
+use crate::EmptyMetadata;
 use crate::arrays::masked::MaskedArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{
-    ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable, ValidityVTableFromValidityHelper,
-    VisitorVTable,
-};
-use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayOperator, EmptyMetadata, vtable};
+use crate::vtable;
+use crate::vtable::ArrayId;
+use crate::vtable::ArrayVTable;
+use crate::vtable::ArrayVTableExt;
+use crate::vtable::NotSupported;
+use crate::vtable::VTable;
+use crate::vtable::ValidityVTableFromValidityHelper;
+use crate::vtable::VisitorVTable;
 
 vtable!(Masked);
 
@@ -111,11 +119,15 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::ByteBufferMut;
 
-    use crate::arrays::{MaskedArray, PrimitiveArray};
-    use crate::serde::{ArrayParts, SerializeOptions};
+    use crate::ArrayContext;
+    use crate::IntoArray;
+    use crate::MaskedVTable;
+    use crate::arrays::MaskedArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::serde::ArrayParts;
+    use crate::serde::SerializeOptions;
     use crate::validity::Validity;
     use crate::vtable::ArrayVTableExt;
-    use crate::{ArrayContext, IntoArray, MaskedVTable};
 
     #[rstest]
     #[case(

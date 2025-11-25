@@ -3,7 +3,8 @@
 
 use vortex_buffer::BitView;
 use vortex_mask::Mask;
-use vortex_vector::null::{NullVector, NullVectorMut};
+use vortex_vector::null::NullVector;
+use vortex_vector::null::NullVectorMut;
 
 use crate::filter::Filter;
 
@@ -58,7 +59,8 @@ impl<const NB: usize> Filter<BitView<'_, NB>> for NullVector {
 #[cfg(test)]
 mod tests {
     use vortex_mask::Mask;
-    use vortex_vector::{VectorMutOps, VectorOps};
+    use vortex_vector::VectorMutOps;
+    use vortex_vector::VectorOps;
 
     use super::*;
 

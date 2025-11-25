@@ -3,9 +3,11 @@
 
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
+use std::env;
+use std::fs;
 use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
-use std::{env, fs};
+use std::path::Path;
+use std::path::PathBuf;
 
 use bindgen::Abi;
 use once_cell::sync::Lazy;

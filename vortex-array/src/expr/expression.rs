@@ -3,20 +3,30 @@
 
 use std::any::Any;
 use std::fmt;
-use std::fmt::{Debug, Display, Formatter};
-use std::hash::{Hash, Hasher};
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult};
-use vortex_vector::{Vector, VectorOps};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_vector::Vector;
+use vortex_vector::VectorOps;
 
 use crate::ArrayRef;
+use crate::expr::ChildName;
+use crate::expr::ExecutionArgs;
+use crate::expr::ExprId;
+use crate::expr::ExprVTable;
+use crate::expr::ExpressionView;
+use crate::expr::Root;
+use crate::expr::StatsCatalog;
+use crate::expr::VTable;
 use crate::expr::display::DisplayTreeExpr;
-use crate::expr::{
-    ChildName, ExecutionArgs, ExprId, ExprVTable, ExpressionView, Root, StatsCatalog, VTable,
-};
 use crate::stats::Stat;
 
 /// A node in a Vortex expression tree.

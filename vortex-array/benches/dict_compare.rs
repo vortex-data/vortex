@@ -6,10 +6,15 @@
 use std::str::from_utf8;
 
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::dict_test::{gen_primitive_for_dict, gen_varbin_words};
-use vortex_array::arrays::{ConstantArray, VarBinArray, VarBinViewArray};
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::VarBinArray;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::dict_test::gen_primitive_for_dict;
+use vortex_array::arrays::dict_test::gen_varbin_words;
 use vortex_array::builders::dict::dict_encode;
-use vortex_array::compute::{Operator, compare, warm_up_vtables};
+use vortex_array::compute::Operator;
+use vortex_array::compute::compare;
+use vortex_array::compute::warm_up_vtables;
 
 fn main() {
     warm_up_vtables();

@@ -3,13 +3,15 @@
 
 use std::ops::Range;
 
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::vtable::OperationsVTable;
-use vortex_array::{ArrayRef, IntoArray};
 use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
 
 use super::RLEVTable;
-use crate::{FL_CHUNK_SIZE, RLEArray};
+use crate::FL_CHUNK_SIZE;
+use crate::RLEArray;
 
 impl OperationsVTable<RLEVTable> for RLEVTable {
     fn slice(array: &RLEArray, range: Range<usize>) -> ArrayRef {
@@ -71,10 +73,14 @@ impl OperationsVTable<RLEVTable> for RLEVTable {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::Array;
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray, ToCanonical, assert_arrays_eq};
-    use vortex_buffer::{Buffer, buffer};
+    use vortex_buffer::Buffer;
+    use vortex_buffer::buffer;
 
     use super::*;
 

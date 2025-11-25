@@ -2,14 +2,25 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BitBuffer;
-use vortex_dtype::{NativeDecimalType, Nullability, match_each_decimal_value_type};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_dtype::NativeDecimalType;
+use vortex_dtype::Nullability;
+use vortex_dtype::match_each_decimal_value_type;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{BoolArray, DecimalArray, DecimalVTable};
-use crate::compute::{BetweenKernel, BetweenKernelAdapter, BetweenOptions, StrictComparison};
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::BoolArray;
+use crate::arrays::DecimalArray;
+use crate::arrays::DecimalVTable;
+use crate::compute::BetweenKernel;
+use crate::compute::BetweenKernelAdapter;
+use crate::compute::BetweenOptions;
+use crate::compute::StrictComparison;
+use crate::register_kernel;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl BetweenKernel for DecimalVTable {
     // Determine if the values are between the lower and upper bounds
@@ -109,13 +120,19 @@ fn between_impl<T: NativeDecimalType>(
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::{DecimalDType, Nullability};
-    use vortex_scalar::{DecimalValue, Scalar};
+    use vortex_dtype::DecimalDType;
+    use vortex_dtype::Nullability;
+    use vortex_scalar::DecimalValue;
+    use vortex_scalar::Scalar;
 
-    use crate::arrays::{ConstantArray, DecimalArray};
-    use crate::compute::{BetweenOptions, StrictComparison, between};
+    use crate::Array;
+    use crate::ToCanonical;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::DecimalArray;
+    use crate::compute::BetweenOptions;
+    use crate::compute::StrictComparison;
+    use crate::compute::between;
     use crate::validity::Validity;
-    use crate::{Array, ToCanonical};
 
     #[test]
     fn test_between() {

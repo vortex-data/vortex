@@ -8,13 +8,15 @@
 //! the struct field "parent" which is within the struct field "grandparent".
 
 use core::fmt;
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::{DType, FieldName};
+use crate::DType;
+use crate::FieldName;
 
 /// Selects a nested type within either a struct or a list.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -240,8 +242,10 @@ impl FromIterator<FieldPath> for FieldPathSet {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::DType;
     use crate::Nullability::*;
-    use crate::{DType, PType, StructFields};
+    use crate::PType;
+    use crate::StructFields;
 
     #[test]
     fn test_field_path() {

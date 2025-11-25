@@ -8,22 +8,27 @@
 
 #![allow(unused)]
 
-use std::mem::{MaybeUninit, transmute};
+use std::mem::MaybeUninit;
+use std::mem::transmute;
 use std::simd;
 use std::simd::num::SimdUint;
 
 use multiversion::multiversion;
 use num_traits::AsPrimitive;
-use vortex_buffer::{Alignment, Buffer, BufferMut};
-use vortex_dtype::{
-    NativePType, PType, match_each_native_simd_ptype, match_each_unsigned_integer_ptype,
-};
+use vortex_buffer::Alignment;
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
+use vortex_dtype::NativePType;
+use vortex_dtype::PType;
+use vortex_dtype::match_each_native_simd_ptype;
+use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
 
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::compute::take::TakeImpl;
 use crate::validity::Validity;
-use crate::{ArrayRef, IntoArray};
 
 pub(super) struct TakeKernelPortableSimd;
 

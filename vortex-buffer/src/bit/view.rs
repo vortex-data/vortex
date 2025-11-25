@@ -2,12 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::marker::PhantomData;
 
 use vortex_error::VortexResult;
 
-use crate::{BitBuffer, BitBufferMut};
+use crate::BitBuffer;
+use crate::BitBufferMut;
 
 /// A borrowed fixed-size mask of length `N` bits.
 ///

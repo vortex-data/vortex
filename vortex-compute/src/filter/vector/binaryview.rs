@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::{Buffer, BufferMut};
-use vortex_mask::{Mask, MaskMut};
-use vortex_vector::binaryview::{
-    BinaryView, BinaryViewType, BinaryViewVector, BinaryViewVectorMut,
-};
-use vortex_vector::{VectorMutOps, VectorOps};
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
+use vortex_mask::Mask;
+use vortex_mask::MaskMut;
+use vortex_vector::VectorMutOps;
+use vortex_vector::VectorOps;
+use vortex_vector::binaryview::BinaryView;
+use vortex_vector::binaryview::BinaryViewType;
+use vortex_vector::binaryview::BinaryViewVector;
+use vortex_vector::binaryview::BinaryViewVectorMut;
 
 use crate::filter::Filter;
 

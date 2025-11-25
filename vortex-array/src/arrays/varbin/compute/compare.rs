@@ -1,20 +1,36 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_array::{BinaryArray, StringArray};
+use arrow_array::BinaryArray;
+use arrow_array::StringArray;
 use arrow_ord::cmp;
 use itertools::Itertools;
 use vortex_buffer::BitBuffer;
-use vortex_dtype::{DType, IntegerPType, match_each_integer_ptype};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::DType;
+use vortex_dtype::IntegerPType;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_error::VortexExpect as _;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 
-use crate::arrays::{BoolArray, PrimitiveArray, VarBinArray, VarBinVTable};
-use crate::arrow::{Datum, from_arrow_array_with_len};
-use crate::compute::{
-    CompareKernel, CompareKernelAdapter, Operator, compare, compare_lengths_to_empty,
-};
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::ToCanonical;
+use crate::arrays::BoolArray;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::VarBinArray;
+use crate::arrays::VarBinVTable;
+use crate::arrow::Datum;
+use crate::arrow::from_arrow_array_with_len;
+use crate::compute::CompareKernel;
+use crate::compute::CompareKernelAdapter;
+use crate::compute::Operator;
+use crate::compute::compare;
+use crate::compute::compare_lengths_to_empty;
+use crate::register_kernel;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
 impl CompareKernel for VarBinVTable {
@@ -121,13 +137,18 @@ fn compare_offsets_to_empty<P: IntegerPType>(
 
 #[cfg(test)]
 mod test {
-    use vortex_buffer::{BitBuffer, ByteBuffer};
-    use vortex_dtype::{DType, Nullability};
+    use vortex_buffer::BitBuffer;
+    use vortex_buffer::ByteBuffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
     use crate::ToCanonical;
-    use crate::arrays::{ConstantArray, VarBinArray, VarBinViewArray};
-    use crate::compute::{Operator, compare};
+    use crate::arrays::ConstantArray;
+    use crate::arrays::VarBinArray;
+    use crate::arrays::VarBinViewArray;
+    use crate::compute::Operator;
+    use crate::compute::compare;
 
     #[test]
     fn test_binary_compare() {
@@ -184,12 +205,15 @@ mod test {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
     use crate::Array;
-    use crate::arrays::{ConstantArray, VarBinArray};
-    use crate::compute::{Operator, compare};
+    use crate::arrays::ConstantArray;
+    use crate::arrays::VarBinArray;
+    use crate::compute::Operator;
+    use crate::compute::compare;
 
     #[test]
     fn test_null_compare() {

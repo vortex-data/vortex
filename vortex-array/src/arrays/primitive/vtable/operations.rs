@@ -6,9 +6,12 @@ use std::ops::Range;
 use vortex_dtype::match_each_native_ptype;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{PrimitiveArray, PrimitiveVTable};
-use crate::vtable::{OperationsVTable, ValidityHelper};
-use crate::{ArrayRef, IntoArray};
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::PrimitiveVTable;
+use crate::vtable::OperationsVTable;
+use crate::vtable::ValidityHelper;
 
 impl OperationsVTable<PrimitiveVTable> for PrimitiveVTable {
     fn slice(array: &PrimitiveArray, range: Range<usize>) -> ArrayRef {

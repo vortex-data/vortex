@@ -1,12 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::arrays::{
-    ExtensionArray, FixedSizeListArray, ListViewArray, PrimitiveArray, StructArray,
-    narrowed_decimal,
-};
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
+use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::narrowed_decimal;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 use vortex_decimal_byte_parts::DecimalBytePartsArray;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
@@ -199,9 +205,12 @@ impl Default for CompactCompressor {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::{PrimitiveArray, StructArray};
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::StructArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_dtype::FieldName;
 

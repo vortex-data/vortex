@@ -5,15 +5,21 @@ use std::io;
 use std::sync::Arc;
 
 use async_compat::Compat;
+use futures::FutureExt;
+use futures::StreamExt;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
-use futures::{FutureExt, StreamExt};
 use tracing::Instrument;
 use vortex_buffer::ByteBufferMut;
-use vortex_error::{VortexError, VortexResult, vortex_ensure};
+use vortex_error::VortexError;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 use crate::file::IoRequest;
-use crate::file::read::{CoalesceWindow, IntoReadSource, ReadSource, ReadSourceRef};
+use crate::file::read::CoalesceWindow;
+use crate::file::read::IntoReadSource;
+use crate::file::read::ReadSource;
+use crate::file::read::ReadSourceRef;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::file::std_file::read_exact_at;
 use crate::runtime::Handle;

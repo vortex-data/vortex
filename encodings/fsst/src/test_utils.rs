@@ -3,14 +3,21 @@
 
 #![allow(clippy::unwrap_used)]
 
+use rand::Rng;
+use rand::SeedableRng;
 use rand::prelude::StdRng;
-use rand::{Rng, SeedableRng};
-use vortex_array::arrays::{DictArray, PrimitiveArray, VarBinArray};
-use vortex_array::{ArrayRef, IntoArray};
-use vortex_dtype::{DType, NativePType, Nullability};
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::arrays::DictArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::VarBinArray;
+use vortex_dtype::DType;
+use vortex_dtype::NativePType;
+use vortex_dtype::Nullability;
 use vortex_error::VortexUnwrap;
 
-use crate::{fsst_compress, fsst_train_compressor};
+use crate::fsst_compress;
+use crate::fsst_train_compressor;
 
 pub fn gen_fsst_test_data(len: usize, avg_str_len: usize, unique_chars: u8) -> ArrayRef {
     let mut rng = StdRng::seed_from_u64(0);

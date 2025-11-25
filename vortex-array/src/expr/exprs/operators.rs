@@ -2,9 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use core::fmt;
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
+use std::fmt::Formatter;
 
-use vortex_error::{VortexError, VortexResult, vortex_bail};
+use vortex_error::VortexError;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_proto::expr::binary_opts::BinaryOp;
 
 use crate::compute;

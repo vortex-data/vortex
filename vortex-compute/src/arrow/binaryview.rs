@@ -3,10 +3,13 @@
 
 use std::sync::Arc;
 
-use arrow_array::{ArrayRef, GenericByteViewArray};
+use arrow_array::ArrayRef;
+use arrow_array::GenericByteViewArray;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
-use vortex_vector::binaryview::{BinaryType, BinaryViewVector, StringType};
+use vortex_vector::binaryview::BinaryType;
+use vortex_vector::binaryview::BinaryViewVector;
+use vortex_vector::binaryview::StringType;
 
 use crate::arrow::IntoArrow;
 

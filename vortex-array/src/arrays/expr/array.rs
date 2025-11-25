@@ -2,11 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_ensure};
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
+use crate::Array;
+use crate::ArrayRef;
 use crate::expr::Expression;
 use crate::stats::ArrayStats;
-use crate::{Array, ArrayRef};
 
 /// A array that represents an expression to be evaluated over a child array.
 ///

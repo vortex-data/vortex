@@ -3,15 +3,17 @@
 
 use std::sync::Arc;
 
+use object_store::ObjectStore;
+use object_store::ObjectStoreScheme;
 use object_store::aws::AmazonS3Builder;
 use object_store::azure::MicrosoftAzureBuilder;
 use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::http::HttpBuilder;
 use object_store::local::LocalFileSystem;
 use object_store::path::Path;
-use object_store::{ObjectStore, ObjectStoreScheme};
 use url::Url;
-use vortex::error::{VortexResult, vortex_bail};
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 
 pub(crate) fn object_store_from_url(
     url_str: &str,

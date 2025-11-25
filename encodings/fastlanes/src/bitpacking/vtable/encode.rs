@@ -5,7 +5,9 @@ use vortex_array::Canonical;
 use vortex_array::vtable::EncodeVTable;
 use vortex_error::VortexResult;
 
-use crate::{BitPackedArray, BitPackedVTable, bitpack_compress};
+use crate::BitPackedArray;
+use crate::BitPackedVTable;
+use crate::bitpack_compress;
 
 impl EncodeVTable<BitPackedVTable> for BitPackedVTable {
     fn encode(

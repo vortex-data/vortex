@@ -3,10 +3,14 @@
 
 use std::sync::Arc;
 
-use vortex_mask::{Mask, MaskMut};
-use vortex_vector::listview::{ListViewVector, ListViewVectorMut};
-use vortex_vector::primitive::{PrimitiveVector, PrimitiveVectorMut};
-use vortex_vector::{VectorMutOps, VectorOps};
+use vortex_mask::Mask;
+use vortex_mask::MaskMut;
+use vortex_vector::VectorMutOps;
+use vortex_vector::VectorOps;
+use vortex_vector::listview::ListViewVector;
+use vortex_vector::listview::ListViewVectorMut;
+use vortex_vector::primitive::PrimitiveVector;
+use vortex_vector::primitive::PrimitiveVectorMut;
 
 use crate::filter::Filter;
 

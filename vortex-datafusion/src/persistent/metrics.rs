@@ -6,13 +6,19 @@ use std::sync::Arc;
 
 use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::source::DataSourceExec;
-use datafusion_physical_plan::metrics::{
-    Count, Gauge, Label as DatafusionLabel, MetricValue as DatafusionMetricValue, MetricsSet,
-};
-use datafusion_physical_plan::{
-    ExecutionPlan, ExecutionPlanVisitor, Metric as DatafusionMetric, accept,
-};
-use vortex::metrics::{Metric, MetricId, MetricsSessionExt, Tags};
+use datafusion_physical_plan::ExecutionPlan;
+use datafusion_physical_plan::ExecutionPlanVisitor;
+use datafusion_physical_plan::Metric as DatafusionMetric;
+use datafusion_physical_plan::accept;
+use datafusion_physical_plan::metrics::Count;
+use datafusion_physical_plan::metrics::Gauge;
+use datafusion_physical_plan::metrics::Label as DatafusionLabel;
+use datafusion_physical_plan::metrics::MetricValue as DatafusionMetricValue;
+use datafusion_physical_plan::metrics::MetricsSet;
+use vortex::metrics::Metric;
+use vortex::metrics::MetricId;
+use vortex::metrics::MetricsSessionExt;
+use vortex::metrics::Tags;
 
 use crate::persistent::source::VortexSource;
 

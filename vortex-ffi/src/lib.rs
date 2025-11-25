@@ -20,7 +20,9 @@ mod sink;
 mod string;
 mod struct_fields;
 
-use std::ffi::{CStr, c_char, c_int};
+use std::ffi::CStr;
+use std::ffi::c_char;
+use std::ffi::c_int;
 use std::sync::LazyLock;
 
 pub use log::vx_log_level;

@@ -4,10 +4,12 @@
 #![allow(clippy::unwrap_used)]
 
 use divan::Bencher;
+use rand::Rng;
+use rand::SeedableRng;
 use rand::distr::Uniform;
 use rand::prelude::StdRng;
-use rand::{Rng, SeedableRng};
-use vortex_array::search_sorted::{SearchSorted, SearchSortedSide};
+use vortex_array::search_sorted::SearchSorted;
+use vortex_array::search_sorted::SearchSortedSide;
 
 fn main() {
     divan::main();

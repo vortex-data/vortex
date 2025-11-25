@@ -2,12 +2,20 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BitBuffer;
-use vortex_dtype::{DType, PType, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_ensure};
+use vortex_dtype::DType;
+use vortex_dtype::PType;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::VortexUnwrap;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_mask::AllOr;
 
+use crate::Array;
+use crate::ArrayRef;
+use crate::ToCanonical;
 use crate::stats::ArrayStats;
-use crate::{Array, ArrayRef, ToCanonical};
 
 #[derive(Clone, prost::Message)]
 pub struct DictMetadata {
@@ -194,20 +202,33 @@ impl DictArray {
 mod test {
     #[allow(unused_imports)]
     use itertools::Itertools;
-    use rand::distr::{Distribution, StandardUniform};
+    use rand::Rng;
+    use rand::SeedableRng;
+    use rand::distr::Distribution;
+    use rand::distr::StandardUniform;
     use rand::prelude::StdRng;
-    use rand::{Rng, SeedableRng};
-    use vortex_buffer::{BitBuffer, buffer};
+    use vortex_buffer::BitBuffer;
+    use vortex_buffer::buffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::NativePType;
     use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::{DType, NativePType, PType, UnsignedPType};
-    use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
+    use vortex_dtype::PType;
+    use vortex_dtype::UnsignedPType;
+    use vortex_error::VortexExpect;
+    use vortex_error::VortexUnwrap;
+    use vortex_error::vortex_panic;
     use vortex_mask::AllOr;
 
+    use crate::Array;
+    use crate::ArrayRef;
+    use crate::IntoArray;
+    use crate::ToCanonical;
+    use crate::arrays::ChunkedArray;
+    use crate::arrays::PrimitiveArray;
     use crate::arrays::dict::DictArray;
-    use crate::arrays::{ChunkedArray, PrimitiveArray};
+    use crate::assert_arrays_eq;
     use crate::builders::builder_with_capacity;
     use crate::validity::Validity;
-    use crate::{Array, ArrayRef, IntoArray, ToCanonical, assert_arrays_eq};
 
     #[test]
     fn nullable_codes_validity() {

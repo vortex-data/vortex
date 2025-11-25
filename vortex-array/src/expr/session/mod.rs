@@ -4,9 +4,12 @@
 mod rewrite;
 
 pub use rewrite::RewriteRuleRegistry;
+use vortex_session::Ref;
+use vortex_session::SessionExt;
 use vortex_session::registry::Registry;
-use vortex_session::{Ref, SessionExt};
 
+use crate::expr::ExprVTable;
+use crate::expr::VTable;
 use crate::expr::exprs::between::Between;
 use crate::expr::exprs::binary::Binary;
 use crate::expr::exprs::cast::Cast;
@@ -23,10 +26,11 @@ use crate::expr::exprs::pack::Pack;
 use crate::expr::exprs::root::Root;
 use crate::expr::exprs::select::Select;
 use crate::expr::exprs::select::transform::RemoveSelectRule;
-use crate::expr::transform::rules::{
-    AnyParent, ParentReduceRule, ReduceRule, RuleContext, TypedRuleContext,
-};
-use crate::expr::{ExprVTable, VTable};
+use crate::expr::transform::rules::AnyParent;
+use crate::expr::transform::rules::ParentReduceRule;
+use crate::expr::transform::rules::ReduceRule;
+use crate::expr::transform::rules::RuleContext;
+use crate::expr::transform::rules::TypedRuleContext;
 
 /// Registry of expression vtables.
 pub type ExprRegistry = Registry<ExprVTable>;

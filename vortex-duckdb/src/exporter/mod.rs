@@ -24,17 +24,27 @@ use bitvec::view::BitView;
 pub use cache::ConversionCache;
 pub use decimal::precision_to_duckdb_storage_size;
 use itertools::Itertools;
-use vortex::arrays::{ConstantVTable, DictVTable, StructArray, TemporalArray};
+use vortex::Array;
+use vortex::Canonical;
+use vortex::ToCanonical;
+use vortex::arrays::ConstantVTable;
+use vortex::arrays::DictVTable;
+use vortex::arrays::StructArray;
+use vortex::arrays::TemporalArray;
 use vortex::dtype::datetime::is_temporal_ext_type;
 use vortex::encodings::runend::RunEndVTable;
 use vortex::encodings::sequence::SequenceVTable;
-use vortex::error::{VortexExpect, VortexResult};
+use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
 use vortex::iter::ArrayIterator;
 use vortex::mask::Mask;
-use vortex::{Array, Canonical, ToCanonical};
 
 use crate::cpp::DUCKDB_TYPE;
-use crate::duckdb::{DUCKDB_STANDARD_VECTOR_SIZE, DataChunk, LogicalType, Value, Vector};
+use crate::duckdb::DUCKDB_STANDARD_VECTOR_SIZE;
+use crate::duckdb::DataChunk;
+use crate::duckdb::LogicalType;
+use crate::duckdb::Value;
+use crate::duckdb::Vector;
 
 /// DuckDB exporter for an [`ArrayIterator`], sharing state and caches.
 pub struct ArrayIteratorExporter {
@@ -262,7 +272,8 @@ mod tests {
     use vortex::mask::Mask;
 
     use crate::cpp::DUCKDB_TYPE;
-    use crate::duckdb::{LogicalType, Vector};
+    use crate::duckdb::LogicalType;
+    use crate::duckdb::Vector;
     use crate::exporter::copy_from_slice;
 
     #[test]

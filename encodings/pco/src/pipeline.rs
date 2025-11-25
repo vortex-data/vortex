@@ -1,22 +1,36 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use pco::data_types::{Number, NumberType};
+use pco::data_types::Number;
+use pco::data_types::NumberType;
 use pco::match_number_enum;
-use pco::wrapped::{ChunkDecompressor, FileDecompressor};
-use vortex_array::pipeline::{
-    BindContext, BitView, Kernel, KernelCtx, N, PipelineInputs, PipelinedNode,
-};
+use pco::wrapped::ChunkDecompressor;
+use pco::wrapped::FileDecompressor;
+use vortex_array::pipeline::BindContext;
+use vortex_array::pipeline::BitView;
+use vortex_array::pipeline::Kernel;
+use vortex_array::pipeline::KernelCtx;
+use vortex_array::pipeline::N;
+use vortex_array::pipeline::PipelineInputs;
+use vortex_array::pipeline::PipelinedNode;
 use vortex_buffer::ByteBuffer;
 use vortex_compute::expand::Expand;
-use vortex_dtype::{NativePType, PTypeDowncastExt, half};
-use vortex_error::{VortexResult, VortexUnwrap, vortex_err};
+use vortex_dtype::NativePType;
+use vortex_dtype::PTypeDowncastExt;
+use vortex_dtype::half;
+use vortex_error::VortexResult;
+use vortex_error::VortexUnwrap;
+use vortex_error::vortex_err;
 use vortex_mask::MaskMut;
+use vortex_vector::Vector;
+use vortex_vector::VectorMutOps;
+use vortex_vector::VectorOps;
 use vortex_vector::primitive::PVectorMut;
-use vortex_vector::{Vector, VectorMutOps, VectorOps};
 
-use crate::array::{number_type_from_dtype, vortex_err_from_pco};
-use crate::{PcoArray, PcoMetadata};
+use crate::PcoArray;
+use crate::PcoMetadata;
+use crate::array::number_type_from_dtype;
+use crate::array::vortex_err_from_pco;
 
 impl PipelinedNode for PcoArray {
     fn inputs(&self) -> PipelineInputs {

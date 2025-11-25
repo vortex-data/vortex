@@ -3,16 +3,24 @@
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
-use vortex_scalar::{Scalar, ScalarValue};
-use vortex_vector::{Vector, VectorMutOps};
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
+use vortex_vector::Vector;
+use vortex_vector::VectorMutOps;
 
+use crate::EmptyMetadata;
 use crate::arrays::ConstantArray;
 use crate::arrays::constant::vector::to_vector;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
-use crate::vtable::{ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable};
-use crate::{EmptyMetadata, vtable};
+use crate::vtable;
+use crate::vtable::ArrayId;
+use crate::vtable::ArrayVTable;
+use crate::vtable::ArrayVTableExt;
+use crate::vtable::NotSupported;
+use crate::vtable::VTable;
 
 mod array;
 mod canonical;

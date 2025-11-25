@@ -12,10 +12,15 @@ mod visitor;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-pub use fold::{FoldDown, FoldDownContext, FoldUp, NodeFolder, NodeFolderContext};
+pub use fold::FoldDown;
+pub use fold::FoldDownContext;
+pub use fold::FoldUp;
+pub use fold::NodeFolder;
+pub use fold::NodeFolderContext;
 use itertools::Itertools;
 pub use references::ReferenceCollector;
-pub use visitor::{pre_order_visit_down, pre_order_visit_up};
+pub use visitor::pre_order_visit_down;
+pub use visitor::pre_order_visit_up;
 use vortex_error::VortexResult;
 
 use crate::expr::Expression;
@@ -533,14 +538,24 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_utils::aliases::hash_set::HashSet;
 
+    use super::NodeExt;
+    use super::NodeRewriter;
+    use super::NodeVisitor;
+    use super::Transformed;
+    use super::TraversalOrder;
     use super::visitor::pre_order_visit_down;
-    use super::{NodeExt, NodeRewriter, NodeVisitor, Transformed, TraversalOrder};
     use crate::expr::Expression;
-    use crate::expr::exprs::binary::{Binary, and, eq, not_eq};
-    use crate::expr::exprs::get_item::{GetItem, col};
-    use crate::expr::exprs::literal::{Literal, lit};
+    use crate::expr::exprs::binary::Binary;
+    use crate::expr::exprs::binary::and;
+    use crate::expr::exprs::binary::eq;
+    use crate::expr::exprs::binary::not_eq;
+    use crate::expr::exprs::get_item::GetItem;
+    use crate::expr::exprs::get_item::col;
+    use crate::expr::exprs::literal::Literal;
+    use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::operators::Operator;
-    use crate::expr::exprs::root::{is_root, root};
+    use crate::expr::exprs::root::is_root;
+    use crate::expr::exprs::root::root;
 
     #[derive(Default)]
     pub struct ExprLitCollector<'a>(pub Vec<&'a Expression>);

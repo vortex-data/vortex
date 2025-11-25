@@ -4,7 +4,8 @@
 use std::ops::Not;
 
 use vortex_vector::VectorOps;
-use vortex_vector::bool::{BoolVector, BoolVectorMut};
+use vortex_vector::bool::BoolVector;
+use vortex_vector::bool::BoolVectorMut;
 
 use crate::logical::LogicalNot;
 

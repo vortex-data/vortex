@@ -1,14 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
+use bytes::BytesMut;
 use flatbuffers::FlatBufferBuilder;
+use vortex_array::Array;
+use vortex_array::ArrayContext;
 use vortex_array::serde::SerializeOptions;
-use vortex_array::{Array, ArrayContext};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
-use vortex_flatbuffers::{FlatBuffer, WriteFlatBufferExt, message as fb};
+use vortex_flatbuffers::FlatBuffer;
+use vortex_flatbuffers::WriteFlatBufferExt;
+use vortex_flatbuffers::message as fb;
 
 /// An IPC message ready to be passed to the encoder.
 pub enum EncoderMessage<'a> {

@@ -3,7 +3,8 @@
 
 //! A collection of built-in layouts for Vortex
 
-use futures::future::{BoxFuture, Shared};
+use futures::future::BoxFuture;
+use futures::future::Shared;
 use vortex_array::ArrayRef;
 use vortex_error::SharedVortexResult;
 

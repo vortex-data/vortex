@@ -117,7 +117,8 @@
 use divan::Bencher;
 use fastlanes::BitPacking;
 use rand::Rng;
-use vortex_alp::{ALPFloat, Exponents};
+use vortex_alp::ALPFloat;
+use vortex_alp::Exponents;
 use vortex_error::vortex_panic;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

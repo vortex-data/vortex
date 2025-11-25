@@ -5,27 +5,53 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use num_traits::NumCast;
-use vortex_array::arrays::{
-    BoolArray, ConstantArray, FixedSizeListArray, ListViewArray, NullArray, PrimitiveArray,
-    StructArray, VarBinViewArray,
-};
-use vortex_array::builders::{
-    ArrayBuilder, DecimalBuilder, ListViewBuilder, builder_with_capacity,
-};
+use vortex_array::Array;
+use vortex_array::Canonical;
+use vortex_array::ToCanonical;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::NullArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::builders::ArrayBuilder;
+use vortex_array::builders::DecimalBuilder;
+use vortex_array::builders::ListViewBuilder;
+use vortex_array::builders::builder_with_capacity;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::{CanonicalVTable, ValidityHelper};
-use vortex_array::{Array, Canonical, ToCanonical};
-use vortex_buffer::{BitBuffer, Buffer, BufferString, ByteBuffer, buffer, buffer_mut};
-use vortex_dtype::{
-    DType, DecimalDType, DecimalType, IntegerPType, NativeDecimalType, NativePType, Nullability,
-    StructFields, match_each_decimal_value_type, match_each_integer_ptype, match_each_native_ptype,
-};
-use vortex_error::{VortexError, VortexExpect, vortex_panic};
-use vortex_scalar::{DecimalScalar, ListScalar, Scalar, StructScalar};
+use vortex_array::vtable::CanonicalVTable;
+use vortex_array::vtable::ValidityHelper;
+use vortex_buffer::BitBuffer;
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferString;
+use vortex_buffer::ByteBuffer;
+use vortex_buffer::buffer;
+use vortex_buffer::buffer_mut;
+use vortex_dtype::DType;
+use vortex_dtype::DecimalDType;
+use vortex_dtype::DecimalType;
+use vortex_dtype::IntegerPType;
+use vortex_dtype::NativeDecimalType;
+use vortex_dtype::NativePType;
+use vortex_dtype::Nullability;
+use vortex_dtype::StructFields;
+use vortex_dtype::match_each_decimal_value_type;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_dtype::match_each_native_ptype;
+use vortex_error::VortexError;
+use vortex_error::VortexExpect;
+use vortex_error::vortex_panic;
+use vortex_scalar::DecimalScalar;
+use vortex_scalar::ListScalar;
+use vortex_scalar::Scalar;
+use vortex_scalar::StructScalar;
 use vortex_vector::binaryview::BinaryView;
 
-use crate::{SparseArray, SparseVTable};
+use crate::SparseArray;
+use crate::SparseVTable;
 
 impl CanonicalVTable<SparseVTable> for SparseVTable {
     fn canonicalize(array: &SparseArray) -> Canonical {
@@ -490,18 +516,33 @@ mod test {
     use std::sync::Arc;
 
     use rstest::rstest;
-    use vortex_array::arrays::{
-        BoolArray, DecimalArray, FixedSizeListArray, ListArray, ListViewArray, PrimitiveArray,
-        StructArray, VarBinArray, VarBinViewArray,
-    };
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::DecimalArray;
+    use vortex_array::arrays::FixedSizeListArray;
+    use vortex_array::arrays::ListArray;
+    use vortex_array::arrays::ListViewArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::VarBinArray;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrow::IntoArrowArray as _;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, ToCanonical, assert_arrays_eq};
-    use vortex_buffer::{ByteBuffer, buffer, buffer_mut};
-    use vortex_dtype::Nullability::{NonNullable, Nullable};
-    use vortex_dtype::{DType, DecimalDType, FieldNames, PType, StructFields};
+    use vortex_buffer::ByteBuffer;
+    use vortex_buffer::buffer;
+    use vortex_buffer::buffer_mut;
+    use vortex_dtype::DType;
+    use vortex_dtype::DecimalDType;
+    use vortex_dtype::FieldNames;
+    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::Nullability::Nullable;
+    use vortex_dtype::PType;
+    use vortex_dtype::StructFields;
     use vortex_mask::Mask;
-    use vortex_scalar::{DecimalValue, Scalar};
+    use vortex_scalar::DecimalValue;
+    use vortex_scalar::Scalar;
 
     use crate::SparseArray;
 

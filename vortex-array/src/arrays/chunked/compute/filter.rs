@@ -2,14 +2,26 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BufferMut;
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
-use vortex_mask::{Mask, MaskIter};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::VortexUnwrap;
+use vortex_mask::Mask;
+use vortex_mask::MaskIter;
 
-use crate::arrays::{ChunkedArray, ChunkedVTable, PrimitiveArray};
-use crate::compute::{FilterKernel, FilterKernelAdapter, filter, take};
-use crate::search_sorted::{SearchSorted, SearchSortedSide};
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ChunkedArray;
+use crate::arrays::ChunkedVTable;
+use crate::arrays::PrimitiveArray;
+use crate::compute::FilterKernel;
+use crate::compute::FilterKernelAdapter;
+use crate::compute::filter;
+use crate::compute::take;
+use crate::register_kernel;
+use crate::search_sorted::SearchSorted;
+use crate::search_sorted::SearchSortedSide;
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 pub(crate) const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
@@ -192,13 +204,16 @@ pub(crate) fn find_chunk_idx(idx: usize, chunk_ends: &[u64]) -> (usize, usize) {
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
     use vortex_dtype::half::f16;
-    use vortex_dtype::{DType, Nullability, PType};
     use vortex_mask::Mask;
 
     use crate::IntoArray;
     use crate::array::Array;
-    use crate::arrays::{ChunkedArray, PrimitiveArray};
+    use crate::arrays::ChunkedArray;
+    use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::filter;
 

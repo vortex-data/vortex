@@ -3,18 +3,29 @@
 
 use std::any::Any;
 use std::fmt;
-use std::fmt::{Debug, Display, Formatter};
-use std::hash::{Hash, Hasher};
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_err};
-use vortex_vector::{Vector, VectorOps, vector_matches_dtype};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
+use vortex_vector::Vector;
+use vortex_vector::VectorOps;
+use vortex_vector::vector_matches_dtype;
 
 use crate::ArrayRef;
+use crate::expr::ExprId;
+use crate::expr::ExpressionView;
+use crate::expr::StatsCatalog;
 use crate::expr::expression::Expression;
-use crate::expr::{ExprId, ExpressionView, StatsCatalog};
 use crate::stats::Stat;
 
 ///
@@ -308,7 +319,8 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
 }
 
 mod private {
-    use crate::expr::{VTable, VTableAdapter};
+    use crate::expr::VTable;
+    use crate::expr::VTableAdapter;
 
     pub trait Sealed {}
     impl<V: VTable> Sealed for VTableAdapter<V> {}
@@ -388,13 +400,23 @@ impl Debug for ExprVTable {
 
 #[cfg(test)]
 mod tests {
-    use rstest::{fixture, rstest};
+    use rstest::fixture;
+    use rstest::rstest;
 
     use super::*;
     use crate::expr::exprs::between::between;
-    use crate::expr::exprs::binary::{and, checked_add, eq, gt, gt_eq, lt, lt_eq, not_eq, or};
+    use crate::expr::exprs::binary::and;
+    use crate::expr::exprs::binary::checked_add;
+    use crate::expr::exprs::binary::eq;
+    use crate::expr::exprs::binary::gt;
+    use crate::expr::exprs::binary::gt_eq;
+    use crate::expr::exprs::binary::lt;
+    use crate::expr::exprs::binary::lt_eq;
+    use crate::expr::exprs::binary::not_eq;
+    use crate::expr::exprs::binary::or;
     use crate::expr::exprs::cast::cast;
-    use crate::expr::exprs::get_item::{col, get_item};
+    use crate::expr::exprs::get_item::col;
+    use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::is_null::is_null;
     use crate::expr::exprs::list_contains::list_contains;
     use crate::expr::exprs::literal::lit;
@@ -402,9 +424,12 @@ mod tests {
     use crate::expr::exprs::not::not;
     use crate::expr::exprs::pack::pack;
     use crate::expr::exprs::root::root;
-    use crate::expr::exprs::select::{select, select_exclude};
-    use crate::expr::proto::{ExprSerializeProtoExt, deserialize_expr_proto};
-    use crate::expr::session::{ExprRegistry, ExprSession};
+    use crate::expr::exprs::select::select;
+    use crate::expr::exprs::select::select_exclude;
+    use crate::expr::proto::ExprSerializeProtoExt;
+    use crate::expr::proto::deserialize_expr_proto;
+    use crate::expr::session::ExprRegistry;
+    use crate::expr::session::ExprSession;
 
     #[fixture]
     #[once]

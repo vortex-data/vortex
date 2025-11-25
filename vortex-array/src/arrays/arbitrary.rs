@@ -4,20 +4,38 @@
 use std::iter;
 use std::sync::Arc;
 
-use arbitrary::{Arbitrary, Result, Unstructured};
-use vortex_buffer::{BitBuffer, Buffer};
-use vortex_dtype::{
-    DType, IntegerPType, NativePType, Nullability, PType, match_each_decimal_value_type,
-};
-use vortex_error::{VortexExpect, VortexUnwrap};
+use arbitrary::Arbitrary;
+use arbitrary::Result;
+use arbitrary::Unstructured;
+use vortex_buffer::BitBuffer;
+use vortex_buffer::Buffer;
+use vortex_dtype::DType;
+use vortex_dtype::IntegerPType;
+use vortex_dtype::NativePType;
+use vortex_dtype::Nullability;
+use vortex_dtype::PType;
+use vortex_dtype::match_each_decimal_value_type;
+use vortex_error::VortexExpect;
+use vortex_error::VortexUnwrap;
 use vortex_scalar::Scalar;
 use vortex_scalar::arbitrary::random_scalar;
 
-use super::{BoolArray, ChunkedArray, NullArray, PrimitiveArray, StructArray};
-use crate::arrays::{VarBinArray, VarBinViewArray};
-use crate::builders::{ArrayBuilder, DecimalBuilder, FixedSizeListBuilder, ListViewBuilder};
+use super::BoolArray;
+use super::ChunkedArray;
+use super::NullArray;
+use super::PrimitiveArray;
+use super::StructArray;
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::ToCanonical;
+use crate::arrays::VarBinArray;
+use crate::arrays::VarBinViewArray;
+use crate::builders::ArrayBuilder;
+use crate::builders::DecimalBuilder;
+use crate::builders::FixedSizeListBuilder;
+use crate::builders::ListViewBuilder;
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// A wrapper type to implement `Arbitrary` for `ArrayRef`.
 #[derive(Clone, Debug)]

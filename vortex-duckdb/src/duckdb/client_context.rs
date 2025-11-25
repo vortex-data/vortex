@@ -5,8 +5,10 @@ use std::ffi::CStr;
 
 use vortex::error::vortex_panic;
 
-use crate::duckdb::{ObjectCacheRef, Value};
-use crate::{cpp, wrapper};
+use crate::cpp;
+use crate::duckdb::ObjectCacheRef;
+use crate::duckdb::Value;
+use crate::wrapper;
 
 wrapper!(
     /// A DuckDB client context wrapper.

@@ -1,14 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::{BoolArray, NativeValue};
-use vortex_array::compute::{Operator, scalar_cmp};
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::NativeValue;
+use vortex_array::compute::Operator;
+use vortex_array::compute::scalar_cmp;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::BitBuffer;
-use vortex_dtype::{DType, Nullability, match_each_decimal_value_type, match_each_native_ptype};
-use vortex_error::{VortexExpect, vortex_panic};
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_dtype::match_each_decimal_value_type;
+use vortex_dtype::match_each_native_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
 
 pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Operator) -> ArrayRef {

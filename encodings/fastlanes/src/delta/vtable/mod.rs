@@ -3,14 +3,21 @@
 
 use fastlanes::FastLanes;
 use prost::Message;
+use vortex_array::ProstMetadata;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{
-    ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable, ValidityVTableFromChildSliceHelper,
-};
-use vortex_array::{ProstMetadata, vtable};
+use vortex_array::vtable;
+use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayVTable;
+use vortex_array::vtable::ArrayVTableExt;
+use vortex_array::vtable::NotSupported;
+use vortex_array::vtable::VTable;
+use vortex_array::vtable::ValidityVTableFromChildSliceHelper;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, PType, match_each_unsigned_integer_ptype};
-use vortex_error::{VortexResult, vortex_err};
+use vortex_dtype::DType;
+use vortex_dtype::PType;
+use vortex_dtype::match_each_unsigned_integer_ptype;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::DeltaArray;
 
@@ -101,7 +108,8 @@ pub struct DeltaVTable;
 mod tests {
     use vortex_array::test_harness::check_metadata;
 
-    use super::{DeltaMetadata, ProstMetadata};
+    use super::DeltaMetadata;
+    use super::ProstMetadata;
 
     #[cfg_attr(miri, ignore)]
     #[test]

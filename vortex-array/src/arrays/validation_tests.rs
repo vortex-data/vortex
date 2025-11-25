@@ -10,8 +10,12 @@
 mod tests {
     use std::sync::Arc;
 
-    use vortex_buffer::{Buffer, ByteBuffer, buffer};
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_buffer::Buffer;
+    use vortex_buffer::ByteBuffer;
+    use vortex_buffer::buffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
     use vortex_vector::binaryview::BinaryView;
 
     use crate::IntoArray;

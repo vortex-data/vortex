@@ -2,20 +2,32 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::cast::NumCast;
-use vortex_array::arrays::{ConstantArray, PrimitiveArray};
-use vortex_array::compute::{TakeKernel, TakeKernelAdapter};
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::compute::TakeKernel;
+use vortex_array::compute::TakeKernelAdapter;
+use vortex_array::register_kernel;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 use vortex_buffer::Buffer;
-use vortex_dtype::{
-    DType, IntegerPType, NativePType, Nullability, match_each_integer_ptype,
-    match_each_native_ptype,
-};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
-use vortex_mask::{AllOr, Mask};
+use vortex_dtype::DType;
+use vortex_dtype::IntegerPType;
+use vortex_dtype::NativePType;
+use vortex_dtype::Nullability;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_dtype::match_each_native_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
+use vortex_mask::AllOr;
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::{SequenceArray, SequenceVTable};
+use crate::SequenceArray;
+use crate::SequenceVTable;
 
 impl TakeKernel for SequenceVTable {
     fn take(&self, array: &SequenceArray, indices: &dyn Array) -> VortexResult<ArrayRef> {

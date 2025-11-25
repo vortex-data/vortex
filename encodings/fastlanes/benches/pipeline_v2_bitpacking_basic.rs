@@ -6,8 +6,9 @@
 
 use divan::Bencher;
 use mimalloc::MiMalloc;
+use rand::Rng;
+use rand::SeedableRng;
 use rand::prelude::StdRng;
-use rand::{Rng, SeedableRng};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_fastlanes::BitPackedArray;
 

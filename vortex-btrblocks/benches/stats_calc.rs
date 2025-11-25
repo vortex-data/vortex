@@ -10,8 +10,11 @@ mod benchmarks {
     use divan::Bencher;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_btrblocks::{CompressorStats, GenerateStatsOptions, IntegerStats};
-    use vortex_buffer::{Buffer, BufferMut};
+    use vortex_btrblocks::CompressorStats;
+    use vortex_btrblocks::GenerateStatsOptions;
+    use vortex_btrblocks::IntegerStats;
+    use vortex_buffer::Buffer;
+    use vortex_buffer::BufferMut;
 
     fn generate_dataset(max_run: u32, distinct: u32) -> Buffer<u32> {
         let mut output = BufferMut::with_capacity(64_000);

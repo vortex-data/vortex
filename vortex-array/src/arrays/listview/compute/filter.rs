@@ -4,10 +4,16 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::{ListViewArray, ListViewRebuildMode, ListViewVTable};
-use crate::compute::{self, FilterKernel, FilterKernelAdapter};
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ListViewArray;
+use crate::arrays::ListViewRebuildMode;
+use crate::arrays::ListViewVTable;
+use crate::compute::FilterKernel;
+use crate::compute::FilterKernelAdapter;
+use crate::compute::{self};
+use crate::register_kernel;
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray, register_kernel};
 
 // TODO(connor)[ListView]: Make use of this threshold after we start migrating operators.
 /// The threshold for triggering a rebuild of the [`ListViewArray`].

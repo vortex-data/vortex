@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use num_traits::{CheckedAdd, CheckedSub};
+use num_traits::CheckedAdd;
+use num_traits::CheckedSub;
 use vortex_array::ArrayRef;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_dtype::{NativePType, Nullability, match_each_integer_ptype};
+use vortex_dtype::NativePType;
+use vortex_dtype::Nullability;
+use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_scalar::PValue;
 
@@ -76,8 +79,9 @@ fn encode_primitive_array<P: NativePType + Into<PValue> + CheckedAdd + CheckedSu
 mod tests {
     #[allow(unused_imports)]
     use itertools::Itertools;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::{ToCanonical, assert_arrays_eq};
+    use vortex_array::assert_arrays_eq;
 
     use crate::sequence_encode;
 

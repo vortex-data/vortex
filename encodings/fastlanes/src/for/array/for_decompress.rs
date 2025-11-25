@@ -2,20 +2,27 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use fastlanes::FoR;
-use num_traits::{PrimInt, WrappingAdd};
+use num_traits::PrimInt;
+use num_traits::WrappingAdd;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::PrimitiveBuilder;
 use vortex_array::vtable::ValidityHelper;
-use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{
-    NativePType, PhysicalPType, UnsignedPType, match_each_integer_ptype,
-    match_each_unsigned_integer_ptype,
-};
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
+use vortex_dtype::NativePType;
+use vortex_dtype::PhysicalPType;
+use vortex_dtype::UnsignedPType;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexExpect;
 
-use crate::unpack_iter::{UnpackStrategy, UnpackedChunks};
-use crate::{BitPackedArray, BitPackedVTable, FoRArray, bitpack_decompress};
+use crate::BitPackedArray;
+use crate::BitPackedVTable;
+use crate::FoRArray;
+use crate::bitpack_decompress;
+use crate::unpack_iter::UnpackStrategy;
+use crate::unpack_iter::UnpackedChunks;
 
 /// FoR unpacking strategy that applies a reference value during unpacking.
 struct FoRStrategy<T> {

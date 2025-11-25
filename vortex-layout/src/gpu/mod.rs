@@ -8,12 +8,15 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::future::{BoxFuture, Shared};
+use futures::future::BoxFuture;
+use futures::future::Shared;
 use vortex_array::ArrayRef;
 use vortex_array::expr::Expression;
 use vortex_array::stats::Precision;
-use vortex_dtype::{DType, FieldMask};
-use vortex_error::{SharedVortexResult, VortexResult};
+use vortex_dtype::DType;
+use vortex_dtype::FieldMask;
+use vortex_error::SharedVortexResult;
+use vortex_error::VortexResult;
 use vortex_gpu::GpuVector;
 
 pub type GpuLayoutReaderRef = Arc<dyn GpuLayoutReader>;

@@ -3,16 +3,33 @@
 
 use std::fmt::Debug;
 
-use enum_iterator::{Sequence, all};
+use enum_iterator::Sequence;
+use enum_iterator::all;
 use num_traits::CheckedAdd;
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_error::VortexError;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
+use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
-use super::{
-    IsSorted, IsStrictSorted, NaNCount, NullCount, StatType, StatsProvider, UncompressedSizeInBytes,
-};
-use crate::stats::{IsConstant, Max, Min, Precision, Stat, StatBound, StatsProviderExt, Sum};
+use super::IsSorted;
+use super::IsStrictSorted;
+use super::NaNCount;
+use super::NullCount;
+use super::StatType;
+use super::StatsProvider;
+use super::UncompressedSizeInBytes;
+use crate::stats::IsConstant;
+use crate::stats::Max;
+use crate::stats::Min;
+use crate::stats::Precision;
+use crate::stats::Stat;
+use crate::stats::StatBound;
+use crate::stats::StatsProviderExt;
+use crate::stats::Sum;
 
 #[derive(Default, Debug, Clone)]
 pub struct StatsSet {
@@ -522,11 +539,18 @@ impl MutTypedStatsSetRef<'_, '_> {
 mod test {
     use enum_iterator::all;
     use itertools::Itertools;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
 
     use crate::arrays::PrimitiveArray;
+    use crate::stats::IsConstant;
+    use crate::stats::Precision;
+    use crate::stats::Stat;
+    use crate::stats::StatsProvider;
+    use crate::stats::StatsProviderExt;
+    use crate::stats::StatsSet;
     use crate::stats::stats_set::Scalar;
-    use crate::stats::{IsConstant, Precision, Stat, StatsProvider, StatsProviderExt, StatsSet};
 
     #[test]
     fn test_iter() {

@@ -4,7 +4,8 @@
 use std::clone::Clone;
 use std::sync::LazyLock;
 
-use tokio::runtime::{Builder, Runtime};
+use tokio::runtime::Builder;
+use tokio::runtime::Runtime;
 use vortex::VortexSessionDefault;
 use vortex::error::VortexExpect;
 use vortex::io::runtime::BlockingRuntime;

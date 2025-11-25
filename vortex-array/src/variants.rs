@@ -5,8 +5,13 @@
 use std::cmp::Ordering;
 use std::sync::Arc;
 
-use vortex_dtype::{DType, ExtDType, FieldNames, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_dtype::DType;
+use vortex_dtype::ExtDType;
+use vortex_dtype::FieldNames;
+use vortex_dtype::PType;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 use vortex_scalar::PValue;
 
 use crate::Array;

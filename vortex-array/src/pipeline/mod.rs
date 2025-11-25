@@ -3,7 +3,8 @@
 
 pub mod driver;
 
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_vector::Vector;
 
 /// A view over a fixed-size `N`-bit vector used in Vortex pipeline execution.

@@ -2,17 +2,25 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::AsPrimitive;
-use vortex_array::arrays::{PrimitiveArray, TemporalArray};
+use vortex_array::Canonical;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::TemporalArray;
 use vortex_array::compute::cast;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::CanonicalVTable;
-use vortex_array::{Canonical, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
-use vortex_dtype::datetime::{TemporalMetadata, TimeUnit};
-use vortex_dtype::{DType, PType, match_each_integer_ptype};
-use vortex_error::{VortexExpect as _, vortex_panic};
+use vortex_dtype::DType;
+use vortex_dtype::PType;
+use vortex_dtype::datetime::TemporalMetadata;
+use vortex_dtype::datetime::TimeUnit;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_error::VortexExpect as _;
+use vortex_error::vortex_panic;
 
-use crate::{DateTimePartsArray, DateTimePartsVTable};
+use crate::DateTimePartsArray;
+use crate::DateTimePartsVTable;
 
 impl CanonicalVTable<DateTimePartsVTable> for DateTimePartsVTable {
     fn canonicalize(array: &DateTimePartsArray) -> Canonical {
@@ -103,10 +111,12 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> TemporalArray {
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_array::arrays::{PrimitiveArray, TemporalArray};
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::TemporalArray;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
-    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::datetime::TimeUnit;
 

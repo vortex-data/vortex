@@ -6,8 +6,10 @@ use std::hash::Hash;
 use vortex_dtype::DType;
 
 use crate::Precision;
-use crate::arrays::expr::{ExprArray, ExprVTable};
-use crate::hash::{ArrayEq, ArrayHash};
+use crate::arrays::expr::ExprArray;
+use crate::arrays::expr::ExprVTable;
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
 use crate::stats::StatsSetRef;
 use crate::vtable::BaseArrayVTable;
 

@@ -3,11 +3,21 @@
 
 use std::cmp::Ordering;
 
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::{BoolArray, DecimalArray, PrimitiveArray, VarBinViewArray};
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
-use vortex_dtype::{DType, NativePType, match_each_decimal_value_type, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_dtype::DType;
+use vortex_dtype::NativePType;
+use vortex_dtype::match_each_decimal_value_type;
+use vortex_dtype::match_each_native_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 
 use crate::array::take_canonical_array_non_nullable_indices;
 

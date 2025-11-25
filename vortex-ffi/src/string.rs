@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ffi::{CStr, c_char};
+use std::ffi::CStr;
+use std::ffi::c_char;
 use std::slice;
 
-use vortex::error::{VortexUnwrap, vortex_err};
+use vortex::error::VortexUnwrap;
+use vortex::error::vortex_err;
 
 use crate::arc_dyn_wrapper;
 

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use cudarc::driver::{CudaStream, HostSlice, SyncOnDrop};
+use cudarc::driver::CudaStream;
+use cudarc::driver::HostSlice;
+use cudarc::driver::SyncOnDrop;
 
 use crate::BufferMut;
 

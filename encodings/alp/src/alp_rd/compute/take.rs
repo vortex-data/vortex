@@ -1,12 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{TakeKernel, TakeKernelAdapter, fill_null, take};
-use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::compute::TakeKernel;
+use vortex_array::compute::TakeKernelAdapter;
+use vortex_array::compute::fill_null;
+use vortex_array::compute::take;
+use vortex_array::register_kernel;
 use vortex_error::VortexResult;
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
-use crate::{ALPRDArray, ALPRDVTable};
+use crate::ALPRDArray;
+use crate::ALPRDVTable;
 
 impl TakeKernel for ALPRDVTable {
     fn take(&self, array: &ALPRDArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -48,12 +56,14 @@ register_kernel!(TakeKernelAdapter(ALPRDVTable).lift());
 #[cfg(test)]
 mod test {
     use rstest::rstest;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::compute::take;
-    use vortex_array::{ToCanonical, assert_arrays_eq};
 
-    use crate::{ALPRDFloat, RDEncoder};
+    use crate::ALPRDFloat;
+    use crate::RDEncoder;
 
     #[rstest]
     #[case(0.1f32, 0.2f32, 3e25f32)]

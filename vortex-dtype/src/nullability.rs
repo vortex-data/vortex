@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Display, Formatter};
-use std::ops::{BitOr, BitOrAssign};
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::ops::BitOr;
+use std::ops::BitOrAssign;
 
 /// Whether an instance of a DType can be `null or not
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]

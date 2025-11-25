@@ -3,10 +3,13 @@
 
 use std::ops::BitAnd;
 
-use vortex_buffer::{Buffer, BufferMut};
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
-use vortex_vector::primitive::{PVector, PVectorMut};
-use vortex_vector::{VectorMutOps, VectorOps};
+use vortex_vector::VectorMutOps;
+use vortex_vector::VectorOps;
+use vortex_vector::primitive::PVector;
+use vortex_vector::primitive::PVectorMut;
 
 use crate::arithmetic::CheckedArithmetic;
 
@@ -126,7 +129,11 @@ mod tests {
     use vortex_vector::VectorOps;
     use vortex_vector::primitive::PVector;
 
-    use crate::arithmetic::{Add, CheckedArithmetic, Div, Mul, Sub};
+    use crate::arithmetic::Add;
+    use crate::arithmetic::CheckedArithmetic;
+    use crate::arithmetic::Div;
+    use crate::arithmetic::Mul;
+    use crate::arithmetic::Sub;
 
     #[test]
     fn test_add_pvectors() {

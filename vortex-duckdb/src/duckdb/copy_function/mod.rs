@@ -6,14 +6,19 @@ mod callback;
 use std::ffi::CStr;
 use std::fmt::Debug;
 
-use vortex::error::{VortexExpect, VortexResult};
+use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
 
-use crate::duckdb::copy_function::callback::{
-    bind_callback, copy_to_finalize_callback, copy_to_sink_callback, global_callback,
-    local_callback,
-};
-use crate::duckdb::{DataChunk, LogicalType};
-use crate::{Connection, cpp, duckdb_try};
+use crate::Connection;
+use crate::cpp;
+use crate::duckdb::DataChunk;
+use crate::duckdb::LogicalType;
+use crate::duckdb::copy_function::callback::bind_callback;
+use crate::duckdb::copy_function::callback::copy_to_finalize_callback;
+use crate::duckdb::copy_function::callback::copy_to_sink_callback;
+use crate::duckdb::copy_function::callback::global_callback;
+use crate::duckdb::copy_function::callback::local_callback;
+use crate::duckdb_try;
 
 pub trait CopyFunction: Sized + Debug {
     type BindData: Send;

@@ -4,8 +4,11 @@
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ExtensionArray, ExtensionVTable};
-use crate::compute::{self, SumKernel, SumKernelAdapter};
+use crate::arrays::ExtensionArray;
+use crate::arrays::ExtensionVTable;
+use crate::compute::SumKernel;
+use crate::compute::SumKernelAdapter;
+use crate::compute::{self};
 use crate::register_kernel;
 
 impl SumKernel for ExtensionVTable {

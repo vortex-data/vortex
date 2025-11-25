@@ -20,13 +20,26 @@
 //! - **Edge Cases**: Tests empty arrays, single elements, and boundary conditions.
 
 use vortex_buffer::BitBuffer;
-use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexUnwrap, vortex_panic};
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_dtype::PType;
+use vortex_error::VortexUnwrap;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
-use crate::arrays::{BoolArray, PrimitiveArray};
-use crate::compute::{Operator, and, cast, compare, filter, invert, mask, or, take};
-use crate::{Array, IntoArray};
+use crate::Array;
+use crate::IntoArray;
+use crate::arrays::BoolArray;
+use crate::arrays::PrimitiveArray;
+use crate::compute::Operator;
+use crate::compute::and;
+use crate::compute::cast;
+use crate::compute::compare;
+use crate::compute::filter;
+use crate::compute::invert;
+use crate::compute::mask;
+use crate::compute::or;
+use crate::compute::take;
 
 /// Tests that filter and take operations produce consistent results.
 ///
@@ -793,7 +806,9 @@ fn test_boolean_demorgan_consistency(array: &dyn Array) {
 fn test_slice_aggregate_consistency(array: &dyn Array) {
     use vortex_dtype::DType;
 
-    use crate::compute::{min_max, nan_count, sum};
+    use crate::compute::min_max;
+    use crate::compute::nan_count;
+    use crate::compute::sum;
 
     let len = array.len();
     if len < 5 {

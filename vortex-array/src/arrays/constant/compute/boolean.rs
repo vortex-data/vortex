@@ -2,12 +2,20 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ConstantArray, ConstantVTable};
-use crate::compute::{BooleanKernel, BooleanKernelAdapter, BooleanOperator};
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
+use crate::compute::BooleanKernel;
+use crate::compute::BooleanKernelAdapter;
+use crate::compute::BooleanOperator;
+use crate::register_kernel;
 
 impl BooleanKernel for ConstantVTable {
     fn boolean(
@@ -82,11 +90,14 @@ fn kleene_or(left: Option<bool>, right: Option<bool>) -> Option<bool> {
 mod test {
     use rstest::rstest;
 
+    use crate::Array;
+    use crate::ArrayRef;
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::arrays::constant::ConstantArray;
     use crate::canonical::ToCanonical;
-    use crate::compute::{and, or};
-    use crate::{Array, ArrayRef, IntoArray};
+    use crate::compute::and;
+    use crate::compute::or;
 
     #[rstest]
     #[case(ConstantArray::new(true, 4).into_array(), BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array()

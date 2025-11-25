@@ -3,10 +3,16 @@
 
 use std::marker::PhantomData;
 
+use serde::Deserialize;
+use serde::Deserializer;
+use serde::Serialize;
+use serde::Serializer;
 use serde::de::Visitor;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{Alignment, Buffer, BufferMut, ByteBuffer};
+use crate::Alignment;
+use crate::Buffer;
+use crate::BufferMut;
+use crate::ByteBuffer;
 
 impl<T> Serialize for Buffer<T>
 where

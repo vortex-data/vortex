@@ -1,14 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::compute::{BetweenOptions, StrictComparison};
+use crate::compute::BetweenOptions;
+use crate::compute::StrictComparison;
+use crate::expr::Expression;
+use crate::expr::VTableExt;
 use crate::expr::exprs::between::Between;
-use crate::expr::exprs::binary::{Binary, and};
+use crate::expr::exprs::binary::Binary;
+use crate::expr::exprs::binary::and;
 use crate::expr::exprs::get_item::GetItem;
-use crate::expr::exprs::literal::{Literal, lit};
+use crate::expr::exprs::literal::Literal;
+use crate::expr::exprs::literal::lit;
 use crate::expr::exprs::operators::Operator;
 use crate::expr::forms::conjuncts;
-use crate::expr::{Expression, VTableExt};
 
 /// This pass looks for expression of the form
 ///      `x >= a && x < b` and converts them into x between a and b`
@@ -118,9 +122,14 @@ fn is_strict_comparison(op: Operator) -> Option<StrictComparison> {
 #[cfg(test)]
 mod tests {
     use super::find_between;
-    use crate::compute::{BetweenOptions, StrictComparison};
+    use crate::compute::BetweenOptions;
+    use crate::compute::StrictComparison;
     use crate::expr::exprs::between::between;
-    use crate::expr::exprs::binary::{and, gt, gt_eq, lt, lt_eq};
+    use crate::expr::exprs::binary::and;
+    use crate::expr::exprs::binary::gt;
+    use crate::expr::exprs::binary::gt_eq;
+    use crate::expr::exprs::binary::lt;
+    use crate::expr::exprs::binary::lt_eq;
     use crate::expr::exprs::get_item::col;
     use crate::expr::exprs::literal::lit;
 

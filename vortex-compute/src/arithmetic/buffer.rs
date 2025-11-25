@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::{Buffer, BufferMut};
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 
-use crate::arithmetic::{Arithmetic, Operator};
+use crate::arithmetic::Arithmetic;
+use crate::arithmetic::Operator;
 
 /// Implementation that attempts to downcast to a mutable buffer and operates in-place.
 impl<Op, T> Arithmetic<Op, &Buffer<T>> for Buffer<T>
@@ -106,7 +108,10 @@ where
 mod tests {
     use vortex_buffer::buffer;
 
-    use crate::arithmetic::{Arithmetic, WrappingAdd, WrappingMul, WrappingSub};
+    use crate::arithmetic::Arithmetic;
+    use crate::arithmetic::WrappingAdd;
+    use crate::arithmetic::WrappingMul;
+    use crate::arithmetic::WrappingSub;
 
     #[test]
     fn test_add_buffers() {

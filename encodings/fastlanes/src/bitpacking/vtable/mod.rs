@@ -1,18 +1,30 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::DeserializeMetadata;
+use vortex_array::ProstMetadata;
+use vortex_array::SerializeMetadata;
 use vortex_array::execution::ExecutionCtx;
-use vortex_array::patches::{Patches, PatchesMetadata};
+use vortex_array::patches::Patches;
+use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::{
-    ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable, ValidityVTableFromValidityHelper,
-};
-use vortex_array::{DeserializeMetadata, ProstMetadata, SerializeMetadata, vtable};
+use vortex_array::vtable;
+use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayVTable;
+use vortex_array::vtable::ArrayVTableExt;
+use vortex_array::vtable::NotSupported;
+use vortex_array::vtable::VTable;
+use vortex_array::vtable::ValidityVTableFromValidityHelper;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
-use vortex_vector::{Vector, VectorMutOps};
+use vortex_dtype::DType;
+use vortex_dtype::PType;
+use vortex_error::VortexError;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_vector::Vector;
+use vortex_vector::VectorMutOps;
 
 use crate::BitPackedArray;
 use crate::bitpack_decompress::unpack_to_primitive_vector;

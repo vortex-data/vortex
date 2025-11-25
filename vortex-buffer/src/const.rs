@@ -3,9 +3,11 @@
 
 use std::ops::Deref;
 
-use vortex_error::{VortexError, vortex_bail};
+use vortex_error::VortexError;
+use vortex_error::vortex_bail;
 
-use crate::{Alignment, Buffer};
+use crate::Alignment;
+use crate::Buffer;
 
 /// A buffer of items of `T` with a compile-time alignment.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Hash)]

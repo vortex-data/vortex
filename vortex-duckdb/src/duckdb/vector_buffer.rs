@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::cpp;
 use crate::duckdb::Data;
-use crate::{cpp, wrapper};
+use crate::wrapper;
 
 // A wrapped buffer that give duckdb a strong reference to a vortex buffer.
 

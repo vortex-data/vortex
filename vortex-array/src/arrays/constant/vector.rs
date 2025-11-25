@@ -1,17 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::{
-    DType, DecimalType, PrecisionScale, match_each_decimal_value_type, match_each_native_ptype,
-};
+use vortex_dtype::DType;
+use vortex_dtype::DecimalType;
+use vortex_dtype::PrecisionScale;
+use vortex_dtype::match_each_decimal_value_type;
+use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
-use vortex_scalar::{BinaryScalar, BoolScalar, DecimalScalar, PrimitiveScalar, Scalar, Utf8Scalar};
-use vortex_vector::binaryview::{BinaryVectorMut, StringVectorMut};
+use vortex_scalar::BinaryScalar;
+use vortex_scalar::BoolScalar;
+use vortex_scalar::DecimalScalar;
+use vortex_scalar::PrimitiveScalar;
+use vortex_scalar::Scalar;
+use vortex_scalar::Utf8Scalar;
+use vortex_vector::VectorMut;
+use vortex_vector::VectorMutOps;
+use vortex_vector::binaryview::BinaryVectorMut;
+use vortex_vector::binaryview::StringVectorMut;
 use vortex_vector::bool::BoolVectorMut;
-use vortex_vector::decimal::{DVectorMut, DecimalVectorMut};
+use vortex_vector::decimal::DVectorMut;
+use vortex_vector::decimal::DecimalVectorMut;
 use vortex_vector::null::NullVectorMut;
-use vortex_vector::primitive::{PVectorMut, PrimitiveVectorMut};
-use vortex_vector::{VectorMut, VectorMutOps};
+use vortex_vector::primitive::PVectorMut;
+use vortex_vector::primitive::PrimitiveVectorMut;
 
 pub(super) fn to_vector(scalar: Scalar, len: usize) -> VectorMut {
     match scalar.dtype() {

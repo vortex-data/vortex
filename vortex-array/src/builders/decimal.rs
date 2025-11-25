@@ -4,20 +4,33 @@
 use std::any::Any;
 
 use vortex_buffer::BufferMut;
-use vortex_dtype::{
-    BigCast, DType, DecimalDType, NativeDecimalType, Nullability, match_each_decimal_value,
-    match_each_decimal_value_type,
-};
-use vortex_error::{
-    VortexExpect, VortexResult, VortexUnwrap, vortex_ensure, vortex_err, vortex_panic,
-};
+use vortex_dtype::BigCast;
+use vortex_dtype::DType;
+use vortex_dtype::DecimalDType;
+use vortex_dtype::NativeDecimalType;
+use vortex_dtype::Nullability;
+use vortex_dtype::match_each_decimal_value;
+use vortex_dtype::match_each_decimal_value_type;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::VortexUnwrap;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_scalar::{DecimalValue, Scalar, i256};
+use vortex_scalar::DecimalValue;
+use vortex_scalar::Scalar;
+use vortex_scalar::i256;
 
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::ToCanonical;
 use crate::arrays::DecimalArray;
-use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyBitBufferBuilder};
+use crate::builders::ArrayBuilder;
+use crate::builders::DEFAULT_BUILDER_CAPACITY;
+use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// The builder for building a [`DecimalArray`].
 ///
@@ -284,7 +297,8 @@ mod tests {
 
     use crate::arrays::DecimalArray;
     use crate::assert_arrays_eq;
-    use crate::builders::{ArrayBuilder, DecimalBuilder};
+    use crate::builders::ArrayBuilder;
+    use crate::builders::DecimalBuilder;
 
     #[test]
     fn test_mixed_extend() {

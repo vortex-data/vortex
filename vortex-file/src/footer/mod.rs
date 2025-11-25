@@ -24,14 +24,20 @@ pub(crate) use file_statistics::*;
 use flatbuffers::root;
 use itertools::Itertools;
 pub use segment::*;
+use vortex_array::ArrayContext;
+use vortex_array::ArraySessionExt;
 use vortex_array::stats::StatsSet;
-use vortex_array::{ArrayContext, ArraySessionExt};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_flatbuffers::{FlatBuffer, footer as fb};
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_flatbuffers::FlatBuffer;
+use vortex_flatbuffers::footer as fb;
+use vortex_layout::LayoutContext;
+use vortex_layout::LayoutRef;
+use vortex_layout::layout_from_flatbuffer;
 use vortex_layout::session::LayoutSessionExt;
-use vortex_layout::{LayoutContext, LayoutRef, layout_from_flatbuffer};
 use vortex_session::VortexSession;
 
 /// Captures the layout information of a Vortex file.

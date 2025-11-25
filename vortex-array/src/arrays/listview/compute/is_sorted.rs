@@ -3,8 +3,10 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::{ListViewArray, ListViewVTable};
-use crate::compute::{IsSortedKernel, IsSortedKernelAdapter};
+use crate::arrays::ListViewArray;
+use crate::arrays::ListViewVTable;
+use crate::compute::IsSortedKernel;
+use crate::compute::IsSortedKernelAdapter;
 use crate::register_kernel;
 
 impl IsSortedKernel for ListViewVTable {

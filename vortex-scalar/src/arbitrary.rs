@@ -9,12 +9,22 @@
 use std::iter;
 use std::sync::Arc;
 
-use arbitrary::{Result, Unstructured};
-use vortex_buffer::{BufferString, ByteBuffer};
+use arbitrary::Result;
+use arbitrary::Unstructured;
+use vortex_buffer::BufferString;
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::DType;
+use vortex_dtype::DecimalDType;
+use vortex_dtype::NativeDecimalType;
+use vortex_dtype::PType;
 use vortex_dtype::half::f16;
-use vortex_dtype::{DType, DecimalDType, NativeDecimalType, PType, match_each_decimal_value_type};
+use vortex_dtype::match_each_decimal_value_type;
 
-use crate::{DecimalValue, InnerScalarValue, PValue, Scalar, ScalarValue};
+use crate::DecimalValue;
+use crate::InnerScalarValue;
+use crate::PValue;
+use crate::Scalar;
+use crate::ScalarValue;
 
 /// Generate an arbitrary scalar value of the given data type.
 pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {

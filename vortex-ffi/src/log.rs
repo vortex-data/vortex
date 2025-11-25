@@ -2,7 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use log::LevelFilter;
-use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
+use simplelog::ColorChoice;
+use simplelog::Config;
+use simplelog::TermLogger;
+use simplelog::TerminalMode;
 
 /// Log levels for the Vortex library.
 #[repr(C)]

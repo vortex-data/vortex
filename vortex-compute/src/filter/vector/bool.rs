@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::{BitBuffer, BitBufferMut};
-use vortex_mask::{Mask, MaskMut};
-use vortex_vector::bool::{BoolVector, BoolVectorMut};
-use vortex_vector::{VectorMutOps, VectorOps};
+use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferMut;
+use vortex_mask::Mask;
+use vortex_mask::MaskMut;
+use vortex_vector::VectorMutOps;
+use vortex_vector::VectorOps;
+use vortex_vector::bool::BoolVector;
+use vortex_vector::bool::BoolVectorMut;
 
 use crate::filter::Filter;
 

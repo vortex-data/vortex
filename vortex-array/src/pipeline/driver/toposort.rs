@@ -3,9 +3,11 @@
 
 use std::collections::VecDeque;
 
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
-use crate::pipeline::driver::{Node, NodeId};
+use crate::pipeline::driver::Node;
+use crate::pipeline::driver::NodeId;
 
 /// Topological sort for execution order
 pub(super) fn topological_sort(dag: &[Node]) -> VortexResult<Vec<NodeId>> {

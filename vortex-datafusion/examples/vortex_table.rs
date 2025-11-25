@@ -3,20 +3,24 @@
 
 use std::sync::Arc;
 
-use datafusion::datasource::listing::{
-    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
-};
+use datafusion::datasource::listing::ListingOptions;
+use datafusion::datasource::listing::ListingTable;
+use datafusion::datasource::listing::ListingTableConfig;
+use datafusion::datasource::listing::ListingTableUrl;
 use datafusion::prelude::SessionContext;
 use tempfile::tempdir;
 use tokio::fs::OpenOptions;
-use vortex::arrays::{ChunkedArray, StructArray, VarBinArray};
+use vortex::IntoArray;
+use vortex::VortexSessionDefault;
+use vortex::arrays::ChunkedArray;
+use vortex::arrays::StructArray;
+use vortex::arrays::VarBinArray;
 use vortex::buffer::buffer;
 use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 use vortex::validity::Validity;
-use vortex::{IntoArray, VortexSessionDefault};
 use vortex_datafusion::VortexFormat;
 
 #[tokio::main]

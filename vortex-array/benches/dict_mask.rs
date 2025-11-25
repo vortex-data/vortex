@@ -4,11 +4,14 @@
 #![allow(clippy::unwrap_used)]
 
 use divan::Bencher;
+use rand::Rng;
+use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
 use vortex_array::IntoArray;
-use vortex_array::arrays::{DictArray, PrimitiveArray};
-use vortex_array::compute::{mask, warm_up_vtables};
+use vortex_array::arrays::DictArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::compute::mask;
+use vortex_array::compute::warm_up_vtables;
 use vortex_mask::Mask;
 
 fn main() {

@@ -8,7 +8,8 @@ use vortex_dtype::DType;
 use super::DictVTable;
 use crate::Precision;
 use crate::arrays::dict::DictArray;
-use crate::hash::{ArrayEq, ArrayHash};
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
 use crate::stats::StatsSetRef;
 use crate::vtable::BaseArrayVTable;
 

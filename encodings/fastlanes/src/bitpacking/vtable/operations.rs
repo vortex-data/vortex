@@ -4,11 +4,15 @@
 use std::cmp::max;
 use std::ops::Range;
 
-use vortex_array::vtable::{OperationsVTable, ValidityHelper};
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::vtable::OperationsVTable;
+use vortex_array::vtable::ValidityHelper;
 use vortex_scalar::Scalar;
 
-use crate::{BitPackedArray, BitPackedVTable, bitpack_decompress};
+use crate::BitPackedArray;
+use crate::BitPackedVTable;
+use crate::bitpack_decompress;
 
 impl OperationsVTable<BitPackedVTable> for BitPackedVTable {
     fn slice(array: &BitPackedArray, range: Range<usize>) -> ArrayRef {
@@ -50,16 +54,24 @@ impl OperationsVTable<BitPackedVTable> for BitPackedVTable {
 
 #[cfg(test)]
 mod test {
+    use vortex_array::Array;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::compute::take;
     use vortex_array::patches::Patches;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray, assert_arrays_eq};
-    use vortex_buffer::{Alignment, Buffer, ByteBuffer, buffer};
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_buffer::Alignment;
+    use vortex_buffer::Buffer;
+    use vortex_buffer::ByteBuffer;
+    use vortex_buffer::buffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
     use vortex_scalar::Scalar;
 
-    use crate::{BitPackedArray, BitPackedVTable};
+    use crate::BitPackedArray;
+    use crate::BitPackedVTable;
 
     #[test]
     pub fn slice_block() {

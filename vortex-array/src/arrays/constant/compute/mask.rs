@@ -5,10 +5,15 @@ use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::{ConstantArray, ConstantVTable, MaskedArray};
-use crate::compute::{MaskKernel, MaskKernelAdapter};
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
+use crate::arrays::MaskedArray;
+use crate::compute::MaskKernel;
+use crate::compute::MaskKernelAdapter;
+use crate::register_kernel;
 use crate::validity::Validity;
-use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl MaskKernel for ConstantVTable {
     fn mask(&self, array: &ConstantArray, mask: &Mask) -> VortexResult<ArrayRef> {
