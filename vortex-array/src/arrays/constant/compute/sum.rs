@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use num_traits::AsPrimitive;
 use num_traits::CheckedAdd;
 use num_traits::CheckedMul;
 use vortex_dtype::DType;
@@ -159,13 +160,9 @@ fn sum_float(
     let v = primitive_scalar
         .as_::<f64>()
         .vortex_expect("cannot be null");
+    let len_f64: f64 = array_len.as_();
 
-    // Preserve numerical behaviour of summation of floats by using a loop instead of simplifying to multiplication.
-    let mut sum = initial;
-    for _ in 0..array_len {
-        sum += v;
-    }
-    Ok(Some(sum))
+    Ok(Some(initial + v * len_f64))
 }
 
 register_kernel!(SumKernelAdapter(ConstantVTable).lift());
@@ -298,8 +295,8 @@ mod tests {
         let sum =
             sum_with_accumulator(array.as_ref(), &Scalar::primitive(acc, Nullable)).vortex_unwrap();
         assert_eq!(
-            sum,
-            Scalar::primitive(-2048669274505641600000000000f64, Nullable)
+            f64::try_from(sum).vortex_unwrap(),
+            -2048669274505644600000000000f64
         );
     }
 }
