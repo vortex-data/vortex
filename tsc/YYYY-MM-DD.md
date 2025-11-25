@@ -38,21 +38,27 @@ This section will be filled in during the meeting and describes any action items
 
 The list of attendees will be filled in during the meeting, along with any current affiliations.
 
-### Voting Members (/13)
+### Voting Members
+
+- [ ] Andrew Duffy (Spiral)
+- [ ] Carlo Curino (Microsoft)
+- [ ] Nicholas Gates (Spiral)
+- [ ] Robert Kruszewski (Spiral)
+- [ ] Wes McKinney (Posit)
+- [ ] Will Manning, Chair (Spiral)
+
+### Non-voting Members
 
 - [ ] Adam Gutglick (Spiral)
 - [ ] Alex Droste (Spiral)
-- [ ] Andrew Duffy (Spiral)
-- [ ] Andy Pavlo (Individual)
-- [ ] Carlo Curino (Individual)
+- [ ] Andy Pavlo (Carnegie Mellon University)
+- [ ] Connor Tsui (Spiral)
 - [ ] Daniel King (Spiral)
+- [ ] Dmitrii Blaginin (Spiral)
 - [ ] Joseph Isaacs (Spiral)
 - [ ] Marko Bakovic (Spiral)
-- [ ] Nicholas Gates (Spiral)
 - [ ] Onur Satici (Spiral)
-- [ ] Robert Kruszewski (Spiral)
-- [ ] Wes McKinney (Individual)
-- [ ] Xinyu Zeng (Individual)
+- [ ] Xinyu Zeng (IIIS, Tsinghua University)
 
 ### Others
 
