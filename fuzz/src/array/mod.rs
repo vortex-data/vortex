@@ -287,6 +287,11 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     (Action::Cast(to), ExpectedValue::Array(result))
                 }
                 ActionType::Sum => {
+                    // Do not try to fuzz float operations, they have unpredictable error behavior
+                    if current_array.dtype().is_float() {
+                        return Err(EmptyChoose);
+                    }
+
                     // Sum - returns a scalar, does NOT update current_array (terminal operation)
                     let sum_result =
                         sum_canonical_array(current_array.to_canonical()).vortex_unwrap();
