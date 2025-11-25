@@ -97,6 +97,42 @@ macro_rules! match_each_integer_pvector {
     }};
 }
 
+/// Matches on all unsigned type variants of [`PrimitiveVector`] and executes the same code for each
+/// of the unsigned variant branches.
+///
+/// This macro eliminates repetitive match statements when implementing operations that need to work
+/// uniformly across all unsigned type variants (`U8`, `U16`, `U32`, `U64`).
+///
+/// See [`match_each_pvector`] for similar usage.
+///
+/// [`PrimitiveVector`]: crate::primitive::PrimitiveVector
+///
+/// # Panics
+///
+/// Panics if the vector passed in to the macro is not an unsigned vector variant.
+#[macro_export]
+macro_rules! match_each_unsigned_pvector {
+    ($self:expr, | $vec:ident | $body:block) => {{
+        match $self {
+            $crate::primitive::PrimitiveVector::U8($vec) => $body,
+            $crate::primitive::PrimitiveVector::U16($vec) => $body,
+            $crate::primitive::PrimitiveVector::U32($vec) => $body,
+            $crate::primitive::PrimitiveVector::U64($vec) => $body,
+            $crate::primitive::PrimitiveVector::I8(_)
+            | $crate::primitive::PrimitiveVector::I16(_)
+            | $crate::primitive::PrimitiveVector::I32(_)
+            | $crate::primitive::PrimitiveVector::I64(_)
+            | $crate::primitive::PrimitiveVector::F16(_)
+            | $crate::primitive::PrimitiveVector::F32(_)
+            | $crate::primitive::PrimitiveVector::F64(_) => {
+                ::vortex_error::vortex_panic!(
+                    "Tried to match a non-unsigned vector in an unsigned match statement"
+                )
+            }
+        }
+    }};
+}
+
 /// Matches on all primitive type variants of [`PrimitiveVectorMut`] and executes the same code
 /// for each variant branch.
 ///
@@ -179,6 +215,42 @@ macro_rules! match_each_integer_pvector_mut {
             | $crate::primitive::PrimitiveVectorMut::F64(_) => {
                 ::vortex_error::vortex_panic!(
                     "Tried to match a mutable float vector in an integer match statement"
+                )
+            }
+        }
+    }};
+}
+
+/// Matches on all unsigned type variants of [`PrimitiveVectorMut`] and executes the same code for
+/// each of the unsigned variant branches.
+///
+/// This macro eliminates repetitive match statements when implementing operations that need to work
+/// uniformly across all unsigned type variants (`U8`, `U16`, `U32`, `U64`).
+///
+/// See [`match_each_pvector_mut`] for similar usage.
+///
+/// [`PrimitiveVectorMut`]: crate::primitive::PrimitiveVectorMut
+///
+/// # Panics
+///
+/// Panics if the vector passed in to the macro is not an unsigned vector variant.
+#[macro_export]
+macro_rules! match_each_unsigned_pvector_mut {
+    ($self:expr, | $vec:ident | $body:block) => {{
+        match $self {
+            $crate::primitive::PrimitiveVectorMut::U8($vec) => $body,
+            $crate::primitive::PrimitiveVectorMut::U16($vec) => $body,
+            $crate::primitive::PrimitiveVectorMut::U32($vec) => $body,
+            $crate::primitive::PrimitiveVectorMut::U64($vec) => $body,
+            $crate::primitive::PrimitiveVectorMut::I8(_)
+            | $crate::primitive::PrimitiveVectorMut::I16(_)
+            | $crate::primitive::PrimitiveVectorMut::I32(_)
+            | $crate::primitive::PrimitiveVectorMut::I64(_)
+            | $crate::primitive::PrimitiveVectorMut::F16(_)
+            | $crate::primitive::PrimitiveVectorMut::F32(_)
+            | $crate::primitive::PrimitiveVectorMut::F64(_) => {
+                ::vortex_error::vortex_panic!(
+                    "Tried to match a non-unsigned mutable vector in an unsigned match statement"
                 )
             }
         }
