@@ -54,8 +54,9 @@ pub fn pco_pipeline(bencher: Bencher, (size, selectivity): (usize, f64)) {
         .collect::<BitBuffer>();
 
     bencher
-        .with_inputs(|| (Mask::from_buffer(mask.clone()), pco_array.clone()))
-        .bench_refs(|(mask, pco_array)| pco_array.execute_with_selection(mask).unwrap());
+        // Be sure to reconstruct the mask to avoid cached set_indices
+        .with_inputs(|| (&pco_array, Mask::from_buffer(mask.clone())))
+        .bench_refs(|(pco_array, mask)| pco_array.execute_with_selection(mask).unwrap());
 }
 
 #[divan::bench(args = [
@@ -87,6 +88,7 @@ pub fn pco_canonical(bencher: Bencher, (size, selectivity): (usize, f64)) {
         .collect::<BitBuffer>();
 
     bencher
-        .with_inputs(|| (Mask::from_buffer(mask.clone()), pco_array.clone()))
-        .bench_refs(|(mask, pco_array)| filter(pco_array.to_canonical().as_ref(), mask).unwrap());
+        // Be sure to reconstruct the mask to avoid cached set_indices
+        .with_inputs(|| (&pco_array, Mask::from_buffer(mask.clone())))
+        .bench_refs(|(pco_array, mask)| filter(pco_array.to_canonical().as_ref(), mask).unwrap());
 }

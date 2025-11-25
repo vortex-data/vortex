@@ -57,8 +57,8 @@ fn decompress_fsst(bencher: Bencher, (string_count, avg_len, unique_chars): (usi
     let encoded = fsst_compress(array, &compressor);
 
     bencher
-        .with_inputs(|| encoded.clone())
-        .bench_values(|encoded| encoded.to_canonical())
+        .with_inputs(|| &encoded)
+        .bench_refs(|encoded| encoded.to_canonical())
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -75,7 +75,7 @@ fn pushdown_compare(bencher: Bencher, (string_count, avg_len, unique_chars): (us
     let constant = ConstantArray::new(Scalar::from(&b"const"[..]), array.len());
 
     bencher
-        .with_inputs(|| (fsst_array.clone(), constant.clone()))
+        .with_inputs(|| (&fsst_array, &constant))
         .bench_refs(|(fsst_array, constant)| {
             compare(fsst_array.as_ref(), constant.as_ref(), Operator::Eq).unwrap();
         })
@@ -92,7 +92,7 @@ fn canonicalize_compare(
     let constant = ConstantArray::new(Scalar::from(&b"const"[..]), array.len());
 
     bencher
-        .with_inputs(|| (fsst_array.clone(), constant.clone()))
+        .with_inputs(|| (&fsst_array, &constant))
         .bench_refs(|(fsst_array, constant)| {
             compare(
                 fsst_array.to_canonical().as_ref(),
@@ -123,7 +123,7 @@ fn chunked_canonicalize_into(
 ) {
     let array = generate_chunked_test_data(chunk_size, string_count, avg_len, unique_chars);
 
-    bencher.with_inputs(|| array.clone()).bench_values(|array| {
+    bencher.with_inputs(|| &array).bench_refs(|array| {
         let mut builder =
             VarBinViewBuilder::with_capacity(DType::Binary(Nullability::NonNullable), array.len());
         array.append_to_builder(&mut builder);
@@ -139,8 +139,8 @@ fn chunked_into_canonical(
     let array = generate_chunked_test_data(chunk_size, string_count, avg_len, unique_chars);
 
     bencher
-        .with_inputs(|| array.clone())
-        .bench_values(|array| array.to_canonical());
+        .with_inputs(|| &array)
+        .bench_refs(|array| array.to_canonical());
 }
 
 /// Helper function to generate random string data.

@@ -133,7 +133,7 @@ fn bench_delta_compress_u32(bencher: Bencher) {
     let (uint_array, ..) = setup_primitive_arrays();
 
     with_counter!(bencher, NUM_VALUES * 4)
-        .with_inputs(|| uint_array.clone())
+        .with_inputs(|| &uint_array)
         .bench_refs(|a| {
             let (bases, deltas) = delta_compress(a).unwrap();
             DeltaArray::try_from_delta_compress_parts(bases.into_array(), deltas.into_array())
@@ -248,7 +248,7 @@ fn bench_alp_rd_decompress_f64(bencher: Bencher) {
     let compressed = encoder.encode(&float_array);
 
     with_counter!(bencher, NUM_VALUES * 8)
-        .with_inputs(|| compressed.clone())
+        .with_inputs(|| &compressed)
         .bench_refs(|a| a.to_canonical());
 }
 
@@ -321,8 +321,8 @@ fn bench_fsst_compress_string(bencher: Bencher) {
     let nbytes = varbinview_arr.nbytes() as u64;
 
     with_counter!(bencher, nbytes)
-        .with_inputs(|| varbinview_arr.clone())
-        .bench_values(|a| fsst_compress(&a, &fsst_compressor));
+        .with_inputs(|| &varbinview_arr)
+        .bench_refs(|a| fsst_compress(*a, &fsst_compressor));
 }
 
 #[divan::bench(name = "fsst_decompress_string")]
@@ -356,6 +356,6 @@ fn bench_zstd_decompress_string(bencher: Bencher) {
     let nbytes = varbinview_arr.into_array().nbytes() as u64;
 
     with_counter!(bencher, nbytes)
-        .with_inputs(|| compressed.clone())
+        .with_inputs(|| &compressed)
         .bench_refs(|a| a.to_canonical());
 }

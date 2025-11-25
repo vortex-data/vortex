@@ -145,7 +145,7 @@ fn map_new_output(bencher: Bencher, n: i32) {
                 BufferMut::with_capacity(n as usize),
             )
         })
-        .bench_values(|(buffer, mut out)| {
+        .bench_refs(|(buffer, out)| {
             buffer
                 .iter()
                 .for_each(|&i| unsafe { out.push_unchecked((i as u32) + 1) })

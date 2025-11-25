@@ -30,7 +30,9 @@ fn rebuild_naive(bencher: Bencher) {
 
     let list_view = ListViewArray::new(dudes, offsets, sizes, Validity::NonNullable);
 
-    bencher.bench_local(|| list_view.rebuild(ListViewRebuildMode::MakeZeroCopyToList))
+    bencher
+        .with_inputs(|| &list_view)
+        .bench_refs(|list_view| list_view.rebuild(ListViewRebuildMode::MakeZeroCopyToList))
 }
 
 fn main() {
