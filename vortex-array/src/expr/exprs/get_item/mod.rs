@@ -150,6 +150,11 @@ impl VTable for GetItem {
 
         Ok(field)
     }
+
+    // This will apply struct nullability field. We could add a dtype??
+    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+        true
+    }
 }
 
 /// Creates an expression that accesses a field from the root array.

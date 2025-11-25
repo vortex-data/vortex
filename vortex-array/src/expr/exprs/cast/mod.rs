@@ -136,6 +136,11 @@ impl VTable for Cast {
             .vortex_expect("missing input for Cast expression");
         vortex_compute::cast::Cast::cast(&input, target_dtype)
     }
+
+    // This might apply a nullability
+    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+        true
+    }
 }
 
 /// Creates an expression that casts values to a target data type.

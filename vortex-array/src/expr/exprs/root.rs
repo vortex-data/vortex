@@ -81,6 +81,10 @@ impl VTable for Root {
     ) -> Option<Expression> {
         catalog.stats_ref(&FieldPath::root(), stat)
     }
+
+    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+        false
+    }
 }
 
 /// Creates an expression that references the root scope.

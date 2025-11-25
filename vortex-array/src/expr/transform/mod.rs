@@ -2,8 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! A collection of transformations that can be applied to a [`crate::expr::Expression`].
-pub mod annotations;
-pub mod immediate_access;
 pub(crate) mod match_between;
 mod optimizer;
 mod partition;

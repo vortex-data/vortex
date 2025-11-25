@@ -102,6 +102,10 @@ impl VTable for IsNull {
         )
         .into())
     }
+
+    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+        true
+    }
 }
 
 /// Creates an expression that checks for null values.
@@ -258,5 +262,11 @@ mod tests {
             st.map(),
             &HashMap::from_iter([(FieldPath::from_name("a"), HashSet::from([Stat::NullCount]))])
         );
+    }
+
+    #[test]
+    fn test_is_null_sensitive() {
+        // is_null itself is null-sensitive
+        assert!(is_null(col("a")).is_null_sensitive());
     }
 }

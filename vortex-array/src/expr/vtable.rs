@@ -113,6 +113,25 @@ pub trait VTable: 'static + Sized + Send + Sync {
     ) -> Option<Expression> {
         None
     }
+
+    /// Returns whether this expression itself is null-sensitive. Conservatively default to *true*.
+    ///
+    /// An expression is null-sensitive if it directly operates on null values,
+    /// such as `is_null`. Most expressions are not null-sensitive.
+    ///
+    /// The property we are interested in is if the expression (e) distributes over
+    /// mask.
+    /// Define a `mask(a, m)` expression that applies the boolean array `m` to the validity of the
+    /// array `a`.
+    /// An unary expression `e` to be null-sensitive iff forall arrays `a` and masks `m`.
+    /// `e(mask(a, m)) == mask(e(a), m)`.
+    /// This can be extended to an n-ary expression.
+    ///
+    /// This method only checks the expression itself, not its children. To check
+    /// if an expression or any of its descendants are null-sensitive.
+    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+        true
+    }
 }
 
 /// Arguments for expression execution.
@@ -186,6 +205,8 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
         stat: Stat,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression>;
+
+    fn is_null_sensitive(&self, instance: &dyn Any) -> bool;
 
     fn dyn_eq(&self, instance: &dyn Any, other: &dyn Any) -> bool;
     fn dyn_hash(&self, instance: &dyn Any, state: &mut dyn Hasher);
@@ -298,6 +319,13 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
     ) -> Option<Expression> {
         let expr = ExpressionView::new(expression);
         V::stat_expression(&self.0, &expr, stat, catalog)
+    }
+
+    fn is_null_sensitive(&self, instance: &dyn Any) -> bool {
+        let instance = instance
+            .downcast_ref::<V::Instance>()
+            .vortex_expect("Failed to downcast expression instance to expected type");
+        V::is_null_sensitive(&self.0, instance)
     }
 
     fn dyn_eq(&self, instance: &dyn Any, other: &dyn Any) -> bool {

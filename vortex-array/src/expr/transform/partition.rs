@@ -15,14 +15,14 @@ use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::expr::Expression;
+use crate::expr::analysis::Annotation;
+use crate::expr::analysis::AnnotationFn;
+use crate::expr::analysis::Annotations;
+use crate::expr::analysis::descendent_annotations;
 use crate::expr::exprs::get_item::get_item;
 use crate::expr::exprs::pack::pack;
 use crate::expr::exprs::root::root;
 use crate::expr::transform::ExprOptimizer;
-use crate::expr::transform::annotations::Annotation;
-use crate::expr::transform::annotations::AnnotationFn;
-use crate::expr::transform::annotations::Annotations;
-use crate::expr::transform::annotations::descendent_annotations;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::NodeRewriter;
 use crate::expr::traversal::Transformed;
@@ -213,6 +213,7 @@ mod tests {
     use vortex_dtype::StructFields;
 
     use super::*;
+    use crate::expr::analysis::annotate_scope_access;
     use crate::expr::exprs::binary::and;
     use crate::expr::exprs::get_item::col;
     use crate::expr::exprs::get_item::get_item;
@@ -222,7 +223,6 @@ mod tests {
     use crate::expr::exprs::root::root;
     use crate::expr::exprs::select::select;
     use crate::expr::session::ExprSession;
-    use crate::expr::transform::immediate_access::annotate_scope_access;
     use crate::expr::transform::replace::replace_root_fields;
     use crate::expr::transform::simplify_typed::simplify_typed;
 
