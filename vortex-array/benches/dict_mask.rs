@@ -59,7 +59,6 @@ fn bench_dict_mask(bencher: Bencher, (fraction_valid, fraction_masked): (f64, f6
     let values = PrimitiveArray::from_option_iter([None, Some(42i32)]).into_array();
     let array = DictArray::try_new(codes, values).unwrap().into_array();
     let filter_mask = filter_mask(len, fraction_masked, &mut rng);
-
     bencher
         .with_inputs(|| (&array, &filter_mask))
         .bench_refs(|(array, filter_mask)| mask(array.as_ref(), filter_mask).unwrap());

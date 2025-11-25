@@ -38,5 +38,7 @@ fn pack_return_dtype(bencher: Bencher, num_fields: usize) {
     let pack_expr = pack(children, Nullability::Nullable);
 
     // return_dtype should be fast, it is assumed cheap in some expression simplifiers
-    bencher.bench(|| pack_expr.return_dtype(&dtype).unwrap());
+    bencher
+        .with_inputs(|| (&pack_expr, &dtype))
+        .bench_refs(|(pack_expr, dtype)| pack_expr.return_dtype(dtype).unwrap());
 }

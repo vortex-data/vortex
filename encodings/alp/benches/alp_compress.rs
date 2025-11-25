@@ -64,12 +64,11 @@ fn compress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64, 
         Validity::NonNullable
     };
     let values = values.freeze();
+    let array = PrimitiveArray::new(values, validity);
 
     bencher
-        .with_inputs(|| (values.clone(), validity.clone()))
-        .bench_values(|(values, validity)| {
-            alp_encode(&PrimitiveArray::new(values, validity), None).unwrap()
-        })
+        .with_inputs(|| &array)
+        .bench_values(|array| alp_encode(array, None).unwrap())
 }
 
 #[divan::bench(types = [f32, f64], args = BENCH_ARGS)]
@@ -107,8 +106,8 @@ fn compress_rd<T: ALPRDFloat>(bencher: Bencher, n: usize) {
     let encoder = RDEncoder::new(&[T::from(1.23).unwrap()]);
 
     bencher
-        .with_inputs(|| &primitive)
-        .bench_refs(|primitive| encoder.encode(primitive))
+        .with_inputs(|| (&primitive, &encoder))
+        .bench_refs(|(primitive, encoder)| encoder.encode(primitive))
 }
 
 #[divan::bench(types = [f32, f64], args = [10_000, 100_000])]

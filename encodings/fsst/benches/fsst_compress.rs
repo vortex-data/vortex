@@ -47,7 +47,9 @@ const BENCH_ARGS: &[(usize, usize, u8)] = &[
 fn compress_fsst(bencher: Bencher, (string_count, avg_len, unique_chars): (usize, usize, u8)) {
     let array = generate_test_data(string_count, avg_len, unique_chars);
     let compressor = fsst_train_compressor(&array);
-    bencher.bench(|| fsst_compress(&array, &compressor))
+    bencher
+        .with_inputs(|| (&array, &compressor))
+        .bench_refs(|(array, compressor)| fsst_compress(*array, compressor))
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -64,7 +66,9 @@ fn decompress_fsst(bencher: Bencher, (string_count, avg_len, unique_chars): (usi
 #[divan::bench(args = BENCH_ARGS)]
 fn train_compressor(bencher: Bencher, (string_count, avg_len, unique_chars): (usize, usize, u8)) {
     let array = generate_test_data(string_count, avg_len, unique_chars);
-    bencher.bench(|| fsst_train_compressor(&array))
+    bencher
+        .with_inputs(|| &array)
+        .bench_refs(|array| fsst_train_compressor(array))
 }
 
 #[divan::bench(args = BENCH_ARGS)]
