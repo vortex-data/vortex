@@ -223,8 +223,6 @@ pub(crate) fn can_be_pushed_down(df_expr: &PhysicalExprRef, schema: &Schema) -> 
         return false;
     }
 
-    let _expr_str = format!("{:?}", df_expr);
-
     let expr = df_expr.as_any();
     if let Some(binary) = expr.downcast_ref::<df_expr::BinaryExpr>() {
         can_binary_be_pushed_down(binary, schema)
@@ -714,7 +712,7 @@ mod tests {
 
         let deep_filter = get_field(get_field(col("a"), "b"), "c").eq(datafusion_expr::lit(10i32));
 
-        let physical_filter = logical2physical(&deep_filter, &df_schema.as_ref());
+        let physical_filter = logical2physical(&deep_filter, df_schema.as_ref());
 
         let prop = source
             .try_pushdown_filters(vec![physical_filter], &ConfigOptions::default())
@@ -786,7 +784,7 @@ mod tests {
         // Another weird ScalarFunction that we can't push down
         let deep_filter = unknown_func.eq(datafusion_expr::lit(10i32));
 
-        let physical_filter = logical2physical(&deep_filter, &df_schema.as_ref());
+        let physical_filter = logical2physical(&deep_filter, df_schema.as_ref());
 
         let prop = source
             .try_pushdown_filters(vec![physical_filter], &ConfigOptions::default())

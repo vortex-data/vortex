@@ -262,7 +262,7 @@ impl FileSource for VortexSource {
         // Update the predicate with any pushed filters
         let supported_filters = filters
             .into_iter()
-            .filter(|expr| can_be_pushed_down(&expr, schema))
+            .filter(|expr| can_be_pushed_down(expr, schema))
             .collect::<Vec<_>>();
 
         let predicate = match source.pushed_predicate {
