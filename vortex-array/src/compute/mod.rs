@@ -392,7 +392,7 @@ impl Output {
 
     pub fn unwrap_scalar(self) -> VortexResult<Scalar> {
         match self {
-            Output::Array(_) => vortex_bail!("Expected array output, got Array"),
+            Output::Array(_) => vortex_bail!("Expected scalar output, got Array"),
             Output::Scalar(scalar) => Ok(scalar),
         }
     }
