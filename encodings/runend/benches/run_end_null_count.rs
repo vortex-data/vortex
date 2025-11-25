@@ -52,7 +52,7 @@ fn null_count_run_end(bencher: Bencher, (n, run_step, valid_density): (usize, us
     let array = fixture(n, run_step, valid_density).into_array();
 
     bencher
-        .with_inputs(|| array.clone())
+        .with_inputs(|| &array)
         .bench_refs(|array| array.invalid_count());
 }
 

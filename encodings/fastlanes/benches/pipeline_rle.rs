@@ -48,7 +48,7 @@ fn compress(bencher: Bencher, (length, run_step): (usize, usize)) {
     );
 
     bencher
-        .with_inputs(|| values.clone())
+        .with_inputs(|| &values)
         .bench_refs(|values| RLEArray::encode(values).unwrap());
 }
 

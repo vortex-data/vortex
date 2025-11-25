@@ -72,8 +72,8 @@ pub fn eval<T: NativePType + Into<Scalar>>(bencher: Bencher, fraction_kept: f64)
 
     bencher
         // Be sure to reconstruct the mask to avoid cached set_indices
-        .with_inputs(|| (Mask::from_buffer(mask.clone()), array.clone()))
-        .bench_refs(|(mask, array)| {
+        .with_inputs(|| (&array, Mask::from_buffer(mask.clone())))
+        .bench_refs(|(array, mask)| {
             // We run the filter first, then compare.
             let array = filter(array.as_ref(), mask).unwrap();
             expr.evaluate(&array).unwrap().to_canonical()

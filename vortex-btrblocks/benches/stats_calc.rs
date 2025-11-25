@@ -57,7 +57,7 @@ mod benchmarks {
             Distribution::LongRuns => generate_runs(64),
         };
 
-        bencher.with_inputs(|| values.clone()).bench_refs(|values| {
+        bencher.with_inputs(|| &values).bench_refs(|values| {
             IntegerStats::generate_opts(values, GenerateStatsOptions::default());
         });
     }
@@ -70,7 +70,7 @@ mod benchmarks {
             Distribution::LongRuns => generate_runs(64),
         };
 
-        bencher.with_inputs(|| values.clone()).bench_refs(|values| {
+        bencher.with_inputs(|| &values).bench_refs(|values| {
             IntegerStats::generate_opts(
                 values,
                 GenerateStatsOptions {
