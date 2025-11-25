@@ -108,14 +108,15 @@ impl ComputeFnVTable for Sum {
                 DType::Primitive(p, _) => {
                     if p.is_float() && accumulator.is_zero() {
                         return Ok(sum.into());
+                    } else if p.is_int() {
+                        let sum_from_stat = accumulator
+                            .as_primitive()
+                            .checked_add(&sum.as_primitive())
+                            .map(Scalar::from);
+                        return Ok(sum_from_stat
+                            .unwrap_or_else(|| Scalar::null(sum_dtype))
+                            .into());
                     }
-                    let sum_from_stat = accumulator
-                        .as_primitive()
-                        .checked_add(&sum.as_primitive())
-                        .map(Scalar::from);
-                    return Ok(sum_from_stat
-                        .unwrap_or_else(|| Scalar::null(sum_dtype))
-                        .into());
                 }
                 DType::Decimal(..) => {
                     let sum_from_stat = accumulator

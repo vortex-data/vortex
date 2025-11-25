@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_array::ArrowNativeTypeOp;
-use num_traits::{CheckedAdd, CheckedMul, ToPrimitive};
+use num_traits::{CheckedAdd, CheckedMul};
 use vortex_dtype::{DType, DecimalDType, NativePType, Nullability, i256, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::{DecimalScalar, DecimalValue, PrimitiveScalar, Scalar, ScalarValue};
@@ -138,21 +137,19 @@ fn sum_float(
     array_len: usize,
     accumulator: &Scalar,
 ) -> VortexResult<Option<f64>> {
-    let v = primitive_scalar
-        .as_::<f64>()
-        .vortex_expect("cannot be null");
-    let array_len = array_len
-        .to_f64()
-        .ok_or_else(|| vortex_err!("array_len must fit the sum type"))?;
-
-    let Ok(array_sum) = v.mul_checked(array_len) else {
-        return Ok(None);
-    };
     let initial = accumulator
         .as_primitive()
         .as_::<f64>()
         .vortex_expect("cannot be null");
-    Ok(Some(initial + array_sum))
+    let v = primitive_scalar
+        .as_::<f64>()
+        .vortex_expect("cannot be null");
+
+    let mut sum = initial;
+    for _ in 0..array_len {
+        sum += v;
+    }
+    Ok(Some(sum))
 }
 
 register_kernel!(SumKernelAdapter(ConstantVTable).lift());
@@ -161,10 +158,11 @@ register_kernel!(SumKernelAdapter(ConstantVTable).lift());
 mod tests {
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::{DType, DecimalDType, Nullability, PType, i256};
+    use vortex_error::VortexUnwrap;
     use vortex_scalar::{DecimalValue, Scalar};
 
     use crate::arrays::ConstantArray;
-    use crate::compute::sum;
+    use crate::compute::{sum, sum_with_accumulator};
     use crate::stats::Stat;
     use crate::{Array, IntoArray};
 
@@ -267,6 +265,18 @@ mod tests {
         assert_eq!(
             result.as_decimal().decimal_value(),
             Some(DecimalValue::I256(i256::from_i128(99_999_999_900)))
+        );
+    }
+
+    #[test]
+    fn test_sum_float_non_multiply() {
+        let acc = -2048669276050936500000000000f64;
+        let array = ConstantArray::new(6.1811675e16f64, 25);
+        let sum =
+            sum_with_accumulator(array.as_ref(), &Scalar::primitive(acc, Nullable)).vortex_unwrap();
+        assert_eq!(
+            sum,
+            Scalar::primitive(-2048669274505641600000000000f64, Nullable)
         );
     }
 }
