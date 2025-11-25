@@ -20,7 +20,6 @@ fn main() {
         .map(|output| String::from_utf8_lossy(&output.stdout).contains("nightly"))
         .unwrap_or(false);
     if !is_nightly {
-        println!("cargo:warning=Skipping header generation on stable toolchain");
         return;
     }
 
