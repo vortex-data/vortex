@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use arrow_array::RecordBatch;
+use arrow_array::RecordBatchReader;
 use arrow_array::cast::AsArray;
-use arrow_array::{RecordBatch, RecordBatchReader};
-use arrow_schema::{ArrowError, DataType, SchemaRef};
-use futures::{Stream, TryStreamExt};
+use arrow_schema::ArrowError;
+use arrow_schema::DataType;
+use arrow_schema::SchemaRef;
+use futures::Stream;
+use futures::TryStreamExt;
 use vortex_array::ArrayRef;
 use vortex_array::arrow::IntoArrowArray;
 use vortex_error::VortexResult;
@@ -94,11 +98,17 @@ where
 mod tests {
     use std::sync::Arc;
 
+    use arrow_array::Array;
+    use arrow_array::ArrayRef as ArrowArrayRef;
+    use arrow_array::Int32Array;
+    use arrow_array::RecordBatch;
+    use arrow_array::StringArray;
+    use arrow_array::StructArray;
     use arrow_array::cast::AsArray;
-    use arrow_array::{
-        Array, ArrayRef as ArrowArrayRef, Int32Array, RecordBatch, StringArray, StructArray,
-    };
-    use arrow_schema::{ArrowError, DataType, Field, Schema};
+    use arrow_schema::ArrowError;
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
+    use arrow_schema::Schema;
     use vortex_array::ArrayRef;
     use vortex_array::arrow::FromArrowArray;
     use vortex_error::VortexResult;
