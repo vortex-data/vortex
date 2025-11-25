@@ -71,7 +71,10 @@ impl PrimitiveArray {
 /// * `base_offset` - Base offset from the first chunk
 /// * `offset_within_chunk` - Offset within chunk for sliced patches
 #[inline]
-#[expect(clippy::too_many_arguments, reason = "all arguments are needed for the patching operation")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "all arguments are needed for the patching operation"
+)]
 pub fn patch_chunk<T, I, C>(
     decoded_values: &mut [T],
     patches_indices: &[I],

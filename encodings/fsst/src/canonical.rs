@@ -50,7 +50,10 @@ impl CanonicalVTable<FSSTVTable> for FSSTVTable {
     }
 }
 
-#[expect(clippy::cast_possible_truncation, reason = "truncation is intentional for buffer index")]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "truncation is intentional for buffer index"
+)]
 fn fsst_decode_views(fsst_array: &FSSTArray, buf_index: u32) -> (ByteBuffer, Buffer<BinaryView>) {
     // FSSTArray has two child arrays:
     //  1. A VarBinArray, which holds the string heap of the compressed codes.

@@ -181,7 +181,10 @@ impl RLEArray {
     /// Offsets in `values_idx_offsets` are absolute and need to be shifted
     /// by the offset of the first chunk, respective the current slice, in
     /// order to make them relative.
-    #[expect(clippy::expect_used, reason = "expect is safe here as scalar_at returns a valid primitive")]
+    #[expect(
+        clippy::expect_used,
+        reason = "expect is safe here as scalar_at returns a valid primitive"
+    )]
     pub(crate) fn values_idx_offset(&self, chunk_idx: usize) -> usize {
         self.values_idx_offsets
             .scalar_at(chunk_idx)

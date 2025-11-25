@@ -161,7 +161,10 @@ pub fn decompress(array: ALPArray) -> PrimitiveArray {
 /// # Returns
 ///
 /// A `PrimitiveArray` containing the decompressed values with all patches applied.
-#[expect(clippy::cognitive_complexity, reason = "complexity is from nested match_each_* macros")]
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "complexity is from nested match_each_* macros"
+)]
 pub fn decompress_chunked(
     array: ALPArray,
     patches: &Patches,

@@ -185,7 +185,10 @@ impl Vector {
         unsafe { self.ensure_validity_slice(capacity) }.view_bits_mut()
     }
 
-    #[expect(clippy::expect_used, reason = "expect is safe after ensure_validity_writable")]
+    #[expect(
+        clippy::expect_used,
+        reason = "expect is safe after ensure_validity_writable"
+    )]
     /// Ensure the validity slice is writable.
     ///
     /// # SAFETY

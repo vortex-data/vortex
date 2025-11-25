@@ -107,7 +107,10 @@ impl GetExt for VortexFormatFactory {
 
 impl VortexFormatFactory {
     /// Creates a new instance with a default [`VortexSession`] and default options.
-    #[expect(clippy::new_without_default, reason = "FormatFactory defines `default` method, so having `Default` implementation is confusing")]
+    #[expect(
+        clippy::new_without_default,
+        reason = "FormatFactory defines `default` method, so having `Default` implementation is confusing"
+    )]
     pub fn new() -> Self {
         Self {
             session: VortexSession::default(),

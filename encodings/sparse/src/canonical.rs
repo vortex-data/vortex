@@ -115,7 +115,10 @@ impl CanonicalVTable<SparseVTable> for SparseVTable {
     }
 }
 
-#[expect(clippy::cognitive_complexity, reason = "complexity is from nested match_smallest_offset_type macro")]
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "complexity is from nested match_smallest_offset_type macro"
+)]
 fn canonicalize_sparse_lists(
     array: &SparseArray,
     values_dtype: Arc<DType>,
