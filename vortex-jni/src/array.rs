@@ -63,7 +63,7 @@ impl NativeArray {
         unsafe { Box::from_raw(pointer as *mut NativeArray) }
     }
 
-    #[allow(clippy::expect_used)]
+    #[expect(clippy::expect_used, reason = "JNI contract guarantees non-null pointer")]
     pub unsafe fn from_ptr<'a>(pointer: jlong) -> &'a Self {
         unsafe {
             (pointer as *const NativeArray)

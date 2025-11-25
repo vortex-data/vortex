@@ -179,7 +179,7 @@ mod private {
 }
 
 /// A visitor trait for converting a `NativePType` to another parameterized type.
-#[allow(missing_docs)] // Kind of obvious.
+#[expect(missing_docs, reason = "method names are self-documenting")]
 pub trait PTypeDowncast {
     type Output<T: NativePType>;
 
@@ -224,7 +224,7 @@ macro_rules! impl_ptype_downcast {
 }
 
 /// A visitor trait for converting a generic `NativePType` into a non-parameterized type.
-#[allow(missing_docs)] // Kind of obvious.
+#[expect(missing_docs, reason = "method names are self-documenting")]
 pub trait PTypeUpcast {
     type Input<T: NativePType>;
 

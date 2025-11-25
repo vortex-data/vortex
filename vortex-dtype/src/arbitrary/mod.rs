@@ -94,11 +94,6 @@ impl<'a> Arbitrary<'a> for PType {
 }
 
 impl<'a> Arbitrary<'a> for DecimalDType {
-    #[allow(
-        clippy::unwrap_in_result,
-        clippy::expect_used,
-        clippy::cast_possible_truncation
-    )]
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         // Get a random integer for the scale
         let precision = u.int_in_range(1..=i256::MAX_PRECISION)?;

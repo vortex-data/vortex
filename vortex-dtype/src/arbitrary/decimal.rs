@@ -97,7 +97,6 @@ impl Int for U256Wrapper {
     }
 }
 
-#[allow(clippy::same_name_method)]
 impl Int for i256 {
     type Unsigned = U256Wrapper;
     const ZERO: Self = i256::ZERO;
