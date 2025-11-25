@@ -12,8 +12,7 @@ use datafusion::prelude::SessionContext;
 use glob::Pattern;
 use url::Url;
 
-use crate::BenchmarkDataset;
-use crate::datasets;
+use crate::{BenchmarkDataset, datasets};
 
 pub mod dbgen;
 pub mod schema;

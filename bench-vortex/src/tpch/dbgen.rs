@@ -15,8 +15,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fs::File;
 use std::io::copy;
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use dirs::cache_dir;

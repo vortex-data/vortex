@@ -11,14 +11,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use arrow_array::RecordBatch;
-use arrow_array::RecordBatchReader;
+use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_cast::cast;
-use arrow_schema::ArrowError;
-use arrow_schema::DataType;
-use arrow_schema::Field;
-use arrow_schema::Schema;
-use arrow_schema::SchemaRef;
+use arrow_schema::{ArrowError, DataType, Field, Schema, SchemaRef};
 #[cfg(feature = "lance")]
 use lance::dataset::Dataset as LanceDataset;
 #[cfg(feature = "lance")]

@@ -4,9 +4,8 @@
 use std::iter;
 use std::path::Path;
 
-use arrow_array::PrimitiveArray;
-use arrow_array::RecordBatch;
 use arrow_array::types::Int64Type;
+use arrow_array::{PrimitiveArray, RecordBatch};
 use arrow_select::concat::concat_batches;
 use arrow_select::take::take_record_batch;
 use futures::stream;
@@ -20,13 +19,11 @@ use parquet::arrow::arrow_reader::ArrowReaderOptions;
 use parquet::arrow::async_reader::AsyncFileReader;
 use parquet::file::metadata::RowGroupMetaData;
 use stream::StreamExt;
-use vortex::Array;
-use vortex::ArrayRef;
-use vortex::IntoArray;
 use vortex::buffer::Buffer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::stream::ArrayStreamExt;
 use vortex::utils::aliases::hash_map::HashMap;
+use vortex::{Array, ArrayRef, IntoArray};
 
 use crate::SESSION;
 

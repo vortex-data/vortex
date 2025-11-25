@@ -3,12 +3,9 @@
 
 use std::fs::create_dir_all;
 use std::future::Future;
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use anyhow::Context;
-use anyhow::Result;
-use anyhow::bail;
+use anyhow::{Context, Result, bail};
 use url::Url;
 
 /// Creates a file if it doesn't already exist.
@@ -81,9 +78,7 @@ impl IdempotentPath for PathBuf {
 /// - A storage type string ("s3", "gcs", "nvme")
 /// - Or an error if the scheme is unknown
 pub fn url_scheme_to_storage(url: &Url) -> Result<String> {
-    use super::constants::STORAGE_GCS;
-    use super::constants::STORAGE_NVME;
-    use super::constants::STORAGE_S3;
+    use super::constants::{STORAGE_GCS, STORAGE_NVME, STORAGE_S3};
 
     match url.scheme() {
         STORAGE_S3 => Ok(STORAGE_S3.to_owned()),

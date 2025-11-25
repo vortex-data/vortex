@@ -12,25 +12,15 @@ use log::warn;
 use vortex::error::VortexExpect;
 use vortex_datafusion::metrics::VortexMetricsFinder;
 
-use crate::Engine;
-use crate::Format;
-use crate::Target;
 use crate::benchmark_trait::Benchmark;
-use crate::df;
 use crate::display::DisplayFormat;
-use crate::engines::EngineCtx;
-use crate::engines::benchmark_datafusion_query;
-use crate::measurements::MemoryMeasurement;
-use crate::measurements::QueryMeasurement;
+use crate::engines::{EngineCtx, benchmark_datafusion_query};
+use crate::measurements::{MemoryMeasurement, QueryMeasurement};
 use crate::memory::BenchmarkMemoryTracker;
-use crate::metrics::MetricsSetExt;
-use crate::metrics::export_plan_spans;
-use crate::query_bench::filter_queries;
-use crate::query_bench::print_memory_usage;
-use crate::query_bench::print_results;
-use crate::utils::new_tokio_runtime;
-use crate::utils::url_scheme_to_storage;
-use crate::vortex_panic;
+use crate::metrics::{MetricsSetExt, export_plan_spans};
+use crate::query_bench::{filter_queries, print_memory_usage, print_results};
+use crate::utils::{new_tokio_runtime, url_scheme_to_storage};
+use crate::{Engine, Format, Target, df, vortex_panic};
 
 /// Mode for EXPLAIN queries
 #[derive(Debug, Clone, Copy)]

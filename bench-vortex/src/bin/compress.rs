@@ -2,48 +2,33 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fs::File;
-use std::io::Write;
-use std::io::stdout;
+use std::io::{Write, stdout};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use bench_vortex::Engine;
-use bench_vortex::Format;
-use bench_vortex::Target;
-use bench_vortex::compress::bench::CompressMeasurements;
-use bench_vortex::compress::bench::CompressOp;
-use bench_vortex::compress::bench::{self as compress};
+use bench_vortex::compress::bench::{
+    CompressMeasurements, CompressOp, {self as compress},
+};
 use bench_vortex::datasets::Dataset;
 use bench_vortex::datasets::struct_list_of_ints::StructListOfInts;
 use bench_vortex::datasets::taxi_data::TaxiData;
-use bench_vortex::datasets::tpch_l_comment::TPCHLCommentCanonical;
-use bench_vortex::datasets::tpch_l_comment::TPCHLCommentChunked;
-use bench_vortex::display::DisplayFormat;
-use bench_vortex::display::print_measurements_json;
-use bench_vortex::display::render_table;
+use bench_vortex::datasets::tpch_l_comment::{TPCHLCommentCanonical, TPCHLCommentChunked};
+use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
 use bench_vortex::downloadable_dataset::DownloadableDataset;
-use bench_vortex::measurements::CompressionTimingMeasurement;
-use bench_vortex::measurements::CustomUnitMeasurement;
+use bench_vortex::measurements::{CompressionTimingMeasurement, CustomUnitMeasurement};
 use bench_vortex::public_bi::PBI_DATASETS;
-use bench_vortex::public_bi::PBIDataset::Arade;
-use bench_vortex::public_bi::PBIDataset::Bimbo;
-use bench_vortex::public_bi::PBIDataset::CMSprovider;
-use bench_vortex::public_bi::PBIDataset::Euro2016;
-use bench_vortex::public_bi::PBIDataset::Food;
-use bench_vortex::public_bi::PBIDataset::HashTags;
-use bench_vortex::setup_logging_and_tracing;
+use bench_vortex::public_bi::PBIDataset::{Arade, Bimbo, CMSprovider, Euro2016, Food, HashTags};
 use bench_vortex::utils::new_tokio_runtime;
+use bench_vortex::{Engine, Format, Target, setup_logging_and_tracing};
 use clap::Parser;
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use regex::Regex;
 use tokio::runtime::Runtime;
-use vortex::Array;
-use vortex::IntoArray;
-use vortex::arrays::ChunkedArray;
-use vortex::arrays::ChunkedVTable;
+use vortex::arrays::{ChunkedArray, ChunkedVTable};
 use vortex::builders::builder_with_capacity;
 use vortex::utils::aliases::hash_map::HashMap;
+use vortex::{Array, IntoArray};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]

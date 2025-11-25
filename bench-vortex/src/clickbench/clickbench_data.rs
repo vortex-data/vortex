@@ -1,55 +1,39 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt;
 use std::fmt::Display;
-use std::fs;
 use std::fs::File;
-use std::path::Path;
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::LazyLock;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
+use std::{fmt, fs};
 
-use arrow_schema::DataType;
-use arrow_schema::Field;
-use arrow_schema::Schema;
-use arrow_schema::TimeUnit;
+use arrow_schema::{DataType, Field, Schema, TimeUnit};
 use clap::ValueEnum;
 use datafusion::datasource::file_format::parquet::ParquetFormat;
-use datafusion::datasource::listing::ListingOptions;
-use datafusion::datasource::listing::ListingTable;
-use datafusion::datasource::listing::ListingTableConfig;
-use datafusion::datasource::listing::ListingTableUrl;
+use datafusion::datasource::listing::{
+    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
+};
 use datafusion::prelude::SessionContext;
-use futures::StreamExt;
-use futures::TryStreamExt;
-use futures::stream;
+use futures::{StreamExt, TryStreamExt, stream};
 use glob::Pattern;
 use log::trace;
-use rayon::prelude::IntoParallelIterator;
-use rayon::prelude::ParallelIterator;
+use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use reqwest::IntoUrl;
 use reqwest::blocking::Response;
 use serde::Serialize;
-use tokio::fs::OpenOptions;
-use tokio::fs::create_dir_all;
-use tracing::Instrument;
-use tracing::info;
-use tracing::warn;
+use tokio::fs::{OpenOptions, create_dir_all};
+use tracing::{Instrument, info, warn};
 use url::Url;
 use vortex::error::VortexExpect;
 use vortex::file::WriteOptionsSessionExt;
 use vortex_datafusion::VortexFormat;
 
-use crate::CompactionStrategy;
-use crate::Format;
-use crate::SESSION;
 use crate::conversions::parquet_to_vortex;
 #[cfg(feature = "lance")]
 use crate::utils;
-use crate::utils::file_utils::idempotent;
-use crate::utils::file_utils::idempotent_async;
+use crate::utils::file_utils::{idempotent, idempotent_async};
+use crate::{CompactionStrategy, Format, SESSION};
 
 pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
     use DataType::*;

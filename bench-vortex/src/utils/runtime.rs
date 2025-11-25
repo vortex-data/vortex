@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use anyhow::Context;
-use anyhow::Result;
-use anyhow::bail;
-use tokio::runtime::Builder;
-use tokio::runtime::Runtime;
+use anyhow::{Context, Result, bail};
+use tokio::runtime::{Builder, Runtime};
 
 /// Creates a Tokio runtime based on the provided thread count configuration.
 ///

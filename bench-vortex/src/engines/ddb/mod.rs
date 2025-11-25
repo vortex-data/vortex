@@ -2,22 +2,17 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::path::PathBuf;
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use log::trace;
 use url::Url;
 use vortex::error::VortexExpect;
-use vortex_duckdb::duckdb::Config;
-use vortex_duckdb::duckdb::Connection;
-use vortex_duckdb::duckdb::Database;
+use vortex_duckdb::duckdb::{Config, Connection, Database};
 use vortex_duckdb::register_extension_options;
 
-use crate::BenchmarkDataset;
-use crate::Format;
-use crate::IdempotentPath;
 use crate::statpopgen::StatPopGenBenchmark;
+use crate::{BenchmarkDataset, Format, IdempotentPath};
 
 #[derive(Debug, Clone)]
 enum DuckDBObject {

@@ -6,10 +6,9 @@ use std::sync::Arc;
 use anyhow::Result;
 use arrow_schema::Schema;
 use datafusion::datasource::file_format::parquet::ParquetFormat;
-use datafusion::datasource::listing::ListingOptions;
-use datafusion::datasource::listing::ListingTable;
-use datafusion::datasource::listing::ListingTableConfig;
-use datafusion::datasource::listing::ListingTableUrl;
+use datafusion::datasource::listing::{
+    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
+};
 use datafusion::prelude::SessionContext;
 use glob::Pattern;
 #[cfg(feature = "lance")]

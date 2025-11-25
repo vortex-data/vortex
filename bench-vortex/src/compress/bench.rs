@@ -9,8 +9,7 @@ use std::fs;
 use std::path::PathBuf;
 #[cfg(feature = "lance")]
 use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use anyhow::Result;
@@ -20,8 +19,7 @@ use bytes::Bytes;
 use clap::ValueEnum;
 #[cfg(feature = "lance")]
 use parking_lot::Mutex;
-use parquet::basic::Compression;
-use parquet::basic::ZstdLevel;
+use parquet::basic::{Compression, ZstdLevel};
 use serde::Serialize;
 use tokio::runtime::Runtime;
 use vortex::Array;
@@ -35,12 +33,9 @@ use crate::bench_run::run;
 #[cfg(feature = "lance")]
 use crate::bench_run::run_with_setup;
 use crate::compress::chunked_to_vec_record_batch;
-use crate::compress::parquet::parquet_compress_write;
-use crate::compress::parquet::parquet_decompress_read;
-use crate::compress::vortex::vortex_compress_write;
-use crate::compress::vortex::vortex_decompress_read;
-use crate::measurements::CompressionTimingMeasurement;
-use crate::measurements::CustomUnitMeasurement;
+use crate::compress::parquet::{parquet_compress_write, parquet_decompress_read};
+use crate::compress::vortex::{vortex_compress_write, vortex_decompress_read};
+use crate::measurements::{CompressionTimingMeasurement, CustomUnitMeasurement};
 #[cfg(feature = "lance")]
 use crate::utils::convert_utf8view_batch;
 #[cfg(feature = "lance")]

@@ -10,29 +10,22 @@ use std::process::Command;
 use std::sync::Arc;
 
 use datafusion::datasource::file_format::parquet::ParquetFormat;
-use datafusion::datasource::listing::ListingOptions;
-use datafusion::datasource::listing::ListingTable;
-use datafusion::datasource::listing::ListingTableConfig;
-use datafusion::datasource::listing::ListingTableUrl;
+use datafusion::datasource::listing::{
+    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
+};
 use datafusion::prelude::SessionContext;
 use futures::StreamExt;
 use log::info;
 use parquet::arrow::async_writer::AsyncFileWriter;
 use url::Url;
 use vortex::compressor::CompactCompressor;
-use vortex::file::WriteOptionsSessionExt;
-use vortex::file::WriteStrategyBuilder;
+use vortex::file::{WriteOptionsSessionExt, WriteStrategyBuilder};
 use vortex_datafusion::VortexFormat;
 
-use crate::BenchmarkDataset;
-use crate::Format;
-use crate::SESSION;
-use crate::Target;
 use crate::benchmark_trait::Benchmark;
 use crate::conversions::parquet_to_vortex;
 use crate::engines::EngineCtx;
-use crate::idempotent;
-use crate::idempotent_async;
+use crate::{BenchmarkDataset, Format, SESSION, Target, idempotent, idempotent_async};
 
 /// Template URL for raw JSON dataset
 fn raw_json_url(hour: usize) -> String {

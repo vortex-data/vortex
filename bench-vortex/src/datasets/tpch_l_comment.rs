@@ -5,22 +5,15 @@ use anyhow::Result;
 use async_trait::async_trait;
 use futures::TryStreamExt;
 use glob::glob;
-use vortex::Array;
-use vortex::ArrayRef;
-use vortex::IntoArray;
-use vortex::ToCanonical;
 use vortex::arrays::ChunkedArray;
 use vortex::dtype::Nullability::NonNullable;
-use vortex::expr::col;
-use vortex::expr::pack;
+use vortex::expr::{col, pack};
 use vortex::file::OpenOptionsSessionExt;
+use vortex::{Array, ArrayRef, IntoArray, ToCanonical};
 
-use crate::Format;
-use crate::IdempotentPath;
-use crate::SESSION;
 use crate::datasets::Dataset;
-use crate::tpch::tpchgen::TpchGenOptions;
-use crate::tpch::tpchgen::generate_tpch_tables;
+use crate::tpch::tpchgen::{TpchGenOptions, generate_tpch_tables};
+use crate::{Format, IdempotentPath, SESSION};
 
 pub struct TPCHLCommentChunked;
 

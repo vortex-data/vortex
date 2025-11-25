@@ -9,14 +9,10 @@ use tokio::runtime::Runtime;
 use url::Url;
 use vortex::error::VortexExpect;
 
-use crate::BenchmarkDataset;
-use crate::CompactionStrategy;
-use crate::Format;
-use crate::IdempotentPath;
-use crate::Target;
 use crate::benchmark_trait::Benchmark;
 use crate::clickbench::*;
 use crate::engines::EngineCtx;
+use crate::{BenchmarkDataset, CompactionStrategy, Format, IdempotentPath, Target};
 
 /// ClickBench benchmark implementation
 pub struct ClickBenchBenchmark {

@@ -10,10 +10,8 @@ use std::time::Duration;
 use datafusion::prelude::SessionContext;
 use vortex::error::VortexExpect;
 
-use crate::BenchmarkDataset;
-use crate::Engine;
 pub use crate::Format;
-use crate::vortex_panic;
+use crate::{BenchmarkDataset, Engine, vortex_panic};
 
 pub enum EngineCtx {
     DataFusion(df::DataFusionCtx),
