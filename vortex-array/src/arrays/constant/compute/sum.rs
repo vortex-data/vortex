@@ -145,6 +145,7 @@ fn sum_float(
         .as_::<f64>()
         .vortex_expect("cannot be null");
 
+    // Preserve numerical behaviour of summation of floats by using a loop instead of simplifying to multiplication.
     let mut sum = initial;
     for _ in 0..array_len {
         sum += v;
