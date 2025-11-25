@@ -10,7 +10,7 @@ pub type NullSensitiveLabels<'a> = HashMap<&'a Expression, bool>;
 
 /// Label each expression in the tree with whether it is null-sensitive.
 ///
-/// See [`VTable::is_null_sensitive`] for a definition of null sensitivity.
+/// See [`crate::expr::VTable::is_null_sensitive`] for a definition of null sensitivity.
 /// This function operates on a tree of expressions, not just a single expression.
 pub fn label_null_sensitive(expr: &Expression) -> NullSensitiveLabels<'_> {
     label_tree(
