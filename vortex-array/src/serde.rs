@@ -1,24 +1,39 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::iter;
 use std::sync::Arc;
 
-use flatbuffers::{FlatBufferBuilder, Follow, WIPOffset, root};
+use flatbuffers::FlatBufferBuilder;
+use flatbuffers::Follow;
+use flatbuffers::WIPOffset;
+use flatbuffers::root;
 use itertools::Itertools;
-use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_dtype::{DType, TryFromBytes};
-use vortex_error::{
-    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
-};
+use vortex_buffer::Alignment;
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::DType;
+use vortex_dtype::TryFromBytes;
+use vortex_error::VortexError;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
+use vortex_flatbuffers::FlatBuffer;
+use vortex_flatbuffers::FlatBufferRoot;
+use vortex_flatbuffers::ReadFlatBuffer;
+use vortex_flatbuffers::WriteFlatBuffer;
+use vortex_flatbuffers::array as fba;
 use vortex_flatbuffers::array::Compression;
-use vortex_flatbuffers::{
-    FlatBuffer, FlatBufferRoot, ReadFlatBuffer, WriteFlatBuffer, array as fba,
-};
 
+use crate::Array;
+use crate::ArrayContext;
+use crate::ArrayRef;
+use crate::ArrayVisitor;
+use crate::ArrayVisitorExt;
 use crate::stats::StatsSet;
-use crate::{Array, ArrayContext, ArrayRef, ArrayVisitor, ArrayVisitorExt};
 
 /// Options for serializing an array.
 #[derive(Default, Debug)]

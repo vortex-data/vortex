@@ -4,24 +4,38 @@
 pub(crate) mod dictionary;
 mod stats;
 
-use vortex_alp::{ALPArray, ALPVTable, RDEncoder};
-use vortex_array::arrays::{ConstantArray, DictArray, MaskedArray, PrimitiveVTable};
-use vortex_array::vtable::{ArrayVTableExt, ValidityHelper};
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
+use vortex_alp::ALPArray;
+use vortex_alp::ALPVTable;
+use vortex_alp::RDEncoder;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::DictArray;
+use vortex_array::arrays::MaskedArray;
+use vortex_array::arrays::PrimitiveVTable;
+use vortex_array::vtable::ArrayVTableExt;
+use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::PType;
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
-use vortex_sparse::{SparseArray, SparseVTable};
+use vortex_sparse::SparseArray;
+use vortex_sparse::SparseVTable;
 
 pub use self::stats::FloatStats;
+use crate::Compressor;
+use crate::CompressorStats;
+use crate::GenerateStatsOptions;
+use crate::Scheme;
+use crate::estimate_compression_ratio_with_sampling;
 use crate::float::dictionary::dictionary_encode;
-use crate::integer::{IntCompressor, IntegerStats};
+use crate::integer;
+use crate::integer::IntCompressor;
+use crate::integer::IntegerStats;
 use crate::patches::compress_patches;
 use crate::rle::RLEScheme;
-use crate::{
-    Compressor, CompressorStats, GenerateStatsOptions, Scheme,
-    estimate_compression_ratio_with_sampling, integer,
-};
 
 pub trait FloatScheme: Scheme<StatsType = FloatStats, CodeType = FloatCode> {}
 
@@ -463,16 +477,25 @@ impl Scheme for NullDominated {
 mod tests {
     use std::iter;
 
+    use vortex_array::Array;
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder};
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::builders::ArrayBuilder;
+    use vortex_array::builders::PrimitiveBuilder;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray, ToCanonical, assert_arrays_eq};
-    use vortex_buffer::{Buffer, buffer_mut};
+    use vortex_buffer::Buffer;
+    use vortex_buffer::buffer_mut;
     use vortex_dtype::Nullability;
     use vortex_sparse::SparseVTable;
 
-    use crate::float::{FloatCompressor, RLE_FLOAT_SCHEME};
-    use crate::{Compressor, CompressorStats, MAX_CASCADE, Scheme};
+    use crate::Compressor;
+    use crate::CompressorStats;
+    use crate::MAX_CASCADE;
+    use crate::Scheme;
+    use crate::float::FloatCompressor;
+    use crate::float::RLE_FLOAT_SCHEME;
 
     #[test]
     fn test_empty() {

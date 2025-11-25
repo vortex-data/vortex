@@ -2,31 +2,51 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::collections::BTreeSet;
-use std::ops::{Not, Range};
+use std::ops::Not;
+use std::ops::Range;
 use std::sync::Arc;
 
 use futures::try_join;
 use itertools::Itertools;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::MaskFuture;
+use vortex_array::ToCanonical;
 use vortex_array::arrays::StructArray;
+use vortex_array::expr::ExactExpr;
+use vortex_array::expr::Expression;
+use vortex_array::expr::Merge;
+use vortex_array::expr::Pack;
+use vortex_array::expr::col;
+use vortex_array::expr::root;
 use vortex_array::expr::session::ExprSessionExt;
+use vortex_array::expr::transform::ExprOptimizer;
+use vortex_array::expr::transform::PartitionedExpr;
 use vortex_array::expr::transform::immediate_access::annotate_scope_access;
-use vortex_array::expr::transform::{
-    ExprOptimizer, PartitionedExpr, partition, replace, replace_root_fields,
-};
-use vortex_array::expr::{ExactExpr, Expression, Merge, Pack, col, root};
+use vortex_array::expr::transform::partition;
+use vortex_array::expr::transform::replace;
+use vortex_array::expr::transform::replace_root_fields;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{ArrayRef, IntoArray, MaskFuture, ToCanonical};
-use vortex_dtype::{DType, FieldMask, FieldName, Nullability, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_dtype::DType;
+use vortex_dtype::FieldMask;
+use vortex_dtype::FieldName;
+use vortex_dtype::Nullability;
+use vortex_dtype::StructFields;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::ArrayFuture;
+use crate::LayoutReader;
+use crate::LayoutReaderRef;
+use crate::LazyReaderChildren;
 use crate::layouts::partitioned::PartitionedExprEval;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSource;
-use crate::{ArrayFuture, LayoutReader, LayoutReaderRef, LazyReaderChildren};
 
 pub struct StructReader {
     layout: StructLayout,
@@ -365,23 +385,44 @@ mod tests {
     use std::sync::Arc;
 
     use itertools::Itertools;
-    use rstest::{fixture, rstest};
-    use vortex_array::arrays::{BoolArray, StructArray};
-    use vortex_array::expr::{Expression, col, eq, get_item, gt, lit, or, pack, root, select};
+    use rstest::fixture;
+    use rstest::rstest;
+    use vortex_array::Array;
+    use vortex_array::ArrayContext;
+    use vortex_array::IntoArray;
+    use vortex_array::MaskFuture;
+    use vortex_array::ToCanonical;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::StructArray;
+    use vortex_array::expr::Expression;
+    use vortex_array::expr::col;
+    use vortex_array::expr::eq;
+    use vortex_array::expr::get_item;
+    use vortex_array::expr::gt;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::or;
+    use vortex_array::expr::pack;
+    use vortex_array::expr::root;
+    use vortex_array::expr::select;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayContext, IntoArray, MaskFuture, ToCanonical};
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, FieldName, Nullability, PType};
+    use vortex_dtype::DType;
+    use vortex_dtype::FieldName;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
     use vortex_io::runtime::single::block_on;
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
+    use crate::LayoutRef;
+    use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::struct_::writer::StructStrategy;
-    use crate::segments::{SegmentSource, TestSegments};
-    use crate::sequence::{SequenceId, SequentialArrayStreamExt};
+    use crate::segments::SegmentSource;
+    use crate::segments::TestSegments;
+    use crate::sequence::SequenceId;
+    use crate::sequence::SequentialArrayStreamExt;
     use crate::test::SESSION;
-    use crate::{LayoutRef, LayoutStrategy};
 
     #[fixture]
     fn empty_struct() -> (Arc<dyn SegmentSource>, LayoutRef) {

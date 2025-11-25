@@ -5,14 +5,18 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use divan::Bencher;
+use rand::Rng;
+use rand::SeedableRng;
 use rand::distr::Uniform;
 use rand::prelude::StdRng;
-use rand::{Rng, SeedableRng, rng};
+use rand::rng;
 use vortex_array::IntoArray as _;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::{take, warm_up_vtables};
+use vortex_array::compute::take;
+use vortex_array::compute::warm_up_vtables;
 use vortex_array::validity::Validity;
-use vortex_buffer::{Buffer, buffer};
+use vortex_buffer::Buffer;
+use vortex_buffer::buffer;
 use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
 
 fn main() {

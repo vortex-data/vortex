@@ -1,22 +1,30 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ffi::{CStr, c_char};
+use std::ffi::CStr;
+use std::ffi::c_char;
 
+use futures::SinkExt;
+use futures::TryStreamExt;
 use futures::channel::mpsc;
 use futures::channel::mpsc::Sender;
-use futures::{SinkExt, TryStreamExt};
 use vortex::ArrayRef;
-use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::file::{WriteOptionsSessionExt, WriteSummary};
-use vortex::io::runtime::{BlockingRuntime, Task};
+use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
+use vortex::error::vortex_err;
+use vortex::file::WriteOptionsSessionExt;
+use vortex::file::WriteSummary;
+use vortex::io::runtime::BlockingRuntime;
+use vortex::io::runtime::Task;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::stream::ArrayStreamAdapter;
 
 use crate::RUNTIME;
 use crate::array::vx_array;
 use crate::dtype::vx_dtype;
-use crate::error::{try_or_default, vx_error};
+use crate::error::try_or_default;
+use crate::error::vx_error;
 use crate::session::vx_session;
 
 #[allow(non_camel_case_types)]
@@ -120,8 +128,10 @@ mod tests {
     use vortex::validity::Validity;
 
     use super::*;
-    use crate::array::{vx_array, vx_array_free};
-    use crate::dtype::{vx_dtype, vx_dtype_free};
+    use crate::array::vx_array;
+    use crate::array::vx_array_free;
+    use crate::dtype::vx_dtype;
+    use crate::dtype::vx_dtype_free;
     use crate::error::vx_error_free;
     use crate::session::vx_session_new;
 

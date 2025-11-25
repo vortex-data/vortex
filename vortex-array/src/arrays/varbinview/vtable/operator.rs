@@ -8,12 +8,18 @@ use vortex_compute::filter::Filter;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_vector::Vector;
-use vortex_vector::binaryview::{BinaryVector, BinaryViewTypeUpcast, StringVector};
+use vortex_vector::binaryview::BinaryVector;
+use vortex_vector::binaryview::BinaryViewTypeUpcast;
+use vortex_vector::binaryview::StringVector;
 
 use crate::ArrayRef;
-use crate::arrays::{VarBinViewArray, VarBinViewVTable};
-use crate::execution::{BatchKernelRef, BindCtx, kernel};
-use crate::vtable::{OperatorVTable, ValidityHelper};
+use crate::arrays::VarBinViewArray;
+use crate::arrays::VarBinViewVTable;
+use crate::execution::BatchKernelRef;
+use crate::execution::BindCtx;
+use crate::execution::kernel;
+use crate::vtable::OperatorVTable;
+use crate::vtable::ValidityHelper;
 
 impl OperatorVTable<VarBinViewVTable> for VarBinViewVTable {
     fn bind(
@@ -54,12 +60,16 @@ impl OperatorVTable<VarBinViewVTable> for VarBinViewVTable {
 
 #[cfg(test)]
 mod tests {
-    use rstest::{fixture, rstest};
-    use vortex_dtype::{DType, Nullability};
+    use rstest::fixture;
+    use rstest::rstest;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
 
     use crate::IntoArray;
-    use crate::arrays::{BoolArray, VarBinViewArray};
-    use crate::builders::{ArrayBuilder, VarBinViewBuilder};
+    use crate::arrays::BoolArray;
+    use crate::arrays::VarBinViewArray;
+    use crate::builders::ArrayBuilder;
+    use crate::builders::VarBinViewBuilder;
 
     #[fixture]
     fn strings() -> VarBinViewArray {

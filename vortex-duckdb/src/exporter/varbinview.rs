@@ -5,13 +5,17 @@ use std::ffi::c_char;
 
 use itertools::Itertools;
 use vortex::arrays::VarBinViewArray;
-use vortex::buffer::{Buffer, ByteBuffer};
+use vortex::buffer::Buffer;
+use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
-use vortex_vector::binaryview::{BinaryView, Inlined};
+use vortex_vector::binaryview::BinaryView;
+use vortex_vector::binaryview::Inlined;
 
-use crate::duckdb::{Vector, VectorBuffer};
-use crate::exporter::{ColumnExporter, all_invalid};
+use crate::duckdb::Vector;
+use crate::duckdb::VectorBuffer;
+use crate::exporter::ColumnExporter;
+use crate::exporter::all_invalid;
 
 struct VarBinViewExporter {
     views: Buffer<BinaryView>,

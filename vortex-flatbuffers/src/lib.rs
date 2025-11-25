@@ -127,8 +127,14 @@ pub mod layout;
 /// ```
 pub mod message;
 
-use flatbuffers::{FlatBufferBuilder, Follow, InvalidFlatbuffer, Verifiable, WIPOffset, root};
-use vortex_buffer::{ByteBuffer, ConstByteBuffer};
+use flatbuffers::FlatBufferBuilder;
+use flatbuffers::Follow;
+use flatbuffers::InvalidFlatbuffer;
+use flatbuffers::Verifiable;
+use flatbuffers::WIPOffset;
+use flatbuffers::root;
+use vortex_buffer::ByteBuffer;
+use vortex_buffer::ConstByteBuffer;
 
 /// We define a const-aligned byte buffer for flatbuffers with 8-byte alignment.
 ///

@@ -5,14 +5,17 @@
 use std::ptr;
 use std::sync::Arc;
 
+use vortex::Array;
+use vortex::ToCanonical;
 use vortex::dtype::half::f16;
-use vortex::error::{VortexExpect, vortex_err};
-use vortex::{Array, ToCanonical};
+use vortex::error::VortexExpect;
+use vortex::error::vortex_err;
 
 use crate::arc_dyn_wrapper;
 use crate::binary::vx_binary;
 use crate::dtype::vx_dtype;
-use crate::error::{try_or_default, vx_error};
+use crate::error::try_or_default;
+use crate::error::vx_error;
 use crate::string::vx_string;
 
 arc_dyn_wrapper!(
@@ -174,15 +177,19 @@ mod tests {
     use std::ptr;
 
     use vortex::IntoArray;
-    use vortex::arrays::{PrimitiveArray, StructArray, VarBinViewArray};
-    use vortex::buffer::{Buffer, buffer};
+    use vortex::arrays::PrimitiveArray;
+    use vortex::arrays::StructArray;
+    use vortex::arrays::VarBinViewArray;
+    use vortex::buffer::Buffer;
+    use vortex::buffer::buffer;
     #[cfg(not(miri))]
     use vortex::dtype::half::f16;
     use vortex::validity::Validity;
 
     use crate::array::*;
     use crate::binary::vx_binary_free;
-    use crate::dtype::{vx_dtype_get_variant, vx_dtype_variant};
+    use crate::dtype::vx_dtype_get_variant;
+    use crate::dtype::vx_dtype_variant;
     use crate::error::vx_error_free;
     use crate::string::vx_string_free;
 

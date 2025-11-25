@@ -5,15 +5,22 @@ use std::ops::Mul;
 
 use num_traits::One;
 use vortex_array::ArrayRef;
-use vortex_array::execution::{BatchKernel, BatchKernelRef, BindCtx, MaskExecution};
+use vortex_array::execution::BatchKernel;
+use vortex_array::execution::BatchKernelRef;
+use vortex_array::execution::BindCtx;
+use vortex_array::execution::MaskExecution;
 use vortex_array::vtable::OperatorVTable;
-use vortex_dtype::{NativePType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_dtype::NativePType;
+use vortex_dtype::match_each_native_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_mask::AllOr;
+use vortex_vector::Vector;
+use vortex_vector::VectorMutOps;
 use vortex_vector::primitive::PVectorMut;
-use vortex_vector::{Vector, VectorMutOps};
 
-use crate::{SequenceArray, SequenceVTable};
+use crate::SequenceArray;
+use crate::SequenceVTable;
 
 impl OperatorVTable<SequenceVTable> for SequenceVTable {
     fn bind(
@@ -103,8 +110,10 @@ impl<T: NativePType + Mul> BatchKernel for MultiplierSequenceKernel<T> {
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    use vortex_buffer::{bitbuffer, buffer};
-    use vortex_dtype::{Nullability, PTypeDowncast};
+    use vortex_buffer::bitbuffer;
+    use vortex_buffer::buffer;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PTypeDowncast;
     use vortex_vector::VectorOps;
 
     use crate::SequenceArray;

@@ -2,15 +2,21 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use num_traits::{CheckedAdd, Float, ToPrimitive};
+use num_traits::CheckedAdd;
+use num_traits::Float;
+use num_traits::ToPrimitive;
 use vortex_buffer::BitBuffer;
-use vortex_dtype::{NativePType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_dtype::NativePType;
+use vortex_dtype::match_each_native_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{PrimitiveArray, PrimitiveVTable};
-use crate::compute::{SumKernel, SumKernelAdapter};
+use crate::arrays::PrimitiveArray;
+use crate::arrays::PrimitiveVTable;
+use crate::compute::SumKernel;
+use crate::compute::SumKernelAdapter;
 use crate::register_kernel;
 
 impl SumKernel for PrimitiveVTable {

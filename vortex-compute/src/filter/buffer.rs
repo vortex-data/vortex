@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::{BitView, Buffer, BufferMut};
-use vortex_mask::{Mask, MaskIter};
+use vortex_buffer::BitView;
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
+use vortex_mask::Mask;
+use vortex_mask::MaskIter;
 
 use crate::filter::Filter;
 
@@ -86,7 +89,9 @@ fn filter_slices<T>(values: &[T], output_len: usize, slices: &[(usize, usize)]) 
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::{BufferMut, buffer, buffer_mut};
+    use vortex_buffer::BufferMut;
+    use vortex_buffer::buffer;
+    use vortex_buffer::buffer_mut;
     use vortex_mask::Mask;
 
     use super::*;

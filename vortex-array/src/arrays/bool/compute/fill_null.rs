@@ -1,14 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{BoolArray, BoolVTable};
-use crate::compute::{FillNullKernel, FillNullKernelAdapter};
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::ToCanonical;
+use crate::arrays::BoolArray;
+use crate::arrays::BoolVTable;
+use crate::compute::FillNullKernel;
+use crate::compute::FillNullKernelAdapter;
+use crate::register_kernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl FillNullKernel for BoolVTable {
     fn fill_null(&self, array: &BoolArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
@@ -37,8 +43,10 @@ register_kernel!(FillNullKernelAdapter(BoolVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_buffer::{BitBuffer, bitbuffer};
-    use vortex_dtype::{DType, Nullability};
+    use vortex_buffer::BitBuffer;
+    use vortex_buffer::bitbuffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
 
     use crate::arrays::BoolArray;
     use crate::canonical::ToCanonical;

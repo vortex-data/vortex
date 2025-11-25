@@ -6,17 +6,23 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use cudarc::driver::CudaContext;
+use futures::FutureExt;
+use futures::TryStreamExt;
 use futures::stream::FuturesOrdered;
-use futures::{FutureExt, TryStreamExt};
 use vortex_array::expr::Expression;
 use vortex_array::stats::Precision;
-use vortex_dtype::{DType, FieldMask};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_dtype::DType;
+use vortex_dtype::FieldMask;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 
+use crate::GpuArrayFuture;
+use crate::GpuLayoutReader;
+use crate::GpuLayoutReaderRef;
 use crate::gpu::children::LazyGpuReaderChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::segments::SegmentSource;
-use crate::{GpuArrayFuture, GpuLayoutReader, GpuLayoutReaderRef};
 
 pub struct GpuChunkedLayoutReader {
     layout: ChunkedLayout,

@@ -4,9 +4,11 @@
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
+use crate::Array;
+use crate::ArrayRef;
 use crate::validity::Validity;
-use crate::vtable::{NotSupported, VTable};
-use crate::{Array, ArrayRef};
+use crate::vtable::NotSupported;
+use crate::vtable::VTable;
 
 pub trait ValidityVTable<V: VTable> {
     fn is_valid(array: &V::Array, index: usize) -> bool;

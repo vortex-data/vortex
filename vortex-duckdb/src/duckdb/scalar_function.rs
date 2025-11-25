@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::error::{VortexUnwrap, vortex_err};
+use vortex::error::VortexUnwrap;
+use vortex::error::vortex_err;
 
+use crate::cpp;
 use crate::duckdb::LogicalType;
-use crate::{cpp, wrapper};
+use crate::wrapper;
 
 wrapper!(ScalarFunction, cpp::duckdb_vx_sfunc, |_| {});
 

@@ -2,12 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_mask::{Mask, MaskIter};
+use vortex_mask::Mask;
+use vortex_mask::MaskIter;
 
-use crate::arrays::{FixedSizeListArray, FixedSizeListVTable};
-use crate::compute::{self, FilterKernel, FilterKernelAdapter};
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::FixedSizeListArray;
+use crate::arrays::FixedSizeListVTable;
+use crate::compute::FilterKernel;
+use crate::compute::FilterKernelAdapter;
+use crate::compute::{self};
+use crate::register_kernel;
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray, register_kernel};
 
 /// Density threshold for choosing between indices and slices representation when expanding masks.
 ///

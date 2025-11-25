@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_buffer::Buffer;
+use vortex_dtype::DType;
 use vortex_dtype::Nullability::Nullable;
-use vortex_dtype::{DType, PType, match_each_integer_ptype};
+use vortex_dtype::PType;
+use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
 pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Option<ArrayRef>> {

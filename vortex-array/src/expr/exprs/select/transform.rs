@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
+use crate::expr::Expression;
+use crate::expr::ExpressionView;
 use crate::expr::exprs::get_item::get_item;
 use crate::expr::exprs::pack::pack;
 use crate::expr::exprs::select::Select;
-use crate::expr::transform::rules::{ReduceRule, TypedRuleContext};
-use crate::expr::{Expression, ExpressionView};
+use crate::expr::transform::rules::ReduceRule;
+use crate::expr::transform::rules::TypedRuleContext;
 
 /// Rule that removes Select expressions by converting them to Pack + GetItem.
 ///
@@ -54,15 +57,18 @@ impl ReduceRule<Select, TypedRuleContext> for RemoveSelectRule {
 
 #[cfg(test)]
 mod tests {
+    use vortex_dtype::DType;
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, StructFields};
+    use vortex_dtype::StructFields;
 
     use super::RemoveSelectRule;
     use crate::expr::exprs::pack::Pack;
     use crate::expr::exprs::root::root;
-    use crate::expr::exprs::select::{Select, select};
-    use crate::expr::transform::rules::{ReduceRule, TypedRuleContext};
+    use crate::expr::exprs::select::Select;
+    use crate::expr::exprs::select::select;
+    use crate::expr::transform::rules::ReduceRule;
+    use crate::expr::transform::rules::TypedRuleContext;
 
     #[test]
     fn test_remove_select_rule() {

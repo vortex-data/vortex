@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_array::{Array as ArrowArray, ArrayRef as ArrowArrayRef, Datum as ArrowDatum};
+use arrow_array::Array as ArrowArray;
+use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_array::Datum as ArrowDatum;
 use arrow_schema::DataType;
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::ConstantArray;
-use crate::arrow::{FromArrowArray, IntoArrowArray};
-use crate::{Array, ArrayRef, IntoArray};
+use crate::arrow::FromArrowArray;
+use crate::arrow::IntoArrowArray;
 
 /// A wrapper around a generic Arrow array that can be used as a Datum in Arrow compute.
 #[derive(Debug)]

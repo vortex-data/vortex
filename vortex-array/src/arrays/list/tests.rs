@@ -3,17 +3,21 @@
 
 use std::sync::Arc;
 
-use vortex_buffer::{BitBuffer, buffer};
+use vortex_buffer::BitBuffer;
+use vortex_buffer::buffer;
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
 use vortex_dtype::PType::I32;
-use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexUnwrap;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use super::*;
 use crate::IntoArray;
-use crate::arrays::{ListVTable, PrimitiveArray};
-use crate::builders::{ArrayBuilder, ListBuilder};
+use crate::arrays::ListVTable;
+use crate::arrays::PrimitiveArray;
+use crate::builders::ArrayBuilder;
+use crate::builders::ListBuilder;
 use crate::compute::filter;
 use crate::validity::Validity;
 

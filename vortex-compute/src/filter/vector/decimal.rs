@@ -2,8 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_dtype::i256;
-use vortex_vector::decimal::{DVector, DVectorMut, DecimalVector, DecimalVectorMut};
-use vortex_vector::{VectorMutOps, VectorOps, match_each_dvector, match_each_dvector_mut};
+use vortex_vector::VectorMutOps;
+use vortex_vector::VectorOps;
+use vortex_vector::decimal::DVector;
+use vortex_vector::decimal::DVectorMut;
+use vortex_vector::decimal::DecimalVector;
+use vortex_vector::decimal::DecimalVectorMut;
+use vortex_vector::match_each_dvector;
+use vortex_vector::match_each_dvector_mut;
 
 use crate::filter::Filter;
 

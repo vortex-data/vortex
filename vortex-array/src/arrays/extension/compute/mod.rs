@@ -17,10 +17,15 @@ mod test {
 
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, ExtDType, ExtID, Nullability, PType};
+    use vortex_dtype::DType;
+    use vortex_dtype::ExtDType;
+    use vortex_dtype::ExtID;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
 
     use crate::IntoArray;
-    use crate::arrays::{ExtensionArray, PrimitiveArray};
+    use crate::arrays::ExtensionArray;
+    use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::take::test_take_conformance;
 
@@ -103,10 +108,12 @@ mod tests {
 
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::{ExtDType, ExtID};
+    use vortex_dtype::ExtDType;
+    use vortex_dtype::ExtID;
 
     use crate::IntoArray;
-    use crate::arrays::{ExtensionArray, PrimitiveArray};
+    use crate::arrays::ExtensionArray;
+    use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::consistency::test_array_consistency;
 
     #[rstest]

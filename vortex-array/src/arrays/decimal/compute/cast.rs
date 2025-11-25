@@ -2,13 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_panic};
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_panic;
 
-use crate::arrays::{DecimalArray, DecimalVTable};
-use crate::compute::{CastKernel, CastKernelAdapter};
+use crate::ArrayRef;
+use crate::arrays::DecimalArray;
+use crate::arrays::DecimalVTable;
+use crate::compute::CastKernel;
+use crate::compute::CastKernelAdapter;
+use crate::register_kernel;
 use crate::stats::ArrayStats;
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, register_kernel};
 
 impl CastKernel for DecimalVTable {
     fn cast(&self, array: &DecimalArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -65,7 +70,9 @@ register_kernel!(CastKernelAdapter(DecimalVTable).lift());
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, DecimalDType, Nullability};
+    use vortex_dtype::DType;
+    use vortex_dtype::DecimalDType;
+    use vortex_dtype::Nullability;
 
     use crate::arrays::DecimalArray;
     use crate::canonical::ToCanonical;

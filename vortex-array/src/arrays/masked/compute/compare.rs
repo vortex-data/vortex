@@ -3,11 +3,19 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::{BoolArray, MaskedArray, MaskedVTable};
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::BoolArray;
+use crate::arrays::MaskedArray;
+use crate::arrays::MaskedVTable;
 use crate::canonical::ToCanonical;
-use crate::compute::{CompareKernel, CompareKernelAdapter, Operator, compare};
+use crate::compute::CompareKernel;
+use crate::compute::CompareKernelAdapter;
+use crate::compute::Operator;
+use crate::compute::compare;
+use crate::register_kernel;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl CompareKernel for MaskedVTable {
     fn compare(
@@ -39,10 +47,14 @@ mod tests {
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
-    use crate::arrays::{ConstantArray, MaskedArray, PrimitiveArray};
-    use crate::compute::{Operator, compare};
+    use crate::IntoArray;
+    use crate::ToCanonical;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::MaskedArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::compute::Operator;
+    use crate::compute::compare;
     use crate::validity::Validity;
-    use crate::{IntoArray, ToCanonical};
 
     #[test]
     fn test_compare_value() {

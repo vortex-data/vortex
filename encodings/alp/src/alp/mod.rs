@@ -1,11 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Display, Formatter};
-use std::mem::{size_of, transmute, transmute_copy};
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::mem::size_of;
+use std::mem::transmute;
+use std::mem::transmute_copy;
 
 use itertools::Itertools;
-use num_traits::{CheckedSub, Float, PrimInt, ToPrimitive};
+use num_traits::CheckedSub;
+use num_traits::Float;
+use num_traits::PrimInt;
+use num_traits::ToPrimitive;
 
 mod array;
 mod compress;
@@ -44,7 +50,8 @@ mod tests {
 
 pub use array::*;
 pub use compress::*;
-use vortex_buffer::{Buffer, BufferMut};
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
 use vortex_scalar::PValue;
 

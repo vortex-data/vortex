@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::{BitBuffer, BitBufferMut};
+use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferMut;
 use vortex_dtype::Nullability;
-use vortex_dtype::Nullability::{NonNullable, Nullable};
-use vortex_error::{VortexExpect, vortex_panic};
+use vortex_dtype::Nullability::NonNullable;
+use vortex_dtype::Nullability::Nullable;
+use vortex_error::VortexExpect;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::validity::Validity;

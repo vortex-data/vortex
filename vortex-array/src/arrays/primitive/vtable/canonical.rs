@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::Canonical;
-use crate::arrays::{PrimitiveArray, PrimitiveVTable};
+use crate::arrays::PrimitiveArray;
+use crate::arrays::PrimitiveVTable;
 use crate::builders::ArrayBuilder;
 use crate::vtable::CanonicalVTable;
 

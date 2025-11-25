@@ -2,37 +2,51 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::Range;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
+use std::sync::Weak;
 
-use arrow_schema::{ArrowError, DataType, Field, SchemaRef};
+use arrow_schema::ArrowError;
+use arrow_schema::DataType;
+use arrow_schema::Field;
+use arrow_schema::SchemaRef;
+use datafusion_common::DataFusionError;
+use datafusion_common::Result as DFResult;
 use datafusion_common::arrow::array::RecordBatch;
-use datafusion_common::{DataFusionError, Result as DFResult};
+use datafusion_datasource::FileRange;
+use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::file_meta::FileMeta;
-use datafusion_datasource::file_stream::{FileOpenFuture, FileOpener};
+use datafusion_datasource::file_stream::FileOpenFuture;
+use datafusion_datasource::file_stream::FileOpener;
 use datafusion_datasource::schema_adapter::SchemaAdapterFactory;
-use datafusion_datasource::{FileRange, PartitionedFile};
+use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
-use datafusion_physical_expr::{PhysicalExprRef, split_conjunction};
+use datafusion_physical_expr::split_conjunction;
 use datafusion_physical_expr_adapter::PhysicalExprAdapterFactory;
 use datafusion_physical_expr_common::physical_expr::is_dynamic_physical_expr;
 use datafusion_physical_plan::metrics::Count;
 use datafusion_pruning::FilePruner;
-use futures::{FutureExt, StreamExt, TryStreamExt, stream};
+use futures::FutureExt;
+use futures::StreamExt;
+use futures::TryStreamExt;
+use futures::stream;
 use object_store::ObjectStore;
 use object_store::path::Path;
 use tracing::Instrument;
 use vortex::ArrayRef;
 use vortex::dtype::FieldName;
 use vortex::error::VortexError;
-use vortex::expr::{root, select};
+use vortex::expr::root;
+use vortex::expr::select;
 use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
 use vortex::scan::ScanBuilder;
 use vortex::session::VortexSession;
-use vortex_utils::aliases::dash_map::{DashMap, Entry};
+use vortex_utils::aliases::dash_map::DashMap;
+use vortex_utils::aliases::dash_map::Entry;
 
 use super::cache::VortexFileCache;
-use crate::convert::exprs::{can_be_pushed_down, make_vortex_predicate};
+use crate::convert::exprs::can_be_pushed_down;
+use crate::convert::exprs::make_vortex_predicate;
 
 #[derive(Clone)]
 pub(crate) struct VortexOpener {
@@ -433,12 +447,16 @@ mod tests {
 
     use arrow_schema::Fields;
     use chrono::Utc;
-    use datafusion::arrow::array::{RecordBatch, StringArray, StructArray};
-    use datafusion::arrow::datatypes::{DataType, Schema};
+    use datafusion::arrow::array::RecordBatch;
+    use datafusion::arrow::array::StringArray;
+    use datafusion::arrow::array::StructArray;
+    use datafusion::arrow::datatypes::DataType;
+    use datafusion::arrow::datatypes::Schema;
     use datafusion::arrow::util::display::FormatOptions;
     use datafusion::common::record_batch;
     use datafusion::datasource::schema_adapter::DefaultSchemaAdapterFactory;
-    use datafusion::logical_expr::{col, lit};
+    use datafusion::logical_expr::col;
+    use datafusion::logical_expr::lit;
     use datafusion::physical_expr::planner::logical2physical;
     use datafusion::physical_expr_adapter::DefaultPhysicalExprAdapterFactory;
     use datafusion::scalar::ScalarValue;
@@ -450,7 +468,8 @@ mod tests {
     use vortex::VortexSessionDefault;
     use vortex::arrow::FromArrowArray;
     use vortex::file::WriteOptionsSessionExt;
-    use vortex::io::{ObjectStoreWriter, VortexWrite};
+    use vortex::io::ObjectStoreWriter;
+    use vortex::io::VortexWrite;
     use vortex::session::VortexSession;
 
     use super::*;

@@ -6,7 +6,8 @@ use std::ffi::c_void;
 use vortex::error::VortexExpect;
 
 use crate::cpp;
-use crate::duckdb::{Cardinality, TableFunction};
+use crate::duckdb::Cardinality;
+use crate::duckdb::TableFunction;
 
 /// Native callback for the cardinality estimate of a table function.
 pub(crate) unsafe extern "C-unwind" fn cardinality_callback<T: TableFunction>(

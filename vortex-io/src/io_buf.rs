@@ -6,7 +6,8 @@
 use std::ops::Range;
 
 use bytes::Bytes;
-use vortex_buffer::{Buffer, ConstByteBuffer};
+use vortex_buffer::Buffer;
+use vortex_buffer::ConstByteBuffer;
 use vortex_error::VortexExpect;
 
 /// Trait for types that can provide a readonly byte buffer interface to I/O frameworks.

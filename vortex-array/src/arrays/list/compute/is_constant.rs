@@ -4,8 +4,12 @@
 use vortex_error::VortexResult;
 use vortex_scalar::NumericOperator;
 
-use crate::arrays::{ListArray, ListVTable};
-use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, numeric};
+use crate::arrays::ListArray;
+use crate::arrays::ListVTable;
+use crate::compute::IsConstantKernel;
+use crate::compute::IsConstantKernelAdapter;
+use crate::compute::IsConstantOpts;
+use crate::compute::numeric;
 use crate::register_kernel;
 
 const SMALL_ARRAY_THRESHOLD: usize = 64;
@@ -76,7 +80,9 @@ mod tests {
     use vortex_dtype::FieldNames;
 
     use crate::IntoArray;
-    use crate::arrays::{ListArray, PrimitiveArray, StructArray};
+    use crate::arrays::ListArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
     use crate::compute::is_constant;
     use crate::validity::Validity;
 

@@ -5,7 +5,8 @@ use vortex_error::vortex_panic;
 
 use crate::Canonical;
 use crate::builders::ArrayBuilder;
-use crate::vtable::{NotSupported, VTable};
+use crate::vtable::NotSupported;
+use crate::vtable::VTable;
 
 pub trait CanonicalVTable<V: VTable> {
     /// Returns the canonical representation of the array.

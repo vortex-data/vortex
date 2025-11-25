@@ -4,11 +4,18 @@
 use std::sync::Arc;
 
 use rstest::rstest;
+use vortex_dtype::DType;
+use vortex_dtype::DecimalDType;
+use vortex_dtype::ExtDType;
+use vortex_dtype::ExtID;
+use vortex_dtype::Nullability;
+use vortex_dtype::PType;
+use vortex_dtype::StructFields;
 use vortex_dtype::half::f16;
-use vortex_dtype::{DType, DecimalDType, ExtDType, ExtID, Nullability, PType, StructFields};
 use vortex_scalar::Scalar;
 
-use crate::builders::{ArrayBuilder, builder_with_capacity};
+use crate::builders::ArrayBuilder;
+use crate::builders::builder_with_capacity;
 
 /// Test that `append_zeros` produces the same result as manually appending `Scalar::default_value`.
 ///

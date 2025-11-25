@@ -5,8 +5,10 @@ use std::ffi::c_void;
 
 use vortex::error::VortexExpect;
 
-use crate::duckdb::{LogicalType, TableFunction};
-use crate::{cpp, wrapper};
+use crate::cpp;
+use crate::duckdb::LogicalType;
+use crate::duckdb::TableFunction;
+use crate::wrapper;
 
 /// Native callback for the get_virtual_columns function.
 pub(crate) unsafe extern "C-unwind" fn get_virtual_columns_callback<T: TableFunction>(

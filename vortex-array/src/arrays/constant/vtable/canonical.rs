@@ -3,27 +3,42 @@
 
 use std::sync::Arc;
 
-use vortex_buffer::{BitBuffer, Buffer, buffer};
-use vortex_dtype::{
-    DType, DecimalType, Nullability, match_each_decimal_value, match_each_decimal_value_type,
-    match_each_native_ptype,
-};
+use vortex_buffer::BitBuffer;
+use vortex_buffer::Buffer;
+use vortex_buffer::buffer;
+use vortex_dtype::DType;
+use vortex_dtype::DecimalType;
+use vortex_dtype::Nullability;
+use vortex_dtype::match_each_decimal_value;
+use vortex_dtype::match_each_decimal_value_type;
+use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
-use vortex_scalar::{
-    BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, Scalar, StructScalar, Utf8Scalar,
-};
+use vortex_scalar::BinaryScalar;
+use vortex_scalar::BoolScalar;
+use vortex_scalar::DecimalValue;
+use vortex_scalar::ExtScalar;
+use vortex_scalar::ListScalar;
+use vortex_scalar::Scalar;
+use vortex_scalar::StructScalar;
+use vortex_scalar::Utf8Scalar;
 use vortex_vector::binaryview::BinaryView;
 
+use crate::Canonical;
+use crate::IntoArray;
+use crate::arrays::BoolArray;
+use crate::arrays::ConstantVTable;
+use crate::arrays::DecimalArray;
+use crate::arrays::ExtensionArray;
+use crate::arrays::FixedSizeListArray;
+use crate::arrays::ListViewArray;
+use crate::arrays::NullArray;
+use crate::arrays::StructArray;
+use crate::arrays::VarBinViewArray;
 use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
-use crate::arrays::{
-    BoolArray, ConstantVTable, DecimalArray, ExtensionArray, FixedSizeListArray, ListViewArray,
-    NullArray, StructArray, VarBinViewArray,
-};
 use crate::builders::builder_with_capacity;
 use crate::validity::Validity;
 use crate::vtable::CanonicalVTable;
-use crate::{Canonical, IntoArray};
 
 impl CanonicalVTable<ConstantVTable> for ConstantVTable {
     fn canonicalize(array: &ConstantArray) -> Canonical {
@@ -310,16 +325,21 @@ mod tests {
 
     use enum_iterator::all;
     use itertools::Itertools;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
     use vortex_dtype::half::f16;
-    use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 
-    use crate::arrays::{ConstantArray, ListViewRebuildMode};
+    use crate::Array;
+    use crate::IntoArray;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::ListViewRebuildMode;
     use crate::canonical::ToCanonical;
-    use crate::stats::{Stat, StatsProvider};
+    use crate::stats::Stat;
+    use crate::stats::StatsProvider;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
-    use crate::{Array, IntoArray};
 
     #[test]
     fn test_canonicalize_null() {

@@ -4,7 +4,8 @@
 use std::sync::Arc;
 
 use futures::FutureExt;
-use futures::future::{BoxFuture, LocalBoxFuture};
+use futures::future::BoxFuture;
+use futures::future::LocalBoxFuture;
 use futures::stream::BoxStream;
 use vortex_error::VortexResult;
 

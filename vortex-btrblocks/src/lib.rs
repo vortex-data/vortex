@@ -33,21 +33,34 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use vortex_array::arrays::{
-    ExtensionArray, FixedSizeListArray, ListArray, StructArray, TemporalArray, list_from_list_view,
-};
-use vortex_array::vtable::{VTable, ValidityHelper};
-use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
+use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::ListArray;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::TemporalArray;
+use vortex_array::arrays::list_from_list_view;
+use vortex_array::vtable::VTable;
+use vortex_array::vtable::ValidityHelper;
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
 use vortex_dtype::datetime::TemporalMetadata;
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexResult, VortexUnwrap};
+use vortex_error::VortexResult;
+use vortex_error::VortexUnwrap;
 
 use crate::decimal::compress_decimal;
+pub use crate::float::FloatCompressor;
+pub use crate::float::FloatStats;
 pub use crate::float::dictionary::dictionary_encode as float_dictionary_encode;
-pub use crate::float::{FloatCompressor, FloatStats};
+pub use crate::integer::IntCompressor;
+pub use crate::integer::IntegerStats;
 pub use crate::integer::dictionary::dictionary_encode as integer_dictionary_encode;
-pub use crate::integer::{IntCompressor, IntegerStats};
-pub use crate::string::{StringCompressor, StringStats};
+pub use crate::string::StringCompressor;
+pub use crate::string::StringStats;
 pub use crate::temporal::compress_temporal;
 
 mod decimal;

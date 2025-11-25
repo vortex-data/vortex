@@ -3,8 +3,11 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::{ExtensionArray, ExtensionVTable};
-use crate::compute::{self, IsSortedKernel, IsSortedKernelAdapter};
+use crate::arrays::ExtensionArray;
+use crate::arrays::ExtensionVTable;
+use crate::compute::IsSortedKernel;
+use crate::compute::IsSortedKernelAdapter;
+use crate::compute::{self};
 use crate::register_kernel;
 
 impl IsSortedKernel for ExtensionVTable {

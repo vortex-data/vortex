@@ -3,9 +3,11 @@
 
 use vortex_buffer::ByteBufferMut;
 
-use crate::arrays::{ConstantArray, ConstantVTable};
+use crate::ArrayBufferVisitor;
+use crate::ArrayChildVisitor;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
 use crate::vtable::VisitorVTable;
-use crate::{ArrayBufferVisitor, ArrayChildVisitor};
 
 impl VisitorVTable<ConstantVTable> for ConstantVTable {
     fn visit_buffers(array: &ConstantArray, visitor: &mut dyn ArrayBufferVisitor) {

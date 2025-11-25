@@ -1,15 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::arrays::{PrimitiveArray, TemporalArray};
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::TemporalArray;
 use vortex_array::compute::cast;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
-use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexResult};
+use vortex_dtype::DType;
+use vortex_dtype::PType;
+use vortex_error::VortexError;
+use vortex_error::VortexResult;
 
-use crate::{DateTimePartsArray, timestamp};
+use crate::DateTimePartsArray;
+use crate::timestamp;
 
 pub struct TemporalParts {
     pub days: ArrayRef,
@@ -67,14 +73,17 @@ impl TryFrom<TemporalArray> for DateTimePartsArray {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::arrays::{PrimitiveArray, TemporalArray};
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::TemporalArray;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
-    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::datetime::TimeUnit;
 
-    use crate::{TemporalParts, split_temporal};
+    use crate::TemporalParts;
+    use crate::split_temporal;
 
     #[rstest]
     #[case(Validity::NonNullable)]

@@ -2,18 +2,27 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::mem::transmute;
 use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 
+use crate::Array;
+use crate::ArrayRef;
+use crate::Canonical;
+use crate::IntoArray;
 use crate::serde::ArrayChildren;
-use crate::vtable::{EncodeVTable, VTable};
-use crate::{Array, ArrayRef, Canonical, IntoArray};
+use crate::vtable::EncodeVTable;
+use crate::vtable::VTable;
 
 /// ArrayId is a globally unique name for the array's vtable.
 pub type ArrayId = ArcRef<str>;
@@ -194,7 +203,8 @@ impl<V: VTable> ArrayVTableExt for V {
 }
 
 mod private {
-    use crate::vtable::{ArrayVTableAdapter, VTable};
+    use crate::vtable::ArrayVTableAdapter;
+    use crate::vtable::VTable;
 
     pub trait Sealed {}
     impl<V: VTable> Sealed for ArrayVTableAdapter<V> {}

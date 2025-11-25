@@ -4,19 +4,32 @@
 use std::any::Any;
 use std::sync::Arc;
 
+use vortex_dtype::DType;
+use vortex_dtype::IntegerPType;
+use vortex_dtype::Nullability;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{DType, IntegerPType, Nullability, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_panic};
+use vortex_dtype::match_each_integer_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_scalar::{ListScalar, Scalar};
+use vortex_scalar::ListScalar;
+use vortex_scalar::Scalar;
 
-use crate::arrays::{ListArray, list_view_from_list};
-use crate::builders::{
-    ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyBitBufferBuilder, PrimitiveBuilder,
-    builder_with_capacity,
-};
-use crate::canonical::{Canonical, ToCanonical};
-use crate::{Array, ArrayRef, IntoArray};
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ListArray;
+use crate::arrays::list_view_from_list;
+use crate::builders::ArrayBuilder;
+use crate::builders::DEFAULT_BUILDER_CAPACITY;
+use crate::builders::LazyBitBufferBuilder;
+use crate::builders::PrimitiveBuilder;
+use crate::builders::builder_with_capacity;
+use crate::canonical::Canonical;
+use crate::canonical::ToCanonical;
 
 /// The builder for building a [`ListArray`], parametrized by the [`IntegerPType`] of the `offsets`
 /// builder.
@@ -268,19 +281,24 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
 mod tests {
     use std::sync::Arc;
 
-    use Nullability::{NonNullable, Nullable};
+    use Nullability::NonNullable;
+    use Nullability::Nullable;
     use vortex_buffer::buffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::IntegerPType;
+    use vortex_dtype::Nullability;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, IntegerPType, Nullability};
     use vortex_scalar::Scalar;
 
+    use crate::IntoArray;
+    use crate::ToCanonical;
     use crate::array::Array;
-    use crate::arrays::{ChunkedArray, ListArray};
+    use crate::arrays::ChunkedArray;
+    use crate::arrays::ListArray;
     use crate::builders::ArrayBuilder;
     use crate::builders::list::ListBuilder;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
-    use crate::{IntoArray, ToCanonical};
 
     #[test]
     fn test_empty() {

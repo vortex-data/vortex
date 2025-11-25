@@ -30,13 +30,17 @@
 
 use std::any::Any;
 
-use vortex_dtype::{DType, match_each_decimal_value_type, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_dtype::DType;
+use vortex_dtype::match_each_decimal_value_type;
+use vortex_dtype::match_each_native_ptype;
+use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
+use crate::Array;
+use crate::ArrayRef;
 use crate::canonical::Canonical;
-use crate::{Array, ArrayRef};
 
 mod lazy_null_builder;
 use lazy_null_builder::LazyBitBufferBuilder;

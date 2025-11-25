@@ -6,10 +6,12 @@
 
 use std::ops::Range;
 
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 
 use crate::arrays::VarBinViewArray;
-use crate::builders::{ArrayBuilder, VarBinViewBuilder};
+use crate::builders::ArrayBuilder;
+use crate::builders::VarBinViewBuilder;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -177,9 +179,12 @@ impl BufferUtilization {
 mod tests {
     use vortex_buffer::buffer;
 
-    use crate::arrays::{VarBinArray, VarBinViewArray, VarBinViewVTable};
+    use crate::IntoArray;
+    use crate::arrays::VarBinArray;
+    use crate::arrays::VarBinViewArray;
+    use crate::arrays::VarBinViewVTable;
+    use crate::assert_arrays_eq;
     use crate::compute::take;
-    use crate::{IntoArray, assert_arrays_eq};
 
     #[test]
     fn test_optimize_compacts_buffers() {

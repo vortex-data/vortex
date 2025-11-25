@@ -3,12 +3,20 @@
 
 use std::path::Path;
 
-use app::{AppState, KeyMode, Tab, create_file_app};
-use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use app::AppState;
+use app::KeyMode;
+use app::Tab;
+use app::create_file_app;
+use crossterm::event::Event;
+use crossterm::event::KeyCode;
+use crossterm::event::KeyEventKind;
+use crossterm::event::KeyModifiers;
+use crossterm::event::{self};
 use ratatui::DefaultTerminal;
 use ratatui::widgets::ListState;
 use ui::render_app;
-use vortex::error::{VortexExpect, VortexResult};
+use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
 use vortex::layout::layouts::flat::FlatVTable;
 
 mod app;

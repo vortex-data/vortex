@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::arrays::{ListViewArray, ListViewVTable};
-use crate::vtable::{ValidityHelper, VisitorVTable};
-use crate::{ArrayBufferVisitor, ArrayChildVisitor};
+use crate::ArrayBufferVisitor;
+use crate::ArrayChildVisitor;
+use crate::arrays::ListViewArray;
+use crate::arrays::ListViewVTable;
+use crate::vtable::ValidityHelper;
+use crate::vtable::VisitorVTable;
 
 impl VisitorVTable<ListViewVTable> for ListViewVTable {
     fn visit_buffers(_array: &ListViewArray, _visitor: &mut dyn ArrayBufferVisitor) {

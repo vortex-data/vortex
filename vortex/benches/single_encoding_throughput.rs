@@ -8,20 +8,27 @@ use divan::Bencher;
 #[cfg(not(codspeed))]
 use divan::counter::BytesCount;
 use mimalloc::MiMalloc;
+use rand::Rng;
+use rand::SeedableRng;
 use rand::prelude::IndexedRandom;
-use rand::{Rng, SeedableRng};
-use vortex::arrays::{PrimitiveArray, VarBinViewArray};
+use vortex::IntoArray;
+use vortex::ToCanonical;
+use vortex::arrays::PrimitiveArray;
+use vortex::arrays::VarBinViewArray;
 use vortex::builders::dict::dict_encode;
 use vortex::compute::cast;
 use vortex::dtype::PType;
-use vortex::encodings::alp::{RDEncoder, alp_encode};
-use vortex::encodings::fastlanes::{DeltaArray, FoRArray, delta_compress};
-use vortex::encodings::fsst::{fsst_compress, fsst_train_compressor};
+use vortex::encodings::alp::RDEncoder;
+use vortex::encodings::alp::alp_encode;
+use vortex::encodings::fastlanes::DeltaArray;
+use vortex::encodings::fastlanes::FoRArray;
+use vortex::encodings::fastlanes::delta_compress;
+use vortex::encodings::fsst::fsst_compress;
+use vortex::encodings::fsst::fsst_train_compressor;
 use vortex::encodings::pco::PcoArray;
 use vortex::encodings::runend::RunEndArray;
 use vortex::encodings::zigzag::zigzag_encode;
 use vortex::encodings::zstd::ZstdArray;
-use vortex::{IntoArray, ToCanonical};
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;

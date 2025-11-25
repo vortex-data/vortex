@@ -8,13 +8,20 @@ use vortex_vector::Vector;
 use vortex_vector::struct_::StructVector;
 
 use crate::ArrayRef;
-use crate::array::transform::{ArrayParentReduceRule, ArrayRuleContext};
-use crate::arrays::expr::{ExprArray, ExprVTable};
-use crate::arrays::struct_::vtable::reduce::{apply_partitioned_expr, partition_struct_expr};
-use crate::arrays::{StructArray, StructVTable};
-use crate::execution::{BatchKernelRef, BindCtx, kernel};
+use crate::array::transform::ArrayParentReduceRule;
+use crate::array::transform::ArrayRuleContext;
+use crate::arrays::StructArray;
+use crate::arrays::StructVTable;
+use crate::arrays::expr::ExprArray;
+use crate::arrays::expr::ExprVTable;
+use crate::arrays::struct_::vtable::reduce::apply_partitioned_expr;
+use crate::arrays::struct_::vtable::reduce::partition_struct_expr;
+use crate::execution::BatchKernelRef;
+use crate::execution::BindCtx;
+use crate::execution::kernel;
 use crate::expr::session::ExprSession;
-use crate::vtable::{OperatorVTable, ValidityHelper};
+use crate::vtable::OperatorVTable;
+use crate::vtable::ValidityHelper;
 
 impl OperatorVTable<StructVTable> for StructVTable {
     fn bind(
@@ -78,19 +85,33 @@ impl ArrayParentReduceRule<StructVTable, ExprVTable> for StructExprPartitionRule
 #[cfg(test)]
 mod tests {
 
+    use vortex_dtype::FieldNames;
     use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::{FieldNames, PTypeDowncast};
+    use vortex_dtype::PTypeDowncast;
     use vortex_error::VortexExpect;
     use vortex_mask::Mask;
     use vortex_vector::VectorOps;
 
     use super::*;
+    use crate::Array;
+    use crate::IntoArray;
+    use crate::arrays::BoolArray;
+    use crate::arrays::ExprArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
     use crate::arrays::expr::ExprVTable;
-    use crate::arrays::{BoolArray, ExprArray, PrimitiveArray, StructArray};
+    use crate::assert_arrays_eq;
+    use crate::expr::and;
+    use crate::expr::col;
+    use crate::expr::eq;
+    use crate::expr::get_item;
+    use crate::expr::gt;
+    use crate::expr::lit;
+    use crate::expr::lt;
+    use crate::expr::pack;
+    use crate::expr::root;
     use crate::expr::transform::ExprOptimizer;
-    use crate::expr::{and, col, eq, get_item, gt, lit, lt, pack, root};
     use crate::validity::Validity;
-    use crate::{Array, IntoArray, assert_arrays_eq};
 
     #[test]
     fn test_struct_operator_basic() {

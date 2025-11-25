@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::future::{Future, ready};
-use std::io::{self, Cursor, Write};
+use std::future::Future;
+use std::future::ready;
+use std::io::Cursor;
+use std::io::Write;
+use std::io::{self};
 
-use futures::{AsyncWrite, AsyncWriteExt};
+use futures::AsyncWrite;
+use futures::AsyncWriteExt;
 use vortex_buffer::ByteBufferMut;
 
 use crate::IoBuf;

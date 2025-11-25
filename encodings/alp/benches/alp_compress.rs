@@ -4,13 +4,19 @@
 #![allow(clippy::unwrap_used)]
 
 use divan::Bencher;
+use rand::Rng;
+use rand::SeedableRng as _;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng as _};
-use vortex_alp::{ALPFloat, ALPRDFloat, RDEncoder, alp_encode, decompress};
+use vortex_alp::ALPFloat;
+use vortex_alp::ALPRDFloat;
+use vortex_alp::RDEncoder;
+use vortex_alp::alp_encode;
+use vortex_alp::decompress;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::warm_up_vtables;
 use vortex_array::validity::Validity;
-use vortex_buffer::{Buffer, buffer};
+use vortex_buffer::Buffer;
+use vortex_buffer::buffer;
 use vortex_dtype::NativePType;
 
 fn main() {

@@ -3,13 +3,22 @@
 
 use std::sync::Arc;
 
+use pyo3::Bound;
+use pyo3::PyResult;
+use pyo3::Python;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::PyAnyMethods;
+use pyo3::pyfunction;
 use pyo3::types::PyDict;
-use pyo3::{Bound, PyResult, Python, pyfunction};
-use vortex::dtype::{
-    DType, DecimalDType, ExtDType, ExtID, ExtMetadata, FieldName, FieldNames, PType, StructFields,
-};
+use vortex::dtype::DType;
+use vortex::dtype::DecimalDType;
+use vortex::dtype::ExtDType;
+use vortex::dtype::ExtID;
+use vortex::dtype::ExtMetadata;
+use vortex::dtype::FieldName;
+use vortex::dtype::FieldNames;
+use vortex::dtype::PType;
+use vortex::dtype::StructFields;
 
 use crate::dtype::PyDType;
 

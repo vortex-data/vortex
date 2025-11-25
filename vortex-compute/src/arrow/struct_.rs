@@ -3,8 +3,10 @@
 
 use std::sync::Arc;
 
-use arrow_array::{ArrayRef, StructArray};
-use arrow_schema::{Field, Fields};
+use arrow_array::ArrayRef;
+use arrow_array::StructArray;
+use arrow_schema::Field;
+use arrow_schema::Fields;
 use vortex_error::VortexResult;
 use vortex_vector::VectorOps;
 use vortex_vector::struct_::StructVector;

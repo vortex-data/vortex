@@ -26,15 +26,19 @@ pub trait OptimizerRule {
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::{bitbuffer, buffer};
+    use vortex_buffer::bitbuffer;
+    use vortex_buffer::buffer;
     use vortex_dtype::PTypeDowncast;
     use vortex_vector::VectorOps;
 
-    use crate::arrays::{BoolArray, MaskedArray, PrimitiveArray};
+    use crate::ArraySession;
+    use crate::IntoArray;
+    use crate::arrays::BoolArray;
+    use crate::arrays::MaskedArray;
+    use crate::arrays::PrimitiveArray;
     use crate::expr::session::ExprSession;
     use crate::expr::transform::ExprOptimizer;
     use crate::validity::Validity;
-    use crate::{ArraySession, IntoArray};
 
     #[test]
     fn test_masked_pushdown() {

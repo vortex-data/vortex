@@ -4,7 +4,10 @@
 use futures::future::BoxFuture;
 use tracing::Instrument;
 
-use crate::runtime::{AbortHandle, AbortHandleRef, Executor, IoTask};
+use crate::runtime::AbortHandle;
+use crate::runtime::AbortHandleRef;
+use crate::runtime::Executor;
+use crate::runtime::IoTask;
 
 // NOTE(ngates): we implement this for a Weak reference to adhere to the constraint that this
 //  trait should not hold strong references to the underlying runtime.

@@ -1,13 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use num_traits::{CheckedAdd, CheckedMul};
-use vortex_dtype::{DType, DecimalDType, NativePType, Nullability, i256, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex_scalar::{DecimalScalar, DecimalValue, PrimitiveScalar, Scalar, ScalarValue};
+use num_traits::CheckedAdd;
+use num_traits::CheckedMul;
+use vortex_dtype::DType;
+use vortex_dtype::DecimalDType;
+use vortex_dtype::NativePType;
+use vortex_dtype::Nullability;
+use vortex_dtype::i256;
+use vortex_dtype::match_each_native_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_scalar::DecimalScalar;
+use vortex_scalar::DecimalValue;
+use vortex_scalar::PrimitiveScalar;
+use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
-use crate::arrays::{ConstantArray, ConstantVTable};
-use crate::compute::{SumKernel, SumKernelAdapter};
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
+use crate::compute::SumKernel;
+use crate::compute::SumKernelAdapter;
 use crate::register_kernel;
 use crate::stats::Stat;
 
@@ -157,15 +172,22 @@ register_kernel!(SumKernelAdapter(ConstantVTable).lift());
 
 #[cfg(test)]
 mod tests {
+    use vortex_dtype::DType;
+    use vortex_dtype::DecimalDType;
+    use vortex_dtype::Nullability;
     use vortex_dtype::Nullability::Nullable;
-    use vortex_dtype::{DType, DecimalDType, Nullability, PType, i256};
+    use vortex_dtype::PType;
+    use vortex_dtype::i256;
     use vortex_error::VortexUnwrap;
-    use vortex_scalar::{DecimalValue, Scalar};
+    use vortex_scalar::DecimalValue;
+    use vortex_scalar::Scalar;
 
+    use crate::Array;
+    use crate::IntoArray;
     use crate::arrays::ConstantArray;
-    use crate::compute::{sum, sum_with_accumulator};
+    use crate::compute::sum;
+    use crate::compute::sum_with_accumulator;
     use crate::stats::Stat;
-    use crate::{Array, IntoArray};
 
     #[test]
     fn test_sum_unsigned() {

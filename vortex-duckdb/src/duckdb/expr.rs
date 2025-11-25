@@ -1,13 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ffi::{CStr, c_void};
-use std::fmt::{Display, Formatter};
+use std::ffi::CStr;
+use std::ffi::c_void;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::ptr;
 
+use crate::cpp;
 use crate::cpp::duckdb_vx_expr_class;
-use crate::duckdb::{ScalarFunction, ValueRef};
-use crate::{cpp, duckdb, wrapper};
+use crate::duckdb;
+use crate::duckdb::ScalarFunction;
+use crate::duckdb::ValueRef;
+use crate::wrapper;
 
 // TODO(joe): replace with lifetime_wrapper!
 wrapper!(Expression, cpp::duckdb_vx_expr, cpp::duckdb_vx_destroy_expr);

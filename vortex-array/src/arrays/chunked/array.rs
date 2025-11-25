@@ -8,17 +8,26 @@
 use std::fmt::Debug;
 
 use futures::stream;
-use vortex_buffer::{Buffer, BufferMut};
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect as _, VortexResult, VortexUnwrap, vortex_bail};
+use vortex_error::VortexExpect as _;
+use vortex_error::VortexResult;
+use vortex_error::VortexUnwrap;
+use vortex_error::vortex_bail;
 
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
-use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
-use crate::search_sorted::{SearchSorted, SearchSortedSide};
+use crate::iter::ArrayIterator;
+use crate::iter::ArrayIteratorAdapter;
+use crate::search_sorted::SearchSorted;
+use crate::search_sorted::SearchSortedSide;
 use crate::stats::ArrayStats;
-use crate::stream::{ArrayStream, ArrayStreamAdapter};
+use crate::stream::ArrayStream;
+use crate::stream::ArrayStreamAdapter;
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, IntoArray};
 
 #[derive(Clone, Debug)]
 pub struct ChunkedArray {
@@ -214,15 +223,20 @@ impl FromIterator<ArrayRef> for ChunkedArray {
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
     use vortex_error::VortexResult;
 
+    use crate::IntoArray;
+    use crate::ToCanonical;
     use crate::array::Array;
+    use crate::arrays::ChunkedVTable;
+    use crate::arrays::PrimitiveArray;
     use crate::arrays::chunked::ChunkedArray;
-    use crate::arrays::{ChunkedVTable, PrimitiveArray};
+    use crate::assert_arrays_eq;
     use crate::compute::sub_scalar;
     use crate::validity::Validity;
-    use crate::{IntoArray, ToCanonical, assert_arrays_eq};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(

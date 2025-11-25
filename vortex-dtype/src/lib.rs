@@ -30,7 +30,8 @@ mod struct_;
 
 pub use bigint::*;
 pub use decimal::*;
-pub use dtype::{DType, NativeDType};
+pub use dtype::DType;
+pub use dtype::NativeDType;
 pub use extension::*;
 pub use f16::*;
 pub use field::*;

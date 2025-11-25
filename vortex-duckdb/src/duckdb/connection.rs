@@ -4,10 +4,16 @@
 use std::ffi::CStr;
 use std::ptr;
 
-use vortex::error::{VortexResult, vortex_bail, vortex_err};
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
+use vortex::error::vortex_err;
 
-use crate::duckdb::{ClientContext, Database, QueryResult};
-use crate::{cpp, duckdb_try, wrapper};
+use crate::cpp;
+use crate::duckdb::ClientContext;
+use crate::duckdb::Database;
+use crate::duckdb::QueryResult;
+use crate::duckdb_try;
+use crate::wrapper;
 
 wrapper!(
     /// A DuckDB connection.

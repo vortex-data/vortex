@@ -6,8 +6,12 @@ use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
 use crate::convert::ToDuckDBScalar;
-use crate::duckdb::{Value, Vector};
-use crate::exporter::{ColumnExporter, ConversionCache, new_array_exporter, validity};
+use crate::duckdb::Value;
+use crate::duckdb::Vector;
+use crate::exporter::ColumnExporter;
+use crate::exporter::ConversionCache;
+use crate::exporter::new_array_exporter;
+use crate::exporter::validity;
 
 struct ConstantExporter {
     value: Option<Value>,

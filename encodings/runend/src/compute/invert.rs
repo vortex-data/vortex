@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{InvertKernel, InvertKernelAdapter, invert};
-use vortex_array::{ArrayRef, IntoArray, register_kernel};
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::compute::InvertKernel;
+use vortex_array::compute::InvertKernelAdapter;
+use vortex_array::compute::invert;
+use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
-use crate::{RunEndArray, RunEndVTable};
+use crate::RunEndArray;
+use crate::RunEndVTable;
 
 impl InvertKernel for RunEndVTable {
     fn invert(&self, array: &RunEndArray) -> VortexResult<ArrayRef> {

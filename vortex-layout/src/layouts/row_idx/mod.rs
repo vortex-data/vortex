@@ -4,29 +4,45 @@
 mod expr;
 
 use std::collections::BTreeSet;
-use std::fmt::{Display, Formatter};
-use std::ops::{BitAnd, Range};
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::ops::BitAnd;
+use std::ops::Range;
 use std::sync::Arc;
 
 use Nullability::NonNullable;
 pub use expr::*;
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::MaskFuture;
 use vortex_array::compute::filter;
+use vortex_array::expr::ExactExpr;
+use vortex_array::expr::Expression;
+use vortex_array::expr::is_root;
+use vortex_array::expr::root;
 use vortex_array::expr::session::ExprSessionExt;
-use vortex_array::expr::transform::{ExprOptimizer, PartitionedExpr, partition, replace};
-use vortex_array::expr::{ExactExpr, Expression, is_root, root};
-use vortex_array::{ArrayRef, IntoArray, MaskFuture};
-use vortex_dtype::{DType, FieldMask, FieldName, Nullability, PType};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_array::expr::transform::ExprOptimizer;
+use vortex_array::expr::transform::PartitionedExpr;
+use vortex_array::expr::transform::partition;
+use vortex_array::expr::transform::replace;
+use vortex_dtype::DType;
+use vortex_dtype::FieldMask;
+use vortex_dtype::FieldName;
+use vortex_dtype::Nullability;
+use vortex_dtype::PType;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_sequence::SequenceArray;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 
+use crate::ArrayFuture;
+use crate::LayoutReader;
 use crate::layouts::partitioned::PartitionedExprEval;
-use crate::{ArrayFuture, LayoutReader};
 
 pub struct RowIdxLayoutReader {
     name: Arc<str>,
@@ -268,17 +284,28 @@ mod tests {
     use std::sync::Arc;
 
     use itertools::Itertools;
-    use vortex_array::expr::{eq, gt, lit, or, root};
-    use vortex_array::{ArrayContext, IntoArray as _, MaskFuture, ToCanonical};
-    use vortex_buffer::{BitBuffer, buffer};
+    use vortex_array::ArrayContext;
+    use vortex_array::IntoArray as _;
+    use vortex_array::MaskFuture;
+    use vortex_array::ToCanonical;
+    use vortex_array::expr::eq;
+    use vortex_array::expr::gt;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::or;
+    use vortex_array::expr::root;
+    use vortex_buffer::BitBuffer;
+    use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
 
+    use crate::LayoutReader;
+    use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::layouts::row_idx::{RowIdxLayoutReader, row_idx};
+    use crate::layouts::row_idx::RowIdxLayoutReader;
+    use crate::layouts::row_idx::row_idx;
     use crate::segments::TestSegments;
-    use crate::sequence::{SequenceId, SequentialArrayStreamExt};
+    use crate::sequence::SequenceId;
+    use crate::sequence::SequentialArrayStreamExt;
     use crate::test::SESSION;
-    use crate::{LayoutReader, LayoutStrategy};
 
     #[test]
     fn flat_expr_no_row_id() {

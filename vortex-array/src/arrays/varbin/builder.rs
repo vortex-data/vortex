@@ -2,8 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::AsPrimitive;
-use vortex_buffer::{BitBufferMut, BufferMut};
-use vortex_dtype::{DType, IntegerPType};
+use vortex_buffer::BitBufferMut;
+use vortex_buffer::BufferMut;
+use vortex_dtype::DType;
+use vortex_dtype::IntegerPType;
 use vortex_error::vortex_panic;
 
 use crate::IntoArray;

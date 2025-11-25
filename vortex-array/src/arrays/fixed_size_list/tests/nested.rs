@@ -4,13 +4,22 @@
 use std::sync::Arc;
 
 use vortex_buffer::buffer;
-use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
+use vortex_dtype::DType;
+use vortex_dtype::FieldNames;
+use vortex_dtype::Nullability;
+use vortex_dtype::PType;
+use vortex_dtype::StructFields;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{FixedSizeListArray, PrimitiveArray, StructArray};
-use crate::builders::{ArrayBuilder, ListBuilder};
+use crate::Array;
+use crate::IntoArray;
+use crate::ToCanonical;
+use crate::arrays::FixedSizeListArray;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::StructArray;
+use crate::builders::ArrayBuilder;
+use crate::builders::ListBuilder;
 use crate::validity::Validity;
-use crate::{Array, IntoArray, ToCanonical};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // FSL of FSL tests

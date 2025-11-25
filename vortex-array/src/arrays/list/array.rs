@@ -4,14 +4,25 @@
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
-use vortex_dtype::{DType, NativePType, match_each_integer_ptype, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_panic};
+use vortex_dtype::DType;
+use vortex_dtype::NativePType;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_dtype::match_each_native_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 
-use crate::arrays::{ListVTable, PrimitiveVTable};
-use crate::compute::{min_max, sub_scalar};
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ListVTable;
+use crate::arrays::PrimitiveVTable;
+use crate::compute::min_max;
+use crate::compute::sub_scalar;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, IntoArray};
 
 /// A list array that stores variable-length lists of elements, similar to `Vec<Vec<T>>`.
 ///

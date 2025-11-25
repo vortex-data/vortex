@@ -2,27 +2,44 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::collections::BTreeSet;
-use std::ops::{BitAnd, Range};
-use std::sync::{Arc, LazyLock, OnceLock};
+use std::ops::BitAnd;
+use std::ops::Range;
+use std::sync::Arc;
+use std::sync::LazyLock;
+use std::sync::OnceLock;
 
-use futures::future::{BoxFuture, Shared};
-use futures::{FutureExt, TryFutureExt};
+use futures::FutureExt;
+use futures::TryFutureExt;
+use futures::future::BoxFuture;
+use futures::future::Shared;
 use itertools::Itertools;
 use parking_lot::RwLock;
+use vortex_array::ArrayRef;
+use vortex_array::MaskFuture;
+use vortex_array::ToCanonical;
+use vortex_array::expr::DynamicExprUpdates;
+use vortex_array::expr::Expression;
 use vortex_array::expr::pruning::checked_pruning_expr;
-use vortex_array::expr::{DynamicExprUpdates, Expression, root};
-use vortex_array::{ArrayRef, MaskFuture, ToCanonical};
+use vortex_array::expr::root;
 use vortex_buffer::BitBufferMut;
-use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
-use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
+use vortex_dtype::DType;
+use vortex_dtype::FieldMask;
+use vortex_dtype::FieldPath;
+use vortex_dtype::FieldPathSet;
+use vortex_error::SharedVortexResult;
+use vortex_error::VortexError;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 
+use crate::LayoutReader;
+use crate::LayoutReaderRef;
+use crate::LazyReaderChildren;
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::segments::SegmentSource;
-use crate::{LayoutReader, LayoutReaderRef, LazyReaderChildren};
 
 type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
 type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Arc<PruningResult>>>>;
@@ -363,21 +380,31 @@ impl PruningResult {
 mod test {
     use std::sync::Arc;
 
-    use rstest::{fixture, rstest};
+    use rstest::fixture;
+    use rstest::rstest;
+    use vortex_array::ArrayContext;
+    use vortex_array::IntoArray;
+    use vortex_array::MaskFuture;
     use vortex_array::arrays::ChunkedArray;
-    use vortex_array::expr::{gt, lit, root};
-    use vortex_array::{ArrayContext, IntoArray, MaskFuture, assert_arrays_eq};
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::expr::gt;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::root;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
     use vortex_mask::Mask;
 
+    use crate::LayoutRef;
+    use crate::LayoutStrategy;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
-    use crate::segments::{SegmentSource, TestSegments};
-    use crate::sequence::{SequenceId, SequentialArrayStreamExt};
+    use crate::layouts::zoned::writer::ZonedLayoutOptions;
+    use crate::layouts::zoned::writer::ZonedStrategy;
+    use crate::segments::SegmentSource;
+    use crate::segments::TestSegments;
+    use crate::sequence::SequenceId;
+    use crate::sequence::SequentialArrayStreamExt;
     use crate::test::SESSION;
-    use crate::{LayoutRef, LayoutStrategy};
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.

@@ -1,18 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use num_traits::{AsPrimitive, NumCast};
+use num_traits::AsPrimitive;
+use num_traits::NumCast;
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::{TakeKernel, TakeKernelAdapter, take};
-use vortex_array::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
+use vortex_array::compute::TakeKernel;
+use vortex_array::compute::TakeKernelAdapter;
+use vortex_array::compute::take;
+use vortex_array::register_kernel;
+use vortex_array::search_sorted::SearchResult;
+use vortex_array::search_sorted::SearchSorted;
+use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{Array, ArrayRef, ToCanonical, register_kernel};
 use vortex_buffer::Buffer;
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
-use crate::{RunEndArray, RunEndVTable};
+use crate::RunEndArray;
+use crate::RunEndVTable;
 
 impl TakeKernel for RunEndVTable {
     #[allow(clippy::cast_possible_truncation)]
@@ -77,10 +87,13 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
 #[cfg(test)]
 mod test {
     use rstest::rstest;
+    use vortex_array::Array;
+    use vortex_array::ArrayRef;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::compute::take;
-    use vortex_array::{Array, ArrayRef, IntoArray, assert_arrays_eq};
     use vortex_buffer::buffer;
 
     use crate::RunEndArray;

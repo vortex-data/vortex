@@ -7,11 +7,16 @@
 #[cfg(not(codspeed))]
 mod benchmarks {
     use divan::Bencher;
-    use divan::counter::{BytesCount, ItemsCount};
+    use divan::counter::BytesCount;
+    use divan::counter::ItemsCount;
+    use rand::RngCore;
+    use rand::SeedableRng;
     use rand::prelude::StdRng;
-    use rand::{RngCore, SeedableRng};
-    use vortex_array::{ArrayRef, IntoArray, ToCanonical};
-    use vortex_btrblocks::{Compressor, IntCompressor};
+    use vortex_array::ArrayRef;
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
+    use vortex_btrblocks::Compressor;
+    use vortex_btrblocks::IntCompressor;
     use vortex_buffer::buffer_mut;
     use vortex_utils::aliases::hash_set::HashSet;
 

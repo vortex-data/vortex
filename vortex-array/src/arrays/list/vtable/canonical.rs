@@ -2,7 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::Canonical;
-use crate::arrays::{ListArray, ListVTable, list_view_from_list};
+use crate::arrays::ListArray;
+use crate::arrays::ListVTable;
+use crate::arrays::list_view_from_list;
 use crate::vtable::CanonicalVTable;
 
 impl CanonicalVTable<ListVTable> for ListVTable {

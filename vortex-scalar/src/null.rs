@@ -60,7 +60,8 @@ impl TryFrom<Scalar> for () {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
 
     use super::*;
 
@@ -125,7 +126,8 @@ mod tests {
 
     #[test]
     fn test_null_struct() {
-        use vortex_dtype::{FieldDType, StructFields};
+        use vortex_dtype::FieldDType;
+        use vortex_dtype::StructFields;
 
         let struct_dtype = DType::Struct(
             StructFields::from_iter([("field1", FieldDType::from(DType::Null))]),

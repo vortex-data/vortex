@@ -3,17 +3,24 @@
 
 use core::mem::MaybeUninit;
 use std::any::type_name;
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::io::Write;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
+use std::ops::DerefMut;
 
+use bytes::Buf;
+use bytes::BufMut;
+use bytes::BytesMut;
 use bytes::buf::UninitSlice;
-use bytes::{Buf, BufMut, BytesMut};
-use vortex_error::{VortexExpect, vortex_panic};
+use vortex_error::VortexExpect;
+use vortex_error::vortex_panic;
 
+use crate::Alignment;
+use crate::Buffer;
+use crate::ByteBufferMut;
 use crate::debug::TruncatedDebug;
 use crate::trusted_len::TrustedLen;
-use crate::{Alignment, Buffer, ByteBufferMut};
 
 /// A mutable buffer that maintains a runtime-defined alignment through resizing operations.
 #[derive(PartialEq, Eq)]
@@ -741,9 +748,13 @@ impl Write for ByteBufferMut {
 
 #[cfg(test)]
 mod test {
-    use bytes::{Buf, BufMut};
+    use bytes::Buf;
+    use bytes::BufMut;
 
-    use crate::{Alignment, BufferMut, ByteBufferMut, buffer_mut};
+    use crate::Alignment;
+    use crate::BufferMut;
+    use crate::ByteBufferMut;
+    use crate::buffer_mut;
 
     #[test]
     fn capacity() {

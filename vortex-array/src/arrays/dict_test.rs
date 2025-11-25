@@ -3,16 +3,24 @@
 
 #![allow(clippy::unwrap_used)]
 
-use rand::distr::{Alphanumeric, Distribution, StandardUniform};
-use rand::prelude::{IndexedRandom, StdRng};
-use rand::{Rng, SeedableRng};
+use rand::Rng;
+use rand::SeedableRng;
+use rand::distr::Alphanumeric;
+use rand::distr::Distribution;
+use rand::distr::StandardUniform;
+use rand::prelude::IndexedRandom;
+use rand::prelude::StdRng;
 use vortex_buffer::Buffer;
 use vortex_dtype::NativePType;
-use vortex_error::{VortexResult, VortexUnwrap};
+use vortex_error::VortexResult;
+use vortex_error::VortexUnwrap;
 
-use super::{ChunkedArray, DictArray, PrimitiveArray};
+use super::ChunkedArray;
+use super::DictArray;
+use super::PrimitiveArray;
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::validity::Validity;
-use crate::{ArrayRef, IntoArray};
 
 pub fn gen_primitive_for_dict<T: NativePType>(len: usize, unique_count: usize) -> PrimitiveArray
 where

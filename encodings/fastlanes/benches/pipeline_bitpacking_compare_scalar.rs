@@ -6,12 +6,20 @@
 
 use divan::Bencher;
 use mimalloc::MiMalloc;
+use rand::Rng;
+use rand::SeedableRng;
 use rand::prelude::StdRng;
-use rand::{Rng, SeedableRng};
-use vortex_array::compute::{filter, warm_up_vtables};
-use vortex_array::expr::{lit, lt, root};
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
-use vortex_buffer::{BitBuffer, BufferMut};
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
+use vortex_array::compute::filter;
+use vortex_array::compute::warm_up_vtables;
+use vortex_array::expr::lit;
+use vortex_array::expr::lt;
+use vortex_array::expr::root;
+use vortex_buffer::BitBuffer;
+use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
 use vortex_error::VortexResult;
 use vortex_fastlanes::FoRArray;

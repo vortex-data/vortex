@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
+use std::fmt::Formatter;
 
 use vortex_dtype::DType;
 
@@ -28,11 +29,24 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_buffer::ByteBuffer;
-    use vortex_dtype::Nullability::{NonNullable, Nullable};
-    use vortex_dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-    use vortex_dtype::{DType, ExtDType, ExtMetadata, FieldName, PType, StructFields};
+    use vortex_dtype::DType;
+    use vortex_dtype::ExtDType;
+    use vortex_dtype::ExtMetadata;
+    use vortex_dtype::FieldName;
+    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::Nullability::Nullable;
+    use vortex_dtype::PType;
+    use vortex_dtype::StructFields;
+    use vortex_dtype::datetime::DATE_ID;
+    use vortex_dtype::datetime::TIME_ID;
+    use vortex_dtype::datetime::TIMESTAMP_ID;
+    use vortex_dtype::datetime::TemporalMetadata;
+    use vortex_dtype::datetime::TimeUnit;
 
-    use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
+    use crate::InnerScalarValue;
+    use crate::PValue;
+    use crate::Scalar;
+    use crate::ScalarValue;
 
     const MINUTES: i32 = 60;
     const HOURS: i32 = 60 * MINUTES;

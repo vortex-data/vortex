@@ -6,11 +6,14 @@ use std::ops::Range;
 use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
 
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::ConstantArray;
-use crate::arrays::expr::{ExprArray, ExprVTable};
+use crate::arrays::expr::ExprArray;
+use crate::arrays::expr::ExprVTable;
 use crate::stats::ArrayStats;
 use crate::vtable::OperationsVTable;
-use crate::{Array, ArrayRef, IntoArray};
 
 impl OperationsVTable<ExprVTable> for ExprVTable {
     fn slice(array: &ExprArray, range: Range<usize>) -> ArrayRef {

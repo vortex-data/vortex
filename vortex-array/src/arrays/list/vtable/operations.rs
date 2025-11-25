@@ -6,9 +6,12 @@ use std::sync::Arc;
 
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ListArray, ListVTable};
-use crate::vtable::{OperationsVTable, ValidityHelper};
-use crate::{ArrayRef, IntoArray};
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ListArray;
+use crate::arrays::ListVTable;
+use crate::vtable::OperationsVTable;
+use crate::vtable::ValidityHelper;
 
 impl OperationsVTable<ListVTable> for ListVTable {
     fn slice(array: &ListArray, range: Range<usize>) -> ArrayRef {

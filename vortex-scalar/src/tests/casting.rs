@@ -7,11 +7,20 @@
 mod tests {
     use std::sync::Arc;
 
+    use vortex_dtype::DType;
+    use vortex_dtype::ExtDType;
+    use vortex_dtype::ExtID;
+    use vortex_dtype::FieldDType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
+    use vortex_dtype::StructFields;
     use vortex_dtype::half::f16;
-    use vortex_dtype::{DType, ExtDType, ExtID, FieldDType, Nullability, PType, StructFields};
     use vortex_error::VortexExpect;
 
-    use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
+    use crate::InnerScalarValue;
+    use crate::PValue;
+    use crate::Scalar;
+    use crate::ScalarValue;
 
     #[test]
     fn cast_to_from_extension_types() {

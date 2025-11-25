@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::compute::CastKernel;
+use vortex_array::compute::CastKernelAdapter;
+use vortex_array::compute::cast;
 use vortex_array::patches::Patches;
+use vortex_array::register_kernel;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{ArrayRef, IntoArray, register_kernel};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::bitpacking::{BitPackedArray, BitPackedVTable};
+use crate::bitpacking::BitPackedArray;
+use crate::bitpacking::BitPackedVTable;
 
 impl CastKernel for BitPackedVTable {
     fn cast(&self, array: &BitPackedArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -52,12 +57,16 @@ register_kernel!(CastKernelAdapter(BitPackedVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_array::{IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
 
     use crate::BitPackedArray;
 

@@ -5,16 +5,21 @@ use fastlanes::BitPacking;
 use itertools::Itertools;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder, UninitRange};
+use vortex_array::builders::ArrayBuilder;
+use vortex_array::builders::PrimitiveBuilder;
+use vortex_array::builders::UninitRange;
 use vortex_array::patches::Patches;
 use vortex_buffer::BufferMut;
-use vortex_dtype::{
-    IntegerPType, NativePType, match_each_integer_ptype, match_each_unsigned_integer_ptype,
-};
-use vortex_error::{VortexExpect, vortex_panic};
+use vortex_dtype::IntegerPType;
+use vortex_dtype::NativePType;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_dtype::match_each_unsigned_integer_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
-use vortex_vector::primitive::{PVectorMut, PrimitiveVectorMut};
+use vortex_vector::primitive::PVectorMut;
+use vortex_vector::primitive::PrimitiveVectorMut;
 
 use crate::BitPackedArray;
 use crate::unpack_iter::BitPacked;
@@ -196,11 +201,15 @@ pub fn count_exceptions(bit_width: u8, bit_width_freq: &[usize]) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::IntoArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, assert_arrays_eq};
-    use vortex_buffer::{Buffer, BufferMut, buffer};
+    use vortex_buffer::Buffer;
+    use vortex_buffer::BufferMut;
+    use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
-    use vortex_vector::{VectorMutOps, VectorOps};
+    use vortex_vector::VectorMutOps;
+    use vortex_vector::VectorOps;
 
     use super::*;
     use crate::BitPackedVTable;

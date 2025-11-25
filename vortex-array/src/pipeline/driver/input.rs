@@ -2,9 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_vector::{Vector, VectorMutOps, VectorOps};
+use vortex_vector::Vector;
+use vortex_vector::VectorMutOps;
+use vortex_vector::VectorOps;
 
-use crate::pipeline::{BitView, Kernel, KernelCtx, N};
+use crate::pipeline::BitView;
+use crate::pipeline::Kernel;
+use crate::pipeline::KernelCtx;
+use crate::pipeline::N;
 
 /// A kernel that feeds a batch vector into the pipeline in chunks of size `N` with zero-copy.
 pub(super) struct InputKernel {
@@ -47,12 +52,15 @@ impl Kernel for InputKernel {
 
 #[cfg(test)]
 mod test {
-    use vortex_buffer::{bitbuffer, buffer};
+    use vortex_buffer::bitbuffer;
+    use vortex_buffer::buffer;
     use vortex_dtype::PTypeDowncastExt;
     use vortex_mask::Mask;
 
+    use crate::Array;
+    use crate::ArrayOperator;
+    use crate::IntoArray;
     use crate::pipeline::driver::PipelineDriver;
-    use crate::{Array, ArrayOperator, IntoArray};
 
     #[test]
     fn test_pipeline_input() {

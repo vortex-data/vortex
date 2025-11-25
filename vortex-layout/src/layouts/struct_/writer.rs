@@ -4,24 +4,36 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::StreamExt;
+use futures::TryStreamExt;
 use futures::future::try_join_all;
-use futures::{StreamExt, TryStreamExt, pin_mut};
+use futures::pin_mut;
 use itertools::Itertools;
-use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray, ToCanonical};
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexError, VortexResult, vortex_bail};
+use vortex_array::Array;
+use vortex_array::ArrayContext;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_error::VortexError;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::Handle;
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::IntoLayout as _;
+use crate::LayoutRef;
+use crate::LayoutStrategy;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSinkRef;
-use crate::sequence::{
-    SendableSequentialStream, SequenceId, SequencePointer, SequentialStreamAdapter,
-    SequentialStreamExt,
-};
-use crate::{IntoLayout as _, LayoutRef, LayoutStrategy};
+use crate::sequence::SendableSequentialStream;
+use crate::sequence::SequenceId;
+use crate::sequence::SequencePointer;
+use crate::sequence::SequentialStreamAdapter;
+use crate::sequence::SequentialStreamExt;
 
 #[derive(Clone)]
 pub struct StructStrategy {
@@ -197,17 +209,24 @@ impl LayoutStrategy for StructStrategy {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_array::arrays::{ChunkedArray, StructArray};
+    use vortex_array::ArrayContext;
+    use vortex_array::Canonical;
+    use vortex_array::IntoArray as _;
+    use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::StructArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayContext, Canonical, IntoArray as _};
-    use vortex_dtype::{DType, FieldNames, Nullability, PType};
+    use vortex_dtype::DType;
+    use vortex_dtype::FieldNames;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
     use vortex_io::runtime::single::block_on;
 
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::struct_::writer::StructStrategy;
     use crate::segments::TestSegments;
-    use crate::sequence::{SequenceId, SequentialArrayStreamExt};
+    use crate::sequence::SequenceId;
+    use crate::sequence::SequentialArrayStreamExt;
 
     #[test]
     #[should_panic]

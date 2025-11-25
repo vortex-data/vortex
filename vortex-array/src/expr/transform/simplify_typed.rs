@@ -8,7 +8,8 @@ use crate::expr::Expression;
 use crate::expr::session::RewriteRuleRegistry;
 use crate::expr::transform::RuleContext;
 use crate::expr::transform::rules::TypedRuleContext;
-use crate::expr::traversal::{NodeExt, Transformed};
+use crate::expr::traversal::NodeExt;
+use crate::expr::traversal::Transformed;
 
 /// Unlike `simplify`, this function simplifies an expression under the assumption that scope is
 /// a known DType. Simplification is applied first and then additional dtype-aware rules.

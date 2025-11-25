@@ -1,12 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ChunkedArray, ChunkedVTable};
-use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult, min_max};
-use crate::partial_ord::{partial_max, partial_min};
+use crate::arrays::ChunkedArray;
+use crate::arrays::ChunkedVTable;
+use crate::compute::MinMaxKernel;
+use crate::compute::MinMaxKernelAdapter;
+use crate::compute::MinMaxResult;
+use crate::compute::min_max;
+use crate::partial_ord::partial_max;
+use crate::partial_ord::partial_min;
 use crate::register_kernel;
 
 impl MinMaxKernel for ChunkedVTable {

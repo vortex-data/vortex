@@ -3,25 +3,29 @@
 
 use std::any::Any;
 use std::fmt::Formatter;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
+use std::sync::Weak;
 
 use arrow_schema::SchemaRef;
+use datafusion_common::Result as DFResult;
+use datafusion_common::Statistics;
 use datafusion_common::config::ConfigOptions;
-use datafusion_common::{Result as DFResult, Statistics};
 use datafusion_datasource::file::FileSource;
 use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::file_stream::FileOpener;
-use datafusion_datasource::schema_adapter::{DefaultSchemaAdapterFactory, SchemaAdapterFactory};
-use datafusion_physical_expr::{PhysicalExprRef, conjunction};
-use datafusion_physical_expr_adapter::{
-    DefaultPhysicalExprAdapterFactory, PhysicalExprAdapterFactory,
-};
+use datafusion_datasource::schema_adapter::DefaultSchemaAdapterFactory;
+use datafusion_datasource::schema_adapter::SchemaAdapterFactory;
+use datafusion_physical_expr::PhysicalExprRef;
+use datafusion_physical_expr::conjunction;
+use datafusion_physical_expr_adapter::DefaultPhysicalExprAdapterFactory;
+use datafusion_physical_expr_adapter::PhysicalExprAdapterFactory;
 use datafusion_physical_expr_common::physical_expr::fmt_sql;
-use datafusion_physical_plan::filter_pushdown::{
-    FilterPushdownPropagation, PushedDown, PushedDownPredicate,
-};
+use datafusion_physical_plan::DisplayFormatType;
+use datafusion_physical_plan::PhysicalExpr;
+use datafusion_physical_plan::filter_pushdown::FilterPushdownPropagation;
+use datafusion_physical_plan::filter_pushdown::PushedDown;
+use datafusion_physical_plan::filter_pushdown::PushedDownPredicate;
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
-use datafusion_physical_plan::{DisplayFormatType, PhysicalExpr};
 use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::error::VortexExpect as _;

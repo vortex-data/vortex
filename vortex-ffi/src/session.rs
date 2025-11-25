@@ -6,7 +6,8 @@ use vortex::io::runtime::BlockingRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 
-use crate::{RUNTIME, box_wrapper};
+use crate::RUNTIME;
+use crate::box_wrapper;
 
 box_wrapper!(
     /// A handle to a Vortex session.

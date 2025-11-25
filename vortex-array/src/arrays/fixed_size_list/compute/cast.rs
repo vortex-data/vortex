@@ -4,10 +4,14 @@
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::arrays::{FixedSizeListArray, FixedSizeListVTable};
-use crate::compute::{CastKernel, CastKernelAdapter, cast};
+use crate::ArrayRef;
+use crate::arrays::FixedSizeListArray;
+use crate::arrays::FixedSizeListVTable;
+use crate::compute::CastKernel;
+use crate::compute::CastKernelAdapter;
+use crate::compute::cast;
+use crate::register_kernel;
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, register_kernel};
 
 /// Cast implementation for [`FixedSizeListArray`].
 ///

@@ -4,7 +4,8 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 
 use crate::expr::Expression;
@@ -59,11 +60,15 @@ mod tests {
     use prost::Message;
     use vortex_proto::expr as pb;
 
-    use super::{ExprSerializeProtoExt, deserialize_expr_proto};
-    use crate::compute::{BetweenOptions, StrictComparison};
+    use super::ExprSerializeProtoExt;
+    use super::deserialize_expr_proto;
+    use crate::compute::BetweenOptions;
+    use crate::compute::StrictComparison;
     use crate::expr::Expression;
     use crate::expr::exprs::between::between;
-    use crate::expr::exprs::binary::{and, eq, or};
+    use crate::expr::exprs::binary::and;
+    use crate::expr::exprs::binary::eq;
+    use crate::expr::exprs::binary::or;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::root::root;

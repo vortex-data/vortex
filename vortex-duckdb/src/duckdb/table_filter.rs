@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ffi::CStr;
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::marker::PhantomData;
 use std::ptr;
 
@@ -10,9 +11,12 @@ use cpp::duckdb_vx_table_filter;
 use num_traits::AsPrimitive;
 use vortex::error::vortex_panic;
 
+use crate::cpp;
 use crate::cpp::idx_t;
-use crate::duckdb::{Expression, Value, ValueRef};
-use crate::{cpp, wrapper};
+use crate::duckdb::Expression;
+use crate::duckdb::Value;
+use crate::duckdb::ValueRef;
+use crate::wrapper;
 
 wrapper!(TableFilterSet, cpp::duckdb_vx_table_filter_set, |_| {});
 

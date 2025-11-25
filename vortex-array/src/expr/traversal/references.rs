@@ -8,7 +8,8 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::expr::Expression;
 use crate::expr::exprs::get_item::GetItem;
 use crate::expr::exprs::select::Select;
-use crate::expr::traversal::{NodeVisitor, TraversalOrder};
+use crate::expr::traversal::NodeVisitor;
+use crate::expr::traversal::TraversalOrder;
 
 #[derive(Default)]
 pub struct ReferenceCollector {

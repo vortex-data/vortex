@@ -5,17 +5,24 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
+use futures::FutureExt;
+use futures::StreamExt;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
-use futures::{FutureExt, StreamExt};
 use tempfile::NamedTempFile;
-use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
+use vortex_buffer::Alignment;
+use vortex_buffer::ByteBuffer;
+use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 
 use crate::VortexReadAt;
-use crate::file::{IntoReadSource, IoRequest, ReadSource, ReadSourceRef};
+use crate::file::IntoReadSource;
+use crate::file::IoRequest;
+use crate::file::ReadSource;
+use crate::file::ReadSourceRef;
 use crate::runtime::Handle;
 use crate::runtime::single::block_on;
 use crate::runtime::tokio::TokioRuntime;

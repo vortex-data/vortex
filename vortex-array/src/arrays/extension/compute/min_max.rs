@@ -7,8 +7,12 @@ use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ExtensionArray, ExtensionVTable};
-use crate::compute::{self, MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
+use crate::arrays::ExtensionArray;
+use crate::arrays::ExtensionVTable;
+use crate::compute::MinMaxKernel;
+use crate::compute::MinMaxKernelAdapter;
+use crate::compute::MinMaxResult;
+use crate::compute::{self};
 use crate::register_kernel;
 
 impl MinMaxKernel for ExtensionVTable {

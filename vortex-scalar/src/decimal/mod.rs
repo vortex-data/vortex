@@ -9,4 +9,5 @@ mod value;
 
 pub use scalar::*;
 pub use value::*;
-pub use vortex_dtype::{DecimalType, i256};
+pub use vortex_dtype::DecimalType;
+pub use vortex_dtype::i256;

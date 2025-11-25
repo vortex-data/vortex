@@ -8,8 +8,9 @@ use goldenfile::differs::binary_diff;
 use itertools::Itertools;
 use vortex_error::VortexResult;
 
+use crate::DeserializeMetadata;
+use crate::SerializeMetadata;
 use crate::arrays::BoolArray;
-use crate::{DeserializeMetadata, SerializeMetadata};
 
 /// Check that a named metadata matches its previous versioning.
 ///

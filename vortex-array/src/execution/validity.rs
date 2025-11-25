@@ -6,7 +6,8 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
-use crate::execution::{BindCtx, MaskExecution};
+use crate::execution::BindCtx;
+use crate::execution::MaskExecution;
 use crate::validity::Validity;
 
 impl dyn BindCtx + '_ {

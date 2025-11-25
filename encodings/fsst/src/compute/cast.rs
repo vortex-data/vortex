@@ -1,13 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::arrays::VarBinVTable;
-use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
-use vortex_array::{ArrayRef, IntoArray, register_kernel};
+use vortex_array::compute::CastKernel;
+use vortex_array::compute::CastKernelAdapter;
+use vortex_array::compute::cast;
+use vortex_array::register_kernel;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{FSSTArray, FSSTVTable};
+use crate::FSSTArray;
+use crate::FSSTVTable;
 
 impl CastKernel for FSSTVTable {
     fn cast(&self, array: &FSSTArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -44,9 +49,11 @@ mod tests {
     use vortex_array::arrays::VarBinArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
 
-    use crate::{fsst_compress, fsst_train_compressor};
+    use crate::fsst_compress;
+    use crate::fsst_train_compressor;
 
     #[test]
     fn test_cast_fsst_nullability() {

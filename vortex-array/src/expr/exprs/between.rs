@@ -6,15 +6,23 @@ use std::fmt::Formatter;
 use prost::Message;
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_proto::expr as pb;
 
 use crate::ArrayRef;
-use crate::compute::{BetweenOptions, between as between_compute};
+use crate::compute::BetweenOptions;
+use crate::compute::between as between_compute;
+use crate::expr::ChildName;
+use crate::expr::ExprId;
+use crate::expr::ExpressionView;
+use crate::expr::StatsCatalog;
+use crate::expr::VTable;
+use crate::expr::VTableExt;
 use crate::expr::expression::Expression;
 use crate::expr::exprs::binary::Binary;
 use crate::expr::exprs::operators::Operator;
-use crate::expr::{ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt};
 
 /// An optimized scalar expression to compute whether values fall between two bounds.
 ///
@@ -202,7 +210,8 @@ pub fn between(
 #[cfg(test)]
 mod tests {
     use super::between;
-    use crate::compute::{BetweenOptions, StrictComparison};
+    use crate::compute::BetweenOptions;
+    use crate::compute::StrictComparison;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::root::root;

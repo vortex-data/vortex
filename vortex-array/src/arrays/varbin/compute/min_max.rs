@@ -4,12 +4,16 @@
 use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
 
 use crate::accessor::ArrayAccessor;
-use crate::arrays::{VarBinArray, VarBinVTable};
-use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
+use crate::arrays::VarBinArray;
+use crate::arrays::VarBinVTable;
+use crate::compute::MinMaxKernel;
+use crate::compute::MinMaxKernelAdapter;
+use crate::compute::MinMaxResult;
 use crate::register_kernel;
 
 impl MinMaxKernel for VarBinVTable {
@@ -59,12 +63,15 @@ fn make_scalar(dtype: &DType, value: &[u8]) -> Scalar {
 mod tests {
     use vortex_buffer::BufferString;
     use vortex_dtype::DType::Utf8;
-    use vortex_dtype::Nullability::{NonNullable, Nullable};
+    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::Nullability::Nullable;
     use vortex_scalar::Scalar;
 
     use crate::arrays::VarBinArray;
-    use crate::compute::{MinMaxResult, min_max};
-    use crate::stats::{Stat, StatsProvider};
+    use crate::compute::MinMaxResult;
+    use crate::compute::min_max;
+    use crate::stats::Stat;
+    use crate::stats::StatsProvider;
 
     #[test]
     fn some_nulls() {

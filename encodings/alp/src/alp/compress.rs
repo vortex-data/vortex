@@ -5,18 +5,25 @@ use std::mem::transmute;
 
 use itertools::Itertools;
 use num_traits::AsPrimitive;
-use vortex_array::arrays::{PrimitiveArray, patch_chunk};
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::patch_chunk;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
-use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{PType, match_each_unsigned_integer_ptype};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
+use vortex_dtype::PType;
+use vortex_dtype::match_each_unsigned_integer_ptype;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 
 use crate::Exponents;
-use crate::alp::{ALPArray, ALPFloat};
+use crate::alp::ALPArray;
+use crate::alp::ALPFloat;
 
 #[macro_export]
 macro_rules! match_each_alp_float_ptype {
@@ -246,10 +253,12 @@ fn decompress_unchunked(array: ALPArray) -> PrimitiveArray {
 mod tests {
     use core::f64;
 
-    use f64::consts::{E, PI};
+    use f64::consts::E;
+    use f64::consts::PI;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
-    use vortex_buffer::{Buffer, buffer};
+    use vortex_buffer::Buffer;
+    use vortex_buffer::buffer;
     use vortex_dtype::NativePType;
 
     use super::*;

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::{BitAnd, BitOr};
+use std::ops::BitAnd;
+use std::ops::BitOr;
 
 use vortex_vector::VectorOps;
 use vortex_vector::bool::BoolVector;

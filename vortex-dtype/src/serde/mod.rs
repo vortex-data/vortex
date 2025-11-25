@@ -12,9 +12,12 @@ mod serde;
 #[cfg(test)]
 #[cfg(feature = "serde")]
 mod test {
-    use serde_test::{Token, assert_tokens};
+    use serde_test::Token;
+    use serde_test::assert_tokens;
 
-    use crate::{DType, Nullability, PType};
+    use crate::DType;
+    use crate::Nullability;
+    use crate::PType;
 
     #[test]
     fn test_serde_ptype_json() {

@@ -3,17 +3,26 @@
 
 use std::collections::VecDeque;
 use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::Read;
+use std::io::Seek;
+use std::io::SeekFrom;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use flatbuffers::root;
 use itertools::Itertools;
-use vortex::buffer::{Alignment, ByteBuffer};
-use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::file::{
-    EOF_SIZE, Footer, MAGIC_BYTES, MAX_POSTSCRIPT_SIZE, OpenOptionsSessionExt, VERSION,
-};
+use vortex::buffer::Alignment;
+use vortex::buffer::ByteBuffer;
+use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
+use vortex::error::vortex_err;
+use vortex::file::EOF_SIZE;
+use vortex::file::Footer;
+use vortex::file::MAGIC_BYTES;
+use vortex::file::MAX_POSTSCRIPT_SIZE;
+use vortex::file::OpenOptionsSessionExt;
+use vortex::file::VERSION;
 use vortex::flatbuffers::footer as fb;
 use vortex::layout::LayoutRef;
 

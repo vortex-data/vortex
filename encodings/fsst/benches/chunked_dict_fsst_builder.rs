@@ -2,10 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use divan::Bencher;
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::compute::warm_up_vtables;
-use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::NativePType;
 use vortex_fsst::test_utils::gen_dict_fsst_test_data;
 

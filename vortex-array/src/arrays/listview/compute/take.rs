@@ -2,14 +2,22 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::Zero;
-use vortex_dtype::{Nullability, match_each_integer_ptype};
+use vortex_dtype::Nullability;
+use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ListViewArray, ListViewRebuildMode, ListViewVTable};
-use crate::compute::{self, TakeKernel, TakeKernelAdapter};
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ListViewArray;
+use crate::arrays::ListViewRebuildMode;
+use crate::arrays::ListViewVTable;
+use crate::compute::TakeKernel;
+use crate::compute::TakeKernelAdapter;
+use crate::compute::{self};
+use crate::register_kernel;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 // TODO(connor)[ListView]: Make use of this threshold after we start migrating operators.
 /// The threshold for triggering a rebuild of the [`ListViewArray`].

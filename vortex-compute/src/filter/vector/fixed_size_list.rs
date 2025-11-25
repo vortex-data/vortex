@@ -3,9 +3,15 @@
 
 use std::sync::Arc;
 
-use vortex_mask::{Mask, MaskIter, MaskMut};
-use vortex_vector::fixed_size_list::{FixedSizeListVector, FixedSizeListVectorMut};
-use vortex_vector::{Vector, VectorMut, VectorMutOps, VectorOps};
+use vortex_mask::Mask;
+use vortex_mask::MaskIter;
+use vortex_mask::MaskMut;
+use vortex_vector::Vector;
+use vortex_vector::VectorMut;
+use vortex_vector::VectorMutOps;
+use vortex_vector::VectorOps;
+use vortex_vector::fixed_size_list::FixedSizeListVector;
+use vortex_vector::fixed_size_list::FixedSizeListVectorMut;
 
 use crate::filter::Filter;
 

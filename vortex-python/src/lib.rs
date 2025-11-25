@@ -24,10 +24,12 @@ mod scan;
 mod serde;
 
 use log::LevelFilter;
-use pyo3_log::{Caching, Logger};
+use pyo3_log::Caching;
+use pyo3_log::Logger;
 use tokio::runtime::Runtime;
 use vortex::VortexSessionDefault;
-use vortex::error::{VortexError, VortexExpect as _};
+use vortex::error::VortexError;
+use vortex::error::VortexExpect as _;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::io::session::RuntimeSessionExt;

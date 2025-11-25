@@ -14,13 +14,14 @@ mod test {
     use vortex_dtype::DType;
     use vortex_mask::Mask;
 
+    use crate::IntoArray;
+    use crate::ToCanonical;
     use crate::arrays::NullArray;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
-    use crate::{IntoArray, ToCanonical};
 
     #[test]
     fn test_slice_nulls() {

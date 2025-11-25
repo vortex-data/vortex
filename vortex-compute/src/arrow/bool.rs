@@ -3,7 +3,8 @@
 
 use std::sync::Arc;
 
-use arrow_array::{ArrayRef, BooleanArray};
+use arrow_array::ArrayRef;
+use arrow_array::BooleanArray;
 use vortex_error::VortexResult;
 use vortex_vector::bool::BoolVector;
 

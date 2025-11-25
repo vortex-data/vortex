@@ -4,14 +4,26 @@
 use itertools::Itertools as _;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_mask::{AllOr, Mask, MaskIter};
+use vortex_mask::AllOr;
+use vortex_mask::Mask;
+use vortex_mask::MaskIter;
 use vortex_scalar::Scalar;
 
-use super::filter::{ChunkFilter, chunk_filters, find_chunk_idx};
+use super::filter::ChunkFilter;
+use super::filter::chunk_filters;
+use super::filter::find_chunk_idx;
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ChunkedArray;
+use crate::arrays::ChunkedVTable;
+use crate::arrays::ConstantArray;
 use crate::arrays::chunked::compute::filter::FILTER_SLICES_SELECTIVITY_THRESHOLD;
-use crate::arrays::{ChunkedArray, ChunkedVTable, ConstantArray};
-use crate::compute::{MaskKernel, MaskKernelAdapter, cast, mask};
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
+use crate::compute::MaskKernel;
+use crate::compute::MaskKernelAdapter;
+use crate::compute::cast;
+use crate::compute::mask;
+use crate::register_kernel;
 
 impl MaskKernel for ChunkedVTable {
     fn mask(&self, array: &ChunkedArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -120,10 +132,13 @@ fn mask_slices(
 mod test {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
 
     use crate::IntoArray;
-    use crate::arrays::{ChunkedArray, PrimitiveArray};
+    use crate::arrays::ChunkedArray;
+    use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::mask::test_mask_conformance;
 
     #[rstest]

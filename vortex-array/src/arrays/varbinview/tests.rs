@@ -4,8 +4,9 @@
 use vortex_scalar::Scalar;
 use vortex_vector::binaryview::BinaryView;
 
+use crate::Array;
+use crate::ToCanonical;
 use crate::arrays::VarBinViewArray;
-use crate::{Array, ToCanonical};
 
 #[test]
 pub fn varbin_view() {

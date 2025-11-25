@@ -3,17 +3,28 @@
 
 //! Traits and utilities to compute and access array statistics.
 
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::hash::Hash;
 
+use arrow_buffer::BooleanBufferBuilder;
+use arrow_buffer::MutableBuffer;
 use arrow_buffer::bit_iterator::BitIterator;
-use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
-use enum_iterator::{Sequence, all, last};
+use enum_iterator::Sequence;
+use enum_iterator::all;
+use enum_iterator::last;
 use log::debug;
-use num_enum::{IntoPrimitive, TryFromPrimitive};
+use num_enum::IntoPrimitive;
+use num_enum::TryFromPrimitive;
 pub use stats_set::*;
-use vortex_dtype::Nullability::{NonNullable, Nullable};
-use vortex_dtype::{DType, DecimalDType, NativeDecimalType, PType, i256};
+use vortex_dtype::DType;
+use vortex_dtype::DecimalDType;
+use vortex_dtype::NativeDecimalType;
+use vortex_dtype::Nullability::NonNullable;
+use vortex_dtype::Nullability::Nullable;
+use vortex_dtype::PType;
+use vortex_dtype::i256;
 
 mod array;
 mod bound;
@@ -24,7 +35,8 @@ mod stat_bound;
 mod stats_set;
 
 pub use array::*;
-pub use bound::{LowerBound, UpperBound};
+pub use bound::LowerBound;
+pub use bound::UpperBound;
 pub use precision::Precision;
 pub use provider::*;
 pub use stat_bound::*;

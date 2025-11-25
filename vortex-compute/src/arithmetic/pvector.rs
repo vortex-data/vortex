@@ -3,12 +3,16 @@
 
 use std::ops::BitAnd;
 
-use vortex_buffer::{Buffer, BufferMut};
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
-use vortex_vector::primitive::{PVector, PVectorMut};
-use vortex_vector::{VectorMutOps, VectorOps};
+use vortex_vector::VectorMutOps;
+use vortex_vector::VectorOps;
+use vortex_vector::primitive::PVector;
+use vortex_vector::primitive::PVectorMut;
 
-use crate::arithmetic::{Arithmetic, Operator};
+use crate::arithmetic::Arithmetic;
+use crate::arithmetic::Operator;
 
 /// Implementation that attempts to downcast to a mutable vector and operates in-place.
 impl<Op, T> Arithmetic<Op, &PVector<T>> for PVector<T>
@@ -129,7 +133,10 @@ mod tests {
     use vortex_vector::VectorOps;
     use vortex_vector::primitive::PVector;
 
-    use crate::arithmetic::{Arithmetic, WrappingAdd, WrappingMul, WrappingSub};
+    use crate::arithmetic::Arithmetic;
+    use crate::arithmetic::WrappingAdd;
+    use crate::arithmetic::WrappingMul;
+    use crate::arithmetic::WrappingSub;
 
     #[test]
     fn test_add_pvectors() {
