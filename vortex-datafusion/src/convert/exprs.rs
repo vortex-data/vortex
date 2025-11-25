@@ -305,6 +305,7 @@ mod tests {
 
     use arrow_schema::DataType;
     use arrow_schema::Field;
+    use arrow_schema::Fields;
     use arrow_schema::Schema;
     use arrow_schema::SchemaBuilder;
     use arrow_schema::SchemaRef;
@@ -329,13 +330,14 @@ mod tests {
     use datafusion_physical_expr::PhysicalExpr;
     use datafusion_physical_expr::create_physical_expr;
     use datafusion_physical_expr::planner::logical2physical;
-    use datafusion_physical_expr::{PhysicalExpr, create_physical_expr};
     use datafusion_physical_plan::expressions as df_expr;
     use datafusion_physical_plan::filter_pushdown::PushedDown;
     use insta::assert_snapshot;
     use rstest::rstest;
+    use vortex::VortexSessionDefault;
     use vortex::expr::Expression;
     use vortex::expr::Operator;
+    use vortex::session::VortexSession;
 
     use super::*;
     use crate::VortexSource;

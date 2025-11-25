@@ -19,6 +19,7 @@ use super::cast;
 use crate::Array;
 use crate::ArrayRef;
 use crate::builders::ArrayBuilder;
+use crate::builders::VarBinViewBuilder;
 use crate::builders::builder_with_capacity;
 use crate::compute::ComputeFn;
 use crate::compute::Kernel;
@@ -260,7 +261,7 @@ mod tests {
     use crate::builders::ArrayBuilder;
     use crate::builders::BufferGrowthStrategy;
     use crate::builders::VarBinViewBuilder;
-    use crate::compute::zip;
+    use crate::compute::zip::VarBinViewBuilder;
 
     #[test]
     fn test_zip_basic() {
