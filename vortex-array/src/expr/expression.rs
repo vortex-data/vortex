@@ -195,6 +195,18 @@ impl Expression {
         self.stat_expression(Stat::Max, catalog)
     }
 
+    /// Returns whether this expression itself is null-sensitive.
+    ///
+    /// An expression is null-sensitive if it directly operates on null values,
+    /// such as `is_null`. Most expressions are not null-sensitive.
+    ///
+    /// This method only checks the expression itself, not its children. To check
+    /// if an expression or any of its descendants are null-sensitive, use the
+    /// [`crate::expr::analysis::label_null_sensitive`] function.
+    pub fn is_null_sensitive(&self) -> bool {
+        self.vtable.as_dyn().is_null_sensitive(self.data.as_ref())
+    }
+
     /// Format the expression as a compact string.
     ///
     /// Since this is a recursive formatter, it is exposed on the public Expression type.

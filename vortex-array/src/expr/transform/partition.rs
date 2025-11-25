@@ -9,7 +9,9 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::expr::Expression;
-use crate::expr::analysis::{Annotation, AnnotationFn, Annotations, descendent_annotations};
+use crate::expr::analysis::{
+    Annotation, AnnotationFn, Annotations, descendent_annotation_union_set,
+};
 use crate::expr::exprs::get_item::get_item;
 use crate::expr::exprs::pack::pack;
 use crate::expr::exprs::root::root;
@@ -38,7 +40,7 @@ where
     FieldName: From<A::Annotation>,
 {
     // Annotate each expression with the annotations that any of its descendent expressions have.
-    let annotations = descendent_annotations(&expr, annotate_fn);
+    let annotations = descendent_annotation_union_set(&expr, annotate_fn);
 
     // Now we split the original expression into sub-expressions based on the annotations, and
     // generate a root expression to re-assemble the results.

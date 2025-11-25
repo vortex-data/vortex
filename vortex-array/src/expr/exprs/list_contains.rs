@@ -116,6 +116,11 @@ impl VTable for ListContains {
 
         None
     }
+
+    // Nullability matters for contains([], x) where x is false.
+    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+        true
+    }
 }
 
 /// Creates an expression that checks if a value is contained in a list.

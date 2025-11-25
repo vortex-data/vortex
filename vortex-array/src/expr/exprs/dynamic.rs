@@ -129,6 +129,11 @@ impl VTable for DynamicComparison {
             _ => None,
         }
     }
+
+    // Defer to the child
+    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+        false
+    }
 }
 
 pub fn dynamic(

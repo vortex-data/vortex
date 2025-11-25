@@ -6,7 +6,9 @@ use vortex_error::VortexExpect;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::expr::Expression;
-use crate::expr::analysis::annotations::{AnnotationFn, Annotations, descendent_annotations};
+use crate::expr::analysis::annotation_union_set::{
+    AnnotationFn, Annotations, descendent_annotation_union_set,
+};
 use crate::expr::exprs::get_item::GetItem;
 use crate::expr::exprs::root::Root;
 use crate::expr::exprs::select::Select;
@@ -44,7 +46,7 @@ pub fn immediate_scope_accesses<'a>(
     expr: &'a Expression,
     scope: &'a StructFields,
 ) -> FieldAccesses<'a> {
-    descendent_annotations(expr, annotate_scope_access(scope))
+    descendent_annotation_union_set(expr, annotate_scope_access(scope))
 }
 
 /// This returns the immediate scope_access (as explained `immediate_scope_accesses`) for `expr`.

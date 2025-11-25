@@ -40,6 +40,7 @@ mod vtable;
 pub use analysis::*;
 pub use expression::*;
 pub use exprs::*;
+pub use pruning::StatsCatalog;
 pub use view::*;
 pub use vtable::*;
 

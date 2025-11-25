@@ -8,8 +8,8 @@ use std::sync::Arc;
 use futures::try_join;
 use itertools::Itertools;
 use vortex_array::arrays::StructArray;
+use vortex_array::expr::analysis::immediate_access::annotate_scope_access;
 use vortex_array::expr::session::ExprSessionExt;
-use vortex_array::expr::transform::immediate_access::annotate_scope_access;
 use vortex_array::expr::transform::{
     ExprOptimizer, PartitionedExpr, partition, replace, replace_root_fields,
 };

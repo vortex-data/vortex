@@ -106,6 +106,16 @@ pub trait VTable: 'static + Sized + Send + Sync {
     ) -> Option<Expression> {
         None
     }
+
+    /// Returns whether this expression itself is null-sensitive. Default to *true*.
+    ///
+    /// An expression is null-sensitive if it directly operates on null values,
+    /// such as `is_null`. We must conservatively assume that all expression are null-sensitive.
+    ///
+    /// This must only account for the expression itself being null-sensitive, not its children.
+    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+        true
+    }
 }
 
 /// Factory functions for static vtables.
@@ -172,6 +182,8 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
         stat: Stat,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression>;
+
+    fn is_null_sensitive(&self, instance: &dyn Any) -> bool;
 
     fn dyn_eq(&self, instance: &dyn Any, other: &dyn Any) -> bool;
     fn dyn_hash(&self, instance: &dyn Any, state: &mut dyn Hasher);
@@ -285,6 +297,13 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
     ) -> Option<Expression> {
         let expr = ExpressionView::new(expression);
         V::stat_expression(&self.0, &expr, stat, catalog)
+    }
+
+    fn is_null_sensitive(&self, instance: &dyn Any) -> bool {
+        let instance = instance
+            .downcast_ref::<V::Instance>()
+            .vortex_expect("Failed to downcast expression instance to expected type");
+        V::is_null_sensitive(&self.0, instance)
     }
 
     fn dyn_eq(&self, instance: &dyn Any, other: &dyn Any) -> bool {

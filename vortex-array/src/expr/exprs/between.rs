@@ -143,6 +143,10 @@ impl VTable for Between {
     ) -> Option<Expression> {
         expr.to_binary_expr().stat_falsification(catalog)
     }
+
+    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+        false
+    }
 }
 
 impl ExpressionView<'_, Between> {

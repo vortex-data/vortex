@@ -78,6 +78,10 @@ impl VTable for Not {
         let child = expr.child(0).execute(vector, dtype)?;
         Ok(child.into_bool().not().into())
     }
+
+    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+        false
+    }
 }
 
 /// Creates an expression that logically inverts boolean values.

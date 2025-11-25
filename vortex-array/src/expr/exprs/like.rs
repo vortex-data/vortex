@@ -95,6 +95,10 @@ impl VTable for Like {
         let pattern = expr.child(1).evaluate(scope)?;
         like_compute(&child, &pattern, *expr.data())
     }
+
+    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+        false
+    }
 }
 
 pub fn like(child: Expression, pattern: Expression) -> Expression {

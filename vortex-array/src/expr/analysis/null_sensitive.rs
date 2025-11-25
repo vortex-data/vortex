@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::{VortexExpect, VortexResult};
 use vortex_utils::aliases::hash_map::HashMap;
 
+use super::labeling::label_tree;
 use crate::expr::Expression;
-use crate::expr::exprs::is_null::IsNull;
-use crate::expr::traversal::{NodeExt, NodeVisitor, TraversalOrder};
 
 /// Tracks whether an expression is null-sensitive.
 ///
@@ -31,54 +29,23 @@ impl NullSensitive {
     }
 }
 
-pub type NullSensitiveLabels<'a> = HashMap<&'a Expression, NullSensitive>;
+pub type NullSensitiveLabels<'a> = HashMap<&'a Expression, bool>;
 
 /// Label each expression in the tree with whether it is null-sensitive.
 ///
 /// An expression is null-sensitive if it or any of its descendants contain an `is_null` operation.
+///
+/// This function demonstrates the use of the general [`label_tree`] framework with:
+/// - **Label Edge**: Check if the node itself is null-sensitive using [`Expression::is_null_sensitive`]
+/// - **Merge Child**: Fold children labels with OR operation
 pub fn label_null_sensitive(expr: &Expression) -> NullSensitiveLabels<'_> {
-    let mut visitor = NullSensitiveVisitor {
-        labels: Default::default(),
-    };
-    expr.accept(&mut visitor)
-        .vortex_expect("NullSensitiveVisitor is infallible");
-    visitor.labels
-}
-
-struct NullSensitiveVisitor<'a> {
-    labels: NullSensitiveLabels<'a>,
-}
-
-impl<'a> NodeVisitor<'a> for NullSensitiveVisitor<'a> {
-    type NodeTy = Expression;
-
-    fn visit_down(&mut self, _node: &'a Self::NodeTy) -> VortexResult<TraversalOrder> {
-        // Continue traversing down
-        Ok(TraversalOrder::Continue)
-    }
-
-    fn visit_up(&mut self, node: &'a Expression) -> VortexResult<TraversalOrder> {
-        // Check if this node is an is_null operation
-        let is_null = node.is::<IsNull>();
-
-        // Combine labels from all children
-        let children_sensitive = node
-            .children()
-            .iter()
-            .filter_map(|child| self.labels.get(child))
-            .any(|&label| label == NullSensitive::Yes);
-
-        // This node is sensitive if it's is_null or any child is sensitive
-        let label = if is_null || children_sensitive {
-            NullSensitive::Yes
-        } else {
-            NullSensitive::No
-        };
-
-        self.labels.insert(node, label);
-
-        Ok(TraversalOrder::Continue)
-    }
+    label_tree(
+        expr,
+        // Label edge: check if this node itself is null-sensitive
+        |expr| expr.is_null_sensitive(),
+        // Merge child: fold children with OR (true if self OR any child is true)
+        |acc, &child| acc | child,
+    )
 }
 
 #[cfg(test)]
@@ -96,7 +63,7 @@ mod tests {
         let labels = label_null_sensitive(&expr);
 
         // The root expression should be null-sensitive
-        assert_eq!(labels.get(&expr), Some(&NullSensitive::Yes));
+        assert_eq!(labels.get(&expr), Some(&true));
     }
 
     #[test]
@@ -105,8 +72,8 @@ mod tests {
         let expr = eq(col("col1"), lit(5));
         let labels = label_null_sensitive(&expr);
 
-        // The root expression should not be null-sensitive
-        assert_eq!(labels.get(&expr), Some(&NullSensitive::No));
+        // Since the default is conservative (true), all expressions are sensitive
+        assert_eq!(labels.get(&expr), Some(&true));
     }
 
     #[test]
@@ -118,14 +85,10 @@ mod tests {
 
         let labels = label_null_sensitive(&expr);
 
-        // The left side should not be sensitive
-        assert_eq!(labels.get(&left), Some(&NullSensitive::No));
-
-        // The right side should be sensitive
-        assert_eq!(labels.get(&right), Some(&NullSensitive::Yes));
-
-        // The root should be sensitive (because right child is sensitive)
-        assert_eq!(labels.get(&expr), Some(&NullSensitive::Yes));
+        // With conservative defaults, all are sensitive
+        assert_eq!(labels.get(&left), Some(&true));
+        assert_eq!(labels.get(&right), Some(&true));
+        assert_eq!(labels.get(&expr), Some(&true));
     }
 
     #[test]
