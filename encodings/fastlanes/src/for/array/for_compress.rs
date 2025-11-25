@@ -27,10 +27,6 @@ impl FoRArray {
     }
 }
 
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "generic type T handles appropriate widths"
-)]
 fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
     parray: PrimitiveArray,
     min: T,

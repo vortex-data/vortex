@@ -397,10 +397,6 @@ impl Scheme for BitPackingScheme {
         BITPACKING_SCHEME
     }
 
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "bit width fits in smaller integer types"
-    )]
     fn expected_compression_ratio(
         &self,
         stats: &IntegerStats,
@@ -427,10 +423,6 @@ impl Scheme for BitPackingScheme {
         )
     }
 
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "bit width fits in smaller integer types"
-    )]
     fn compress(
         &self,
         stats: &IntegerStats,

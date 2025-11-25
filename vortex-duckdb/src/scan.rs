@@ -367,10 +367,7 @@ impl TableFunction for VortexTableFunction {
         );
 
         // Use the max_threads from bind_data (read from vortex_max_threads setting)
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "max_threads fits in usize"
-        )]
+        #[expect(clippy::cast_possible_truncation, reason = "max_threads fits in usize")]
         let num_workers = bind_data.max_threads as usize;
 
         let client_context = init_input.client_context()?;
