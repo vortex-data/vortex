@@ -3,27 +3,38 @@
 
 //! Test that checks we can evolve schemas in a cmpatible way across files.
 
-use arrow_schema::{DataType, Field, Schema, SchemaRef};
+use std::sync::Arc;
+use std::sync::LazyLock;
+
+use arrow_schema::DataType;
+use arrow_schema::Field;
+use arrow_schema::Schema;
+use arrow_schema::SchemaRef;
 use datafusion::arrow::array::StringViewArray;
 use datafusion::arrow::compute::concat_batches;
-use datafusion::datasource::listing::{ListingOptions, ListingTable, ListingTableConfig};
+use datafusion::datasource::listing::ListingOptions;
+use datafusion::datasource::listing::ListingTable;
+use datafusion::datasource::listing::ListingTableConfig;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::execution::context::SessionContext;
-use datafusion_common::arrow::array::{ArrayRef as ArrowArrayRef, RecordBatch};
+use datafusion_common::arrow::array::ArrayRef as ArrowArrayRef;
+use datafusion_common::arrow::array::RecordBatch;
 use datafusion_common::record_batch;
 use datafusion_datasource::ListingTableUrl;
 use datafusion_expr::col;
 use object_store::ObjectStore;
 use object_store::memory::InMemory;
 use object_store::path::Path;
-use std::sync::{Arc, LazyLock};
 use url::Url;
+use vortex::ArrayRef;
+use vortex::VortexSessionDefault;
 use vortex::arrow::FromArrowArray;
 use vortex::file::WriteOptionsSessionExt;
-use vortex::io::{ObjectStoreWriter, VortexWrite};
+use vortex::io::ObjectStoreWriter;
+use vortex::io::VortexWrite;
 use vortex::session::VortexSession;
-use vortex::{ArrayRef, VortexSessionDefault};
-use vortex_datafusion::{VortexFormat, VortexFormatFactory};
+use vortex_datafusion::VortexFormat;
+use vortex_datafusion::VortexFormatFactory;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| VortexSession::default());
 
@@ -135,7 +146,11 @@ async fn test_filter_with_schema_evolution() {
                     Some("two"),
                     Some("three"),
                 ])) as ArrowArrayRef,
-                Arc::new(StringViewArray::from(vec![Option::<&str>::None, None, None])) as ArrowArrayRef,
+                Arc::new(StringViewArray::from(vec![
+                    Option::<&str>::None,
+                    None,
+                    None
+                ])) as ArrowArrayRef,
             ]
         )
     );
