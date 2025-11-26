@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-/// A trait for describing the signature of a scalar function.
+/// A trait for describing the signature of a scalar function including its properties.
 pub trait Signature {
     /// Returns the arity (number of arguments) for this function.
     fn arity(&self) -> usize;
 
-    /// Returns the display name of the nth child/argument for this function.
-    fn child_name(&self, child_idx: usize) -> Option<String>;
+    /// Returns the display name of the nth argument for this function.
+    fn name(&self, idx: usize) -> Option<String>;
 }
 
 /// A simply unary signature implementation.
@@ -17,7 +17,7 @@ impl Signature for UnarySignature {
         1
     }
 
-    fn child_name(&self, _child_idx: usize) -> Option<String> {
+    fn name(&self, idx: usize) -> Option<String> {
         Some("input".to_string())
     }
 }

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::hash::Hasher;
 
@@ -11,8 +11,8 @@ use vortex_error::VortexResult;
 use vortex_utils::debug_with::DebugWith;
 use vortex_vector::Vector;
 
-use crate::functions::ScalarFnVTable;
 use crate::functions::execution::ExecutionCtx;
+use crate::functions::ScalarFnVTable;
 
 /// An instance of a scalar function bound to some invocation options.
 pub struct ScalarFn {
@@ -42,6 +42,14 @@ impl Debug for ScalarFn {
                 }),
             )
             .finish()
+    }
+}
+
+impl Display for ScalarFn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}(", self.vtable.id())?;
+        self.vtable.as_dyn().fmt_options(self.options.as_ref(), f)?;
+        write!(f, ")")
     }
 }
 
