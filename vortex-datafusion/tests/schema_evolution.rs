@@ -118,6 +118,7 @@ async fn test_filter_with_schema_evolution() {
 
     let table_schema = Arc::new(df.schema().as_arrow().clone());
 
+    // Table schema contains both fields
     assert_eq!(
         table_schema.as_ref(),
         &Schema::new(vec![
@@ -126,7 +127,7 @@ async fn test_filter_with_schema_evolution() {
         ])
     );
 
-    // Filter the result to only the values from the first file
+    // Filter the result to only ones with a column, i.e. only file1
     let result = df
         .filter(col("a").is_not_null())
         .unwrap()

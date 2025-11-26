@@ -8,6 +8,7 @@ pub mod metrics;
 mod opener;
 mod sink;
 mod source;
+pub(crate) mod adapter;
 
 pub use format::VortexFormat;
 pub use format::VortexFormatFactory;
