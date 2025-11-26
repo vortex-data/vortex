@@ -9,14 +9,6 @@ use vortex_vector::primitive::PrimitiveVector;
 
 use crate::take::Take;
 
-impl Take<PrimitiveVector> for &PrimitiveVector {
-    type Output = PrimitiveVector;
-
-    fn take(self, indices: &PrimitiveVector) -> PrimitiveVector {
-        match_each_pvector!(self, |v| { v.take(indices).into() })
-    }
-}
-
 impl<I: UnsignedPType> Take<PVector<I>> for &PrimitiveVector {
     type Output = PrimitiveVector;
 

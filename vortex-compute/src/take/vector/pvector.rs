@@ -4,19 +4,9 @@
 use vortex_dtype::NativePType;
 use vortex_dtype::UnsignedPType;
 use vortex_vector::VectorOps;
-use vortex_vector::match_each_unsigned_pvector;
 use vortex_vector::primitive::PVector;
-use vortex_vector::primitive::PrimitiveVector;
 
 use crate::take::Take;
-
-impl<T: NativePType> Take<PrimitiveVector> for &PVector<T> {
-    type Output = PVector<T>;
-
-    fn take(self, indices: &PrimitiveVector) -> PVector<T> {
-        match_each_unsigned_pvector!(indices, |iv| { self.take(iv) })
-    }
-}
 
 impl<T: NativePType, I: UnsignedPType> Take<PVector<I>> for &PVector<T> {
     type Output = PVector<T>;
