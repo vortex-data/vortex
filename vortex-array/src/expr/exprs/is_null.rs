@@ -106,6 +106,10 @@ impl VTable for IsNull {
     fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
         true
     }
+
+    fn is_fallible(&self, _instance: &Self::Instance) -> bool {
+        false
+    }
 }
 
 /// Creates an expression that checks for null values.

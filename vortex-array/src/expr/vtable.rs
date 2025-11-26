@@ -51,14 +51,16 @@ pub trait VTable: 'static + Sized + Send + Sync {
     ///
     /// Should return `Ok(None)` if the expression is not serializable, and `Ok(vec![])` if it is
     /// serializable but has no metadata.
-    fn serialize(&self, _instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+        _ = instance;
         Ok(None)
     }
 
     /// Deserialize an instance of this expression.
     ///
     /// Returns `Ok(None)` if the expression is not serializable.
-    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+        _ = metadata;
         Ok(None)
     }
 
@@ -66,7 +68,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
     fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()>;
 
     /// Returns the name of the nth child of the expr.
-    fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName;
+    fn child_name(&self, instance: &Self::Instance, child_idx: usize) -> ChildName;
 
     /// Format this expression in nice human-readable SQL-style format
     ///
@@ -89,7 +91,9 @@ pub trait VTable: 'static + Sized + Send + Sync {
     fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef>;
 
     /// Execute the expression on the given vector with the given dtype.
-    fn execute(&self, _data: &Self::Instance, _args: ExecutionArgs) -> VortexResult<Vector> {
+    fn execute(&self, data: &Self::Instance, args: ExecutionArgs) -> VortexResult<Vector> {
+        _ = data;
+        let _args = args;
         // TODO(ngates): remove this once we port to vector execution
         // TODO(ngates): I think we should take/return an enum of Vector/Scalar.
         vortex_bail!("Expression {} does not support execution", self.id());
@@ -98,19 +102,24 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// See [`Expression::stat_falsification`].
     fn stat_falsification(
         &self,
-        _expr: &ExpressionView<Self>,
-        _catalog: &dyn StatsCatalog,
+        expr: &ExpressionView<Self>,
+        catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
+        _ = expr;
+        _ = catalog;
         None
     }
 
     /// See [`Expression::stat_expression`].
     fn stat_expression(
         &self,
-        _expr: &ExpressionView<Self>,
-        _stat: Stat,
-        _catalog: &dyn StatsCatalog,
+        expr: &ExpressionView<Self>,
+        stat: Stat,
+        catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
+        _ = expr;
+        _ = stat;
+        _ = catalog;
         None
     }
 
@@ -129,7 +138,20 @@ pub trait VTable: 'static + Sized + Send + Sync {
     ///
     /// This method only checks the expression itself, not its children. To check
     /// if an expression or any of its descendants are null-sensitive.
-    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+    fn is_null_sensitive(&self, instance: &Self::Instance) -> bool {
+        _ = instance;
+        true
+    }
+
+    /// Returns whether this expression itself is fallible. Conservatively default to *true*.
+    ///
+    /// An expression is runtime fallible is there is an input set that causes the expression to
+    /// panic or return an error, for example checked_add is fallible if there is overflow.
+    ///
+    /// Note: this is only applicable to expressions that pass type-checking
+    /// [`VTable::return_dtype`].
+    fn is_fallible(&self, instance: &Self::Instance) -> bool {
+        _ = instance;
         true
     }
 }
@@ -206,7 +228,10 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression>;
 
+    /// See [`VTable::is_null_sensitive`].
     fn is_null_sensitive(&self, instance: &dyn Any) -> bool;
+    /// See [`VTable::is_fallible`].
+    fn is_fallible(&self, instance: &dyn Any) -> bool;
 
     fn dyn_eq(&self, instance: &dyn Any, other: &dyn Any) -> bool;
     fn dyn_hash(&self, instance: &dyn Any, state: &mut dyn Hasher);
@@ -326,6 +351,13 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
             .downcast_ref::<V::Instance>()
             .vortex_expect("Failed to downcast expression instance to expected type");
         V::is_null_sensitive(&self.0, instance)
+    }
+
+    fn is_fallible(&self, instance: &dyn Any) -> bool {
+        let instance = instance
+            .downcast_ref::<V::Instance>()
+            .vortex_expect("Failed to downcast expression instance to expected type");
+        V::is_fallible(&self.0, instance)
     }
 
     fn dyn_eq(&self, instance: &dyn Any, other: &dyn Any) -> bool {

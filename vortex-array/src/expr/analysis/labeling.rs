@@ -62,6 +62,10 @@ where
 {
     type NodeTy = Expression;
 
+    fn visit_down(&mut self, _node: &'a Self::NodeTy) -> VortexResult<TraversalOrder> {
+        Ok(TraversalOrder::Continue)
+    }
+
     fn visit_up(&mut self, node: &'a Expression) -> VortexResult<TraversalOrder> {
         let self_label = (self.self_label)(node);
 
