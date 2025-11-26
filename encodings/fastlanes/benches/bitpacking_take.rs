@@ -238,7 +238,7 @@ fn patched_take_10k_adversarial(bencher: Bencher) {
         (0..(NUM_EXCEPTIONS + 1024) / 1024)
             .cycle()
             .map(|chunk_idx| BIG_BASE2 - 1024 + chunk_idx * 1024)
-            .flat_map(|base_idx| (base_idx..(base_idx + per_chunk_count)))
+            .flat_map(|base_idx| base_idx..(base_idx + per_chunk_count))
             .take(10000),
     );
 

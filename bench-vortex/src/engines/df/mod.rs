@@ -97,8 +97,7 @@ pub fn make_object_store(
             let s3 = Arc::new(
                 AmazonS3Builder::from_env()
                     .with_bucket_name(bucket_name)
-                    .build()
-                    .unwrap(),
+                    .build()?,
             );
             df.register_object_store(&Url::parse(&format!("s3://{bucket_name}/"))?, s3.clone());
             Ok(s3)
@@ -108,8 +107,7 @@ pub fn make_object_store(
             let gcs = Arc::new(
                 GoogleCloudStorageBuilder::from_env()
                     .with_bucket_name(bucket_name)
-                    .build()
-                    .unwrap(),
+                    .build()?,
             );
             df.register_object_store(&Url::parse(&format!("gs://{bucket_name}/"))?, gcs.clone());
             Ok(gcs)

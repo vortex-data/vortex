@@ -116,7 +116,7 @@ fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
     let mut rng = StdRng::seed_from_u64(0);
 
     const SPAN_LEN: usize = 10;
-    assert!(len % SPAN_LEN == 0);
+    assert!(len.is_multiple_of(SPAN_LEN));
 
     (0..chunk_count)
         .map(|_| {

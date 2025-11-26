@@ -181,7 +181,7 @@ impl<T> Buffer<T> {
                 alignment,
             );
         }
-        if bytes.len() % size_of::<T>() != 0 {
+        if !bytes.len().is_multiple_of(size_of::<T>()) {
             vortex_panic!(
                 "Bytes length {} must be a multiple of the scalar type's size {}",
                 bytes.len(),
