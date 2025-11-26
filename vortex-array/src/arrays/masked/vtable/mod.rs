@@ -33,7 +33,7 @@ use crate::vtable::VisitorVTable;
 
 vtable!(Masked);
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct MaskedVTable;
 
 impl VisitorVTable<MaskedVTable> for MaskedVTable {

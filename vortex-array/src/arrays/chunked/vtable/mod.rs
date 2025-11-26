@@ -137,5 +137,5 @@ impl VTable for ChunkedVTable {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ChunkedVTable;

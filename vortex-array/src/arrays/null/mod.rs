@@ -123,7 +123,7 @@ pub struct NullArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct NullVTable;
 
 impl NullArray {

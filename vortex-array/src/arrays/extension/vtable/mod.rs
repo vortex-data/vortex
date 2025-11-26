@@ -86,5 +86,5 @@ impl VTable for ExtensionVTable {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ExtensionVTable;

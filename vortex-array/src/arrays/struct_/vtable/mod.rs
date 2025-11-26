@@ -123,5 +123,5 @@ impl VTable for StructVTable {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct StructVTable;

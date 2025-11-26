@@ -175,7 +175,7 @@ impl Debug for FSSTArray {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct FSSTVTable;
 
 impl FSSTArray {

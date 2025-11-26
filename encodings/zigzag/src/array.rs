@@ -108,7 +108,7 @@ pub struct ZigZagArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ZigZagVTable;
 
 impl ZigZagArray {

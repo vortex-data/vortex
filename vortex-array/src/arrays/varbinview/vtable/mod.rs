@@ -125,5 +125,5 @@ impl VTable for VarBinViewVTable {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct VarBinViewVTable;

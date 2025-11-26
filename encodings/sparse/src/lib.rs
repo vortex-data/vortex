@@ -148,7 +148,7 @@ pub struct SparseArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct SparseVTable;
 
 impl SparseArray {

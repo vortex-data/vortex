@@ -31,7 +31,7 @@ use crate::vtable::VTable;
 
 vtable!(Expr);
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ExprVTable;
 
 impl VTable for ExprVTable {
