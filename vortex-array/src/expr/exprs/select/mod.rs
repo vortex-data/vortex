@@ -207,7 +207,7 @@ impl VTable for Select {
     }
 
     fn is_fallible(&self, _instance: &Self::Instance) -> bool {
-        // if this type checks its infallible
+        // If this type-checks its infallible.
         false
     }
 }
