@@ -704,7 +704,10 @@ impl Patches {
         }
     }
 
-    #[allow(clippy::cognitive_complexity)]
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "complexity is from nested match_each_* macros"
+    )]
     pub fn take_search(
         &self,
         take_indices: PrimitiveArray,

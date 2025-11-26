@@ -32,11 +32,17 @@ use vortex_error::VortexExpect;
 /// This is one of the physical representations of `DecimalScalar` values and can be safely converted
 /// back and forth with Arrow's [`i256`][arrow_buffer::i256].
 #[repr(transparent)]
-#[allow(non_camel_case_types)]
+#[expect(
+    non_camel_case_types,
+    reason = "i256 matches Rust primitive naming convention"
+)]
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct i256(arrow_buffer::i256);
 
-#[allow(clippy::same_name_method)]
+#[expect(
+    clippy::same_name_method,
+    reason = "inherent methods intentionally shadow arrow_buffer::i256 methods"
+)]
 impl i256 {
     /// The zero value for `i256`.
     pub const ZERO: Self = Self(arrow_buffer::i256::ZERO);

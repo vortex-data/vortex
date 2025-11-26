@@ -349,6 +349,6 @@ fn decompress(bencher: Bencher, (name, setup_fn): (&str, fn() -> ArrayRef)) {
     let nbytes = compressed.nbytes();
 
     with_counter!(bencher, nbytes)
-        .with_inputs(|| compressed.clone())
-        .bench_values(|a| a.to_canonical());
+        .with_inputs(|| &compressed)
+        .bench_refs(|a| a.to_canonical());
 }

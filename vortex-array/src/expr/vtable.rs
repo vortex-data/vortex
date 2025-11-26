@@ -220,6 +220,8 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     fn is_null_sensitive(&self, instance: &dyn Any) -> bool;
     fn is_fallible(&self, instance: &dyn Any) -> bool;
 
+    fn is_null_sensitive(&self, instance: &dyn Any) -> bool;
+
     fn dyn_eq(&self, instance: &dyn Any, other: &dyn Any) -> bool;
     fn dyn_hash(&self, instance: &dyn Any, state: &mut dyn Hasher);
 }

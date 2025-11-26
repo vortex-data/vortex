@@ -73,7 +73,10 @@ impl NativeWriter {
         unsafe { Box::from_raw(pointer as *mut Self) }
     }
 
-    #[allow(clippy::expect_used)]
+    #[expect(
+        clippy::expect_used,
+        reason = "JNI contract guarantees non-null pointer"
+    )]
     pub unsafe fn from_ptr<'a>(pointer: jlong) -> &'a Self {
         unsafe {
             (pointer as *const Self)

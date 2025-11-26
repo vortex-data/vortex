@@ -127,7 +127,6 @@ impl RLEArray {
     /// - The `indices` array contains valid indices into chunks of the `values` array
     /// - The `values_idx_offsets` array contains valid chunk start offsets
     /// - The `validity` array has the same length as `length`
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn new_unchecked(
         values: ArrayRef,
         indices: ArrayRef,
@@ -182,7 +181,10 @@ impl RLEArray {
     /// Offsets in `values_idx_offsets` are absolute and need to be shifted
     /// by the offset of the first chunk, respective the current slice, in
     /// order to make them relative.
-    #[allow(clippy::expect_used)]
+    #[expect(
+        clippy::expect_used,
+        reason = "expect is safe here as scalar_at returns a valid primitive"
+    )]
     pub(crate) fn values_idx_offset(&self, chunk_idx: usize) -> usize {
         self.values_idx_offsets
             .scalar_at(chunk_idx)

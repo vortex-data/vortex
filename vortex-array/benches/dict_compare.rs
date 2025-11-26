@@ -45,7 +45,7 @@ fn bench_compare_primitive(bencher: divan::Bencher, (len, uniqueness): (usize, u
     let dict = dict_encode(primitive_arr.as_ref()).unwrap();
     let value = primitive_arr.as_slice::<i32>()[0];
 
-    bencher.with_inputs(|| dict.clone()).bench_refs(|dict| {
+    bencher.with_inputs(|| &dict).bench_refs(|dict| {
         compare(
             dict.as_ref(),
             ConstantArray::new(value, len).as_ref(),
@@ -62,7 +62,7 @@ fn bench_compare_varbin(bencher: divan::Bencher, (len, uniqueness): (usize, usiz
     let bytes = varbin_arr.with_iterator(|i| i.next().unwrap().unwrap().to_vec());
     let value = from_utf8(bytes.as_slice()).unwrap();
 
-    bencher.with_inputs(|| dict.clone()).bench_refs(|dict| {
+    bencher.with_inputs(|| &dict).bench_refs(|dict| {
         compare(
             dict.as_ref(),
             ConstantArray::new(value, len).as_ref(),
@@ -78,7 +78,7 @@ fn bench_compare_varbinview(bencher: divan::Bencher, (len, uniqueness): (usize, 
     let dict = dict_encode(varbinview_arr.as_ref()).unwrap();
     let bytes = varbinview_arr.with_iterator(|i| i.next().unwrap().unwrap().to_vec());
     let value = from_utf8(bytes.as_slice()).unwrap();
-    bencher.with_inputs(|| dict.clone()).bench_refs(|dict| {
+    bencher.with_inputs(|| &dict).bench_refs(|dict| {
         compare(
             dict.as_ref(),
             ConstantArray::new(value, len).as_ref(),
@@ -110,9 +110,9 @@ fn bench_compare_sliced_dict_primitive(
     let dict = dict.slice(0..codes_len);
     let value = primitive_arr.as_slice::<i32>()[0];
 
-    bencher.with_inputs(|| dict.clone()).bench_refs(|dict| {
+    bencher.with_inputs(|| &dict).bench_refs(|dict| {
         compare(
-            dict,
+            dict.as_ref(),
             ConstantArray::new(value, codes_len).as_ref(),
             Operator::Eq,
         )
@@ -131,9 +131,9 @@ fn bench_compare_sliced_dict_varbinview(
     let bytes = varbin_arr.with_iterator(|i| i.next().unwrap().unwrap().to_vec());
     let value = from_utf8(bytes.as_slice()).unwrap();
 
-    bencher.with_inputs(|| dict.clone()).bench_refs(|dict| {
+    bencher.with_inputs(|| &dict).bench_refs(|dict| {
         compare(
-            dict,
+            dict.as_ref(),
             ConstantArray::new(value, codes_len).as_ref(),
             Operator::Eq,
         )

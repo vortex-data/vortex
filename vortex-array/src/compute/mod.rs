@@ -380,7 +380,10 @@ pub enum Output {
     Array(ArrayRef),
 }
 
-#[allow(clippy::len_without_is_empty)]
+#[expect(
+    clippy::len_without_is_empty,
+    reason = "Output is always non-empty (scalar has len 1)"
+)]
 impl Output {
     pub fn dtype(&self) -> &DType {
         match self {

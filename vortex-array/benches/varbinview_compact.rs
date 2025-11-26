@@ -20,7 +20,7 @@ fn main() {
     divan::main();
 }
 
-const SMALL_ARGS: &[(usize, usize)] = &[
+const ARGS: &[(usize, usize)] = &[
     // (output_size, buffer_utilization_pct)
     (1 << 12, 10),
     (1 << 12, 90),
@@ -28,29 +28,13 @@ const SMALL_ARGS: &[(usize, usize)] = &[
     (1 << 14, 90),
 ];
 
-const LARGE_ARGS: &[(usize, usize)] = &[
-    // (output_size, buffer_utilization_pct)
-    (1 << 19, 10),
-    (1 << 19, 90),
-];
-
-#[divan::bench(args = SMALL_ARGS)]
+#[divan::bench(args = ARGS)]
 fn compact(bencher: Bencher, args: (usize, usize)) {
     compact_impl(bencher, args);
 }
 
-#[divan::bench(args = LARGE_ARGS, sample_count = 10)]
-fn compact_large(bencher: Bencher, args: (usize, usize)) {
-    compact_impl(bencher, args);
-}
-
-#[divan::bench(args = SMALL_ARGS)]
+#[divan::bench(args = ARGS)]
 fn compact_sliced(bencher: Bencher, args: (usize, usize)) {
-    compact_sliced_impl(bencher, args);
-}
-
-#[divan::bench(args = LARGE_ARGS, sample_count = 10)]
-fn compact_sliced_large(bencher: Bencher, args: (usize, usize)) {
     compact_sliced_impl(bencher, args);
 }
 
@@ -58,25 +42,23 @@ fn compact_impl(bencher: Bencher, (output_size, utilization_pct): (usize, usize)
     let base_size = (output_size * 100) / utilization_pct;
     let base_array = build_varbinview_fixture(base_size);
     let indices = random_indices(output_size, base_size);
+    let taken = take(base_array.as_ref(), &indices).vortex_unwrap();
+    let array = taken.to_varbinview();
 
     bencher
-        .with_inputs(|| {
-            let taken = take(base_array.as_ref(), &indices).vortex_unwrap();
-            taken.to_varbinview()
-        })
-        .bench_values(|array| array.compact_buffers().vortex_unwrap())
+        .with_inputs(|| &array)
+        .bench_refs(|array| array.compact_buffers().vortex_unwrap())
 }
 
 fn compact_sliced_impl(bencher: Bencher, (output_size, utilization_pct): (usize, usize)) {
     let base_size = (output_size * 100) / utilization_pct;
     let base_array = build_varbinview_fixture(base_size);
+    let sliced = base_array.as_ref().slice(0..output_size);
+    let array = sliced.to_varbinview();
 
     bencher
-        .with_inputs(|| {
-            let sliced = base_array.as_ref().slice(0..output_size);
-            sliced.to_varbinview()
-        })
-        .bench_values(|array| array.compact_buffers().vortex_unwrap())
+        .with_inputs(|| &array)
+        .bench_refs(|array| array.compact_buffers().vortex_unwrap())
 }
 
 /// Creates a base VarBinViewArray with mix of inlined and outlined strings.

@@ -99,7 +99,10 @@ impl<'a> DecimalScalar<'a> {
 
                     // Cast to target primitive type. Note that the `as` keyword does **MORE** than
                     // a simple bitcast / memory transmuation.
-                    #[allow(clippy::cast_possible_truncation)]
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "truncation is intentional - range checks happen after"
+                    )]
                     let primitive_scalar = match ptype {
                         PType::U8 => {
                             let v = actual_value as u8;

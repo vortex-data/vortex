@@ -154,7 +154,10 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
         encoded_bytes + patch_bytes
     }
 
-    #[allow(clippy::type_complexity)]
+    #[expect(
+        clippy::type_complexity,
+        reason = "tuple return type is appropriate for multiple encoding outputs"
+    )]
     fn encode(
         values: &[Self],
         exponents: Option<Exponents>,

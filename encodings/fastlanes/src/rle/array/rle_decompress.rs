@@ -19,7 +19,10 @@ use crate::FL_CHUNK_SIZE;
 use crate::RLEArray;
 
 /// Decompresses an RLE array back into a primitive array.
-#[allow(clippy::cognitive_complexity)]
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "complexity is from nested match_each_* macros"
+)]
 pub fn rle_decompress(array: &RLEArray) -> PrimitiveArray {
     match_each_native_ptype!(array.values().dtype().as_ptype(), |V| {
         match_each_unsigned_integer_ptype!(array.values_idx_offsets().dtype().as_ptype(), |O| {
@@ -37,7 +40,6 @@ pub fn rle_decompress(array: &RLEArray) -> PrimitiveArray {
 }
 
 /// Decompresses an `RLEArray` into to a primitive array of unsigned integers.
-#[allow(clippy::cognitive_complexity)]
 fn rle_decode_typed<V, I, O>(array: &RLEArray) -> PrimitiveArray
 where
     V: NativePType + RLE + Clone + Copy,

@@ -28,12 +28,18 @@ use std::sync::PoisonError;
 #[derive(Debug)]
 pub struct ErrString(Cow<'static, str>);
 
-#[allow(clippy::fallible_impl_from)]
+#[expect(
+    clippy::fallible_impl_from,
+    reason = "intentionally panic in debug mode when VORTEX_PANIC_ON_ERR is set"
+)]
 impl<T> From<T> for ErrString
 where
     T: Into<Cow<'static, str>>,
 {
-    #[allow(clippy::panic)]
+    #[expect(
+        clippy::panic,
+        reason = "intentionally panic in debug mode when VORTEX_PANIC_ON_ERR is set"
+    )]
     fn from(msg: T) -> Self {
         if env::var("VORTEX_PANIC_ON_ERR").as_deref().unwrap_or("") == "1" {
             panic!("{}\nBacktrace:\n{}", msg.into(), Backtrace::capture());

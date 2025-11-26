@@ -110,7 +110,6 @@ impl PrimitiveArray {
     }
 
     /// Try to extract a mutable buffer from the PrimitiveArray with zero copy.
-    #[allow(clippy::panic_in_result_fn)]
     pub fn try_into_buffer_mut<T: NativePType>(self) -> Result<BufferMut<T>, PrimitiveArray> {
         if T::PTYPE != self.ptype() {
             vortex_panic!(

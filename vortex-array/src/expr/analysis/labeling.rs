@@ -13,11 +13,11 @@ use crate::expr::traversal::TraversalOrder;
 /// Label each node in an expression tree using a bottom-up traversal.
 ///
 /// This function separates tree labeling into two distinct steps:
-/// 1. **Label Edge**: Compute a label for each node based only on the node itself
+/// 1. **Label Self**: Compute a label for each node based only on the node itself
 /// 2. **Merge Child**: Fold/accumulate labels from children into the node's self-label
 ///
 /// The labeling process:
-/// - First, `label_edge` is called on the node to produce its self-label
+/// - First, `self_label` is called on the node to produce its self-label
 /// - Then, for each child, `merge_child` is called with `(self_label, child_label)`
 ///   to fold the child label into the self_label
 /// - This produces the final label for the node
@@ -25,19 +25,19 @@ use crate::expr::traversal::TraversalOrder;
 /// # Parameters
 ///
 /// - `expr`: The root expression to label
-/// - `label_edge`: Function that computes a label for a single node
+/// - `self_label`: Function that computes a label for a single node
 /// - `merge_child`: Mutable function that folds child labels into an accumulator.
 ///   Takes `(self_label, child_label)` and returns the updated accumulator.
 ///   Called once per child, with the initial accumulator being the node's self-label.
 ///
 pub fn label_tree<L: Clone>(
     expr: &Expression,
-    label_edge: impl Fn(&Expression) -> L,
+    self_label: impl Fn(&Expression) -> L,
     mut merge_child: impl FnMut(L, &L) -> L,
 ) -> HashMap<&Expression, L> {
     let mut visitor = LabelingVisitor {
         labels: Default::default(),
-        label_edge,
+        self_label,
         merge_child: &mut merge_child,
     };
     expr.accept(&mut visitor)
@@ -51,7 +51,7 @@ where
     G: FnMut(L, &L) -> L,
 {
     labels: HashMap<&'a Expression, L>,
-    label_edge: F,
+    self_label: F,
     merge_child: &'b mut G,
 }
 
@@ -67,7 +67,7 @@ where
     }
 
     fn visit_up(&mut self, node: &'a Expression) -> VortexResult<TraversalOrder> {
-        let self_label = (self.label_edge)(node);
+        let self_label = (self.self_label)(node);
 
         let final_label = node.children().iter().fold(self_label, |acc, child| {
             let child_label = self

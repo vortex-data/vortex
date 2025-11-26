@@ -213,7 +213,10 @@ pub trait IsSortedKernel: VTable {
     fn is_strict_sorted(&self, array: &Self::Array) -> VortexResult<Option<bool>>;
 }
 
-#[allow(clippy::wrong_self_convention)]
+#[expect(
+    clippy::wrong_self_convention,
+    reason = "is_* naming follows Iterator::is_sorted convention"
+)]
 /// Helper methods to check sortedness with strictness
 pub trait IsSortedIteratorExt: Iterator
 where

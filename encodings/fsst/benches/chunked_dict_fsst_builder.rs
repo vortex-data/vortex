@@ -43,7 +43,7 @@ fn chunked_dict_fsst_canonical_into(
 ) {
     let chunk = make_dict_fsst_chunks::<u16>(len, unique_values, chunk_count);
 
-    bencher.with_inputs(|| chunk.clone()).bench_values(|chunk| {
+    bencher.with_inputs(|| &chunk).bench_refs(|chunk| {
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
         chunk.append_to_builder(builder.as_mut());
         builder.finish()
@@ -58,6 +58,6 @@ fn chunked_dict_fsst_into_canonical(
     let chunk = make_dict_fsst_chunks::<u16>(len, unique_values, chunk_count);
 
     bencher
-        .with_inputs(|| chunk.clone())
-        .bench_values(|chunk| chunk.to_canonical())
+        .with_inputs(|| &chunk)
+        .bench_refs(|chunk| chunk.to_canonical())
 }

@@ -242,7 +242,10 @@ impl VectorMut {
     }
 
     /// Consumes `self` and returns the inner [`StringVectorMut`] if `self` is of that variant.
-    #[allow(clippy::same_name_method)] // Same as VarBinTypeDowncast
+    #[expect(
+        clippy::same_name_method,
+        reason = "intentionally shadows VarBinTypeDowncast method"
+    )]
     pub fn into_string(self) -> StringVectorMut {
         if let VectorMut::String(v) = self {
             return v;
@@ -251,7 +254,10 @@ impl VectorMut {
     }
 
     /// Consumes `self` and returns the inner [`BinaryVectorMut`] if `self` is of that variant.
-    #[allow(clippy::same_name_method)] // Same as VarBinTypeDowncast
+    #[expect(
+        clippy::same_name_method,
+        reason = "intentionally shadows VarBinTypeDowncast method"
+    )]
     pub fn into_binary(self) -> BinaryVectorMut {
         if let VectorMut::Binary(v) = self {
             return v;

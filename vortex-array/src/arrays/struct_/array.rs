@@ -381,7 +381,6 @@ impl StructArray {
     /// which specifies the new ordering of columns in the struct. The projection can be used to
     /// perform column re-ordering, deletion, or duplication at a logical level, without any data
     /// copying.
-    #[allow(clippy::same_name_method)]
     pub fn project(&self, projection: &[FieldName]) -> VortexResult<Self> {
         let mut children = Vec::with_capacity(projection.len());
         let mut names = Vec::with_capacity(projection.len());

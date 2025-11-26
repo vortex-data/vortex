@@ -30,7 +30,7 @@ const BENCH_ARGS: &[(usize, usize)] = &[
 fn chunked_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunk = make_bool_chunks(len, chunk_count);
 
-    bencher.with_inputs(|| chunk.clone()).bench_values(|chunk| {
+    bencher.with_inputs(|| &chunk).bench_refs(|chunk| {
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
         chunk.append_to_builder(builder.as_mut());
         builder.finish()
@@ -41,9 +41,9 @@ fn chunked_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usi
 fn chunked_opt_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunk = make_opt_bool_chunks(len, chunk_count);
 
-    bencher.with_inputs(|| chunk.clone()).bench_values(|chunk| {
+    bencher.with_inputs(|| &chunk).bench_refs(|chunk| {
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk.clone().append_to_builder(builder.as_mut());
+        chunk.append_to_builder(builder.as_mut());
         builder.finish()
     })
 }
@@ -53,8 +53,8 @@ fn chunked_bool_into_canonical(bencher: Bencher, (len, chunk_count): (usize, usi
     let chunk = make_bool_chunks(len, chunk_count);
 
     bencher
-        .with_inputs(|| chunk.clone())
-        .bench_values(|chunk| chunk.to_canonical())
+        .with_inputs(|| &chunk)
+        .bench_refs(|chunk| chunk.to_canonical())
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -62,24 +62,22 @@ fn chunked_opt_bool_into_canonical(bencher: Bencher, (len, chunk_count): (usize,
     let chunk = make_opt_bool_chunks(len, chunk_count);
 
     bencher
-        .with_inputs(|| chunk.clone())
-        .bench_values(|chunk| chunk.to_canonical())
+        .with_inputs(|| &chunk)
+        .bench_refs(|chunk| chunk.to_canonical())
 }
 
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_varbinview_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_string_chunks(false, len, chunk_count);
 
-    bencher
-        .with_inputs(|| chunks.clone())
-        .bench_values(|chunk| {
-            let mut builder = VarBinViewBuilder::with_capacity(
-                DType::Utf8(chunk.dtype().nullability()),
-                len * chunk_count,
-            );
-            chunk.append_to_builder(&mut builder);
-            builder.finish()
-        })
+    bencher.with_inputs(|| &chunks).bench_refs(|chunk| {
+        let mut builder = VarBinViewBuilder::with_capacity(
+            DType::Utf8(chunk.dtype().nullability()),
+            len * chunk_count,
+        );
+        chunk.append_to_builder(&mut builder);
+        builder.finish()
+    })
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -87,24 +85,22 @@ fn chunked_varbinview_into_canonical(bencher: Bencher, (len, chunk_count): (usiz
     let chunks = make_string_chunks(false, len, chunk_count);
 
     bencher
-        .with_inputs(|| chunks.clone())
-        .bench_values(|chunk| chunk.to_canonical())
+        .with_inputs(|| &chunks)
+        .bench_refs(|chunk| chunk.to_canonical())
 }
 
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_varbinview_opt_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_string_chunks(true, len, chunk_count);
 
-    bencher
-        .with_inputs(|| chunks.clone())
-        .bench_values(|chunk| {
-            let mut builder = VarBinViewBuilder::with_capacity(
-                DType::Utf8(chunk.dtype().nullability()),
-                len * chunk_count,
-            );
-            chunk.append_to_builder(&mut builder);
-            builder.finish()
-        })
+    bencher.with_inputs(|| &chunks).bench_refs(|chunk| {
+        let mut builder = VarBinViewBuilder::with_capacity(
+            DType::Utf8(chunk.dtype().nullability()),
+            len * chunk_count,
+        );
+        chunk.append_to_builder(&mut builder);
+        builder.finish()
+    })
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -112,8 +108,8 @@ fn chunked_varbinview_opt_into_canonical(bencher: Bencher, (len, chunk_count): (
     let chunks = make_string_chunks(true, len, chunk_count);
 
     bencher
-        .with_inputs(|| chunks.clone())
-        .bench_values(|chunk| chunk.to_canonical())
+        .with_inputs(|| &chunks)
+        .bench_refs(|chunk| chunk.to_canonical())
 }
 
 fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {

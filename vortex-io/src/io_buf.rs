@@ -446,7 +446,10 @@ mod tests {
     #[should_panic(expected = "Invalid range")]
     fn test_owned_slice_invalid_range() {
         let data = vec![1, 2, 3];
-        #[allow(clippy::reversed_empty_ranges)]
+        #[expect(
+            clippy::reversed_empty_ranges,
+            reason = "intentionally testing invalid range"
+        )]
         data.slice_owned(5..3); // start > end
     }
 

@@ -176,7 +176,6 @@ impl Vector {
         unsafe { LogicalType::own(cpp::duckdb_vector_get_column_type(self.as_ptr())) }
     }
 
-    #[allow(clippy::expect_used)]
     /// Ensure the validity slice is writable.
     ///
     /// # SAFETY
@@ -186,7 +185,10 @@ impl Vector {
         unsafe { self.ensure_validity_slice(capacity) }.view_bits_mut()
     }
 
-    #[allow(clippy::expect_used)]
+    #[expect(
+        clippy::expect_used,
+        reason = "expect is safe after ensure_validity_writable"
+    )]
     /// Ensure the validity slice is writable.
     ///
     /// # SAFETY

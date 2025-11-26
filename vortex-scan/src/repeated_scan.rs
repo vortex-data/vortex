@@ -79,7 +79,10 @@ impl RepeatedScan<ArrayRef> {
 
 impl<A: 'static + Send> RepeatedScan<A> {
     /// Constructor just to allow `scan_builder` to create a `RepeatedScan`.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "all arguments are needed for scan construction"
+    )]
     pub(super) fn new(
         session: VortexSession,
         layout_reader: LayoutReaderRef,

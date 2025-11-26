@@ -322,7 +322,10 @@ impl VarBinViewArray {
     }
 
     /// Accumulate an iterable set of values into our type here.
-    #[allow(clippy::same_name_method)]
+    #[expect(
+        clippy::same_name_method,
+        reason = "intentionally named from_iter like Iterator::from_iter"
+    )]
     pub fn from_iter<T: AsRef<[u8]>, I: IntoIterator<Item = Option<T>>>(
         iter: I,
         dtype: DType,

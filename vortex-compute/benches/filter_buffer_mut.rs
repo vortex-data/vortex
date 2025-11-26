@@ -64,13 +64,10 @@ impl From<u8> for LargeElement {
 #[divan::bench(types = [u8, u32, u64, LargeElement], args = SELECTIVITIES, sample_count = 1000)]
 fn filter_selectivity<T: Copy + Default + From<u8>>(bencher: Bencher, selectivity: f64) {
     let mask = generate_mask(BUFFER_SIZE, selectivity);
+
     bencher
-        .with_inputs(|| {
-            let buffer = create_test_buffer::<T>(BUFFER_SIZE);
-            (buffer, mask.clone())
-        })
-        .bench_values(|(mut buffer, mask)| {
+        .with_inputs(|| create_test_buffer::<T>(BUFFER_SIZE))
+        .bench_refs(|buffer| {
             buffer.filter(&mask);
-            divan::black_box(buffer);
         });
 }

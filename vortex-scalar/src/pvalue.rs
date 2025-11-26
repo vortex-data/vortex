@@ -435,7 +435,10 @@ int_coerce!(i32);
 int_coerce!(i64);
 
 impl CoercePValue for f16 {
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "truncation is intentional and checked where needed"
+    )]
     fn coerce(value: PValue) -> VortexResult<Self> {
         // F16 coercion behavior:
         // - U8/U16/U32/U64: Interpreted as the bit representation of an f16 value.
@@ -479,7 +482,10 @@ impl CoercePValue for f16 {
 }
 
 impl CoercePValue for f32 {
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "truncation is intentional and checked where needed"
+    )]
     fn coerce(value: PValue) -> VortexResult<Self> {
         // F32 coercion: U32 values are interpreted as bit patterns, not numeric conversions
         match value {

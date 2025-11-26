@@ -57,7 +57,10 @@ impl NativeFile {
         unsafe { Box::from_raw(pointer as *mut NativeFile) }
     }
 
-    #[allow(clippy::expect_used)]
+    #[expect(
+        clippy::expect_used,
+        reason = "JNI contract guarantees non-null pointer"
+    )]
     pub unsafe fn from_ptr<'a>(pointer: jlong) -> &'a Self {
         unsafe {
             (pointer as *const NativeFile)

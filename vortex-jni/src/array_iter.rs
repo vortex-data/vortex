@@ -26,7 +26,10 @@ impl NativeArrayIterator {
         Box::into_raw(self) as jlong
     }
 
-    #[allow(clippy::expect_used)]
+    #[expect(
+        clippy::expect_used,
+        reason = "JNI contract guarantees non-null pointer"
+    )]
     pub unsafe fn from_ptr<'a>(pointer: jlong) -> &'a Self {
         unsafe {
             (pointer as *const NativeArrayIterator)
@@ -35,7 +38,10 @@ impl NativeArrayIterator {
         }
     }
 
-    #[allow(clippy::expect_used)]
+    #[expect(
+        clippy::expect_used,
+        reason = "JNI contract guarantees non-null pointer"
+    )]
     pub unsafe fn from_ptr_mut<'a>(pointer: jlong) -> &'a mut Self {
         unsafe {
             (pointer as *mut NativeArrayIterator)
