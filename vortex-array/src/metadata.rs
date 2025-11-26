@@ -5,8 +5,8 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::ops::Deref;
 
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::VortexResult;
 
 /// Trait for serializing Vortex metadata to a vector of unaligned bytes.
 pub trait SerializeMetadata {

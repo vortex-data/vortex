@@ -1,38 +1,66 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod funcs;
+mod execution;
+pub mod funcs;
 mod session;
+mod signature;
+mod vtable;
+
+pub use session::*;
+pub use signature::*;
+pub use vtable::*;
 
 use arcref::ArcRef;
+use std::any::Any;
 use std::fmt::Debug;
-use std::sync::Arc;
-use vortex_dtype::DType;
-use vortex_error::VortexResult;
-use vortex_vector::Vector;
+use std::hash::{Hash, Hasher};
+use vortex_utils::debug_with::DebugWith;
 
 pub type FunctionId = ArcRef<str>;
 pub type ChildName = ArcRef<str>;
 
-pub type ScalarFunctionRef = Arc<dyn ScalarFunction>;
+/// An instance of a scalar function bound to some specific invocation options.
+pub struct ScalarFunction {
+    vtable: ScalarFunctionVTable,
+    options: Box<dyn Any + Send + Sync>,
+}
 
-/// Dynamic trait for defining scalar functions in Vortex.
-pub trait ScalarFunction: 'static + Send + Sync + Debug {
-    /// Returns the unique identifier for this function.
-    fn id(&self) -> FunctionId;
+impl Clone for ScalarFunction {
+    fn clone(&self) -> Self {
+        Self {
+            vtable: self.vtable.clone(),
+            options: self.vtable.clone_options(self.options.as_ref()),
+        }
+    }
+}
 
-    /// Returns the child name for this function instance.
-    fn child_name(&self, child_idx: usize) -> ChildName;
+impl Debug for ScalarFunction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ScalarFunction")
+            .field("id", &self.vtable.id())
+            .field(
+                "options",
+                &DebugWith(|fmt| self.vtable.debug_options(self.options.as_ref(), fmt)),
+            )
+            .finish()
+    }
+}
 
-    /// Returns the arity (number of arguments) for this function instance.
-    // TODO(ngates): evolve this API to include more information about the function signature
-    fn arity(&self) -> usize;
+impl PartialEq for ScalarFunction {
+    fn eq(&self, other: &Self) -> bool {
+        self.vtable.id() == other.vtable.id()
+            && self
+                .vtable
+                .eq_options(self.options.as_ref(), other.options.as_ref())
+    }
+}
 
-    /// Computes the return [`DType`] given the argument types.
-    fn return_dtype(&self, arg_types: &[DType]) -> VortexResult<DType>;
+impl Eq for ScalarFunction {}
 
-    /// Executes the function with the given options.
-    // TODO(ngates): this should take an execution context and likely return some sort of physical
-    //  plan node in the future?
-    fn execute(&self, inputs: &[Vector]) -> VortexResult<Vector>;
+impl Hash for ScalarFunction {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.vtable.id().hash(state);
+        self.vtable.hash_options(self.options.as_ref(), state);
+    }
 }

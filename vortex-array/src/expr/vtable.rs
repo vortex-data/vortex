@@ -12,21 +12,21 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_vector::vector_matches_dtype;
 use vortex_vector::Vector;
 use vortex_vector::VectorOps;
-use vortex_vector::vector_matches_dtype;
 
-use crate::ArrayRef;
+use crate::expr::expression::Expression;
 use crate::expr::ExprId;
 use crate::expr::ExpressionView;
 use crate::expr::StatsCatalog;
-use crate::expr::expression::Expression;
 use crate::stats::Stat;
+use crate::ArrayRef;
 
 ///
 /// This trait defines the interface for expression vtables, including methods for
@@ -42,7 +42,7 @@ use crate::stats::Stat;
 /// struct, since most expressions do not require any global state.
 pub trait VTable: 'static + Sized + Send + Sync {
     /// Instance data for this expression.
-    type Instance: 'static + Send + Sync + Debug + PartialEq + Eq + Hash;
+    type Instance: 'static + Send + Sync + PartialEq + Eq + Hash + Display;
 
     /// Returns the ID of the expr vtable.
     fn id(&self) -> ExprId;
@@ -56,10 +56,8 @@ pub trait VTable: 'static + Sized + Send + Sync {
     }
 
     /// Deserialize an instance of this expression.
-    ///
-    /// Returns `Ok(None)` if the expression is not serializable.
-    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
-        Ok(None)
+    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Self::Instance> {
+        vortex_bail!("Expression {} is not deserializable", self.id())
     }
 
     /// Validate the metadata and children for the expression.
@@ -166,7 +164,7 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     fn as_any(&self) -> &dyn Any;
     fn id(&self) -> ExprId;
     fn serialize(&self, instance: &dyn Any) -> VortexResult<Option<Vec<u8>>>;
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Arc<dyn Any + Send + Sync>>>;
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Arc<dyn Any + Send + Sync>>;
     fn child_name(&self, instance: &dyn Any, child_idx: usize) -> ChildName;
     fn validate(&self, expression: &Expression) -> VortexResult<()>;
     fn fmt_sql(&self, expression: &Expression, f: &mut Formatter<'_>) -> fmt::Result;
@@ -212,9 +210,8 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         V::serialize(&self.0, instance)
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Arc<dyn Any + Send + Sync>>> {
-        Ok(V::deserialize(&self.0, metadata)?
-            .map(|data| Arc::new(data) as Arc<dyn Any + Send + Sync>))
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Arc<dyn Any + Send + Sync>> {
+        Ok(Arc::new(V::deserialize(&self.0, metadata)?))
     }
 
     fn child_name(&self, instance: &dyn Any, child_idx: usize) -> ChildName {
@@ -232,13 +229,6 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
     fn fmt_sql(&self, expression: &Expression, f: &mut Formatter<'_>) -> fmt::Result {
         let expr = ExpressionView::new(expression);
         V::fmt_sql(&self.0, &expr, f)
-    }
-
-    fn fmt_data(&self, instance: &dyn Any, f: &mut Formatter<'_>) -> fmt::Result {
-        let instance = instance
-            .downcast_ref::<V::Instance>()
-            .vortex_expect("Failed to downcast expression instance to expected type");
-        V::fmt_data(&self.0, instance, f)
     }
 
     fn return_dtype(&self, expression: &Expression, scope: &DType) -> VortexResult<DType> {
@@ -426,8 +416,8 @@ mod tests {
     use crate::expr::exprs::root::root;
     use crate::expr::exprs::select::select;
     use crate::expr::exprs::select::select_exclude;
-    use crate::expr::proto::ExprSerializeProtoExt;
     use crate::expr::proto::deserialize_expr_proto;
+    use crate::expr::proto::ExprSerializeProtoExt;
     use crate::expr::session::ExprRegistry;
     use crate::expr::session::ExprSession;
 
