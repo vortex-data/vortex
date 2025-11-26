@@ -97,7 +97,10 @@ pub struct SegmentDisplay {
     row_count: u64,
 }
 
-#[allow(clippy::cast_possible_truncation)]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "UI coordinates are small enough"
+)]
 pub fn segments_ui(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
     if app_state.segment_grid_state.segment_tree.is_none() {
         let segment_tree = collect_segment_tree(
@@ -178,7 +181,10 @@ pub fn segments_ui(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
     );
 }
 
-#[allow(clippy::cast_possible_truncation)]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "UI coordinates are small enough"
+)]
 fn render_tree(
     tree: &TaffyTree<()>,
     node: NodeId,

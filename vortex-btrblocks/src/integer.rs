@@ -397,7 +397,6 @@ impl Scheme for BitPackingScheme {
         BITPACKING_SCHEME
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn expected_compression_ratio(
         &self,
         stats: &IntegerStats,
@@ -424,7 +423,6 @@ impl Scheme for BitPackingScheme {
         )
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn compress(
         &self,
         stats: &IntegerStats,

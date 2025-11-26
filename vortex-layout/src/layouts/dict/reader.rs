@@ -156,6 +156,7 @@ impl LayoutReader for DictReader {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
+        // TODO: fix up expr partitioning with fallible & null sensitive annotations
         let values_eval = self.values_eval(expr.clone());
 
         // We register interest on the entire codes row_range for now, there
@@ -203,6 +204,7 @@ impl LayoutReader for DictReader {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
+        // TODO: fix up expr partitioning with fallible & null sensitive annotations
         let values_eval = self.values_eval(root());
         let codes_eval = self
             .codes

@@ -49,7 +49,10 @@ macro_rules! sum_decimal {
 }
 
 impl SumKernel for DecimalVTable {
-    #[allow(clippy::cognitive_complexity)]
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "complexity from nested match_each_* macros"
+    )]
     fn sum(&self, array: &DecimalArray, accumulator: &Scalar) -> VortexResult<Scalar> {
         let decimal_dtype = array.decimal_dtype();
 

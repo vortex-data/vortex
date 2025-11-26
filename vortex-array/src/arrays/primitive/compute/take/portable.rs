@@ -18,6 +18,7 @@ use num_traits::AsPrimitive;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_compute::take::slice::portable;
 use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_native_simd_ptype;
@@ -46,9 +47,9 @@ impl TakeImpl for TakeKernelPortableSimd {
         if array.ptype() == PType::F16 {
             // Special handling for f16 to treat as opaque u16
             let decoded = match_each_unsigned_integer_ptype!(unsigned_indices.ptype(), |C| {
-                take_portable_simd::<C, u16, SIMD_WIDTH>(
-                    unsigned_indices.as_slice(),
+                portable::take_portable_simd::<u16, C, SIMD_WIDTH>(
                     array.reinterpret_cast(PType::U16).as_slice(),
+                    unsigned_indices.as_slice(),
                 )
             });
             Ok(PrimitiveArray::new(decoded, validity)
@@ -57,81 +58,15 @@ impl TakeImpl for TakeKernelPortableSimd {
         } else {
             match_each_unsigned_integer_ptype!(unsigned_indices.ptype(), |C| {
                 match_each_native_simd_ptype!(array.ptype(), |V| {
-                    let decoded = take_portable_simd::<C, V, SIMD_WIDTH>(
-                        unsigned_indices.as_slice(),
+                    let decoded = portable::take_portable_simd::<V, C, SIMD_WIDTH>(
                         array.as_slice(),
+                        unsigned_indices.as_slice(),
                     );
                     Ok(PrimitiveArray::new(decoded, validity).into_array())
                 })
             })
         }
     }
-}
-
-/// Takes elements from an array using SIMD indexing.
-///
-/// # Type Parameters
-/// * `C` - Index type
-/// * `V` - Value type
-/// * `LANE_COUNT` - Number of SIMD lanes to process in parallel
-///
-/// # Parameters
-/// * `indices` - Indices to gather values from
-/// * `values` - Source values to index
-///
-/// # Returns
-/// A `PrimitiveArray` containing the gathered values where each index has been replaced with
-/// the corresponding value from the source array.
-#[multiversion(targets("x86_64+avx2", "x86_64+avx", "aarch64+neon"))]
-fn take_portable_simd<I, V, const LANE_COUNT: usize>(indices: &[I], values: &[V]) -> Buffer<V>
-where
-    I: simd::SimdElement + AsPrimitive<usize>,
-    V: simd::SimdElement + NativePType,
-    simd::LaneCount<LANE_COUNT>: simd::SupportedLaneCount,
-    simd::Simd<I, LANE_COUNT>: SimdUint<Cast<usize> = simd::Simd<usize, LANE_COUNT>>,
-{
-    let indices_len = indices.len();
-
-    let mut buffer = BufferMut::<V>::with_capacity_aligned(
-        indices_len,
-        Alignment::of::<simd::Simd<V, LANE_COUNT>>(),
-    );
-
-    let buf_slice = buffer.spare_capacity_mut();
-
-    for chunk_idx in 0..(indices_len / LANE_COUNT) {
-        let offset = chunk_idx * LANE_COUNT;
-        let mask = simd::Mask::from_bitmask(u64::MAX);
-        let codes_chunk = simd::Simd::<I, LANE_COUNT>::from_slice(&indices[offset..]);
-
-        let selection = simd::Simd::gather_select(
-            values,
-            mask,
-            codes_chunk.cast::<usize>(),
-            simd::Simd::<V, LANE_COUNT>::default(),
-        );
-
-        unsafe {
-            selection.store_select_unchecked(
-                transmute::<&mut [MaybeUninit<V>], &mut [V]>(&mut buf_slice[offset..][..64]),
-                mask.cast(),
-            );
-        }
-    }
-
-    for idx in ((indices_len / LANE_COUNT) * LANE_COUNT)..indices_len {
-        unsafe {
-            buf_slice
-                .get_unchecked_mut(idx)
-                .write(values[indices[idx].as_()]);
-        }
-    }
-
-    unsafe {
-        buffer.set_len(indices_len);
-    }
-
-    buffer.freeze()
 }
 
 #[cfg(test)]

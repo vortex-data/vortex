@@ -27,7 +27,6 @@ impl FoRArray {
     }
 }
 
-#[allow(clippy::cast_possible_truncation)]
 fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
     parray: PrimitiveArray,
     min: T,

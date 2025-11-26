@@ -202,9 +202,6 @@ fn test_parent_rules_traverse_whole_tree() -> VortexResult<()> {
 
     let optimized = optimizer.optimize_array(outer_struct.clone())?;
 
-    println!("in {}", outer_struct.display_tree());
-    println!("opt {}", optimized.display_tree());
-
     let optimized_outer = optimized.as_opt::<StructVTable>().unwrap();
     let inner_struct = optimized_outer.field_by_name("inner_struct")?;
     let outer_field = optimized_outer.field_by_name("outer_field")?;

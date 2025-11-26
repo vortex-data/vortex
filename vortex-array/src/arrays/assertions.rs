@@ -1,6 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+
+use itertools::Itertools;
+
+pub fn format_indices<I: IntoIterator<Item = usize>>(indices: I) -> impl Display {
+    indices.into_iter().format(",")
+}
+
 #[macro_export]
 macro_rules! assert_arrays_eq {
     ($left:expr, $right:expr) => {{
@@ -32,7 +40,7 @@ macro_rules! assert_arrays_eq {
         if mismatched_indices.len() != 0 {
             panic!(
                 "assertion left == right failed: arrays do not match at indices: {}.\n  left: {}\n right: {}",
-                itertools::Itertools::format(mismatched_indices.into_iter(), ", "),
+                $crate::arrays::format_indices(mismatched_indices),
                 left.display_values(),
                 right.display_values()
             )

@@ -3,6 +3,9 @@
 
 //! Take function.
 
+mod buffer;
+pub mod slice;
+
 /// Function for taking based on indices (which can have different representations).
 pub trait Take<Indices: ?Sized> {
     /// The result type after performing the operation.

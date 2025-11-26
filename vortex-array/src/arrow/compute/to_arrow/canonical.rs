@@ -87,7 +87,10 @@ use crate::compute::cast;
 pub(super) struct ToArrowCanonical;
 
 impl Kernel for ToArrowCanonical {
-    #[allow(clippy::cognitive_complexity)]
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "large match statement for all canonical types"
+    )]
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let ToArrowArgs {
             array,
