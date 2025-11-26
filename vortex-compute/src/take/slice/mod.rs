@@ -25,7 +25,8 @@ impl<T: NativePType, I: UnsignedPType> Take<[I]> for &[T] {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         {
             if is_x86_feature_detected!("avx2") {
-                return avx2::take_avx2(self, indices);
+                // SAFETY: We just checked that the AVX2 feature in enabled.
+                return unsafe { avx2::take_avx2(self, indices) };
             }
         }
 
