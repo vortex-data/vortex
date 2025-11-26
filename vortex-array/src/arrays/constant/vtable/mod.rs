@@ -31,7 +31,7 @@ mod visitor;
 
 vtable!(Constant);
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ConstantVTable;
 
 impl VTable for ConstantVTable {

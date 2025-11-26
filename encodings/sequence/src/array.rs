@@ -384,7 +384,7 @@ impl VisitorVTable<SequenceVTable> for SequenceVTable {
     fn visit_children(_array: &SequenceArray, _visitor: &mut dyn ArrayChildVisitor) {}
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct SequenceVTable;
 
 impl EncodeVTable<SequenceVTable> for SequenceVTable {

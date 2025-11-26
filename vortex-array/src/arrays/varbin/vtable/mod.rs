@@ -109,5 +109,5 @@ impl VTable for VarBinVTable {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct VarBinVTable;

@@ -124,5 +124,5 @@ impl VTable for PrimitiveVTable {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct PrimitiveVTable;

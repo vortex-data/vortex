@@ -33,7 +33,7 @@ mod visitor;
 
 vtable!(FixedSizeList);
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct FixedSizeListVTable;
 
 impl VTable for FixedSizeListVTable {

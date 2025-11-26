@@ -113,5 +113,5 @@ impl VTable for ListVTable {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ListVTable;

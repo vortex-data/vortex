@@ -154,7 +154,7 @@ pub struct DateTimePartsArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct DateTimePartsVTable;
 
 impl DateTimePartsArray {
