@@ -7,10 +7,9 @@ mod session;
 mod signature;
 mod vtable;
 
+use arcref::ArcRef;
 pub use session::*;
 pub use signature::*;
 pub use vtable::*;
-
-use arcref::ArcRef;
 
 pub type FunctionId = ArcRef<str>;

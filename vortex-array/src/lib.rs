@@ -24,9 +24,9 @@ pub use context::*;
 pub use hash::*;
 pub use mask_future::*;
 pub use metadata::*;
-use vortex_session::registry::Registry;
 use vortex_session::Ref;
 use vortex_session::SessionExt;
+use vortex_session::registry::Registry;
 
 use crate::array::session::rewrite::ArrayRewriteRuleRegistry;
 use crate::array::transform::AnyArrayParent;

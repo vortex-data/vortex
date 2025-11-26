@@ -1,20 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::functions::execution::ExecutionCtx;
-use crate::functions::scalar::ScalarFn;
-use crate::functions::signature::Signature;
-use crate::functions::FunctionId;
-use arcref::ArcRef;
 use std::any::Any;
 use std::fmt;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::mem::transmute;
 use std::ops::Deref;
 use std::sync::Arc;
+
+use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_vector::Vector;
+
+use crate::functions::FunctionId;
+use crate::functions::execution::ExecutionCtx;
+use crate::functions::scalar::ScalarFn;
+use crate::functions::signature::Signature;
 
 /// A non-object-safe vtable trait for scalar function types.
 ///
@@ -54,7 +59,7 @@ pub trait VTable: 'static + Send + Sync {
     /// Binds the function for execution over a specific set of inputs.
     // TODO(ngates): in the future, we should return a kernel as a node in a physical plan and
     //  continue to run further cost-based optimizations prior to execution.
-    fn execute(&self, _options: &Self::Options, _ctx: &dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(&self, _options: &Self::Options, _ctx: &ExecutionCtx) -> VortexResult<Vector> {
         vortex_bail!("Execution is not supported for {}", self.id())
     }
 }
@@ -72,7 +77,7 @@ pub(super) trait DynScalarFnVTable: 'static + Send + Sync {
     fn debug_options(&self, options: &dyn Any, fmt: &mut fmt::Formatter<'_>) -> fmt::Result;
 
     fn return_dtype(&self, options: &dyn Any, arg_types: &[DType]) -> VortexResult<DType>;
-    fn execute(&self, options: &dyn Any, ctx: &dyn ExecutionCtx) -> VortexResult<Vector>;
+    fn execute(&self, options: &dyn Any, ctx: &ExecutionCtx) -> VortexResult<Vector>;
 }
 
 #[repr(transparent)]
@@ -102,19 +107,19 @@ impl<V: VTable> DynScalarFnVTable for ScalarFnVTableAdapter<V> {
         downcast::<V>(options).hash(&mut hasher);
     }
 
-    fn fmt_options(&self, options: &dyn Any, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(fmt, "{}", downcast::<V>(options))
+    fn fmt_options(&self, options: &dyn Any, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(downcast::<V>(options), f)
     }
 
-    fn debug_options(&self, options: &dyn Any, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(fmt, "{:?}", downcast::<V>(options))
+    fn debug_options(&self, options: &dyn Any, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(downcast::<V>(options), f)
     }
 
     fn return_dtype(&self, options: &dyn Any, arg_types: &[DType]) -> VortexResult<DType> {
         V::return_dtype(&self.0, downcast::<V>(options), arg_types)
     }
 
-    fn execute(&self, options: &dyn Any, ctx: &dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(&self, options: &dyn Any, ctx: &ExecutionCtx) -> VortexResult<Vector> {
         // TODO(ngates): validate result matches expected dtype from ctx.
         V::execute(&self.0, downcast::<V>(options), ctx)
     }
@@ -144,24 +149,19 @@ impl ScalarFnVTable {
         Self(ArcRef::new_ref(adapter))
     }
 
+    /// Crate-local function for accessing the underlying vtable.
+    pub(super) fn as_dyn(&self) -> &dyn DynScalarFnVTable {
+        self.0.deref()
+    }
+
     pub fn id(&self) -> FunctionId {
         self.0.id()
     }
 
     pub fn deserialize(&self, bytes: &[u8]) -> VortexResult<ScalarFn> {
         let options = self.0.deserialize_options(bytes)?;
-        Ok(ScalarFn {
-            vtable: self.clone(),
-            options,
-        })
-    }
-}
-
-impl Deref for ScalarFnVTable {
-    type Target = dyn DynScalarFnVTable;
-
-    fn deref(&self) -> &Self::Target {
-        self.0.deref()
+        // SAFETY: options were created by this vtable.
+        Ok(unsafe { ScalarFn::new_unchecked(self.clone(), options) })
     }
 }
 
