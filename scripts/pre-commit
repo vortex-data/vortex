@@ -80,7 +80,7 @@ else
             echo "... (output truncated, run 'reuse lint' for full report)"
         fi
         echo
-        print_warning "⚠️  To skip checks: git push --no-verify"
+        print_warning "⚠️  To skip checks: git commit --no-verify"
         exit 1
     fi
 fi
@@ -88,7 +88,7 @@ fi
 # ============================================================================
 # CHECK 2: Code Formatting
 # ============================================================================
-# Verify that all Rust code follows the project's formatting standards.
+# Verify that all Rust code and TOML files follow the project's formatting standards.
 # Consistent formatting improves readability and reduces merge conflicts.
 
 print_header "🎨 Checking code formatting"
@@ -98,21 +98,43 @@ if ! command -v cargo &> /dev/null; then
     exit 1
 fi
 
-# Check if code needs formatting.
+# Check if Rust code needs formatting.
 FMT_OUTPUT=$(cargo +nightly fmt --all -- --check 2>&1)
 FMT_EXIT_CODE=$?
 
 if [ $FMT_EXIT_CODE -eq 0 ]; then
-    print_success "✅ Code formatting looks good"
+    print_success "✅ Rust code formatting looks good"
 else
-    print_error "❌ Code needs formatting"
+    print_error "❌ Rust code needs formatting"
     echo
     echo "$FMT_OUTPUT"
     echo
     print_info "💡 Fix with: cargo +nightly fmt"
     echo
-    print_warning "⚠️  To skip checks: git push --no-verify"
+    print_warning "⚠️  To skip checks: git commit --no-verify"
     exit 1
+fi
+
+# Check if TOML files need formatting.
+if ! command -v taplo &> /dev/null; then
+    print_warning "⚠️  taplo not found - skipping TOML formatting check."
+    echo "   Install from: https://github.com/tamasfe/taplo"
+else
+    TAPLO_OUTPUT=$(taplo fmt --check 2>&1)
+    TAPLO_EXIT_CODE=$?
+
+    if [ $TAPLO_EXIT_CODE -eq 0 ]; then
+        print_success "✅ TOML formatting looks good"
+    else
+        print_error "❌ TOML files need formatting"
+        echo
+        echo "$TAPLO_OUTPUT"
+        echo
+        print_info "💡 Fix with: taplo fmt"
+        echo
+        print_warning "⚠️  To skip checks: git commit --no-verify"
+        exit 1
+    fi
 fi
 
 # ============================================================================
