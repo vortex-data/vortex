@@ -126,6 +126,14 @@ impl VTable for Literal {
             }
         }
     }
+
+    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+        false
+    }
+
+    fn is_fallible(&self, _instance: &Self::Instance) -> bool {
+        false
+    }
 }
 
 /// Create a new `Literal` expression from a type that coerces to `Scalar`.

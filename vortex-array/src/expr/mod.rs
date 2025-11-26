@@ -23,7 +23,7 @@ use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::ReferenceCollector;
 
 pub mod aliases;
-mod analysis;
+pub mod analysis;
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
 pub mod display;
@@ -42,6 +42,7 @@ mod vtable;
 pub use analysis::*;
 pub use expression::*;
 pub use exprs::*;
+pub use pruning::StatsCatalog;
 pub use view::*;
 pub use vtable::*;
 

@@ -140,6 +140,15 @@ impl VTable for Pack {
                 .into_array(),
         )
     }
+
+    // This applies a nullability
+    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+        true
+    }
+
+    fn is_fallible(&self, _instance: &Self::Instance) -> bool {
+        false
+    }
 }
 
 impl ExpressionView<'_, Pack> {

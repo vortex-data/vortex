@@ -252,6 +252,10 @@ impl VTable for Binary {
             Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => None,
         }
     }
+
+    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+        false
+    }
 }
 
 impl ExpressionView<'_, Binary> {
