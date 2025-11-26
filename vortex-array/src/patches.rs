@@ -1218,7 +1218,8 @@ mod test {
         let primitive_values = taken.values().to_primitive();
         let primitive_indices = taken.indices().to_primitive();
         assert_eq!(taken.array_len(), 2);
-        assert_eq!(primitive_values.as_slice::<i32>(), [44, 33]);
+        assert_eq!(primitive_values.scalar_at(0), Some(44i32).into());
+        assert_eq!(primitive_values.scalar_at(1), Option::<i32>::None.into());
         assert_eq!(primitive_indices.as_slice::<u64>(), [0, 1]);
 
         assert_eq!(
