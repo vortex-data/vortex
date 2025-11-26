@@ -3,16 +3,22 @@
 
 use std::path::PathBuf;
 
-use bench_vortex::benchmark_driver::{DriverConfig, run_benchmark};
-use bench_vortex::clickbench::{ClickBenchBenchmark, Flavor};
+use bench_vortex::IdempotentPath as _;
+use bench_vortex::Target;
+use bench_vortex::benchmark_driver::DriverConfig;
+use bench_vortex::benchmark_driver::run_benchmark;
+use bench_vortex::clickbench::ClickBenchBenchmark;
+use bench_vortex::clickbench::Flavor;
 use bench_vortex::display::DisplayFormat;
 use bench_vortex::fineweb::Fineweb;
 use bench_vortex::realnest::gharchive::GithubArchive;
+use bench_vortex::setup_logging_and_tracing;
 use bench_vortex::statpopgen::StatPopGenBenchmark;
 use bench_vortex::tpcds::TpcDsBenchmark;
 use bench_vortex::tpch::tpch_benchmark::TpcHBenchmark;
-use bench_vortex::{IdempotentPath as _, Target, setup_logging_and_tracing};
-use clap::{Parser, Subcommand, value_parser};
+use clap::Parser;
+use clap::Subcommand;
+use clap::value_parser;
 use url::Url;
 
 #[derive(Parser, Debug)]

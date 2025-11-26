@@ -10,11 +10,14 @@ use serde::Serialize;
 use url::Url;
 use vortex::ArrayRef;
 
+use crate::Format;
+use crate::clickbench;
 use crate::clickbench::Flavor;
 #[cfg(feature = "lance")]
 use crate::file::register_lance_files;
+use crate::fineweb;
 use crate::realnest::gharchive;
-use crate::{Format, clickbench, fineweb, statpopgen};
+use crate::statpopgen;
 
 pub mod data_downloads;
 pub mod file;

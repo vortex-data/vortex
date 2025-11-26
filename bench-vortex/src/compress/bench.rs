@@ -3,25 +3,27 @@
 
 use std::borrow::Cow;
 use std::fmt;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use anyhow::Result;
 use bytes::Bytes;
 use clap::ValueEnum;
-use parquet::basic::{Compression, ZstdLevel};
+use parquet::basic::Compression;
+use parquet::basic::ZstdLevel;
 use serde::Serialize;
 use tokio::runtime::Runtime;
 use vortex::Array;
 use vortex::arrays::ChunkedVTable;
 use vortex::utils::aliases::hash_map::HashMap;
 #[cfg(feature = "lance")]
+#[rustfmt::skip]
 use {
     super::lance::*,
-    crate::{
-        bench_run::run_with_setup,
-        utils::{convert_utf8view_batch, convert_utf8view_schema},
-    },
+    crate::bench_run::run_with_setup,
+    crate::utils::convert_utf8view_batch,
+    crate::utils::convert_utf8view_schema,
     arrow_array::RecordBatch,
     parking_lot::Mutex,
     std::fs,
@@ -32,9 +34,12 @@ use {
 use crate::Format;
 use crate::bench_run::run;
 use crate::compress::chunked_to_vec_record_batch;
-use crate::compress::parquet::{parquet_compress_write, parquet_decompress_read};
-use crate::compress::vortex::{vortex_compress_write, vortex_decompress_read};
-use crate::measurements::{CompressionTimingMeasurement, CustomUnitMeasurement};
+use crate::compress::parquet::parquet_compress_write;
+use crate::compress::parquet::parquet_decompress_read;
+use crate::compress::vortex::vortex_compress_write;
+use crate::compress::vortex::vortex_decompress_read;
+use crate::measurements::CompressionTimingMeasurement;
+use crate::measurements::CustomUnitMeasurement;
 
 #[derive(Default)]
 pub struct CompressMeasurements {
