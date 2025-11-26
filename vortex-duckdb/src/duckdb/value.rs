@@ -186,8 +186,10 @@ impl Value {
                 width: precision,
                 scale: scale.cast_unsigned(),
                 value: cpp::duckdb_hugeint {
-                    // We want to truncate
-                    #[allow(clippy::cast_possible_truncation)]
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "intentional truncation to lower 64 bits"
+                    )]
                     lower: value as u64,
                     upper: (value >> 64) as i64,
                 },

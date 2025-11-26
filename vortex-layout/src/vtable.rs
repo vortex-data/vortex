@@ -74,7 +74,6 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     ) -> VortexResult<crate::gpu::GpuLayoutReaderRef>;
 
     /// Construct a new [`Layout`] from the provided parts.
-    #[allow(clippy::too_many_arguments)]
     fn build(
         encoding: &Self::Encoding,
         dtype: &DType,

@@ -51,7 +51,6 @@ use crate::validity::Validity;
 pub(super) struct TakeKernelAVX2;
 
 impl TakeImpl for TakeKernelAVX2 {
-    #[allow(clippy::cognitive_complexity)]
     #[inline(always)]
     fn take(
         &self,

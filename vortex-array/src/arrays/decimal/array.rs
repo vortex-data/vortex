@@ -253,7 +253,10 @@ impl DecimalArray {
         )
     }
 
-    #[allow(clippy::cognitive_complexity)]
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "complexity from nested match_each_* macros"
+    )]
     pub fn patch(self, patches: &Patches) -> Self {
         let offset = patches.offset();
         let patch_indices = patches.indices().to_primitive();

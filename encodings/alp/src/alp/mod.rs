@@ -268,7 +268,10 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
     }
 }
 
-#[allow(clippy::cast_possible_truncation)]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "intentional truncation for ALP encoding"
+)]
 fn encode_chunk_unchecked<T: ALPFloat>(
     chunk: &[T],
     exp: Exponents,
@@ -376,7 +379,10 @@ impl ALPFloat for f32 {
     ];
 
     #[inline(always)]
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "intentional float to int truncation for ALP encoding"
+    )]
     fn as_int(self) -> Self::ALPInt {
         self as _
     }
@@ -448,7 +454,10 @@ impl ALPFloat for f64 {
     ];
 
     #[inline(always)]
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "intentional float to int truncation for ALP encoding"
+    )]
     fn as_int(self) -> Self::ALPInt {
         self as _
     }

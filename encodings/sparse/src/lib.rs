@@ -386,7 +386,6 @@ impl ValidityVTable<SparseVTable> for SparseVTable {
         array.patches().values().all_invalid()
     }
 
-    #[allow(clippy::unnecessary_fallible_conversions)]
     fn validity_mask(array: &SparseArray) -> Mask {
         let fill_is_valid = array.fill_scalar().is_valid();
         let values_validity = array.patches().values().validity_mask();
