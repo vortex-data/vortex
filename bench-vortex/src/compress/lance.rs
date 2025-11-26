@@ -17,14 +17,17 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use arrow_array::{RecordBatch, RecordBatchIterator};
+use arrow_array::RecordBatch;
+use arrow_array::RecordBatchIterator;
 use arrow_schema::Schema;
 use futures::StreamExt;
-use lance::dataset::{Dataset, WriteParams};
+use lance::dataset::Dataset;
+use lance::dataset::WriteParams;
 use lance_encoding::version::LanceFileVersion;
 use tempfile::TempDir;
 
-use crate::utils::parquet_utils::{convert_utf8view_batch, convert_utf8view_schema};
+use crate::utils::parquet_utils::convert_utf8view_batch;
+use crate::utils::parquet_utils::convert_utf8view_schema;
 
 /// Write pre-converted [`RecordBatch`]es to Lance format.
 pub async fn lance_compress_write_only(

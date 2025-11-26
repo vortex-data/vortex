@@ -3,8 +3,11 @@
 
 use std::sync::Arc;
 
+use arrow_schema::DataType;
 use arrow_schema::DataType::*;
-use arrow_schema::{DataType, Field, Schema, SchemaRef};
+use arrow_schema::Field;
+use arrow_schema::Schema;
+use arrow_schema::SchemaRef;
 use noodles_vcf::Header;
 
 use crate::statpopgen::vcf_conversion::data_type_from_info;

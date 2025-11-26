@@ -6,10 +6,17 @@
 /// This is a simple wrapper around the `dbgen` tool.
 ///
 /// For more information, see the [dbgen](https://github.com/vortex-data/tpch-dbgen) project.
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
+/// Download TPC-H data via Docker.
+///
+/// This is a simple wrapper around the `dbgen` tool.
+///
+/// For more information, see the [dbgen](https://github.com/vortex-data/tpch-dbgen) project.
+use std::fmt::Formatter;
 use std::fs::File;
 use std::io::copy;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
 
 use dirs::cache_dir;

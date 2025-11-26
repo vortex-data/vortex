@@ -2,18 +2,21 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Read;
+use std::io::Write;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::Context;
+use anyhow::Result;
 use bzip2::read::BzDecoder;
 use log::info;
 use reqwest::Client;
 use tokio::fs::File as TokioFile;
 use tokio::io::AsyncWriteExt;
 
-use crate::utils::file_utils::{idempotent, idempotent_async};
+use crate::utils::file_utils::idempotent;
+use crate::utils::file_utils::idempotent_async;
 
 pub async fn download_data(fname: PathBuf, data_url: &str) -> Result<PathBuf> {
     idempotent_async(&fname, async |path| {
