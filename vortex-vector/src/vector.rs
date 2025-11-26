@@ -267,7 +267,10 @@ impl Vector {
     }
 
     /// Consumes `self` and returns the inner [`StringVector`] if `self` is of that variant.
-    #[allow(clippy::same_name_method)] // Same as VarBinTypeDowncast
+    #[expect(
+        clippy::same_name_method,
+        reason = "intentionally shadows VarBinTypeDowncast method"
+    )]
     pub fn into_string(self) -> StringVector {
         if let Vector::String(v) = self {
             return v;
@@ -276,7 +279,10 @@ impl Vector {
     }
 
     /// Consumes `self` and returns the inner [`BinaryVector`] if `self` is of that variant.
-    #[allow(clippy::same_name_method)] // Same as VarBinTypeDowncast
+    #[expect(
+        clippy::same_name_method,
+        reason = "intentionally shadows VarBinTypeDowncast method"
+    )]
     pub fn into_binary(self) -> BinaryVector {
         if let Vector::Binary(v) = self {
             return v;

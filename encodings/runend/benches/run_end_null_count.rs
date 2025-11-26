@@ -4,11 +4,13 @@
 #![allow(clippy::unwrap_used)]
 
 use divan::Bencher;
+use rand::Rng;
+use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use vortex_array::Array;
+use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::warm_up_vtables;
-use vortex_array::{Array, IntoArray};
 use vortex_buffer::Buffer;
 use vortex_runend::RunEndArray;
 
@@ -50,7 +52,7 @@ fn null_count_run_end(bencher: Bencher, (n, run_step, valid_density): (usize, us
     let array = fixture(n, run_step, valid_density).into_array();
 
     bencher
-        .with_inputs(|| array.clone())
+        .with_inputs(|| &array)
         .bench_refs(|array| array.invalid_count());
 }
 

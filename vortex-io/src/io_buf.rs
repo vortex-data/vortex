@@ -6,7 +6,8 @@
 use std::ops::Range;
 
 use bytes::Bytes;
-use vortex_buffer::{Buffer, ConstByteBuffer};
+use vortex_buffer::Buffer;
+use vortex_buffer::ConstByteBuffer;
 use vortex_error::VortexExpect;
 
 /// Trait for types that can provide a readonly byte buffer interface to I/O frameworks.
@@ -445,7 +446,10 @@ mod tests {
     #[should_panic(expected = "Invalid range")]
     fn test_owned_slice_invalid_range() {
         let data = vec![1, 2, 3];
-        #[allow(clippy::reversed_empty_ranges)]
+        #[expect(
+            clippy::reversed_empty_ranges,
+            reason = "intentionally testing invalid range"
+        )]
         data.slice_owned(5..3); // start > end
     }
 

@@ -4,18 +4,32 @@
 use std::fmt::Formatter;
 use std::ops::Not;
 
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_mask::Mask;
+use vortex_vector::Vector;
+use vortex_vector::VectorOps;
 use vortex_vector::bool::BoolVector;
-use vortex_vector::{Vector, VectorOps};
 
-use crate::arrays::{BoolArray, ConstantArray};
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
+use crate::expr::ChildName;
+use crate::expr::ExecutionArgs;
+use crate::expr::ExprId;
+use crate::expr::Expression;
+use crate::expr::ExpressionView;
+use crate::expr::StatsCatalog;
+use crate::expr::VTable;
+use crate::expr::VTableExt;
 use crate::expr::exprs::binary::eq;
 use crate::expr::exprs::literal::lit;
-use crate::expr::{ChildName, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt};
 use crate::stats::Stat;
-use crate::{Array, ArrayRef, IntoArray};
 
 /// Expression that checks for null values.
 pub struct IsNull;
@@ -71,20 +85,6 @@ impl VTable for IsNull {
         }
     }
 
-    fn execute(
-        &self,
-        expr: &ExpressionView<Self>,
-        vector: &Vector,
-        dtype: &DType,
-    ) -> VortexResult<Vector> {
-        let child = expr.child(0).execute(vector, dtype)?;
-        Ok(BoolVector::new(
-            child.validity().to_bit_buffer().not(),
-            Mask::new_true(child.len()),
-        )
-        .into())
-    }
-
     fn stat_falsification(
         &self,
         expr: &ExpressionView<Self>,
@@ -92,6 +92,23 @@ impl VTable for IsNull {
     ) -> Option<Expression> {
         let null_count_expr = expr.child(0).stat_expression(Stat::NullCount, catalog)?;
         Some(eq(null_count_expr, lit(0u64)))
+    }
+
+    fn execute(&self, _data: &Self::Instance, mut args: ExecutionArgs) -> VortexResult<Vector> {
+        let child = args.vectors.pop().vortex_expect("Missing input child");
+        Ok(BoolVector::new(
+            child.validity().to_bit_buffer().not(),
+            Mask::new_true(child.len()),
+        )
+        .into())
+    }
+
+    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+        true
+    }
+
+    fn is_fallible(&self, _instance: &Self::Instance) -> bool {
+        false
     }
 }
 
@@ -110,7 +127,11 @@ pub fn is_null(child: Expression) -> Expression {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Field, FieldPath, FieldPathSet, Nullability};
+    use vortex_dtype::DType;
+    use vortex_dtype::Field;
+    use vortex_dtype::FieldPath;
+    use vortex_dtype::FieldPathSet;
+    use vortex_dtype::Nullability;
     use vortex_error::VortexUnwrap as _;
     use vortex_scalar::Scalar;
     use vortex_utils::aliases::hash_map::HashMap;
@@ -118,9 +139,11 @@ mod tests {
 
     use super::is_null;
     use crate::IntoArray;
-    use crate::arrays::{PrimitiveArray, StructArray};
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
     use crate::expr::exprs::binary::eq;
-    use crate::expr::exprs::get_item::{col, get_item};
+    use crate::expr::exprs::get_item::col;
+    use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::root::root;
     use crate::expr::pruning::checked_pruning_expr;
@@ -243,5 +266,11 @@ mod tests {
             st.map(),
             &HashMap::from_iter([(FieldPath::from_name("a"), HashSet::from([Stat::NullCount]))])
         );
+    }
+
+    #[test]
+    fn test_is_null_sensitive() {
+        // is_null itself is null-sensitive
+        assert!(is_null(col("a")).is_null_sensitive());
     }
 }

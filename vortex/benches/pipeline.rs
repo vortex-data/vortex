@@ -117,7 +117,8 @@
 use divan::Bencher;
 use fastlanes::BitPacking;
 use rand::Rng;
-use vortex_alp::{ALPFloat, Exponents};
+use vortex_alp::ALPFloat;
+use vortex_alp::Exponents;
 use vortex_error::vortex_panic;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -794,6 +795,7 @@ fn compare_outputs(function_name: &str, expected: &[f32], actual: &[f32], expect
 // Benchmarks
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#[cfg(not(codspeed))]
 #[divan::bench(consts = BENCHMARK_SIZES, sample_size = SAMPLE_SIZE)]
 fn batch<const SIZE: usize>(bencher: Bencher) {
     let (input_data, mut buffers) = setup(SIZE);
@@ -813,6 +815,7 @@ fn batch<const SIZE: usize>(bencher: Bencher) {
     });
 }
 
+#[cfg(not(codspeed))]
 #[divan::bench(consts = BENCHMARK_SIZES, sample_size = SAMPLE_SIZE)]
 fn pipeline<const SIZE: usize>(bencher: Bencher) {
     let (input_data, mut buffers) = setup(SIZE);
@@ -831,6 +834,7 @@ fn pipeline<const SIZE: usize>(bencher: Bencher) {
     });
 }
 
+#[cfg(not(codspeed))]
 #[divan::bench(consts = BENCHMARK_SIZES, sample_size = SAMPLE_SIZE)]
 fn pipeline_extra_copy<const SIZE: usize>(bencher: Bencher) {
     let (input_data, mut buffers) = setup(SIZE);
@@ -850,6 +854,7 @@ fn pipeline_extra_copy<const SIZE: usize>(bencher: Bencher) {
     });
 }
 
+#[cfg(not(codspeed))]
 #[divan::bench(consts = BENCHMARK_SIZES, sample_size = SAMPLE_SIZE)]
 fn in_place_batch<const SIZE: usize>(bencher: Bencher) {
     let (input_data, mut buffers) = setup(SIZE);
@@ -866,6 +871,7 @@ fn in_place_batch<const SIZE: usize>(bencher: Bencher) {
     });
 }
 
+#[cfg(not(codspeed))]
 #[divan::bench(consts = BENCHMARK_SIZES, sample_size = SAMPLE_SIZE)]
 fn in_place_pipeline<const SIZE: usize>(bencher: Bencher) {
     let (input_data, mut buffers) = setup(SIZE);
@@ -887,6 +893,7 @@ fn in_place_pipeline<const SIZE: usize>(bencher: Bencher) {
 // These benchmarks verify that all decompression strategies produce identical
 // and correct results. They run with smaller sizes for quick verification.
 
+#[cfg(not(codspeed))]
 #[divan::bench(consts = VERIFICATION_SIZES)]
 fn verify_all_methods<const SIZE: usize>(bencher: Bencher) {
     bencher

@@ -3,17 +3,28 @@
 
 use std::sync::Arc;
 
-use arrow_array::{ArrayRef as ArrowArrayRef, GenericListArray, OffsetSizeTrait};
-use arrow_schema::{DataType, Field, FieldRef};
-use vortex_dtype::{DType, IntegerPType};
-use vortex_error::{VortexResult, vortex_bail};
+use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_array::GenericListArray;
+use arrow_array::OffsetSizeTrait;
+use arrow_schema::DataType;
+use arrow_schema::Field;
+use arrow_schema::FieldRef;
+use vortex_dtype::DType;
+use vortex_dtype::IntegerPType;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
-use crate::arrays::{ListArray, ListVTable, list_view_from_list};
+use crate::IntoArray;
+use crate::ToCanonical;
+use crate::arrays::ListArray;
+use crate::arrays::ListVTable;
+use crate::arrays::list_view_from_list;
 use crate::arrow::IntoArrowArray;
+use crate::arrow::compute::ToArrowKernel;
+use crate::arrow::compute::ToArrowKernelAdapter;
 use crate::arrow::compute::to_arrow::null_buffer::to_null_buffer;
-use crate::arrow::compute::{ToArrowKernel, ToArrowKernelAdapter};
 use crate::compute::cast;
-use crate::{IntoArray, ToCanonical, register_kernel};
+use crate::register_kernel;
 
 impl ToArrowKernel for ListVTable {
     fn to_arrow(

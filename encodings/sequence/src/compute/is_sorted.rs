@@ -2,12 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::zero;
-use vortex_array::compute::{IsSortedKernel, IsSortedKernelAdapter};
+use vortex_array::compute::IsSortedKernel;
+use vortex_array::compute::IsSortedKernelAdapter;
 use vortex_array::register_kernel;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 
-use crate::{SequenceArray, SequenceVTable};
+use crate::SequenceArray;
+use crate::SequenceVTable;
 
 impl IsSortedKernel for SequenceVTable {
     fn is_sorted(&self, array: &SequenceArray) -> VortexResult<Option<bool>> {

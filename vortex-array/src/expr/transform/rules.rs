@@ -11,7 +11,9 @@ use std::fmt::Debug;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::expr::{Expression, ExpressionView, VTable};
+use crate::expr::Expression;
+use crate::expr::ExpressionView;
+use crate::expr::VTable;
 
 /// Trait that abstracts over parent matching - allows both specific and wildcard parent types.
 pub trait ParentMatcher: Send + Sync + 'static {

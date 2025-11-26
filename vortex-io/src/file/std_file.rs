@@ -3,21 +3,30 @@
 
 use std::fs::File;
 #[cfg(not(unix))]
-use std::io::{Read, Seek};
+use std::io::Read;
+#[cfg(not(unix))]
+use std::io::Seek;
 #[cfg(unix)]
 use std::os::unix::fs::FileExt;
 #[cfg(windows)]
 use std::os::windows::fs::FileExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
+use futures::FutureExt;
+use futures::StreamExt;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
-use futures::{FutureExt, StreamExt};
 use vortex_buffer::ByteBufferMut;
-use vortex_error::{VortexError, VortexResult};
+use vortex_error::VortexError;
+use vortex_error::VortexResult;
 
-use crate::file::{CoalesceWindow, IntoReadSource, IoRequest, ReadSource, ReadSourceRef};
+use crate::file::CoalesceWindow;
+use crate::file::IntoReadSource;
+use crate::file::IoRequest;
+use crate::file::ReadSource;
+use crate::file::ReadSourceRef;
 use crate::runtime::Handle;
 
 /// Read exactly `buffer.len()` bytes from `file` starting at `offset`.

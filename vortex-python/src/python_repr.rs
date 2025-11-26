@@ -2,10 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::convert::AsRef;
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
+use std::fmt::Formatter;
 
 use itertools::Itertools;
-use vortex::dtype::{DType, ExtID, ExtMetadata, Nullability, PType};
+use vortex::dtype::DType;
+use vortex::dtype::ExtID;
+use vortex::dtype::ExtMetadata;
+use vortex::dtype::Nullability;
+use vortex::dtype::PType;
 
 pub trait PythonRepr {
     fn python_repr(&self) -> impl Display;

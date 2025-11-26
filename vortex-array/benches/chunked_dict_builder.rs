@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use divan::Bencher;
-use rand::distr::{Distribution, StandardUniform};
+use rand::distr::Distribution;
+use rand::distr::StandardUniform;
 use vortex_array::Array;
 use vortex_array::arrays::dict_test::gen_dict_primitive_chunks;
 use vortex_array::builders::builder_with_capacity;
@@ -32,7 +33,7 @@ fn chunked_dict_primitive_canonical_into<T: NativePType>(
 {
     let chunk = gen_dict_primitive_chunks::<T, u16>(len, unique_values, chunk_count);
 
-    bencher.with_inputs(|| chunk.clone()).bench_values(|chunk| {
+    bencher.with_inputs(|| &chunk).bench_refs(|chunk| {
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
         chunk.append_to_builder(builder.as_mut());
         builder.finish()
@@ -49,6 +50,6 @@ fn chunked_dict_primitive_into_canonical<T: NativePType>(
     let chunk = gen_dict_primitive_chunks::<T, u16>(len, unique_values, chunk_count);
 
     bencher
-        .with_inputs(|| chunk.clone())
-        .bench_values(|chunk| chunk.to_canonical())
+        .with_inputs(|| &chunk)
+        .bench_refs(|chunk| chunk.to_canonical())
 }

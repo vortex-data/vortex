@@ -5,19 +5,32 @@ use std::any::Any;
 use std::ops::Range;
 use std::sync::Arc;
 
-use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
+use vortex_buffer::ByteBuffer;
+use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
-use vortex_scalar::{BinaryScalar, Scalar, Utf8Scalar};
-use vortex_utils::aliases::hash_map::{Entry, HashMap};
+use vortex_scalar::BinaryScalar;
+use vortex_scalar::Scalar;
+use vortex_scalar::Utf8Scalar;
+use vortex_utils::aliases::hash_map::Entry;
+use vortex_utils::aliases::hash_map::HashMap;
 use vortex_vector::binaryview::BinaryView;
 
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::compact::BufferUtilization;
-use crate::builders::{ArrayBuilder, LazyBitBufferBuilder};
-use crate::canonical::{Canonical, ToCanonical};
-use crate::{Array, ArrayRef, IntoArray};
+use crate::builders::ArrayBuilder;
+use crate::builders::LazyBitBufferBuilder;
+use crate::canonical::Canonical;
+use crate::canonical::ToCanonical;
 
 /// The builder for building a [`VarBinViewArray`].
 pub struct VarBinViewBuilder {
@@ -423,7 +436,7 @@ impl DeduplicatedBuffers {
     }
 
     /// Push a new block if not seen before. Returns the idx of the block.
-    fn push(&mut self, block: ByteBuffer) -> u32 {
+    pub(crate) fn push(&mut self, block: ByteBuffer) -> u32 {
         assert!(self.buffers.len() < u32::MAX as usize, "Too many blocks");
 
         let initial_len = self.len();
@@ -439,21 +452,24 @@ impl DeduplicatedBuffers {
         }
     }
 
-    fn extend_from_option_slice(&mut self, buffers: &[Option<ByteBuffer>]) -> Vec<Option<u32>> {
+    pub(crate) fn extend_from_option_slice(
+        &mut self,
+        buffers: &[Option<ByteBuffer>],
+    ) -> Vec<Option<u32>> {
         buffers
             .iter()
             .map(|buffer| buffer.as_ref().map(|buf| self.push(buf.clone())))
             .collect()
     }
 
-    fn extend_from_slice(&mut self, buffers: &[ByteBuffer]) -> Vec<u32> {
+    pub(crate) fn extend_from_slice(&mut self, buffers: &[ByteBuffer]) -> Vec<u32> {
         buffers
             .iter()
             .map(|buffer| self.push(buffer.clone()))
             .collect()
     }
 
-    fn finish(self) -> Arc<[ByteBuffer]> {
+    pub(crate) fn finish(self) -> Arc<[ByteBuffer]> {
         Arc::from(self.buffers)
     }
 }
@@ -758,11 +774,14 @@ impl RewritingViewAdjustment {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
 
+    use crate::IntoArray;
     use crate::arrays::VarBinViewArray;
-    use crate::builders::{ArrayBuilder, VarBinViewBuilder};
-    use crate::{IntoArray, assert_arrays_eq};
+    use crate::assert_arrays_eq;
+    use crate::builders::ArrayBuilder;
+    use crate::builders::VarBinViewBuilder;
 
     #[test]
     fn test_utf8_builder() {
@@ -927,7 +946,8 @@ mod tests {
 
     #[test]
     fn test_large_value_allocation() {
-        use super::{BufferGrowthStrategy, VarBinViewBuilder};
+        use super::BufferGrowthStrategy;
+        use super::VarBinViewBuilder;
 
         let mut builder = VarBinViewBuilder::new(
             DType::Binary(Nullability::Nullable),

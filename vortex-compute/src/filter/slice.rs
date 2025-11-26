@@ -12,8 +12,11 @@ pub(super) const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
 use std::ptr;
 
-use vortex_buffer::{BitView, Buffer, BufferMut};
-use vortex_mask::{Mask, MaskIter};
+use vortex_buffer::BitView;
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
+use vortex_mask::Mask;
+use vortex_mask::MaskIter;
 
 use crate::filter::Filter;
 

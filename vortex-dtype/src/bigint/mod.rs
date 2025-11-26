@@ -4,12 +4,27 @@
 mod bigcast;
 
 use std::fmt::Display;
-use std::ops::{Add, AddAssign, BitOr, Div, Mul, Neg, Rem, Shl, Shr, Sub};
+use std::ops::Add;
+use std::ops::AddAssign;
+use std::ops::BitOr;
+use std::ops::Div;
+use std::ops::Mul;
+use std::ops::Neg;
+use std::ops::Rem;
+use std::ops::Shl;
+use std::ops::Shr;
+use std::ops::Sub;
 
 pub use bigcast::*;
-use num_traits::{
-    CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, ConstZero, One, WrappingAdd, WrappingSub, Zero,
-};
+use num_traits::CheckedAdd;
+use num_traits::CheckedDiv;
+use num_traits::CheckedMul;
+use num_traits::CheckedSub;
+use num_traits::ConstZero;
+use num_traits::One;
+use num_traits::WrappingAdd;
+use num_traits::WrappingSub;
+use num_traits::Zero;
 use vortex_error::VortexExpect;
 
 /// Signed 256-bit integer type.
@@ -17,11 +32,17 @@ use vortex_error::VortexExpect;
 /// This is one of the physical representations of `DecimalScalar` values and can be safely converted
 /// back and forth with Arrow's [`i256`][arrow_buffer::i256].
 #[repr(transparent)]
-#[allow(non_camel_case_types)]
+#[expect(
+    non_camel_case_types,
+    reason = "i256 matches Rust primitive naming convention"
+)]
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct i256(arrow_buffer::i256);
 
-#[allow(clippy::same_name_method)]
+#[expect(
+    clippy::same_name_method,
+    reason = "inherent methods intentionally shadow arrow_buffer::i256 methods"
+)]
 impl i256 {
     /// The zero value for `i256`.
     pub const ZERO: Self = Self(arrow_buffer::i256::ZERO);
@@ -623,7 +644,8 @@ mod tests {
     #[test]
     fn test_i256_hash() {
         use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
+        use std::hash::Hash;
+        use std::hash::Hasher;
 
         let value1 = i256::from_i128(42);
         let value2 = i256::from_i128(42);

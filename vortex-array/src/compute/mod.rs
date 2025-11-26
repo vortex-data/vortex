@@ -9,8 +9,10 @@
 //! Every array encoding has the ability to implement their own efficient implementations of these
 //! operators, else we will decode, and perform the equivalent operator from Arrow.
 
-use std::any::{Any, type_name};
-use std::fmt::{Debug, Formatter};
+use std::any::Any;
+use std::any::type_name;
+use std::fmt::Debug;
+use std::fmt::Formatter;
 
 use arcref::ArcRef;
 pub use between::*;
@@ -33,13 +35,17 @@ use parking_lot::RwLock;
 pub use sum::*;
 pub use take::*;
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_error::VortexError;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 pub use zip::*;
 
+use crate::Array;
+use crate::ArrayRef;
 use crate::builders::ArrayBuilder;
-use crate::{Array, ArrayRef};
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
@@ -374,7 +380,10 @@ pub enum Output {
     Array(ArrayRef),
 }
 
-#[allow(clippy::len_without_is_empty)]
+#[expect(
+    clippy::len_without_is_empty,
+    reason = "Output is always non-empty (scalar has len 1)"
+)]
 impl Output {
     pub fn dtype(&self) -> &DType {
         match self {
@@ -392,7 +401,7 @@ impl Output {
 
     pub fn unwrap_scalar(self) -> VortexResult<Scalar> {
         match self {
-            Output::Array(_) => vortex_bail!("Expected array output, got Array"),
+            Output::Array(_) => vortex_bail!("Expected scalar output, got Array"),
             Output::Scalar(scalar) => Ok(scalar),
         }
     }

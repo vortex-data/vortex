@@ -3,8 +3,11 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::{FixedSizeListArray, FixedSizeListVTable};
-use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
+use crate::arrays::FixedSizeListArray;
+use crate::arrays::FixedSizeListVTable;
+use crate::compute::MinMaxKernel;
+use crate::compute::MinMaxKernelAdapter;
+use crate::compute::MinMaxResult;
 use crate::register_kernel;
 
 /// MinMax implementation for [`FixedSizeListArray`].

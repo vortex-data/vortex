@@ -6,18 +6,28 @@
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use vortex_error::{VortexError, VortexResult, vortex_panic};
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_error::VortexError;
+use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
+use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
-use super::{
-    MutTypedStatsSetRef, Precision, Stat, StatsProvider, StatsSet, StatsSetIntoIter,
-    TypedStatsSetRef,
-};
+use super::MutTypedStatsSetRef;
+use super::Precision;
+use super::Stat;
+use super::StatsProvider;
+use super::StatsSet;
+use super::StatsSetIntoIter;
+use super::TypedStatsSetRef;
 use crate::Array;
 use crate::builders::builder_with_capacity;
-use crate::compute::{
-    MinMaxResult, is_constant, is_sorted, is_strict_sorted, min_max, nan_count, sum,
-};
+use crate::compute::MinMaxResult;
+use crate::compute::is_constant;
+use crate::compute::is_sorted;
+use crate::compute::is_strict_sorted;
+use crate::compute::min_max;
+use crate::compute::nan_count;
+use crate::compute::sum;
 
 /// A shared [`StatsSet`] stored in an array. Can be shared by copies of the array and can also be mutated in place.
 // TODO(adamg): This is a very bad name.

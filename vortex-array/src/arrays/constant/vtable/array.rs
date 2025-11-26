@@ -6,7 +6,8 @@ use std::hash::Hash;
 use vortex_dtype::DType;
 
 use crate::Precision;
-use crate::arrays::{ConstantArray, ConstantVTable};
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
 use crate::stats::StatsSetRef;
 use crate::vtable::BaseArrayVTable;
 

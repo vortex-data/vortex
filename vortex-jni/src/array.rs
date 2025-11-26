@@ -1,22 +1,44 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_array::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
-use arrow_schema::{DataType, FieldRef, Fields};
+use arrow_array::ffi::FFI_ArrowArray;
+use arrow_array::ffi::FFI_ArrowSchema;
+use arrow_schema::DataType;
+use arrow_schema::FieldRef;
+use arrow_schema::Fields;
 use jni::JNIEnv;
-use jni::objects::{JClass, JIntArray, JLongArray, JObject, JValue};
-use jni::sys::{
-    JNI_FALSE, JNI_TRUE, jboolean, jbyte, jbyteArray, jdouble, jfloat, jint, jlong, jobject,
-    jshort, jstring,
-};
-use vortex::arrays::{VarBinArray, VarBinViewArray};
+use jni::objects::JClass;
+use jni::objects::JIntArray;
+use jni::objects::JLongArray;
+use jni::objects::JObject;
+use jni::objects::JValue;
+use jni::sys::JNI_FALSE;
+use jni::sys::JNI_TRUE;
+use jni::sys::jboolean;
+use jni::sys::jbyte;
+use jni::sys::jbyteArray;
+use jni::sys::jdouble;
+use jni::sys::jfloat;
+use jni::sys::jint;
+use jni::sys::jlong;
+use jni::sys::jobject;
+use jni::sys::jshort;
+use jni::sys::jstring;
+use vortex::Array;
+use vortex::ArrayRef;
+use vortex::ToCanonical;
+use vortex::arrays::VarBinArray;
+use vortex::arrays::VarBinViewArray;
 use vortex::arrow::IntoArrowArray;
 use vortex::dtype::DType;
-use vortex::error::{VortexError, VortexExpect, vortex_err};
-use vortex::scalar::{DecimalValue, i256};
-use vortex::{Array, ArrayRef, ToCanonical};
+use vortex::error::VortexError;
+use vortex::error::VortexExpect;
+use vortex::error::vortex_err;
+use vortex::scalar::DecimalValue;
+use vortex::scalar::i256;
 
-use crate::errors::{JNIError, try_or_throw};
+use crate::errors::JNIError;
+use crate::errors::try_or_throw;
 
 pub struct NativeArray {
     inner: ArrayRef,
@@ -41,7 +63,10 @@ impl NativeArray {
         unsafe { Box::from_raw(pointer as *mut NativeArray) }
     }
 
-    #[allow(clippy::expect_used)]
+    #[expect(
+        clippy::expect_used,
+        reason = "JNI contract guarantees non-null pointer"
+    )]
     pub unsafe fn from_ptr<'a>(pointer: jlong) -> &'a Self {
         unsafe {
             (pointer as *const NativeArray)

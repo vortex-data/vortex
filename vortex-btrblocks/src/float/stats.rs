@@ -7,16 +7,22 @@ use itertools::Itertools;
 use num_traits::Float;
 use rustc_hash::FxBuildHasher;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::{NativeValue, PrimitiveArray, PrimitiveVTable};
+use vortex_array::arrays::NativeValue;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::PrimitiveVTable;
+use vortex_dtype::NativePType;
+use vortex_dtype::PType;
 use vortex_dtype::half::f16;
-use vortex_dtype::{NativePType, PType};
-use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
+use vortex_error::VortexExpect;
+use vortex_error::VortexUnwrap;
+use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::CompressorStats;
+use crate::GenerateStatsOptions;
 use crate::rle::RLEStats;
 use crate::sample::sample;
-use crate::{CompressorStats, GenerateStatsOptions};
 
 #[derive(Debug, Clone)]
 pub struct DistinctValues<T> {
@@ -214,9 +220,10 @@ where
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
 
     use crate::CompressorStats;

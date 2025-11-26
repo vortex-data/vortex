@@ -9,27 +9,41 @@ use std::slice;
 use std::str::FromStr;
 
 use anyhow::Result;
+use jiff::Span;
+use jiff::Timestamp;
+use jiff::Zoned;
+use jiff::tz;
 use jiff::tz::TimeZone;
-use jiff::{Span, Timestamp, Zoned, tz};
 use num_traits::AsPrimitive;
 use tempfile::NamedTempFile;
 use vortex::IntoArray;
-use vortex::arrays::{
-    BoolArray, ConstantArray, DictArray, FixedSizeListArray, ListArray, PrimitiveArray,
-    StructArray, VarBinArray, VarBinViewArray,
-};
+use vortex::arrays::BoolArray;
+use vortex::arrays::ConstantArray;
+use vortex::arrays::DictArray;
+use vortex::arrays::FixedSizeListArray;
+use vortex::arrays::ListArray;
+use vortex::arrays::PrimitiveArray;
+use vortex::arrays::StructArray;
+use vortex::arrays::VarBinArray;
+use vortex::arrays::VarBinViewArray;
 use vortex::buffer::buffer;
-use vortex::dtype::{Nullability, PType};
+use vortex::dtype::Nullability;
+use vortex::dtype::PType;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
-use vortex::scalar::{PValue, Scalar};
+use vortex::scalar::PValue;
+use vortex::scalar::Scalar;
 use vortex::validity::Validity;
 use vortex_runend::RunEndArray;
 use vortex_sequence::SequenceArray;
 
-use crate::cpp::{duckdb_string_t, duckdb_timestamp};
-use crate::duckdb::{Connection, Database};
-use crate::{RUNTIME, SESSION, cpp};
+use crate::RUNTIME;
+use crate::SESSION;
+use crate::cpp;
+use crate::cpp::duckdb_string_t;
+use crate::cpp::duckdb_timestamp;
+use crate::duckdb::Connection;
+use crate::duckdb::Database;
 
 fn database_connection() -> Connection {
     let db = Database::open_in_memory().unwrap();

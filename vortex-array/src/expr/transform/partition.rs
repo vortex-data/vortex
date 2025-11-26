@@ -1,22 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
+use std::fmt::Formatter;
 
 use itertools::Itertools;
-use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_dtype::DType;
+use vortex_dtype::FieldName;
+use vortex_dtype::FieldNames;
+use vortex_dtype::Nullability;
+use vortex_dtype::StructFields;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::expr::Expression;
+use crate::expr::analysis::Annotation;
+use crate::expr::analysis::AnnotationFn;
+use crate::expr::analysis::Annotations;
+use crate::expr::analysis::descendent_annotations;
 use crate::expr::exprs::get_item::get_item;
 use crate::expr::exprs::pack::pack;
 use crate::expr::exprs::root::root;
 use crate::expr::transform::ExprOptimizer;
-use crate::expr::transform::annotations::{
-    Annotation, AnnotationFn, Annotations, descendent_annotations,
-};
-use crate::expr::traversal::{NodeExt, NodeRewriter, Transformed, TraversalOrder};
+use crate::expr::traversal::NodeExt;
+use crate::expr::traversal::NodeRewriter;
+use crate::expr::traversal::Transformed;
+use crate::expr::traversal::TraversalOrder;
 
 /// Partition an expression into sub-expressions that are uniquely associated with an annotation.
 /// A root expression is also returned that can be used to recombine the results of the partitions
@@ -195,21 +205,24 @@ where
 
 #[cfg(test)]
 mod tests {
-    use rstest::{fixture, rstest};
+    use rstest::fixture;
+    use rstest::rstest;
+    use vortex_dtype::DType;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, StructFields};
+    use vortex_dtype::StructFields;
 
     use super::*;
+    use crate::expr::analysis::annotate_scope_access;
     use crate::expr::exprs::binary::and;
-    use crate::expr::exprs::get_item::{col, get_item};
+    use crate::expr::exprs::get_item::col;
+    use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::merge::merge;
     use crate::expr::exprs::pack::pack;
     use crate::expr::exprs::root::root;
     use crate::expr::exprs::select::select;
     use crate::expr::session::ExprSession;
-    use crate::expr::transform::immediate_access::annotate_scope_access;
     use crate::expr::transform::replace::replace_root_fields;
     use crate::expr::transform::simplify_typed::simplify_typed;
 

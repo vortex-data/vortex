@@ -5,9 +5,14 @@ use vortex_buffer::buffer;
 use vortex_scalar::Scalar;
 
 use super::DictArray;
-use crate::arrays::{BoolArray, ListArray, PrimitiveArray, VarBinArray};
+use crate::Array;
+use crate::IntoArray;
+use crate::arrays::BoolArray;
+use crate::arrays::ListArray;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::VarBinArray;
+use crate::assert_arrays_eq;
 use crate::validity::Validity;
-use crate::{Array, IntoArray, assert_arrays_eq};
 
 #[test]
 fn test_slice_into_const_dict() {

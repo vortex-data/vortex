@@ -4,13 +4,29 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex::compute::{BetweenOptions, LikeOptions, StrictComparison};
+use vortex::compute::BetweenOptions;
+use vortex::compute::LikeOptions;
+use vortex::compute::StrictComparison;
 use vortex::dtype::Nullability;
-use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{
-    Between, Binary, Expression, Like, Literal, Operator, VTableExt, and_collect, col, is_null,
-    list_contains, lit, not, or_collect,
-};
+use vortex::error::VortexError;
+use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
+use vortex::error::vortex_err;
+use vortex::expr::Between;
+use vortex::expr::Binary;
+use vortex::expr::Expression;
+use vortex::expr::Like;
+use vortex::expr::Literal;
+use vortex::expr::Operator;
+use vortex::expr::VTableExt;
+use vortex::expr::and_collect;
+use vortex::expr::col;
+use vortex::expr::is_null;
+use vortex::expr::list_contains;
+use vortex::expr::lit;
+use vortex::expr::not;
+use vortex::expr::or_collect;
 use vortex::scalar::Scalar;
 
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
@@ -27,7 +43,10 @@ fn like_pattern_str(value: &duckdb::Expression) -> VortexResult<Option<String>> 
     }
 }
 
-#[allow(clippy::cognitive_complexity)]
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "complexity from exhaustive match on expression types"
+)]
 pub fn try_from_bound_expression(value: &duckdb::Expression) -> VortexResult<Option<Expression>> {
     let Some(value) = value.as_class() else {
         log::debug!("no expression class id {:?}", value.as_class_id());

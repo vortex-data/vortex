@@ -3,18 +3,29 @@
 
 use std::any::Any;
 use std::fmt;
-use std::fmt::{Debug, Display, Formatter};
-use std::hash::{Hash, Hasher};
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_err};
-use vortex_vector::{Vector, VectorOps, vector_matches_dtype};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
+use vortex_vector::Vector;
+use vortex_vector::VectorOps;
+use vortex_vector::vector_matches_dtype;
 
 use crate::ArrayRef;
+use crate::expr::ExprId;
+use crate::expr::ExpressionView;
+use crate::expr::StatsCatalog;
 use crate::expr::expression::Expression;
-use crate::expr::{ExprId, ExpressionView, StatsCatalog};
 use crate::stats::Stat;
 
 ///
@@ -40,14 +51,16 @@ pub trait VTable: 'static + Sized + Send + Sync {
     ///
     /// Should return `Ok(None)` if the expression is not serializable, and `Ok(vec![])` if it is
     /// serializable but has no metadata.
-    fn serialize(&self, _instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+        _ = instance;
         Ok(None)
     }
 
     /// Deserialize an instance of this expression.
     ///
     /// Returns `Ok(None)` if the expression is not serializable.
-    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+        _ = metadata;
         Ok(None)
     }
 
@@ -55,7 +68,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
     fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()>;
 
     /// Returns the name of the nth child of the expr.
-    fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName;
+    fn child_name(&self, instance: &Self::Instance, child_idx: usize) -> ChildName;
 
     /// Format this expression in nice human-readable SQL-style format
     ///
@@ -78,34 +91,81 @@ pub trait VTable: 'static + Sized + Send + Sync {
     fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef>;
 
     /// Execute the expression on the given vector with the given dtype.
-    fn execute(
-        &self,
-        _expr: &ExpressionView<Self>,
-        _vector: &Vector,
-        _dtype: &DType,
-    ) -> VortexResult<Vector> {
+    fn execute(&self, data: &Self::Instance, args: ExecutionArgs) -> VortexResult<Vector> {
+        _ = data;
+        let _args = args;
         // TODO(ngates): remove this once we port to vector execution
+        // TODO(ngates): I think we should take/return an enum of Vector/Scalar.
         vortex_bail!("Expression {} does not support execution", self.id());
     }
 
     /// See [`Expression::stat_falsification`].
     fn stat_falsification(
         &self,
-        _expr: &ExpressionView<Self>,
-        _catalog: &dyn StatsCatalog,
+        expr: &ExpressionView<Self>,
+        catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
+        _ = expr;
+        _ = catalog;
         None
     }
 
     /// See [`Expression::stat_expression`].
     fn stat_expression(
         &self,
-        _expr: &ExpressionView<Self>,
-        _stat: Stat,
-        _catalog: &dyn StatsCatalog,
+        expr: &ExpressionView<Self>,
+        stat: Stat,
+        catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
+        _ = expr;
+        _ = stat;
+        _ = catalog;
         None
     }
+
+    /// Returns whether this expression itself is null-sensitive. Conservatively default to *true*.
+    ///
+    /// An expression is null-sensitive if it directly operates on null values,
+    /// such as `is_null`. Most expressions are not null-sensitive.
+    ///
+    /// The property we are interested in is if the expression (e) distributes over
+    /// mask.
+    /// Define a `mask(a, m)` expression that applies the boolean array `m` to the validity of the
+    /// array `a`.
+    /// An unary expression `e` to be null-sensitive iff forall arrays `a` and masks `m`.
+    /// `e(mask(a, m)) == mask(e(a), m)`.
+    /// This can be extended to an n-ary expression.
+    ///
+    /// This method only checks the expression itself, not its children. To check
+    /// if an expression or any of its descendants are null-sensitive.
+    fn is_null_sensitive(&self, instance: &Self::Instance) -> bool {
+        _ = instance;
+        true
+    }
+
+    /// Returns whether this expression itself is fallible. Conservatively default to *true*.
+    ///
+    /// An expression is runtime fallible is there is an input set that causes the expression to
+    /// panic or return an error, for example checked_add is fallible if there is overflow.
+    ///
+    /// Note: this is only applicable to expressions that pass type-checking
+    /// [`VTable::return_dtype`].
+    fn is_fallible(&self, instance: &Self::Instance) -> bool {
+        _ = instance;
+        true
+    }
+}
+
+/// Arguments for expression execution.
+pub struct ExecutionArgs {
+    /// The input vectors for the expression, one per child.
+    pub vectors: Vec<Vector>,
+    /// The input dtypes for the expression, one per child.
+    pub dtypes: Vec<DType>,
+    /// The row count of the execution scope.
+    pub row_count: usize,
+    /// The expected return dtype of the expression, as computed by [`Expression::return_dtype`].
+    pub return_dtype: DType,
 }
 
 /// Factory functions for static vtables.
@@ -154,12 +214,7 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     fn fmt_data(&self, instance: &dyn Any, f: &mut Formatter<'_>) -> fmt::Result;
     fn return_dtype(&self, expression: &Expression, scope: &DType) -> VortexResult<DType>;
     fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef>;
-    fn execute(
-        &self,
-        expression: &Expression,
-        vector: &Vector,
-        dtype: &DType,
-    ) -> VortexResult<Vector>;
+    fn execute(&self, data: &dyn Any, args: ExecutionArgs) -> VortexResult<Vector>;
 
     fn stat_falsification(
         &self,
@@ -172,6 +227,11 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
         stat: Stat,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression>;
+
+    /// See [`VTable::is_null_sensitive`].
+    fn is_null_sensitive(&self, instance: &dyn Any) -> bool;
+    /// See [`VTable::is_fallible`].
+    fn is_fallible(&self, instance: &dyn Any) -> bool;
 
     fn dyn_eq(&self, instance: &dyn Any, other: &dyn Any) -> bool;
     fn dyn_hash(&self, instance: &dyn Any, state: &mut dyn Hasher);
@@ -237,33 +297,32 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         V::evaluate(&self.0, &expr, scope)
     }
 
-    fn execute(
-        &self,
-        expression: &Expression,
-        vector: &Vector,
-        dtype: &DType,
-    ) -> VortexResult<Vector> {
-        let expr = ExpressionView::new(expression);
-        let result = V::execute(&self.0, &expr, vector, dtype)?;
+    fn execute(&self, data: &dyn Any, args: ExecutionArgs) -> VortexResult<Vector> {
+        let data = data
+            .downcast_ref::<V::Instance>()
+            .vortex_expect("Failed to downcast expression instance to expected type");
+
+        let expected_row_count = args.row_count;
+        #[cfg(debug_assertions)]
+        let expected_dtype = args.return_dtype.clone();
+
+        let result = V::execute(&self.0, data, args)?;
 
         assert_eq!(
             result.len(),
-            vector.len(),
+            expected_row_count,
             "Expression execution returned vector of length {}, but expected {}",
             result.len(),
-            vector.len()
+            expected_row_count,
         );
 
+        // In debug mode, validate that the output dtype matches the expected return dtype.
         #[cfg(debug_assertions)]
-        {
-            // In debug mode, validate that the output dtype matches the expected return dtype.
-            let expected_dtype = V::return_dtype(&self.0, &expr, dtype)?;
-            vortex_ensure!(
-                vector_matches_dtype(&result, &expected_dtype),
-                "Expression execution invalid for dtype {}",
-                expected_dtype
-            );
-        }
+        vortex_ensure!(
+            vector_matches_dtype(&result, &expected_dtype),
+            "Expression execution invalid for dtype {}",
+            expected_dtype
+        );
 
         Ok(result)
     }
@@ -287,6 +346,20 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         V::stat_expression(&self.0, &expr, stat, catalog)
     }
 
+    fn is_null_sensitive(&self, instance: &dyn Any) -> bool {
+        let instance = instance
+            .downcast_ref::<V::Instance>()
+            .vortex_expect("Failed to downcast expression instance to expected type");
+        V::is_null_sensitive(&self.0, instance)
+    }
+
+    fn is_fallible(&self, instance: &dyn Any) -> bool {
+        let instance = instance
+            .downcast_ref::<V::Instance>()
+            .vortex_expect("Failed to downcast expression instance to expected type");
+        V::is_fallible(&self.0, instance)
+    }
+
     fn dyn_eq(&self, instance: &dyn Any, other: &dyn Any) -> bool {
         let this_instance = instance
             .downcast_ref::<V::Instance>()
@@ -306,7 +379,8 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
 }
 
 mod private {
-    use crate::expr::{VTable, VTableAdapter};
+    use crate::expr::VTable;
+    use crate::expr::VTableAdapter;
 
     pub trait Sealed {}
     impl<V: VTable> Sealed for VTableAdapter<V> {}
@@ -386,13 +460,23 @@ impl Debug for ExprVTable {
 
 #[cfg(test)]
 mod tests {
-    use rstest::{fixture, rstest};
+    use rstest::fixture;
+    use rstest::rstest;
 
     use super::*;
     use crate::expr::exprs::between::between;
-    use crate::expr::exprs::binary::{and, checked_add, eq, gt, gt_eq, lt, lt_eq, not_eq, or};
+    use crate::expr::exprs::binary::and;
+    use crate::expr::exprs::binary::checked_add;
+    use crate::expr::exprs::binary::eq;
+    use crate::expr::exprs::binary::gt;
+    use crate::expr::exprs::binary::gt_eq;
+    use crate::expr::exprs::binary::lt;
+    use crate::expr::exprs::binary::lt_eq;
+    use crate::expr::exprs::binary::not_eq;
+    use crate::expr::exprs::binary::or;
     use crate::expr::exprs::cast::cast;
-    use crate::expr::exprs::get_item::{col, get_item};
+    use crate::expr::exprs::get_item::col;
+    use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::is_null::is_null;
     use crate::expr::exprs::list_contains::list_contains;
     use crate::expr::exprs::literal::lit;
@@ -400,9 +484,12 @@ mod tests {
     use crate::expr::exprs::not::not;
     use crate::expr::exprs::pack::pack;
     use crate::expr::exprs::root::root;
-    use crate::expr::exprs::select::{select, select_exclude};
-    use crate::expr::proto::{ExprSerializeProtoExt, deserialize_expr_proto};
-    use crate::expr::session::{ExprRegistry, ExprSession};
+    use crate::expr::exprs::select::select;
+    use crate::expr::exprs::select::select_exclude;
+    use crate::expr::proto::ExprSerializeProtoExt;
+    use crate::expr::proto::deserialize_expr_proto;
+    use crate::expr::session::ExprRegistry;
+    use crate::expr::session::ExprSession;
 
     #[fixture]
     #[once]

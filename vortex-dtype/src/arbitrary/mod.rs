@@ -3,12 +3,19 @@
 
 use std::sync::Arc;
 
-use arbitrary::{Arbitrary, Result, Unstructured};
+use arbitrary::Arbitrary;
+use arbitrary::Result;
+use arbitrary::Unstructured;
 
-use crate::{
-    DType, DecimalDType, FieldName, FieldNames, NativeDecimalType, Nullability, PType,
-    StructFields, i256,
-};
+use crate::DType;
+use crate::DecimalDType;
+use crate::FieldName;
+use crate::FieldNames;
+use crate::NativeDecimalType;
+use crate::Nullability;
+use crate::PType;
+use crate::StructFields;
+use crate::i256;
 
 mod decimal;
 
@@ -87,11 +94,6 @@ impl<'a> Arbitrary<'a> for PType {
 }
 
 impl<'a> Arbitrary<'a> for DecimalDType {
-    #[allow(
-        clippy::unwrap_in_result,
-        clippy::expect_used,
-        clippy::cast_possible_truncation
-    )]
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         // Get a random integer for the scale
         let precision = u.int_in_range(1..=i256::MAX_PRECISION)?;

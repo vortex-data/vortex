@@ -1,15 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_error::VortexError;
+use vortex_error::VortexExpect as _;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 
-use crate::{InnerScalarValue, Scalar, ScalarValue};
+use crate::InnerScalarValue;
+use crate::Scalar;
+use crate::ScalarValue;
 
 /// A scalar value representing binary data.
 ///
@@ -270,9 +278,11 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
-    use vortex_error::{VortexExpect, VortexUnwrap};
+    use vortex_error::VortexExpect;
+    use vortex_error::VortexUnwrap;
 
-    use crate::{BinaryScalar, Scalar};
+    use crate::BinaryScalar;
+    use crate::Scalar;
 
     #[test]
     fn lower_bound() {
@@ -395,7 +405,8 @@ mod tests {
 
     #[test]
     fn test_binary_cast_to_binary() {
-        use vortex_dtype::{DType, Nullability};
+        use vortex_dtype::DType;
+        use vortex_dtype::Nullability;
 
         let binary = Scalar::binary(buffer![1u8, 2, 3], Nullability::NonNullable);
         let scalar = BinaryScalar::try_from(&binary).unwrap();
@@ -410,7 +421,9 @@ mod tests {
 
     #[test]
     fn test_binary_cast_to_non_binary_fails() {
-        use vortex_dtype::{DType, Nullability, PType};
+        use vortex_dtype::DType;
+        use vortex_dtype::Nullability;
+        use vortex_dtype::PType;
 
         let binary = Scalar::binary(buffer![1u8, 2, 3], Nullability::NonNullable);
         let scalar = BinaryScalar::try_from(&binary).unwrap();
@@ -421,7 +434,9 @@ mod tests {
 
     #[test]
     fn test_from_scalar_value_non_binary_dtype() {
-        use vortex_dtype::{DType, Nullability, PType};
+        use vortex_dtype::DType;
+        use vortex_dtype::Nullability;
+        use vortex_dtype::PType;
 
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let value = crate::ScalarValue(crate::InnerScalarValue::Primitive(crate::PValue::I32(42)));

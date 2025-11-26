@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::Canonical;
-use crate::arrays::{BoolArray, BoolVTable};
+use crate::arrays::BoolArray;
+use crate::arrays::BoolVTable;
 use crate::builders::ArrayBuilder;
 use crate::vtable::CanonicalVTable;
 

@@ -7,9 +7,13 @@ use vortex_error::VortexResult;
 use vortex_vector::listview::ListViewVector;
 
 use crate::ArrayRef;
-use crate::arrays::{ListViewArray, ListViewVTable};
-use crate::execution::{BatchKernelRef, BindCtx, kernel};
-use crate::vtable::{OperatorVTable, ValidityHelper};
+use crate::arrays::ListViewArray;
+use crate::arrays::ListViewVTable;
+use crate::execution::BatchKernelRef;
+use crate::execution::BindCtx;
+use crate::execution::kernel;
+use crate::vtable::OperatorVTable;
+use crate::vtable::ValidityHelper;
 
 impl OperatorVTable<ListViewVTable> for ListViewVTable {
     fn bind(
@@ -48,10 +52,11 @@ mod tests {
     use vortex_vector::VectorOps;
 
     use crate::IntoArray;
-    use crate::arrays::listview::tests::common::{
-        create_basic_listview, create_nullable_listview, create_overlapping_listview,
-    };
-    use crate::arrays::{ListViewArray, PrimitiveArray};
+    use crate::arrays::ListViewArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::listview::tests::common::create_basic_listview;
+    use crate::arrays::listview::tests::common::create_nullable_listview;
+    use crate::arrays::listview::tests::common::create_overlapping_listview;
     use crate::validity::Validity;
 
     #[test]

@@ -13,28 +13,43 @@
 //! arrays can be [canonicalized](Canonical) into for ease of access in compute functions.
 
 pub use array::*;
-use arrays::{
-    BoolMaskedValidityRule, DecimalMaskedValidityRule, ExprOptimizationRule, ExprVTable,
-    PrimitiveMaskedValidityRule, StructExprPartitionRule,
-};
+use arrays::BoolMaskedValidityRule;
+use arrays::DecimalMaskedValidityRule;
+use arrays::ExprOptimizationRule;
+use arrays::ExprVTable;
+use arrays::PrimitiveMaskedValidityRule;
+use arrays::StructExprPartitionRule;
 pub use canonical::*;
 pub use context::*;
 pub use hash::*;
 pub use mask_future::*;
 pub use metadata::*;
+use vortex_session::Ref;
+use vortex_session::SessionExt;
 use vortex_session::registry::Registry;
-use vortex_session::{Ref, SessionExt};
 
 use crate::array::session::rewrite::ArrayRewriteRuleRegistry;
-use crate::array::transform::{
-    AnyArrayParent, ArrayOptimizer, ArrayParentReduceRule, ArrayReduceRule,
-};
-use crate::arrays::{
-    BoolVTable, ChunkedVTable, ConstantVTable, DecimalVTable, ExtensionVTable, FixedSizeListVTable,
-    ListVTable, ListViewVTable, MaskedVTable, NullVTable, PrimitiveVTable, StructVTable,
-    VarBinVTable, VarBinViewVTable,
-};
-use crate::vtable::{ArrayVTable, ArrayVTableExt, VTable};
+use crate::array::transform::AnyArrayParent;
+use crate::array::transform::ArrayOptimizer;
+use crate::array::transform::ArrayParentReduceRule;
+use crate::array::transform::ArrayReduceRule;
+use crate::arrays::BoolVTable;
+use crate::arrays::ChunkedVTable;
+use crate::arrays::ConstantVTable;
+use crate::arrays::DecimalVTable;
+use crate::arrays::ExtensionVTable;
+use crate::arrays::FixedSizeListVTable;
+use crate::arrays::ListVTable;
+use crate::arrays::ListViewVTable;
+use crate::arrays::MaskedVTable;
+use crate::arrays::NullVTable;
+use crate::arrays::PrimitiveVTable;
+use crate::arrays::StructVTable;
+use crate::arrays::VarBinVTable;
+use crate::arrays::VarBinViewVTable;
+use crate::vtable::ArrayVTable;
+use crate::vtable::ArrayVTableExt;
+use crate::vtable::VTable;
 
 pub mod accessor;
 #[doc(hidden)]

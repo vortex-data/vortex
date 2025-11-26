@@ -4,7 +4,8 @@
 use std::ops::Deref;
 
 use itertools::Itertools;
-use pyo3::{pyclass, pymethods};
+use pyo3::pyclass;
+use pyo3::pymethods;
 use vortex::ArrayContext;
 
 /// An ArrayContext captures an ordered set of encodings.

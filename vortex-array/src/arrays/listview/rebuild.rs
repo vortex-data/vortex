@@ -3,14 +3,19 @@
 
 use num_traits::FromPrimitive;
 use vortex_buffer::BufferMut;
-use vortex_dtype::{IntegerPType, Nullability, match_each_integer_ptype};
+use vortex_dtype::IntegerPType;
+use vortex_dtype::Nullability;
+use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
 
+use crate::Array;
+use crate::IntoArray;
+use crate::ToCanonical;
 use crate::arrays::ListViewArray;
 use crate::builders::builder_with_capacity;
+use crate::compute;
 use crate::vtable::ValidityHelper;
-use crate::{Array, IntoArray, ToCanonical, compute};
 
 /// Modes for rebuilding a [`ListViewArray`].
 pub enum ListViewRebuildMode {
@@ -257,10 +262,12 @@ mod tests {
     use vortex_dtype::Nullability;
 
     use super::ListViewRebuildMode;
-    use crate::arrays::{ListViewArray, PrimitiveArray};
+    use crate::IntoArray;
+    use crate::ToCanonical;
+    use crate::arrays::ListViewArray;
+    use crate::arrays::PrimitiveArray;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
-    use crate::{IntoArray, ToCanonical};
 
     #[test]
     fn test_rebuild_flatten_removes_overlaps() {

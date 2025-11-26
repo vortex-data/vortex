@@ -3,13 +3,18 @@
 
 use std::ops::BitAnd;
 
-use vortex_buffer::{BitBuffer, BufferMut};
+use vortex_buffer::BitBuffer;
+use vortex_buffer::BufferMut;
 use vortex_vector::VectorOps;
 use vortex_vector::bool::BoolVector;
 
-use crate::comparison::{
-    Compare, Equal, GreaterThan, GreaterThanOrEqual, LessThan, LessThanOrEqual, NotEqual,
-};
+use crate::comparison::Compare;
+use crate::comparison::Equal;
+use crate::comparison::GreaterThan;
+use crate::comparison::GreaterThanOrEqual;
+use crate::comparison::LessThan;
+use crate::comparison::LessThanOrEqual;
+use crate::comparison::NotEqual;
 
 impl<Op> Compare<Op> for &BoolVector
 where

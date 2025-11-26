@@ -3,10 +3,13 @@
 
 use vortex_error::VortexExpect;
 
-use crate::arrays::{ConstantVTable, MaskedArray, MaskedVTable};
+use crate::Array;
+use crate::Canonical;
+use crate::arrays::ConstantVTable;
+use crate::arrays::MaskedArray;
+use crate::arrays::MaskedVTable;
 use crate::compute::mask;
 use crate::vtable::CanonicalVTable;
-use crate::{Array, Canonical};
 
 impl CanonicalVTable<MaskedVTable> for MaskedVTable {
     fn canonicalize(array: &MaskedArray) -> Canonical {
@@ -33,9 +36,10 @@ mod tests {
     use vortex_dtype::Nullability;
 
     use super::*;
+    use crate::IntoArray;
+    use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;
     use crate::validity::Validity;
-    use crate::{IntoArray, ToCanonical};
 
     #[rstest]
     #[case(

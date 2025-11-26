@@ -3,7 +3,8 @@
 
 use std::hash::Hash;
 
-use vortex_utils::aliases::hash_map::{HashMap, IntoIter};
+use vortex_utils::aliases::hash_map::HashMap;
+use vortex_utils::aliases::hash_map::IntoIter;
 use vortex_utils::aliases::hash_set::HashSet;
 
 #[derive(Debug, Clone)]

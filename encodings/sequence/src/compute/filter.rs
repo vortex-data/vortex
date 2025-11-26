@@ -1,16 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::{FilterKernel, FilterKernelAdapter};
+use vortex_array::compute::FilterKernel;
+use vortex_array::compute::FilterKernelAdapter;
+use vortex_array::register_kernel;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayRef, IntoArray, register_kernel};
 use vortex_buffer::BufferMut;
-use vortex_dtype::{NativePType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult};
-use vortex_mask::{AllOr, Mask};
+use vortex_dtype::NativePType;
+use vortex_dtype::match_each_native_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_mask::AllOr;
+use vortex_mask::Mask;
 
-use crate::{SequenceArray, SequenceVTable};
+use crate::SequenceArray;
+use crate::SequenceVTable;
 
 impl FilterKernel for SequenceVTable {
     fn filter(&self, array: &SequenceArray, selection_mask: &Mask) -> VortexResult<ArrayRef> {
@@ -42,9 +49,9 @@ fn filter_impl<T: NativePType>(mul: T, base: T, mask: &Mask, validity: Validity)
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::compute::conformance::filter::{
-        LARGE_SIZE, MEDIUM_SIZE, test_filter_conformance,
-    };
+    use vortex_array::compute::conformance::filter::LARGE_SIZE;
+    use vortex_array::compute::conformance::filter::MEDIUM_SIZE;
+    use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_dtype::Nullability;
 
     use crate::SequenceArray;

@@ -9,7 +9,9 @@ mod opener;
 mod sink;
 mod source;
 
-pub use format::{VortexFormat, VortexFormatFactory, VortexOptions};
+pub use format::VortexFormat;
+pub use format::VortexFormatFactory;
+pub use format::VortexOptions;
 pub use source::VortexSource;
 
 #[cfg(test)]
@@ -34,12 +36,16 @@ fn register_vortex_format_factory(
 mod tests {
     use std::sync::Arc;
 
-    use arrow_schema::{DataType, Field, Schema};
-    use datafusion::arrow::array::{Int8Array, RecordBatch};
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
+    use arrow_schema::Schema;
+    use datafusion::arrow::array::Int8Array;
+    use datafusion::arrow::array::RecordBatch;
     use datafusion::arrow::util::pretty::pretty_format_batches;
-    use datafusion::datasource::listing::{
-        ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
-    };
+    use datafusion::datasource::listing::ListingOptions;
+    use datafusion::datasource::listing::ListingTable;
+    use datafusion::datasource::listing::ListingTableConfig;
+    use datafusion::datasource::listing::ListingTableUrl;
     use datafusion::execution::SessionStateBuilder;
     use datafusion::prelude::SessionContext;
     use datafusion_datasource::file_format::format_as_file_type;
@@ -47,18 +53,23 @@ mod tests {
     use datafusion_physical_plan::display::DisplayableExecutionPlan;
     use insta::assert_snapshot;
     use rstest::rstest;
-    use tempfile::{TempDir, tempdir};
+    use tempfile::TempDir;
+    use tempfile::tempdir;
     use tokio::fs::OpenOptions;
-    use vortex::arrays::{ChunkedArray, StructArray, VarBinArray};
+    use vortex::IntoArray;
+    use vortex::VortexSessionDefault;
+    use vortex::arrays::ChunkedArray;
+    use vortex::arrays::StructArray;
+    use vortex::arrays::VarBinArray;
     use vortex::buffer::buffer;
     use vortex::error::vortex_err;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::session::VortexSession;
     use vortex::validity::Validity;
-    use vortex::{IntoArray, VortexSessionDefault};
 
     use crate::VortexFormatFactory;
-    use crate::persistent::{VortexFormat, register_vortex_format_factory};
+    use crate::persistent::VortexFormat;
+    use crate::persistent::register_vortex_format_factory;
 
     #[rstest]
     #[case(Some(1))]

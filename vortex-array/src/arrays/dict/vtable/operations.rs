@@ -7,10 +7,13 @@ use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
 
 use super::DictVTable;
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
 use crate::arrays::dict::DictArray;
-use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::vtable::OperationsVTable;
-use crate::{Array, ArrayRef, IntoArray};
 
 impl OperationsVTable<DictVTable> for DictVTable {
     fn slice(array: &DictArray, range: Range<usize>) -> ArrayRef {

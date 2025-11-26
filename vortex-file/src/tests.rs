@@ -3,28 +3,59 @@
 
 #![allow(clippy::cast_possible_truncation)]
 use std::iter;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
+use std::sync::LazyLock;
 
 use bytes::Bytes;
-use futures::{StreamExt, TryStreamExt, pin_mut};
+use futures::StreamExt;
+use futures::TryStreamExt;
+use futures::pin_mut;
 use itertools::Itertools;
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::ArraySession;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::{
-    ChunkedArray, ConstantArray, DecimalArray, DictVTable, ListArray, PrimitiveArray, StructArray,
-    VarBinArray, VarBinViewArray,
-};
+use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::DictVTable;
+use vortex_array::arrays::ListArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::VarBinArray;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::assert_arrays_eq;
+use vortex_array::expr::Pack;
+use vortex_array::expr::PackOptions;
+use vortex_array::expr::VTableExt;
+use vortex_array::expr::and;
+use vortex_array::expr::cast;
+use vortex_array::expr::eq;
+use vortex_array::expr::get_item;
+use vortex_array::expr::gt;
+use vortex_array::expr::gt_eq;
+use vortex_array::expr::lit;
+use vortex_array::expr::lt;
+use vortex_array::expr::lt_eq;
+use vortex_array::expr::or;
+use vortex_array::expr::root;
+use vortex_array::expr::select;
 use vortex_array::expr::session::ExprSession;
-use vortex_array::expr::{
-    Pack, PackOptions, VTableExt, and, cast, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root,
-    select,
-};
 use vortex_array::stats::PRUNING_STATS;
-use vortex_array::stream::{ArrayStreamAdapter, ArrayStreamExt};
+use vortex_array::stream::ArrayStreamAdapter;
+use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, ArraySession, IntoArray, ToCanonical, assert_arrays_eq};
-use vortex_buffer::{Buffer, ByteBufferMut, buffer};
+use vortex_buffer::Buffer;
+use vortex_buffer::ByteBufferMut;
+use vortex_buffer::buffer;
+use vortex_dtype::DType;
+use vortex_dtype::DecimalDType;
+use vortex_dtype::Nullability;
+use vortex_dtype::PType;
 use vortex_dtype::PType::I32;
-use vortex_dtype::{DType, DecimalDType, Nullability, PType, StructFields};
+use vortex_dtype::StructFields;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
@@ -33,9 +64,11 @@ use vortex_scalar::Scalar;
 use vortex_scan::ScanBuilder;
 use vortex_session::VortexSession;
 
-use crate::{
-    OpenOptionsSessionExt, V1_FOOTER_FBS_SIZE, VERSION, VortexFile, WriteOptionsSessionExt,
-};
+use crate::OpenOptionsSessionExt;
+use crate::V1_FOOTER_FBS_SIZE;
+use crate::VERSION;
+use crate::VortexFile;
+use crate::WriteOptionsSessionExt;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty()

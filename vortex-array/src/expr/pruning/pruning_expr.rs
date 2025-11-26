@@ -5,13 +5,17 @@ use std::cell::RefCell;
 use std::iter;
 
 use itertools::Itertools;
-use vortex_dtype::{Field, FieldName, FieldPath, FieldPathSet};
+use vortex_dtype::Field;
+use vortex_dtype::FieldName;
+use vortex_dtype::FieldPath;
+use vortex_dtype::FieldPathSet;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use super::relation::Relation;
+use crate::expr::Expression;
+use crate::expr::StatsCatalog;
 use crate::expr::exprs::get_item::get_item;
 use crate::expr::exprs::root::root;
-use crate::expr::{Expression, StatsCatalog};
 use crate::stats::Stat;
 
 pub type RequiredStats = Relation<FieldPath, Stat>;
@@ -106,21 +110,36 @@ pub fn checked_pruning_expr(
 
 #[cfg(test)]
 mod tests {
-    use rstest::{fixture, rstest};
-    use vortex_dtype::{
-        DType, FieldName, FieldNames, FieldPath, FieldPathSet, Nullability, StructFields,
-    };
+    use rstest::fixture;
+    use rstest::rstest;
+    use vortex_dtype::DType;
+    use vortex_dtype::FieldName;
+    use vortex_dtype::FieldNames;
+    use vortex_dtype::FieldPath;
+    use vortex_dtype::FieldPathSet;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::StructFields;
     use vortex_utils::aliases::hash_set::HashSet;
 
     use super::HashMap;
-    use crate::compute::{BetweenOptions, StrictComparison};
+    use crate::compute::BetweenOptions;
+    use crate::compute::StrictComparison;
     use crate::expr::exprs::between::between;
-    use crate::expr::exprs::binary::{and, eq, gt, gt_eq, lt, lt_eq, not_eq, or};
+    use crate::expr::exprs::binary::and;
+    use crate::expr::exprs::binary::eq;
+    use crate::expr::exprs::binary::gt;
+    use crate::expr::exprs::binary::gt_eq;
+    use crate::expr::exprs::binary::lt;
+    use crate::expr::exprs::binary::lt_eq;
+    use crate::expr::exprs::binary::not_eq;
+    use crate::expr::exprs::binary::or;
     use crate::expr::exprs::cast::cast;
-    use crate::expr::exprs::get_item::{col, get_item};
+    use crate::expr::exprs::get_item::col;
+    use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::root::root;
-    use crate::expr::pruning::{checked_pruning_expr, field_path_stat_field_name};
+    use crate::expr::pruning::checked_pruning_expr;
+    use crate::expr::pruning::field_path_stat_field_name;
     use crate::stats::Stat;
 
     // Implement some checked pruning expressions.

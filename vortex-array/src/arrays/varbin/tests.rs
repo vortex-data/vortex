@@ -1,13 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use rstest::{fixture, rstest};
-use vortex_buffer::{Buffer, buffer};
-use vortex_dtype::{DType, Nullability};
+use rstest::fixture;
+use rstest::rstest;
+use vortex_buffer::Buffer;
+use vortex_buffer::buffer;
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
 
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::varbin::VarBinArray;
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, IntoArray};
 
 #[fixture]
 fn binary_array() -> ArrayRef {

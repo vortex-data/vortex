@@ -3,8 +3,12 @@
 
 use vortex_error::VortexResult;
 
-use super::{DictArray, DictVTable};
-use crate::compute::{IsSortedKernel, IsSortedKernelAdapter, is_sorted, is_strict_sorted};
+use super::DictArray;
+use super::DictVTable;
+use crate::compute::IsSortedKernel;
+use crate::compute::IsSortedKernelAdapter;
+use crate::compute::is_sorted;
+use crate::compute::is_strict_sorted;
 use crate::register_kernel;
 
 impl IsSortedKernel for DictVTable {

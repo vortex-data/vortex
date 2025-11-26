@@ -9,14 +9,22 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
-use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
-use vortex_dtype::{
-    IntegerPType, NativePType, PType, match_each_integer_ptype, match_each_unsigned_integer_ptype,
-};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
-use vortex_mask::{AllOr, Mask};
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::IntegerPType;
+use vortex_dtype::NativePType;
+use vortex_dtype::PType;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_dtype::match_each_unsigned_integer_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_mask::AllOr;
+use vortex_mask::Mask;
 
-use crate::{BitPackedArray, bitpack_decompress};
+use crate::BitPackedArray;
+use crate::bitpack_decompress;
 
 pub fn bitpack_to_best_bit_width(array: &PrimitiveArray) -> VortexResult<BitPackedArray> {
     let bit_width_freq = bit_width_histogram(array)?;
@@ -324,7 +332,10 @@ pub fn find_best_bit_width(ptype: PType, bit_width_freq: &[usize]) -> VortexResu
 
 /// Assuming exceptions cost 1 value + 1 u32 index, figure out the best bit-width to use.
 /// We could try to be clever, but we can never really predict how the exceptions will compress.
-#[allow(clippy::cast_possible_truncation)]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "bit_width is bounded by check above and result fits in u8"
+)]
 fn best_bit_width(bit_width_freq: &[usize], bytes_per_exception: usize) -> VortexResult<u8> {
     if bit_width_freq.len() > u8::MAX as usize {
         vortex_bail!("Too many bit widths");
@@ -358,9 +369,11 @@ fn bytes_per_exception(ptype: PType) -> usize {
 pub mod test_harness {
     use rand::Rng as _;
     use rand::rngs::StdRng;
+    use vortex_array::ArrayRef;
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::BufferMut;
     use vortex_error::VortexResult;
 
@@ -397,9 +410,11 @@ pub mod test_harness {
 mod test {
     use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::ChunkedArray;
-    use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder};
-    use vortex_array::{ToCanonical, assert_arrays_eq};
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::builders::ArrayBuilder;
+    use vortex_array::builders::PrimitiveBuilder;
     use vortex_buffer::Buffer;
     use vortex_error::VortexError;
 

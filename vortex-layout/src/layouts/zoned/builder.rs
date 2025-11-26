@@ -3,13 +3,21 @@
 
 use std::marker::PhantomData;
 
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::builders::{ArrayBuilder, BoolBuilder, builder_with_capacity};
+use vortex_array::builders::ArrayBuilder;
+use vortex_array::builders::BoolBuilder;
+use vortex_array::builders::builder_with_capacity;
 use vortex_array::stats::Stat;
-use vortex_array::{Array, ArrayRef, IntoArray};
-use vortex_dtype::{DType, FieldName, Nullability};
+use vortex_dtype::DType;
+use vortex_dtype::FieldName;
+use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
-use vortex_scalar::{BinaryScalar, Scalar, Utf8Scalar};
+use vortex_scalar::BinaryScalar;
+use vortex_scalar::Scalar;
+use vortex_scalar::Utf8Scalar;
 
 pub const MAX_IS_TRUNCATED: &str = "max_is_truncated";
 pub const MIN_IS_TRUNCATED: &str = "min_is_truncated";

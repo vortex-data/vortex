@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{NumericKernel, NumericKernelAdapter, numeric};
-use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
+use vortex_array::compute::NumericKernel;
+use vortex_array::compute::NumericKernelAdapter;
+use vortex_array::compute::numeric;
+use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 use vortex_scalar::NumericOperator;
 
-use crate::{RunEndArray, RunEndVTable};
+use crate::RunEndArray;
+use crate::RunEndVTable;
 
 impl NumericKernel for RunEndVTable {
     fn numeric(

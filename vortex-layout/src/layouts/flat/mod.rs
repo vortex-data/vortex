@@ -5,20 +5,30 @@ mod reader;
 pub mod writer;
 
 use std::env;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
+use std::sync::LazyLock;
 
-use vortex_array::{ArrayContext, DeserializeMetadata, ProstMetadata};
+use vortex_array::ArrayContext;
+use vortex_array::DeserializeMetadata;
+use vortex_array::ProstMetadata;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_panic};
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::LayoutChildType;
+use crate::LayoutEncodingRef;
+use crate::LayoutId;
+use crate::LayoutReaderRef;
+use crate::LayoutRef;
+use crate::VTable;
 use crate::children::LayoutChildren;
 use crate::layouts::flat::reader::FlatReader;
-use crate::segments::{SegmentId, SegmentSource};
-use crate::{
-    LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
-};
+use crate::segments::SegmentId;
+use crate::segments::SegmentSource;
+use crate::vtable;
 
 static FLAT_LAYOUT_INLINE_ARRAY_NODE: LazyLock<bool> =
     LazyLock::new(|| env::var("FLAT_LAYOUT_INLINE_ARRAY_NODE").is_ok());

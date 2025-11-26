@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::Canonical;
-use crate::arrays::extension::{ExtensionArray, ExtensionVTable};
+use crate::arrays::extension::ExtensionArray;
+use crate::arrays::extension::ExtensionVTable;
 use crate::vtable::CanonicalVTable;
 
 impl CanonicalVTable<ExtensionVTable> for ExtensionVTable {

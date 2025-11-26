@@ -5,17 +5,24 @@
 
 use std::ops::BitAnd;
 
-use vortex_dtype::{NativeDecimalType, NativePType};
+use vortex_dtype::NativeDecimalType;
+use vortex_dtype::NativePType;
 use vortex_mask::Mask;
-use vortex_vector::binaryview::{BinaryViewType, BinaryViewVector};
+use vortex_vector::Vector;
+use vortex_vector::binaryview::BinaryViewType;
+use vortex_vector::binaryview::BinaryViewVector;
 use vortex_vector::bool::BoolVector;
-use vortex_vector::decimal::{DVector, DecimalVector};
+use vortex_vector::decimal::DVector;
+use vortex_vector::decimal::DecimalVector;
 use vortex_vector::fixed_size_list::FixedSizeListVector;
 use vortex_vector::listview::ListViewVector;
+use vortex_vector::match_each_dvector;
+use vortex_vector::match_each_pvector;
+use vortex_vector::match_each_vector;
 use vortex_vector::null::NullVector;
-use vortex_vector::primitive::{PVector, PrimitiveVector};
+use vortex_vector::primitive::PVector;
+use vortex_vector::primitive::PrimitiveVector;
 use vortex_vector::struct_::StructVector;
-use vortex_vector::{Vector, match_each_dvector, match_each_pvector, match_each_vector};
 
 /// Trait for masking the validity of an array or vector.
 pub trait MaskValidity {

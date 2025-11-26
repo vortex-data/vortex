@@ -4,10 +4,14 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::{BoolArray, BoolVTable};
-use crate::compute::{MaskKernel, MaskKernelAdapter};
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::BoolArray;
+use crate::arrays::BoolVTable;
+use crate::compute::MaskKernel;
+use crate::compute::MaskKernelAdapter;
+use crate::register_kernel;
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl MaskKernel for BoolVTable {
     fn mask(&self, array: &BoolArray, mask: &Mask) -> VortexResult<ArrayRef> {

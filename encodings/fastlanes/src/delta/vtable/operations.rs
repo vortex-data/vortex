@@ -4,8 +4,11 @@
 use std::cmp::min;
 use std::ops::Range;
 
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
 use vortex_array::vtable::OperationsVTable;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_scalar::Scalar;
 
 use super::DeltaVTable;
@@ -47,10 +50,11 @@ impl OperationsVTable<DeltaVTable> for DeltaVTable {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
-    use vortex_array::{IntoArray, assert_arrays_eq};
 
     use super::*;
     use crate::DeltaArray;

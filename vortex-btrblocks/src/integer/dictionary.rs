@@ -4,7 +4,8 @@
 //! Dictionary compressor that reuses the unique values in the `IntegerStats`.
 
 use vortex_array::IntoArray;
-use vortex_array::arrays::{DictArray, PrimitiveArray};
+use vortex_array::arrays::DictArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
@@ -43,7 +44,10 @@ macro_rules! typed_encode {
 }
 
 /// Compresses an integer array into a dictionary arrays according to attached stats.
-#[allow(clippy::cognitive_complexity)]
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "complexity from match on all integer types"
+)]
 pub fn dictionary_encode(stats: &IntegerStats) -> DictArray {
     // We need to preserve the nullability somehow from the original
     let src_validity = stats.src.validity();
@@ -108,9 +112,12 @@ impl_encode!(i64);
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::{BoolArray, PrimitiveArray};
+    use vortex_array::Array;
+    use vortex_array::IntoArray;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray, assert_arrays_eq};
     use vortex_buffer::buffer;
 
     use crate::CompressorStats;

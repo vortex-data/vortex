@@ -3,7 +3,8 @@
 
 use vortex_buffer::BitView;
 use vortex_error::VortexExpect;
-use vortex_mask::{Mask, MaskMut};
+use vortex_mask::Mask;
+use vortex_mask::MaskMut;
 
 use crate::filter::Filter;
 

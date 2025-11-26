@@ -3,11 +3,14 @@
 
 use vortex::arrays::PrimitiveArray;
 use vortex::buffer::Buffer;
-use vortex::dtype::{NativePType, match_each_native_ptype};
+use vortex::dtype::NativePType;
+use vortex::dtype::match_each_native_ptype;
 use vortex::error::VortexResult;
 
-use crate::duckdb::{Vector, VectorBuffer};
-use crate::exporter::{ColumnExporter, validity};
+use crate::duckdb::Vector;
+use crate::duckdb::VectorBuffer;
+use crate::exporter::ColumnExporter;
+use crate::exporter::validity;
 
 struct PrimitiveExporter<T: NativePType> {
     buffer: Buffer<T>,
@@ -49,7 +52,9 @@ mod tests {
 
     use super::*;
     use crate::cpp;
-    use crate::duckdb::{DUCKDB_STANDARD_VECTOR_SIZE, DataChunk, LogicalType};
+    use crate::duckdb::DUCKDB_STANDARD_VECTOR_SIZE;
+    use crate::duckdb::DataChunk;
+    use crate::duckdb::LogicalType;
 
     #[test]
     fn test_primitive_exporter() {

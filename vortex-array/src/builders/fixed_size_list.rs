@@ -4,17 +4,27 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_panic};
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_scalar::{ListScalar, Scalar};
+use vortex_scalar::ListScalar;
+use vortex_scalar::Scalar;
 
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::FixedSizeListArray;
-use crate::builders::{
-    ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyBitBufferBuilder, builder_with_capacity,
-};
-use crate::canonical::{Canonical, ToCanonical};
-use crate::{Array, ArrayRef, IntoArray};
+use crate::builders::ArrayBuilder;
+use crate::builders::DEFAULT_BUILDER_CAPACITY;
+use crate::builders::LazyBitBufferBuilder;
+use crate::builders::builder_with_capacity;
+use crate::canonical::Canonical;
+use crate::canonical::ToCanonical;
 
 /// The builder for building a [`FixedSizeListArray`].
 pub struct FixedSizeListBuilder {
@@ -233,17 +243,20 @@ mod tests {
 
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
-    use vortex_dtype::Nullability::{NonNullable, Nullable};
+    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::PType::I32;
     use vortex_scalar::Scalar;
 
     use super::FixedSizeListBuilder;
+    use crate::IntoArray as _;
+    use crate::ToCanonical;
     use crate::array::Array;
-    use crate::arrays::{FixedSizeListArray, PrimitiveArray};
+    use crate::arrays::FixedSizeListArray;
+    use crate::arrays::PrimitiveArray;
     use crate::builders::ArrayBuilder;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
-    use crate::{IntoArray as _, ToCanonical};
 
     #[test]
     fn test_empty() {

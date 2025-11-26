@@ -4,7 +4,10 @@
 use vortex_dtype::NativePType;
 use vortex_vector::primitive::PScalar;
 
-use crate::arithmetic::{Arithmetic, CheckedArithmetic, CheckedOperator, Operator};
+use crate::arithmetic::Arithmetic;
+use crate::arithmetic::CheckedArithmetic;
+use crate::arithmetic::CheckedOperator;
+use crate::arithmetic::Operator;
 
 impl<Op, T> Arithmetic<Op> for &PScalar<T>
 where
@@ -53,7 +56,9 @@ mod test {
     use vortex_vector::primitive::PScalar;
 
     use super::*;
-    use crate::arithmetic::{Add, CheckedArithmetic, WrappingSub};
+    use crate::arithmetic::Add;
+    use crate::arithmetic::CheckedArithmetic;
+    use crate::arithmetic::WrappingSub;
 
     #[test]
     fn test_add() {

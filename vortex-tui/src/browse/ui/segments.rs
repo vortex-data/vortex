@@ -6,18 +6,36 @@ use std::sync::Arc;
 use humansize::DECIMAL;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::prelude::{Alignment, Line, Margin, StatefulWidget, Widget};
-use ratatui::widgets::{
-    Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap,
-};
-use taffy::{
-    AvailableSpace, Dimension, FlexDirection, LengthPercentage, NodeId, PrintTree, Size, Style,
-    TaffyTree, TraversePartialTree,
-};
+use ratatui::prelude::Alignment;
+use ratatui::prelude::Line;
+use ratatui::prelude::Margin;
+use ratatui::prelude::StatefulWidget;
+use ratatui::prelude::Widget;
+use ratatui::widgets::Block;
+use ratatui::widgets::Borders;
+use ratatui::widgets::Paragraph;
+use ratatui::widgets::Scrollbar;
+use ratatui::widgets::ScrollbarOrientation;
+use ratatui::widgets::ScrollbarState;
+use ratatui::widgets::Wrap;
+use taffy::AvailableSpace;
+use taffy::Dimension;
+use taffy::FlexDirection;
+use taffy::LengthPercentage;
+use taffy::NodeId;
+use taffy::PrintTree;
+use taffy::Size;
+use taffy::Style;
+use taffy::TaffyTree;
+use taffy::TraversePartialTree;
 use vortex::dtype::FieldName;
-use vortex::error::{VortexExpect, VortexResult, VortexUnwrap, vortex_err};
+use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
+use vortex::error::VortexUnwrap;
+use vortex::error::vortex_err;
 use vortex::file::SegmentSpec;
-use vortex::layout::{Layout, LayoutChildType};
+use vortex::layout::Layout;
+use vortex::layout::LayoutChildType;
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::browse::app::AppState;
@@ -79,7 +97,10 @@ pub struct SegmentDisplay {
     row_count: u64,
 }
 
-#[allow(clippy::cast_possible_truncation)]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "UI coordinates are small enough"
+)]
 pub fn segments_ui(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
     if app_state.segment_grid_state.segment_tree.is_none() {
         let segment_tree = collect_segment_tree(
@@ -160,7 +181,10 @@ pub fn segments_ui(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
     );
 }
 
-#[allow(clippy::cast_possible_truncation)]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "UI coordinates are small enough"
+)]
 fn render_tree(
     tree: &TaffyTree<()>,
     node: NodeId,

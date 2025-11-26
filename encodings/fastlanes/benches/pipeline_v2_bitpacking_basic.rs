@@ -6,8 +6,9 @@
 
 use divan::Bencher;
 use mimalloc::MiMalloc;
+use rand::Rng;
+use rand::SeedableRng;
 use rand::prelude::StdRng;
-use rand::{Rng, SeedableRng};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_fastlanes::BitPackedArray;
 
@@ -43,9 +44,10 @@ fn bitpack_pipeline_unpack(bencher: Bencher, (num_elements, validity_pct): (usiz
 
     // Encode with 10-bit width (supports values up to 1023).
     let bitpacked = BitPackedArray::encode(&primitive, 10).unwrap();
+    let array = bitpacked.to_array();
 
     bencher
-        .with_inputs(|| bitpacked.to_array())
+        .with_inputs(|| &array)
         .bench_refs(|array| array.execute().unwrap());
 }
 

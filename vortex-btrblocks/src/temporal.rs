@@ -3,13 +3,18 @@
 
 //! Specialized compressor for DateTimeParts metadata.
 
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
 use vortex_array::arrays::TemporalArray;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
-use vortex_datetime_parts::{DateTimePartsArray, TemporalParts, split_temporal};
+use vortex_datetime_parts::DateTimePartsArray;
+use vortex_datetime_parts::TemporalParts;
+use vortex_datetime_parts::split_temporal;
 use vortex_error::VortexResult;
 
+use crate::Compressor;
+use crate::MAX_CASCADE;
 use crate::integer::IntCompressor;
-use crate::{Compressor, MAX_CASCADE};
 
 /// Compress a temporal array into a `DateTimePartsArray`.
 pub fn compress_temporal(array: TemporalArray) -> VortexResult<ArrayRef> {

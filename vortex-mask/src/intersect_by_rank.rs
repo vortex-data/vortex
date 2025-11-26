@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::{AllOr, Mask};
+use crate::AllOr;
+use crate::Mask;
 
 impl Mask {
     /// Take the intersection of the `mask` with the set of true values in `self`.
@@ -31,8 +32,8 @@ impl Mask {
         match (self.indices(), mask.indices()) {
             (AllOr::All, _) => mask.clone(),
             (_, AllOr::All) => self.clone(),
-            (AllOr::None, _) => Self::new_false(0),
-            (_, AllOr::None) => Self::new_false(self.len()),
+            (AllOr::None, _) | (_, AllOr::None) => Self::new_false(self.len()),
+
             (AllOr::Some(self_indices), AllOr::Some(mask_indices)) => {
                 Self::from_indices(
                     self.len(),
@@ -92,6 +93,13 @@ mod test {
         let this = Mask::from_buffer(BitBuffer::from_iter(vec![true, false, false, true, true]));
         let mask = Mask::from_buffer(BitBuffer::from_iter(vec![false, false, false]));
         assert_eq!(this.intersect_by_rank(&mask), Mask::from_indices(5, vec![]));
+    }
+
+    #[test]
+    fn mask_intersect_by_rank_all_false() {
+        let this = Mask::AllFalse(10);
+        let mask = Mask::AllFalse(0);
+        assert_eq!(this.intersect_by_rank(&mask), Mask::AllFalse(10));
     }
 
     #[rstest]

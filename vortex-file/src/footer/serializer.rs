@@ -2,14 +2,24 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::ByteBuffer;
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
+use vortex_flatbuffers::FlatBuffer;
+use vortex_flatbuffers::FlatBufferRoot;
+use vortex_flatbuffers::WriteFlatBuffer;
+use vortex_flatbuffers::WriteFlatBufferExt;
 use vortex_layout::LayoutContext;
 
+use crate::EOF_SIZE;
+use crate::Footer;
+use crate::MAGIC_BYTES;
+use crate::MAX_POSTSCRIPT_SIZE;
+use crate::VERSION;
 use crate::footer::FileStatistics;
 use crate::footer::file_layout::FooterFlatBufferWriter;
-use crate::footer::postscript::{Postscript, PostscriptSegment};
-use crate::{EOF_SIZE, Footer, MAGIC_BYTES, MAX_POSTSCRIPT_SIZE, VERSION};
+use crate::footer::postscript::Postscript;
+use crate::footer::postscript::PostscriptSegment;
 
 pub struct FooterSerializer {
     footer: Footer,

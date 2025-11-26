@@ -5,9 +5,13 @@ use std::ops::Range;
 
 use vortex_scalar::Scalar;
 
-use crate::arrays::{VarBinViewArray, VarBinViewVTable, varbin_scalar};
-use crate::vtable::{OperationsVTable, ValidityHelper};
-use crate::{ArrayRef, IntoArray};
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::VarBinViewArray;
+use crate::arrays::VarBinViewVTable;
+use crate::arrays::varbin_scalar;
+use crate::vtable::OperationsVTable;
+use crate::vtable::ValidityHelper;
 
 impl OperationsVTable<VarBinViewVTable> for VarBinViewVTable {
     fn slice(array: &VarBinViewArray, range: Range<usize>) -> ArrayRef {

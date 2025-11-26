@@ -1,13 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{CastKernel, CastKernelAdapter};
-use vortex_array::{ArrayRef, IntoArray, register_kernel};
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexResult, vortex_err};
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::compute::CastKernel;
+use vortex_array::compute::CastKernelAdapter;
+use vortex_array::register_kernel;
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
+use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
-use crate::{SequenceArray, SequenceVTable};
+use crate::SequenceArray;
+use crate::SequenceVTable;
 
 impl CastKernel for SequenceVTable {
     fn cast(&self, array: &SequenceArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -86,11 +93,14 @@ register_kernel!(CastKernelAdapter(SequenceVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_array::{ToCanonical, assert_arrays_eq};
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
 
     use crate::SequenceArray;
 

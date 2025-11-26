@@ -4,8 +4,14 @@
 #![allow(clippy::unwrap_used)]
 
 use divan::Bencher;
-use vortex_array::expr::{get_item, pack, root};
-use vortex_dtype::{DType, FieldName, Nullability, PType, StructFields};
+use vortex_array::expr::get_item;
+use vortex_array::expr::pack;
+use vortex_array::expr::root;
+use vortex_dtype::DType;
+use vortex_dtype::FieldName;
+use vortex_dtype::Nullability;
+use vortex_dtype::PType;
+use vortex_dtype::StructFields;
 
 fn main() {
     divan::main();
@@ -32,5 +38,7 @@ fn pack_return_dtype(bencher: Bencher, num_fields: usize) {
     let pack_expr = pack(children, Nullability::Nullable);
 
     // return_dtype should be fast, it is assumed cheap in some expression simplifiers
-    bencher.bench(|| pack_expr.return_dtype(&dtype).unwrap());
+    bencher
+        .with_inputs(|| (&pack_expr, &dtype))
+        .bench_refs(|(pack_expr, dtype)| pack_expr.return_dtype(dtype).unwrap());
 }

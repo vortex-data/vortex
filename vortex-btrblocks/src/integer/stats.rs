@@ -6,18 +6,25 @@ use std::hash::Hash;
 use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::{NativeValue, PrimitiveArray, PrimitiveVTable};
+use vortex_array::arrays::NativeValue;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::stats::Stat;
 use vortex_buffer::BitBuffer;
-use vortex_dtype::{IntegerPType, match_each_integer_ptype};
-use vortex_error::{VortexError, VortexExpect, VortexUnwrap};
+use vortex_dtype::IntegerPType;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_error::VortexError;
+use vortex_error::VortexExpect;
+use vortex_error::VortexUnwrap;
 use vortex_mask::AllOr;
-use vortex_scalar::{PValue, Scalar};
+use vortex_scalar::PValue;
+use vortex_scalar::Scalar;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::CompressorStats;
+use crate::GenerateStatsOptions;
 use crate::rle::RLEStats;
 use crate::sample::sample;
-use crate::{CompressorStats, GenerateStatsOptions};
 
 #[derive(Clone, Debug)]
 pub struct TypedStats<T> {
@@ -416,7 +423,9 @@ mod tests {
 
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_buffer::{BitBuffer, Buffer, buffer};
+    use vortex_buffer::BitBuffer;
+    use vortex_buffer::Buffer;
+    use vortex_buffer::buffer;
 
     use crate::CompressorStats;
     use crate::integer::IntegerStats;

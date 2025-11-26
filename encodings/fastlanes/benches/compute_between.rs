@@ -4,10 +4,13 @@
 use num_traits::NumCast;
 use rand::Rng;
 use rand::rngs::StdRng;
-use vortex_alp::{ALPArray, alp_encode};
+use vortex_alp::ALPArray;
+use vortex_alp::alp_encode;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::warm_up_vtables;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::NativePType;
 use vortex_error::VortexExpect;
 use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
@@ -63,14 +66,18 @@ mod primitive {
     use rand::SeedableRng;
     use rand::prelude::StdRng;
     use vortex_array::arrays::ConstantArray;
+    use vortex_array::compute::BetweenOptions;
+    use vortex_array::compute::BooleanOperator;
+    use vortex_array::compute::Operator;
     use vortex_array::compute::StrictComparison::NonStrict;
-    use vortex_array::compute::{
-        BetweenOptions, BooleanOperator, Operator, between, boolean, compare,
-    };
+    use vortex_array::compute::between;
+    use vortex_array::compute::boolean;
+    use vortex_array::compute::compare;
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 
-    use crate::{BENCH_ARGS, generate_primitive_array};
+    use crate::BENCH_ARGS;
+    use crate::generate_primitive_array;
 
     #[divan::bench(
         types = [i32, i64, u32, u64, f32, f64],
@@ -86,7 +93,7 @@ mod primitive {
         let mut rng = StdRng::seed_from_u64(0);
         let arr = generate_primitive_array::<T>(&mut rng, len);
 
-        bencher.with_inputs(|| arr.clone()).bench_refs(|arr| {
+        bencher.with_inputs(|| &arr).bench_refs(|arr| {
             boolean(
                 &compare(
                     arr.as_ref(),
@@ -120,7 +127,7 @@ mod primitive {
         let mut rng = StdRng::seed_from_u64(0);
         let arr = generate_primitive_array::<T>(&mut rng, len);
 
-        bencher.with_inputs(|| arr.clone()).bench_refs(|arr| {
+        bencher.with_inputs(|| &arr).bench_refs(|arr| {
             between(
                 arr.as_ref(),
                 ConstantArray::new(min, arr.len()).as_ref(),
@@ -141,14 +148,18 @@ mod bitpack {
     use rand::SeedableRng;
     use rand::prelude::StdRng;
     use vortex_array::arrays::ConstantArray;
+    use vortex_array::compute::BetweenOptions;
+    use vortex_array::compute::BooleanOperator;
+    use vortex_array::compute::Operator;
     use vortex_array::compute::StrictComparison::NonStrict;
-    use vortex_array::compute::{
-        BetweenOptions, BooleanOperator, Operator, between, boolean, compare,
-    };
+    use vortex_array::compute::between;
+    use vortex_array::compute::boolean;
+    use vortex_array::compute::compare;
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 
-    use crate::{BENCH_ARGS, generate_bit_pack_primitive_array};
+    use crate::BENCH_ARGS;
+    use crate::generate_bit_pack_primitive_array;
 
     #[divan::bench(
         types = [i16, i32, i64],
@@ -164,7 +175,7 @@ mod bitpack {
         let mut rng = StdRng::seed_from_u64(0);
         let arr = generate_bit_pack_primitive_array::<T>(&mut rng, len);
 
-        bencher.with_inputs(|| arr.clone()).bench_refs(|arr| {
+        bencher.with_inputs(|| &arr).bench_refs(|arr| {
             boolean(
                 &compare(
                     arr.as_ref(),
@@ -197,7 +208,7 @@ mod bitpack {
         let mut rng = StdRng::seed_from_u64(0);
         let arr = generate_bit_pack_primitive_array::<T>(&mut rng, len);
 
-        bencher.with_inputs(|| arr.clone()).bench_refs(|arr| {
+        bencher.with_inputs(|| &arr).bench_refs(|arr| {
             between(
                 arr.as_ref(),
                 ConstantArray::new(min, arr.len()).as_ref(),
@@ -217,14 +228,18 @@ mod alp {
     use rand::SeedableRng;
     use rand::prelude::StdRng;
     use vortex_array::arrays::ConstantArray;
+    use vortex_array::compute::BetweenOptions;
+    use vortex_array::compute::BooleanOperator;
+    use vortex_array::compute::Operator;
     use vortex_array::compute::StrictComparison::NonStrict;
-    use vortex_array::compute::{
-        BetweenOptions, BooleanOperator, Operator, between, boolean, compare,
-    };
+    use vortex_array::compute::between;
+    use vortex_array::compute::boolean;
+    use vortex_array::compute::compare;
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 
-    use crate::{BENCH_ARGS, generate_alp_bit_pack_primitive_array};
+    use crate::BENCH_ARGS;
+    use crate::generate_alp_bit_pack_primitive_array;
 
     #[divan::bench(
         types = [f32, f64],

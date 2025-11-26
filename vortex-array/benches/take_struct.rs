@@ -4,9 +4,10 @@
 #![allow(clippy::unwrap_used)]
 
 use divan::Bencher;
+use rand::Rng;
+use rand::SeedableRng;
 use rand::distr::Uniform;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
 use vortex_array::IntoArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::compute::take;

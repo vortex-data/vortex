@@ -2,10 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use divan::Bencher;
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::compute::warm_up_vtables;
-use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::NativePType;
 use vortex_fsst::test_utils::gen_dict_fsst_test_data;
 
@@ -41,7 +43,7 @@ fn chunked_dict_fsst_canonical_into(
 ) {
     let chunk = make_dict_fsst_chunks::<u16>(len, unique_values, chunk_count);
 
-    bencher.with_inputs(|| chunk.clone()).bench_values(|chunk| {
+    bencher.with_inputs(|| &chunk).bench_refs(|chunk| {
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
         chunk.append_to_builder(builder.as_mut());
         builder.finish()
@@ -56,6 +58,6 @@ fn chunked_dict_fsst_into_canonical(
     let chunk = make_dict_fsst_chunks::<u16>(len, unique_values, chunk_count);
 
     bencher
-        .with_inputs(|| chunk.clone())
-        .bench_values(|chunk| chunk.to_canonical())
+        .with_inputs(|| &chunk)
+        .bench_refs(|chunk| chunk.to_canonical())
 }

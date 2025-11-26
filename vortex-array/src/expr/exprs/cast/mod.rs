@@ -6,14 +6,23 @@ use std::ops::Deref;
 
 use prost::Message;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_vector::Vector;
 
 use crate::ArrayRef;
 use crate::compute::cast as compute_cast;
+use crate::expr::ChildName;
+use crate::expr::ExecutionArgs;
+use crate::expr::ExprId;
+use crate::expr::ExpressionView;
+use crate::expr::StatsCatalog;
+use crate::expr::VTable;
+use crate::expr::VTableExt;
 use crate::expr::expression::Expression;
-use crate::expr::{ChildName, ExprId, ExpressionView, StatsCatalog, VTable, VTableExt};
 use crate::stats::Stat;
 
 /// A cast expression that converts values to a target data type.
@@ -88,16 +97,6 @@ impl VTable for Cast {
         })
     }
 
-    fn execute(
-        &self,
-        expr: &ExpressionView<Self>,
-        vector: &Vector,
-        dtype: &DType,
-    ) -> VortexResult<Vector> {
-        let input = expr.child(0).execute(vector, dtype)?;
-        vortex_compute::cast::Cast::cast(&input, dtype)
-    }
-
     fn stat_expression(
         &self,
         expr: &ExpressionView<Self>,
@@ -129,6 +128,19 @@ impl VTable for Cast {
             }
         }
     }
+
+    fn execute(&self, target_dtype: &DType, mut args: ExecutionArgs) -> VortexResult<Vector> {
+        let input = args
+            .vectors
+            .pop()
+            .vortex_expect("missing input for Cast expression");
+        vortex_compute::cast::Cast::cast(&input, target_dtype)
+    }
+
+    // This might apply a nullability
+    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+        true
+    }
 }
 
 /// Creates an expression that casts values to a target data type.
@@ -148,15 +160,18 @@ pub fn cast(child: Expression, target: DType) -> Expression {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
     use vortex_error::VortexUnwrap as _;
 
     use super::cast;
     use crate::IntoArray;
     use crate::arrays::StructArray;
+    use crate::expr::Expression;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::root::root;
-    use crate::expr::{Expression, test_harness};
+    use crate::expr::test_harness;
 
     #[test]
     fn dtype() {

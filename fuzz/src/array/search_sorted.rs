@@ -5,12 +5,21 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 
 use itertools::Itertools;
+use vortex_array::Array;
+use vortex_array::ToCanonical;
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::search_sorted::{IndexOrd, SearchResult, SearchSorted, SearchSortedSide};
-use vortex_array::{Array, ToCanonical};
-use vortex_buffer::{BufferString, ByteBuffer};
-use vortex_dtype::{DType, NativePType, match_each_decimal_value_type, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_err};
+use vortex_array::search_sorted::IndexOrd;
+use vortex_array::search_sorted::SearchResult;
+use vortex_array::search_sorted::SearchSorted;
+use vortex_array::search_sorted::SearchSortedSide;
+use vortex_buffer::BufferString;
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::DType;
+use vortex_dtype::NativePType;
+use vortex_dtype::match_each_decimal_value_type;
+use vortex_dtype::match_each_native_ptype;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_scalar::Scalar;
 
 struct SearchNullableSlice<T>(Vec<Option<T>>);

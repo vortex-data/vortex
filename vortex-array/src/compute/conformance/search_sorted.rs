@@ -4,7 +4,8 @@
 pub use rstest::rstest;
 pub use rstest_reuse;
 use rstest_reuse::template;
-use vortex_buffer::{Buffer, buffer};
+use vortex_buffer::Buffer;
+use vortex_buffer::buffer;
 
 use crate::ArrayRef;
 use crate::array::IntoArray;

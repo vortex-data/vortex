@@ -5,10 +5,21 @@ use std::cmp::Ordering;
 use std::fmt;
 
 use num_traits::ToPrimitive as NumToPrimitive;
-use vortex_dtype::{DType, DecimalDType, PType, match_each_decimal_value};
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err, vortex_panic};
+use vortex_dtype::DType;
+use vortex_dtype::DecimalDType;
+use vortex_dtype::PType;
+use vortex_dtype::match_each_decimal_value;
+use vortex_error::VortexError;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 
-use crate::{DecimalValue, InnerScalarValue, NumericOperator, Scalar, ScalarValue};
+use crate::DecimalValue;
+use crate::InnerScalarValue;
+use crate::NumericOperator;
+use crate::Scalar;
+use crate::ScalarValue;
 
 /// A scalar value representing a decimal number with fixed precision and scale.
 #[derive(Debug, Clone, Copy, Hash)]
@@ -88,7 +99,10 @@ impl<'a> DecimalScalar<'a> {
 
                     // Cast to target primitive type. Note that the `as` keyword does **MORE** than
                     // a simple bitcast / memory transmuation.
-                    #[allow(clippy::cast_possible_truncation)]
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "truncation is intentional - range checks happen after"
+                    )]
                     let primitive_scalar = match ptype {
                         PType::U8 => {
                             let v = actual_value as u8;

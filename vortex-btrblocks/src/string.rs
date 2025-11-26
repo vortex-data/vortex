@@ -1,24 +1,35 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::arrays::{
-    ConstantArray, DictArray, MaskedArray, VarBinArray, VarBinViewArray, VarBinViewVTable,
-};
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::DictArray;
+use vortex_array::arrays::MaskedArray;
+use vortex_array::arrays::VarBinArray;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::VarBinViewVTable;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
-use vortex_error::{VortexExpect, VortexResult};
-use vortex_fsst::{FSSTArray, fsst_compress, fsst_train_compressor};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_fsst::FSSTArray;
+use vortex_fsst::fsst_compress;
+use vortex_fsst::fsst_train_compressor;
 use vortex_scalar::Scalar;
-use vortex_sparse::{SparseArray, SparseVTable};
+use vortex_sparse::SparseArray;
+use vortex_sparse::SparseVTable;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::Compressor;
+use crate::CompressorStats;
+use crate::GenerateStatsOptions;
+use crate::Scheme;
+use crate::estimate_compression_ratio_with_sampling;
+use crate::integer;
 use crate::integer::IntCompressor;
 use crate::sample::sample;
-use crate::{
-    Compressor, CompressorStats, GenerateStatsOptions, Scheme,
-    estimate_compression_ratio_with_sampling, integer,
-};
 
 /// Array of variable-length byte arrays, and relevant stats for compression.
 #[derive(Clone, Debug)]
@@ -30,7 +41,6 @@ pub struct StringStats {
 }
 
 /// Estimate the number of distinct strings in the var bin view array.
-#[allow(clippy::cast_possible_truncation)]
 fn estimate_distinct_count(strings: &VarBinViewArray) -> u32 {
     let views = strings.views();
     // Iterate the views. Two strings which are equal must have the same first 8-bytes.
@@ -38,6 +48,10 @@ fn estimate_distinct_count(strings: &VarBinViewArray) -> u32 {
     // share a 4-byte prefix and have the same length.
     let mut distinct = HashSet::with_capacity(views.len() / 2);
     views.iter().for_each(|&view| {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "approximate uniqueness with view prefix"
+        )]
         let len_and_prefix = view.as_u128() as u64;
         distinct.insert(len_and_prefix);
     });
@@ -427,12 +441,15 @@ impl Scheme for NullDominated {
 #[cfg(test)]
 mod tests {
     use vortex_array::arrays::VarBinViewArray;
-    use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
-    use vortex_dtype::{DType, Nullability};
+    use vortex_array::builders::ArrayBuilder;
+    use vortex_array::builders::VarBinViewBuilder;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
     use vortex_sparse::SparseVTable;
 
+    use crate::Compressor;
+    use crate::MAX_CASCADE;
     use crate::string::StringCompressor;
-    use crate::{Compressor, MAX_CASCADE};
 
     #[test]
     fn test_strings() {

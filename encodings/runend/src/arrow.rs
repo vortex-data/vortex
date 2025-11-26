@@ -3,11 +3,13 @@
 
 use arrow_array::RunArray;
 use arrow_array::types::RunEndIndexType;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrow::FromArrowArray;
-use vortex_array::search_sorted::{SearchSorted, SearchSortedSide};
+use vortex_array::search_sorted::SearchSorted;
+use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayRef, IntoArray};
 use vortex_buffer::Buffer;
 use vortex_dtype::NativePType;
 use vortex_scalar::PValue;
@@ -50,13 +52,20 @@ where
 
 #[cfg(test)]
 mod tests {
-    use arrow_array::types::{Int32Type, Int64Type};
-    use arrow_array::{Float64Array, Int32Array, Int64Array, RunArray};
+    use arrow_array::Float64Array;
+    use arrow_array::Int32Array;
+    use arrow_array::Int64Array;
+    use arrow_array::RunArray;
+    use arrow_array::types::Int32Type;
+    use arrow_array::types::Int64Type;
+    use vortex_array::IntoArray as _;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrow::FromArrowArray;
-    use vortex_array::{IntoArray as _, assert_arrays_eq};
+    use vortex_array::assert_arrays_eq;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
 
     use crate::RunEndArray;
 

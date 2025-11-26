@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayBufferVisitor;
+use vortex_array::ArrayChildVisitor;
 use vortex_array::vtable::VisitorVTable;
-use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor};
 
 use super::DeltaVTable;
 use crate::DeltaArray;

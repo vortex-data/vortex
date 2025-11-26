@@ -163,3 +163,7 @@ harness = false
 [[bench]]
 name = "dict_unreferenced_mask"
 harness = false
+
+[[bench]]
+name = "varbinview_zip"
+harness = false

@@ -7,16 +7,33 @@ pub mod writer;
 use std::sync::Arc;
 
 use reader::StructReader;
-use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
-use vortex_dtype::{DType, Field, FieldMask, Nullability, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_err};
-use vortex_session::{SessionExt, VortexSession};
+use vortex_array::ArrayContext;
+use vortex_array::DeserializeMetadata;
+use vortex_array::EmptyMetadata;
+use vortex_dtype::DType;
+use vortex_dtype::Field;
+use vortex_dtype::FieldMask;
+use vortex_dtype::Nullability;
+use vortex_dtype::StructFields;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
+use vortex_session::SessionExt;
+use vortex_session::VortexSession;
 
-use crate::children::{LayoutChildren, OwnedLayoutChildren};
-use crate::segments::{SegmentId, SegmentSource};
-use crate::{
-    LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
-};
+use crate::LayoutChildType;
+use crate::LayoutEncodingRef;
+use crate::LayoutId;
+use crate::LayoutReaderRef;
+use crate::LayoutRef;
+use crate::VTable;
+use crate::children::LayoutChildren;
+use crate::children::OwnedLayoutChildren;
+use crate::segments::SegmentId;
+use crate::segments::SegmentSource;
+use crate::vtable;
 
 vtable!(Struct);
 

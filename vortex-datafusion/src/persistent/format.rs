@@ -2,41 +2,58 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::sync::Arc;
 
-use arrow_schema::{Schema, SchemaRef};
+use arrow_schema::Schema;
+use arrow_schema::SchemaRef;
 use async_trait::async_trait;
 use datafusion_catalog::Session;
+use datafusion_common::ColumnStatistics;
+use datafusion_common::DataFusionError;
+use datafusion_common::GetExt;
+use datafusion_common::Result as DFResult;
+use datafusion_common::Statistics;
 use datafusion_common::config::ConfigField;
+use datafusion_common::config_namespace;
+use datafusion_common::not_impl_err;
 use datafusion_common::parsers::CompressionTypeVariant;
 use datafusion_common::stats::Precision;
-use datafusion_common::{
-    ColumnStatistics, DataFusionError, GetExt, Result as DFResult, Statistics, config_namespace,
-    not_impl_err,
-};
 use datafusion_common_runtime::SpawnedTask;
 use datafusion_datasource::file::FileSource;
 use datafusion_datasource::file_compression_type::FileCompressionType;
-use datafusion_datasource::file_format::{FileFormat, FileFormatFactory};
-use datafusion_datasource::file_scan_config::{FileScanConfig, FileScanConfigBuilder};
+use datafusion_datasource::file_format::FileFormat;
+use datafusion_datasource::file_format::FileFormatFactory;
+use datafusion_datasource::file_scan_config::FileScanConfig;
+use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
 use datafusion_datasource::file_sink_config::FileSinkConfig;
 use datafusion_datasource::sink::DataSinkExec;
 use datafusion_datasource::source::DataSourceExec;
 use datafusion_expr::dml::InsertOp;
 use datafusion_physical_expr::LexRequirement;
 use datafusion_physical_plan::ExecutionPlan;
-use futures::{FutureExt, StreamExt as _, TryStreamExt as _, stream};
+use futures::FutureExt;
+use futures::StreamExt as _;
+use futures::TryStreamExt as _;
+use futures::stream;
 use itertools::Itertools;
-use object_store::{ObjectMeta, ObjectStore};
+use object_store::ObjectMeta;
+use object_store::ObjectStore;
+use vortex::VortexSessionDefault;
+use vortex::dtype::DType;
+use vortex::dtype::Nullability;
+use vortex::dtype::PType;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::dtype::{DType, Nullability, PType};
-use vortex::error::{VortexExpect, VortexResult, vortex_err};
+use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
-use vortex::stats::{Stat, StatsSet};
-use vortex::{VortexSessionDefault, stats};
+use vortex::stats;
+use vortex::stats::Stat;
+use vortex::stats::StatsSet;
 
 use super::cache::VortexFileCache;
 use super::sink::VortexSink;
@@ -90,7 +107,10 @@ impl GetExt for VortexFormatFactory {
 
 impl VortexFormatFactory {
     /// Creates a new instance with a default [`VortexSession`] and default options.
-    #[allow(clippy::new_without_default)] // FormatFactory defines `default` method, so having `Default` implementation is confusing.
+    #[expect(
+        clippy::new_without_default,
+        reason = "FormatFactory defines `default` method, so having `Default` implementation is confusing"
+    )]
     pub fn new() -> Self {
         Self {
             session: VortexSession::default(),
@@ -123,7 +143,7 @@ impl VortexFormatFactory {
 }
 
 impl FileFormatFactory for VortexFormatFactory {
-    #[allow(clippy::disallowed_types)]
+    #[expect(clippy::disallowed_types, reason = "required by trait signature")]
     fn create(
         &self,
         _state: &dyn Session,

@@ -3,7 +3,9 @@
 
 use jni::JNIEnv;
 use jni::objects::JObject;
-use jni::sys::{JNI_FALSE, jboolean, jobject};
+use jni::sys::JNI_FALSE;
+use jni::sys::jboolean;
+use jni::sys::jobject;
 use vortex::error::VortexError;
 
 #[derive(Debug, thiserror::Error)]
@@ -77,7 +79,10 @@ impl JNIDefault for jobject {
 }
 
 /// Run the provided function inside the JNIEnv context. Throws an exception if the function returns an error.
-#[allow(clippy::expect_used)]
+#[expect(
+    clippy::expect_used,
+    reason = "JNI operations must succeed for proper error handling"
+)]
 #[inline]
 pub fn try_or_throw<'a, F, T>(env: &mut JNIEnv<'a>, function: F) -> T
 where

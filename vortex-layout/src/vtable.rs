@@ -5,17 +5,24 @@ use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use vortex_array::{ArrayContext, DeserializeMetadata, SerializeMetadata};
+use vortex_array::ArrayContext;
+use vortex_array::DeserializeMetadata;
+use vortex_array::SerializeMetadata;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
+use crate::IntoLayout;
+use crate::Layout;
+use crate::LayoutChildType;
+use crate::LayoutEncoding;
+use crate::LayoutEncodingRef;
+use crate::LayoutId;
+use crate::LayoutReaderRef;
+use crate::LayoutRef;
 use crate::children::LayoutChildren;
-use crate::segments::{SegmentId, SegmentSource};
-use crate::{
-    IntoLayout, Layout, LayoutChildType, LayoutEncoding, LayoutEncodingRef, LayoutId,
-    LayoutReaderRef, LayoutRef,
-};
+use crate::segments::SegmentId;
+use crate::segments::SegmentSource;
 
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type Layout: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn Layout> + IntoLayout;
@@ -67,7 +74,6 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     ) -> VortexResult<crate::gpu::GpuLayoutReaderRef>;
 
     /// Construct a new [`Layout`] from the provided parts.
-    #[allow(clippy::too_many_arguments)]
     fn build(
         encoding: &Self::Encoding,
         dtype: &DType,

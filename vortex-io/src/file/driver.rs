@@ -1,17 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::task::Context;
+use std::task::Poll;
 
 use futures::Stream;
 use pin_project_lite::pin_project;
 use vortex_error::VortexExpect;
 use vortex_metrics::VortexMetrics;
 
-use crate::file::read::{
-    CoalesceWindow, CoalescedRequest, IoRequest, ReadEvent, ReadRequest, RequestId,
-};
+use crate::file::read::CoalesceWindow;
+use crate::file::read::CoalescedRequest;
+use crate::file::read::IoRequest;
+use crate::file::read::ReadEvent;
+use crate::file::read::ReadRequest;
+use crate::file::read::RequestId;
 
 pin_project! {
     /// A stream that performs coalescing and prioritization of I/O requests.
@@ -282,12 +287,16 @@ impl State {
 
 #[cfg(test)]
 mod tests {
-    use futures::{StreamExt, stream};
-    use vortex_buffer::{Alignment, ByteBuffer};
+    use futures::StreamExt;
+    use futures::stream;
+    use vortex_buffer::Alignment;
+    use vortex_buffer::ByteBuffer;
     use vortex_error::VortexResult;
 
     use super::*;
-    use crate::file::{IoRequestInner, ReadEvent, ReadRequest};
+    use crate::file::IoRequestInner;
+    use crate::file::ReadEvent;
+    use crate::file::ReadRequest;
 
     fn create_request(
         id: usize,

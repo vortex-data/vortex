@@ -3,8 +3,12 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::{VarBinViewArray, VarBinViewVTable, varbin_compute_min_max};
-use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
+use crate::arrays::VarBinViewArray;
+use crate::arrays::VarBinViewVTable;
+use crate::arrays::varbin_compute_min_max;
+use crate::compute::MinMaxKernel;
+use crate::compute::MinMaxKernelAdapter;
+use crate::compute::MinMaxResult;
 use crate::register_kernel;
 
 impl MinMaxKernel for VarBinViewVTable {

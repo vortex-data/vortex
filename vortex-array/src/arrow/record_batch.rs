@@ -3,12 +3,18 @@
 
 use arrow_array::RecordBatch;
 use arrow_array::cast::AsArray;
-use arrow_schema::{DataType, Schema};
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_ensure};
+use arrow_schema::DataType;
+use arrow_schema::Schema;
+use vortex_error::VortexError;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 
+use crate::Array;
+use crate::Canonical;
 use crate::arrays::StructArray;
-use crate::arrow::compute::{to_arrow, to_arrow_preferred};
-use crate::{Array, Canonical};
+use crate::arrow::compute::to_arrow;
+use crate::arrow::compute::to_arrow_preferred;
 
 impl TryFrom<&dyn Array> for RecordBatch {
     type Error = VortexError;
@@ -43,12 +49,18 @@ impl StructArray {
 mod tests {
     use std::sync::Arc;
 
-    use arrow_schema::{DataType, Field, FieldRef, Schema};
-    use vortex_dtype::{DType, Nullability, PType};
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
+    use arrow_schema::FieldRef;
+    use arrow_schema::Schema;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
     use vortex_scalar::Scalar;
 
     use crate::arrays::StructArray;
-    use crate::builders::{ArrayBuilder, ListBuilder};
+    use crate::builders::ArrayBuilder;
+    use crate::builders::ListBuilder;
 
     #[test]
     fn test_into_rb_with_schema() {

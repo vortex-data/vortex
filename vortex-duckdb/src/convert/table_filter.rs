@@ -5,16 +5,26 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex::compute::Operator;
-use vortex::dtype::{DType, Nullability};
-use vortex::error::{VortexExpect, VortexResult, vortex_bail};
-use vortex::expr::{
-    Binary, Expression, VTableExt, and_collect, get_item, is_null, list_contains, lit, not,
-    or_collect,
-};
+use vortex::dtype::DType;
+use vortex::dtype::Nullability;
+use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
+use vortex::expr::Binary;
+use vortex::expr::Expression;
+use vortex::expr::VTableExt;
+use vortex::expr::and_collect;
+use vortex::expr::get_item;
+use vortex::expr::is_null;
+use vortex::expr::list_contains;
+use vortex::expr::lit;
+use vortex::expr::not;
+use vortex::expr::or_collect;
 use vortex::scalar::Scalar;
 
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
-use crate::duckdb::{TableFilter, TableFilterClass};
+use crate::duckdb::TableFilter;
+use crate::duckdb::TableFilterClass;
 
 pub fn try_from_table_filter(
     value: &TableFilter,

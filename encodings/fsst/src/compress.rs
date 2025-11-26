@@ -3,13 +3,17 @@
 
 // Compress a set of values into an Array.
 
-use fsst::{Compressor, Symbol};
+use fsst::Compressor;
+use fsst::Symbol;
+use vortex_array::Array;
+use vortex_array::IntoArray;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::builder::VarBinBuilder;
-use vortex_array::{Array, IntoArray};
-use vortex_buffer::{Buffer, BufferMut};
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexUnwrap};
+use vortex_error::VortexExpect;
+use vortex_error::VortexUnwrap;
 
 use crate::FSSTArray;
 

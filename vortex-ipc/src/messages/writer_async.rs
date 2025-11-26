@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use futures::{AsyncWrite, AsyncWriteExt};
+use futures::AsyncWrite;
+use futures::AsyncWriteExt;
 use vortex_error::VortexResult;
 
-use crate::messages::{EncoderMessage, MessageEncoder};
+use crate::messages::EncoderMessage;
+use crate::messages::MessageEncoder;
 
 pub struct AsyncMessageWriter<W> {
     write: W,

@@ -3,11 +3,18 @@
 
 use std::ops::Not;
 
-use arrow_buffer::bit_chunk_iterator::{BitChunks, UnalignedBitChunk};
+use arrow_buffer::bit_chunk_iterator::BitChunks;
+use arrow_buffer::bit_chunk_iterator::UnalignedBitChunk;
 use bitvec::view::BitView;
 
-use crate::bit::{get_bit_unchecked, ops, set_bit_unchecked, unset_bit_unchecked};
-use crate::{BitBuffer, BufferMut, ByteBufferMut, buffer_mut};
+use crate::BitBuffer;
+use crate::BufferMut;
+use crate::ByteBufferMut;
+use crate::bit::get_bit_unchecked;
+use crate::bit::ops;
+use crate::bit::set_bit_unchecked;
+use crate::bit::unset_bit_unchecked;
+use crate::buffer_mut;
 
 /// A mutable bitset buffer that allows random access to individual bits for set and get.
 ///
@@ -656,8 +663,11 @@ impl FromIterator<bool> for BitBufferMut {
 
 #[cfg(test)]
 mod tests {
+    use crate::BufferMut;
     use crate::bit::buf_mut::BitBufferMut;
-    use crate::{BufferMut, bitbuffer, bitbuffer_mut, buffer_mut};
+    use crate::bitbuffer;
+    use crate::bitbuffer_mut;
+    use crate::buffer_mut;
 
     #[test]
     fn test_bits_mut() {

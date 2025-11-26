@@ -8,8 +8,9 @@ use vortex_vector::VectorOps;
 use vortex_vector::bool::BoolVector;
 use vortex_vector::primitive::PVector;
 
+use crate::comparison::Compare;
+use crate::comparison::ComparisonOperator;
 use crate::comparison::collection::ComparableCollectionAdapter;
-use crate::comparison::{Compare, ComparisonOperator};
 
 impl<Op, T> Compare<Op> for &PVector<T>
 where
@@ -34,13 +35,17 @@ where
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::{bitbuffer, buffer};
+    use vortex_buffer::bitbuffer;
+    use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
     use super::*;
-    use crate::comparison::{
-        Equal, GreaterThan, GreaterThanOrEqual, LessThan, LessThanOrEqual, NotEqual,
-    };
+    use crate::comparison::Equal;
+    use crate::comparison::GreaterThan;
+    use crate::comparison::GreaterThanOrEqual;
+    use crate::comparison::LessThan;
+    use crate::comparison::LessThanOrEqual;
+    use crate::comparison::NotEqual;
 
     #[test]
     fn test_equal() {

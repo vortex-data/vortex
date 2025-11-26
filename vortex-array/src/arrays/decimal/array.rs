@@ -2,12 +2,22 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_buffer::{BitBufferMut, Buffer, BufferMut, ByteBuffer};
-use vortex_dtype::{
-    BigCast, DType, DecimalDType, DecimalType, IntegerPType, NativeDecimalType,
-    match_each_decimal_value_type, match_each_integer_ptype,
-};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_panic};
+use vortex_buffer::BitBufferMut;
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::BigCast;
+use vortex_dtype::DType;
+use vortex_dtype::DecimalDType;
+use vortex_dtype::DecimalType;
+use vortex_dtype::IntegerPType;
+use vortex_dtype::NativeDecimalType;
+use vortex_dtype::match_each_decimal_value_type;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 
 use crate::ToCanonical;
 use crate::patches::Patches;
@@ -243,7 +253,10 @@ impl DecimalArray {
         )
     }
 
-    #[allow(clippy::cognitive_complexity)]
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "complexity from nested match_each_* macros"
+    )]
     pub fn patch(self, patches: &Patches) -> Self {
         let offset = patches.offset();
         let patch_indices = patches.indices().to_primitive();

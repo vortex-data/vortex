@@ -5,4 +5,5 @@ mod array;
 pub use array::ExprArray;
 
 mod vtable;
-pub use vtable::{ExprOptimizationRule, ExprVTable};
+pub use vtable::ExprOptimizationRule;
+pub use vtable::ExprVTable;

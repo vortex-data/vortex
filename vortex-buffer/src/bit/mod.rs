@@ -14,10 +14,13 @@ mod macros;
 mod ops;
 mod view;
 
-pub use arrow_buffer::bit_chunk_iterator::{
-    BitChunkIterator, BitChunks, UnalignedBitChunk, UnalignedBitChunkIterator,
-};
-pub use arrow_buffer::bit_iterator::{BitIndexIterator, BitIterator, BitSliceIterator};
+pub use arrow_buffer::bit_chunk_iterator::BitChunkIterator;
+pub use arrow_buffer::bit_chunk_iterator::BitChunks;
+pub use arrow_buffer::bit_chunk_iterator::UnalignedBitChunk;
+pub use arrow_buffer::bit_chunk_iterator::UnalignedBitChunkIterator;
+pub use arrow_buffer::bit_iterator::BitIndexIterator;
+pub use arrow_buffer::bit_iterator::BitIterator;
+pub use arrow_buffer::bit_iterator::BitSliceIterator;
 pub use buf::*;
 pub use buf_mut::*;
 pub use view::*;

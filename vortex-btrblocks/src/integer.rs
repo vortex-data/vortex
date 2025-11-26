@@ -8,30 +8,40 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 pub use stats::IntegerStats;
-use vortex_array::arrays::{
-    ConstantArray, DictArray, MaskedArray, PrimitiveArray, PrimitiveVTable,
-};
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::DictArray;
+use vortex_array::arrays::MaskedArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
-use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
+use vortex_error::VortexResult;
+use vortex_error::VortexUnwrap;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_fastlanes::FoRArray;
-use vortex_fastlanes::bitpack_compress::{
-    bit_width_histogram, bitpack_encode, find_best_bit_width,
-};
+use vortex_fastlanes::bitpack_compress::bit_width_histogram;
+use vortex_fastlanes::bitpack_compress::bitpack_encode;
+use vortex_fastlanes::bitpack_compress::find_best_bit_width;
 use vortex_runend::RunEndArray;
 use vortex_runend::compress::runend_encode;
 use vortex_scalar::Scalar;
 use vortex_sequence::sequence_encode;
-use vortex_sparse::{SparseArray, SparseVTable};
-use vortex_zigzag::{ZigZagArray, zigzag_encode};
+use vortex_sparse::SparseArray;
+use vortex_sparse::SparseVTable;
+use vortex_zigzag::ZigZagArray;
+use vortex_zigzag::zigzag_encode;
 
+use crate::Compressor;
+use crate::CompressorStats;
+use crate::GenerateStatsOptions;
+use crate::Scheme;
+use crate::estimate_compression_ratio_with_sampling;
 use crate::integer::dictionary::dictionary_encode;
 use crate::patches::compress_patches;
 use crate::rle::RLEScheme;
-use crate::{
-    Compressor, CompressorStats, GenerateStatsOptions, Scheme,
-    estimate_compression_ratio_with_sampling,
-};
 
 /// [`Compressor`] for signed and unsigned integers.
 pub struct IntCompressor;
@@ -387,7 +397,6 @@ impl Scheme for BitPackingScheme {
         BITPACKING_SCHEME
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn expected_compression_ratio(
         &self,
         stats: &IntegerStats,
@@ -414,7 +423,6 @@ impl Scheme for BitPackingScheme {
         )
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn compress(
         &self,
         stats: &IntegerStats,
@@ -761,21 +769,33 @@ mod tests {
 
     use itertools::Itertools;
     use log::LevelFilter;
+    use rand::RngCore;
+    use rand::SeedableRng;
     use rand::rngs::StdRng;
-    use rand::{RngCore, SeedableRng};
-    use vortex_array::arrays::{DictVTable, PrimitiveArray};
+    use vortex_array::Array;
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
+    use vortex_array::arrays::DictVTable;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
-    use vortex_array::{Array, IntoArray, ToCanonical, assert_arrays_eq};
-    use vortex_buffer::{Buffer, BufferMut, buffer, buffer_mut};
+    use vortex_buffer::Buffer;
+    use vortex_buffer::BufferMut;
+    use vortex_buffer::buffer;
+    use vortex_buffer::buffer_mut;
     use vortex_sequence::SequenceVTable;
     use vortex_sparse::SparseVTable;
     use vortex_utils::aliases::hash_set::HashSet;
 
-    use crate::integer::{
-        IntCompressor, IntegerStats, RLE_INTEGER_SCHEME, SequenceScheme, SparseScheme,
-    };
-    use crate::{Compressor, CompressorStats, Scheme};
+    use crate::Compressor;
+    use crate::CompressorStats;
+    use crate::Scheme;
+    use crate::integer::IntCompressor;
+    use crate::integer::IntegerStats;
+    use crate::integer::RLE_INTEGER_SCHEME;
+    use crate::integer::SequenceScheme;
+    use crate::integer::SparseScheme;
 
     #[test]
     fn test_empty() {

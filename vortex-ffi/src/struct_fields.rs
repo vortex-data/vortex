@@ -5,12 +5,14 @@ use std::ops::Deref;
 use std::ptr;
 use std::sync::Arc;
 
-use vortex::dtype::{DType, StructFields};
+use vortex::dtype::DType;
+use vortex::dtype::StructFields;
 use vortex::error::VortexExpect;
 
+use crate::arc_wrapper;
+use crate::box_wrapper;
 use crate::dtype::vx_dtype;
 use crate::string::vx_string;
-use crate::{arc_wrapper, box_wrapper};
 
 arc_wrapper!(
     /// Represents a Vortex struct data type, without top-level nullability.

@@ -5,7 +5,8 @@ use std::io;
 
 use tokio::io::AsyncWriteExt;
 
-use crate::{IoBuf, VortexWrite};
+use crate::IoBuf;
+use crate::VortexWrite;
 
 impl VortexWrite for tokio::fs::File {
     async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {

@@ -12,23 +12,34 @@ pub mod python;
 use std::backtrace::Backtrace;
 use std::borrow::Cow;
 use std::convert::Infallible;
+use std::env;
 use std::error::Error;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt;
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::io;
 use std::num::TryFromIntError;
 use std::ops::Deref;
-use std::sync::{Arc, PoisonError};
-use std::{env, fmt, io};
+use std::sync::Arc;
+use std::sync::PoisonError;
 
 /// A string that can be used as an error message.
 #[derive(Debug)]
 pub struct ErrString(Cow<'static, str>);
 
-#[allow(clippy::fallible_impl_from)]
+#[expect(
+    clippy::fallible_impl_from,
+    reason = "intentionally panic in debug mode when VORTEX_PANIC_ON_ERR is set"
+)]
 impl<T> From<T> for ErrString
 where
     T: Into<Cow<'static, str>>,
 {
-    #[allow(clippy::panic)]
+    #[expect(
+        clippy::panic,
+        reason = "intentionally panic in debug mode when VORTEX_PANIC_ON_ERR is set"
+    )]
     fn from(msg: T) -> Self {
         if env::var("VORTEX_PANIC_ON_ERR").as_deref().unwrap_or("") == "1" {
             panic!("{}\nBacktrace:\n{}", msg.into(), Backtrace::capture());

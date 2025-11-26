@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use pyo3::{PyRef, pyclass, pymethods};
+use pyo3::PyRef;
+use pyo3::pyclass;
+use pyo3::pymethods;
 use vortex::arrays::PrimitiveVTable;
 
-use crate::arrays::native::{AsArrayRef, EncodingSubclass, PyNativeArray};
+use crate::arrays::native::AsArrayRef;
+use crate::arrays::native::EncodingSubclass;
+use crate::arrays::native::PyNativeArray;
 use crate::dtype::PyPType;
 
 /// Concrete class for arrays with `vortex.primitive` encoding.

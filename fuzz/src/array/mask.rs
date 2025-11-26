@@ -3,14 +3,22 @@
 
 use std::sync::Arc;
 
-use vortex_array::arrays::{
-    BoolArray, DecimalArray, ExtensionArray, FixedSizeListArray, ListViewArray, PrimitiveArray,
-    StructArray, VarBinViewArray,
-};
+use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::IntoArray;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{ArrayRef, Canonical, IntoArray};
-use vortex_dtype::{ExtDType, match_each_decimal_value_type};
-use vortex_error::{VortexResult, VortexUnwrap};
+use vortex_dtype::ExtDType;
+use vortex_dtype::match_each_decimal_value_type;
+use vortex_error::VortexResult;
+use vortex_error::VortexUnwrap;
 use vortex_mask::Mask;
 
 /// Apply mask on the canonical form of the array to get a consistent baseline.
@@ -113,12 +121,19 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::{
-        BoolArray, DecimalArray, FixedSizeListArray, ListViewArray, NullArray, PrimitiveArray,
-        StructArray, VarBinViewArray,
-    };
-    use vortex_array::{Array, IntoArray};
-    use vortex_dtype::{DecimalDType, FieldNames, Nullability};
+    use vortex_array::Array;
+    use vortex_array::IntoArray;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::DecimalArray;
+    use vortex_array::arrays::FixedSizeListArray;
+    use vortex_array::arrays::ListViewArray;
+    use vortex_array::arrays::NullArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_dtype::DecimalDType;
+    use vortex_dtype::FieldNames;
+    use vortex_dtype::Nullability;
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 

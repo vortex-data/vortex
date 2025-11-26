@@ -4,25 +4,46 @@
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
-use vortex::arrays::{
-    BoolArray, DecimalArray, FixedSizeListArray, ListViewArray, PrimitiveArray, StructArray,
-    TemporalArray,
-};
-use vortex::buffer::{BitBuffer, Buffer, BufferMut};
-use vortex::builders::{ArrayBuilder, VarBinViewBuilder};
+use vortex::ArrayRef;
+use vortex::IntoArray;
+use vortex::arrays::BoolArray;
+use vortex::arrays::DecimalArray;
+use vortex::arrays::FixedSizeListArray;
+use vortex::arrays::ListViewArray;
+use vortex::arrays::PrimitiveArray;
+use vortex::arrays::StructArray;
+use vortex::arrays::TemporalArray;
+use vortex::buffer::BitBuffer;
+use vortex::buffer::Buffer;
+use vortex::buffer::BufferMut;
+use vortex::builders::ArrayBuilder;
+use vortex::builders::VarBinViewBuilder;
+use vortex::dtype::DType;
+use vortex::dtype::DecimalDType;
+use vortex::dtype::FieldNames;
+use vortex::dtype::NativePType;
+use vortex::dtype::Nullability;
 use vortex::dtype::datetime::TimeUnit;
-use vortex::dtype::{DType, DecimalDType, FieldNames, NativePType, Nullability};
-use vortex::error::{VortexExpect, VortexResult, vortex_bail};
+use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::scalar::DecimalType;
 use vortex::validity::Validity;
-use vortex::{ArrayRef, IntoArray};
 
-use crate::cpp::{
-    DUCKDB_TYPE, duckdb_date, duckdb_list_entry, duckdb_string_t, duckdb_string_t_data,
-    duckdb_string_t_length, duckdb_time, duckdb_time_ns, duckdb_timestamp, duckdb_timestamp_ms,
-    duckdb_timestamp_ns, duckdb_timestamp_s,
-};
-use crate::duckdb::{DataChunk, Vector};
+use crate::cpp::DUCKDB_TYPE;
+use crate::cpp::duckdb_date;
+use crate::cpp::duckdb_list_entry;
+use crate::cpp::duckdb_string_t;
+use crate::cpp::duckdb_string_t_data;
+use crate::cpp::duckdb_string_t_length;
+use crate::cpp::duckdb_time;
+use crate::cpp::duckdb_time_ns;
+use crate::cpp::duckdb_timestamp;
+use crate::cpp::duckdb_timestamp_ms;
+use crate::cpp::duckdb_timestamp_ns;
+use crate::cpp::duckdb_timestamp_s;
+use crate::duckdb::DataChunk;
+use crate::duckdb::Vector;
 use crate::exporter::precision_to_duckdb_storage_size;
 
 pub struct DuckString<'a> {
@@ -276,7 +297,8 @@ mod tests {
 
     use super::*;
     use crate::cpp::DUCKDB_TYPE;
-    use crate::duckdb::{LogicalType, Vector};
+    use crate::duckdb::LogicalType;
+    use crate::duckdb::Vector;
 
     #[test]
     fn test_integer_vector_conversion() {

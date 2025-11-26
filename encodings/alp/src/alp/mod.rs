@@ -1,11 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Display, Formatter};
-use std::mem::{size_of, transmute, transmute_copy};
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::mem::size_of;
+use std::mem::transmute;
+use std::mem::transmute_copy;
 
 use itertools::Itertools;
-use num_traits::{CheckedSub, Float, PrimInt, ToPrimitive};
+use num_traits::CheckedSub;
+use num_traits::Float;
+use num_traits::PrimInt;
+use num_traits::ToPrimitive;
 
 mod array;
 mod compress;
@@ -44,7 +50,8 @@ mod tests {
 
 pub use array::*;
 pub use compress::*;
-use vortex_buffer::{Buffer, BufferMut};
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
 use vortex_scalar::PValue;
 
@@ -147,7 +154,10 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
         encoded_bytes + patch_bytes
     }
 
-    #[allow(clippy::type_complexity)]
+    #[expect(
+        clippy::type_complexity,
+        reason = "tuple return type is appropriate for multiple encoding outputs"
+    )]
     fn encode(
         values: &[Self],
         exponents: Option<Exponents>,
@@ -258,7 +268,10 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
     }
 }
 
-#[allow(clippy::cast_possible_truncation)]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "intentional truncation for ALP encoding"
+)]
 fn encode_chunk_unchecked<T: ALPFloat>(
     chunk: &[T],
     exp: Exponents,
@@ -366,7 +379,10 @@ impl ALPFloat for f32 {
     ];
 
     #[inline(always)]
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "intentional float to int truncation for ALP encoding"
+    )]
     fn as_int(self) -> Self::ALPInt {
         self as _
     }
@@ -438,7 +454,10 @@ impl ALPFloat for f64 {
     ];
 
     #[inline(always)]
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "intentional float to int truncation for ALP encoding"
+    )]
     fn as_int(self) -> Self::ALPInt {
         self as _
     }

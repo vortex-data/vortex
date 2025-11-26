@@ -7,12 +7,15 @@ use jni::JNIEnv;
 use jni::objects::JClass;
 use jni::sys::jint;
 use log::LevelFilter;
-use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
+use simplelog::ColorChoice;
+use simplelog::Config;
+use simplelog::TermLogger;
+use simplelog::TerminalMode;
 
 // Ensure the logger is initialized only once
 static LOGGER_INIT: OnceLock<()> = OnceLock::new();
 
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used, reason = "logger initialization must succeed")]
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeLogging_initLogging(
     _env: JNIEnv,

@@ -3,9 +3,11 @@
 
 use std::io;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
-use vortex_io::{IoBuf, VortexWrite};
+use vortex_io::IoBuf;
+use vortex_io::VortexWrite;
 
 /// A wrapper around an `VortexWrite` that counts the number of bytes written.
 pub(crate) struct CountingVortexWrite<W> {

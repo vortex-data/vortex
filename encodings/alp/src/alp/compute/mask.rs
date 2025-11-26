@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{MaskKernel, MaskKernelAdapter, mask};
-use vortex_array::{ArrayRef, register_kernel};
+use vortex_array::ArrayRef;
+use vortex_array::compute::MaskKernel;
+use vortex_array::compute::MaskKernelAdapter;
+use vortex_array::compute::mask;
+use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::{ALPArray, ALPVTable};
+use crate::ALPArray;
+use crate::ALPVTable;
 
 impl MaskKernel for ALPVTable {
     fn mask(&self, array: &ALPArray, filter_mask: &Mask) -> VortexResult<ArrayRef> {

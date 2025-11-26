@@ -8,18 +8,30 @@ use divan::Bencher;
 #[cfg(not(codspeed))]
 use divan::counter::BytesCount;
 use mimalloc::MiMalloc;
-use rand::{Rng, SeedableRng};
-use vortex::arrays::{DictArray, PrimitiveArray, TemporalArray, VarBinArray, VarBinViewArray};
+use rand::Rng;
+use rand::SeedableRng;
+use vortex::Array;
+use vortex::ArrayRef;
+use vortex::IntoArray;
+use vortex::ToCanonical;
+use vortex::arrays::DictArray;
+use vortex::arrays::PrimitiveArray;
+use vortex::arrays::TemporalArray;
+use vortex::arrays::VarBinArray;
+use vortex::arrays::VarBinViewArray;
 use vortex::compute::cast;
+use vortex::dtype::DType;
+use vortex::dtype::PType;
 use vortex::dtype::datetime::TimeUnit;
-use vortex::dtype::{DType, PType};
 use vortex::encodings::alp::alp_encode;
-use vortex::encodings::datetime_parts::{DateTimePartsArray, split_temporal};
+use vortex::encodings::datetime_parts::DateTimePartsArray;
+use vortex::encodings::datetime_parts::split_temporal;
 use vortex::encodings::fastlanes::FoRArray;
-use vortex::encodings::fsst::{FSSTArray, fsst_compress, fsst_train_compressor};
+use vortex::encodings::fsst::FSSTArray;
+use vortex::encodings::fsst::fsst_compress;
+use vortex::encodings::fsst::fsst_train_compressor;
 use vortex::encodings::runend::RunEndArray;
 use vortex::vtable::ValidityHelper;
-use vortex::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_fastlanes::BitPackedArray;
 
 #[global_allocator]
@@ -337,6 +349,6 @@ fn decompress(bencher: Bencher, (name, setup_fn): (&str, fn() -> ArrayRef)) {
     let nbytes = compressed.nbytes();
 
     with_counter!(bencher, nbytes)
-        .with_inputs(|| compressed.clone())
-        .bench_values(|a| a.to_canonical());
+        .with_inputs(|| &compressed)
+        .bench_refs(|a| a.to_canonical());
 }

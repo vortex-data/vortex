@@ -10,7 +10,9 @@ mod vtable;
 pub use vtable::ListViewVTable;
 
 mod conversion;
-pub use conversion::{list_from_list_view, list_view_from_list, recursive_list_from_list_view};
+pub use conversion::list_from_list_view;
+pub use conversion::list_view_from_list;
+pub use conversion::recursive_list_from_list_view;
 
 mod rebuild;
 pub use rebuild::ListViewRebuildMode;

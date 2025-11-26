@@ -3,9 +3,14 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::{ChunkedArray, ChunkedVTable};
-use crate::compute::{IsSortedKernel, IsSortedKernelAdapter, is_sorted, is_strict_sorted};
-use crate::{Array, register_kernel};
+use crate::Array;
+use crate::arrays::ChunkedArray;
+use crate::arrays::ChunkedVTable;
+use crate::compute::IsSortedKernel;
+use crate::compute::IsSortedKernelAdapter;
+use crate::compute::is_sorted;
+use crate::compute::is_strict_sorted;
+use crate::register_kernel;
 
 impl IsSortedKernel for ChunkedVTable {
     fn is_sorted(&self, array: &ChunkedArray) -> VortexResult<Option<bool>> {

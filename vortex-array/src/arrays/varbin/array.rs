@@ -3,13 +3,21 @@
 
 use num_traits::AsPrimitive;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, IntegerPType, Nullability, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_err};
+use vortex_dtype::DType;
+use vortex_dtype::IntegerPType;
+use vortex_dtype::Nullability;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 
+use crate::Array;
+use crate::ArrayRef;
+use crate::ToCanonical;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, ToCanonical};
 
 #[derive(Clone, Debug)]
 pub struct VarBinArray {
@@ -235,7 +243,10 @@ impl VarBinArray {
         builder.finish(dtype)
     }
 
-    #[allow(clippy::same_name_method)]
+    #[expect(
+        clippy::same_name_method,
+        reason = "intentionally named from_iter like Iterator::from_iter"
+    )]
     pub fn from_iter<T: AsRef<[u8]>, I: IntoIterator<Item = Option<T>>>(
         iter: I,
         dtype: DType,

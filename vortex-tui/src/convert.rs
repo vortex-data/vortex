@@ -3,7 +3,8 @@
 
 use std::path::PathBuf;
 
-use clap::{Parser, ValueEnum};
+use clap::Parser;
+use clap::ValueEnum;
 use futures::StreamExt;
 use indicatif::ProgressBar;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
@@ -14,8 +15,10 @@ use vortex::arrow::FromArrowArray;
 use vortex::compressor::CompactCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::error::{VortexError, VortexExpect};
-use vortex::file::{WriteOptionsSessionExt, WriteStrategyBuilder};
+use vortex::error::VortexError;
+use vortex::error::VortexExpect;
+use vortex::file::WriteOptionsSessionExt;
+use vortex::file::WriteStrategyBuilder;
 use vortex::stream::ArrayStreamAdapter;
 
 use crate::SESSION;

@@ -5,22 +5,47 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use itertools::Itertools;
+use vortex_array::Array;
+use vortex_array::ArrayBufferVisitor;
+use vortex_array::ArrayChildVisitor;
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
+use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::DeserializeMetadata;
+use vortex_array::Precision;
+use vortex_array::ProstMetadata;
+use vortex_array::SerializeMetadata;
+use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::patches::{Patches, PatchesMetadata};
+use vortex_array::patches::Patches;
+use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::{ArrayStats, StatsSetRef};
+use vortex_array::stats::ArrayStats;
+use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::{
-    ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, CanonicalVTable, EncodeVTable,
-    NotSupported, VTable, ValidityChild, ValidityVTableFromChild, VisitorVTable,
-};
-use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef, Canonical,
-    DeserializeMetadata, Precision, ProstMetadata, SerializeMetadata, ToCanonical, vtable,
-};
-use vortex_buffer::{Buffer, ByteBuffer};
-use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_array::vtable;
+use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayVTable;
+use vortex_array::vtable::ArrayVTableExt;
+use vortex_array::vtable::BaseArrayVTable;
+use vortex_array::vtable::CanonicalVTable;
+use vortex_array::vtable::EncodeVTable;
+use vortex_array::vtable::NotSupported;
+use vortex_array::vtable::VTable;
+use vortex_array::vtable::ValidityChild;
+use vortex_array::vtable::ValidityVTableFromChild;
+use vortex_array::vtable::VisitorVTable;
+use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_dtype::PType;
+use vortex_error::VortexError;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 
 use crate::alp_rd::alp_rd_decode;
 
@@ -424,14 +449,17 @@ impl VisitorVTable<ALPRDVTable> for ALPRDVTable {
 #[cfg(test)]
 mod test {
     use rstest::rstest;
+    use vortex_array::ProstMetadata;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
-    use vortex_array::{ProstMetadata, ToCanonical, assert_arrays_eq};
     use vortex_dtype::PType;
 
     use super::ALPRDMetadata;
-    use crate::{ALPRDFloat, alp_rd};
+    use crate::ALPRDFloat;
+    use crate::alp_rd;
 
     #[rstest]
     #[case(vec![0.1f32.next_up(); 1024], 1.123_848_f32)]

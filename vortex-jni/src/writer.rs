@@ -8,24 +8,37 @@ use arrow_ipc::reader::StreamReader;
 use futures::SinkExt;
 use futures::channel::mpsc;
 use jni::JNIEnv;
-use jni::objects::{JByteArray, JClass, JObject, JString};
-use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jlong};
+use jni::objects::JByteArray;
+use jni::objects::JClass;
+use jni::objects::JObject;
+use jni::objects::JString;
+use jni::sys::JNI_FALSE;
+use jni::sys::JNI_TRUE;
+use jni::sys::jboolean;
+use jni::sys::jlong;
 use object_store::path::Path;
 use url::Url;
+use vortex::Array;
+use vortex::ArrayRef;
 use vortex::arrow::FromArrowArray;
 use vortex::dtype::DType;
-use vortex::error::{VortexResult, vortex_bail, vortex_err};
-use vortex::file::{WriteOptionsSessionExt, WriteSummary};
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
+use vortex::error::vortex_err;
+use vortex::file::WriteOptionsSessionExt;
+use vortex::file::WriteSummary;
+use vortex::io::ObjectStoreWriter;
+use vortex::io::VortexWrite;
 use vortex::io::runtime::Task;
 use vortex::io::session::RuntimeSessionExt;
-use vortex::io::{ObjectStoreWriter, VortexWrite};
 use vortex::stream::ArrayStreamAdapter;
 use vortex::utils::aliases::hash_map::HashMap;
-use vortex::{Array, ArrayRef};
 
-use crate::errors::{JNIError, try_or_throw};
+use crate::SESSION;
+use crate::TOKIO_RUNTIME;
+use crate::errors::JNIError;
+use crate::errors::try_or_throw;
 use crate::object_store::make_object_store;
-use crate::{SESSION, TOKIO_RUNTIME};
 
 /// Native writer around a file writer.
 pub struct NativeWriter {
@@ -60,7 +73,10 @@ impl NativeWriter {
         unsafe { Box::from_raw(pointer as *mut Self) }
     }
 
-    #[allow(clippy::expect_used)]
+    #[expect(
+        clippy::expect_used,
+        reason = "JNI contract guarantees non-null pointer"
+    )]
     pub unsafe fn from_ptr<'a>(pointer: jlong) -> &'a Self {
         unsafe {
             (pointer as *const Self)

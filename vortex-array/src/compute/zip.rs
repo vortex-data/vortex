@@ -5,14 +5,24 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
-use vortex_mask::{AllOr, Mask};
+use vortex_error::VortexError;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_mask::AllOr;
+use vortex_mask::Mask;
 
-use super::{ComputeFnVTable, InvocationArgs, Output, cast};
-use crate::builders::{ArrayBuilder, VarBinViewBuilder, builder_with_capacity};
-use crate::compute::{ComputeFn, Kernel};
+use super::ComputeFnVTable;
+use super::InvocationArgs;
+use super::Output;
+use super::cast;
+use crate::Array;
+use crate::ArrayRef;
+use crate::builders::ArrayBuilder;
+use crate::builders::builder_with_capacity;
+use crate::compute::ComputeFn;
+use crate::compute::Kernel;
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef};
 
 /// Performs element-wise conditional selection between two arrays based on a mask.
 ///
@@ -199,27 +209,15 @@ fn zip_impl(if_true: &dyn Array, if_false: &dyn Array, mask: &Mask) -> VortexRes
     );
 
     let return_type = zip_return_dtype(if_true, if_false);
-    let capacity = if_true.len();
-
-    let builder = match return_type {
-        // TODO(blaginin): once https://github.com/vortex-data/vortex/pull/4695 is merged, we can kill
-        //  these two special cases, but before that we need to manually use deduplicated buffers.
-        //  Otherwise, the same buffer will be appended multiple times causing fragmentation.
-        DType::Utf8(n) => Box::new(VarBinViewBuilder::with_buffer_deduplication(
-            DType::Utf8(n),
-            capacity,
-        )),
-        DType::Binary(n) => Box::new(VarBinViewBuilder::with_buffer_deduplication(
-            DType::Binary(n),
-            capacity,
-        )),
-        _ => builder_with_capacity(&return_type, if_true.len()),
-    };
-
-    zip_impl_with_builder(if_true, if_false, mask, builder)
+    zip_impl_with_builder(
+        if_true,
+        if_false,
+        mask,
+        builder_with_capacity(&return_type, if_true.len()),
+    )
 }
 
-pub(crate) fn zip_impl_with_builder(
+fn zip_impl_with_builder(
     if_true: &dyn Array,
     if_false: &dyn Array,
     mask: &Mask,
@@ -246,16 +244,23 @@ mod tests {
     use arrow_array::cast::AsArray;
     use arrow_select::zip::zip as arrow_zip;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
-    use crate::arrays::{ConstantArray, PrimitiveArray, StructArray, VarBinViewVTable};
+    use crate::Array;
+    use crate::IntoArray;
+    use crate::ToCanonical;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
+    use crate::arrays::VarBinViewVTable;
     use crate::arrow::IntoArrowArray;
-    use crate::builders::{ArrayBuilder, BufferGrowthStrategy};
+    use crate::builders::ArrayBuilder;
+    use crate::builders::BufferGrowthStrategy;
+    use crate::builders::VarBinViewBuilder;
     use crate::compute::zip;
-    use crate::compute::zip::VarBinViewBuilder;
-    use crate::{Array, IntoArray, ToCanonical};
 
     #[test]
     fn test_zip_basic() {

@@ -9,10 +9,16 @@ use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_vector::binaryview::BinaryView;
 
-use crate::arrays::{VarBinViewArray, VarBinViewVTable};
-use crate::compute::{TakeKernel, TakeKernelAdapter};
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::ToCanonical;
+use crate::arrays::VarBinViewArray;
+use crate::arrays::VarBinViewVTable;
+use crate::compute::TakeKernel;
+use crate::compute::TakeKernelAdapter;
+use crate::register_kernel;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 /// Take involves creating a new array that references the old array, just with the given set of views.
 impl TakeKernel for VarBinViewVTable {
@@ -65,7 +71,8 @@ mod tests {
     use crate::IntoArray;
     use crate::accessor::ArrayAccessor;
     use crate::array::Array;
-    use crate::arrays::{PrimitiveArray, VarBinViewArray};
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::VarBinViewArray;
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;

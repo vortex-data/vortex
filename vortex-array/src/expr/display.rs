@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
+use std::fmt::Formatter;
 
 use crate::expr::Expression;
 
@@ -53,18 +54,24 @@ impl Display for ExpressionDebug<'_> {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
 
-    use crate::compute::{BetweenOptions, StrictComparison};
+    use crate::compute::BetweenOptions;
+    use crate::compute::StrictComparison;
     use crate::expr::exprs::between::between;
-    use crate::expr::exprs::binary::{and, eq, gt};
+    use crate::expr::exprs::binary::and;
+    use crate::expr::exprs::binary::eq;
+    use crate::expr::exprs::binary::gt;
     use crate::expr::exprs::cast::cast;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::not::not;
     use crate::expr::exprs::pack::pack;
     use crate::expr::exprs::root::root;
-    use crate::expr::exprs::select::{select, select_exclude};
+    use crate::expr::exprs::select::select;
+    use crate::expr::exprs::select::select_exclude;
 
     #[test]
     fn tree_display_getitem() {

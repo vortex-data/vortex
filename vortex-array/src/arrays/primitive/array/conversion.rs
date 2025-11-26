@@ -3,16 +3,23 @@
 
 //! Conversion methods and trait implementations of [`From`] and [`Into`] for [`PrimitiveArray`].
 
-use vortex_buffer::{BitBufferMut, Buffer, BufferMut};
-use vortex_dtype::{NativePType, Nullability};
-use vortex_error::{VortexResult, vortex_ensure, vortex_panic};
+use vortex_buffer::BitBufferMut;
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
+use vortex_dtype::NativePType;
+use vortex_dtype::Nullability;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
+use vortex_vector::VectorOps;
+use vortex_vector::match_each_pvector;
 use vortex_vector::primitive::PrimitiveVector;
-use vortex_vector::{VectorOps, match_each_pvector};
 
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray};
 
 impl PrimitiveArray {
     /// Attempts to create a `PrimitiveArray` from a [`PrimitiveVector`] given a [`Nullability`].
@@ -103,7 +110,6 @@ impl PrimitiveArray {
     }
 
     /// Try to extract a mutable buffer from the PrimitiveArray with zero copy.
-    #[allow(clippy::panic_in_result_fn)]
     pub fn try_into_buffer_mut<T: NativePType>(self) -> Result<BufferMut<T>, PrimitiveArray> {
         if T::PTYPE != self.ptype() {
             vortex_panic!(
@@ -141,7 +147,8 @@ impl<T: NativePType> IntoArray for BufferMut<T> {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::BufferMut;
-    use vortex_dtype::{Nullability, PType};
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
     use vortex_mask::MaskMut;
     use vortex_vector::primitive::PVector;
 

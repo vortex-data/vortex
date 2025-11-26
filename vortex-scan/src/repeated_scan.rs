@@ -1,17 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp;
+use std::iter;
 use std::ops::Range;
 use std::sync::Arc;
-use std::{cmp, iter};
 
 use futures::Stream;
 use futures::future::BoxFuture;
-use itertools::{Either, Itertools};
+use itertools::Either;
+use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::expr::Expression;
-use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
-use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
+use vortex_array::iter::ArrayIterator;
+use vortex_array::iter::ArrayIteratorAdapter;
+use vortex_array::stream::ArrayStream;
+use vortex_array::stream::ArrayStreamAdapter;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_io::runtime::BlockingRuntime;
@@ -22,7 +26,8 @@ use vortex_session::VortexSession;
 use crate::filter::FilterExpr;
 use crate::selection::Selection;
 use crate::splits::Splits;
-use crate::tasks::{TaskContext, split_exec};
+use crate::tasks::TaskContext;
+use crate::tasks::split_exec;
 
 /// A projected subset (by indices, range, and filter) of rows from a Vortex data source.
 ///
@@ -74,7 +79,10 @@ impl RepeatedScan<ArrayRef> {
 
 impl<A: 'static + Send> RepeatedScan<A> {
     /// Constructor just to allow `scan_builder` to create a `RepeatedScan`.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "all arguments are needed for scan construction"
+    )]
     pub(super) fn new(
         session: VortexSession,
         layout_reader: LayoutReaderRef,

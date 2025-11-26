@@ -4,11 +4,15 @@
 use std::backtrace::Backtrace;
 use std::error::Error;
 use std::fmt;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
 
+use vortex_array::Array;
+use vortex_array::ArrayRef;
 use vortex_array::compute::MinMaxResult;
-use vortex_array::search_sorted::{SearchResult, SearchSortedSide};
-use vortex_array::{Array, ArrayRef};
+use vortex_array::search_sorted::SearchResult;
+use vortex_array::search_sorted::SearchSortedSide;
 use vortex_error::VortexError;
 use vortex_scalar::Scalar;
 

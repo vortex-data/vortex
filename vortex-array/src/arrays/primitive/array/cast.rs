@@ -2,12 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, NativePType, PType};
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_dtype::DType;
+use vortex_dtype::NativePType;
+use vortex_dtype::PType;
+use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 
 use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
-use crate::compute::{cast, min_max};
+use crate::compute::cast;
+use crate::compute::min_max;
 use crate::vtable::ValidityHelper;
 
 impl PrimitiveArray {
@@ -124,8 +128,11 @@ impl PrimitiveArray {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_buffer::{Buffer, buffer};
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_buffer::Buffer;
+    use vortex_buffer::buffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
 
     use crate::arrays::PrimitiveArray;
     use crate::validity::Validity;

@@ -9,7 +9,11 @@ mod file;
 
 use std::sync::LazyLock;
 
-pub use array::{Action, CompressorStrategy, ExpectedValue, FuzzArrayAction, sort_canonical_array};
+pub use array::Action;
+pub use array::CompressorStrategy;
+pub use array::ExpectedValue;
+pub use array::FuzzArrayAction;
+pub use array::sort_canonical_array;
 pub use file::FuzzFileAction;
 use vortex::VortexSessionDefault;
 use vortex_io::runtime::BlockingRuntime;

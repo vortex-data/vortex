@@ -6,12 +6,18 @@ use std::marker::PhantomData;
 use num_traits::ToPrimitive;
 use vortex::arrays::DecimalArray;
 use vortex::buffer::Buffer;
-use vortex::dtype::{BigCast, DecimalDType, NativeDecimalType, match_each_decimal_value_type};
-use vortex::error::{VortexExpect, VortexResult, vortex_bail};
+use vortex::dtype::BigCast;
+use vortex::dtype::DecimalDType;
+use vortex::dtype::NativeDecimalType;
+use vortex::dtype::match_each_decimal_value_type;
+use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::mask::Mask;
 use vortex::scalar::DecimalType;
 
-use crate::duckdb::{Vector, VectorBuffer};
+use crate::duckdb::Vector;
+use crate::duckdb::VectorBuffer;
 use crate::exporter::ColumnExporter;
 
 struct DecimalExporter<D: NativeDecimalType, N: NativeDecimalType> {
@@ -116,7 +122,8 @@ mod tests {
     use vortex::error::VortexUnwrap;
 
     use super::*;
-    use crate::duckdb::{DataChunk, LogicalType};
+    use crate::duckdb::DataChunk;
+    use crate::duckdb::LogicalType;
 
     pub(crate) fn new_zero_copy_exporter(
         array: &DecimalArray,

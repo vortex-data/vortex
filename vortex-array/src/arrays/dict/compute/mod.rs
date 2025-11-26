@@ -13,11 +13,18 @@ mod min_max;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use super::{DictArray, DictVTable};
-use crate::compute::{
-    FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter, filter, take,
-};
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
+use super::DictArray;
+use super::DictVTable;
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::compute::FilterKernel;
+use crate::compute::FilterKernelAdapter;
+use crate::compute::TakeKernel;
+use crate::compute::TakeKernelAdapter;
+use crate::compute::filter;
+use crate::compute::take;
+use crate::register_kernel;
 
 impl TakeKernel for DictVTable {
     fn take(&self, array: &DictArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -47,17 +54,27 @@ mod test {
     #[allow(unused_imports)]
     use itertools::Itertools;
     use vortex_buffer::buffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, Nullability};
 
+    use crate::Array;
+    use crate::ArrayRef;
+    use crate::IntoArray;
+    use crate::ToCanonical;
     use crate::accessor::ArrayAccessor;
-    use crate::arrays::{ConstantArray, PrimitiveArray, VarBinArray, VarBinViewArray};
+    use crate::arrays::ConstantArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::VarBinArray;
+    use crate::arrays::VarBinViewArray;
+    use crate::assert_arrays_eq;
     use crate::builders::dict::dict_encode;
+    use crate::compute::Operator;
+    use crate::compute::compare;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::compute::conformance::take::test_take_conformance;
-    use crate::compute::{Operator, compare, take};
-    use crate::{Array, ArrayRef, IntoArray, ToCanonical, assert_arrays_eq};
+    use crate::compute::take;
 
     #[test]
     fn canonicalise_nullable_primitive() {
@@ -246,11 +263,13 @@ mod test {
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
 
     use crate::IntoArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::VarBinArray;
     use crate::arrays::dict::DictArray;
-    use crate::arrays::{PrimitiveArray, VarBinArray};
     use crate::builders::dict::dict_encode;
     use crate::compute::conformance::consistency::test_array_consistency;
 

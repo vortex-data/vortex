@@ -6,7 +6,10 @@ use vortex::compute::mask;
 use vortex::error::VortexResult;
 
 use crate::duckdb::Vector;
-use crate::exporter::{ColumnExporter, ConversionCache, new_array_exporter, validity};
+use crate::exporter::ColumnExporter;
+use crate::exporter::ConversionCache;
+use crate::exporter::new_array_exporter;
+use crate::exporter::validity;
 
 struct StructExporter {
     children: Vec<Box<dyn ColumnExporter>>,
@@ -54,14 +57,20 @@ mod tests {
     use std::ffi::CString;
 
     use vortex::IntoArray;
-    use vortex::arrays::{ConstantArray, DictArray, PrimitiveArray, VarBinViewArray};
-    use vortex::buffer::{BitBuffer, buffer};
-    use vortex::error::{VortexExpect, VortexUnwrap};
+    use vortex::arrays::ConstantArray;
+    use vortex::arrays::DictArray;
+    use vortex::arrays::PrimitiveArray;
+    use vortex::arrays::VarBinViewArray;
+    use vortex::buffer::BitBuffer;
+    use vortex::buffer::buffer;
+    use vortex::error::VortexExpect;
+    use vortex::error::VortexUnwrap;
     use vortex::validity::Validity;
 
     use super::*;
     use crate::cpp;
-    use crate::duckdb::{DataChunk, LogicalType};
+    use crate::duckdb::DataChunk;
+    use crate::duckdb::LogicalType;
 
     #[test]
     fn test_struct_exporter() {

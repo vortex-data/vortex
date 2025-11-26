@@ -1,14 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use num_traits::{One, Zero};
+use num_traits::One;
+use num_traits::Zero;
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_dtype::DType;
+use vortex_dtype::match_each_native_ptype;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_vector::Vector;
+use vortex_vector::VectorOps;
 use vortex_vector::bool::BoolVector;
 use vortex_vector::null::NullVector;
 use vortex_vector::primitive::PVector;
-use vortex_vector::{Vector, VectorOps};
 
 use crate::cast::Cast;
 

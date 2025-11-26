@@ -1,17 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{
-    CompareKernel, CompareKernelAdapter, Operator, and, cast, compare, or,
-};
-use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
+use vortex_array::compute::CompareKernel;
+use vortex_array::compute::CompareKernelAdapter;
+use vortex_array::compute::Operator;
+use vortex_array::compute::and;
+use vortex_array::compute::cast;
+use vortex_array::compute::compare;
+use vortex_array::compute::or;
+use vortex_array::register_kernel;
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
 use vortex_dtype::datetime::TemporalMetadata;
-use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::array::{DateTimePartsArray, DateTimePartsVTable};
+use crate::array::DateTimePartsArray;
+use crate::array::DateTimePartsVTable;
 use crate::timestamp;
 
 impl CompareKernel for DateTimePartsVTable {
@@ -192,7 +201,8 @@ fn compare_dtp(
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_array::arrays::{PrimitiveArray, TemporalArray};
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::TemporalArray;
     use vortex_array::compute::Operator;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;

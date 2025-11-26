@@ -5,18 +5,27 @@ use std::mem;
 use std::mem::MaybeUninit;
 
 use fastlanes::BitPacking;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::{FilterKernel, FilterKernelAdapter, filter};
+use vortex_array::compute::FilterKernel;
+use vortex_array::compute::FilterKernelAdapter;
+use vortex_array::compute::filter;
+use vortex_array::register_kernel;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical, register_kernel};
-use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{NativePType, match_each_unsigned_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
+use vortex_dtype::NativePType;
+use vortex_dtype::match_each_unsigned_integer_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use super::chunked_indices;
+use crate::BitPackedArray;
+use crate::BitPackedVTable;
 use crate::bitpacking::compute::take::UNPACK_CHUNK_THRESHOLD;
-use crate::{BitPackedArray, BitPackedVTable};
 
 impl FilterKernel for BitPackedVTable {
     fn filter(&self, array: &BitPackedArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -155,12 +164,16 @@ fn filter_indices<T: NativePType + BitPacking>(
 
 #[cfg(test)]
 mod test {
+    use vortex_array::Array;
+    use vortex_array::IntoArray as _;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::filter;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray as _, ToCanonical, assert_arrays_eq};
-    use vortex_buffer::{Buffer, buffer};
+    use vortex_buffer::Buffer;
+    use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
     use crate::BitPackedArray;

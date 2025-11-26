@@ -5,7 +5,9 @@
 
 use arrow_buffer::BooleanBuffer;
 
-use crate::{Alignment, BitBuffer, ByteBuffer};
+use crate::Alignment;
+use crate::BitBuffer;
+use crate::ByteBuffer;
 
 impl From<BooleanBuffer> for BitBuffer {
     fn from(value: BooleanBuffer) -> Self {
@@ -20,9 +22,7 @@ impl From<BooleanBuffer> for BitBuffer {
 
 impl From<BitBuffer> for BooleanBuffer {
     fn from(value: BitBuffer) -> Self {
-        let offset = value.offset();
-        let len = value.len();
-        let buffer = value.into_inner();
+        let (offset, len, buffer) = value.into_inner();
 
         BooleanBuffer::new(buffer.into_arrow_buffer(), offset, len)
     }
@@ -30,7 +30,8 @@ impl From<BitBuffer> for BooleanBuffer {
 
 #[cfg(test)]
 mod tests {
-    use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
+    use arrow_buffer::BooleanBuffer;
+    use arrow_buffer::BooleanBufferBuilder;
 
     use crate::BitBuffer;
 

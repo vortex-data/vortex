@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::Array;
+use vortex_array::ArrayRef;
 use vortex_array::stats::ArrayStats;
-use vortex_array::{Array, ArrayRef};
-use vortex_dtype::{DType, PType};
-use vortex_error::{VortexResult, vortex_ensure};
+use vortex_dtype::DType;
+use vortex_dtype::PType;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 use crate::FL_CHUNK_SIZE;
 
@@ -124,7 +127,6 @@ impl RLEArray {
     /// - The `indices` array contains valid indices into chunks of the `values` array
     /// - The `values_idx_offsets` array contains valid chunk start offsets
     /// - The `validity` array has the same length as `length`
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn new_unchecked(
         values: ArrayRef,
         indices: ArrayRef,
@@ -179,7 +181,10 @@ impl RLEArray {
     /// Offsets in `values_idx_offsets` are absolute and need to be shifted
     /// by the offset of the first chunk, respective the current slice, in
     /// order to make them relative.
-    #[allow(clippy::expect_used)]
+    #[expect(
+        clippy::expect_used,
+        reason = "expect is safe here as scalar_at returns a valid primitive"
+    )]
     pub(crate) fn values_idx_offset(&self, chunk_idx: usize) -> usize {
         self.values_idx_offsets
             .scalar_at(chunk_idx)
@@ -208,15 +213,23 @@ impl RLEArray {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::Array;
+    use vortex_array::ArrayContext;
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::serde::{ArrayParts, SerializeOptions};
+    use vortex_array::serde::ArrayParts;
+    use vortex_array::serde::SerializeOptions;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ArrayVTableExt;
-    use vortex_array::{Array, ArrayContext, IntoArray, ToCanonical};
-    use vortex_buffer::{Buffer, ByteBufferMut};
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_buffer::Buffer;
+    use vortex_buffer::ByteBufferMut;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
 
-    use crate::{RLEArray, RLEVTable};
+    use crate::RLEArray;
+    use crate::RLEVTable;
 
     #[test]
     fn test_try_new() {

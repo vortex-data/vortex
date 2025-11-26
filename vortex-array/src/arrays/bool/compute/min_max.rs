@@ -9,8 +9,11 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{BoolArray, BoolVTable};
-use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
+use crate::arrays::BoolArray;
+use crate::arrays::BoolVTable;
+use crate::compute::MinMaxKernel;
+use crate::compute::MinMaxKernelAdapter;
+use crate::compute::MinMaxResult;
 use crate::register_kernel;
 
 impl MinMaxKernel for BoolVTable {
@@ -78,7 +81,8 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::arrays::BoolArray;
-    use crate::compute::{MinMaxResult, min_max};
+    use crate::compute::MinMaxResult;
+    use crate::compute::min_max;
 
     #[test]
     fn test_min_max_nulls() {

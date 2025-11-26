@@ -6,7 +6,8 @@ use pyo3::prelude::*;
 use pyo3::types::PyType;
 use vortex::dtype::DType;
 use vortex::stats::ArrayStats;
-use vortex::vtable::{ArrayVTable, ArrayVTableExt};
+use vortex::vtable::ArrayVTable;
+use vortex::vtable::ArrayVTableExt;
 
 use crate::arrays::PyArray;
 use crate::arrays::py::PythonVTable;

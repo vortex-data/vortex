@@ -223,7 +223,10 @@ impl BinaryView {
 
     /// Returns true if the binary value is inlined.
     #[inline]
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "MAX_INLINED_SIZE is a small constant"
+    )]
     pub fn is_inlined(&self) -> bool {
         self.len() <= (Self::MAX_INLINED_SIZE as u32)
     }

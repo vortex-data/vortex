@@ -3,17 +3,30 @@
 
 use std::future::Future;
 use std::pin::Pin;
-use std::task::{Poll, ready};
+use std::task::Poll;
+use std::task::ready;
 
-use bytes::{Bytes, BytesMut};
-use futures::{AsyncRead, AsyncWrite, AsyncWriteExt, Stream, StreamExt, TryStreamExt};
+use bytes::Bytes;
+use bytes::BytesMut;
+use futures::AsyncRead;
+use futures::AsyncWrite;
+use futures::AsyncWriteExt;
+use futures::Stream;
+use futures::StreamExt;
+use futures::TryStreamExt;
 use pin_project_lite::pin_project;
+use vortex_array::ArrayRef;
+use vortex_array::ArrayRegistry;
 use vortex_array::stream::ArrayStream;
-use vortex_array::{ArrayRef, ArrayRegistry};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 
-use crate::messages::{AsyncMessageReader, DecoderMessage, EncoderMessage, MessageEncoder};
+use crate::messages::AsyncMessageReader;
+use crate::messages::DecoderMessage;
+use crate::messages::EncoderMessage;
+use crate::messages::MessageEncoder;
 
 pin_project! {
     /// An [`ArrayStream`] for reading messages off an async IPC stream.
@@ -188,8 +201,11 @@ impl Stream for ArrayStreamIPCBytes {
 #[cfg(test)]
 mod test {
     use futures::io::Cursor;
-    use vortex_array::stream::{ArrayStream, ArrayStreamExt};
-    use vortex_array::{ArraySession, IntoArray as _, ToCanonical};
+    use vortex_array::ArraySession;
+    use vortex_array::IntoArray as _;
+    use vortex_array::ToCanonical;
+    use vortex_array::stream::ArrayStream;
+    use vortex_array::stream::ArrayStreamExt;
     use vortex_buffer::buffer;
 
     use super::*;

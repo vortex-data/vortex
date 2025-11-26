@@ -5,9 +5,12 @@ use std::ops::Range;
 
 use vortex_scalar::Scalar;
 
-use crate::arrays::{BoolArray, BoolVTable};
-use crate::vtable::{OperationsVTable, ValidityHelper};
-use crate::{ArrayRef, IntoArray};
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::BoolArray;
+use crate::arrays::BoolVTable;
+use crate::vtable::OperationsVTable;
+use crate::vtable::ValidityHelper;
 
 impl OperationsVTable<BoolVTable> for BoolVTable {
     fn slice(array: &BoolArray, range: Range<usize>) -> ArrayRef {
@@ -28,7 +31,8 @@ mod tests {
     use std::iter;
 
     use super::*;
-    use crate::{ToCanonical, assert_arrays_eq};
+    use crate::ToCanonical;
+    use crate::assert_arrays_eq;
 
     #[test]
     fn test_slice_hundred_elements() {

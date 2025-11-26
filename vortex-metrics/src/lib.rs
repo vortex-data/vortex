@@ -10,12 +10,15 @@ mod session;
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
 pub use session::*;
-use witchcraft_metrics::{MetricRegistry, Metrics, MetricsIter};
+use witchcraft_metrics::MetricRegistry;
+use witchcraft_metrics::Metrics;
+use witchcraft_metrics::MetricsIter;
 
 /// A metric registry for various performance metrics.
 #[derive(Default, Clone)]
@@ -40,7 +43,12 @@ impl Debug for VortexMetrics {
 }
 
 // re-export exposed metric types
-pub use witchcraft_metrics::{Counter, Histogram, Metric, MetricId, Tags, Timer};
+pub use witchcraft_metrics::Counter;
+pub use witchcraft_metrics::Histogram;
+pub use witchcraft_metrics::Metric;
+pub use witchcraft_metrics::MetricId;
+pub use witchcraft_metrics::Tags;
+pub use witchcraft_metrics::Timer;
 
 /// Default tags for metrics used in [`VortexMetrics`].
 #[derive(Default, Clone, Debug)]

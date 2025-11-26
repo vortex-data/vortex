@@ -5,11 +5,15 @@
 
 use std::iter::Iterator;
 
-use arrow_buffer::{ArrowNativeType, MutableBuffer, ScalarBuffer};
+use arrow_buffer::ArrowNativeType;
+use arrow_buffer::MutableBuffer;
+use arrow_buffer::ScalarBuffer;
 use divan::Bencher;
 use num_traits::PrimInt;
-use vortex_buffer::{Buffer, BufferMut};
-use vortex_error::{VortexExpect, vortex_err};
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
+use vortex_error::vortex_err;
 
 fn main() {
     divan::main();
@@ -141,7 +145,7 @@ fn map_new_output(bencher: Bencher, n: i32) {
                 BufferMut::with_capacity(n as usize),
             )
         })
-        .bench_values(|(buffer, mut out)| {
+        .bench_refs(|(buffer, out)| {
             buffer
                 .iter()
                 .for_each(|&i| unsafe { out.push_unchecked((i as u32) + 1) })

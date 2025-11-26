@@ -8,13 +8,19 @@ use std::sync::Arc;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::dash_map::DashMap;
 
-use crate::expr::transform::rules::{
-    AnyParent, ParentMatcher, ParentReduceRule, ReduceRule, RuleContext, TypedRuleContext,
-};
-use crate::expr::transform::{
-    DynParentReduceRule, DynReduceRule, DynTypedParentReduceRule, DynTypedReduceRule,
-};
-use crate::expr::{ExprId, Expression, VTable};
+use crate::expr::ExprId;
+use crate::expr::Expression;
+use crate::expr::VTable;
+use crate::expr::transform::DynParentReduceRule;
+use crate::expr::transform::DynReduceRule;
+use crate::expr::transform::DynTypedParentReduceRule;
+use crate::expr::transform::DynTypedReduceRule;
+use crate::expr::transform::rules::AnyParent;
+use crate::expr::transform::rules::ParentMatcher;
+use crate::expr::transform::rules::ParentReduceRule;
+use crate::expr::transform::rules::ReduceRule;
+use crate::expr::transform::rules::RuleContext;
+use crate::expr::transform::rules::TypedRuleContext;
 
 /// Adapter for ReduceRule
 struct ReduceRuleAdapter<V: VTable, R> {

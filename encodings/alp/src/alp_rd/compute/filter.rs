@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{FilterKernel, FilterKernelAdapter, filter};
-use vortex_array::{ArrayRef, IntoArray, register_kernel};
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::compute::FilterKernel;
+use vortex_array::compute::FilterKernelAdapter;
+use vortex_array::compute::filter;
+use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::{ALPRDArray, ALPRDVTable};
+use crate::ALPRDArray;
+use crate::ALPRDVTable;
 
 impl FilterKernel for ALPRDVTable {
     fn filter(&self, array: &ALPRDArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -33,15 +38,18 @@ register_kernel!(FilterKernelAdapter(ALPRDVTable).lift());
 #[cfg(test)]
 mod test {
     use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::filter;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
-    use crate::{ALPRDFloat, RDEncoder};
+    use crate::ALPRDFloat;
+    use crate::RDEncoder;
 
     #[rstest]
     #[case(0.1f32, 0.2f32, 3e25f32)]

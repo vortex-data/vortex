@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::{
-    IntegerPType, NativePType, UnsignedPType, match_each_integer_ptype, match_each_native_ptype,
-};
+use vortex_dtype::IntegerPType;
+use vortex_dtype::NativePType;
+use vortex_dtype::UnsignedPType;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_dtype::match_each_native_ptype;
 
 use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
@@ -12,7 +14,6 @@ use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 impl PrimitiveArray {
-    #[allow(clippy::cognitive_complexity)]
     pub fn patch(self, patches: &Patches) -> Self {
         let patch_indices = patches.indices().to_primitive();
         let patch_values = patches.values().to_primitive();
@@ -70,7 +71,10 @@ impl PrimitiveArray {
 /// * `base_offset` - Base offset from the first chunk
 /// * `offset_within_chunk` - Offset within chunk for sliced patches
 #[inline]
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "all arguments are needed for the patching operation"
+)]
 pub fn patch_chunk<T, I, C>(
     decoded_values: &mut [T],
     patches_indices: &[I],

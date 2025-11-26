@@ -4,15 +4,22 @@
 use std::sync::Arc;
 
 use vortex_dtype::FieldNames;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 
 use crate::ArraySession;
-use crate::array::transform::{ArrayParentReduceRule, ArrayReduceRule, ArrayRuleContext};
-use crate::array::{ArrayRef, IntoArray};
-use crate::arrays::{
-    ChunkedArray, ChunkedVTable, ConstantArray, ConstantVTable, PrimitiveArray, StructArray,
-    StructVTable,
-};
+use crate::array::ArrayRef;
+use crate::array::IntoArray;
+use crate::array::transform::ArrayParentReduceRule;
+use crate::array::transform::ArrayReduceRule;
+use crate::array::transform::ArrayRuleContext;
+use crate::arrays::ChunkedArray;
+use crate::arrays::ChunkedVTable;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::StructArray;
+use crate::arrays::StructVTable;
 use crate::expr::session::ExprSession;
 use crate::expr::transform::ExprOptimizer;
 use crate::validity::Validity;
@@ -194,9 +201,6 @@ fn test_parent_rules_traverse_whole_tree() -> VortexResult<()> {
     .into_array();
 
     let optimized = optimizer.optimize_array(outer_struct.clone())?;
-
-    println!("in {}", outer_struct.display_tree());
-    println!("opt {}", optimized.display_tree());
 
     let optimized_outer = optimized.as_opt::<StructVTable>().unwrap();
     let inner_struct = optimized_outer.field_by_name("inner_struct")?;

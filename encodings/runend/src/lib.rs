@@ -20,8 +20,11 @@ pub mod _benchmarking {
     use super::*;
 }
 
-use vortex_array::vtable::{EncodeVTable, VisitorVTable};
-use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor, Canonical};
+use vortex_array::ArrayBufferVisitor;
+use vortex_array::ArrayChildVisitor;
+use vortex_array::Canonical;
+use vortex_array::vtable::EncodeVTable;
+use vortex_array::vtable::VisitorVTable;
 use vortex_error::VortexResult;
 
 use crate::compress::runend_encode;

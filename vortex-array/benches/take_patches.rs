@@ -5,10 +5,13 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use divan::Bencher;
+use rand::Rng;
+use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
 use vortex_array::patches::Patches;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
 
 fn main() {
@@ -46,8 +49,8 @@ fn take_search(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64))
     );
 
     bencher
-        .with_inputs(|| (&patches, indices.clone()))
-        .bench_values(|(patches, indices)| patches.take_search(indices.to_primitive(), false));
+        .with_inputs(|| (&patches, &indices))
+        .bench_refs(|(patches, indices)| patches.take_search(indices.to_primitive(), false));
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -61,8 +64,8 @@ fn take_search_chunked(bencher: Bencher, (patches_sparsity, index_multiple): (f6
     );
 
     bencher
-        .with_inputs(|| (&patches, indices.clone()))
-        .bench_values(|(patches, indices)| patches.take_search(indices.to_primitive(), false));
+        .with_inputs(|| (&patches, &indices))
+        .bench_refs(|(patches, indices)| patches.take_search(indices.to_primitive(), false));
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -76,8 +79,8 @@ fn take_map(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
     );
 
     bencher
-        .with_inputs(|| (&patches, indices.clone()))
-        .bench_values(|(patches, indices)| patches.take_map(indices.to_primitive(), false));
+        .with_inputs(|| (&patches, &indices))
+        .bench_refs(|(patches, indices)| patches.take_map(indices.to_primitive(), false));
 }
 
 fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {

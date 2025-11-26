@@ -2,13 +2,21 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::cmp::Ordering;
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
+use std::fmt::Formatter;
 
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_bail, vortex_err};
+use vortex_error::VortexError;
+use vortex_error::VortexExpect as _;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 
-use crate::{InnerScalarValue, Scalar, ScalarValue};
+use crate::InnerScalarValue;
+use crate::Scalar;
+use crate::ScalarValue;
 
 /// A scalar value representing a boolean.
 ///

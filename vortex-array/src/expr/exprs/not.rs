@@ -5,12 +5,20 @@ use std::fmt::Formatter;
 
 use vortex_compute::logical::LogicalNot;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_vector::Vector;
 
 use crate::ArrayRef;
 use crate::compute::invert;
-use crate::expr::{ChildName, ExprId, Expression, ExpressionView, VTable, VTableExt};
+use crate::expr::ChildName;
+use crate::expr::ExecutionArgs;
+use crate::expr::ExprId;
+use crate::expr::Expression;
+use crate::expr::ExpressionView;
+use crate::expr::VTable;
+use crate::expr::VTableExt;
 
 /// Expression that logically inverts boolean values.
 pub struct Not;
@@ -69,14 +77,17 @@ impl VTable for Not {
         invert(&child_result)
     }
 
-    fn execute(
-        &self,
-        expr: &ExpressionView<Self>,
-        vector: &Vector,
-        dtype: &DType,
-    ) -> VortexResult<Vector> {
-        let child = expr.child(0).execute(vector, dtype)?;
+    fn execute(&self, _data: &Self::Instance, mut args: ExecutionArgs) -> VortexResult<Vector> {
+        let child = args.vectors.pop().vortex_expect("Missing input child");
         Ok(child.into_bool().not().into())
+    }
+
+    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+        false
+    }
+
+    fn is_fallible(&self, _instance: &Self::Instance) -> bool {
+        false
     }
 }
 
@@ -94,12 +105,14 @@ pub fn not(operand: Expression) -> Expression {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
 
     use super::not;
     use crate::ToCanonical;
     use crate::arrays::BoolArray;
-    use crate::expr::exprs::get_item::{col, get_item};
+    use crate::expr::exprs::get_item::col;
+    use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::root::root;
     use crate::expr::test_harness;
 

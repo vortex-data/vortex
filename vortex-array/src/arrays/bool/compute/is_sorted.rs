@@ -4,8 +4,11 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::{BoolArray, BoolVTable};
-use crate::compute::{IsSortedIteratorExt, IsSortedKernel, IsSortedKernelAdapter};
+use crate::arrays::BoolArray;
+use crate::arrays::BoolVTable;
+use crate::compute::IsSortedIteratorExt;
+use crate::compute::IsSortedKernel;
+use crate::compute::IsSortedKernelAdapter;
 use crate::register_kernel;
 
 impl IsSortedKernel for BoolVTable {

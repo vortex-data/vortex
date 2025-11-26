@@ -1,20 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrayref::{array_mut_ref, array_ref};
+use arrayref::array_mut_ref;
+use arrayref::array_ref;
 use fastlanes::RLE;
 use num_traits::AsPrimitive;
+use vortex_array::Array;
+use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ToCanonical};
 use vortex_buffer::BufferMut;
-use vortex_dtype::{NativePType, match_each_native_ptype, match_each_unsigned_integer_ptype};
+use vortex_dtype::NativePType;
+use vortex_dtype::match_each_native_ptype;
+use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::vortex_panic;
 
-use crate::{FL_CHUNK_SIZE, RLEArray};
+use crate::FL_CHUNK_SIZE;
+use crate::RLEArray;
 
 /// Decompresses an RLE array back into a primitive array.
-#[allow(clippy::cognitive_complexity)]
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "complexity is from nested match_each_* macros"
+)]
 pub fn rle_decompress(array: &RLEArray) -> PrimitiveArray {
     match_each_native_ptype!(array.values().dtype().as_ptype(), |V| {
         match_each_unsigned_integer_ptype!(array.values_idx_offsets().dtype().as_ptype(), |O| {
@@ -32,7 +40,6 @@ pub fn rle_decompress(array: &RLEArray) -> PrimitiveArray {
 }
 
 /// Decompresses an `RLEArray` into to a primitive array of unsigned integers.
-#[allow(clippy::cognitive_complexity)]
 fn rle_decode_typed<V, I, O>(array: &RLEArray) -> PrimitiveArray
 where
     V: NativePType + RLE + Clone + Copy,

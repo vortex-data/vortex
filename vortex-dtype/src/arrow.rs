@@ -15,12 +15,27 @@
 
 use std::sync::Arc;
 
-use arrow_schema::{DataType, Field, FieldRef, Fields, Schema, SchemaBuilder, SchemaRef};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use arrow_schema::DataType;
+use arrow_schema::Field;
+use arrow_schema::FieldRef;
+use arrow_schema::Fields;
+use arrow_schema::Schema;
+use arrow_schema::SchemaBuilder;
+use arrow_schema::SchemaRef;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 
-use crate::datetime::arrow::{make_arrow_temporal_dtype, make_temporal_ext_dtype};
+use crate::DType;
+use crate::DecimalDType;
+use crate::FieldName;
+use crate::Nullability;
+use crate::PType;
+use crate::StructFields;
+use crate::datetime::arrow::make_arrow_temporal_dtype;
+use crate::datetime::arrow::make_temporal_ext_dtype;
 use crate::datetime::is_temporal_ext_type;
-use crate::{DType, DecimalDType, FieldName, Nullability, PType, StructFields};
 
 /// Trait for converting Arrow types to Vortex types.
 pub trait FromArrowType<T>: Sized {
@@ -253,11 +268,23 @@ impl DType {
 
 #[cfg(test)]
 mod test {
-    use arrow_schema::{DataType, Field, FieldRef, Fields, Schema};
-    use rstest::{fixture, rstest};
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
+    use arrow_schema::FieldRef;
+    use arrow_schema::Fields;
+    use arrow_schema::Schema;
+    use rstest::fixture;
+    use rstest::rstest;
 
     use super::*;
-    use crate::{DType, ExtDType, ExtID, FieldName, FieldNames, Nullability, PType, StructFields};
+    use crate::DType;
+    use crate::ExtDType;
+    use crate::ExtID;
+    use crate::FieldName;
+    use crate::FieldNames;
+    use crate::Nullability;
+    use crate::PType;
+    use crate::StructFields;
 
     #[test]
     fn test_dtype_conversion_success() {

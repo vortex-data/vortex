@@ -5,8 +5,10 @@ use vortex_dtype::DType;
 use vortex_error::VortexUnwrap;
 use vortex_mask::Mask;
 
+use crate::Array;
+use crate::IntoArray;
+use crate::assert_arrays_eq;
 use crate::compute::filter;
-use crate::{Array, IntoArray, assert_arrays_eq};
 
 // Standard test array sizes
 pub const SMALL_SIZE: usize = 5;

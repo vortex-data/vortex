@@ -4,18 +4,29 @@
 //! Physical type definitions and behavior.
 
 use std::cmp::Ordering;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::hash::Hash;
 use std::ops::AddAssign;
 use std::panic::RefUnwindSafe;
 
+use num_traits::AsPrimitive;
+use num_traits::Bounded;
+use num_traits::Num;
+use num_traits::NumCast;
+use num_traits::PrimInt;
+use num_traits::ToPrimitive;
+use num_traits::Unsigned;
 use num_traits::bounds::UpperBounded;
-use num_traits::{AsPrimitive, Bounded, Num, NumCast, PrimInt, ToPrimitive, Unsigned};
-use vortex_error::{VortexError, VortexResult, vortex_err};
+use vortex_error::VortexError;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
+use crate::DType;
+use crate::FromPrimitiveOrF16;
 use crate::half::f16;
 use crate::nullability::Nullability::NonNullable;
-use crate::{DType, FromPrimitiveOrF16};
 
 /// Physical type enum, represents the in-memory physical layout but might represent a different logical type.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Hash, prost::Enumeration)]
@@ -168,7 +179,7 @@ mod private {
 }
 
 /// A visitor trait for converting a `NativePType` to another parameterized type.
-#[allow(missing_docs)] // Kind of obvious.
+#[expect(missing_docs, reason = "method names are self-documenting")]
 pub trait PTypeDowncast {
     type Output<T: NativePType>;
 
@@ -213,7 +224,7 @@ macro_rules! impl_ptype_downcast {
 }
 
 /// A visitor trait for converting a generic `NativePType` into a non-parameterized type.
-#[allow(missing_docs)] // Kind of obvious.
+#[expect(missing_docs, reason = "method names are self-documenting")]
 pub trait PTypeUpcast {
     type Input<T: NativePType>;
 

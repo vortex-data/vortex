@@ -5,11 +5,15 @@
 
 use divan::Bencher;
 use mimalloc::MiMalloc;
+use rand::Rng;
+use rand::SeedableRng;
 use rand::prelude::StdRng;
-use rand::{Rng, SeedableRng};
-use vortex_array::compute::{filter, warm_up_vtables};
-use vortex_array::{IntoArray, ToCanonical};
-use vortex_buffer::{BitBuffer, BufferMut};
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
+use vortex_array::compute::filter;
+use vortex_array::compute::warm_up_vtables;
+use vortex_buffer::BitBuffer;
+use vortex_buffer::BufferMut;
 use vortex_mask::Mask;
 use vortex_pco::PcoArray;
 
@@ -50,8 +54,9 @@ pub fn pco_pipeline(bencher: Bencher, (size, selectivity): (usize, f64)) {
         .collect::<BitBuffer>();
 
     bencher
-        .with_inputs(|| (Mask::from_buffer(mask.clone()), pco_array.clone()))
-        .bench_refs(|(mask, pco_array)| pco_array.execute_with_selection(mask).unwrap());
+        // Be sure to reconstruct the mask to avoid cached set_indices
+        .with_inputs(|| (&pco_array, Mask::from_buffer(mask.clone())))
+        .bench_refs(|(pco_array, mask)| pco_array.execute_with_selection(mask).unwrap());
 }
 
 #[divan::bench(args = [
@@ -83,6 +88,7 @@ pub fn pco_canonical(bencher: Bencher, (size, selectivity): (usize, f64)) {
         .collect::<BitBuffer>();
 
     bencher
-        .with_inputs(|| (Mask::from_buffer(mask.clone()), pco_array.clone()))
-        .bench_refs(|(mask, pco_array)| filter(pco_array.to_canonical().as_ref(), mask).unwrap());
+        // Be sure to reconstruct the mask to avoid cached set_indices
+        .with_inputs(|| (&pco_array, Mask::from_buffer(mask.clone())))
+        .bench_refs(|(pco_array, mask)| filter(pco_array.to_canonical().as_ref(), mask).unwrap());
 }

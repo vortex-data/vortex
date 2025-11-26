@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::ops::Deref;
 
-use vortex_error::{VortexError, vortex_err};
+use vortex_error::VortexError;
+use vortex_error::vortex_err;
 
 use crate::ByteBuffer;
 
@@ -69,7 +71,10 @@ impl TryFrom<ByteBuffer> for BufferString {
 
     fn try_from(value: ByteBuffer) -> Result<Self, Self::Error> {
         simdutf8::basic::from_utf8(value.as_ref()).map_err(|_| {
-            #[allow(clippy::unwrap_used)]
+            #[expect(
+                clippy::unwrap_used,
+                reason = "unwrap is intentional - the error was already detected"
+            )]
             // run validation using `compat` package to get more detailed error message
             let err = simdutf8::compat::from_utf8(value.as_ref()).unwrap_err();
             vortex_err!("invalid utf-8: {err}")
@@ -103,7 +108,9 @@ impl AsRef<[u8]> for BufferString {
 
 #[cfg(test)]
 mod test {
-    use crate::{Alignment, BufferString, buffer};
+    use crate::Alignment;
+    use crate::BufferString;
+    use crate::buffer;
 
     #[test]
     fn buffer_string() {

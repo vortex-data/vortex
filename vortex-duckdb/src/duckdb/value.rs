@@ -2,16 +2,24 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ffi::CStr;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
 
 use num_traits::AsPrimitive;
-use vortex::buffer::{BufferString, ByteBuffer};
+use vortex::buffer::BufferString;
+use vortex::buffer::ByteBuffer;
 use vortex::dtype::NativeDType;
-use vortex::error::{VortexError, VortexExpect, vortex_err, vortex_panic};
+use vortex::error::VortexError;
+use vortex::error::VortexExpect;
+use vortex::error::vortex_err;
+use vortex::error::vortex_panic;
 
-use crate::cpp::{DUCKDB_TYPE, idx_t};
+use crate::cpp;
+use crate::cpp::DUCKDB_TYPE;
+use crate::cpp::idx_t;
 use crate::duckdb::LogicalType;
-use crate::{cpp, lifetime_wrapper};
+use crate::lifetime_wrapper;
 
 lifetime_wrapper!(Value, cpp::duckdb_value, cpp::duckdb_destroy_value, [owned, ref]);
 
@@ -178,8 +186,10 @@ impl Value {
                 width: precision,
                 scale: scale.cast_unsigned(),
                 value: cpp::duckdb_hugeint {
-                    // We want to truncate
-                    #[allow(clippy::cast_possible_truncation)]
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "intentional truncation to lower 64 bits"
+                    )]
                     lower: value as u64,
                     upper: (value >> 64) as i64,
                 },

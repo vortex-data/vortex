@@ -6,13 +6,19 @@ use std::sync::Arc;
 
 use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::source::DataSourceExec;
-use datafusion_physical_plan::metrics::{
-    Count, Gauge, Label as DatafusionLabel, MetricValue as DatafusionMetricValue, MetricsSet,
-};
-use datafusion_physical_plan::{
-    ExecutionPlan, ExecutionPlanVisitor, Metric as DatafusionMetric, accept,
-};
-use vortex::metrics::{Metric, MetricId, MetricsSessionExt, Tags};
+use datafusion_physical_plan::ExecutionPlan;
+use datafusion_physical_plan::ExecutionPlanVisitor;
+use datafusion_physical_plan::Metric as DatafusionMetric;
+use datafusion_physical_plan::accept;
+use datafusion_physical_plan::metrics::Count;
+use datafusion_physical_plan::metrics::Gauge;
+use datafusion_physical_plan::metrics::Label as DatafusionLabel;
+use datafusion_physical_plan::metrics::MetricValue as DatafusionMetricValue;
+use datafusion_physical_plan::metrics::MetricsSet;
+use vortex::metrics::Metric;
+use vortex::metrics::MetricId;
+use vortex::metrics::MetricsSessionExt;
+use vortex::metrics::Tags;
 
 use crate::persistent::source::VortexSource;
 
@@ -161,7 +167,10 @@ fn df_gauge(name: String, value: usize) -> DatafusionMetricValue {
     }
 }
 
-#[allow(clippy::cast_possible_truncation)]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "truncation is checked before cast"
+)]
 fn f_to_u(f: f64) -> Option<usize> {
     (f.is_finite() && f >= usize::MIN as f64 && f <= usize::MAX as f64).then(||
         // After the range check, truncation is guaranteed to keep the value in usize bounds.

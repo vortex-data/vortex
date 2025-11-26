@@ -1,20 +1,37 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Debug, Display, Formatter};
-use std::hash::{Hash, Hasher};
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::ConstantArray;
-use crate::compute::{Operator, compare};
-use crate::expr::traversal::{NodeExt, NodeVisitor, TraversalOrder};
-use crate::expr::{ChildName, ExprId, Expression, ExpressionView, StatsCatalog, VTable, VTableExt};
-use crate::{Array, ArrayRef, IntoArray};
+use crate::compute::Operator;
+use crate::compute::compare;
+use crate::expr::ChildName;
+use crate::expr::ExprId;
+use crate::expr::Expression;
+use crate::expr::ExpressionView;
+use crate::expr::StatsCatalog;
+use crate::expr::VTable;
+use crate::expr::VTableExt;
+use crate::expr::traversal::NodeExt;
+use crate::expr::traversal::NodeVisitor;
+use crate::expr::traversal::TraversalOrder;
 
 /// A dynamic comparison expression can be used to capture a comparison to a value that can change
 /// during the execution of a query, such as when a compute engine pushes down an ORDER BY + LIMIT
@@ -128,6 +145,11 @@ impl VTable for DynamicComparison {
             )),
             _ => None,
         }
+    }
+
+    // Defer to the child
+    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+        false
     }
 }
 

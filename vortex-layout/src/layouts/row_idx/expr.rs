@@ -4,9 +4,17 @@
 use std::fmt::Formatter;
 
 use vortex_array::ArrayRef;
-use vortex_array::expr::{ChildName, ExprId, Expression, ExpressionView, VTable, VTableExt};
-use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_array::expr::ChildName;
+use vortex_array::expr::ExprId;
+use vortex_array::expr::Expression;
+use vortex_array::expr::ExpressionView;
+use vortex_array::expr::VTable;
+use vortex_array::expr::VTableExt;
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_dtype::PType;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 pub struct RowIdx;
 

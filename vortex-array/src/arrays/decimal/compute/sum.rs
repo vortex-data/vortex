@@ -3,14 +3,23 @@
 
 use arrow_schema::DECIMAL256_MAX_PRECISION;
 use num_traits::AsPrimitive;
+use vortex_dtype::DecimalDType;
+use vortex_dtype::DecimalType;
 use vortex_dtype::Nullability::Nullable;
-use vortex_dtype::{DecimalDType, DecimalType, match_each_decimal_value_type};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::match_each_decimal_value_type;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_mask::Mask;
-use vortex_scalar::{DecimalScalar, DecimalValue, Scalar};
+use vortex_scalar::DecimalScalar;
+use vortex_scalar::DecimalValue;
+use vortex_scalar::Scalar;
 
-use crate::arrays::{DecimalArray, DecimalVTable};
-use crate::compute::{SumKernel, SumKernelAdapter};
+use crate::arrays::DecimalArray;
+use crate::arrays::DecimalVTable;
+use crate::compute::SumKernel;
+use crate::compute::SumKernelAdapter;
 use crate::register_kernel;
 
 // Its safe to use `AsPrimitive` here because we always cast up.
@@ -40,7 +49,10 @@ macro_rules! sum_decimal {
 }
 
 impl SumKernel for DecimalVTable {
-    #[allow(clippy::cognitive_complexity)]
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "complexity from nested match_each_* macros"
+    )]
     fn sum(&self, array: &DecimalArray, accumulator: &Scalar) -> VortexResult<Scalar> {
         let decimal_dtype = array.decimal_dtype();
 
@@ -105,8 +117,12 @@ register_kernel!(SumKernelAdapter(DecimalVTable).lift());
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, DecimalDType, Nullability};
-    use vortex_scalar::{DecimalValue, Scalar, ScalarValue};
+    use vortex_dtype::DType;
+    use vortex_dtype::DecimalDType;
+    use vortex_dtype::Nullability;
+    use vortex_scalar::DecimalValue;
+    use vortex_scalar::Scalar;
+    use vortex_scalar::ScalarValue;
 
     use crate::arrays::DecimalArray;
     use crate::compute::sum;

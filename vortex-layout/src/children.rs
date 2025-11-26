@@ -1,18 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::sync::Arc;
 
 use flatbuffers::Follow;
 use itertools::Itertools;
 use vortex_array::ArrayContext;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_flatbuffers::{FlatBuffer, layout as fbl};
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_flatbuffers::FlatBuffer;
+use vortex_flatbuffers::layout as fbl;
 
+use crate::LayoutContext;
+use crate::LayoutRef;
 use crate::segments::SegmentId;
-use crate::{LayoutContext, LayoutRef};
 
 /// Abstract way of accessing the children of a layout.
 ///

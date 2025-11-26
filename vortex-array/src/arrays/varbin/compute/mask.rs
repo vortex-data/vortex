@@ -4,11 +4,14 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::VarBinVTable;
 use crate::arrays::varbin::VarBinArray;
-use crate::compute::{MaskKernel, MaskKernelAdapter};
+use crate::compute::MaskKernel;
+use crate::compute::MaskKernelAdapter;
+use crate::register_kernel;
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl MaskKernel for VarBinVTable {
     fn mask(&self, array: &VarBinArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -26,7 +29,8 @@ register_kernel!(MaskKernelAdapter(VarBinVTable).lift());
 
 #[cfg(test)]
 mod test {
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
 
     use crate::arrays::VarBinArray;
     use crate::compute::conformance::mask::test_mask_conformance;

@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::{BitOr, Rem, Shl, Shr, Sub};
+use std::ops::BitOr;
+use std::ops::Rem;
+use std::ops::Shl;
+use std::ops::Shr;
+use std::ops::Sub;
 
 use arbitrary::unstructured::Int;
-use num_traits::{CheckedAdd, WrappingAdd, WrappingSub};
+use num_traits::CheckedAdd;
+use num_traits::WrappingAdd;
+use num_traits::WrappingSub;
 use primitive_types::U256;
 
 use crate::i256;
@@ -91,7 +97,6 @@ impl Int for U256Wrapper {
     }
 }
 
-#[allow(clippy::same_name_method)]
 impl Int for i256 {
     type Unsigned = U256Wrapper;
     const ZERO: Self = i256::ZERO;

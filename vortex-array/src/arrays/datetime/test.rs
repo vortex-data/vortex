@@ -3,13 +3,16 @@
 
 use rstest::rstest;
 use vortex_buffer::buffer;
-use vortex_dtype::datetime::{TemporalMetadata, TimeUnit};
+use vortex_dtype::datetime::TemporalMetadata;
+use vortex_dtype::datetime::TimeUnit;
 
+use crate::IntoArray;
+use crate::ToCanonical;
 use crate::array::Array;
-use crate::arrays::{PrimitiveArray, TemporalArray};
+use crate::arrays::PrimitiveArray;
+use crate::arrays::TemporalArray;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{IntoArray, ToCanonical};
 
 macro_rules! test_temporal_roundtrip {
     ($prim:ty, $constructor:expr, $unit:expr) => {{

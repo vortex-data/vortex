@@ -4,12 +4,14 @@
 use vortex_buffer::BitBuffer;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
-use vortex_mask::{AllOr, Mask};
+use vortex_mask::AllOr;
+use vortex_mask::Mask;
 
 use super::DictVTable;
+use crate::Array;
+use crate::ToCanonical;
 use crate::arrays::dict::DictArray;
 use crate::vtable::ValidityVTable;
-use crate::{Array, ToCanonical};
 
 impl ValidityVTable<DictVTable> for DictVTable {
     fn is_valid(array: &DictArray, index: usize) -> bool {

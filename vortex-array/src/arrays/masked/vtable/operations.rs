@@ -5,11 +5,12 @@ use std::ops::Range;
 
 use vortex_scalar::Scalar;
 
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::MaskedVTable;
 use crate::arrays::masked::MaskedArray;
 use crate::stats::ArrayStats;
 use crate::vtable::OperationsVTable;
-use crate::{ArrayRef, IntoArray};
 
 impl OperationsVTable<MaskedVTable> for MaskedVTable {
     fn slice(array: &MaskedArray, range: Range<usize>) -> ArrayRef {

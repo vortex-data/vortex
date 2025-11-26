@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{FilterKernel, FilterKernelAdapter, filter};
-use vortex_array::{ArrayRef, register_kernel};
+use vortex_array::ArrayRef;
+use vortex_array::compute::FilterKernel;
+use vortex_array::compute::FilterKernelAdapter;
+use vortex_array::compute::filter;
+use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::{ALPArray, ALPVTable};
+use crate::ALPArray;
+use crate::ALPVTable;
 
 impl FilterKernel for ALPVTable {
     fn filter(&self, array: &ALPArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -34,10 +38,11 @@ register_kernel!(FilterKernelAdapter(ALPVTable).lift());
 #[cfg(test)]
 mod test {
     use rstest::rstest;
+    use vortex_array::ArrayRef;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::vtable::ArrayVTableExt;
-    use vortex_array::{ArrayRef, IntoArray};
     use vortex_buffer::buffer;
 
     use crate::ALPVTable;

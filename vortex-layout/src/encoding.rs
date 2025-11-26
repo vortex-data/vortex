@@ -2,15 +2,23 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
 
 use arcref::ArcRef;
-use vortex_array::{ArrayContext, DeserializeMetadata};
+use vortex_array::ArrayContext;
+use vortex_array::DeserializeMetadata;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 
+use crate::IntoLayout;
+use crate::LayoutChildren;
+use crate::LayoutRef;
+use crate::VTable;
 use crate::segments::SegmentId;
-use crate::{IntoLayout, LayoutChildren, LayoutRef, VTable};
 
 pub type LayoutEncodingId = ArcRef<str>;
 pub type LayoutEncodingRef = ArcRef<dyn LayoutEncoding>;
@@ -20,7 +28,6 @@ pub trait LayoutEncoding: 'static + Send + Sync + Debug + private::Sealed {
 
     fn id(&self) -> LayoutEncodingId;
 
-    #[allow(clippy::too_many_arguments)]
     fn build(
         &self,
         dtype: &DType,

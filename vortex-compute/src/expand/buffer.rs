@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::{Buffer, BufferMut};
-use vortex_mask::{Mask, MaskValues};
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
+use vortex_mask::Mask;
+use vortex_mask::MaskValues;
 
 use crate::expand::Expand;
 

@@ -3,7 +3,8 @@
 
 use arrow_array::ArrayRef;
 use vortex_error::VortexResult;
-use vortex_vector::{Vector, match_each_vector};
+use vortex_vector::Vector;
+use vortex_vector::match_each_vector;
 
 use crate::arrow::IntoArrow;
 

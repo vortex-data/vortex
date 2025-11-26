@@ -4,10 +4,12 @@
 #![allow(clippy::unwrap_used)]
 
 use divan::Bencher;
+use rand::Rng;
+use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
 use vortex_array::IntoArray;
-use vortex_array::arrays::{DictArray, PrimitiveArray};
+use vortex_array::arrays::DictArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::warm_up_vtables;
 
 fn main() {
@@ -40,8 +42,8 @@ fn bench_many_codes_few_values(bencher: Bencher, num_values: i32) {
     let array = DictArray::try_new(codes, values).unwrap();
 
     bencher
-        .with_inputs(|| array.clone())
-        .bench_values(|array| array.compute_referenced_values_mask(false).unwrap());
+        .with_inputs(|| &array)
+        .bench_refs(|array| array.compute_referenced_values_mask(false).unwrap());
 }
 
 /// Benchmark with many nulls in the codes array.
@@ -72,8 +74,8 @@ fn bench_many_nulls(bencher: Bencher, fraction_valid: f64) {
     let array = DictArray::try_new(codes, values).unwrap();
 
     bencher
-        .with_inputs(|| array.clone())
-        .bench_values(|array| array.compute_referenced_values_mask(false).unwrap());
+        .with_inputs(|| &array)
+        .bench_refs(|array| array.compute_referenced_values_mask(false).unwrap());
 }
 
 /// Benchmark with sparse code coverage (many unreferenced values).
@@ -106,6 +108,6 @@ fn bench_sparse_coverage(bencher: Bencher, fraction_coverage: f64) {
     let array = DictArray::try_new(codes, values).unwrap();
 
     bencher
-        .with_inputs(|| array.clone())
-        .bench_values(|array| array.compute_referenced_values_mask(false).unwrap());
+        .with_inputs(|| &array)
+        .bench_refs(|array| array.compute_referenced_values_mask(false).unwrap());
 }

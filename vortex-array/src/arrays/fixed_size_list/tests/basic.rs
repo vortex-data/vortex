@@ -4,12 +4,15 @@
 use std::sync::Arc;
 
 use vortex_buffer::buffer;
-use vortex_dtype::{DType, Nullability, PType};
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_dtype::PType;
 use vortex_scalar::Scalar;
 
+use crate::Array;
+use crate::IntoArray;
 use crate::arrays::FixedSizeListArray;
 use crate::validity::Validity;
-use crate::{Array, IntoArray};
 
 #[test]
 fn test_basic_fixed_size_list() {

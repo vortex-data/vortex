@@ -5,7 +5,9 @@
 
 use divan::Bencher;
 use vortex_array::IntoArray;
-use vortex_array::arrays::{ListViewArray, ListViewRebuildMode, VarBinViewArray};
+use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::ListViewRebuildMode;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_zstd::ZstdArray;
@@ -28,7 +30,9 @@ fn rebuild_naive(bencher: Bencher) {
 
     let list_view = ListViewArray::new(dudes, offsets, sizes, Validity::NonNullable);
 
-    bencher.bench_local(|| list_view.rebuild(ListViewRebuildMode::MakeZeroCopyToList))
+    bencher
+        .with_inputs(|| &list_view)
+        .bench_refs(|list_view| list_view.rebuild(ListViewRebuildMode::MakeZeroCopyToList))
 }
 
 fn main() {

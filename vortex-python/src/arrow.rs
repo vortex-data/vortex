@@ -5,23 +5,35 @@
 // SPDX-FileNotice: https://github.com/apache/arrow-rs/blob/549709fbdf91cd1f6c263a7e4540c542b6fecf6b/NOTICE.txt
 #![allow(clippy::same_name_method)]
 
-use std::convert::{From, TryFrom};
+use std::convert::From;
+use std::convert::TryFrom;
 use std::ffi::CStr;
 use std::ptr::addr_of;
 use std::sync::Arc;
 
-use arrow_array::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
-use arrow_array::ffi_stream::{ArrowArrayStreamReader, FFI_ArrowArrayStream};
-use arrow_array::{
-    RecordBatch, RecordBatchIterator, RecordBatchOptions, RecordBatchReader, StructArray, ffi,
-};
+use arrow_array::RecordBatch;
+use arrow_array::RecordBatchIterator;
+use arrow_array::RecordBatchOptions;
+use arrow_array::RecordBatchReader;
+use arrow_array::StructArray;
+use arrow_array::ffi;
+use arrow_array::ffi::FFI_ArrowArray;
+use arrow_array::ffi::FFI_ArrowSchema;
+use arrow_array::ffi_stream::ArrowArrayStreamReader;
+use arrow_array::ffi_stream::FFI_ArrowArrayStream;
 use arrow_data::ArrayData;
-use arrow_schema::{ArrowError, DataType, Field, Schema};
-use pyo3::exceptions::{PyTypeError, PyValueError};
-use pyo3::ffi::{Py_uintptr_t, c_str};
+use arrow_schema::ArrowError;
+use arrow_schema::DataType;
+use arrow_schema::Field;
+use arrow_schema::Schema;
+use pyo3::exceptions::PyTypeError;
+use pyo3::exceptions::PyValueError;
+use pyo3::ffi::Py_uintptr_t;
+use pyo3::ffi::c_str;
 use pyo3::import_exception;
 use pyo3::prelude::*;
-use pyo3::types::{PyCapsule, PyTuple};
+use pyo3::types::PyCapsule;
+use pyo3::types::PyTuple;
 
 const SCHEMA_NAME: &CStr = c_str!("arrow_schema");
 const ARRAY_NAME: &CStr = c_str!("arrow_array");

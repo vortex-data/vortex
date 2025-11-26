@@ -1,14 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_array::ArrowNativeTypeOp;
-use num_traits::{CheckedAdd, CheckedMul, ToPrimitive};
-use vortex_dtype::{DType, DecimalDType, NativePType, Nullability, i256, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex_scalar::{DecimalScalar, DecimalValue, PrimitiveScalar, Scalar, ScalarValue};
+use num_traits::AsPrimitive;
+use num_traits::CheckedAdd;
+use num_traits::CheckedMul;
+use vortex_dtype::DType;
+use vortex_dtype::DecimalDType;
+use vortex_dtype::NativePType;
+use vortex_dtype::Nullability;
+use vortex_dtype::i256;
+use vortex_dtype::match_each_native_ptype;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_scalar::DecimalScalar;
+use vortex_scalar::DecimalValue;
+use vortex_scalar::PrimitiveScalar;
+use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
-use crate::arrays::{ConstantArray, ConstantVTable};
-use crate::compute::{SumKernel, SumKernelAdapter};
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
+use crate::compute::SumKernel;
+use crate::compute::SumKernelAdapter;
 use crate::register_kernel;
 use crate::stats::Stat;
 
@@ -138,35 +153,38 @@ fn sum_float(
     array_len: usize,
     accumulator: &Scalar,
 ) -> VortexResult<Option<f64>> {
-    let v = primitive_scalar
-        .as_::<f64>()
-        .vortex_expect("cannot be null");
-    let array_len = array_len
-        .to_f64()
-        .ok_or_else(|| vortex_err!("array_len must fit the sum type"))?;
-
-    let Ok(array_sum) = v.mul_checked(array_len) else {
-        return Ok(None);
-    };
     let initial = accumulator
         .as_primitive()
         .as_::<f64>()
         .vortex_expect("cannot be null");
-    Ok(Some(initial + array_sum))
+    let v = primitive_scalar
+        .as_::<f64>()
+        .vortex_expect("cannot be null");
+    let len_f64: f64 = array_len.as_();
+
+    Ok(Some(initial + v * len_f64))
 }
 
 register_kernel!(SumKernelAdapter(ConstantVTable).lift());
 
 #[cfg(test)]
 mod tests {
+    use vortex_dtype::DType;
+    use vortex_dtype::DecimalDType;
+    use vortex_dtype::Nullability;
     use vortex_dtype::Nullability::Nullable;
-    use vortex_dtype::{DType, DecimalDType, Nullability, PType, i256};
-    use vortex_scalar::{DecimalValue, Scalar};
+    use vortex_dtype::PType;
+    use vortex_dtype::i256;
+    use vortex_error::VortexUnwrap;
+    use vortex_scalar::DecimalValue;
+    use vortex_scalar::Scalar;
 
+    use crate::Array;
+    use crate::IntoArray;
     use crate::arrays::ConstantArray;
     use crate::compute::sum;
+    use crate::compute::sum_with_accumulator;
     use crate::stats::Stat;
-    use crate::{Array, IntoArray};
 
     #[test]
     fn test_sum_unsigned() {
@@ -267,6 +285,18 @@ mod tests {
         assert_eq!(
             result.as_decimal().decimal_value(),
             Some(DecimalValue::I256(i256::from_i128(99_999_999_900)))
+        );
+    }
+
+    #[test]
+    fn test_sum_float_non_multiply() {
+        let acc = -2048669276050936500000000000f64;
+        let array = ConstantArray::new(6.1811675e16f64, 25);
+        let sum =
+            sum_with_accumulator(array.as_ref(), &Scalar::primitive(acc, Nullable)).vortex_unwrap();
+        assert_eq!(
+            f64::try_from(sum).vortex_unwrap(),
+            -2048669274505644600000000000f64
         );
     }
 }

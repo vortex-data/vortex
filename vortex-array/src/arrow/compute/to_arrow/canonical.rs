@@ -3,47 +3,94 @@
 
 use std::sync::Arc;
 
-use arrow_array::types::{
-    BinaryType, BinaryViewType, ByteArrayType, ByteViewType, Float16Type, Float32Type, Float64Type,
-    Int8Type, Int16Type, Int32Type, Int64Type, LargeBinaryType, LargeUtf8Type, StringViewType,
-    UInt8Type, UInt16Type, UInt32Type, UInt64Type, Utf8Type,
-};
-use arrow_array::{
-    Array, ArrayRef as ArrowArrayRef, ArrowPrimitiveType, BooleanArray as ArrowBoolArray,
-    Decimal32Array as ArrowDecimal32Array, Decimal64Array as ArrowDecimal64Array,
-    Decimal128Array as ArrowDecimal128Array, Decimal256Array as ArrowDecimal256Array,
-    FixedSizeListArray as ArrowFixedSizeListArray, GenericByteArray, GenericByteViewArray,
-    GenericListArray, GenericListViewArray, NullArray as ArrowNullArray, OffsetSizeTrait,
-    PrimitiveArray as ArrowPrimitiveArray, StructArray as ArrowStructArray,
-};
-use arrow_buffer::{ScalarBuffer, i256};
+use arrow_array::Array;
+use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_array::ArrowPrimitiveType;
+use arrow_array::BooleanArray as ArrowBoolArray;
+use arrow_array::Decimal32Array as ArrowDecimal32Array;
+use arrow_array::Decimal64Array as ArrowDecimal64Array;
+use arrow_array::Decimal128Array as ArrowDecimal128Array;
+use arrow_array::Decimal256Array as ArrowDecimal256Array;
+use arrow_array::FixedSizeListArray as ArrowFixedSizeListArray;
+use arrow_array::GenericByteArray;
+use arrow_array::GenericByteViewArray;
+use arrow_array::GenericListArray;
+use arrow_array::GenericListViewArray;
+use arrow_array::NullArray as ArrowNullArray;
+use arrow_array::OffsetSizeTrait;
+use arrow_array::PrimitiveArray as ArrowPrimitiveArray;
+use arrow_array::StructArray as ArrowStructArray;
+use arrow_array::types::BinaryType;
+use arrow_array::types::BinaryViewType;
+use arrow_array::types::ByteArrayType;
+use arrow_array::types::ByteViewType;
+use arrow_array::types::Float16Type;
+use arrow_array::types::Float32Type;
+use arrow_array::types::Float64Type;
+use arrow_array::types::Int8Type;
+use arrow_array::types::Int16Type;
+use arrow_array::types::Int32Type;
+use arrow_array::types::Int64Type;
+use arrow_array::types::LargeBinaryType;
+use arrow_array::types::LargeUtf8Type;
+use arrow_array::types::StringViewType;
+use arrow_array::types::UInt8Type;
+use arrow_array::types::UInt16Type;
+use arrow_array::types::UInt32Type;
+use arrow_array::types::UInt64Type;
+use arrow_array::types::Utf8Type;
+use arrow_buffer::ScalarBuffer;
+use arrow_buffer::i256;
 use arrow_data::ArrayData;
-use arrow_schema::{DataType, Field, FieldRef, Fields};
+use arrow_schema::DataType;
+use arrow_schema::Field;
+use arrow_schema::FieldRef;
+use arrow_schema::Fields;
 use itertools::Itertools;
-use num_traits::{AsPrimitive, ToPrimitive};
+use num_traits::AsPrimitive;
+use num_traits::ToPrimitive;
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, IntegerPType, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::DType;
+use vortex_dtype::IntegerPType;
+use vortex_dtype::PType;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_scalar::DecimalType;
 
-use crate::arrays::{
-    BoolArray, DecimalArray, FixedSizeListArray, ListViewArray, NullArray, PrimitiveArray,
-    StructArray, VarBinViewArray,
-};
+use crate::Array as _;
+use crate::Canonical;
+use crate::IntoArray;
+use crate::ToCanonical;
+use crate::arrays::BoolArray;
+use crate::arrays::DecimalArray;
+use crate::arrays::FixedSizeListArray;
+use crate::arrays::ListViewArray;
+use crate::arrays::NullArray;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::StructArray;
+use crate::arrays::VarBinViewArray;
 use crate::arrow::IntoArrowArray;
 use crate::arrow::array::ArrowArray;
 use crate::arrow::compute::ToArrowArgs;
 use crate::arrow::compute::to_arrow::null_buffer::to_null_buffer;
-use crate::builders::{ArrayBuilder, ListBuilder};
-use crate::compute::{InvocationArgs, Kernel, Output, cast};
-use crate::{Array as _, Canonical, IntoArray, ToCanonical};
+use crate::builders::ArrayBuilder;
+use crate::builders::ListBuilder;
+use crate::compute::InvocationArgs;
+use crate::compute::Kernel;
+use crate::compute::Output;
+use crate::compute::cast;
 
 /// Implementation of `ToArrow` kernel for canonical Vortex arrays.
 #[derive(Debug)]
 pub(super) struct ToArrowCanonical;
 
 impl Kernel for ToArrowCanonical {
-    #[allow(clippy::cognitive_complexity)]
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "large match statement for all canonical types"
+    )]
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let ToArrowArgs {
             array,
@@ -679,20 +726,29 @@ where
 
 #[cfg(test)]
 mod tests {
-    use arrow_array::{
-        Array, Decimal128Array, Decimal256Array, GenericListArray, GenericListViewArray,
-    };
+    use arrow_array::Array;
+    use arrow_array::Decimal128Array;
+    use arrow_array::Decimal256Array;
+    use arrow_array::GenericListArray;
+    use arrow_array::GenericListViewArray;
     use arrow_buffer::i256;
-    use arrow_schema::{DataType, Field};
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DecimalDType, FieldNames, NativeDecimalType};
+    use vortex_dtype::DecimalDType;
+    use vortex_dtype::FieldNames;
+    use vortex_dtype::NativeDecimalType;
 
     use crate::IntoArray;
-    use crate::arrays::{DecimalArray, ListViewArray, PrimitiveArray, StructArray};
+    use crate::arrays::DecimalArray;
+    use crate::arrays::ListViewArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
     use crate::arrow::IntoArrowArray;
     use crate::arrow::compute::to_arrow;
-    use crate::builders::{ArrayBuilder, DecimalBuilder};
+    use crate::builders::ArrayBuilder;
+    use crate::builders::DecimalBuilder;
     use crate::validity::Validity;
 
     #[test]

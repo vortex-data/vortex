@@ -6,15 +6,29 @@ use std::ops::Deref;
 use pyo3::PyClass;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
-use vortex::arrays::{
-    BoolVTable, ChunkedVTable, ConstantVTable, DecimalVTable, DictVTable, ExtensionVTable,
-    FixedSizeListVTable, ListVTable, NullVTable, PrimitiveVTable, StructVTable, VarBinVTable,
-    VarBinViewVTable,
-};
-use vortex::encodings::alp::{ALPRDVTable, ALPVTable};
+use vortex::Array;
+use vortex::ArrayAdapter;
+use vortex::ArrayRef;
+use vortex::arrays::BoolVTable;
+use vortex::arrays::ChunkedVTable;
+use vortex::arrays::ConstantVTable;
+use vortex::arrays::DecimalVTable;
+use vortex::arrays::DictVTable;
+use vortex::arrays::ExtensionVTable;
+use vortex::arrays::FixedSizeListVTable;
+use vortex::arrays::ListVTable;
+use vortex::arrays::NullVTable;
+use vortex::arrays::PrimitiveVTable;
+use vortex::arrays::StructVTable;
+use vortex::arrays::VarBinVTable;
+use vortex::arrays::VarBinViewVTable;
+use vortex::encodings::alp::ALPRDVTable;
+use vortex::encodings::alp::ALPVTable;
 use vortex::encodings::bytebool::ByteBoolVTable;
 use vortex::encodings::datetime_parts::DateTimePartsVTable;
-use vortex::encodings::fastlanes::{BitPackedVTable, DeltaVTable, FoRVTable};
+use vortex::encodings::fastlanes::BitPackedVTable;
+use vortex::encodings::fastlanes::DeltaVTable;
+use vortex::encodings::fastlanes::FoRVTable;
 use vortex::encodings::fsst::FSSTVTable;
 use vortex::encodings::runend::RunEndVTable;
 use vortex::encodings::sequence::SequenceVTable;
@@ -22,21 +36,33 @@ use vortex::encodings::sparse::SparseVTable;
 use vortex::encodings::zigzag::ZigZagVTable;
 use vortex::error::VortexExpect;
 use vortex::vtable::VTable;
-use vortex::{Array, ArrayAdapter, ArrayRef};
 
 use crate::arrays::PyArray;
-use crate::arrays::builtins::{
-    PyBoolArray, PyByteBoolArray, PyChunkedArray, PyConstantArray, PyDecimalArray,
-    PyExtensionArray, PyFixedSizeListArray, PyListArray, PyNullArray, PyPrimitiveArray,
-    PyStructArray, PyVarBinArray, PyVarBinViewArray,
-};
-use crate::arrays::compressed::{
-    PyAlpArray, PyAlpRdArray, PyDateTimePartsArray, PyDictArray, PyFsstArray, PyRunEndArray,
-    PySequenceArray, PySparseArray, PyZigZagArray,
-};
-use crate::arrays::fastlanes::{
-    PyFastLanesBitPackedArray, PyFastLanesDeltaArray, PyFastLanesFoRArray,
-};
+use crate::arrays::builtins::PyBoolArray;
+use crate::arrays::builtins::PyByteBoolArray;
+use crate::arrays::builtins::PyChunkedArray;
+use crate::arrays::builtins::PyConstantArray;
+use crate::arrays::builtins::PyDecimalArray;
+use crate::arrays::builtins::PyExtensionArray;
+use crate::arrays::builtins::PyFixedSizeListArray;
+use crate::arrays::builtins::PyListArray;
+use crate::arrays::builtins::PyNullArray;
+use crate::arrays::builtins::PyPrimitiveArray;
+use crate::arrays::builtins::PyStructArray;
+use crate::arrays::builtins::PyVarBinArray;
+use crate::arrays::builtins::PyVarBinViewArray;
+use crate::arrays::compressed::PyAlpArray;
+use crate::arrays::compressed::PyAlpRdArray;
+use crate::arrays::compressed::PyDateTimePartsArray;
+use crate::arrays::compressed::PyDictArray;
+use crate::arrays::compressed::PyFsstArray;
+use crate::arrays::compressed::PyRunEndArray;
+use crate::arrays::compressed::PySequenceArray;
+use crate::arrays::compressed::PySparseArray;
+use crate::arrays::compressed::PyZigZagArray;
+use crate::arrays::fastlanes::PyFastLanesBitPackedArray;
+use crate::arrays::fastlanes::PyFastLanesDeltaArray;
+use crate::arrays::fastlanes::PyFastLanesFoRArray;
 use crate::dtype::PyDType;
 
 #[pyclass(name = "NativeArray", module = "vortex", extends=PyArray, sequence, subclass, frozen)]

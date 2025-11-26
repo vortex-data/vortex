@@ -323,7 +323,11 @@ impl VectorOps for ListViewVector {
 // TODO(connor): It would be better to separate everything inside the macros into its own function,
 // but that would require adding another macro that sets a type `$type` to be used by the caller.
 /// Checks that all views are `<= elements_len`.
-#[allow(clippy::cognitive_complexity, clippy::cast_possible_truncation)]
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "complexity from nested match_each_* macros"
+)]
+#[allow(clippy::cast_possible_truncation)] // casts inside macro
 fn validate_views_bound(
     elements_len: usize,
     offsets: &PrimitiveVector,
