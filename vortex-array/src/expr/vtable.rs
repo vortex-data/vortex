@@ -93,7 +93,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// Execute the expression on the given vector with the given dtype.
     fn execute(&self, data: &Self::Instance, args: ExecutionArgs) -> VortexResult<Vector> {
         _ = data;
-        _ = args;
+        let _args = args;
         // TODO(ngates): remove this once we port to vector execution
         // TODO(ngates): I think we should take/return an enum of Vector/Scalar.
         vortex_bail!("Expression {} does not support execution", self.id());
@@ -228,10 +228,10 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression>;
 
+    /// See [`VTable::is_null_sensitive`].
     fn is_null_sensitive(&self, instance: &dyn Any) -> bool;
+    /// See [`VTable::is_fallible`].
     fn is_fallible(&self, instance: &dyn Any) -> bool;
-
-    fn is_null_sensitive(&self, instance: &dyn Any) -> bool;
 
     fn dyn_eq(&self, instance: &dyn Any, other: &dyn Any) -> bool;
     fn dyn_hash(&self, instance: &dyn Any, state: &mut dyn Hasher);
