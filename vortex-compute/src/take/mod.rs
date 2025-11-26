@@ -3,8 +3,11 @@
 
 //! Take function.
 
+mod bit_buffer;
 mod buffer;
+mod mask;
 pub mod slice;
+mod vector;
 
 /// Function for taking based on indices (which can have different representations).
 pub trait Take<Indices: ?Sized> {

@@ -11,6 +11,9 @@ mod bool;
 mod primitive;
 mod pvector;
 
+#[cfg(test)]
+mod tests;
+
 impl<T> Take<PrimitiveVector> for &T
 where
     for<'a> &'a T: Take<PVector<u8>, Output = T>,
