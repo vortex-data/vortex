@@ -42,7 +42,7 @@ impl<'de> serde::de::Deserialize<'de> for FieldName {
 }
 
 impl fmt::Display for FieldName {
-    #[expect(clippy::use_debug, reason = "Escape escape sequences")]
+    #[expect(clippy::use_debug, reason = "Escape escape codes")]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.0)
     }
