@@ -42,7 +42,7 @@ use crate::ArrayRef;
 /// struct, since most expressions do not require any global state.
 pub trait VTable: 'static + Sized + Send + Sync {
     /// Instance data for this expression.
-    type Instance: 'static + Send + Sync + PartialEq + Eq + Hash + Display;
+    type Instance: 'static + Send + Sync + PartialEq + Eq + Hash + Debug;
 
     /// Returns the ID of the expr vtable.
     fn id(&self) -> ExprId;

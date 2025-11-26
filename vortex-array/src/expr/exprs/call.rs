@@ -1,18 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::expr::traversal::Node;
 use crate::expr::{
     ChildName, ExecutionArgs, ExprId, Expression, ExpressionView, StatsCatalog, VTable,
 };
-use crate::functions::{ScalarFunctionVTable, Signature};
+use crate::functions::{ScalarFunction, ScalarFunctionVTable};
 use crate::stats::Stat;
-use crate::{functions, ArrayRef};
+use crate::ArrayRef;
 use itertools::Itertools;
 use std::fmt::Formatter;
-use std::sync::Arc;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::VortexResult;
 use vortex_vector::Vector;
 
 /// An expression representing a call to a scalar function.
@@ -20,36 +18,15 @@ pub struct Call {
     vtable: ScalarFunctionVTable,
 }
 
-impl Call {
-    pub fn new<F: functions::VTable>(vtable: F) -> Self {
-        Self {
-            vtable: ScalarFunctionVTable::new(vtable),
-        }
-    }
-
-    pub fn from_static<F: functions::VTable>(vtable: &'static F) -> Self {
-        Self {
-            vtable: ScalarFunctionVTable::new_static(vtable),
-        }
-    }
-}
-
-/// Additional logic required to wrap a scalar function as an expression.
-///
-/// This trait contains logic for formatting, statistics, and other expression-specific
-/// behavior that is not part of the core scalar function implementation.
-pub trait ScalarFunctionVTableExt<F: functions::VTable>: 'static + Send + Sync {}
-
-impl<F: functions::VTable> VTable for Call<F> {
-    /// The instance data for a `Call` expression are the function's options.
-    type Instance = F::Options;
+impl VTable for Call {
+    type Instance = ScalarFunction;
 
     fn id(&self) -> ExprId {
         self.vtable.id()
     }
 
-    fn serialize(&self, options: &F::Options) -> VortexResult<Option<Vec<u8>>> {
-        self.vtable.serialize(options)
+    fn serialize(&self, func: &ScalarFunction) -> VortexResult<Option<Vec<u8>>> {
+        func.serialize_options()
     }
 
     fn deserialize(&self, bytes: &[u8]) -> VortexResult<Self::Instance> {
@@ -57,25 +34,13 @@ impl<F: functions::VTable> VTable for Call<F> {
     }
 
     fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()> {
-        let arity = self.vtable.signature(expr.data()).arity();
-        if arity != expr.children_count() {
-            vortex_bail!(
-                "Function '{}' expects {} arguments, but got {}",
-                self.id(),
-                arity,
-                expr.children_count()
-            );
-        }
+        // TODO(ngates): check against the function signature.
         Ok(())
     }
 
-    fn child_name(&self, options: &F::Options, child_idx: usize) -> ChildName {
-        ChildName::from(Arc::from(
-            self.vtable
-                .signature(options)
-                .child_name(child_idx)
-                .unwrap_or_else(|| "<unnamed>".to_string()),
-        ))
+    fn child_name(&self, _func: &ScalarFunction, _child_idx: usize) -> ChildName {
+        // TODO(ngates): fetch from the function signature.
+        ChildName::from("unknown")
     }
 
     fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -87,12 +52,8 @@ impl<F: functions::VTable> VTable for Call<F> {
             child.fmt_sql(f)?;
         }
 
-        if expr.data() != &Default::default() {
-            if expr.children_count() > 0 {
-                write!(f, " ")?;
-            }
-            write!(f, "options: {}", expr.data())?;
-        }
+        write!(f, " options: ")?;
+        expr.data().fmt_options(f)?;
 
         write!(f, ")")
     }
@@ -107,7 +68,7 @@ impl<F: functions::VTable> VTable for Call<F> {
             .iter()
             .map(|c| c.return_dtype(scope))
             .try_collect()?;
-        self.vtable.return_dtype(expr.data(), &arg_dtypes)
+        expr.data().return_dtype(&arg_dtypes)
     }
 
     fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
@@ -116,6 +77,7 @@ impl<F: functions::VTable> VTable for Call<F> {
     }
 
     fn execute(&self, _data: &Self::Instance, _args: ExecutionArgs) -> VortexResult<Vector> {
+        // In theory, expressions shouldn't have any execute function at all.
         todo!()
     }
 

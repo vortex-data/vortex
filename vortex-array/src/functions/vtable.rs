@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::functions::execution::ExecutionCtx;
+use crate::functions::scalar::ScalarFn;
 use crate::functions::signature::Signature;
 use crate::functions::FunctionId;
 use arcref::ArcRef;
@@ -59,7 +60,7 @@ pub trait VTable: 'static + Send + Sync {
 }
 
 /// An object-safe vtable for scalar functions that dispatches to the non-object-safe vtable.
-pub(super) trait DynScalarFunctionVTable: 'static + Send + Sync {
+pub(super) trait DynScalarFnVTable: 'static + Send + Sync {
     fn id(&self) -> FunctionId;
 
     fn serialize_options(&self, options: &dyn Any) -> VortexResult<Option<Vec<u8>>>;
@@ -71,11 +72,12 @@ pub(super) trait DynScalarFunctionVTable: 'static + Send + Sync {
     fn debug_options(&self, options: &dyn Any, fmt: &mut fmt::Formatter<'_>) -> fmt::Result;
 
     fn return_dtype(&self, options: &dyn Any, arg_types: &[DType]) -> VortexResult<DType>;
+    fn execute(&self, options: &dyn Any, ctx: &dyn ExecutionCtx) -> VortexResult<Vector>;
 }
 
 #[repr(transparent)]
-pub struct ScalarFunctionVTableAdapter<V>(V);
-impl<V: VTable> DynScalarFunctionVTable for ScalarFunctionVTableAdapter<V> {
+pub struct ScalarFnVTableAdapter<V>(V);
+impl<V: VTable> DynScalarFnVTable for ScalarFnVTableAdapter<V> {
     fn id(&self) -> FunctionId {
         V::id(&self.0)
     }
@@ -111,6 +113,11 @@ impl<V: VTable> DynScalarFunctionVTable for ScalarFunctionVTableAdapter<V> {
     fn return_dtype(&self, options: &dyn Any, arg_types: &[DType]) -> VortexResult<DType> {
         V::return_dtype(&self.0, downcast::<V>(options), arg_types)
     }
+
+    fn execute(&self, options: &dyn Any, ctx: &dyn ExecutionCtx) -> VortexResult<Vector> {
+        // TODO(ngates): validate result matches expected dtype from ctx.
+        V::execute(&self.0, downcast::<V>(options), ctx)
+    }
 }
 
 fn downcast<V: VTable>(options: &dyn Any) -> &V::Options {
@@ -121,27 +128,37 @@ fn downcast<V: VTable>(options: &dyn Any) -> &V::Options {
 
 /// A vtable for scalar functions, registered against a VortexSession.
 #[derive(Clone)]
-pub struct ScalarFunctionVTable(ArcRef<dyn DynScalarFunctionVTable>);
+pub struct ScalarFnVTable(ArcRef<dyn DynScalarFnVTable>);
 
-impl ScalarFunctionVTable {
-    /// Creates a ScalarFunctionVTable from a VTable implementation.
+impl ScalarFnVTable {
+    /// Creates a ScalarFnVTable from a VTable implementation.
     pub fn new<F: VTable>(vtable: F) -> Self {
-        Self(ArcRef::new_arc(Arc::new(ScalarFunctionVTableAdapter(
-            vtable,
-        ))))
+        Self(ArcRef::new_arc(Arc::new(ScalarFnVTableAdapter(vtable))))
     }
 
-    /// Creates a ScalarFunctionVTable from a 'static reference to a VTable.
+    /// Creates a ScalarFnVTable from a 'static reference to a VTable.
     pub fn new_static<F: VTable>(vtable: &'static F) -> Self {
-        // SAFETY: this transmute is safe since ScalarFunctionVTableAdapter is transparent over F.
-        let adapter: &'static ScalarFunctionVTableAdapter<F> =
-            unsafe { transmute::<&'static F, &'static ScalarFunctionVTableAdapter<F>>(vtable) };
+        // SAFETY: this transmute is safe since ScalarFnVTableAdapter is transparent over F.
+        let adapter: &'static ScalarFnVTableAdapter<F> =
+            unsafe { transmute::<&'static F, &'static ScalarFnVTableAdapter<F>>(vtable) };
         Self(ArcRef::new_ref(adapter))
+    }
+
+    pub fn id(&self) -> FunctionId {
+        self.0.id()
+    }
+
+    pub fn deserialize(&self, bytes: &[u8]) -> VortexResult<ScalarFn> {
+        let options = self.0.deserialize_options(bytes)?;
+        Ok(ScalarFn {
+            vtable: self.clone(),
+            options,
+        })
     }
 }
 
-impl Deref for ScalarFunctionVTable {
-    type Target = dyn DynScalarFunctionVTable;
+impl Deref for ScalarFnVTable {
+    type Target = dyn DynScalarFnVTable;
 
     fn deref(&self) -> &Self::Target {
         self.0.deref()
