@@ -1,22 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::mem::transmute;
-
 use itertools::Itertools;
-use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::patch_chunk;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_dtype::PType;
-use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
@@ -131,136 +125,13 @@ where
     Ok((exponents, encoded_array, patches))
 }
 
-/// Decompresses an ALP-encoded array.
-///
-/// # Arguments
-///
-/// * `array` - The ALP-encoded array to decompress
-///
-/// # Returns
-///
-/// A `PrimitiveArray` containing the decompressed floating-point values with all patches applied.
-pub fn decompress(array: ALPArray) -> PrimitiveArray {
-    let patches = array.patches().cloned();
-    if let Some(patches) = patches
-        && let Some(chunk_offsets) = patches.chunk_offsets()
-    {
-        return decompress_chunked(array, &patches, &chunk_offsets.as_ref().to_primitive());
-    }
-
-    decompress_unchunked(array)
-}
-
-/// Decompresses an ALP-encoded array in 1024-element chunks.
-///
-/// Decoding and applying patches is done in chunks of 1024 elements for better L1 cache locality.
-///
-/// # Arguments
-///
-/// * `array` - The ALP-encoded array to decompress
-/// * `patches` - The patches containing exceptional values and their positions
-/// * `patches_chunk_offsets` - Offsets into the patches array for each chunk
-///
-/// # Returns
-///
-/// A `PrimitiveArray` containing the decompressed values with all patches applied.
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "complexity is from nested match_each_* macros"
-)]
-pub fn decompress_chunked(
-    array: ALPArray,
-    patches: &Patches,
-    patches_chunk_offsets: &PrimitiveArray,
-) -> PrimitiveArray {
-    let encoded = array.encoded().to_primitive();
-    let validity = encoded.validity().clone();
-
-    let patches_indices = patches.indices().as_ref().to_primitive();
-    let patches_values = patches.values().as_ref().to_primitive();
-    let ptype = array.dtype().as_ptype();
-    let array_len = array.len();
-    let exponents = array.exponents();
-    let patches_offset = patches.offset();
-
-    // We need to drop ALPArray here in case converting encoded buffer into
-    // primitive didn't create a copy. In that case both alp_encoded and array
-    // will hold a reference to the buffer we want to mutate.
-    drop(array);
-
-    match_each_alp_float_ptype!(ptype, |T| {
-        let patches_values = patches_values.as_slice::<T>();
-        let mut alp_buffer = encoded.into_buffer_mut();
-        match_each_unsigned_integer_ptype!(patches_chunk_offsets.ptype(), |C| {
-            let patches_chunk_offsets = patches_chunk_offsets.as_slice::<C>();
-            // There always is at least one chunk offset.
-            let base_offset = patches_chunk_offsets[0];
-            let offset_within_chunk = patches.offset_within_chunk().unwrap_or(0);
-
-            match_each_unsigned_integer_ptype!(patches_indices.ptype(), |I| {
-                let patches_indices = patches_indices.as_slice::<I>();
-
-                for (chunk_idx, chunk_start) in (0..array_len).step_by(1024).enumerate() {
-                    let chunk_end = (chunk_start + 1024).min(array_len);
-                    let chunk_slice = &mut alp_buffer.as_mut_slice()[chunk_start..chunk_end];
-
-                    <T>::decode_slice_inplace(chunk_slice, exponents);
-
-                    let decoded_chunk: &mut [T] = unsafe { transmute(chunk_slice) };
-                    patch_chunk(
-                        decoded_chunk,
-                        patches_indices,
-                        patches_values,
-                        patches_offset,
-                        patches_chunk_offsets,
-                        chunk_idx,
-                        base_offset.as_(),
-                        offset_within_chunk,
-                    );
-                }
-
-                let decoded_buffer: BufferMut<T> = unsafe { transmute(alp_buffer) };
-                PrimitiveArray::new::<T>(decoded_buffer.freeze(), validity)
-            })
-        })
-    })
-}
-
-/// Decompresses an ALP-encoded array without chunk offsets.
-///
-/// This function decodes the complete array at once and then applies any patches after.
-fn decompress_unchunked(array: ALPArray) -> PrimitiveArray {
-    let patches = array.patches().cloned();
-    let encoded = array.encoded().to_primitive();
-    let validity = encoded.validity().clone();
-    let exponents = array.exponents();
-    let ptype = array.dtype().as_ptype();
-
-    // We need to drop ALPArray here in case converting encoded buffer into
-    // primitive didn't create a copy. In that case both alp_encoded and array
-    // will hold a reference to the buffer we want to mutate.
-    drop(array);
-
-    let decoded = match_each_alp_float_ptype!(ptype, |T| {
-        PrimitiveArray::new::<T>(
-            <T>::decode_buffer(encoded.into_buffer_mut(), exponents),
-            validity,
-        )
-    });
-
-    if let Some(patches) = patches {
-        decoded.patch(&patches)
-    } else {
-        decoded
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use core::f64;
 
     use f64::consts::E;
     use f64::consts::PI;
+    use vortex_array::ToCanonical;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
@@ -268,6 +139,7 @@ mod tests {
     use vortex_dtype::NativePType;
 
     use super::*;
+    use crate::decompress;
 
     #[test]
     fn test_compress() {

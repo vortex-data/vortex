@@ -15,6 +15,7 @@ use vortex_array::DeserializeMetadata;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
+use vortex_array::execution::ExecutionCtx;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
@@ -40,11 +41,15 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_vector::Vector;
+use vortex_vector::VectorMutOps;
 
 use crate::ALPFloat;
 use crate::alp::Exponents;
 use crate::alp::alp_encode;
-use crate::alp::decompress;
+use crate::alp::decompress::decompress;
+use crate::alp::decompress::decompress_to_pvector;
+use crate::match_each_alp_float_ptype;
 
 vtable!(ALP);
 
@@ -135,6 +140,12 @@ impl VTable for ALPVTable {
             },
             patches,
         )
+    }
+
+    fn execute(array: &ALPArray, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+        match_each_alp_float_ptype!(array.dtype().as_ptype(), |T| {
+            Ok(decompress_to_pvector::<T>(array.clone()).freeze().into())
+        })
     }
 }
 
@@ -348,6 +359,12 @@ impl ALPArray {
 
     pub fn patches(&self) -> Option<&Patches> {
         self.patches.as_ref()
+    }
+
+    /// Consumes the array and returns its parts.
+    #[inline]
+    pub fn into_parts(self) -> (ArrayRef, Exponents, Option<Patches>, DType) {
+        (self.encoded, self.exponents, self.patches, self.dtype)
     }
 }
 
