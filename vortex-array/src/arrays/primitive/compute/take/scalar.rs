@@ -50,7 +50,7 @@ impl TakeImpl for TakeKernelScalar {
 // Compiler may see this as unused based on enabled features
 #[allow(unused)]
 #[inline(always)]
-fn take_primitive_scalar<T: NativePType, I: IntegerPType>(array: &[T], indices: &[I]) -> Buffer<T> {
+pub(super) fn take_primitive_scalar<T: NativePType, I: IntegerPType>(array: &[T], indices: &[I]) -> Buffer<T> {
     indices.iter().map(|idx| array[idx.as_()]).collect()
 }
 
