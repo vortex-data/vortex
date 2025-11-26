@@ -11,12 +11,15 @@ use arrow_schema::SchemaRef;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::arrow::array::RecordBatch;
+use datafusion_common::arrow::compute::filter_record_batch;
+use datafusion_common::cast::as_boolean_array;
 use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::file_meta::FileMeta;
 use datafusion_datasource::file_stream::FileOpenFuture;
 use datafusion_datasource::file_stream::FileOpener;
 use datafusion_datasource::schema_adapter::SchemaAdapterFactory;
 use datafusion_physical_expr::PhysicalExprRef;
+use datafusion_physical_expr::conjunction;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
 use datafusion_physical_expr::split_conjunction;
 use datafusion_physical_expr_adapter::PhysicalExprAdapterFactory;
@@ -32,8 +35,9 @@ use object_store::path::Path;
 use tracing::Instrument;
 use vortex::dtype::FieldName;
 use vortex::error::VortexError;
+use vortex::expr;
+use vortex::expr::Expression;
 use vortex::expr::root;
-use vortex::expr::select;
 use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
 use vortex::scan::ScanBuilder;
@@ -42,8 +46,8 @@ use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 
 use super::cache::VortexFileCache;
+use crate::convert::TryFromDataFusion;
 use crate::convert::exprs::can_be_pushed_down;
-use crate::convert::exprs::make_vortex_predicate;
 use crate::convert::ranges::apply_byte_range;
 
 #[derive(Clone)]
@@ -228,6 +232,9 @@ impl FileOpener for VortexOpener {
                 DataFusionError::Execution(format!("Failed to convert file schema to arrow: {e}"))
             })?);
 
+            let logical_file_schema =
+                compute_logical_file_schema(&physical_file_schema, &logical_schema);
+
             if let Some(expr_adapter_factory) = expr_adapter_factory {
                 let partition_values = partition_fields
                     .iter()
@@ -239,13 +246,8 @@ impl FileOpener for VortexOpener {
                 // for schema evolution and divergence between the table's schema and individual files.
                 filter = filter
                     .map(|filter| {
-                        let logical_file_schema = compute_logical_file_schema(
-                            &physical_file_schema.clone(),
-                            &logical_schema,
-                        );
-
                         let expr = expr_adapter_factory
-                            .create(logical_file_schema, physical_file_schema.clone())
+                            .create(logical_file_schema.clone(), physical_file_schema.clone())
                             .with_partition_values(partition_values)
                             .rewrite(filter)?;
 
@@ -261,52 +263,19 @@ impl FileOpener for VortexOpener {
             // Create the initial mapping from physical file schema to projected schema.
             // This gives us the field reordering and tells us which logical schema fields
             // to select.
-            let (_schema_mapping, adapted_projections) =
-                schema_adapter.map_schema(&physical_file_schema)?;
+            let (schema_mapping, adapted_projections) =
+                schema_adapter.map_schema(&logical_file_schema)?;
 
             // Build the Vortex projection expression using the adapted projections.
             // This will reorder the fields to match the target order.
             let fields = adapted_projections
                 .iter()
-                .map(|idx| {
-                    let field = logical_schema.field(*idx);
+                .map(|&idx| {
+                    let field = logical_file_schema.field(idx);
                     FieldName::from(field.name().as_str())
                 })
                 .collect::<Vec<_>>();
-            let projection_expr = select(fields, root());
-
-            // After Vortex applies the projection, the batch will have fields in the target
-            // order (matching adapted_projections), but with the physical file types.
-            // We need a second schema mapping for type casting only, not reordering.
-            // Build a schema that represents what Vortex will return: fields in target order
-            // with physical types.
-            let projected_physical_fields: Vec<Field> = adapted_projections
-                .iter()
-                .map(|&idx| {
-                    let logical_field = logical_schema.field(idx);
-                    let field_name = logical_field.name();
-
-                    // Find this field in the physical schema to get its physical type
-                    physical_file_schema
-                        .field_with_name(field_name)
-                        .map(|phys_field| {
-                            Field::new(
-                                field_name,
-                                merge_field_types(phys_field, logical_field),
-                                phys_field.is_nullable(),
-                            )
-                        })
-                        .unwrap_or_else(|_| (*logical_field).clone())
-                })
-                .collect();
-
-            let projected_physical_schema =
-                Arc::new(arrow_schema::Schema::new(projected_physical_fields));
-
-            // Create a second mapping from the projected physical schema (what Vortex returns)
-            // to the final projected schema. This mapping will handle type casting without reordering.
-            let (batch_schema_mapping, _) =
-                schema_adapter.map_schema(&projected_physical_schema)?;
+            let projection_expr = expr::select(fields, root());
 
             // We share our layout readers with others partitions in the scan, so we can only need to read each layout in each file once.
             let layout_reader = match layout_reader.entry(file_meta.object_meta.location.clone()) {
@@ -346,27 +315,49 @@ impl FileOpener for VortexOpener {
                 );
             }
 
-            let filter = filter
-                .and_then(|f| {
-                    let exprs = split_conjunction(&f)
-                        .into_iter()
-                        .filter(|expr| can_be_pushed_down(expr, &predicate_file_schema))
-                        .collect::<Vec<_>>();
+            // Split the filter expressions into those that can be applied within the file scan,
+            // and those that need to be applied afterward in-memory.
+            let mut pushed_filters = Vec::new();
+            let mut post_filters = Vec::new();
 
-                    make_vortex_predicate(&exprs).transpose()
-                })
-                .transpose()
-                .map_err(|e| DataFusionError::External(e.into()))?;
+            if let Some(filter) = filter {
+                for expr in split_conjunction(&filter) {
+                    if can_be_pushed_down(expr, &predicate_file_schema)
+                        && let Ok(vortex_expr) = Expression::try_from_df(expr.as_ref())
+                    {
+                        pushed_filters.push(vortex_expr);
+                    } else {
+                        post_filters.push(expr.clone());
+                    }
+                }
+            }
+
+            let pushed_filter = pushed_filters.into_iter().reduce(expr::and);
+            let post_filter: Box<dyn FnMut(DFResult<RecordBatch>) -> DFResult<RecordBatch> + Send> =
+                if post_filters.is_empty() {
+                    Box::new(|batch: DFResult<RecordBatch>| batch)
+                } else {
+                    let conjunction = conjunction(post_filters.clone());
+                    Box::new(
+                        move |batch: DFResult<RecordBatch>| -> DFResult<RecordBatch> {
+                            let batch = batch?;
+                            let filter = conjunction.evaluate(&batch)?;
+                            let filter = filter.into_array(batch.num_rows())?;
+                            let filter = as_boolean_array(&filter)?;
+                            filter_record_batch(&batch, filter).map_err(DataFusionError::from)
+                        },
+                    )
+                };
 
             tracing::debug!(
-                ?filter,
-                ?projection,
+                ?pushed_filter,
+                ?post_filters,
                 ?projection_expr,
-                "opening file with predicate and projection"
+                "opening file with predicates and projection"
             );
 
             if let Some(limit) = limit
-                && filter.is_none()
+                && pushed_filter.is_none()
             {
                 scan_builder = scan_builder.with_limit(limit);
             }
@@ -374,7 +365,7 @@ impl FileOpener for VortexOpener {
             let stream = scan_builder
                 .with_metrics(metrics)
                 .with_projection(projection_expr)
-                .with_some_filter(filter)
+                .with_some_filter(pushed_filter)
                 .with_ordered(has_output_ordering)
                 .map(|chunk| RecordBatch::try_from(chunk.as_ref()))
                 .into_stream()
@@ -409,7 +400,12 @@ impl FileOpener for VortexOpener {
                     ))))
                 })
                 .try_flatten()
-                .map(move |batch| batch.and_then(|b| batch_schema_mapping.map_batch(b)))
+                .map(move |batch| batch.and_then(|b| schema_mapping.map_batch(b)))
+                // Apply the post-filter step, which will execute any filters that couldn't
+                // be pushed down for this file. This is applicable for any filters over fields
+                // missing from the file schema that exist in the table schema, and are filled in
+                // from the schema adapter.
+                .map(post_filter)
                 .boxed();
 
             Ok(stream)

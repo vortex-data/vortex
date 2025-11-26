@@ -24,6 +24,7 @@ use datafusion_physical_plan::DisplayFormatType;
 use datafusion_physical_plan::PhysicalExpr;
 use datafusion_physical_plan::filter_pushdown::FilterPushdownPropagation;
 use datafusion_physical_plan::filter_pushdown::PushedDown;
+use datafusion_physical_plan::filter_pushdown::PushedDownPredicate;
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use object_store::ObjectStore;
 use object_store::path::Path;
@@ -233,8 +234,6 @@ impl FileSource for VortexSource {
         filters: Vec<Arc<dyn PhysicalExpr>>,
         _config: &ConfigOptions,
     ) -> DFResult<FilterPushdownPropagation<Arc<dyn FileSource>>> {
-        let num_filters = filters.len();
-
         if filters.is_empty() {
             return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
                 vec![],
@@ -262,28 +261,45 @@ impl FileSource for VortexSource {
         // Update the predicate with any pushed filters
         let supported_filters = filters
             .into_iter()
-            .filter(|expr| can_be_pushed_down(expr, schema))
+            .map(|expr| {
+                if can_be_pushed_down(&expr, schema) {
+                    PushedDownPredicate::supported(expr)
+                } else {
+                    PushedDownPredicate::unsupported(expr)
+                }
+            })
             .collect::<Vec<_>>();
 
+        if supported_filters
+            .iter()
+            .all(|p| matches!(p.discriminant, PushedDown::No))
+        {
+            return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
+                vec![PushedDown::No; supported_filters.len()],
+            )
+            .with_updated_node(Arc::new(source) as _));
+        }
+
+        let supported = supported_filters
+            .iter()
+            .filter_map(|p| match p.discriminant {
+                PushedDown::Yes => Some(&p.predicate),
+                PushedDown::No => None,
+            })
+            .cloned();
+
         let predicate = match source.pushed_predicate {
-            Some(predicate) => conjunction(std::iter::once(predicate).chain(supported_filters)),
-            None => conjunction(supported_filters),
+            Some(predicate) => conjunction(std::iter::once(predicate).chain(supported)),
+            None => conjunction(supported),
         };
 
         tracing::debug!(%predicate, "updating predicate with new filters");
 
         source.pushed_predicate = Some(predicate);
 
-        // NOTE: we always report no pushdown to DataFusion, which forces it to postfilter our
-        // results. Due to schema evolution and schema adapters/expression adapters, we can't
-        // guarantee that filters over missing columns can be executed directly in Vortex.
-        //
-        // But, we still return the updated source node so that the filters are used for
-        // zone map pruning.
-        Ok(FilterPushdownPropagation::with_parent_pushdown_result(vec![
-            PushedDown::No;
-            num_filters
-        ])
+        Ok(FilterPushdownPropagation::with_parent_pushdown_result(
+            supported_filters.iter().map(|f| f.discriminant).collect(),
+        )
         .with_updated_node(Arc::new(source) as _))
     }
 

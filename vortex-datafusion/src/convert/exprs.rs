@@ -38,18 +38,6 @@ use vortex::scalar::Scalar;
 use crate::convert::FromDataFusion;
 use crate::convert::TryFromDataFusion;
 
-/// Tries to convert the expressions into a vortex conjunction. Will return Ok(None) iff the input conjunction is empty.
-pub(crate) fn make_vortex_predicate(
-    predicate: &[&Arc<dyn PhysicalExpr>],
-) -> VortexResult<Option<Expression>> {
-    let exprs = predicate
-        .iter()
-        .map(|e| Expression::try_from_df(e.as_ref()))
-        .collect::<VortexResult<Vec<_>>>()?;
-
-    Ok(exprs.into_iter().reduce(and))
-}
-
 // TODO(joe): Don't return an error when we have an unsupported node, bubble up "TRUE" as in keep
 //  for that node, up to any `and` or `or` node.
 impl TryFromDataFusion<dyn PhysicalExpr> for Expression {
