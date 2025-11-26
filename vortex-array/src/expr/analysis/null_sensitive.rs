@@ -6,13 +6,13 @@ use vortex_utils::aliases::hash_map::HashMap;
 use super::labeling::label_tree;
 use crate::expr::Expression;
 
-pub type NullSensitiveLabels<'a> = HashMap<&'a Expression, bool>;
+pub type BooleanLabels<'a> = HashMap<&'a Expression, bool>;
 
 /// Label each expression in the tree with whether it is null-sensitive.
 ///
 /// See [`crate::expr::VTable::is_null_sensitive`] for a definition of null sensitivity.
 /// This function operates on a tree of expressions, not just a single expression.
-pub fn label_null_sensitive(expr: &Expression) -> NullSensitiveLabels<'_> {
+pub fn label_null_sensitive(expr: &Expression) -> BooleanLabels<'_> {
     label_tree(
         expr,
         |expr| expr.is_null_sensitive(),

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod annotation;
+mod fallible;
 pub mod immediate_access;
 mod labeling;
 mod null_sensitive;
