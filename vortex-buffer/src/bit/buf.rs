@@ -4,6 +4,7 @@
 use std::ops::BitAnd;
 use std::ops::BitOr;
 use std::ops::BitXor;
+use std::ops::Bound;
 use std::ops::Not;
 use std::ops::RangeBounds;
 
@@ -195,14 +196,14 @@ impl BitBuffer {
     /// Panics if the slice would extend beyond the end of the buffer.
     pub fn slice(&self, range: impl RangeBounds<usize>) -> Self {
         let start = match range.start_bound() {
-            std::ops::Bound::Included(&s) => s,
-            std::ops::Bound::Excluded(&s) => s + 1,
-            std::ops::Bound::Unbounded => 0,
+            Bound::Included(&s) => s,
+            Bound::Excluded(&s) => s + 1,
+            Bound::Unbounded => 0,
         };
         let end = match range.end_bound() {
-            std::ops::Bound::Included(&e) => e + 1,
-            std::ops::Bound::Excluded(&e) => e,
-            std::ops::Bound::Unbounded => self.len,
+            Bound::Included(&e) => e + 1,
+            Bound::Excluded(&e) => e,
+            Bound::Unbounded => self.len,
         };
 
         assert!(start <= end);
@@ -215,9 +216,13 @@ impl BitBuffer {
 
     /// Slice any full bytes from the buffer, leaving the offset < 8.
     pub fn shrink_offset(self) -> Self {
+        let word_start = self.offset / 8;
+        let word_end = (self.offset + self.len).div_ceil(8);
+
+        let buffer = self.buffer.slice(word_start..word_end);
+
         let bit_offset = self.offset % 8;
         let len = self.len;
-        let buffer = self.into_inner();
         BitBuffer::new_with_offset(buffer, len, bit_offset)
     }
 
@@ -273,13 +278,9 @@ impl BitBuffer {
 // Conversions
 
 impl BitBuffer {
-    /// Consumes this `BoolBuffer` and returns the backing `Buffer<u8>` with any offset
-    /// and length information applied.
-    pub fn into_inner(self) -> ByteBuffer {
-        let word_start = self.offset / 8;
-        let word_end = (self.offset + self.len).div_ceil(8);
-
-        self.buffer.slice(word_start..word_end)
+    /// Returns the offset, len and underlying buffer.
+    pub fn into_inner(self) -> (usize, usize, ByteBuffer) {
+        (self.offset, self.len, self.buffer)
     }
 
     /// Attempt to convert this `BitBuffer` into a mutable version.
@@ -295,11 +296,9 @@ impl BitBuffer {
     /// If the caller doesn't hold only reference to the underlying buffer, a copy is created.
     /// The second value of the tuple is a bit_offset of the first value in the first byte
     pub fn into_mut(self) -> BitBufferMut {
-        let offset = self.offset;
-        let len = self.len;
+        let (offset, len, inner) = self.into_inner();
         // TODO(robert): if we are copying here we could strip offset bits
-        let inner = self.into_inner().into_mut();
-        BitBufferMut::from_buffer(inner, offset, len)
+        BitBufferMut::from_buffer(inner.into_mut(), offset, len)
     }
 }
 

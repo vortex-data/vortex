@@ -22,9 +22,7 @@ impl From<BooleanBuffer> for BitBuffer {
 
 impl From<BitBuffer> for BooleanBuffer {
     fn from(value: BitBuffer) -> Self {
-        let offset = value.offset();
-        let len = value.len();
-        let buffer = value.into_inner();
+        let (offset, len, buffer) = value.into_inner();
 
         BooleanBuffer::new(buffer.into_arrow_buffer(), offset, len)
     }

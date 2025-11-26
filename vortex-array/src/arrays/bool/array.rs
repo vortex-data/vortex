@@ -247,8 +247,8 @@ impl FromIterator<Option<bool>> for BoolArray {
 
 impl IntoArray for BitBuffer {
     fn into_array(self) -> ArrayRef {
-        let len = self.len();
-        BoolArray::try_new(self.into_inner(), 0, len, Validity::NonNullable)
+        let (offset, len, buffer) = self.into_inner();
+        BoolArray::try_new(buffer, offset, len, Validity::NonNullable)
             .vortex_expect("known correct")
             .into_array()
     }

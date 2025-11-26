@@ -5,6 +5,7 @@
 //! [`VectorMut`], respectively.
 
 use std::fmt::Debug;
+use std::ops::Bound;
 use std::ops::RangeBounds;
 
 use vortex_mask::Mask;
@@ -178,8 +179,6 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> + Sized {
 
 /// Converts a range bounds into a length, given the total length of the vector.
 pub(crate) fn range_bounds_to_len(bounds: impl RangeBounds<usize> + Debug, len: usize) -> usize {
-    use std::ops::Bound;
-
     let start = match bounds.start_bound() {
         Bound::Included(&s) => s,
         Bound::Excluded(&s) => s + 1,
