@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::expr::BooleanLabels;
 use crate::expr::Expression;
+use crate::expr::analysis::BooleanLabels;
 use crate::expr::label_tree;
 
 pub fn label_is_fallible(expr: &Expression) -> BooleanLabels<'_> {

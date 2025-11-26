@@ -11,4 +11,5 @@ pub use annotation::*;
 pub use fallible::label_is_fallible;
 pub use immediate_access::*;
 pub use labeling::*;
+pub use null_sensitive::BooleanLabels;
 pub use null_sensitive::label_null_sensitive;
