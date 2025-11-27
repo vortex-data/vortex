@@ -7,18 +7,18 @@ use std::fmt::Debug;
 use std::ops::RangeBounds;
 use std::sync::Arc;
 
-use vortex_error::vortex_ensure;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
 use super::ListViewScalar;
 use super::ListViewVectorMut;
+use crate::Vector;
 use crate::match_each_integer_pvector;
 use crate::primitive::PrimitiveVector;
 use crate::vector_ops::VectorMutOps;
 use crate::vector_ops::VectorOps;
-use crate::Datum;
 
 /// A vector of variable-width lists.
 ///
@@ -31,7 +31,7 @@ use crate::Datum;
 ///
 /// # Structure
 ///
-/// - `elements`: The child vector of all list elements, stored as an [`Arc<Datum>`].
+/// - `elements`: The child vector of all list elements, stored as an [`Arc<Vector>`].
 /// - `offsets`: A [`PrimitiveVector`] containing the starting offset of each list in the `elements`
 ///   vector.
 /// - `sizes`: A [`PrimitiveVector`] containing the size (number of elements) of each list.
@@ -39,7 +39,7 @@ use crate::Datum;
 #[derive(Debug, Clone)]
 pub struct ListViewVector {
     /// The child vector of elements.
-    pub(super) elements: Arc<Datum>,
+    pub(super) elements: Arc<Vector>,
 
     /// Offsets for each list into the elements vector.
     ///
@@ -78,7 +78,7 @@ impl ListViewVector {
     ///   `elements.len()` (even if the corresponding view is defined as null by the validity
     ///   array).
     pub fn new(
-        elements: Arc<Datum>,
+        elements: Arc<Vector>,
         offsets: PrimitiveVector,
         sizes: PrimitiveVector,
         validity: Mask,
@@ -101,7 +101,7 @@ impl ListViewVector {
     ///   `elements.len()` (even if the corresponding view is defined as null by the validity
     ///   array).
     pub fn try_new(
-        elements: Arc<Datum>,
+        elements: Arc<Vector>,
         offsets: PrimitiveVector,
         sizes: PrimitiveVector,
         validity: Mask,
@@ -160,7 +160,7 @@ impl ListViewVector {
     /// - For each `i`, `offsets[i] + sizes[i]` must not overflow and must be `<= elements.len()`
     ///   (even if the corresponding view is defined as null by the validity array).
     pub unsafe fn new_unchecked(
-        elements: Arc<Datum>,
+        elements: Arc<Vector>,
         offsets: PrimitiveVector,
         sizes: PrimitiveVector,
         validity: Mask,
@@ -182,13 +182,13 @@ impl ListViewVector {
 
     /// Decomposes the [`ListViewVector`] into its constituent parts (child elements, offsets,
     /// sizes, and validity).
-    pub fn into_parts(self) -> (Arc<Datum>, PrimitiveVector, PrimitiveVector, Mask) {
+    pub fn into_parts(self) -> (Arc<Vector>, PrimitiveVector, PrimitiveVector, Mask) {
         (self.elements, self.offsets, self.sizes, self.validity)
     }
 
     /// Returns a reference to the `elements` vector.
     #[inline]
-    pub fn elements(&self) -> &Arc<Datum> {
+    pub fn elements(&self) -> &Arc<Vector> {
         &self.elements
     }
 

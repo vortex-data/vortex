@@ -15,7 +15,7 @@ pub use vector_mut::*;
 pub use view::*;
 use vortex_error::vortex_panic;
 
-use crate::Datum;
+use crate::Vector;
 use crate::VectorMut;
 
 mod scalar;
@@ -37,33 +37,33 @@ pub type BinaryScalar = BinaryViewScalar<BinaryType>;
 /// Type alias for UTF-8 variable-length string scalars.
 pub type StringScalar = BinaryViewScalar<StringType>;
 
-impl BinaryViewDowncast for Datum {
+impl BinaryViewDowncast for Vector {
     type Output<T: BinaryViewType> = BinaryViewVector<T>;
 
     fn into_binary(self) -> Self::Output<BinaryType> {
-        if let Datum::Binary(v) = self {
+        if let Vector::Binary(v) = self {
             return v;
         }
         vortex_panic!("Expected BinaryVector, got {self:?}");
     }
 
     fn into_string(self) -> Self::Output<StringType> {
-        if let Datum::String(v) = self {
+        if let Vector::String(v) = self {
             return v;
         }
         vortex_panic!("Expected StringVector, got {self:?}");
     }
 }
 
-impl BinaryViewTypeUpcast for Datum {
+impl BinaryViewTypeUpcast for Vector {
     type Input<T: BinaryViewType> = BinaryViewVector<T>;
 
     fn from_binary(input: Self::Input<BinaryType>) -> Self {
-        Datum::Binary(input)
+        Vector::Binary(input)
     }
 
     fn from_string(input: Self::Input<StringType>) -> Self {
-        Datum::String(input)
+        Vector::String(input)
     }
 }
 

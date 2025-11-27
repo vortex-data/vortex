@@ -94,10 +94,10 @@ pub use scalar::FixedSizeListScalar;
 mod vector_mut;
 pub use vector_mut::FixedSizeListVectorMut;
 
-use crate::Datum;
+use crate::Vector;
 use crate::VectorMut;
 
-impl From<FixedSizeListVector> for Datum {
+impl From<FixedSizeListVector> for Vector {
     fn from(v: FixedSizeListVector) -> Self {
         Self::FixedSizeList(v)
     }

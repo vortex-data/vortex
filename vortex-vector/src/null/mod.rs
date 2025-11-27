@@ -12,10 +12,10 @@ pub use scalar::NullScalar;
 mod vector_mut;
 pub use vector_mut::NullVectorMut;
 
-use crate::Datum;
+use crate::Vector;
 use crate::VectorMut;
 
-impl From<NullVector> for Datum {
+impl From<NullVector> for Vector {
     fn from(v: NullVector) -> Self {
         Self::Null(v)
     }

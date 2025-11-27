@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! This private module contains the [`Sealed`] implementations for different [`Datum`] types. This
+//! This private module contains the [`Sealed`] implementations for different [`Vector`] types. This
 //! allows us to seal our [`VectorOps`] and [`VectorMutOps`] traits.
 //!
 //! Sealing these traits prevents external crates from implementing them while still allowing public
@@ -13,7 +13,7 @@ use vortex_dtype::NativePType;
 
 use crate::Datum;
 use crate::Scalar;
-use crate::Datum;
+use crate::Vector;
 use crate::VectorMut;
 use crate::binaryview::BinaryViewScalar;
 use crate::binaryview::BinaryViewType;
@@ -50,7 +50,7 @@ use crate::struct_::StructVectorMut;
 /// A private trait for sealing implementations of other traits.
 pub trait Sealed {}
 
-impl Sealed for Datum {}
+impl Sealed for Vector {}
 impl Sealed for VectorMut {}
 
 impl Sealed for NullVector {}

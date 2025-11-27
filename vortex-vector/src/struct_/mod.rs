@@ -99,10 +99,10 @@ mod scalar;
 
 pub use scalar::StructScalar;
 
-use crate::Datum;
+use crate::Vector;
 use crate::VectorMut;
 
-impl From<StructVector> for Datum {
+impl From<StructVector> for Vector {
     fn from(v: StructVector) -> Self {
         Self::Struct(v)
     }

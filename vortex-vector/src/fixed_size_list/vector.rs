@@ -7,15 +7,15 @@ use std::fmt::Debug;
 use std::ops::RangeBounds;
 use std::sync::Arc;
 
-use vortex_error::vortex_ensure;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
+use crate::Vector;
+use crate::VectorOps;
 use crate::fixed_size_list::FixedSizeListScalar;
 use crate::fixed_size_list::FixedSizeListVectorMut;
-use crate::Datum;
-use crate::VectorOps;
 
 /// An immutable vector of fixed-size lists.
 ///
@@ -23,7 +23,7 @@ use crate::VectorOps;
 /// a fixed number of elements together for each list scalar.
 ///
 /// More specifically, each list scalar in the vector has the same number of elements (fixed size),
-/// with all list elements stored contiguously in a child [`Datum`].
+/// with all list elements stored contiguously in a child [`Vector`].
 ///
 /// Note that the validity mask tracks which lists are null, not which individual elements are null.
 ///
@@ -36,7 +36,7 @@ use crate::VectorOps;
 #[derive(Debug, Clone)]
 pub struct FixedSizeListVector {
     /// The child vector of elements.
-    pub(super) elements: Arc<Datum>,
+    pub(super) elements: Arc<Vector>,
 
     /// The size of every list in the vector.
     pub(super) list_size: u32,
@@ -64,7 +64,7 @@ impl FixedSizeListVector {
     ///
     /// Put another way, the length of the `elements` vector divided by the `list_size` must be
     /// equal to the length of the validity, or this function will panic.
-    pub fn new(elements: Arc<Datum>, list_size: u32, validity: Mask) -> Self {
+    pub fn new(elements: Arc<Vector>, list_size: u32, validity: Mask) -> Self {
         Self::try_new(elements, list_size, validity)
             .vortex_expect("Failed to create `FixedSizeListVector`")
     }
@@ -79,7 +79,7 @@ impl FixedSizeListVector {
     ///
     /// Put another way, the length of the `elements` vector divided by the `list_size` must be
     /// equal to the length of the validity.
-    pub fn try_new(elements: Arc<Datum>, list_size: u32, validity: Mask) -> VortexResult<Self> {
+    pub fn try_new(elements: Arc<Vector>, list_size: u32, validity: Mask) -> VortexResult<Self> {
         let len = validity.len();
         let elements_len = elements.len();
 
@@ -111,7 +111,7 @@ impl FixedSizeListVector {
     ///
     /// The caller must ensure that the length of the `validity` mask multiplied by the `list_size`
     /// is exactly equal to the length of the `elements` vector.
-    pub unsafe fn new_unchecked(elements: Arc<Datum>, list_size: u32, validity: Mask) -> Self {
+    pub unsafe fn new_unchecked(elements: Arc<Vector>, list_size: u32, validity: Mask) -> Self {
         let len = validity.len();
 
         if cfg!(debug_assertions) {
@@ -128,7 +128,7 @@ impl FixedSizeListVector {
 
     /// Decomposes the `FixedSizeListVector` into its constituent parts (child elements, list size,
     /// and validity).
-    pub fn into_parts(self) -> (Arc<Datum>, u32, Mask) {
+    pub fn into_parts(self) -> (Arc<Vector>, u32, Mask) {
         (self.elements, self.list_size, self.validity)
     }
 
@@ -139,7 +139,7 @@ impl FixedSizeListVector {
 
     /// Returns the child vector of elements, which represents the contiguous fixed-size lists of
     /// the `FixedSizeListVector`.
-    pub fn elements(&self) -> &Arc<Datum> {
+    pub fn elements(&self) -> &Arc<Vector> {
         &self.elements
     }
 
@@ -241,14 +241,14 @@ mod tests {
     use vortex_mask::Mask;
 
     use super::*;
-    use crate::primitive::PVectorMut;
-    use crate::Datum;
+    use crate::Vector;
     use crate::VectorMutOps;
+    use crate::primitive::PVectorMut;
 
     #[test]
     fn test_constructor_and_validation() {
         // Valid construction with new().
-        let elements: Arc<Datum> = Arc::new(
+        let elements: Arc<Vector> = Arc::new(
             PVectorMut::<i32>::from_iter([1, 2, 3, 4, 5, 6])
                 .freeze()
                 .into(),
@@ -269,7 +269,7 @@ mod tests {
         assert!(result.is_err());
 
         // Degenerate case (list_size = 0) with empty elements is valid.
-        let empty_elements: Arc<Datum> = Arc::new(
+        let empty_elements: Arc<Vector> = Arc::new(
             PVectorMut::<i32>::from_iter(Vec::<i32>::new())
                 .freeze()
                 .into(),
@@ -286,7 +286,7 @@ mod tests {
         assert!(result.is_err());
 
         // Test unsafe new_unchecked in debug mode (it should still validate).
-        let elements: Arc<Datum> =
+        let elements: Arc<Vector> =
             Arc::new(PVectorMut::<i32>::from_iter([1, 2, 3, 4]).freeze().into());
         let validity = Mask::new_true(2);
         let vec = unsafe { FixedSizeListVector::new_unchecked(elements, 2, validity) };
@@ -297,7 +297,7 @@ mod tests {
     #[test]
     fn test_try_into_mut_conversion() {
         // Create a vector that we solely own.
-        let elements: Arc<Datum> = Arc::new(
+        let elements: Arc<Vector> = Arc::new(
             PVectorMut::<i32>::from_iter([1, 2, 3, 4, 5, 6])
                 .freeze()
                 .into(),
@@ -318,7 +318,7 @@ mod tests {
         assert!(result.is_ok());
 
         // Test failed conversion with shared ownership.
-        let elements: Arc<Datum> =
+        let elements: Arc<Vector> =
             Arc::new(PVectorMut::<i32>::from_iter([1, 2, 3, 4]).freeze().into());
         let validity = Mask::new_true(2);
         let vec = FixedSizeListVector::new(elements, 2, validity);
@@ -338,7 +338,7 @@ mod tests {
 
     #[test]
     fn test_accessors_and_parts() {
-        let elements: Arc<Datum> = Arc::new(
+        let elements: Arc<Vector> = Arc::new(
             PVectorMut::<i32>::from_iter([1, 2, 3, 4, 5, 6])
                 .freeze()
                 .into(),

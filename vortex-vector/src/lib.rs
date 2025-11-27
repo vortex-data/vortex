@@ -29,7 +29,7 @@ mod vector_ops;
 pub use datum::Datum;
 pub use scalar::Scalar;
 pub use scalar_ops::ScalarOps;
-pub use vector::Datum;
+pub use vector::Vector;
 pub use vector_mut::VectorMut;
 pub use vector_ops::VectorMutOps;
 pub use vector_ops::VectorOps;
@@ -46,7 +46,7 @@ mod scalar_macros;
 /// recursively checks the child types.
 ///
 /// This function also checks that if the data type is non-nullable, the vector contains no nulls,
-pub fn vector_matches_dtype(vector: &Datum, dtype: &DType) -> bool {
+pub fn vector_matches_dtype(vector: &Vector, dtype: &DType) -> bool {
     if !dtype.is_nullable() && vector.validity().false_count() > 0 {
         // Non-nullable dtype cannot have nulls in the vector.
         return false;
@@ -56,39 +56,39 @@ pub fn vector_matches_dtype(vector: &Datum, dtype: &DType) -> bool {
     // fail to compile if we ever add new DTypes.
     match dtype {
         DType::Null => {
-            matches!(vector, Datum::Null(_))
+            matches!(vector, Vector::Null(_))
         }
         DType::Bool(_) => {
-            matches!(vector, Datum::Bool(_))
+            matches!(vector, Vector::Bool(_))
         }
         DType::Primitive(ptype, _) => match vector {
-            Datum::Primitive(v) => ptype == &v.ptype(),
+            Vector::Primitive(v) => ptype == &v.ptype(),
             _ => false,
         },
         DType::Decimal(dec_type, _) => match vector {
-            Datum::Decimal(v) => {
+            Vector::Decimal(v) => {
                 dec_type.precision() == v.precision() && dec_type.scale() == v.scale()
             }
             _ => false,
         },
         DType::Utf8(_) => {
-            matches!(vector, Datum::String(_))
+            matches!(vector, Vector::String(_))
         }
         DType::Binary(_) => {
-            matches!(vector, Datum::Binary(_))
+            matches!(vector, Vector::Binary(_))
         }
         DType::List(elements, _) => match vector {
-            Datum::List(v) => vector_matches_dtype(v.elements(), elements.as_ref()),
+            Vector::List(v) => vector_matches_dtype(v.elements(), elements.as_ref()),
             _ => false,
         },
         DType::FixedSizeList(elements, size, _) => match vector {
-            Datum::FixedSizeList(v) => {
+            Vector::FixedSizeList(v) => {
                 v.element_size() == *size && vector_matches_dtype(v.elements(), elements.as_ref())
             }
             _ => false,
         },
         DType::Struct(fields, _) => match vector {
-            Datum::Struct(v) => {
+            Vector::Struct(v) => {
                 if fields.nfields() != v.fields().len() {
                     return false;
                 }

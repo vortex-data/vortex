@@ -8,12 +8,12 @@ use std::fmt::Debug;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 
-use crate::Datum;
+use crate::Vector;
 use crate::VectorMut;
 use crate::binaryview::BinaryViewVector;
 use crate::binaryview::BinaryViewVectorMut;
 
-impl<T: BinaryViewType> From<BinaryViewVector<T>> for Datum {
+impl<T: BinaryViewType> From<BinaryViewVector<T>> for Vector {
     fn from(value: BinaryViewVector<T>) -> Self {
         T::upcast(value)
     }

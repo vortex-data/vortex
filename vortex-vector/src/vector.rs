@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Definition of the [`Datum`] type, which represents immutable and fully decompressed (canonical)
+//! Definition of the [`Vector`] type, which represents immutable and fully decompressed (canonical)
 //! array data.
 //!
-//! [`Datum`] can be transformed into the [`VectorMut`] type if it is owned.
+//! [`Vector`] can be transformed into the [`VectorMut`] type if it is owned.
 
 use std::fmt::Debug;
 use std::ops::RangeBounds;
@@ -35,7 +35,7 @@ use crate::VectorOps;
 /// The mutable equivalent of this type is [`VectorMut`], which implements the
 /// [`VectorMutOps`](crate::VectorMutOps) trait.
 #[derive(Debug, Clone)]
-pub enum Datum {
+pub enum Vector {
     /// Null vectors.
     Null(NullVector),
     /// Boolean vectors.
@@ -66,7 +66,7 @@ pub enum Datum {
     Struct(StructVector),
 }
 
-impl VectorOps for Datum {
+impl VectorOps for Vector {
     type Mutable = VectorMut;
     type Scalar = Scalar;
 
@@ -83,7 +83,7 @@ impl VectorOps for Datum {
     }
 
     fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self {
-        match_each_vector!(self, |v| { Datum::from(v.slice(range)) })
+        match_each_vector!(self, |v| { Vector::from(v.slice(range)) })
     }
 
     fn clear(&mut self) {
@@ -92,7 +92,7 @@ impl VectorOps for Datum {
 
     fn try_into_mut(self) -> Result<VectorMut, Self> {
         match_each_vector!(self, |v| {
-            v.try_into_mut().map(VectorMut::from).map_err(Datum::from)
+            v.try_into_mut().map(VectorMut::from).map_err(Vector::from)
         })
     }
 
@@ -101,10 +101,10 @@ impl VectorOps for Datum {
     }
 }
 
-impl Datum {
+impl Vector {
     /// Returns a reference to the inner [`NullVector`] if `self` is of that variant.
     pub fn as_null(&self) -> &NullVector {
-        if let Datum::Null(v) = self {
+        if let Vector::Null(v) = self {
             return v;
         }
         vortex_panic!("Expected NullVector, got {self:?}");
@@ -112,7 +112,7 @@ impl Datum {
 
     /// Returns a reference to the inner [`BoolVector`] if `self` is of that variant.
     pub fn as_bool(&self) -> &BoolVector {
-        if let Datum::Bool(v) = self {
+        if let Vector::Bool(v) = self {
             return v;
         }
         vortex_panic!("Expected BoolVector, got {self:?}");
@@ -120,7 +120,7 @@ impl Datum {
 
     /// Returns a reference to the inner [`PrimitiveVector`] if `self` is of that variant.
     pub fn as_primitive(&self) -> &PrimitiveVector {
-        if let Datum::Primitive(v) = self {
+        if let Vector::Primitive(v) = self {
             return v;
         }
         vortex_panic!("Expected PrimitiveVector, got {self:?}");
@@ -128,7 +128,7 @@ impl Datum {
 
     /// Returns a reference to the inner [`StringVector`] if `self` is of that variant.
     pub fn as_string(&self) -> &StringVector {
-        if let Datum::String(v) = self {
+        if let Vector::String(v) = self {
             return v;
         }
         vortex_panic!("Expected StringVector, got {self:?}");
@@ -136,7 +136,7 @@ impl Datum {
 
     /// Returns a reference to the inner [`BinaryVector`] if `self` is of that variant.
     pub fn as_binary(&self) -> &BinaryVector {
-        if let Datum::Binary(v) = self {
+        if let Vector::Binary(v) = self {
             return v;
         }
         vortex_panic!("Expected BinaryVector, got {self:?}");
@@ -144,7 +144,7 @@ impl Datum {
 
     /// Returns a reference to the inner [`ListViewVector`] if `self` is of that variant.
     pub fn as_list(&self) -> &ListViewVector {
-        if let Datum::List(v) = self {
+        if let Vector::List(v) = self {
             return v;
         }
         vortex_panic!("Expected ListViewVector, got {self:?}");
@@ -152,7 +152,7 @@ impl Datum {
 
     /// Returns a reference to the inner [`FixedSizeListVector`] if `self` is of that variant.
     pub fn as_fixed_size_list(&self) -> &FixedSizeListVector {
-        if let Datum::FixedSizeList(v) = self {
+        if let Vector::FixedSizeList(v) = self {
             return v;
         }
         vortex_panic!("Expected FixedSizeListVector, got {self:?}");
@@ -160,17 +160,17 @@ impl Datum {
 
     /// Returns a reference to the inner [`StructVector`] if `self` is of that variant.
     pub fn as_struct(&self) -> &StructVector {
-        if let Datum::Struct(v) = self {
+        if let Vector::Struct(v) = self {
             return v;
         }
         vortex_panic!("Expected StructVector, got {self:?}");
     }
 }
 
-impl Datum {
+impl Vector {
     /// Returns a reference to the inner [`NullVector`] if `self` is of that variant.
     pub fn as_null_mut(&mut self) -> &mut NullVector {
-        if let Datum::Null(v) = self {
+        if let Vector::Null(v) = self {
             return v;
         }
         vortex_panic!("Expected NullVector, got {self:?}");
@@ -178,7 +178,7 @@ impl Datum {
 
     /// Returns a reference to the inner [`BoolVector`] if `self` is of that variant.
     pub fn as_bool_mut(&mut self) -> &mut BoolVector {
-        if let Datum::Bool(v) = self {
+        if let Vector::Bool(v) = self {
             return v;
         }
         vortex_panic!("Expected BoolVector, got {self:?}");
@@ -186,7 +186,7 @@ impl Datum {
 
     /// Returns a reference to the inner [`PrimitiveVector`] if `self` is of that variant.
     pub fn as_primitive_mut(&mut self) -> &mut PrimitiveVector {
-        if let Datum::Primitive(v) = self {
+        if let Vector::Primitive(v) = self {
             return v;
         }
         vortex_panic!("Expected PrimitiveVector, got {self:?}");
@@ -194,7 +194,7 @@ impl Datum {
 
     /// Returns a reference to the inner [`StringVector`] if `self` is of that variant.
     pub fn as_string_mut(&mut self) -> &mut StringVector {
-        if let Datum::String(v) = self {
+        if let Vector::String(v) = self {
             return v;
         }
         vortex_panic!("Expected StringVector, got {self:?}");
@@ -202,7 +202,7 @@ impl Datum {
 
     /// Returns a reference to the inner [`BinaryVector`] if `self` is of that variant.
     pub fn as_binary_mut(&mut self) -> &mut BinaryVector {
-        if let Datum::Binary(v) = self {
+        if let Vector::Binary(v) = self {
             return v;
         }
         vortex_panic!("Expected BinaryVector, got {self:?}");
@@ -210,7 +210,7 @@ impl Datum {
 
     /// Returns a reference to the inner [`ListViewVector`] if `self` is of that variant.
     pub fn as_list_mut(&mut self) -> &mut ListViewVector {
-        if let Datum::List(v) = self {
+        if let Vector::List(v) = self {
             return v;
         }
         vortex_panic!("Expected ListViewVector, got {self:?}");
@@ -218,7 +218,7 @@ impl Datum {
 
     /// Returns a reference to the inner [`FixedSizeListVector`] if `self` is of that variant.
     pub fn as_fixed_size_list_mut(&mut self) -> &mut FixedSizeListVector {
-        if let Datum::FixedSizeList(v) = self {
+        if let Vector::FixedSizeList(v) = self {
             return v;
         }
         vortex_panic!("Expected FixedSizeListVector, got {self:?}");
@@ -226,17 +226,17 @@ impl Datum {
 
     /// Returns a reference to the inner [`StructVector`] if `self` is of that variant.
     pub fn as_struct_mut(&mut self) -> &mut StructVector {
-        if let Datum::Struct(v) = self {
+        if let Vector::Struct(v) = self {
             return v;
         }
         vortex_panic!("Expected StructVector, got {self:?}");
     }
 }
 
-impl Datum {
+impl Vector {
     /// Consumes `self` and returns the inner [`NullVector`] if `self` is of that variant.
     pub fn into_null(self) -> NullVector {
-        if let Datum::Null(v) = self {
+        if let Vector::Null(v) = self {
             return v;
         }
         vortex_panic!("Expected NullVector, got {self:?}");
@@ -244,7 +244,7 @@ impl Datum {
 
     /// Consumes `self` and returns the inner [`BoolVector`] if `self` is of that variant.
     pub fn into_bool(self) -> BoolVector {
-        if let Datum::Bool(v) = self {
+        if let Vector::Bool(v) = self {
             return v;
         }
         vortex_panic!("Expected BoolVector, got {self:?}");
@@ -252,7 +252,7 @@ impl Datum {
 
     /// Consumes `self` and returns the inner [`PrimitiveVector`] if `self` is of that variant.
     pub fn into_primitive(self) -> PrimitiveVector {
-        if let Datum::Primitive(v) = self {
+        if let Vector::Primitive(v) = self {
             return v;
         }
         vortex_panic!("Expected PrimitiveVector, got {self:?}");
@@ -260,7 +260,7 @@ impl Datum {
 
     /// Consumes `self` and returns the inner [`DecimalVector`] if `self` is of that variant.
     pub fn into_decimal(self) -> DecimalVector {
-        if let Datum::Decimal(v) = self {
+        if let Vector::Decimal(v) = self {
             return v;
         }
         vortex_panic!("Expected DecimalVector, got {self:?}");
@@ -272,7 +272,7 @@ impl Datum {
         reason = "intentionally shadows VarBinTypeDowncast method"
     )]
     pub fn into_string(self) -> StringVector {
-        if let Datum::String(v) = self {
+        if let Vector::String(v) = self {
             return v;
         }
         vortex_panic!("Expected StringVector, got {self:?}");
@@ -284,7 +284,7 @@ impl Datum {
         reason = "intentionally shadows VarBinTypeDowncast method"
     )]
     pub fn into_binary(self) -> BinaryVector {
-        if let Datum::Binary(v) = self {
+        if let Vector::Binary(v) = self {
             return v;
         }
         vortex_panic!("Expected BinaryVector, got {self:?}");
@@ -292,7 +292,7 @@ impl Datum {
 
     /// Consumes `self` and returns the inner [`ListViewVector`] if `self` is of that variant.
     pub fn into_list(self) -> ListViewVector {
-        if let Datum::List(v) = self {
+        if let Vector::List(v) = self {
             return v;
         }
         vortex_panic!("Expected ListViewVector, got {self:?}");
@@ -301,7 +301,7 @@ impl Datum {
     /// Consumes `self` and returns the inner [`FixedSizeListVector`] if `self` is of that
     /// variant.
     pub fn into_fixed_size_list(self) -> FixedSizeListVector {
-        if let Datum::FixedSizeList(v) = self {
+        if let Vector::FixedSizeList(v) = self {
             return v;
         }
         vortex_panic!("Expected FixedSizeListVector, got {self:?}");
@@ -309,7 +309,7 @@ impl Datum {
 
     /// Consumes `self` and returns the inner [`StructVector`] if `self` is of that variant.
     pub fn into_struct(self) -> StructVector {
-        if let Datum::Struct(v) = self {
+        if let Vector::Struct(v) = self {
             return v;
         }
         vortex_panic!("Expected StructVector, got {self:?}");

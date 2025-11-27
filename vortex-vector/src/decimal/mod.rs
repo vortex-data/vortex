@@ -159,10 +159,10 @@ mod macros;
 
 use vortex_dtype::NativeDecimalType;
 
-use crate::Datum;
+use crate::Vector;
 use crate::VectorMut;
 
-impl From<DecimalVector> for Datum {
+impl From<DecimalVector> for Vector {
     fn from(v: DecimalVector) -> Self {
         Self::Decimal(v)
     }
@@ -174,7 +174,7 @@ impl<D: NativeDecimalType> From<DVector<D>> for DecimalVector {
     }
 }
 
-impl<D: NativeDecimalType> From<DVector<D>> for Datum {
+impl<D: NativeDecimalType> From<DVector<D>> for Vector {
     fn from(v: DVector<D>) -> Self {
         Self::Decimal(DecimalVector::from(v))
     }

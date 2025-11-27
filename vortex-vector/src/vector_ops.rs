@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Definition and implementation of [`VectorOps`] and [`VectorMutOps`] for [`Datum`] and
+//! Definition and implementation of [`VectorOps`] and [`VectorMutOps`] for [`Vector`] and
 //! [`VectorMut`], respectively.
 
 use std::fmt::Debug;
@@ -12,12 +12,12 @@ use vortex_mask::Mask;
 use vortex_mask::MaskMut;
 
 use crate::ScalarOps;
-use crate::Datum;
+use crate::Vector;
 use crate::VectorMut;
 use crate::private;
 
-/// Common operations for immutable vectors (all the variants of [`Datum`]).
-pub trait VectorOps: private::Sealed + Into<Datum> + Sized {
+/// Common operations for immutable vectors (all the variants of [`Vector`]).
+pub trait VectorOps: private::Sealed + Into<Vector> + Sized {
     /// The mutable equivalent of this immutable vector.
     type Mutable: VectorMutOps<Immutable = Self>;
     /// The scalar type for this vector.

@@ -12,7 +12,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
-use crate::Datum;
+use crate::Vector;
 use crate::VectorMutOps;
 use crate::VectorOps;
 use crate::struct_::StructScalar;
@@ -24,7 +24,7 @@ use crate::struct_::StructVectorMut;
 /// to each other (rather than values in the same struct stored next to each other).
 #[derive(Debug, Clone)]
 pub struct StructVector {
-    /// The fields of the `StructVector`, each stored column-wise as a [`Datum`].
+    /// The fields of the `StructVector`, each stored column-wise as a [`Vector`].
     ///
     /// We store these as an [`Arc<Box<_>>`] because we need to call [`try_unwrap()`] in our
     /// [`try_into_mut()`] implementation, and since slices are unsized it is not implemented for
@@ -32,7 +32,7 @@ pub struct StructVector {
     ///
     /// [`try_unwrap()`]: Arc::try_unwrap
     /// [`try_into_mut()`]: Self::try_into_mut
-    pub(super) fields: Arc<Box<[Datum]>>,
+    pub(super) fields: Arc<Box<[Vector]>>,
 
     /// The validity mask (where `true` represents an element is **not** null).
     pub(super) validity: Mask,
@@ -55,7 +55,7 @@ impl StructVector {
     ///
     /// - Any field vector has a length that does not match the length of other fields.
     /// - The validity mask length does not match the field length.
-    pub fn new(fields: Arc<Box<[Datum]>>, validity: Mask) -> Self {
+    pub fn new(fields: Arc<Box<[Vector]>>, validity: Mask) -> Self {
         Self::try_new(fields, validity).vortex_expect("Failed to create `StructVector`")
     }
 
@@ -70,7 +70,7 @@ impl StructVector {
     ///
     /// - Any field vector has a length that does not match the length of other fields.
     /// - The validity mask length does not match the field length.
-    pub fn try_new(fields: Arc<Box<[Datum]>>, validity: Mask) -> VortexResult<Self> {
+    pub fn try_new(fields: Arc<Box<[Vector]>>, validity: Mask) -> VortexResult<Self> {
         let len = validity.len();
 
         // Validate that all fields have the correct length.
@@ -102,7 +102,7 @@ impl StructVector {
     ///
     /// - All field vectors have the same length.
     /// - The validity mask has a length equal to the field length.
-    pub unsafe fn new_unchecked(fields: Arc<Box<[Datum]>>, validity: Mask) -> Self {
+    pub unsafe fn new_unchecked(fields: Arc<Box<[Vector]>>, validity: Mask) -> Self {
         let len = validity.len();
 
         if cfg!(debug_assertions) {
@@ -117,12 +117,12 @@ impl StructVector {
     }
 
     /// Decomposes the struct vector into its constituent parts (fields and validity).
-    pub fn into_parts(self) -> (Arc<Box<[Datum]>>, Mask) {
+    pub fn into_parts(self) -> (Arc<Box<[Vector]>>, Mask) {
         (self.fields, self.validity)
     }
 
-    /// Returns the fields of the `StructVector`, each stored column-wise as a [`Datum`].
-    pub fn fields(&self) -> &Arc<Box<[Datum]>> {
+    /// Returns the fields of the `StructVector`, each stored column-wise as a [`Vector`].
+    pub fn fields(&self) -> &Arc<Box<[Vector]>> {
         &self.fields
     }
 }
@@ -188,7 +188,7 @@ impl VectorOps for StructVector {
                 Err(immutable_field) => {
                     // We were unable to take ownership, so we must re-freeze all of the fields
                     // vectors we took ownership over and reconstruct the original `StructVector`.
-                    let mut all_fields: Vec<Datum> = mutable_fields
+                    let mut all_fields: Vec<Vector> = mutable_fields
                         .into_iter()
                         .map(|mut_field| mut_field.freeze())
                         .collect();

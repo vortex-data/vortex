@@ -3,11 +3,13 @@
 
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
+use crate::functions::ExecutionCtx;
 use crate::vtable::OperationsVTable;
 use crate::{ArrayRef, IntoArray};
 use std::ops::Range;
+use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
-use crate::functions::ExecutionCtx;
+use vortex_vector::Datum;
 
 impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
     fn slice(array: &ScalarFnArray, range: Range<usize>) -> ArrayRef {
@@ -30,19 +32,28 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
 
     fn scalar_at(array: &ScalarFnArray, index: usize) -> Scalar {
         // TODO(ngates): we should evaluate the scalar function over the scalar inputs.
-        let children: Vec<_> = array
+        let input_datums: Vec<_> = array
             .children()
             .iter()
             .map(|c| c.scalar_at(index))
+            .map(|scalar| Datum::from(scalar.to_vector_scalar()))
             .collect();
 
         let ctx = ExecutionCtx::new(
             1,
             array.dtype.clone(),
-            children.iter().map(|s| s.dtype().clone()).collect(),
-            children.iter().map(|s| s.to_vector()).collect(),
-        )
+            array.children().iter().map(|s| s.dtype().clone()).collect(),
+            input_datums,
+        );
 
+        let result = array
+            .scalar_fn
+            .execute(&ctx)
+            .vortex_expect("Scalar function execution should be fallible")
+            .into_scalar()
+            .vortex_expect("Scalar function execution should return scalar");
+
+        // Convert the vector scalar back into a legacy Scalar for now.
         todo!()
     }
 }

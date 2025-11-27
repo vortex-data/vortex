@@ -12,7 +12,7 @@ use vortex_error::vortex_ensure;
 use vortex_mask::MaskMut;
 
 use crate::ScalarOps;
-use crate::Datum;
+use crate::Vector;
 use crate::VectorMut;
 use crate::VectorMutOps;
 use crate::VectorOps;
@@ -278,7 +278,7 @@ impl VectorMutOps for StructVectorMut {
     }
 
     fn freeze(self) -> StructVector {
-        let frozen_fields: Vec<Datum> = self
+        let frozen_fields: Vec<Vector> = self
             .fields
             .into_iter()
             .map(|mut_field| mut_field.freeze())
@@ -412,7 +412,7 @@ mod tests {
     #[test]
     fn test_try_into_mut_shared_ownership() {
         // Test that conversion fails when a field has shared ownership.
-        let bool_field: Datum = BoolVectorMut::from_iter([true, false, true])
+        let bool_field: Vector = BoolVectorMut::from_iter([true, false, true])
             .freeze()
             .into();
         let bool_field_clone = bool_field.clone();
@@ -659,7 +659,7 @@ mod tests {
         // Verify field data is preserved.
         let mut fields = Arc::try_unwrap(frozen.into_parts().0).unwrap().into_vec();
 
-        if let Datum::Primitive(prim_vec) = fields.pop().unwrap() {
+        if let Vector::Primitive(prim_vec) = fields.pop().unwrap() {
             let prim_vec_mut = prim_vec.try_into_mut().unwrap();
             let values: Vec<_> = prim_vec_mut.into_i32().into_iter().collect();
             assert_eq!(values, vec![Some(100), Some(200), None, Some(400)]);
@@ -667,7 +667,7 @@ mod tests {
             panic!("Expected primitive vector");
         }
 
-        if let Datum::Bool(bool_vec) = fields.pop().unwrap() {
+        if let Vector::Bool(bool_vec) = fields.pop().unwrap() {
             let bool_vec_mut = bool_vec.try_into_mut().unwrap();
             let values: Vec<_> = bool_vec_mut.into_iter().collect();
             // Note: struct-level validity doesn't affect field-level data, only the interpretation.

@@ -21,10 +21,10 @@ pub use vector_mut::ListViewVectorMut;
 mod scalar;
 pub use scalar::ListViewScalar;
 
-use crate::Datum;
+use crate::Vector;
 use crate::VectorMut;
 
-impl From<ListViewVector> for Datum {
+impl From<ListViewVector> for Vector {
     fn from(v: ListViewVector) -> Self {
         Self::List(v)
     }
