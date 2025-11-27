@@ -48,9 +48,7 @@ fn take_struct_simple(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (&struct_array, &indices_array))
-        .bench_refs(|(array, indices)| {
-            divan::black_box(take(array.as_ref(), indices.as_ref()).unwrap());
-        });
+        .bench_refs(|(array, indices)| take(array.as_ref(), indices.as_ref()).unwrap());
 }
 
 #[divan::bench(args = [8])]
@@ -81,9 +79,7 @@ fn take_struct_wide(bencher: Bencher, width: usize) {
 
     bencher
         .with_inputs(|| (&struct_array, &indices_array))
-        .bench_refs(|(array, indices)| {
-            divan::black_box(take(array.as_ref(), indices.as_ref()).unwrap());
-        });
+        .bench_refs(|(array, indices)| take(array.as_ref(), indices.as_ref()).unwrap());
 }
 
 #[divan::bench]
@@ -111,7 +107,5 @@ fn take_struct_sequential_indices(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (&struct_array, &indices_array))
-        .bench_refs(|(array, indices)| {
-            divan::black_box(take(array.as_ref(), indices.as_ref()).unwrap());
-        });
+        .bench_refs(|(array, indices)| take(array.as_ref(), indices.as_ref()).unwrap());
 }
