@@ -2,8 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::Range;
+use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::Weak;
-use std::sync::{Arc, LazyLock};
 
 use arrow_schema::ArrowError;
 use arrow_schema::Field;
@@ -16,7 +17,8 @@ use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::file_meta::FileMeta;
 use datafusion_datasource::file_stream::FileOpenFuture;
 use datafusion_datasource::file_stream::FileOpener;
-use datafusion_datasource::schema_adapter::{DefaultSchemaAdapterFactory, SchemaAdapterFactory};
+use datafusion_datasource::schema_adapter::DefaultSchemaAdapterFactory;
+use datafusion_datasource::schema_adapter::SchemaAdapterFactory;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
 use datafusion_physical_expr::split_conjunction;
@@ -180,28 +182,26 @@ impl FileOpener for VortexOpener {
             // for schema evolution and divergence between the table's schema and individual files.
             filter = filter
                 .map(|filter| {
-                    // Rewrite the filter to cast into the logical file schema field types
+                    // Rewrite the filter to properly handle values in the table schema
                     let expr = expr_adapter_factory
                         .create(table_schema.clone(), physical_file_schema.clone())
                         .with_partition_values(partition_values)
-                        .rewrite(filter)
-                        .expect("rewrite");
+                        .rewrite(filter)?;
 
                     // Expression might now reference columns that don't exist in the file, so we can give it
                     // another simplification pass.
-                    PhysicalExprSimplifier::new(table_schema.as_ref()).simplify(expr)
+                    PhysicalExprSimplifier::new(physical_file_schema.as_ref())
+                        .simplify(expr.clone())
                 })
                 .transpose()?;
 
-            let predicate_file_schema = physical_file_schema;
-
             let (schema_mapping, adapted_projections) =
-                schema_adapter.map_schema(&predicate_file_schema)?;
+                schema_adapter.map_schema(&physical_file_schema)?;
 
             // We use the field names from pushdown expression instead.
             let field_names: Vec<FieldName> = adapted_projections
                 .into_iter()
-                .map(|index| FieldName::from(predicate_file_schema.field(index).name().as_str()))
+                .map(|index| FieldName::from(physical_file_schema.field(index).name().as_str()))
                 .collect();
             let projection_expr = select(field_names, root());
 
@@ -247,7 +247,7 @@ impl FileOpener for VortexOpener {
                 .and_then(|f| {
                     let exprs = split_conjunction(&f)
                         .into_iter()
-                        .filter(|expr| can_be_pushed_down(expr, &predicate_file_schema))
+                        .filter(|expr| can_be_pushed_down(expr, &physical_file_schema))
                         .collect::<Vec<_>>();
 
                     make_vortex_predicate(&exprs).transpose()

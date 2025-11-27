@@ -24,19 +24,30 @@
 //!
 //! `datafusion/datasource/src/schema_adapter.rs` -> for can_cast_field (which is crate-private)
 
-use arrow_schema::{DataType, Field, FieldRef, Schema, SchemaRef};
-use datafusion_common::ScalarValue;
-use datafusion_common::arrow::compute::can_cast_types;
-use datafusion_common::nested_struct::validate_struct_compatibility;
-use datafusion_common::tree_node::{Transformed, TransformedResult, TreeNode};
-use datafusion_common::{exec_err, plan_err};
-use datafusion_functions::core::getfield::GetFieldFunc;
-use datafusion_physical_expr::expressions::{CastExpr, Column};
-use datafusion_physical_expr::{ScalarFunctionExpr, expressions};
-use datafusion_physical_expr_adapter::{PhysicalExprAdapter, PhysicalExprAdapterFactory};
-use datafusion_physical_expr_common::physical_expr::PhysicalExpr;
 use std::fmt::Debug;
 use std::sync::Arc;
+
+use arrow_schema::DataType;
+use arrow_schema::Field;
+use arrow_schema::FieldRef;
+use arrow_schema::Schema;
+use arrow_schema::SchemaRef;
+use datafusion_common::ScalarValue;
+use datafusion_common::arrow::compute::can_cast_types;
+use datafusion_common::exec_err;
+use datafusion_common::nested_struct::validate_struct_compatibility;
+use datafusion_common::plan_err;
+use datafusion_common::tree_node::Transformed;
+use datafusion_common::tree_node::TransformedResult;
+use datafusion_common::tree_node::TreeNode;
+use datafusion_functions::core::getfield::GetFieldFunc;
+use datafusion_physical_expr::ScalarFunctionExpr;
+use datafusion_physical_expr::expressions;
+use datafusion_physical_expr::expressions::CastExpr;
+use datafusion_physical_expr::expressions::Column;
+use datafusion_physical_expr_adapter::PhysicalExprAdapter;
+use datafusion_physical_expr_adapter::PhysicalExprAdapterFactory;
+use datafusion_physical_expr_common::physical_expr::PhysicalExpr;
 
 #[derive(Debug, Clone)]
 pub struct DefaultPhysicalExprAdapterFactory;

@@ -142,11 +142,13 @@ async fn test_filter_with_schema_evolution() {
         record_batch(
             &table_schema,
             vec![
+                // a
                 Arc::new(StringViewArray::from(vec![
                     Some("one"),
                     Some("two"),
                     Some("three"),
                 ])) as ArrowArrayRef,
+                // b
                 Arc::new(StringViewArray::from(vec![
                     Option::<&str>::None,
                     None,
