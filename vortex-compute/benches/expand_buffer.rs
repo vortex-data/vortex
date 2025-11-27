@@ -70,8 +70,5 @@ fn expand_buffer<T: Copy + Default + From<u8> + Send + 'static>(
             let buffer = create_test_buffer::<T>(true_count);
             (buffer, mask)
         })
-        .bench_refs(|(buffer, mask)| {
-            let result = buffer.expand(mask);
-            divan::black_box(result);
-        });
+        .bench_refs(|(buffer, mask)| buffer.expand(mask));
 }

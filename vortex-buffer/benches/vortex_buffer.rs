@@ -123,15 +123,10 @@ fn push_arrow_buffer(bencher: Bencher, length: i32) {
 #[divan::bench(types = [u8, u16, u32, u64], args = INPUT_SIZE_USIZE)]
 fn push_n_vortex_buffer<T: PrimInt>(bencher: Bencher, length: usize) {
     bencher
-        .with_inputs(|| BufferMut::<T>::with_capacity(length))
-        .bench_refs(|buffer| {
+        .with_inputs(|| (BufferMut::<T>::with_capacity(length), length, T::one()))
+        .bench_refs(|(buffer, length, one)| {
             for _ in 0..100 {
-                unsafe {
-                    buffer.push_n_unchecked(
-                        divan::black_box(T::one()),
-                        divan::black_box(length / 100),
-                    )
-                };
+                unsafe { buffer.push_n_unchecked(*one, *length / 100) };
             }
         });
 }
