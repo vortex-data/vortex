@@ -38,7 +38,7 @@ use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_array::vtable::VisitorVTable;
 use vortex_buffer::Buffer;
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -108,14 +108,14 @@ impl VTable for FSSTVTable {
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
-        buffers: &[ByteBuffer],
+        buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<FSSTArray> {
         if buffers.len() != 2 {
             vortex_bail!(InvalidArgument: "Expected 2 buffers, got {}", buffers.len());
         }
-        let symbols = Buffer::<Symbol>::from_byte_buffer(buffers[0].clone());
-        let symbol_lengths = Buffer::<u8>::from_byte_buffer(buffers[1].clone());
+        let symbols = Buffer::<Symbol>::from_byte_buffer(buffers[0].clone().try_to_bytes()?);
+        let symbol_lengths = Buffer::<u8>::from_byte_buffer(buffers[1].clone().try_to_bytes()?);
 
         if children.len() != 2 {
             vortex_bail!(InvalidArgument: "Expected 2 children, got {}", children.len());

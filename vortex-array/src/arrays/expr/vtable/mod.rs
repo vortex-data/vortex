@@ -10,7 +10,7 @@ mod visitor;
 use std::fmt::Debug;
 
 pub use operator::ExprOptimizationRule;
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -73,7 +73,7 @@ impl VTable for ExprVTable {
         dtype: &DType,
         len: usize,
         ExprArrayMetadata((expr, root_dtype)): &Self::Metadata,
-        buffers: &[ByteBuffer],
+        buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ExprArray> {
         if !buffers.is_empty() {

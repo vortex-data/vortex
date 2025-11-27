@@ -7,7 +7,7 @@ mod operations;
 mod operator;
 mod validity;
 
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_compute::mask::MaskValidity;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -84,7 +84,7 @@ impl VTable for MaskedVTable {
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
-        buffers: &[ByteBuffer],
+        buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<MaskedArray> {
         if !buffers.is_empty() {

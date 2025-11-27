@@ -31,8 +31,8 @@ use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
 use vortex_array::vtable::VisitorVTable;
+use vortex_buffer::BufferHandle;
 use vortex_buffer::BufferMut;
-use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
@@ -228,7 +228,7 @@ impl VTable for SequenceVTable {
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
-        _buffers: &[ByteBuffer],
+        _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
     ) -> VortexResult<SequenceArray> {
         let ptype = dtype.as_ptype();

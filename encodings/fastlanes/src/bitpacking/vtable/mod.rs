@@ -16,7 +16,7 @@ use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromValidityHelper;
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
 use vortex_error::VortexError;
@@ -100,13 +100,13 @@ impl VTable for BitPackedVTable {
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
-        buffers: &[ByteBuffer],
+        buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<BitPackedArray> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let packed = buffers[0].clone();
+        let packed = buffers[0].clone().try_to_bytes()?;
 
         let load_validity = |child_idx: usize| {
             if children.len() == child_idx {

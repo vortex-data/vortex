@@ -55,6 +55,8 @@ pub use buffer_mut::*;
 pub use bytes::*;
 pub use r#const::*;
 pub use string::*;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 mod alignment;
 #[cfg(feature = "arrow")]
@@ -83,3 +85,41 @@ pub type ByteBufferMut = BufferMut<u8>;
 
 /// A const-aligned buffer of u8.
 pub type ConstByteBuffer<const A: usize> = ConstBuffer<u8, A>;
+
+#[derive(Debug, Clone)]
+/// A buffer can be either on the CPU or on an attached device (e.g. GPU).
+/// The Device implementation will come later.
+pub enum BufferHandle {
+    /// On the host/cpu.
+    Buffer(ByteBuffer),
+    /// On the device.
+    // TODO: impl this.
+    DeviceBuffer,
+}
+
+impl BufferHandle {
+    /// Fetches the cpu buffer and fails otherwise.
+    pub fn bytes(&self) -> &ByteBuffer {
+        match self {
+            BufferHandle::Buffer(b) => b,
+            BufferHandle::DeviceBuffer => todo!(),
+        }
+    }
+
+    /// Fetches the cpu buffer and fails otherwise.
+    pub fn into_bytes(self) -> ByteBuffer {
+        match self {
+            BufferHandle::Buffer(b) => b,
+            BufferHandle::DeviceBuffer => todo!(),
+        }
+    }
+
+    /// Attempts to convert this handle into a CPU ByteBuffer.
+    /// Returns an error if the buffer is on a device.
+    pub fn try_to_bytes(self) -> VortexResult<ByteBuffer> {
+        match self {
+            BufferHandle::Buffer(b) => Ok(b),
+            BufferHandle::DeviceBuffer => vortex_bail!("cannot move device_buffer to buffer"),
+        }
+    }
+}

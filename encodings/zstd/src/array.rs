@@ -43,6 +43,7 @@ use vortex_array::vtable::ValidityVTableFromValiditySliceHelper;
 use vortex_array::vtable::VisitorVTable;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferHandle;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
@@ -123,7 +124,7 @@ impl VTable for ZstdVTable {
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
-        buffers: &[ByteBuffer],
+        buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ZstdArray> {
         let validity = if children.is_empty() {
@@ -137,10 +138,22 @@ impl VTable for ZstdVTable {
 
         let (dictionary_buffer, compressed_buffers) = if metadata.0.dictionary_size == 0 {
             // no dictionary
-            (None, buffers.to_vec())
+            (
+                None,
+                buffers
+                    .iter()
+                    .map(|b| b.clone().try_to_bytes())
+                    .collect::<VortexResult<Vec<_>>>()?,
+            )
         } else {
             // with dictionary
-            (Some(buffers[0].clone()), buffers[1..].to_vec())
+            (
+                Some(buffers[0].clone().try_to_bytes()?),
+                buffers[1..]
+                    .iter()
+                    .map(|b| b.clone().try_to_bytes())
+                    .collect::<VortexResult<Vec<_>>>()?,
+            )
         };
 
         Ok(ZstdArray::new(

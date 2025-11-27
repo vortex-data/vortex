@@ -8,7 +8,7 @@ mod operator;
 mod validity;
 mod visitor;
 
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -68,7 +68,7 @@ impl VTable for ExtensionVTable {
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
-        _buffers: &[ByteBuffer],
+        _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ExtensionArray> {
         let DType::Extension(ext_dtype) = dtype else {

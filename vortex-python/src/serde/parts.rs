@@ -81,7 +81,7 @@ impl PyArrayParts {
 
         let mut buffers = Vec::with_capacity(slf.nbuffers());
         for buffer in (0..slf.nbuffers()).map(|i| slf.buffer(i)) {
-            let buffer: ByteBuffer = buffer?;
+            let buffer: ByteBuffer = buffer.map(|b| b.into_bytes())?;
 
             let addr = buffer.as_ptr() as usize;
             let size = buffer.len();

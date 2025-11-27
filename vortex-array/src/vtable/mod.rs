@@ -25,7 +25,7 @@ pub use operations::*;
 pub use operator::*;
 pub use validity::*;
 pub use visitor::*;
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -130,7 +130,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
-        buffers: &[ByteBuffer],
+        buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<Self::Array>;
 

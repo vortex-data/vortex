@@ -12,6 +12,7 @@ use flatbuffers::WIPOffset;
 use flatbuffers::root;
 use itertools::Itertools;
 use vortex_buffer::Alignment;
+use vortex_buffer::BufferHandle;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::TryFromBytes;
@@ -272,7 +273,7 @@ pub struct ArrayParts {
     flatbuffer: FlatBuffer,
     // The location of the current fb::ArrayNode
     flatbuffer_loc: usize,
-    buffers: Arc<[ByteBuffer]>,
+    buffers: Arc<[BufferHandle]>,
 }
 
 impl Debug for ArrayParts {
@@ -384,7 +385,7 @@ impl ArrayParts {
     }
 
     /// Returns the nth buffer of the current array.
-    pub fn buffer(&self, idx: usize) -> VortexResult<ByteBuffer> {
+    pub fn buffer(&self, idx: usize) -> VortexResult<BufferHandle> {
         let buffer_idx = self
             .flatbuffer()
             .buffers()
@@ -456,7 +457,7 @@ impl TryFrom<ByteBuffer> for ArrayParts {
         let fb_root = fb_array.root().vortex_expect("Array must have a root node");
 
         let mut offset = 0;
-        let buffers: Arc<[ByteBuffer]> = fb_array
+        let buffers: Arc<[_]> = fb_array
             .buffers()
             .unwrap_or_default()
             .iter()
@@ -472,7 +473,7 @@ impl TryFrom<ByteBuffer> for ArrayParts {
                     .aligned(Alignment::from_exponent(fb_buffer.alignment_exponent()));
 
                 offset += buffer_len;
-                buffer
+                BufferHandle::Buffer(buffer)
             })
             .collect();
 
