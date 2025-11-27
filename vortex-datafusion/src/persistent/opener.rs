@@ -121,7 +121,7 @@ impl FileOpener for VortexOpener {
 
         // We know the file schema before we open it.
         let schema_adapter =
-            schema_adapter_factory.create(projected_table_schema.clone(), table_schema.clone());
+            schema_adapter_factory.create(projected_table_schema, table_schema.clone());
 
         Ok(async move {
             // Create FilePruner when we have a predicate and either dynamic expressions

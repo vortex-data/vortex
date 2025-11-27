@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![allow(
+    clippy::unwrap_in_result,
+    clippy::unwrap_used,
+    clippy::tests_outside_test_module
+)]
+
 //! Test that checks we can evolve schemas in a cmpatible way across files.
 
 use std::sync::Arc;
@@ -36,7 +42,7 @@ use vortex::session::VortexSession;
 use vortex_datafusion::VortexFormat;
 use vortex_datafusion::VortexFormatFactory;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(|| VortexSession::default());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
 
 fn register_vortex_format_factory(
     factory: VortexFormatFactory,
