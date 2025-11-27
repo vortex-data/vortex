@@ -76,16 +76,7 @@ impl MaskFuture {
         let len = self.len;
 
         Self {
-            inner: self.inner
-                .inspect(f)
-                .inspect(move |r| {
-                    if let Ok(mask) = r
-                        && mask.len() != len {
-                        vortex_panic!("MaskFuture created with future that returned mask of incorrect length (expected {}, got {})", len, mask.len());
-                    }
-                })
-                .boxed()
-                .shared(),
+            inner: self.inner.inspect(f).boxed().shared(),
             len,
         }
     }
