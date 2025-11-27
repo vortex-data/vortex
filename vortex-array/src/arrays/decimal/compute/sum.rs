@@ -6,10 +6,7 @@ use num_traits::AsPrimitive;
 use num_traits::CheckedAdd;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalDType;
 use vortex_dtype::DecimalType;
-use vortex_dtype::MAX_PRECISION;
 use vortex_dtype::Nullability::Nullable;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexExpect;
@@ -25,6 +22,7 @@ use crate::arrays::DecimalVTable;
 use crate::compute::SumKernel;
 use crate::compute::SumKernelAdapter;
 use crate::register_kernel;
+use crate::stats::Stat;
 
 impl SumKernel for DecimalVTable {
     #[expect(
@@ -32,14 +30,12 @@ impl SumKernel for DecimalVTable {
         reason = "complexity from nested match_each_* macros"
     )]
     fn sum(&self, array: &DecimalArray, accumulator: &Scalar) -> VortexResult<Scalar> {
-        let decimal_dtype = array.decimal_dtype();
-
-        // Both Spark and DataFusion use this heuristic.
-        // - https://github.com/apache/spark/blob/fcf636d9eb8d645c24be3db2d599aba2d7e2955a/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/aggregate/Sum.scala#L66
-        // - https://github.com/apache/datafusion/blob/4153adf2c0f6e317ef476febfdc834208bd46622/datafusion/functions-aggregate/src/sum.rs#L188
-        let new_precision = u8::min(MAX_PRECISION, decimal_dtype.precision() + 10);
-        let new_scale = decimal_dtype.scale();
-        let return_dtype = DecimalDType::new(new_precision, new_scale);
+        let return_dtype = Stat::Sum
+            .dtype(array.dtype())
+            .vortex_expect("sum for decimals exists");
+        let return_decimal_dtype = return_dtype
+            .as_decimal_opt()
+            .vortex_expect("must be decimal");
 
         // Extract the initial value as a DecimalValue
         let initial_decimal = DecimalScalar::try_from(accumulator)
@@ -52,7 +48,7 @@ impl SumKernel for DecimalVTable {
                 vortex_bail!("invalid state, all-null array should be checked by top-level sum fn")
             }
             Mask::AllTrue(_) => {
-                let values_type = DecimalType::smallest_decimal_value_type(&return_dtype);
+                let values_type = DecimalType::smallest_decimal_value_type(return_decimal_dtype);
                 match_each_decimal_value_type!(array.values_type(), |I| {
                     match_each_decimal_value_type!(values_type, |O| {
                         let initial_val: O = initial_decimal
@@ -61,17 +57,17 @@ impl SumKernel for DecimalVTable {
                         if let Some(sum) = sum_decimal(array.buffer::<I>(), initial_val) {
                             Ok(Scalar::decimal(
                                 DecimalValue::from(sum),
-                                return_dtype,
+                                return_decimal_dtype.clone(),
                                 Nullable,
                             ))
                         } else {
-                            Ok(Scalar::null(DType::Decimal(return_dtype, Nullable)))
+                            Ok(Scalar::null(return_dtype))
                         }
                     })
                 })
             }
             Mask::Values(mask_values) => {
-                let values_type = DecimalType::smallest_decimal_value_type(&return_dtype);
+                let values_type = DecimalType::smallest_decimal_value_type(return_decimal_dtype);
                 match_each_decimal_value_type!(array.values_type(), |I| {
                     match_each_decimal_value_type!(values_type, |O| {
                         let initial_val: O = initial_decimal
@@ -85,11 +81,11 @@ impl SumKernel for DecimalVTable {
                         ) {
                             Ok(Scalar::decimal(
                                 DecimalValue::from(sum),
-                                return_dtype,
+                                return_decimal_dtype.clone(),
                                 Nullable,
                             ))
                         } else {
-                            Ok(Scalar::null(DType::Decimal(return_dtype, Nullable)))
+                            Ok(Scalar::null(return_dtype))
                         }
                     })
                 })
