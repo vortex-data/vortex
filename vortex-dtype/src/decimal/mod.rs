@@ -23,8 +23,10 @@ use vortex_error::vortex_panic;
 use crate::DType;
 use crate::i256;
 
-const MAX_PRECISION: u8 = <i256 as NativeDecimalType>::MAX_PRECISION;
-const MAX_SCALE: i8 = <i256 as NativeDecimalType>::MAX_SCALE;
+/// The maximum precision allowed for a decimal type.
+pub const MAX_PRECISION: u8 = <i256 as NativeDecimalType>::MAX_PRECISION;
+/// The maximum scale allowed for a decimal type.
+pub const MAX_SCALE: i8 = <i256 as NativeDecimalType>::MAX_SCALE;
 
 /// Parameters that define the precision and scale of a decimal type.
 ///
