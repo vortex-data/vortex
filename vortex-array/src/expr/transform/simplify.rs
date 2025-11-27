@@ -3,12 +3,12 @@
 
 use vortex_error::VortexResult;
 
-use crate::expr::Expression;
 use crate::expr::session::RewriteRuleRegistry;
 use crate::expr::transform::match_between::find_between;
 use crate::expr::transform::rules::RuleContext;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::Transformed;
+use crate::expr::Expression;
 
 /// Simplifies an expression into an equivalent expression which is faster and easier to analyze.
 ///
@@ -93,18 +93,18 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use super::*;
-    use crate::expr::Expression;
-    use crate::expr::ExpressionView;
     use crate::expr::col;
-    use crate::expr::exprs::binary::Binary;
     use crate::expr::exprs::binary::checked_add;
-    use crate::expr::exprs::literal::Literal;
+    use crate::expr::exprs::binary::Binary;
     use crate::expr::exprs::literal::lit;
+    use crate::expr::exprs::literal::Literal;
     use crate::expr::exprs::operators::Operator;
     use crate::expr::session::ExprSession;
-    use crate::expr::transform::rules::AnyParent;
+    use crate::expr::transform::rules::Any;
     use crate::expr::transform::rules::ParentReduceRule;
     use crate::expr::transform::rules::RuleContext;
+    use crate::expr::Expression;
+    use crate::expr::ExpressionView;
 
     /// Test rule: simplifies addition with zero: 0 + x -> x when literal zero is a child of an Add
     #[derive(Debug)]
@@ -139,7 +139,7 @@ mod tests {
     #[derive(Debug)]
     struct AddZeroRuleAnyParent;
 
-    impl ParentReduceRule<Literal, AnyParent, RuleContext> for AddZeroRuleAnyParent {
+    impl ParentReduceRule<Literal, Any, RuleContext> for AddZeroRuleAnyParent {
         fn reduce_parent(
             &self,
             expr: &ExpressionView<Literal>,

@@ -16,6 +16,7 @@ pub(crate) mod operators;
 pub(crate) mod pack;
 pub(crate) mod root;
 mod scalar_fn;
+mod scalar_fn2;
 pub(crate) mod select;
 
 pub use between::*;

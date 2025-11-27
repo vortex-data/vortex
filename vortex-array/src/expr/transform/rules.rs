@@ -7,7 +7,7 @@
 //! that can be registered with the expression session.
 
 use std::fmt::Debug;
-
+use std::marker::PhantomData;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -15,8 +15,8 @@ use crate::expr::Expression;
 use crate::expr::ExpressionView;
 use crate::expr::VTable;
 
-/// Trait that abstracts over parent matching - allows both specific and wildcard parent types.
-pub trait ParentMatcher: Send + Sync + 'static {
+/// Trait that abstracts over matching on expression types.
+pub trait Matcher: Send + Sync + 'static {
     /// The view type returned when matching succeeds.
     type View<'a>;
 
@@ -25,11 +25,10 @@ pub trait ParentMatcher: Send + Sync + 'static {
     fn try_match(parent: &Expression) -> Option<Self::View<'_>>;
 }
 
-/// Marker type representing "any parent" - matches all parent expressions.
+/// Marker type representing "any" - matches all expressions.
 #[derive(Debug)]
-pub struct AnyParent;
-
-impl ParentMatcher for AnyParent {
+pub struct Any;
+impl Matcher for Any {
     type View<'a> = &'a Expression;
 
     fn try_match(parent: &Expression) -> Option<Self::View<'_>> {
@@ -37,8 +36,10 @@ impl ParentMatcher for AnyParent {
     }
 }
 
-/// All VTable types can be used as specific parent matchers.
-impl<V: VTable> ParentMatcher for V {
+/// Marker type representing a specific VTable type as a matcher.
+#[derive(Debug)]
+pub struct Exact<V: VTable>(PhantomData<V>);
+impl<V: VTable> Matcher for Exact<V> {
     type View<'a> = ExpressionView<'a, V>;
 
     fn try_match(parent: &Expression) -> Option<Self::View<'_>> {
@@ -80,7 +81,7 @@ pub trait ReduceRule<V: VTable, C: RewriteContext>: Debug + Send + Sync + 'stati
 /// * `Parent` - The parent matcher. Can be a specific VTable type (e.g., `Binary`) for typed parent
 ///   access, or `AnyParent` to match any parent type with untyped access.
 /// * `C` - The rewrite context type (RuleContext or TypedRuleContext)
-pub trait ParentReduceRule<Child: VTable, Parent: ParentMatcher, C: RewriteContext>:
+pub trait ParentReduceRule<Child: VTable, Parent: Matcher, C: RewriteContext>:
     Debug + Send + Sync + 'static
 {
     /// Try to rewrite an expression based on its parent.

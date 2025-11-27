@@ -5,8 +5,7 @@ use crate::expr::transform::Matcher;
 use crate::expr::{
     ChildName, ExecutionArgs, ExprId, Expression, ExpressionView, StatsCatalog, VTable,
 };
-use crate::functions::scalar::ScalarFn;
-use crate::functions::ScalarFnVTable;
+use crate::functions::v2::ScalarFn;
 use crate::stats::Stat;
 use crate::{functions, ArrayRef};
 use itertools::Itertools;
@@ -22,9 +21,8 @@ use vortex_vector::Vector;
 /// Note that for backwards-compatibility, the `id` of this expression is the same as the
 /// `id` of the underlying scalar function vtable, rather than being something constant like
 /// `vortex.scalar_fn`.
-pub struct ScalarFnExpr {
-    /// The vtable of the particular scalar function represented by this expression.
-    vtable: ScalarFnVTable,
+pub struct ScalarFnExpr<F: ScalarFn> {
+    f: F,
 }
 
 impl VTable for ScalarFnExpr {

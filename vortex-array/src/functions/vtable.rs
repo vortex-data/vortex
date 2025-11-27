@@ -170,7 +170,7 @@ pub trait VTable: 'static + Send + Sync {
 
 /// Monotonicity of a function with respect to one of its arguments.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-enum Monotonicity {
+pub enum Monotonicity {
     /// Order-preserving: `x ≤ y` implies `f(x) ≤ f(y)`.
     ///
     /// For zone map falsification, an isotone argument means we use the
@@ -192,7 +192,7 @@ enum Monotonicity {
 
 /// How a function handles NULL arguments.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-enum NullHandling {
+pub enum NullHandling {
     /// NULL in any argument produces NULL output.
     ///
     /// This is standard SQL behavior for most scalar functions.
