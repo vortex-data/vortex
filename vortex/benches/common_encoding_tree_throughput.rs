@@ -330,21 +330,33 @@ fn setup_datetime_for_bp() -> ArrayRef {
 }
 
 // Complex encoding tree benchmarks
+fn setup_fn(name: &str) -> fn() -> ArrayRef {
+    match name {
+        "for_bp_u64" => setup_for_bp_u64,
+        "alp_for_bp_f64" => setup_alp_for_bp_f64,
+        "dict_varbinview_string" => setup_dict_varbinview_string,
+        "runend_for_bp_u32" => setup_runend_for_bp_u32,
+        "dict_fsst_varbin_string" => setup_dict_fsst_varbin_string,
+        "dict_fsst_varbin_bp_string" => setup_dict_fsst_varbin_bp_string,
+        "datetime_for_bp" => setup_datetime_for_bp,
+        _ => unreachable!("Unknown setup function: {}", name),
+    }
+}
 
 /// Benchmark decompression of various encoding trees
 #[divan::bench(
     args = [
-        ("for_bp_u64", setup_for_bp_u64 as fn() -> ArrayRef),
-        ("alp_for_bp_f64", setup_alp_for_bp_f64 as fn() -> ArrayRef),
-        ("dict_varbinview_string", setup_dict_varbinview_string as fn() -> ArrayRef),
-        ("runend_for_bp_u32", setup_runend_for_bp_u32 as fn() -> ArrayRef),
-        ("dict_fsst_varbin_string", setup_dict_fsst_varbin_string as fn() -> ArrayRef),
-        ("dict_fsst_varbin_bp_string", setup_dict_fsst_varbin_bp_string as fn() -> ArrayRef),
-        ("datetime_for_bp", setup_datetime_for_bp as fn() -> ArrayRef),
+        "for_bp_u64",
+        "alp_for_bp_f64",
+        "dict_varbinview_string",
+        "runend_for_bp_u32",
+        "dict_fsst_varbin_string",
+        "dict_fsst_varbin_bp_string",
+        "datetime_for_bp",
     ]
 )]
-fn decompress(bencher: Bencher, (name, setup_fn): (&str, fn() -> ArrayRef)) {
-    let _ = name; // Used by divan for display
+fn decompress(bencher: Bencher, name: &str) {
+    let setup_fn = setup_fn(name);
     let compressed = setup_fn();
     let nbytes = compressed.nbytes();
 
