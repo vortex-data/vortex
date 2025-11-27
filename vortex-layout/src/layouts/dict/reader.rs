@@ -177,10 +177,12 @@ impl LayoutReader for DictReader {
             if values.all_valid()
                 && let Some(MinMaxResult { min, max }) = min_max(&values)?
             {
+                #[expect(clippy::bool_comparison, reason = "easy to follow")]
                 if max.as_bool().value().vortex_expect("non null") == false {
                     // All values are false
                     return Ok(Mask::AllFalse(mask.len()));
                 }
+                #[expect(clippy::bool_comparison, reason = "easy to follow")]
                 if min.as_bool().value().vortex_expect("not null") == true {
                     // All values are true, but we still need to respect codes validity
                     return Ok(mask.bitand(&codes.validity_mask()));
