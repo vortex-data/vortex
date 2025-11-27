@@ -12,7 +12,15 @@ use vortex_array::patches::Patches;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::BufferMut;
 use vortex_dtype::DType;
+use vortex_dtype::NativePType;
+use vortex_dtype::PType;
+use vortex_dtype::PTypeDowncast;
 use vortex_dtype::match_each_unsigned_integer_ptype;
+use vortex_error::VortexResult;
+use vortex_mask::Mask;
+use vortex_vector::Vector;
+use vortex_vector::VectorMutOps;
+use vortex_vector::VectorOps;
 use vortex_vector::primitive::PVectorMut;
 
 use crate::ALPArray;
@@ -20,47 +28,12 @@ use crate::ALPFloat;
 use crate::Exponents;
 use crate::match_each_alp_float_ptype;
 
-/// Decompresses an ALP-encoded array to a typed vector.
-///
-/// Uses chunked decompression (1024 elements) when patches have chunk offsets
-/// for better L1 cache locality.
-///
-/// # Returns
-///
-/// A `PVectorMut<T>` with decompressed values and validity mask.
-pub(crate) fn decompress_to_pvector<T: ALPFloat>(array: ALPArray) -> PVectorMut<T> {
-    if array.is_empty() {
-        return PVectorMut::with_capacity(0);
-    }
-
-    let (encoded, exponents, patches, dtype) = array.into_parts();
-    let decompressed = if let Some(ref patches) = patches
-        && let Some(chunk_offsets) = patches.chunk_offsets()
-    {
-        decompress_chunked(
-            encoded,
-            exponents,
-            patches,
-            &chunk_offsets.as_ref().to_primitive(),
-            dtype,
-        )
-    } else {
-        decompress_unchunked(encoded, exponents, patches, dtype)
-    };
-
-    let validity = decompressed.validity().clone();
-    let buffer = decompressed.into_buffer_mut::<T>();
-    let validity_mask = validity.to_mask(buffer.len()).into_mut();
-    // SAFETY: buffer and validity_mask have same length.
-    unsafe { PVectorMut::new_unchecked(buffer, validity_mask) }
-}
-
 /// Decompresses an ALP-encoded array.
 ///
 /// # Returns
 ///
 /// A `PrimitiveArray` containing the decompressed floating-point values with all patches applied.
-pub fn decompress(array: ALPArray) -> PrimitiveArray {
+pub fn decompress_into_array(array: ALPArray) -> PrimitiveArray {
     let (encoded, exponents, patches, dtype) = array.into_parts();
     if let Some(ref patches) = patches
         && let Some(chunk_offsets) = patches.chunk_offsets()
@@ -75,6 +48,92 @@ pub fn decompress(array: ALPArray) -> PrimitiveArray {
     } else {
         decompress_unchunked(encoded, exponents, patches, dtype)
     }
+}
+
+/// Decompresses an ALP-encoded array.
+///
+/// # Returns
+///
+/// A `Vector` containing the decompressed floating-point values with all patches applied.
+pub fn decompress_into_vector<T: ALPFloat>(
+    encoded_vector: Vector,
+    exponents: Exponents,
+    patches_vectors: Option<(Vector, Vector, Option<Vector>)>,
+    patches_offset: usize,
+) -> VortexResult<Vector> {
+    let encoded_primitive = encoded_vector.into_primitive();
+    let validity = encoded_primitive.validity().clone();
+    let encoded_mutable = encoded_primitive.into_mut();
+
+    if T::PTYPE == PType::F32 {
+        let int_buffer = encoded_mutable.into_i32().into_parts().0;
+        decompress_from_buffer::<T, i32>(
+            int_buffer,
+            exponents,
+            patches_vectors,
+            patches_offset,
+            validity,
+        )
+    } else if T::PTYPE == PType::F64 {
+        let int_buffer = encoded_mutable.into_i64().into_parts().0;
+        decompress_from_buffer::<T, i64>(
+            int_buffer,
+            exponents,
+            patches_vectors,
+            patches_offset,
+            validity,
+        )
+    } else {
+        unreachable!("ALPFloat can only be f32 or f64")
+    }
+}
+
+fn decompress_from_buffer<T: ALPFloat, IntType>(
+    int_buffer: BufferMut<IntType>,
+    exponents: Exponents,
+    patches_vectors: Option<(Vector, Vector, Option<Vector>)>,
+    patches_offset: usize,
+    validity: Mask,
+) -> VortexResult<Vector>
+where
+    IntType: Copy + 'static,
+{
+    // Convert to BufferMut<T::ALPInt> for ALP decompression.
+    let mut alp_buffer: BufferMut<T::ALPInt> = unsafe { transmute(int_buffer) };
+
+    // Perform ALP decompression in-place.
+    <T>::decode_slice_inplace(alp_buffer.as_mut_slice(), exponents);
+
+    // Convert to float buffer.
+    let mut decoded_buffer: BufferMut<T> = unsafe { transmute(alp_buffer) };
+
+    // Apply patches if they exist
+    if let Some((indices_vector, values_vector, _chunk_offsets_vector)) = patches_vectors {
+        let indices_primitive = indices_vector.into_primitive();
+        let values_primitive = values_vector.into_primitive();
+
+        match_each_unsigned_integer_ptype!(indices_primitive.ptype(), |I| {
+            let indices_vector = I::downcast(indices_primitive.into_mut());
+            let values_vector = T::downcast(values_primitive.into_mut());
+
+            let indices_buffer = indices_vector.into_parts().0;
+            let values_buffer = values_vector.into_parts().0;
+
+            let indices_slice = indices_buffer.as_slice();
+            let values_slice = values_buffer.as_slice();
+            let decoded_slice = decoded_buffer.as_mut_slice();
+
+            // Apply patches directly to the buffer
+            for (&idx, &value) in indices_slice.iter().zip(values_slice.iter()) {
+                let idx: usize = idx.as_();
+                decoded_slice[idx - patches_offset] = value;
+            }
+        });
+    }
+
+    // Create the vector directly from the buffer.
+    let result = PVectorMut::<T>::new(decoded_buffer, validity.into_mut());
+    Ok(result.freeze().into())
 }
 
 /// Decompresses an ALP-encoded array in 1024-element chunks.
@@ -168,150 +227,15 @@ fn decompress_unchunked(
     let ptype = dtype.as_ptype();
 
     let decoded = match_each_alp_float_ptype!(ptype, |T| {
-        PrimitiveArray::new::<T>(
-            <T>::decode_buffer(encoded.into_buffer_mut(), exponents),
-            validity,
-        )
+        let mut alp_buffer = encoded.into_buffer_mut();
+        <T>::decode_slice_inplace(alp_buffer.as_mut_slice(), exponents);
+        let decoded_buffer: BufferMut<T> = unsafe { transmute(alp_buffer) };
+        PrimitiveArray::new::<T>(decoded_buffer.freeze(), validity)
     });
 
     if let Some(patches) = patches {
         decoded.patch(&patches)
     } else {
         decoded
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use rstest::rstest;
-    use vortex_vector::VectorMutOps;
-
-    use super::*;
-    use crate::alp_encode;
-
-    #[rstest]
-    #[case(0)]
-    #[case(1)]
-    #[case(100)]
-    #[case(1023)]
-    #[case(1024)]
-    #[case(1025)]
-    #[case(2047)]
-    #[case(2048)]
-    #[case(2049)]
-    fn test_vector_decompression_f32(#[case] size: usize) {
-        let values = PrimitiveArray::from_iter((0..size).map(|i| i as f32));
-        let encoded = alp_encode(&values, None).unwrap();
-        let vector = decompress_to_pvector::<f32>(encoded);
-        assert_eq!(vector.len(), size);
-    }
-
-    #[rstest]
-    #[case(0)]
-    #[case(1)]
-    #[case(100)]
-    #[case(1023)]
-    #[case(1024)]
-    #[case(1025)]
-    #[case(2047)]
-    #[case(2048)]
-    #[case(2049)]
-    fn test_vector_decompression_f64(#[case] size: usize) {
-        let values = PrimitiveArray::from_iter((0..size).map(|i| i as f64));
-        let encoded = alp_encode(&values, None).unwrap();
-        let vector = decompress_to_pvector::<f64>(encoded);
-        assert_eq!(vector.len(), size);
-    }
-
-    #[rstest]
-    #[case(100)]
-    #[case(1023)]
-    #[case(1024)]
-    #[case(1025)]
-    #[case(2047)]
-    #[case(2048)]
-    #[case(2049)]
-    fn test_vector_decompression_with_patches(#[case] size: usize) {
-        use std::f64::consts::PI;
-
-        let values: Vec<f64> = (0..size)
-            .map(|i| match i % 4 {
-                0..=2 => 1.0,
-                _ => PI,
-            })
-            .collect();
-
-        let array = PrimitiveArray::from_iter(values);
-        let encoded = alp_encode(&array, None).unwrap();
-        assert!(encoded.patches().unwrap().array_len() > 0);
-
-        let vector = decompress_to_pvector::<f64>(encoded.clone());
-        assert_eq!(vector.len(), size);
-
-        let expected = decompress(encoded);
-        assert_eq!(expected.as_slice::<f64>(), vector.as_ref());
-    }
-
-    #[rstest]
-    #[case(0)]
-    #[case(1)]
-    #[case(100)]
-    #[case(1023)]
-    #[case(1024)]
-    #[case(1025)]
-    #[case(2047)]
-    #[case(2048)]
-    #[case(2049)]
-    fn test_vector_decompression_validity(#[case] size: usize) {
-        let values: Vec<Option<f32>> = (0..size)
-            .map(|i| if i % 2 == 1 { None } else { Some(1.0) })
-            .collect();
-
-        let array = PrimitiveArray::from_option_iter(values);
-        let encoded = alp_encode(&array, None).unwrap();
-
-        let vector = decompress_to_pvector::<f32>(encoded.clone());
-        assert_eq!(vector.len(), size);
-
-        let expected = decompress(encoded);
-
-        assert_eq!(expected.as_slice::<f32>(), vector.as_ref());
-        for i in 0..size {
-            assert_eq!(expected.validity().is_valid(i), vector.validity().value(i));
-        }
-    }
-
-    #[rstest]
-    #[case(100)]
-    #[case(1023)]
-    #[case(1024)]
-    #[case(1025)]
-    #[case(2047)]
-    #[case(2048)]
-    #[case(2049)]
-    fn test_vector_decompression_with_patches_and_validity(#[case] size: usize) {
-        use std::f64::consts::PI;
-
-        let values: Vec<Option<f64>> = (0..size)
-            .map(|i| match i % 3 {
-                0 => Some(1.0),
-                1 => None,
-                _ => Some(PI),
-            })
-            .collect();
-
-        let array = PrimitiveArray::from_option_iter(values);
-        let encoded = alp_encode(&array, None).unwrap();
-        assert!(encoded.patches().unwrap().array_len() > 0);
-
-        let vector = decompress_to_pvector::<f64>(encoded.clone());
-        assert_eq!(vector.len(), size);
-
-        let expected = decompress(encoded);
-        assert_eq!(expected.as_slice::<f64>(), vector.as_ref());
-
-        for i in 0..size {
-            assert_eq!(expected.validity().is_valid(i), vector.validity().value(i));
-        }
     }
 }

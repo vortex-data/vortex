@@ -51,7 +51,7 @@ mod tests {
 
 pub use array::*;
 pub use compress::alp_encode;
-pub use decompress::decompress;
+pub use decompress::decompress_into_array;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
