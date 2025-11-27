@@ -57,7 +57,7 @@ impl SumKernel for DecimalVTable {
                         if let Some(sum) = sum_decimal(array.buffer::<I>(), initial_val) {
                             Ok(Scalar::decimal(
                                 DecimalValue::from(sum),
-                                return_decimal_dtype.clone(),
+                                *return_decimal_dtype,
                                 Nullable,
                             ))
                         } else {
@@ -81,7 +81,7 @@ impl SumKernel for DecimalVTable {
                         ) {
                             Ok(Scalar::decimal(
                                 DecimalValue::from(sum),
-                                return_decimal_dtype.clone(),
+                                *return_decimal_dtype,
                                 Nullable,
                             ))
                         } else {

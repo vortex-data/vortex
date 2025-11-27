@@ -21,11 +21,9 @@ pub use stats_set::*;
 use vortex_dtype::DType;
 use vortex_dtype::DecimalDType;
 use vortex_dtype::MAX_PRECISION;
-use vortex_dtype::NativeDecimalType;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::Nullability::Nullable;
 use vortex_dtype::PType;
-use vortex_dtype::i256;
 
 mod array;
 mod bound;
