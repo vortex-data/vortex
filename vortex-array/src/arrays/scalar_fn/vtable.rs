@@ -4,10 +4,9 @@
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
 use crate::execution::ExecutionCtx;
-use crate::functions::ScalarFnVTable;
 use crate::serde::ArrayChildren;
-use crate::vtable;
 use crate::vtable::{ArrayId, ArrayVTable, VTable};
+use crate::{functions, vtable};
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -15,6 +14,11 @@ use vortex_error::VortexResult;
 use vortex_vector::Vector;
 
 vtable!(ScalarFn);
+
+#[derive(Debug)]
+pub struct ScalarFnVTable {
+    vtable: functions::ScalarFnVTable,
+}
 
 impl VTable for ScalarFnVTable {
     type Array = ScalarFnArray;
@@ -29,7 +33,7 @@ impl VTable for ScalarFnVTable {
     type OperatorVTable = ();
 
     fn id(&self) -> ArrayId {
-        todo!()
+        self.vtable.id()
     }
 
     fn encoding(array: &Self::Array) -> ArrayVTable {

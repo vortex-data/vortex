@@ -132,7 +132,7 @@ fn downcast<V: VTable>(options: &dyn Any) -> &V::Options {
 }
 
 /// A vtable for scalar functions, registered against a VortexSession.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ScalarFnVTable(ArcRef<dyn DynScalarFnVTable>);
 
 impl ScalarFnVTable {

@@ -4,6 +4,7 @@
 use crate::functions::v2::ScalarFnRef;
 use vortex_dtype::DType;
 
+#[derive(Clone, Debug)]
 pub struct ScalarFnMetadata {
     pub scalar_fn: ScalarFnRef,
     pub child_dtypes: Vec<DType>,

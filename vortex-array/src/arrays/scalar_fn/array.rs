@@ -5,6 +5,7 @@ use crate::functions::v2::ScalarFnRef;
 use crate::stats::ArrayStats;
 use crate::ArrayRef;
 
+#[derive(Clone, Debug)]
 pub struct ScalarFnArray {
     scalar_fn: ScalarFnRef,
     children: Vec<ArrayRef>,
