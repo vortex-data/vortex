@@ -34,7 +34,6 @@ pub struct Utf8Scalar<'a> {
 
 impl Display for Utf8Scalar<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        #[expect(clippy::use_debug, reason = "Escape escape codes")]
         match &self.value {
             None => write!(f, "null"),
             Some(v) => write!(f, "\"{}\"", StringEscape(v.as_str())),
