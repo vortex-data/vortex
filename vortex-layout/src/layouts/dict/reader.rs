@@ -174,12 +174,14 @@ impl LayoutReader for DictReader {
             let mask = mask.await?;
 
             // Short-circuit when the values are all true/false.
-            if let Some(MinMaxResult { min, max }) = min_max(&values)? {
-                if !max.as_bool().value().unwrap_or(true) {
+            if values.all_valid()
+                && let Some(MinMaxResult { min, max }) = min_max(&values)?
+            {
+                if max.as_bool().value().vortex_expect("non null") == false {
                     // All values are false
                     return Ok(Mask::AllFalse(mask.len()));
                 }
-                if min.as_bool().value().unwrap_or(false) {
+                if min.as_bool().value().vortex_expect("not null") == true {
                     // All values are true, but we still need to respect codes validity
                     return Ok(mask.bitand(&codes.validity_mask()));
                 }
