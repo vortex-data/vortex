@@ -13,6 +13,9 @@ use crate::compute::ZipKernelAdapter;
 use crate::compute::zip;
 use crate::register_kernel;
 
+// Push down the zip call to the chunks. Without this kernel
+// the default implementation canonicalises the chunked array
+// then zips once.
 impl ZipKernel for ChunkedVTable {
     fn zip(
         &self,
