@@ -109,7 +109,7 @@ pub struct ByteBoolArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ByteBoolVTable;
 
 impl ByteBoolArray {

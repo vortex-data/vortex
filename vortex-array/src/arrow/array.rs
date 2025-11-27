@@ -90,7 +90,7 @@ impl VTable for ArrowVTable {
 
 /// A Vortex array that wraps an in-memory Arrow array.
 // TODO(ngates): consider having each Arrow encoding be a separate encoding ID.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ArrowVTable;
 
 #[derive(Clone, Debug)]

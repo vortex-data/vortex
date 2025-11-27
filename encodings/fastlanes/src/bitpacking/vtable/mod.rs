@@ -178,5 +178,5 @@ impl VTable for BitPackedVTable {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct BitPackedVTable;

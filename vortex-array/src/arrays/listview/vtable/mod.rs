@@ -38,7 +38,7 @@ mod visitor;
 
 vtable!(ListView);
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ListViewVTable;
 
 #[derive(Clone, prost::Message)]

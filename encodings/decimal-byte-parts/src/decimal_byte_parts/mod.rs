@@ -171,7 +171,7 @@ impl DecimalBytePartsArray {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct DecimalBytePartsVTable;
 
 impl BaseArrayVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {

@@ -154,7 +154,7 @@ impl VTable for ZstdVTable {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ZstdVTable;
 
 #[derive(Clone, Debug)]

@@ -199,7 +199,7 @@ pub struct ALPRDArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ALPRDVTable;
 
 impl ALPRDArray {

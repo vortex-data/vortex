@@ -4,12 +4,16 @@
 //! Unified benchmark infrastructure
 
 use std::fs::File;
-use std::io::{Write, stdout};
+use std::io::Write;
+use std::io::stdout;
 use std::path::PathBuf;
 
 use crate::Target;
-use crate::display::{DisplayFormat, print_measurements_json, render_table};
-use crate::measurements::{MemoryMeasurement, QueryMeasurement};
+use crate::display::DisplayFormat;
+use crate::display::print_measurements_json;
+use crate::display::render_table;
+use crate::measurements::MemoryMeasurement;
+use crate::measurements::QueryMeasurement;
 
 /// Common benchmark configuration
 #[derive(Debug, Clone)]

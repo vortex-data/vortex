@@ -2,23 +2,30 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fs::File;
-#[cfg(not(feature = "lance"))]
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use arrow_array::{RecordBatch, RecordBatchReader};
+use arrow_array::RecordBatch;
+use arrow_array::RecordBatchReader;
 use arrow_cast::cast;
-use arrow_schema::{ArrowError, DataType, Field, Schema, SchemaRef};
+use arrow_schema::ArrowError;
+use arrow_schema::DataType;
+use arrow_schema::Field;
+use arrow_schema::Schema;
+use arrow_schema::SchemaRef;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+
 #[cfg(feature = "lance")]
+#[rustfmt::skip]
 use {
     crate::utils::idempotent_async,
-    lance::dataset::{Dataset as LanceDataset, WriteParams},
+    lance::dataset::Dataset as LanceDataset,
+    lance::dataset::WriteParams,
     lance_encoding::version::LanceFileVersion,
     log::info,
     std::fs,
-    std::path::{Path, PathBuf},
+    std::path::Path,
     tokio::fs::create_dir_all,
 };
 

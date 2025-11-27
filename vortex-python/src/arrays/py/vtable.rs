@@ -48,10 +48,10 @@ vtable!(Python);
 
 /// Wrapper struct encapsulating a Python encoding.
 #[allow(dead_code)]
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct PythonVTable {
     pub(super) id: ArrayId,
-    pub(super) cls: Arc<Py<PyType>>,
+    pub(super) cls: Py<PyType>,
 }
 
 /// Convert a Python class into a [`PythonVTable`].
@@ -75,7 +75,7 @@ impl<'py> FromPyObject<'_, 'py> for PythonVTable {
 
         Ok(PythonVTable {
             id,
-            cls: Arc::new(cls.to_owned().unbind()),
+            cls: cls.to_owned().unbind(),
         })
     }
 }

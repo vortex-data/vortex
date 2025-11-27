@@ -31,7 +31,7 @@ mod visitor;
 
 vtable!(Dict);
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct DictVTable;
 
 impl VTable for DictVTable {

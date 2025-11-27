@@ -91,7 +91,7 @@ impl VTable for FoRVTable {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct FoRVTable;
 
 #[derive(Clone)]

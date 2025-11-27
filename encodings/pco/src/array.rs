@@ -193,7 +193,7 @@ pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct PcoVTable;
 
 #[derive(Clone, Debug)]
