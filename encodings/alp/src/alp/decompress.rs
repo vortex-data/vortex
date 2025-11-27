@@ -123,7 +123,6 @@ where
             let values_slice = values_buffer.as_slice();
             let decoded_slice = decoded_buffer.as_mut_slice();
 
-            // Apply patches directly to the buffer
             for (&idx, &value) in indices_slice.iter().zip(values_slice.iter()) {
                 let idx: usize = idx.as_();
                 decoded_slice[idx - patches_offset] = value;
@@ -131,7 +130,6 @@ where
         });
     }
 
-    // Create the vector directly from the buffer.
     let result = PVectorMut::<T>::new(decoded_buffer, validity.into_mut());
     Ok(result.freeze().into())
 }
