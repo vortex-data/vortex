@@ -4,8 +4,6 @@
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::NativePType;
 
-use crate::Scalar;
-use crate::Vector;
 use crate::binaryview::BinaryViewScalar;
 use crate::binaryview::BinaryViewType;
 use crate::binaryview::BinaryViewVector;
@@ -27,13 +25,61 @@ use crate::primitive::PrimitiveScalar;
 use crate::primitive::PrimitiveVector;
 use crate::struct_::StructScalar;
 use crate::struct_::StructVector;
+use crate::Scalar;
+use crate::Datum;
 
 /// Represents either a scalar or vector value.
 pub enum Datum {
     /// A scalar value.
     Scalar(Scalar),
     /// A vector value.
-    Vector(Vector),
+    Vector(Datum),
+}
+
+impl From<Scalar> for Datum {
+    fn from(value: Scalar) -> Self {
+        Datum::Scalar(value)
+    }
+}
+
+impl From<Datum> for Datum {
+    fn from(value: Datum) -> Self {
+        Datum::Vector(value)
+    }
+}
+
+impl Datum {
+    /// Returns the scalar value if this `Datum` is a `Scalar`, otherwise returns `None`.
+    pub fn into_scalar(self) -> Option<Scalar> {
+        match self {
+            Datum::Scalar(scalar) => Some(scalar),
+            Datum::Vector(_) => None,
+        }
+    }
+
+    /// Returns the vector value if this `Datum` is a `Vector`, otherwise returns `None`.
+    pub fn into_vector(self) -> Option<Datum> {
+        match self {
+            Datum::Scalar(_) => None,
+            Datum::Vector(vector) => Some(vector),
+        }
+    }
+
+    /// Returns a reference to the scalar value if this `Datum` is a `Scalar`, otherwise returns `None`.
+    pub fn as_scalar(&self) -> Option<&Scalar> {
+        match self {
+            Datum::Scalar(scalar) => Some(scalar),
+            Datum::Vector(_) => None,
+        }
+    }
+
+    /// Returns a reference to the vector value if this `Datum` is a `Vector`, otherwise returns `None`.
+    pub fn as_vector(&self) -> Option<&Datum> {
+        match self {
+            Datum::Scalar(_) => None,
+            Datum::Vector(vector) => Some(vector),
+        }
+    }
 }
 
 impl Datum {

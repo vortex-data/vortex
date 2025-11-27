@@ -12,12 +12,10 @@ use std::fmt::Debug;
 pub use operator::ExprOptimizationRule;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_vector::Vector;
+use vortex_error::VortexResult;
+use vortex_vector::Datum;
 
-use crate::Array;
-use crate::ArrayOperator;
 use crate::arrays::expr::ExprArray;
 use crate::execution::ExecutionCtx;
 use crate::expr::Expression;
@@ -28,6 +26,8 @@ use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
+use crate::Array;
+use crate::ArrayOperator;
 
 vtable!(Expr);
 
@@ -87,7 +87,7 @@ impl VTable for ExprVTable {
         ExprArray::try_new(child, expr.clone(), dtype.clone())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
         let scope = array.child().execute_batch(ctx)?;
         array.expr().execute(&scope, array.child().dtype())
     }

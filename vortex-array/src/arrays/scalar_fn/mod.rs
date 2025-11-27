@@ -4,6 +4,3 @@
 mod array;
 mod metadata;
 mod vtable;
-
-use crate::serde::ArrayChildren;
-use crate::vtable::VTable;

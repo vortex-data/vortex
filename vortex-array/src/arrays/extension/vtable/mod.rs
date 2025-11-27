@@ -12,7 +12,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 
 use crate::ArrayOperator;
 use crate::EmptyMetadata;
@@ -81,7 +81,7 @@ impl VTable for ExtensionVTable {
         Ok(ExtensionArray::new(ext_dtype.clone(), storage))
     }
 
-    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
         array.storage().execute_batch(ctx)
     }
 }

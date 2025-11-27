@@ -14,7 +14,7 @@ use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 use vortex_vector::VectorOps;
 
 use crate::ArrayRef;
@@ -156,7 +156,7 @@ impl Expression {
     }
 
     /// Executes the expression over the given vector input scope.
-    pub fn execute(&self, vector: &Vector, dtype: &DType) -> VortexResult<Vector> {
+    pub fn execute(&self, vector: &Datum, dtype: &DType) -> VortexResult<Datum> {
         // We special-case the "root" expression that must extract that scope vector directly.
         if self.is::<Root>() {
             return Ok(vector.clone());

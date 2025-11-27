@@ -15,7 +15,7 @@ use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 use vortex_vector::VectorMutOps;
 use vortex_vector::primitive::PVectorMut;
 
@@ -53,7 +53,7 @@ struct SequenceKernel<T> {
 }
 
 impl<T: NativePType> BatchKernel for SequenceKernel<T> {
-    fn execute(self: Box<Self>) -> VortexResult<Vector> {
+    fn execute(self: Box<Self>) -> VortexResult<Datum> {
         let selection = self.selection.execute()?;
 
         let elements = match selection.indices() {
@@ -84,7 +84,7 @@ struct MultiplierSequenceKernel<T> {
 }
 
 impl<T: NativePType + Mul> BatchKernel for MultiplierSequenceKernel<T> {
-    fn execute(self: Box<Self>) -> VortexResult<Vector> {
+    fn execute(self: Box<Self>) -> VortexResult<Datum> {
         let selection = self.selection.execute()?;
 
         let elements = match selection.indices() {

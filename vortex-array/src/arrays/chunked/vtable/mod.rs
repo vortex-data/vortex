@@ -9,7 +9,7 @@ use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 use vortex_vector::VectorMut;
 use vortex_vector::VectorMutOps;
 
@@ -127,7 +127,7 @@ impl VTable for ChunkedVTable {
         })
     }
 
-    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
         let mut vector = VectorMut::with_capacity(array.dtype(), 0);
         for chunk in array.chunks() {
             let chunk_vector = chunk.execute_batch(ctx)?;

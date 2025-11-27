@@ -7,22 +7,21 @@ use std::sync::Arc;
 use num_traits::ToPrimitive;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
+use vortex_dtype::match_each_integer_ptype;
 use vortex_dtype::DType;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::PTypeDowncastExt;
-use vortex_dtype::match_each_integer_ptype;
+use vortex_error::vortex_ensure;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
-use vortex_vector::Vector;
 use vortex_vector::binaryview::BinaryType;
 use vortex_vector::binaryview::BinaryView;
 use vortex_vector::binaryview::BinaryViewType;
 use vortex_vector::binaryview::BinaryViewVector;
 use vortex_vector::binaryview::StringType;
+use vortex_vector::Datum;
 
-use crate::ArrayRef;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinVTable;
 use crate::execution::BatchKernel;
@@ -31,6 +30,7 @@ use crate::execution::BindCtx;
 use crate::execution::MaskExecution;
 use crate::vtable::OperatorVTable;
 use crate::vtable::ValidityHelper;
+use crate::ArrayRef;
 
 impl OperatorVTable<VarBinVTable> for VarBinVTable {
     fn bind(
@@ -86,7 +86,7 @@ impl<V> VarBinKernel<V> {
 }
 
 impl<V: BinaryViewType> BatchKernel for VarBinKernel<V> {
-    fn execute(self: Box<Self>) -> VortexResult<Vector> {
+    fn execute(self: Box<Self>) -> VortexResult<Datum> {
         let offsets = self.offsets.execute()?.into_primitive();
 
         match_each_integer_ptype!(offsets.ptype(), |T| {
@@ -127,7 +127,7 @@ impl<V: BinaryViewType> BatchKernel for VarBinKernel<V> {
 
             // SAFETY: views were constructed in the loop above to point at valid data from
             //  the buffer. Validity was checked immediately above to be of the appropriate length.
-            Ok(Vector::from(unsafe {
+            Ok(Datum::from(unsafe {
                 BinaryViewVector::<V>::new_unchecked(
                     views,
                     Arc::new(Box::new([self.bytes.clone()])),
@@ -189,10 +189,10 @@ mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
 
-    use crate::IntoArray;
+    use crate::arrays::builder::VarBinBuilder;
     use crate::arrays::BoolArray;
     use crate::arrays::VarBinArray;
-    use crate::arrays::builder::VarBinBuilder;
+    use crate::IntoArray;
 
     #[fixture]
     fn strings() -> VarBinArray {

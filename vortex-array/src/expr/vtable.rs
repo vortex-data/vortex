@@ -12,21 +12,21 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_vector::Vector;
-use vortex_vector::VectorOps;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_vector::vector_matches_dtype;
+use vortex_vector::Datum;
+use vortex_vector::VectorOps;
 
-use crate::ArrayRef;
+use crate::expr::expression::Expression;
 use crate::expr::ExprId;
 use crate::expr::ExpressionView;
 use crate::expr::StatsCatalog;
-use crate::expr::expression::Expression;
 use crate::stats::Stat;
+use crate::ArrayRef;
 
 ///
 /// This trait defines the interface for expression vtables, including methods for
@@ -91,7 +91,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
     fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef>;
 
     /// Execute the expression on the given vector with the given dtype.
-    fn execute(&self, data: &Self::Instance, args: ExecutionArgs) -> VortexResult<Vector> {
+    fn execute(&self, data: &Self::Instance, args: ExecutionArgs) -> VortexResult<Datum> {
         _ = data;
         let _args = args;
         // TODO(ngates): remove this once we port to vector execution
@@ -159,7 +159,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
 /// Arguments for expression execution.
 pub struct ExecutionArgs {
     /// The input vectors for the expression, one per child.
-    pub vectors: Vec<Vector>,
+    pub vectors: Vec<Datum>,
     /// The input dtypes for the expression, one per child.
     pub dtypes: Vec<DType>,
     /// The row count of the execution scope.
@@ -214,7 +214,7 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     fn fmt_data(&self, instance: &dyn Any, f: &mut Formatter<'_>) -> fmt::Result;
     fn return_dtype(&self, expression: &Expression, scope: &DType) -> VortexResult<DType>;
     fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef>;
-    fn execute(&self, data: &dyn Any, args: ExecutionArgs) -> VortexResult<Vector>;
+    fn execute(&self, data: &dyn Any, args: ExecutionArgs) -> VortexResult<Datum>;
 
     fn stat_falsification(
         &self,
@@ -297,7 +297,7 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         V::evaluate(&self.0, &expr, scope)
     }
 
-    fn execute(&self, data: &dyn Any, args: ExecutionArgs) -> VortexResult<Vector> {
+    fn execute(&self, data: &dyn Any, args: ExecutionArgs) -> VortexResult<Datum> {
         let data = data
             .downcast_ref::<V::Instance>()
             .vortex_expect("Failed to downcast expression instance to expected type");
@@ -486,8 +486,8 @@ mod tests {
     use crate::expr::exprs::root::root;
     use crate::expr::exprs::select::select;
     use crate::expr::exprs::select::select_exclude;
-    use crate::expr::proto::ExprSerializeProtoExt;
     use crate::expr::proto::deserialize_expr_proto;
+    use crate::expr::proto::ExprSerializeProtoExt;
     use crate::expr::session::ExprRegistry;
     use crate::expr::session::ExprSession;
 

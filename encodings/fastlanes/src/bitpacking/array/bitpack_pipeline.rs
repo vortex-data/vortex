@@ -20,7 +20,7 @@ use vortex_dtype::PhysicalPType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 use vortex_vector::VectorOps;
 use vortex_vector::primitive::PVector;
 
@@ -129,7 +129,7 @@ impl<BP: PhysicalPType<Physical: BitPacking>> AlignedBitPackedKernel<BP> {
 }
 
 impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<BP> {
-    fn step(&mut self, _ctx: &KernelCtx, selection: &BitView, out: Vector) -> VortexResult<Vector> {
+    fn step(&mut self, _ctx: &KernelCtx, selection: &BitView, out: Datum) -> VortexResult<Datum> {
         if selection.true_count() == 0 {
             debug_assert!(out.is_empty());
             return Ok(out);

@@ -7,7 +7,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 use vortex_vector::VectorMutOps;
 
 use crate::EmptyMetadata;
@@ -85,7 +85,7 @@ impl VTable for ConstantVTable {
         Ok(ConstantArray::new(scalar, len))
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
         Ok(to_vector(array.scalar().clone(), array.len()).freeze())
     }
 }

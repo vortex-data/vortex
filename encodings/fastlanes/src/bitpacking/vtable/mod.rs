@@ -23,7 +23,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 use vortex_vector::VectorMutOps;
 
 use crate::BitPackedArray;
@@ -173,7 +173,7 @@ impl VTable for BitPackedVTable {
         )
     }
 
-    fn execute(array: &BitPackedArray, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(array: &BitPackedArray, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
         Ok(unpack_to_primitive_vector(array).freeze().into())
     }
 }

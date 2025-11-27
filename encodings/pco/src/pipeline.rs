@@ -22,7 +22,7 @@ use vortex_error::VortexResult;
 use vortex_error::VortexUnwrap;
 use vortex_error::vortex_err;
 use vortex_mask::MaskMut;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 use vortex_vector::VectorMutOps;
 use vortex_vector::VectorOps;
 use vortex_vector::primitive::PVectorMut;
@@ -150,7 +150,7 @@ impl<T: Number + NativePType> PcoKernel<T> {
 }
 
 impl<T: Number + NativePType> Kernel for PcoKernel<T> {
-    fn step(&mut self, _ctx: &KernelCtx, selection: &BitView, out: Vector) -> VortexResult<Vector> {
+    fn step(&mut self, _ctx: &KernelCtx, selection: &BitView, out: Datum) -> VortexResult<Datum> {
         let remaining_validity = self.validity.split_off(N.min(self.validity.len()));
         let step_validity = std::mem::take(&mut self.validity).freeze();
         let step_true_count = step_validity.true_count();

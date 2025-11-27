@@ -18,7 +18,7 @@ use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_map::RandomState;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 use vortex_vector::VectorOps;
 
 use crate::Array;
@@ -210,7 +210,7 @@ impl PipelineDriver {
     }
 
     /// Execute the pipeline after first executing all batch inputs.
-    pub fn execute(self, selection: &Mask) -> VortexResult<Vector> {
+    pub fn execute(self, selection: &Mask) -> VortexResult<Datum> {
         let dtype = self.root_array().dtype().clone();
 
         // Execute the batch inputs of the pipeline.
@@ -260,7 +260,7 @@ struct Pipeline {
 }
 
 impl Pipeline {
-    fn execute(mut self, selection: &Mask) -> VortexResult<Vector> {
+    fn execute(mut self, selection: &Mask) -> VortexResult<Datum> {
         match selection {
             Mask::AllFalse(_) => {
                 // No work to do at all.

@@ -4,23 +4,23 @@
 use std::sync::Arc;
 
 use vortex_compute::filter::Filter;
-use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_vector::Vector;
 use vortex_vector::vector_matches_dtype;
+use vortex_vector::Datum;
 
-use crate::Array;
-use crate::ArrayAdapter;
-use crate::ArrayRef;
 use crate::execution::BatchKernelRef;
 use crate::execution::BindCtx;
 use crate::execution::DummyExecutionCtx;
 use crate::execution::ExecutionCtx;
-use crate::pipeline::PipelinedNode;
 use crate::pipeline::driver::PipelineDriver;
+use crate::pipeline::PipelinedNode;
 use crate::vtable::OperatorVTable;
 use crate::vtable::VTable;
+use crate::Array;
+use crate::ArrayAdapter;
+use crate::ArrayRef;
 
 /// Array functions as provided by the `OperatorVTable`.
 ///
@@ -33,7 +33,7 @@ pub trait ArrayOperator: 'static + Send + Sync {
     ///
     /// If the mask length does not match the array length.
     /// If the array's implementation returns an invalid vector (wrong length, wrong type, etc.).
-    fn execute_batch(&self, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector>;
+    fn execute_batch(&self, ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum>;
 
     /// Returns the array as a pipeline node, if supported.
     fn as_pipelined(&self) -> Option<&dyn PipelinedNode>;
@@ -47,7 +47,7 @@ pub trait ArrayOperator: 'static + Send + Sync {
 }
 
 impl ArrayOperator for Arc<dyn Array> {
-    fn execute_batch(&self, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn execute_batch(&self, ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
         self.as_ref().execute_batch(ctx)
     }
 
@@ -65,7 +65,7 @@ impl ArrayOperator for Arc<dyn Array> {
 }
 
 impl<V: VTable> ArrayOperator for ArrayAdapter<V> {
-    fn execute_batch(&self, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn execute_batch(&self, ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
         let vector = V::execute(&self.0, ctx)?;
 
         if cfg!(debug_assertions) {
@@ -107,7 +107,7 @@ impl BindCtx for () {
 }
 
 impl dyn Array + '_ {
-    pub fn execute(&self) -> VortexResult<Vector> {
+    pub fn execute(&self) -> VortexResult<Datum> {
         // Check if the array is a pipeline node
         if self.as_pipelined().is_some() {
             return PipelineDriver::new(self.to_array()).execute(&Mask::new_true(self.len()));
@@ -115,7 +115,7 @@ impl dyn Array + '_ {
         self.execute_batch(&mut DummyExecutionCtx)
     }
 
-    pub fn execute_with_selection(&self, selection: &Mask) -> VortexResult<Vector> {
+    pub fn execute_with_selection(&self, selection: &Mask) -> VortexResult<Datum> {
         // Check if the array is a pipeline node
         if self.as_pipelined().is_some() {
             return PipelineDriver::new(self.to_array()).execute(selection);

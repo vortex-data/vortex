@@ -4,13 +4,13 @@
 //! Definition of the [`VectorMut`] type, which represents mutable and fully decompressed
 //! (canonical) array data.
 //!
-//! [`VectorMut`] can be frozen into the [`Vector`] type.
+//! [`VectorMut`] can be frozen into the [`Datum`] type.
 
 use vortex_dtype::DType;
 use vortex_error::vortex_panic;
 use vortex_mask::MaskMut;
 
-use crate::Vector;
+use crate::Datum;
 use crate::VectorMutOps;
 use crate::VectorOps;
 use crate::binaryview::BinaryVectorMut;
@@ -32,7 +32,7 @@ use crate::struct_::StructVectorMut;
 /// vectors are **always** considered as nullable, and it is the responsibility of the user to not
 /// add any nullable data to a vector they want to keep as non-nullable.
 ///
-/// The immutable equivalent of this type is [`Vector`], which implements the
+/// The immutable equivalent of this type is [`Datum`], which implements the
 /// [`VectorOps`](crate::VectorOps) trait.
 #[derive(Debug, Clone)]
 pub enum VectorMut {
@@ -93,7 +93,7 @@ impl VectorMut {
 }
 
 impl VectorMutOps for VectorMut {
-    type Immutable = Vector;
+    type Immutable = Datum;
 
     fn len(&self) -> usize {
         match_each_vector_mut!(self, |v| { v.len() })
@@ -119,7 +119,7 @@ impl VectorMutOps for VectorMut {
         match_each_vector_mut!(self, |v| { v.truncate(len) })
     }
 
-    fn extend_from_vector(&mut self, other: &Vector) {
+    fn extend_from_vector(&mut self, other: &Datum) {
         match_vector_pair!(self, other, |a: VectorMut, b: Vector| {
             a.extend_from_vector(b)
         })
@@ -139,7 +139,7 @@ impl VectorMutOps for VectorMut {
         })
     }
 
-    fn freeze(self) -> Vector {
+    fn freeze(self) -> Datum {
         match_each_vector_mut!(self, |v| { v.freeze().into() })
     }
 
@@ -473,7 +473,7 @@ mod tests {
         assert_eq!(vec.len(), 3);
 
         // Create an immutable vector to extend from.
-        let to_append: Vector = PVectorMut::<i32>::from_iter([4, 5, 6].map(Some))
+        let to_append: Datum = PVectorMut::<i32>::from_iter([4, 5, 6].map(Some))
             .freeze()
             .into();
         assert_eq!(to_append.len(), 3);

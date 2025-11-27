@@ -65,10 +65,10 @@ pub use scalar::BoolScalar;
 
 mod iter;
 
-use crate::Vector;
+use crate::Datum;
 use crate::VectorMut;
 
-impl From<BoolVector> for Vector {
+impl From<BoolVector> for Datum {
     fn from(v: BoolVector) -> Self {
         Self::Bool(v)
     }

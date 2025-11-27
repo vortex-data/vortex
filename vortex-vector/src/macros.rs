@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Helper macros for working with the different variants of [`Vector`](crate::Vector) and
+//! Helper macros for working with the different variants of [`Vector`](crate::Datum) and
 //! [`VectorMut`](crate::VectorMut).
 
 /// Matches on all variants of [`Vector`] and executes the same code for each variant branch.
@@ -12,21 +12,21 @@
 /// # Examples
 ///
 /// ```
-/// use vortex_vector::Vector;
+/// use vortex_vector::Datum;
 /// use vortex_vector::bool::BoolVectorMut;
 /// use vortex_vector::null::NullVector;
 /// use vortex_vector::{VectorOps, VectorMutOps, match_each_vector};
 ///
-/// fn get_vector_length(vector: &Vector) -> usize {
+/// fn get_vector_length(vector: &Datum) -> usize {
 ///     match_each_vector!(vector, |v| { v.len() })
 /// }
 ///
 /// // Works with `Null` vectors.
-/// let null_vec: Vector = NullVector::new(5).into();
+/// let null_vec: Datum = NullVector::new(5).into();
 /// assert_eq!(get_vector_length(&null_vec), 5);
 ///
 /// // Works with `Bool` vectors.
-/// let bool_vec: Vector = BoolVectorMut::from_iter([true, false, true].map(Some))
+/// let bool_vec: Datum = BoolVectorMut::from_iter([true, false, true].map(Some))
 ///     .freeze()
 ///     .into();
 /// assert_eq!(get_vector_length(&bool_vec), 3);
@@ -34,21 +34,21 @@
 ///
 /// Note: The `len` method is already provided by the [`VectorOps`] trait implementation.
 ///
-/// [`Vector`]: crate::Vector
+/// [`Vector`]: crate::Datum
 /// [`VectorOps`]: crate::VectorOps
 #[macro_export]
 macro_rules! match_each_vector {
     ($self:expr, | $vec:ident | $body:block) => {{
         match $self {
-            $crate::Vector::Null($vec) => $body,
-            $crate::Vector::Bool($vec) => $body,
-            $crate::Vector::Decimal($vec) => $body,
-            $crate::Vector::Primitive($vec) => $body,
-            $crate::Vector::String($vec) => $body,
-            $crate::Vector::Binary($vec) => $body,
-            $crate::Vector::List($vec) => $body,
-            $crate::Vector::FixedSizeList($vec) => $body,
-            $crate::Vector::Struct($vec) => $body,
+            $crate::Datum::Null($vec) => $body,
+            $crate::Datum::Bool($vec) => $body,
+            $crate::Datum::Decimal($vec) => $body,
+            $crate::Datum::Primitive($vec) => $body,
+            $crate::Datum::String($vec) => $body,
+            $crate::Datum::Binary($vec) => $body,
+            $crate::Datum::List($vec) => $body,
+            $crate::Datum::FixedSizeList($vec) => $body,
+            $crate::Datum::Struct($vec) => $body,
         }
     }};
 }
@@ -146,17 +146,17 @@ macro_rules! __match_vector_pair_arms {
 /// # Examples
 ///
 /// ```
-/// use vortex_vector::{Vector, VectorMut, VectorMutOps, match_vector_pair};
+/// use vortex_vector::{Datum, VectorMut, VectorMutOps, match_vector_pair};
 /// use vortex_vector::bool::{BoolVector, BoolVectorMut};
 ///
-/// fn extend_vector(left: &mut VectorMut, right: &Vector) {
+/// fn extend_vector(left: &mut VectorMut, right: &Datum) {
 ///     match_vector_pair!(left, right, |a: VectorMut, b: Vector| {
 ///         a.extend_from_vector(b);
 ///     })
 /// }
 ///
 /// let mut mut_vec: VectorMut = BoolVectorMut::from_iter([true, false, true]).into();
-/// let vec: Vector = BoolVectorMut::from_iter([false, true]).freeze().into();
+/// let vec: Datum = BoolVectorMut::from_iter([false, true]).freeze().into();
 ///
 /// extend_vector(&mut mut_vec, &vec);
 /// assert_eq!(mut_vec.len(), 5);
@@ -165,10 +165,10 @@ macro_rules! __match_vector_pair_arms {
 /// Note that the vectors can also be owned:
 ///
 /// ```
-/// use vortex_vector::{Vector, VectorMut, VectorMutOps, match_vector_pair};
+/// use vortex_vector::{Datum, VectorMut, VectorMutOps, match_vector_pair};
 /// use vortex_vector::bool::{BoolVector, BoolVectorMut};
 ///
-/// fn extend_vector_owned(mut dest: VectorMut, src: Vector) -> VectorMut {
+/// fn extend_vector_owned(mut dest: VectorMut, src: Datum) -> VectorMut {
 ///     match_vector_pair!(&mut dest, src, |a: VectorMut, b: Vector| {
 ///         a.extend_from_vector(&b);
 ///         dest
@@ -176,7 +176,7 @@ macro_rules! __match_vector_pair_arms {
 /// }
 ///
 /// let mut_vec: VectorMut = BoolVectorMut::from_iter([true, false, true]).into();
-/// let vec: Vector = BoolVectorMut::from_iter([false, true]).freeze().into();
+/// let vec: Datum = BoolVectorMut::from_iter([false, true]).freeze().into();
 ///
 /// let new_bool_mut = extend_vector_owned(mut_vec, vec);
 /// assert_eq!(new_bool_mut.len(), 5);

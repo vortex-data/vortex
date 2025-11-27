@@ -9,7 +9,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 use vortex_vector::null::NullVector;
 
 use crate::ArrayBufferVisitor;
@@ -88,7 +88,7 @@ impl VTable for NullVTable {
         Ok(NullArray::new(len))
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
         Ok(NullVector::new(array.len()).into())
     }
 }

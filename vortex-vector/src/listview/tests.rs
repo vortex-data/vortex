@@ -6,7 +6,7 @@ use std::sync::Arc;
 use vortex_mask::Mask;
 use vortex_mask::MaskMut;
 
-use crate::Vector;
+use crate::Datum;
 use crate::VectorMutOps;
 use crate::VectorOps;
 use crate::listview::ListViewVector;
@@ -35,7 +35,7 @@ fn get_list_values(list: &ListViewVector, list_idx: usize) -> Vec<i32> {
 
     // Extract values from elements vector
     let elements = list.elements();
-    if let Vector::Primitive(PrimitiveVector::I32(pvec)) = &**elements {
+    if let Datum::Primitive(PrimitiveVector::I32(pvec)) = &**elements {
         let mut values = Vec::new();
         for i in offset..(offset + size) {
             if let Some(val) = pvec.get(i) {
@@ -393,7 +393,7 @@ fn test_try_into_mut() {
     let sizes2: PrimitiveVector = PVectorMut::from_iter([2u32, 1]).freeze().into();
     let validity2 = Mask::new_true(2);
 
-    let shared_elements: Arc<Vector> = Arc::new(elements2.into());
+    let shared_elements: Arc<Datum> = Arc::new(elements2.into());
     let list2 = ListViewVector::new(
         shared_elements.clone(), // Clone the Arc to create another reference
         offsets2,

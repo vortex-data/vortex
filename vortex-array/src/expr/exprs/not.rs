@@ -8,7 +8,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 
 use crate::ArrayRef;
 use crate::compute::invert;
@@ -77,7 +77,7 @@ impl VTable for Not {
         invert(&child_result)
     }
 
-    fn execute(&self, _data: &Self::Instance, mut args: ExecutionArgs) -> VortexResult<Vector> {
+    fn execute(&self, _data: &Self::Instance, mut args: ExecutionArgs) -> VortexResult<Datum> {
         let child = args.vectors.pop().vortex_expect("Missing input child");
         Ok(child.into_bool().not().into())
     }

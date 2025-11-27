@@ -8,7 +8,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 use vortex_vector::fixed_size_list::FixedSizeListVector;
 
 use crate::ArrayOperator;
@@ -110,7 +110,7 @@ impl VTable for FixedSizeListVTable {
         FixedSizeListArray::try_new(elements, *list_size, validity, len)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
         Ok(unsafe {
             FixedSizeListVector::new_unchecked(
                 Arc::new(array.elements().execute_batch(ctx)?),

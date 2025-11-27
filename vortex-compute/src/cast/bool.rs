@@ -8,7 +8,7 @@ use vortex_dtype::DType;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 use vortex_vector::VectorOps;
 use vortex_vector::bool::BoolVector;
 use vortex_vector::null::NullVector;
@@ -17,7 +17,7 @@ use vortex_vector::primitive::PVector;
 use crate::cast::Cast;
 
 impl Cast for BoolVector {
-    fn cast(&self, dtype: &DType) -> VortexResult<Vector> {
+    fn cast(&self, dtype: &DType) -> VortexResult<Datum> {
         match dtype {
             DType::Null if self.validity().all_false() => {
                 // Can cast an all-null BoolVector to NullVector.

@@ -17,7 +17,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 use vortex_vector::VectorOps;
 
 use crate::ArrayRef;
@@ -130,7 +130,7 @@ impl VTable for GetItem {
         catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), stat)
     }
 
-    fn execute(&self, field_name: &FieldName, mut args: ExecutionArgs) -> VortexResult<Vector> {
+    fn execute(&self, field_name: &FieldName, mut args: ExecutionArgs) -> VortexResult<Datum> {
         let struct_dtype = args.dtypes[0]
             .as_struct_fields_opt()
             .ok_or_else(|| vortex_err!("Expected struct dtype for child of GetItem expression"))?;

@@ -12,7 +12,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_scalar::DecimalType;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 use vortex_vector::decimal::DVector;
 
 use crate::DeserializeMetadata;
@@ -124,7 +124,7 @@ impl VTable for DecimalVTable {
         })
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
         match_each_decimal_value_type!(array.values_type(), |D| {
             Ok(unsafe {
                 DVector::<D>::new_unchecked(

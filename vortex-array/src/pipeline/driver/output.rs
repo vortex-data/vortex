@@ -4,14 +4,14 @@
 use vortex_compute::filter::Filter;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 use vortex_vector::VectorMut;
 use vortex_vector::VectorMutOps;
 use vortex_vector::VectorOps;
 
 use crate::pipeline::BitView;
-use crate::pipeline::N;
 use crate::pipeline::Sink;
+use crate::pipeline::N;
 
 pub struct OutputSink {
     vector: VectorMut,
@@ -24,13 +24,13 @@ impl OutputSink {
         Self { vector }
     }
 
-    pub fn into_vector(self) -> Vector {
+    pub fn into_vector(self) -> Datum {
         self.vector.freeze()
     }
 }
 
 impl Sink for OutputSink {
-    fn consume(&mut self, selection: &BitView, vector: Vector) -> VortexResult<Vector> {
+    fn consume(&mut self, selection: &BitView, vector: Datum) -> VortexResult<Datum> {
         match selection.true_count() {
             0 => {
                 // No values to append

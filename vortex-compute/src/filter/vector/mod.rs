@@ -28,12 +28,12 @@
 //!
 //! To allow all vector types to implement filter generically over a "mask" type `M`, we must break
 //! the recursive trait bounds (e.g. from [`StructVector`] requiring `Vector: Filter<M>` for its
-//! fields) by manually implementing [`Filter`] for [`Vector`] and [`VectorMut`] for each concrete
+//! fields) by manually implementing [`Filter`] for [`Datum`] and [`VectorMut`] for each concrete
 //! mask type in this file.
 
 use vortex_buffer::BitView;
 use vortex_mask::Mask;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 use vortex_vector::VectorMut;
 use vortex_vector::match_each_vector;
 use vortex_vector::match_each_vector_mut;
@@ -54,8 +54,8 @@ mod struct_;
 // We manually implement Filter for Vector and VectorMut for each concrete mask type here to break
 // the recursive trait bounds.
 
-impl Filter<Mask> for &Vector {
-    type Output = Vector;
+impl Filter<Mask> for &Datum {
+    type Output = Datum;
 
     fn filter(self, selection: &Mask) -> Self::Output {
         match_each_vector!(self, |v| { v.filter(selection).into() })
@@ -70,8 +70,8 @@ impl Filter<Mask> for &mut VectorMut {
     }
 }
 
-impl<const NB: usize> Filter<BitView<'_, NB>> for &Vector {
-    type Output = Vector;
+impl<const NB: usize> Filter<BitView<'_, NB>> for &Datum {
+    type Output = Datum;
 
     fn filter(self, selection: &BitView<'_, NB>) -> Self::Output {
         match_each_vector!(self, |v| { v.filter(selection).into() })

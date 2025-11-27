@@ -12,7 +12,7 @@ use vortex_compute::mask::MaskValidity;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
@@ -108,7 +108,7 @@ impl VTable for MaskedVTable {
         MaskedArray::try_new(child, validity)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
         let vector = array.child().execute_batch(ctx)?;
         Ok(MaskValidity::mask_validity(vector, &array.validity_mask()))
     }

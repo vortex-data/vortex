@@ -3,6 +3,7 @@
 
 use std::any::Any;
 use std::fmt;
+use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::mem::transmute;
@@ -14,7 +15,7 @@ use vortex_dtype::DType;
 use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 
 use crate::functions::execution::ExecutionCtx;
 use crate::functions::scalar::ScalarFn;
@@ -59,7 +60,7 @@ pub trait VTable: 'static + Send + Sync {
     /// Binds the function for execution over a specific set of inputs.
     // TODO(ngates): in the future, we should return a kernel as a node in a physical plan and
     //  continue to run further cost-based optimizations prior to execution.
-    fn execute(&self, _options: &Self::Options, _ctx: &ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(&self, _options: &Self::Options, _ctx: &ExecutionCtx) -> VortexResult<Datum> {
         vortex_bail!("Execution is not supported for {}", self.id())
     }
 }
@@ -77,7 +78,7 @@ pub(super) trait DynScalarFnVTable: 'static + Send + Sync {
     fn debug_options(&self, options: &dyn Any, fmt: &mut fmt::Formatter<'_>) -> fmt::Result;
 
     fn return_dtype(&self, options: &dyn Any, arg_types: &[DType]) -> VortexResult<DType>;
-    fn execute(&self, options: &dyn Any, ctx: &ExecutionCtx) -> VortexResult<Vector>;
+    fn execute(&self, options: &dyn Any, ctx: &ExecutionCtx) -> VortexResult<Datum>;
 }
 
 #[repr(transparent)]
@@ -119,7 +120,7 @@ impl<V: VTable> DynScalarFnVTable for ScalarFnVTableAdapter<V> {
         V::return_dtype(&self.0, downcast::<V>(options), arg_types)
     }
 
-    fn execute(&self, options: &dyn Any, ctx: &ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(&self, options: &dyn Any, ctx: &ExecutionCtx) -> VortexResult<Datum> {
         // TODO(ngates): validate result matches expected dtype from ctx.
         V::execute(&self.0, downcast::<V>(options), ctx)
     }
@@ -132,7 +133,7 @@ fn downcast<V: VTable>(options: &dyn Any) -> &V::Options {
 }
 
 /// A vtable for scalar functions, registered against a VortexSession.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ScalarFnVTable(ArcRef<dyn DynScalarFnVTable>);
 
 impl ScalarFnVTable {
@@ -162,6 +163,14 @@ impl ScalarFnVTable {
         let options = self.0.deserialize_options(bytes)?;
         // SAFETY: options were created by this vtable.
         Ok(unsafe { ScalarFn::new_unchecked(self.clone(), options) })
+    }
+}
+
+impl fmt::Debug for ScalarFnVTable {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ScalarFnVTable")
+            .field("id", &self.id())
+            .finish()
     }
 }
 

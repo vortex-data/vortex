@@ -8,7 +8,7 @@ use vortex_dtype::FieldPath;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 
 use crate::ArrayRef;
 use crate::expr::ChildName;
@@ -69,7 +69,7 @@ impl VTable for Root {
         Ok(scope.clone())
     }
 
-    fn execute(&self, _data: &Self::Instance, _args: ExecutionArgs) -> VortexResult<Vector> {
+    fn execute(&self, _data: &Self::Instance, _args: ExecutionArgs) -> VortexResult<Datum> {
         vortex_bail!("Root expression is not executable")
     }
 

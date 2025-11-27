@@ -10,7 +10,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 use vortex_vector::VectorOps;
 use vortex_vector::bool::BoolVector;
 
@@ -94,7 +94,7 @@ impl VTable for IsNull {
         Some(eq(null_count_expr, lit(0u64)))
     }
 
-    fn execute(&self, _data: &Self::Instance, mut args: ExecutionArgs) -> VortexResult<Vector> {
+    fn execute(&self, _data: &Self::Instance, mut args: ExecutionArgs) -> VortexResult<Datum> {
         let child = args.vectors.pop().vortex_expect("Missing input child");
         Ok(BoolVector::new(
             child.validity().to_bit_buffer().not(),

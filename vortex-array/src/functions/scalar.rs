@@ -9,7 +9,7 @@ use std::hash::Hasher;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_utils::debug_with::DebugWith;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 
 use crate::functions::execution::ExecutionCtx;
 use crate::functions::ScalarFnVTable;
@@ -98,7 +98,7 @@ impl ScalarFn {
             .return_dtype(self.options.as_ref(), arg_types)
     }
 
-    pub fn execute(&self, ctx: &ExecutionCtx) -> VortexResult<Vector> {
+    pub fn execute(&self, ctx: &ExecutionCtx) -> VortexResult<Datum> {
         self.vtable.as_dyn().execute(self.options.as_ref(), ctx)
     }
 }

@@ -11,27 +11,27 @@ use itertools::Itertools;
 use prost::Message;
 use vortex_dtype::DType;
 use vortex_dtype::FieldNames;
-use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_proto::expr::select_opts::Opts;
 use vortex_proto::expr::FieldNames as ProtoFieldNames;
 use vortex_proto::expr::SelectOpts;
-use vortex_proto::expr::select_opts::Opts;
-use vortex_vector::Vector;
 use vortex_vector::struct_::StructVector;
+use vortex_vector::Datum;
 
-use crate::ArrayRef;
-use crate::IntoArray;
-use crate::ToCanonical;
+use crate::expr::expression::Expression;
+use crate::expr::field::DisplayFieldNames;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::ExpressionView;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::expr::expression::Expression;
-use crate::expr::field::DisplayFieldNames;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::ToCanonical;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FieldSelection {
@@ -161,7 +161,7 @@ impl VTable for Select {
         .into_array())
     }
 
-    fn execute(&self, selection: &FieldSelection, mut args: ExecutionArgs) -> VortexResult<Vector> {
+    fn execute(&self, selection: &FieldSelection, mut args: ExecutionArgs) -> VortexResult<Datum> {
         let child = args
             .vectors
             .pop()
@@ -334,12 +334,12 @@ mod tests {
 
     use super::select;
     use super::select_exclude;
-    use crate::IntoArray;
-    use crate::ToCanonical;
     use crate::arrays::StructArray;
     use crate::expr::exprs::root::root;
     use crate::expr::exprs::select::Select;
     use crate::expr::test_harness;
+    use crate::IntoArray;
+    use crate::ToCanonical;
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[

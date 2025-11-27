@@ -3,11 +3,17 @@
 
 use crate::functions::v2::ScalarFnRef;
 use crate::stats::ArrayStats;
+use crate::vtable::ArrayVTable;
 use crate::ArrayRef;
+use vortex_dtype::DType;
 
 #[derive(Clone, Debug)]
 pub struct ScalarFnArray {
-    scalar_fn: ScalarFnRef,
-    children: Vec<ArrayRef>,
-    stats: ArrayStats,
+    // NOTE(ngates): we should fix vtables so we don't have to hold this
+    pub(super) vtable: ArrayVTable,
+    pub(super) scalar_fn: ScalarFnRef,
+    pub(super) dtype: DType,
+    pub(super) len: usize,
+    pub(super) children: Vec<ArrayRef>,
+    pub(super) stats: ArrayStats,
 }

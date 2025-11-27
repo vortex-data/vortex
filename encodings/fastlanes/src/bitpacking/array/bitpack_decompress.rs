@@ -518,7 +518,7 @@ mod tests {
     /// Test that the execute method produces consistent results with other unpacking methods.
     #[test]
     fn test_execute_method_consistency() {
-        use vortex_vector::Vector;
+        use vortex_vector::Datum;
 
         // Test that execute(), unpack_to_primitive_vector(), and unpack_array() all produce consistent results.
         let test_consistency = |array: &PrimitiveArray, bit_width: u8| {
@@ -543,7 +543,7 @@ mod tests {
 
             // The executed vector should also have the correct length.
             match &executed {
-                Vector::Primitive(pv) => {
+                Datum::Primitive(pv) => {
                     assert_eq!(pv.len(), array.len(), "executed vector length mismatch");
                 }
                 _ => panic!("Expected primitive vector from execute"),
@@ -553,7 +553,7 @@ mod tests {
             // We convert unpack_array result to a vector using execute() to compare.
             let unpacked_executed = unpacked_array.into_array().execute().unwrap();
             match (&executed, &unpacked_executed) {
-                (Vector::Primitive(exec_pv), Vector::Primitive(unpack_pv)) => {
+                (Datum::Primitive(exec_pv), Datum::Primitive(unpack_pv)) => {
                     assert_eq!(
                         exec_pv.len(),
                         unpack_pv.len(),
@@ -602,7 +602,7 @@ mod tests {
         );
 
         match executed {
-            Vector::Primitive(pv) => {
+            Datum::Primitive(pv) => {
                 assert_eq!(
                     pv.len(),
                     1000,

@@ -12,7 +12,7 @@ use std::fmt::Formatter;
 use std::marker::PhantomData;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 
 /// An expression that wraps arbitrary scalar functions.
 ///
@@ -69,7 +69,7 @@ impl<F: ScalarFn> VTable for ScalarFnExpr<F> {
         vortex_bail!("Scalar function evaluation not yet implemented")
     }
 
-    fn execute(&self, data: &Self::Instance, args: ExecutionArgs) -> VortexResult<Vector> {
+    fn execute(&self, data: &Self::Instance, args: ExecutionArgs) -> VortexResult<Datum> {
         vortex_bail!("Scalar function execution not yet implemented")
     }
 

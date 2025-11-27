@@ -9,7 +9,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 use vortex_vector::binaryview::BinaryVector;
 use vortex_vector::binaryview::BinaryView;
 use vortex_vector::binaryview::StringVector;
@@ -102,7 +102,7 @@ impl VTable for VarBinViewVTable {
         VarBinViewArray::try_new(views, Arc::from(buffers), dtype.clone(), validity)
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
         Ok(match array.dtype() {
             DType::Utf8(_) => unsafe {
                 StringVector::new_unchecked(

@@ -5,8 +5,7 @@
 // TODO(ngates): these definitions should be lifted out of the functions module.
 
 use vortex_dtype::DType;
-use vortex_vector::Vector;
-use vortex_vector::VectorOps;
+use vortex_vector::{Datum, Datum, VectorOps};
 
 /// Context provided when executing an object using vectorized execution.
 pub struct ExecutionCtx {
@@ -15,9 +14,9 @@ pub struct ExecutionCtx {
     /// The expected return dtype of the execution.
     return_dtype: DType,
     /// The input data types.
-    input_types: Vec<DType>,
-    /// The input vectors.
-    input_vectors: Vec<Vector>,
+    input_dtypes: Vec<DType>,
+    /// The input datums.
+    input_datums: Vec<Datum>,
 }
 
 impl ExecutionCtx {
@@ -25,17 +24,20 @@ impl ExecutionCtx {
         row_count: usize,
         return_dtype: DType,
         input_types: Vec<DType>,
-        input_vectors: Vec<Vector>,
+        input_datums: Vec<impl Into<Datum>>,
     ) -> Self {
+        let input_datums: Vec<Datum> = input_datums.into_iter().map(|d| d.into()).collect();
         assert!(
-            input_vectors.iter().all(|v| v.len() == row_count),
+            input_datums
+                .iter()
+                .all(|d| d.as_vector().is_none_or(|v| v.len() == row_count)),
             "All input vectors must have the same length as row_count"
         );
         Self {
             row_count,
             return_dtype,
-            input_types,
-            input_vectors,
+            input_dtypes: input_types,
+            input_datums,
         }
     }
 
@@ -48,10 +50,10 @@ impl ExecutionCtx {
     }
 
     pub fn input_type(&self, idx: usize) -> &DType {
-        &self.input_types[idx]
+        &self.input_dtypes[idx]
     }
 
-    pub fn input_vectors(&self, idx: usize) -> &Vector {
-        &self.input_vectors[idx]
+    pub fn input_datums(&self, idx: usize) -> &Datum {
+        &self.input_datums[idx]
     }
 }

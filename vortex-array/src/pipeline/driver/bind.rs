@@ -3,21 +3,21 @@
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 
 use crate::array::ArrayOperator;
+use crate::pipeline::driver::allocation::VectorAllocation;
+use crate::pipeline::driver::input::InputKernel;
+use crate::pipeline::driver::Node;
+use crate::pipeline::driver::NodeKind;
 use crate::pipeline::BindContext;
 use crate::pipeline::Kernel;
 use crate::pipeline::VectorId;
-use crate::pipeline::driver::Node;
-use crate::pipeline::driver::NodeKind;
-use crate::pipeline::driver::allocation::VectorAllocation;
-use crate::pipeline::driver::input::InputKernel;
 
 pub(crate) fn bind_kernels(
     dag: Vec<Node>,
     allocation_plan: &VectorAllocation,
-    mut all_batch_inputs: Vec<Option<Vector>>,
+    mut all_batch_inputs: Vec<Option<Datum>>,
 ) -> VortexResult<Vec<Box<dyn Kernel>>> {
     let mut kernels = Vec::with_capacity(dag.len());
     for node in dag {
@@ -64,7 +64,7 @@ pub(crate) fn bind_kernels(
 
 struct PipelineBindContext<'a> {
     children: &'a [VectorId],
-    batch_inputs: &'a mut [Option<Vector>],
+    batch_inputs: &'a mut [Option<Datum>],
 }
 
 impl BindContext for PipelineBindContext<'_> {
@@ -72,7 +72,7 @@ impl BindContext for PipelineBindContext<'_> {
         self.children[pipelined_child_idx]
     }
 
-    fn batch_input(&mut self, batch_child_idx: usize) -> Vector {
+    fn batch_input(&mut self, batch_child_idx: usize) -> Datum {
         self.batch_inputs[batch_child_idx]
             .take()
             .vortex_expect("Batch input vector has already been consumed")

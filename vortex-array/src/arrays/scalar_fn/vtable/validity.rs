@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use crate::arrays::scalar_fn::array::ScalarFnArray;
+use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
+use crate::functions::NullHandling;
+use crate::vtable::ValidityVTable;
+use crate::Array;
+use vortex_error::VortexExpect;
+use vortex_mask::Mask;
+use vortex_vector::VectorOps;
+
+impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
+    fn is_valid(array: &ScalarFnArray, index: usize) -> bool {
+        array.scalar_at(index).is_valid()
+    }
+
+    fn all_valid(array: &ScalarFnArray) -> bool {
+        match array.scalar_fn.signature().null_handling() {
+            NullHandling::Propagate | NullHandling::AbsorbsNull => {
+                // Requires all children to guarantee all_valid
+                array.children().iter().all(|child| child.all_valid())
+            }
+            NullHandling::Custom => {
+                // We cannot guarantee that the array is all valid without evaluating the function
+                false
+            }
+        }
+    }
+
+    fn all_invalid(array: &ScalarFnArray) -> bool {
+        match array.scalar_fn.signature().null_handling() {
+            NullHandling::Propagate => {
+                // All null if any child is all null
+                array.children().iter().any(|child| child.all_invalid())
+            }
+            NullHandling::AbsorbsNull | NullHandling::Custom => {
+                // We cannot guarantee that the array is all valid without evaluating the function
+                false
+            }
+        }
+    }
+
+    fn validity_mask(array: &ScalarFnArray) -> Mask {
+        array
+            .execute()
+            .vortex_expect("Validity mask computation should be fallible")
+            .validity()
+            .clone()
+    }
+}

@@ -121,10 +121,10 @@ mod macros;
 
 use vortex_dtype::NativePType;
 
-use crate::Vector;
+use crate::Datum;
 use crate::VectorMut;
 
-impl From<PrimitiveVector> for Vector {
+impl From<PrimitiveVector> for Datum {
     fn from(v: PrimitiveVector) -> Self {
         Self::Primitive(v)
     }
@@ -136,7 +136,7 @@ impl<T: NativePType> From<PVector<T>> for PrimitiveVector {
     }
 }
 
-impl<T: NativePType> From<PVector<T>> for Vector {
+impl<T: NativePType> From<PVector<T>> for Datum {
     fn from(v: PVector<T>) -> Self {
         Self::Primitive(PrimitiveVector::from(v))
     }

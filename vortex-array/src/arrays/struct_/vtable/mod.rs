@@ -6,14 +6,12 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
+use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_vector::Vector;
 use vortex_vector::struct_::StructVector;
+use vortex_vector::Datum;
 
-use crate::ArrayOperator;
-use crate::EmptyMetadata;
 use crate::arrays::struct_::StructArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
@@ -23,6 +21,8 @@ use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
+use crate::ArrayOperator;
+use crate::EmptyMetadata;
 
 mod array;
 mod canonical;
@@ -112,7 +112,7 @@ impl VTable for StructVTable {
         StructArray::try_new_with_dtype(children, struct_dtype.clone(), len, validity)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
         let fields: Box<[_]> = array
             .fields()
             .iter()

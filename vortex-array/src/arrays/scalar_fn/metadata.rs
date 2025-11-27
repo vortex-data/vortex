@@ -6,6 +6,6 @@ use vortex_dtype::DType;
 
 #[derive(Clone, Debug)]
 pub struct ScalarFnMetadata {
-    pub scalar_fn: ScalarFnRef,
-    pub child_dtypes: Vec<DType>,
+    pub(super) scalar_fn: ScalarFnRef,
+    pub(super) child_dtypes: Vec<DType>,
 }

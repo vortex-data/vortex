@@ -5,22 +5,22 @@
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 use vortex_vector::VectorMut;
 use vortex_vector::VectorMutOps;
 
-use crate::Array;
-use crate::pipeline::N;
-use crate::pipeline::VectorId;
 use crate::pipeline::driver::Node;
 use crate::pipeline::driver::NodeId;
+use crate::pipeline::VectorId;
+use crate::pipeline::N;
+use crate::Array;
 
 #[derive(Debug)]
 pub struct VectorAllocation {
     /// Where each node writes its output
     pub(crate) output_targets: Vec<VectorId>,
     /// The actual allocated vectors
-    pub(crate) vectors: Vec<Vector>,
+    pub(crate) vectors: Vec<Datum>,
 }
 
 // ============================================================================

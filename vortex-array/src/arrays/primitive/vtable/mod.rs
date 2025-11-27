@@ -9,7 +9,7 @@ use vortex_dtype::PType;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 use vortex_vector::primitive::PVector;
 
 use crate::EmptyMetadata;
@@ -117,7 +117,7 @@ impl VTable for PrimitiveVTable {
         })
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
         Ok(match_each_native_ptype!(array.ptype(), |T| {
             PVector::new(array.buffer::<T>(), array.validity_mask()).into()
         }))

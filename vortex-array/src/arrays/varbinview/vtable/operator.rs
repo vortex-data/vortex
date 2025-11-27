@@ -7,19 +7,19 @@ use vortex_buffer::ByteBuffer;
 use vortex_compute::filter::Filter;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_vector::Vector;
 use vortex_vector::binaryview::BinaryVector;
 use vortex_vector::binaryview::BinaryViewTypeUpcast;
 use vortex_vector::binaryview::StringVector;
+use vortex_vector::Datum;
 
-use crate::ArrayRef;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
+use crate::execution::kernel;
 use crate::execution::BatchKernelRef;
 use crate::execution::BindCtx;
-use crate::execution::kernel;
 use crate::vtable::OperatorVTable;
 use crate::vtable::ValidityHelper;
+use crate::ArrayRef;
 
 impl OperatorVTable<VarBinViewVTable> for VarBinViewVTable {
     fn bind(
@@ -44,12 +44,12 @@ impl OperatorVTable<VarBinViewVTable> for VarBinViewVTable {
 
             match dtype {
                 // SAFETY: the incoming array has the same validation as the vector
-                DType::Utf8(_) => Ok(Vector::from_string(unsafe {
+                DType::Utf8(_) => Ok(Datum::from_string(unsafe {
                     StringVector::new_unchecked(views, buffers, validity)
                 })),
 
                 // SAFETY: the incoming array has the same validation as the vector
-                DType::Binary(_) => Ok(Vector::from_binary(unsafe {
+                DType::Binary(_) => Ok(Datum::from_binary(unsafe {
                     BinaryVector::new_unchecked(views, buffers, validity)
                 })),
                 _ => unreachable!("invalid dtype for VarBinViewArray {dtype}"),
@@ -65,11 +65,11 @@ mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
 
-    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::arrays::VarBinViewArray;
     use crate::builders::ArrayBuilder;
     use crate::builders::VarBinViewBuilder;
+    use crate::IntoArray;
 
     #[fixture]
     fn strings() -> VarBinViewArray {

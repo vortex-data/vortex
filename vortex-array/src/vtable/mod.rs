@@ -27,14 +27,14 @@ pub use validity::*;
 pub use visitor::*;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_vector::Vector;
+use vortex_error::VortexResult;
+use vortex_vector::Datum;
 
-use crate::Array;
-use crate::IntoArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
+use crate::Array;
+use crate::IntoArray;
 
 /// The array [`VTable`] encapsulates logic for an Array type within Vortex.
 ///
@@ -125,6 +125,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// * Checking that any buffers for data or validity have the appropriate size for the
     ///   encoding
     /// * Running UTF-8 validation for any buffers that are expected to hold flat UTF-8 data
+    // TODO(ngates): take the parts by ownership, since most arrays need them anyway
     fn build(
         &self,
         dtype: &DType,
@@ -134,7 +135,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         children: &dyn ArrayChildren,
     ) -> VortexResult<Self::Array>;
 
-    /// Executes this array tree to return a canonical [`Vector`].
+    /// Executes this array tree to return a canonical [`Datum`].
     ///
     /// The returned vector must be the appropriate one for the array's logical type (they are
     /// one-to-one with Vortex `DType`s), and should respect the output nullability of the array.
@@ -144,7 +145,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     ///
     /// Implementations should recursively call [`crate::ArrayOperator::execute_batch`] on child
     /// arrays as needed.
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
         vortex_bail!(
             "Array {} does not support vector execution",
             Self::encoding(array).id()

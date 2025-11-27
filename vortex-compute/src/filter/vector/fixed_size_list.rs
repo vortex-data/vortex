@@ -6,12 +6,12 @@ use std::sync::Arc;
 use vortex_mask::Mask;
 use vortex_mask::MaskIter;
 use vortex_mask::MaskMut;
-use vortex_vector::Vector;
+use vortex_vector::fixed_size_list::FixedSizeListVector;
+use vortex_vector::fixed_size_list::FixedSizeListVectorMut;
+use vortex_vector::Datum;
 use vortex_vector::VectorMut;
 use vortex_vector::VectorMutOps;
 use vortex_vector::VectorOps;
-use vortex_vector::fixed_size_list::FixedSizeListVector;
-use vortex_vector::fixed_size_list::FixedSizeListVectorMut;
 
 use crate::filter::Filter;
 
@@ -27,7 +27,7 @@ const MASK_EXPANSION_DENSITY_THRESHOLD: f64 = 0.05;
 impl<M> Filter<M> for &FixedSizeListVector
 where
     for<'a> &'a Mask: Filter<M, Output = Mask>,
-    for<'a> &'a Vector: Filter<Mask, Output = Vector>,
+    for<'a> &'a Datum: Filter<Mask, Output = Datum>,
 {
     type Output = FixedSizeListVector;
 

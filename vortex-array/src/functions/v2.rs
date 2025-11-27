@@ -8,7 +8,7 @@ use std::sync::Arc;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_utils::dyn_traits::{DynEq, DynHash};
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 
 /// A reference-counted pointer to a scalar function.
 pub type ScalarFnRef = Arc<dyn ScalarFn>;
@@ -27,7 +27,8 @@ pub trait ScalarFn: 'static + Send + Sync + Debug + DynEq + DynHash {
     /// Binds the function for execution over a specific set of inputs.
     // TODO(ngates): in the future, we should return a kernel as a node in a physical plan and
     //  continue to run further cost-based optimizations prior to execution.
-    fn execute(&self, _ctx: &ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(&self, ctx: &ExecutionCtx) -> VortexResult<Datum> {
+        _ = ctx;
         vortex_bail!("Execution is not supported for {}", self.id())
     }
 }
