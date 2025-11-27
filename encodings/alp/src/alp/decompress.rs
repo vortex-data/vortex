@@ -65,19 +65,26 @@ pub fn decompress_into_vector<T: ALPFloat>(
     let validity = encoded_primitive.validity().clone();
     let encoded_mutable = encoded_primitive.into_mut();
 
+    // TODO(0ax1): implement into<T> for primitive vector rather than a diff fn per type
     if T::PTYPE == PType::F32 {
-        let int_buffer = encoded_mutable.into_i32().into_parts().0;
-        decompress_from_buffer::<T, i32>(
-            int_buffer,
+        // SAFETY: `BufferMut<i32>` and `BufferMut<T::ALPInt>` have the same memory layout.
+        let alp_buffer: BufferMut<T::ALPInt> =
+            unsafe { transmute(encoded_mutable.into_i32().into_parts().0) };
+
+        decompress_from_buffer::<T>(
+            alp_buffer,
             exponents,
             patches_vectors,
             patches_offset,
             validity,
         )
     } else if T::PTYPE == PType::F64 {
-        let int_buffer = encoded_mutable.into_i64().into_parts().0;
-        decompress_from_buffer::<T, i64>(
-            int_buffer,
+        // SAFETY: `BufferMut<i64>` and `BufferMut<T::ALPInt>` have the same memory layout.
+        let alp_buffer: BufferMut<T::ALPInt> =
+            unsafe { transmute(encoded_mutable.into_i64().into_parts().0) };
+
+        decompress_from_buffer::<T>(
+            alp_buffer,
             exponents,
             patches_vectors,
             patches_offset,
@@ -88,44 +95,33 @@ pub fn decompress_into_vector<T: ALPFloat>(
     }
 }
 
-fn decompress_from_buffer<T: ALPFloat, IntType>(
-    int_buffer: BufferMut<IntType>,
+fn decompress_from_buffer<T: ALPFloat>(
+    mut alp_buffer: BufferMut<T::ALPInt>,
     exponents: Exponents,
     patches_vectors: Option<(Vector, Vector, Option<Vector>)>,
     patches_offset: usize,
     validity: Mask,
-) -> VortexResult<Vector>
-where
-    IntType: Copy + 'static,
-{
-    // Convert to BufferMut<T::ALPInt> for ALP decompression.
-    let mut alp_buffer: BufferMut<T::ALPInt> = unsafe { transmute(int_buffer) };
-
-    // Perform ALP decompression in-place.
+) -> VortexResult<Vector> {
     <T>::decode_slice_inplace(alp_buffer.as_mut_slice(), exponents);
 
     // Convert to float buffer.
     let mut decoded_buffer: BufferMut<T> = unsafe { transmute(alp_buffer) };
 
-    // Apply patches if they exist
-    if let Some((indices_vector, values_vector, _chunk_offsets_vector)) = patches_vectors {
-        let indices_primitive = indices_vector.into_primitive();
-        let values_primitive = values_vector.into_primitive();
+    // Apply patches if they exist.
+    if let Some((patches_indices, patches_values, _)) = patches_vectors {
+        let patches_indices = patches_indices.into_primitive();
+        let patches_values = patches_values.into_primitive();
 
-        match_each_unsigned_integer_ptype!(indices_primitive.ptype(), |I| {
-            let indices_vector = I::downcast(indices_primitive.into_mut());
-            let values_vector = T::downcast(values_primitive.into_mut());
-
-            let indices_buffer = indices_vector.into_parts().0;
-            let values_buffer = values_vector.into_parts().0;
+        match_each_unsigned_integer_ptype!(patches_indices.ptype(), |I| {
+            let indices_buffer = I::downcast(patches_indices.into_mut()).into_parts().0;
+            let values_buffer = T::downcast(patches_values.into_mut()).into_parts().0;
 
             let indices_slice = indices_buffer.as_slice();
             let values_slice = values_buffer.as_slice();
             let decoded_slice = decoded_buffer.as_mut_slice();
 
             for (&idx, &value) in indices_slice.iter().zip(values_slice.iter()) {
-                let idx: usize = idx.as_();
-                decoded_slice[idx - patches_offset] = value;
+                decoded_slice[AsPrimitive::<usize>::as_(idx) - patches_offset] = value;
             }
         });
     }
