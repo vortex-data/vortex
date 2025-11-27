@@ -358,8 +358,10 @@ fn arrow_compare(
         let nulls = NullBuffer::union(lhs.nulls(), rhs.nulls());
         BooleanArray::new(values, nulls)
     } else {
-        let lhs = Datum::try_new(left)?;
-        let rhs = Datum::try_new_with_target_datatype(right, lhs.data_type())?;
+        let left_canonical = left.to_canonical();
+        let right_canonical = right.to_canonical();
+        let lhs = Datum::try_new(left_canonical.as_ref())?;
+        let rhs = Datum::try_new_with_target_datatype(right_canonical.as_ref(), lhs.data_type())?;
 
         match operator {
             Operator::Eq => cmp::eq(&lhs, &rhs)?,

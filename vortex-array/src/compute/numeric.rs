@@ -265,8 +265,13 @@ fn arrow_numeric(
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
     let len = lhs.len();
 
-    let left = Datum::try_new(lhs)?;
-    let right = Datum::try_new_with_target_datatype(rhs, left.data_type())?;
+    // Arrow arithmetic doesn't support Dictionary types directly, so we
+    // canonicalize first to get the underlying primitive values.
+    let lhs_canonical = lhs.to_canonical();
+    let rhs_canonical = rhs.to_canonical();
+
+    let left = Datum::try_new(lhs_canonical.as_ref())?;
+    let right = Datum::try_new_with_target_datatype(rhs_canonical.as_ref(), left.data_type())?;
 
     let array = match operator {
         NumericOperator::Add => arrow_arith::numeric::add(&left, &right)?,
