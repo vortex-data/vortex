@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferHandle;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
@@ -75,13 +76,16 @@ impl VTable for VarBinViewVTable {
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
-        buffers: &[ByteBuffer],
+        buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<VarBinViewArray> {
         if buffers.is_empty() {
             vortex_bail!("Expected at least 1 buffer, got {}", buffers.len());
         }
-        let mut buffers: Vec<ByteBuffer> = buffers.to_vec();
+        let mut buffers: Vec<ByteBuffer> = buffers
+            .iter()
+            .map(|b| b.clone().try_to_bytes())
+            .collect::<VortexResult<Vec<_>>>()?;
         let views = buffers.pop().vortex_expect("buffers non-empty");
 
         let views = Buffer::<BinaryView>::from_byte_buffer(views);

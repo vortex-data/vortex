@@ -3,7 +3,7 @@
 
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_native_ptype;
@@ -76,13 +76,13 @@ impl VTable for PrimitiveVTable {
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
-        buffers: &[ByteBuffer],
+        buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<PrimitiveArray> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let buffer = buffers[0].clone();
+        let buffer = buffers[0].clone().try_to_bytes()?;
 
         let validity = if children.is_empty() {
             Validity::from(dtype.nullability())

@@ -7,6 +7,7 @@ use std::hash::Hasher;
 
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferHandle;
 use vortex_mask::Mask;
 
 use crate::Array;
@@ -251,5 +252,24 @@ impl ArrayEq for Patches {
             && self.offset() == other.offset()
             && self.indices().array_eq(other.indices(), precision)
             && self.values().array_eq(other.values(), precision)
+    }
+}
+
+impl ArrayHash for BufferHandle {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+        match self {
+            BufferHandle::Buffer(b) => b.array_hash(state, precision),
+            BufferHandle::DeviceBuffer => (),
+        }
+    }
+}
+
+impl ArrayEq for BufferHandle {
+    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+        match (self, other) {
+            (BufferHandle::Buffer(b), BufferHandle::Buffer(b2)) => b.array_eq(b2, precision),
+            (BufferHandle::DeviceBuffer, BufferHandle::DeviceBuffer) => true,
+            _ => false,
+        }
     }
 }

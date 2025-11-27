@@ -4,7 +4,7 @@
 use std::hash::Hash;
 use std::ops::Range;
 
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -82,7 +82,7 @@ impl VTable for NullVTable {
         _dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
-        _buffers: &[ByteBuffer],
+        _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
     ) -> VortexResult<NullArray> {
         Ok(NullArray::new(len))

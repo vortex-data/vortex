@@ -9,7 +9,7 @@ use std::mem::transmute;
 use std::sync::Arc;
 
 use arcref::ArcRef;
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -42,7 +42,7 @@ pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
         dtype: &DType,
         len: usize,
         metadata: &[u8],
-        buffers: &[ByteBuffer],
+        buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ArrayRef>;
 
@@ -84,7 +84,7 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         dtype: &DType,
         len: usize,
         metadata_bytes: &[u8],
-        buffers: &[ByteBuffer],
+        buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ArrayRef> {
         let metadata = V::deserialize(metadata_bytes)?;
@@ -99,12 +99,17 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         array: &dyn Array,
         children: &dyn ArrayChildren,
     ) -> VortexResult<ArrayRef> {
+        let buffers: Vec<BufferHandle> = array
+            .buffers()
+            .into_iter()
+            .map(BufferHandle::Buffer)
+            .collect();
         V::build(
             &self.0,
             array.dtype(),
             array.len(),
             &V::metadata(array.as_::<V>())?,
-            array.buffers().as_slice(),
+            &buffers,
             children,
         )
         .map(|a| a.into_array())

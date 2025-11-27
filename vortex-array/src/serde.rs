@@ -298,7 +298,7 @@ impl ArrayParts {
             .ok_or_else(|| vortex_err!("Unknown encoding: {}", encoding_id))?;
 
         let buffers: Vec<_> = (0..self.nbuffers())
-            .map(|idx| self.buffer(idx))
+            .map(|idx| self.buffer(idx).map(vortex_buffer::BufferHandle::Buffer))
             .try_collect()?;
 
         let children = ArrayPartsChildren { parts: self, ctx };
