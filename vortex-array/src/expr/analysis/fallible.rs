@@ -36,7 +36,7 @@ mod tests {
     }
 
     #[test]
-    fn eq_defaults_to_fallible() {
+    fn eq_not_fallible() {
         let expr = eq(col("a"), lit(5));
         let labels = label_is_fallible(&expr);
         assert_eq!(labels.get(&expr), Some(&false));
