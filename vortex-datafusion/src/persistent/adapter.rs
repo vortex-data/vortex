@@ -27,7 +27,7 @@
 //!
 //! `datafusion/datasource/src/schema_adapter.rs` -> for can_cast_field (which is crate-private)
 //!
-//! See https://github.com/apache/datafusion/issues/18957
+//! See <https://github.com/apache/datafusion/issues/18957>
 
 use std::fmt::Debug;
 use std::sync::Arc;

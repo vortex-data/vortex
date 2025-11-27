@@ -101,7 +101,7 @@ impl FileOpener for VortexOpener {
         // We create our custom expression and schema adapters. The schema adapter is just the
         // DF default adapter. Our expression adapter is currently built to work around a bug
         // in the upstream adapter.
-        // See
+        // See: https://github.com/apache/datafusion/issues/17114
         let expr_adapter_factory = DEFAULT_EXPR_ADAPTER.clone();
         let schema_adapter_factory = DEFAULT_SCHEMA_ADAPTER.clone();
 
@@ -119,7 +119,6 @@ impl FileOpener for VortexOpener {
             Some(indices) => Arc::new(table_schema.project(indices)?),
         };
 
-        // We know the file schema before we open it.
         let schema_adapter =
             schema_adapter_factory.create(projected_table_schema, table_schema.clone());
 
