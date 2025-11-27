@@ -35,7 +35,7 @@ mod varbinview;
 
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
-
+mod scalar_fn;
 // TODO(connor): Export exact types, not glob.
 
 pub use bool::*;
