@@ -41,7 +41,7 @@ use vortex_array::vtable::ValidityVTable;
 use vortex_array::vtable::VisitorVTable;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
 use vortex_dtype::NativePType;
@@ -110,7 +110,7 @@ impl VTable for SparseVTable {
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
-        buffers: &[ByteBuffer],
+        buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<SparseArray> {
         if children.len() != 2 {
@@ -135,7 +135,10 @@ impl VTable for SparseVTable {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let fill_value = Scalar::new(dtype.clone(), ScalarValue::from_protobytes(&buffers[0])?);
+        let fill_value = Scalar::new(
+            dtype.clone(),
+            ScalarValue::from_protobytes(&buffers[0].clone().try_to_bytes()?)?,
+        );
 
         SparseArray::try_new(patch_indices, patch_values, len, fill_value)
     }

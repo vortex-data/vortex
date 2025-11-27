@@ -49,6 +49,7 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValiditySliceHelper;
 use vortex_array::vtable::ValidityVTableFromValiditySliceHelper;
 use vortex_array::vtable::VisitorVTable;
+use vortex_buffer::BufferHandle;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
@@ -128,7 +129,7 @@ impl VTable for PcoVTable {
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
-        buffers: &[ByteBuffer],
+        buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<PcoArray> {
         let validity = if children.is_empty() {
@@ -141,8 +142,14 @@ impl VTable for PcoVTable {
         };
 
         vortex_ensure!(buffers.len() >= metadata.0.chunks.len());
-        let chunk_metas = buffers[..metadata.0.chunks.len()].to_vec();
-        let pages = buffers[metadata.0.chunks.len()..].to_vec();
+        let chunk_metas = buffers[..metadata.0.chunks.len()]
+            .iter()
+            .map(|b| b.clone().try_to_bytes())
+            .collect::<VortexResult<Vec<_>>>()?;
+        let pages = buffers[metadata.0.chunks.len()..]
+            .iter()
+            .map(|b| b.clone().try_to_bytes())
+            .collect::<VortexResult<Vec<_>>>()?;
 
         let expected_n_pages = metadata
             .0
