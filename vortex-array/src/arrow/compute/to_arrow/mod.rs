@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod canonical;
+mod dict;
 mod list;
 mod null_buffer;
 mod temporal;
