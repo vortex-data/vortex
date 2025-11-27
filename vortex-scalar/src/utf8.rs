@@ -16,6 +16,7 @@ use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_utils::aliases::StringEscape;
 
 use crate::InnerScalarValue;
 use crate::Scalar;
@@ -36,7 +37,7 @@ impl Display for Utf8Scalar<'_> {
         #[expect(clippy::use_debug, reason = "Escape escape codes")]
         match &self.value {
             None => write!(f, "null"),
-            Some(v) => write!(f, "\"{:?}\"", v.as_str()),
+            Some(v) => write!(f, "\"{}\"", StringEscape(v.as_str())),
         }
     }
 }
