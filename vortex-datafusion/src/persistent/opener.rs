@@ -167,11 +167,6 @@ impl FileOpener for VortexOpener {
                 DataFusionError::Execution(format!("Failed to convert file schema to arrow: {e}"))
             })?);
 
-            // Compute the schema we use to scan the file. This will include any fields
-            // from the table_schema that also exist in the file schema.
-            // let logical_file_schema =
-            //     compute_logical_file_schema(&physical_file_schema, &table_schema);
-
             let partition_values = partition_fields
                 .iter()
                 .cloned()
