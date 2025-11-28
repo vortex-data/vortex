@@ -99,7 +99,21 @@ jobs:
           uv run --all-packages make html
         working-directory: docs/
 
+  python-wheel-build:
+    name: "Python (wheel build)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: mlugg/setup-zig@v2
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
+        with:
+          sync: false
+          prune-cache: false
       - name: Ensure wheel and sdist can be built on Linux - PyVortex
         shell: bash
         run: |
@@ -433,11 +447,10 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v5
-      - name: Install Visual Studio Build Tools (Windows)
+      # VS Build Tools pre-installed on windows22-full-x64, just need to setup environment
+      - name: Setup MSVC environment (Windows)
         if: matrix.os == 'windows-x64'
-        shell: bash
-        run: |
-          choco install visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --passive" -y
+        uses: ilammy/msvc-dev-cmd@v1
       - name: Setup Python (Windows)
         if: matrix.os == 'windows-x64'
         uses: actions/setup-python@v5
