@@ -380,6 +380,7 @@ impl ALPArray {
     }
 
     /// Consumes the array and returns its parts.
+    /// Consumes the array and returns its parts.
     #[inline]
     pub fn into_parts(self) -> (ArrayRef, Exponents, Option<Patches>, DType) {
         (self.encoded, self.exponents, self.patches, self.dtype)
