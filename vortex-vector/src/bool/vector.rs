@@ -73,6 +73,11 @@ impl BoolVector {
     pub fn bits(&self) -> &BitBuffer {
         &self.bits
     }
+
+    /// Returns the bits buffer of the boolean vector.
+    pub fn into_bits(self) -> BitBuffer {
+        self.bits
+    }
 }
 
 impl VectorOps for BoolVector {

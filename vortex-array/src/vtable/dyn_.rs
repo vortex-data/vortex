@@ -193,6 +193,10 @@ pub trait ArrayVTableExt {
 
     /// Wraps the vtable into an `ArrayVTable` by owned reference.
     fn into_vtable(self) -> ArrayVTable;
+
+    fn to_vtable(&self) -> ArrayVTable
+    where
+        Self: Clone;
 }
 
 impl<V: VTable> ArrayVTableExt for V {
@@ -204,6 +208,13 @@ impl<V: VTable> ArrayVTableExt for V {
 
     fn into_vtable(self) -> ArrayVTable {
         ArrayVTable::new_arc(Arc::new(ArrayVTableAdapter(self)))
+    }
+
+    fn to_vtable(&self) -> ArrayVTable
+    where
+        Self: Clone,
+    {
+        ArrayVTable::new_arc(Arc::new(ArrayVTableAdapter(self.clone())))
     }
 }
 

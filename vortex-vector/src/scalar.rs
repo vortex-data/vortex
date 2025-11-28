@@ -44,6 +44,10 @@ impl ScalarOps for Scalar {
         match_each_scalar!(self, |v| { v.is_valid() })
     }
 
+    fn is_invalid(&self) -> bool {
+        !self.is_valid()
+    }
+
     fn repeat(&self, n: usize) -> VectorMut {
         match_each_scalar!(self, |v| { v.repeat(n) })
     }

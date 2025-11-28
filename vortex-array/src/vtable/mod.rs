@@ -125,6 +125,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// * Checking that any buffers for data or validity have the appropriate size for the
     ///   encoding
     /// * Running UTF-8 validation for any buffers that are expected to hold flat UTF-8 data
+    // TODO(ngates): take the parts by ownership, since most arrays need them anyway
     fn build(
         &self,
         dtype: &DType,

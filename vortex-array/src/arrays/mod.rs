@@ -29,13 +29,13 @@ mod listview;
 mod masked;
 mod null;
 mod primitive;
+mod scalar_fn;
 mod struct_;
 mod varbin;
 mod varbinview;
 
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
-
 // TODO(connor): Export exact types, not glob.
 
 pub use bool::*;

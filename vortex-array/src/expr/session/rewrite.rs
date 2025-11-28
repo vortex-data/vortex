@@ -11,12 +11,13 @@ use vortex_utils::aliases::dash_map::DashMap;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::VTable;
-use crate::expr::transform::DynParentReduceRule;
-use crate::expr::transform::DynReduceRule;
-use crate::expr::transform::DynTypedParentReduceRule;
-use crate::expr::transform::DynTypedReduceRule;
-use crate::expr::transform::rules::AnyParent;
-use crate::expr::transform::rules::ParentMatcher;
+use crate::expr::transform::rules::Any;
+use crate::expr::transform::rules::DynParentReduceRule;
+use crate::expr::transform::rules::DynReduceRule;
+use crate::expr::transform::rules::DynTypedParentReduceRule;
+use crate::expr::transform::rules::DynTypedReduceRule;
+use crate::expr::transform::rules::Exact;
+use crate::expr::transform::rules::Matcher;
 use crate::expr::transform::rules::ParentReduceRule;
 use crate::expr::transform::rules::ReduceRule;
 use crate::expr::transform::rules::RuleContext;
@@ -37,14 +38,12 @@ impl<V: VTable, R: Debug> Debug for ReduceRuleAdapter<V, R> {
 }
 
 /// Adapter for ParentReduceRule
-struct ReduceParentRuleAdapter<Child: VTable, Parent: ParentMatcher, R> {
+struct ReduceParentRuleAdapter<Child: VTable, Parent: Matcher, R> {
     rule: R,
     _phantom: PhantomData<(Child, Parent)>,
 }
 
-impl<Child: VTable, Parent: ParentMatcher, R: Debug> Debug
-    for ReduceParentRuleAdapter<Child, Parent, R>
-{
+impl<Child: VTable, Parent: Matcher, R: Debug> Debug for ReduceParentRuleAdapter<Child, Parent, R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ReduceParentRuleAdapter")
             .field("rule", &self.rule)
@@ -85,7 +84,7 @@ where
 impl<Child, Parent, R> DynParentReduceRule for ReduceParentRuleAdapter<Child, Parent, R>
 where
     Child: VTable,
-    Parent: ParentMatcher,
+    Parent: Matcher,
     R: Debug + Send + Sync + 'static + ParentReduceRule<Child, Parent, RuleContext>,
 {
     fn reduce_parent(
@@ -108,7 +107,7 @@ where
 impl<Child, Parent, R> DynTypedParentReduceRule for ReduceParentRuleAdapter<Child, Parent, R>
 where
     Child: VTable,
-    Parent: ParentMatcher,
+    Parent: Matcher,
     R: Debug + Send + Sync + 'static + ParentReduceRule<Child, Parent, TypedRuleContext>,
 {
     fn reduce_parent(
@@ -216,7 +215,7 @@ impl RewriteRuleRegistry {
     ) where
         Child: VTable,
         Parent: VTable,
-        R: 'static + ParentReduceRule<Child, Parent, RuleContext>,
+        R: 'static + ParentReduceRule<Child, Exact<Parent>, RuleContext>,
     {
         let adapter = ReduceParentRuleAdapter {
             rule,
@@ -233,7 +232,7 @@ impl RewriteRuleRegistry {
     pub fn register_parent_rule_any<Child, R>(&mut self, child_vtable: &'static Child, rule: R)
     where
         Child: VTable,
-        R: 'static + ParentReduceRule<Child, AnyParent, RuleContext>,
+        R: 'static + ParentReduceRule<Child, Any, RuleContext>,
     {
         let adapter = ReduceParentRuleAdapter {
             rule,
@@ -255,7 +254,7 @@ impl RewriteRuleRegistry {
     ) where
         Child: VTable,
         Parent: VTable,
-        R: 'static + ParentReduceRule<Child, Parent, TypedRuleContext>,
+        R: 'static + ParentReduceRule<Child, Exact<Parent>, TypedRuleContext>,
     {
         let adapter = ReduceParentRuleAdapter {
             rule,
@@ -275,7 +274,7 @@ impl RewriteRuleRegistry {
         rule: R,
     ) where
         Child: VTable,
-        R: 'static + ParentReduceRule<Child, AnyParent, TypedRuleContext>,
+        R: 'static + ParentReduceRule<Child, Any, TypedRuleContext>,
     {
         let adapter = ReduceParentRuleAdapter {
             rule,

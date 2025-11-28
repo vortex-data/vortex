@@ -26,7 +26,8 @@ use crate::expr::exprs::pack::Pack;
 use crate::expr::exprs::root::Root;
 use crate::expr::exprs::select::Select;
 use crate::expr::exprs::select::transform::RemoveSelectRule;
-use crate::expr::transform::rules::AnyParent;
+use crate::expr::transform::rules::Any;
+use crate::expr::transform::rules::Exact;
 use crate::expr::transform::rules::ParentReduceRule;
 use crate::expr::transform::rules::ReduceRule;
 use crate::expr::transform::rules::RuleContext;
@@ -96,7 +97,7 @@ impl ExprSession {
         Child: VTable,
         Parent: VTable,
         R: 'static,
-        R: ParentReduceRule<Child, Parent, RuleContext>,
+        R: ParentReduceRule<Child, Exact<Parent>, RuleContext>,
     {
         self.rewrite_rules
             .register_parent_rule_specific::<Child, Parent, R>(child_vtable, parent_vtable, rule);
@@ -107,7 +108,7 @@ impl ExprSession {
     where
         Child: VTable,
         R: 'static,
-        R: ParentReduceRule<Child, AnyParent, RuleContext>,
+        R: ParentReduceRule<Child, Any, RuleContext>,
     {
         self.rewrite_rules
             .register_parent_rule_any::<Child, R>(child_vtable, rule);
@@ -123,7 +124,7 @@ impl ExprSession {
         Child: VTable,
         Parent: VTable,
         R: 'static,
-        R: ParentReduceRule<Child, Parent, TypedRuleContext>,
+        R: ParentReduceRule<Child, Exact<Parent>, TypedRuleContext>,
     {
         self.rewrite_rules
             .register_typed_parent_rule_specific::<Child, Parent, R>(
@@ -141,7 +142,7 @@ impl ExprSession {
     ) where
         Child: VTable,
         R: 'static,
-        R: ParentReduceRule<Child, AnyParent, TypedRuleContext>,
+        R: ParentReduceRule<Child, Any, TypedRuleContext>,
     {
         self.rewrite_rules
             .register_typed_parent_rule_any::<Child, R>(child_vtable, rule);
