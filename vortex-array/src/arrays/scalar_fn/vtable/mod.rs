@@ -10,11 +10,12 @@ mod visitor;
 use itertools::Itertools;
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
-use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_vector::Vector;
 
+use crate::Array;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
 use crate::execution::ExecutionCtx;
@@ -26,7 +27,6 @@ use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
-use crate::Array;
 
 vtable!(ScalarFn);
 
