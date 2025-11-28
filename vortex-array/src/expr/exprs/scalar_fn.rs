@@ -9,6 +9,7 @@ use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_session::SessionVar;
 use vortex_vector::Vector;
 
@@ -20,10 +21,10 @@ use crate::expr::Expression;
 use crate::expr::ExpressionView;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
+use crate::expr::functions;
+use crate::expr::functions::ScalarFnVTable;
+use crate::expr::functions::scalar::ScalarFn;
 use crate::expr::transform::rules::Matcher;
-use crate::functions;
-use crate::functions::ScalarFnVTable;
-use crate::functions::scalar::ScalarFn;
 use crate::stats::Stat;
 
 /// An expression that wraps arbitrary scalar functions.
@@ -51,8 +52,14 @@ impl VTable for ScalarFnExpr {
         self.vtable.deserialize(bytes).map(Some)
     }
 
-    fn validate(&self, _expr: &ExpressionView<Self>) -> VortexResult<()> {
-        // TODO(ngates): validate against the signature of the underlying scalar function
+    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()> {
+        vortex_ensure!(
+            expr.data()
+                .signature()
+                .arity()
+                .matches(expr.children().len()),
+            "invalid number of arguments for scalar function"
+        );
         Ok(())
     }
 

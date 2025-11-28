@@ -5,7 +5,7 @@ use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::registry::Registry;
 
-use crate::functions::scalar::ScalarFn;
+use crate::expr::functions::scalar::ScalarFn;
 
 #[derive(Default, Clone, Debug)]
 pub struct FunctionSession {

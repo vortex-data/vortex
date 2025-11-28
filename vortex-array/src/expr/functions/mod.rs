@@ -12,3 +12,4 @@ pub use session::*;
 pub use vtable::*;
 
 pub type FunctionId = ArcRef<str>;
+pub type ArgName = ArcRef<str>;

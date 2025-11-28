@@ -31,6 +31,7 @@ mod expression;
 mod exprs;
 mod field;
 pub mod forms;
+pub mod functions;
 pub mod proto;
 pub mod pruning;
 pub mod session;

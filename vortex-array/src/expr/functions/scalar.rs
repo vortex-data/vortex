@@ -12,13 +12,11 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_utils::debug_with::DebugWith;
 use vortex_vector::Datum;
-use vortex_vector::Scalar;
 
-use crate::functions::Arity;
-use crate::functions::Monotonicity;
-use crate::functions::NullHandling;
-use crate::functions::ScalarFnVTable;
-use crate::functions::execution::ExecutionCtx;
+use crate::expr::functions::ArgName;
+use crate::expr::functions::Arity;
+use crate::expr::functions::ScalarFnVTable;
+use crate::expr::functions::execution::ExecutionCtx;
 
 /// An instance of a scalar function bound to some invocation options.
 pub struct ScalarFn {
@@ -123,8 +121,8 @@ impl Hash for ScalarFn {
 
 /// Opaque reference to scalar function signature information.
 pub struct ScalarFnSignature<'a> {
-    pub(super) vtable: &'a ScalarFnVTable,
-    pub(super) options: &'a dyn Any,
+    pub(crate) vtable: &'a ScalarFnVTable,
+    pub(crate) options: &'a dyn Any,
 }
 
 impl ScalarFnSignature<'_> {
@@ -132,43 +130,15 @@ impl ScalarFnSignature<'_> {
         self.vtable.as_dyn().arity(self.options)
     }
 
-    pub fn identity_element(&self) -> Option<Scalar> {
-        self.vtable.as_dyn().identity_element(self.options)
-    }
-
-    pub fn absorbing_element(&self) -> Option<Scalar> {
-        self.vtable.as_dyn().absorbing_element(self.options)
-    }
-
-    pub fn is_commutative(&self) -> bool {
-        self.vtable.as_dyn().is_commutative(self.options)
-    }
-
-    pub fn is_idempotent(&self) -> bool {
-        self.vtable.as_dyn().is_idempotent(self.options)
-    }
-
-    pub fn is_involution(&self) -> bool {
-        self.vtable.as_dyn().is_involution(self.options)
-    }
-
-    pub fn monotonicity(&self, arg_idx: usize) -> Monotonicity {
-        self.vtable.as_dyn().monotonicity(self.options, arg_idx)
-    }
-
-    pub fn null_handling(&self) -> NullHandling {
-        self.vtable.as_dyn().null_handling(self.options)
-    }
-
-    pub fn arg_name(&self, arg_idx: usize) -> Option<String> {
+    pub fn arg_name(&self, arg_idx: usize) -> ArgName {
         self.vtable.as_dyn().arg_name(self.options, arg_idx)
     }
 }
 
 /// Opaque reference to scalar function options.
 pub struct ScalarFnOptions<'a> {
-    pub(super) vtable: &'a ScalarFnVTable,
-    pub(super) options: &'a dyn Any,
+    pub(crate) vtable: &'a ScalarFnVTable,
+    pub(crate) options: &'a dyn Any,
 }
 
 impl ScalarFnOptions<'_> {

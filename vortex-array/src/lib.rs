@@ -63,7 +63,6 @@ pub mod compute;
 mod context;
 pub mod execution;
 pub mod expr;
-pub mod functions;
 mod hash;
 pub mod iter;
 mod mask_future;

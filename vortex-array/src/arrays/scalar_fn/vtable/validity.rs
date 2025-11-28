@@ -7,7 +7,7 @@ use vortex_mask::Mask;
 use crate::Array;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
-use crate::functions::NullHandling;
+use crate::expr::functions::NullHandling;
 use crate::vtable::ValidityVTable;
 
 impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {

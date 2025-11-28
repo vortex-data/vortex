@@ -16,11 +16,11 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_vector::Datum;
-use vortex_vector::Scalar;
 
-use crate::functions::FunctionId;
-use crate::functions::execution::ExecutionCtx;
-use crate::functions::scalar::ScalarFn;
+use crate::expr::functions::ArgName;
+use crate::expr::functions::FunctionId;
+use crate::expr::functions::execution::ExecutionCtx;
+use crate::expr::functions::scalar::ScalarFn;
 
 /// A non-object-safe vtable trait for scalar function types.
 ///
@@ -51,99 +51,8 @@ pub trait VTable: 'static + Send + Sync {
         vortex_bail!("Serialization is not supported for {}", self.id())
     }
 
-    /// The identity element `e` where `f(e, x) = f(x, e) = x`.
-    ///
-    /// When an argument is the identity element, the function can be
-    /// eliminated entirely, returning the other argument unchanged.
-    ///
-    /// # Examples
-    /// - `AND`: `true` (AND(true, x) → x)
-    /// - `OR`: `false` (OR(false, x) → x)
-    /// - `+`: `0` (0 + x → x)
-    /// - `*`: `1` (1 * x → x)
-    /// - `COALESCE`: `NULL` (COALESCE(NULL, x) → x)
-    fn identity_element(&self, options: &Self::Options) -> Option<Scalar> {
-        _ = options;
-        None
-    }
-
-    /// The absorbing element `a` where `f(a, x) = f(x, a) = a`.
-    ///
-    /// When any argument is the absorbing element, the function short-circuits
-    /// immediately, returning that element without evaluating other arguments.
-    /// Also known as the "annihilator" or "zero element".
-    ///
-    /// # Examples
-    /// - `AND`: `false` (AND(false, x) → false)
-    /// - `OR`: `true` (OR(true, x) → true)
-    /// - `*`: `0` (0 * x → 0)
-    fn absorbing_element(&self, options: &Self::Options) -> Option<Scalar> {
-        _ = options;
-        None
-    }
-
-    /// Whether argument order is irrelevant: `f(a, b) = f(b, a)`.
-    ///
-    /// Enables expression normalization (e.g., sorting arguments by column id)
-    /// for better common subexpression elimination and pattern matching.
-    ///
-    /// # Examples
-    /// - Commutative: `+`, `*`, `AND`, `OR`, `=`, `!=`, `MIN`, `MAX`
-    /// - Non-commutative: `-`, `/`, `<`, `>`, `CONCAT`
-    fn is_commutative(&self, options: &Self::Options) -> bool {
-        _ = options;
-        false
-    }
-
-    /// Whether `f(x, x) = x`.
-    ///
-    /// Enables simplification when the same expression appears multiple times
-    /// as arguments to the function.
-    ///
-    /// # Examples
-    /// - Idempotent: `AND`, `OR`, `MIN`, `MAX`
-    /// - Non-idempotent: `+` (x + x = 2x), `*` (x * x = x²)
-    fn is_idempotent(&self, options: &Self::Options) -> bool {
-        _ = options;
-        false
-    }
-
-    /// Whether `f(f(x)) = x` for unary functions.
-    ///
-    /// Enables cancellation of nested self-applications.
-    ///
-    /// # Examples
-    /// - Involutions: `NOT`, `NEG` (for signed types), `REVERSE`
-    /// - Non-involutions: `ABS`, `UPPER`, `LOWER`
-    fn is_involution(&self, options: &Self::Options) -> bool {
-        _ = options;
-        false
-    }
-
     /// Returns the arity (number of arguments) for this function.
     fn arity(&self, options: &Self::Options) -> Arity;
-
-    /// Per-argument monotonicity of the function with respect to the
-    /// natural ordering of the argument type.
-    ///
-    /// A function is isotone (order-preserving) in an argument if increasing
-    /// that argument never decreases the result. It is antitone (order-reversing)
-    /// if increasing the argument never increases the result.
-    ///
-    /// Monotonicity enables zone map / min-max index falsification: if we know
-    /// `x ∈ [min, max]`, we can bound `f(x)` and potentially skip data.
-    ///
-    /// # Examples
-    /// - `x < y`: antitone in x (larger x → less likely to be less than y),
-    ///   isotone in y (larger y → more likely that x < y)
-    /// - `x + y`: isotone in both arguments
-    /// - `x - y`: isotone in x, antitone in y
-    /// - `ABS(x)`: neither (non-monotonic)
-    fn monotonicity(&self, options: &Self::Options, arg_idx: usize) -> Monotonicity {
-        _ = options;
-        _ = arg_idx;
-        Monotonicity::default()
-    }
 
     /// How the function behaves when one or more arguments are NULL.
     ///
@@ -159,7 +68,7 @@ pub trait VTable: 'static + Send + Sync {
     }
 
     /// Returns the display name of the nth argument for this function.
-    fn arg_name(&self, options: &Self::Options, arg_idx: usize) -> Option<String>;
+    fn arg_name(&self, options: &Self::Options, arg_idx: usize) -> ArgName;
 
     /// Computes the return [`DType`] given the argument types and function options.
     fn return_dtype(&self, options: &Self::Options, arg_types: &[DType]) -> VortexResult<DType>;
@@ -179,26 +88,24 @@ pub enum Arity {
     Variadic { min: usize, max: Option<usize> },
 }
 
-/// Monotonicity of a function with respect to one of its arguments.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Monotonicity {
-    /// Order-preserving: `x ≤ y` implies `f(x) ≤ f(y)`.
-    ///
-    /// For zone map falsification, an isotone argument means we use the
-    /// minimum bound to establish a lower bound on the result.
-    Isotone,
-
-    /// Order-reversing: `x ≤ y` implies `f(x) ≥ f(y)`.
-    ///
-    /// For zone map falsification, an antitone argument means we use the
-    /// maximum bound to establish a lower bound on the result.
-    Antitone,
-
-    /// No monotonic relationship exists, or it is unknown.
-    ///
-    /// Zone map falsification cannot use this argument for pruning.
-    #[default]
-    None,
+impl Arity {
+    /// Whether the given argument count matches this arity.
+    pub fn matches(&self, arg_count: usize) -> bool {
+        match self {
+            Arity::Fixed(m) => *m == arg_count,
+            Arity::Variadic { min, max } => {
+                if arg_count < *min {
+                    return false;
+                }
+                if let Some(max) = max
+                    && arg_count > *max
+                {
+                    return false;
+                }
+                true
+            }
+        }
+    }
 }
 
 /// How a function handles NULL arguments.
@@ -233,7 +140,7 @@ pub enum NullHandling {
 }
 
 /// An object-safe vtable for scalar functions that dispatches to the non-object-safe vtable.
-pub(super) trait DynScalarFnVTable: 'static + Send + Sync {
+pub(crate) trait DynScalarFnVTable: 'static + Send + Sync {
     fn id(&self) -> FunctionId;
 
     fn options_serialize(&self, options: &dyn Any) -> VortexResult<Option<Vec<u8>>>;
@@ -245,14 +152,7 @@ pub(super) trait DynScalarFnVTable: 'static + Send + Sync {
     fn options_debug(&self, options: &dyn Any, fmt: &mut Formatter<'_>) -> fmt::Result;
 
     fn arity(&self, options: &dyn Any) -> Arity;
-    fn arg_name(&self, options: &dyn Any, arg_idx: usize) -> Option<String>;
-    fn identity_element(&self, options: &dyn Any) -> Option<Scalar>;
-    fn absorbing_element(&self, options: &dyn Any) -> Option<Scalar>;
-    fn is_commutative(&self, options: &dyn Any) -> bool;
-    fn is_idempotent(&self, options: &dyn Any) -> bool;
-    fn is_involution(&self, options: &dyn Any) -> bool;
-    fn monotonicity(&self, options: &dyn Any, arg_idx: usize) -> Monotonicity;
-    fn null_handling(&self, options: &dyn Any) -> NullHandling;
+    fn arg_name(&self, options: &dyn Any, arg_idx: usize) -> ArgName;
 
     fn return_dtype(&self, options: &dyn Any, arg_types: &[DType]) -> VortexResult<DType>;
     fn execute(&self, options: &dyn Any, ctx: &ExecutionCtx) -> VortexResult<Datum>;
@@ -297,36 +197,8 @@ impl<V: VTable> DynScalarFnVTable for ScalarFnVTableAdapter<V> {
         V::arity(&self.0, downcast::<V>(options))
     }
 
-    fn arg_name(&self, options: &dyn Any, arg_idx: usize) -> Option<String> {
+    fn arg_name(&self, options: &dyn Any, arg_idx: usize) -> ArgName {
         V::arg_name(&self.0, downcast::<V>(options), arg_idx)
-    }
-
-    fn identity_element(&self, options: &dyn Any) -> Option<Scalar> {
-        V::identity_element(&self.0, downcast::<V>(options))
-    }
-
-    fn absorbing_element(&self, options: &dyn Any) -> Option<Scalar> {
-        V::absorbing_element(&self.0, downcast::<V>(options))
-    }
-
-    fn is_commutative(&self, options: &dyn Any) -> bool {
-        V::is_commutative(&self.0, downcast::<V>(options))
-    }
-
-    fn is_idempotent(&self, options: &dyn Any) -> bool {
-        V::is_idempotent(&self.0, downcast::<V>(options))
-    }
-
-    fn is_involution(&self, options: &dyn Any) -> bool {
-        V::is_involution(&self.0, downcast::<V>(options))
-    }
-
-    fn monotonicity(&self, options: &dyn Any, arg_idx: usize) -> Monotonicity {
-        V::monotonicity(&self.0, downcast::<V>(options), arg_idx)
-    }
-
-    fn null_handling(&self, options: &dyn Any) -> NullHandling {
-        V::null_handling(&self.0, downcast::<V>(options))
     }
 
     fn return_dtype(&self, options: &dyn Any, arg_types: &[DType]) -> VortexResult<DType> {
@@ -364,7 +236,7 @@ impl ScalarFnVTable {
     }
 
     /// Crate-local function for accessing the underlying vtable.
-    pub(super) fn as_dyn(&self) -> &dyn DynScalarFnVTable {
+    pub(crate) fn as_dyn(&self) -> &dyn DynScalarFnVTable {
         self.0.deref()
     }
 

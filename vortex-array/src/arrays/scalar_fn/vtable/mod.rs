@@ -20,7 +20,7 @@ use crate::Array;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
 use crate::execution::ExecutionCtx;
-use crate::functions;
+use crate::expr::functions;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;

@@ -3,7 +3,7 @@
 
 use vortex_dtype::DType;
 
-use crate::functions::scalar::ScalarFn;
+use crate::expr::functions::scalar::ScalarFn;
 
 #[derive(Clone, Debug)]
 pub struct ScalarFnMetadata {

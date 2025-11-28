@@ -9,7 +9,7 @@ use crate::Array;
 use crate::Canonical;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
-use crate::functions::ExecutionCtx;
+use crate::expr::functions::ExecutionCtx;
 use crate::vectors::VectorIntoArray;
 use crate::vtable::CanonicalVTable;
 

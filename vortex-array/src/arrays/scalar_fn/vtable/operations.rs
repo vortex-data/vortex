@@ -11,7 +11,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
-use crate::functions::ExecutionCtx;
+use crate::expr::functions::ExecutionCtx;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
