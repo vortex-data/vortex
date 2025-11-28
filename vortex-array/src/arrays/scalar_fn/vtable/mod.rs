@@ -8,7 +8,7 @@ mod validity;
 mod visitor;
 
 use itertools::Itertools;
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -78,7 +78,7 @@ impl VTable for ScalarFnVTable {
         dtype: &DType,
         len: usize,
         metadata: &ScalarFnMetadata,
-        _buffers: &[ByteBuffer],
+        _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<Self::Array> {
         let children: Vec<_> = metadata
