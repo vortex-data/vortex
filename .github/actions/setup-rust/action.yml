@@ -19,10 +19,17 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Rust Version
-      id: rust-version
+    - name: Resolve Toolchain Config
+      id: toolchain-config
       shell: bash
-      run: echo "version=$(cat rust-toolchain.toml | grep channel | awk -F'\"' '{print $2}')" >> $GITHUB_OUTPUT
+      run: |
+        DEFAULT_VERSION=$(grep channel rust-toolchain.toml | awk -F'"' '{print $2}')
+        TOOLCHAIN="${TOOLCHAIN_OVERRIDE:-$DEFAULT_VERSION}"
+        echo "toolchain=$TOOLCHAIN" >> $GITHUB_OUTPUT
+        echo "targets=$TARGETS" >> $GITHUB_OUTPUT
+      env:
+        TOOLCHAIN_OVERRIDE: ${{ inputs.toolchain }}
+        TARGETS: ${{ inputs.targets }}
 
     - name: Install Mold
       if: runner.os == 'Linux'
@@ -30,25 +37,21 @@ runs:
 
     - name: Rust Toolchain
       id: rust-toolchain
-      uses: dtolnay/rust-toolchain@master
+      uses: dtolnay/rust-toolchain@stable
       if: steps.rustup-cache.outputs.cache-hit != 'true'
       with:
-        toolchain: "${{ inputs.toolchain || steps.rust-version.outputs.version }}"
-        targets: "${{inputs.targets || ''}}"
+        toolchain: "${{ steps.toolchain-config.outputs.toolchain }}"
+        targets: "${{ steps.toolchain-config.outputs.targets }}"
         components: "${{ inputs.components || 'clippy, rustfmt' }}"
 
     - name: Rust Dependency Cache
       uses: Swatinem/rust-cache@v2
       with:
         save-if: ${{ github.ref_name == 'develop' }}
-        shared-key: "rust-cache-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}"
+        shared-key: "rust-cache-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-${{ steps.toolchain-config.outputs.toolchain }}-${{ steps.toolchain-config.outputs.targets }}"
 
     - name: Rust Compile Cache
       uses: mozilla-actions/sccache-action@v0.0.9
-
-    - name: Export Path
-      shell: bash
-      run: echo "PATH=$PATH" >> $GITHUB_ENV
 
     - name: Install Protoc (for lance-encoding build step)
       if: runner.os != 'Windows'
