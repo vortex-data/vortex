@@ -18,8 +18,8 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_map::RandomState;
+use vortex_vector::Vector;
 use vortex_vector::VectorOps;
-use vortex_vector::{Vector, Vector};
 
 use crate::pipeline::driver::allocation::allocate_vectors;
 use crate::pipeline::driver::bind::bind_kernels;

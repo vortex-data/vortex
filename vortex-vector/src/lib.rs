@@ -40,7 +40,7 @@ mod private;
 mod scalar_macros;
 
 /// Returns true if the datum is compatible with the provided data type.
-pub fn datum_matches_dtype(datum: &Vector, dtype: &DType) -> bool {
+pub fn datum_matches_dtype(datum: &Datum, dtype: &DType) -> bool {
     match datum {
         Datum::Scalar(scalar) => scalar_matches_dtype(scalar, dtype),
         Datum::Vector(vector) => vector_matches_dtype(vector, dtype),

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::expr::transform::Matcher;
+use crate::expr::transform::rules::Matcher;
 use crate::expr::{
     ChildName, ExecutionArgs, ExprId, Expression, ExpressionView, StatsCatalog, VTable,
 };
@@ -35,7 +35,7 @@ impl VTable for ScalarFnExpr {
     }
 
     fn serialize(&self, func: &ScalarFn) -> VortexResult<Option<Vec<u8>>> {
-        func.serialize_options()
+        func.options().serialize()
     }
 
     fn deserialize(&self, bytes: &[u8]) -> VortexResult<Option<Self::Instance>> {
@@ -85,8 +85,8 @@ impl VTable for ScalarFnExpr {
 
     fn stat_falsification(
         &self,
-        expr: &ExpressionView<Self>,
-        catalog: &dyn StatsCatalog,
+        _expr: &ExpressionView<Self>,
+        _catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         // TODO(ngates): ideally this is implemented as optimizer rules over a `falsify` and
         //  `verify` expressions.
@@ -95,9 +95,9 @@ impl VTable for ScalarFnExpr {
 
     fn stat_expression(
         &self,
-        expr: &ExpressionView<Self>,
-        stat: Stat,
-        catalog: &dyn StatsCatalog,
+        _expr: &ExpressionView<Self>,
+        _stat: Stat,
+        _catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         // TODO(ngates): ideally this is implemented specifically for the Zoned layout, no one
         //  else needs to know what a specific stat over a column resolves to.

@@ -7,7 +7,7 @@ use vortex_compute::filter::Filter;
 use vortex_error::vortex_panic;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_vector::{datum_matches_dtype, Vector};
+use vortex_vector::{vector_matches_dtype, Vector};
 
 use crate::execution::BatchKernelRef;
 use crate::execution::BindCtx;
@@ -65,20 +65,20 @@ impl ArrayOperator for Arc<dyn Array> {
 
 impl<V: VTable> ArrayOperator for ArrayAdapter<V> {
     fn execute_batch(&self, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
-        let datum = V::execute(&self.0, ctx)?;
+        let vector = V::execute(&self.0, ctx)?;
 
         if cfg!(debug_assertions) {
             // Checks for correct type and nullability.
-            if !datum_matches_dtype(&datum, self.dtype()) {
+            if !vector_matches_dtype(&vector, self.dtype()) {
                 vortex_panic!(
                     "Returned vector {:?} does not match expected dtype {}",
-                    datum,
+                    vector,
                     self.dtype()
                 );
             }
         }
 
-        Ok(datum)
+        Ok(vector)
     }
 
     fn as_pipelined(&self) -> Option<&dyn PipelinedNode> {

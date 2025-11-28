@@ -11,12 +11,12 @@ use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
-use crate::vtable::{ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, NotSupported, VTable};
+use crate::vtable::{ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable};
 use crate::{functions, vtable, Array};
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_ensure, VortexResult};
+use vortex_error::{vortex_bail, vortex_ensure, VortexExpect, VortexResult};
 use vortex_vector::Vector;
 
 vtable!(ScalarFn);
@@ -111,6 +111,10 @@ impl VTable for ScalarFnVTable {
             input_dtypes,
             input_datums,
         );
-        array.scalar_fn.execute(&ctx)
+        Ok(array
+            .scalar_fn
+            .execute(&ctx)?
+            .into_vector()
+            .vortex_expect("Vector inputs should return vector outputs"))
     }
 }

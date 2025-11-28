@@ -25,11 +25,11 @@ use crate::expr::exprs::root::Root;
 use crate::expr::exprs::select::transform::RemoveSelectRule;
 use crate::expr::exprs::select::Select;
 use crate::expr::transform::rules::Any;
+use crate::expr::transform::rules::Exact;
 use crate::expr::transform::rules::ParentReduceRule;
 use crate::expr::transform::rules::ReduceRule;
 use crate::expr::transform::rules::RuleContext;
 use crate::expr::transform::rules::TypedRuleContext;
-use crate::expr::transform::Exact;
 use crate::expr::ExprVTable;
 use crate::expr::VTable;
 

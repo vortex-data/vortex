@@ -32,4 +32,5 @@ pub use not::*;
 pub use operators::*;
 pub use pack::*;
 pub use root::*;
+pub use scalar_fn::*;
 pub use select::*;

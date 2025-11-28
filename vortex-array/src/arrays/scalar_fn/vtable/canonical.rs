@@ -9,6 +9,7 @@ use crate::vtable::CanonicalVTable;
 use crate::{Array, Canonical};
 use itertools::Itertools;
 use vortex_error::VortexExpect;
+use vortex_vector::Datum;
 
 impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
     fn canonicalize(array: &ScalarFnArray) -> Canonical {
@@ -16,7 +17,8 @@ impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
         let child_datums: Vec<_> = array
             .children()
             .iter()
-            .map(|child| child.execute())
+            // TODO(ngates): we could make all execution operate over datums
+            .map(|child| child.execute().map(Datum::Vector))
             .try_collect()
             // FIXME(ngates): canonicalizing really ought to be fallible
             .vortex_expect(
@@ -28,7 +30,9 @@ impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
         let result_vector = array
             .scalar_fn
             .execute(&ctx)
-            .vortex_expect("Canonicalize should be fallible");
+            .vortex_expect("Canonicalize should be fallible")
+            .into_vector()
+            .vortex_expect("Canonicalize should return a vector");
 
         result_vector.into_array(&array.dtype).to_canonical()
     }

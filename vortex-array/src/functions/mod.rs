@@ -4,13 +4,11 @@
 mod execution;
 pub mod scalar;
 mod session;
-mod signature;
 mod vtable;
 
 use arcref::ArcRef;
 pub use execution::*;
 pub use session::*;
-pub use signature::*;
 pub use vtable::*;
 
 pub type FunctionId = ArcRef<str>;

@@ -101,6 +101,7 @@ mod tests {
     use crate::expr::exprs::operators::Operator;
     use crate::expr::session::ExprSession;
     use crate::expr::transform::rules::Any;
+    use crate::expr::transform::rules::Exact;
     use crate::expr::transform::rules::ParentReduceRule;
     use crate::expr::transform::rules::RuleContext;
     use crate::expr::Expression;
@@ -110,7 +111,7 @@ mod tests {
     #[derive(Debug)]
     struct AddZeroRule;
 
-    impl ParentReduceRule<Literal, Binary, RuleContext> for AddZeroRule {
+    impl ParentReduceRule<Literal, Exact<Binary>, RuleContext> for AddZeroRule {
         fn reduce_parent(
             &self,
             expr: &ExpressionView<Literal>,

@@ -9,7 +9,7 @@ use crate::{ArrayRef, IntoArray};
 use std::ops::Range;
 use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 
 impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
     fn slice(array: &ScalarFnArray, range: Range<usize>) -> ArrayRef {
@@ -36,7 +36,7 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
             .children()
             .iter()
             .map(|c| c.scalar_at(index))
-            .map(|scalar| Vector::from(scalar.to_vector_scalar()))
+            .map(|scalar| Datum::from(scalar.to_vector_scalar()))
             .collect();
 
         let ctx = ExecutionCtx::new(
@@ -46,7 +46,7 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
             input_datums,
         );
 
-        let result = array
+        let _result = array
             .scalar_fn
             .execute(&ctx)
             .vortex_expect("Scalar function execution should be fallible")
