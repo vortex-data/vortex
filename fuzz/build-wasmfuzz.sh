@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #!/bin/bash
 # Build the vortex-fuzz crate for wasmfuzz
 #
