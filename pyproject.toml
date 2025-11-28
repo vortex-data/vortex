@@ -38,7 +38,6 @@ dev = [
 managed = true
 required-version = ">=0.8.0"
 
-
 [tool.uv.workspace]
 members = ["vortex-python", "docs"]
 
@@ -56,7 +55,14 @@ select = ["F", "E", "W", "UP", "I"]
 unfixable = ["F841"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["vortex.scan", "vortex.file", "vortex.expr", "vortex.ray", "vortex.type_aliases", "vortex.polars_"]
+known-first-party = [
+    "vortex.scan",
+    "vortex.file",
+    "vortex.expr",
+    "vortex.ray",
+    "vortex.type_aliases",
+    "vortex.polars_",
+]
 
 [tool.pytest.ini_options]
 log_cli = true

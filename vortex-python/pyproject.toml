@@ -34,9 +34,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-polars = [
-    "polars>=1.31.0",
-]
+polars = ["polars>=1.31.0"]
 pandas = ["pandas>=2.2.0"]
 numpy = ["numpy>=1.26.0"]
 duckdb = ["duckdb>=1.1.2"]
