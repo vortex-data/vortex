@@ -9,6 +9,7 @@ use moka::future::Cache;
 use moka::future::CacheBuilder;
 use moka::policy::EvictionPolicy;
 use rustc_hash::FxBuildHasher;
+use vortex_buffer::BufferHandle;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -129,10 +130,13 @@ impl SegmentSource for SegmentCacheSourceAdapter {
         async move {
             if let Ok(Some(segment)) = cache.get(id).await {
                 log::debug!("Resolved segment {} from cache", id);
-                return Ok(segment);
+                return Ok(BufferHandle::Buffer(segment));
             }
             let result = delegate.await?;
-            if let Err(e) = cache.put(id, result.clone()).await {
+            // Cache only CPU buffers; device buffers are not cached.
+            if let BufferHandle::Buffer(ref buffer) = result
+                && let Err(e) = cache.put(id, buffer.clone()).await
+            {
                 log::warn!("Failed to store segment {} in cache: {}", id, e);
             }
             Ok(result)
