@@ -17,10 +17,13 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_vector::Datum;
 
+use crate::expr::Expression;
+use crate::expr::StatsCatalog;
 use crate::expr::functions::ArgName;
 use crate::expr::functions::FunctionId;
 use crate::expr::functions::execution::ExecutionCtx;
 use crate::expr::functions::scalar::ScalarFn;
+use crate::expr::stats::Stat;
 
 /// A non-object-safe vtable trait for scalar function types.
 ///
@@ -69,6 +72,38 @@ pub trait VTable: 'static + Send + Sync {
 
     /// Returns the display name of the nth argument for this function.
     fn arg_name(&self, options: &Self::Options, arg_idx: usize) -> ArgName;
+
+    /// See [`Expression::stat_falsification`]
+    ///
+    /// Note that the falsification API will change in the future to instead use a `falsify`
+    /// expression along with push-down rules.
+    fn stat_falsification(
+        &self,
+        options: &Self::Options,
+        expr: &Expression,
+        catalog: &dyn StatsCatalog,
+    ) -> Option<Expression> {
+        _ = options;
+        _ = expr;
+        _ = catalog;
+        None
+    }
+
+    /// See [`Expression::stat_expression`]
+    ///
+    /// Note that the stat_expression API will change in the future such that layouts with pruning
+    /// capabilities perform their own mapping over statistics.
+    fn stat_expression(
+        &self,
+        options: &Self::Options,
+        stat: Stat,
+        catalog: &dyn StatsCatalog,
+    ) -> Option<Expression> {
+        _ = options;
+        _ = stat;
+        _ = catalog;
+        None
+    }
 
     /// Computes the return [`DType`] given the argument types and function options.
     fn return_dtype(&self, options: &Self::Options, arg_types: &[DType]) -> VortexResult<DType>;
@@ -155,6 +190,19 @@ pub(crate) trait DynScalarFnVTable: 'static + Send + Sync {
     fn arg_name(&self, options: &dyn Any, arg_idx: usize) -> ArgName;
     fn null_handling(&self, options: &dyn Any) -> NullHandling;
 
+    fn stat_falsification(
+        &self,
+        options: &dyn Any,
+        expr: &Expression,
+        catalog: &dyn StatsCatalog,
+    ) -> Option<Expression>;
+    fn stat_expression(
+        &self,
+        options: &dyn Any,
+        stat: Stat,
+        catalog: &dyn StatsCatalog,
+    ) -> Option<Expression>;
+
     fn return_dtype(&self, options: &dyn Any, arg_types: &[DType]) -> VortexResult<DType>;
     fn execute(&self, options: &dyn Any, ctx: &ExecutionCtx) -> VortexResult<Datum>;
 }
@@ -204,6 +252,24 @@ impl<V: VTable> DynScalarFnVTable for ScalarFnVTableAdapter<V> {
 
     fn null_handling(&self, options: &dyn Any) -> NullHandling {
         V::null_handling(&self.0, downcast::<V>(options))
+    }
+
+    fn stat_falsification(
+        &self,
+        options: &dyn Any,
+        expr: &Expression,
+        catalog: &dyn StatsCatalog,
+    ) -> Option<Expression> {
+        V::stat_falsification(&self.0, downcast::<V>(options), expr, catalog)
+    }
+
+    fn stat_expression(
+        &self,
+        options: &dyn Any,
+        stat: Stat,
+        catalog: &dyn StatsCatalog,
+    ) -> Option<Expression> {
+        V::stat_expression(&self.0, downcast::<V>(options), stat, catalog)
     }
 
     fn return_dtype(&self, options: &dyn Any, arg_types: &[DType]) -> VortexResult<DType> {

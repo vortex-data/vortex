@@ -3,7 +3,6 @@
 
 pub mod display;
 mod operator;
-pub mod session;
 pub mod transform;
 mod visitor;
 

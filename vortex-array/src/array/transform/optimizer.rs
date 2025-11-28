@@ -5,9 +5,9 @@ use vortex_error::VortexResult;
 
 use crate::ArrayVisitor;
 use crate::array::ArrayRef;
-use crate::array::session::rewrite::ArrayRewriteRuleRegistry;
 use crate::array::transform::context::ArrayRuleContext;
 use crate::expr::transform::ExprOptimizer;
+use crate::session::rewrite::ArrayRewriteRuleRegistry;
 
 /// Optimizer for arrays that applies registered rewrite rules.
 ///
