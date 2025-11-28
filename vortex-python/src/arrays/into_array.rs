@@ -1,29 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_array::RecordBatchReader as _;
 use arrow_array::ffi_stream::ArrowArrayStreamReader;
 use arrow_array::make_array;
+use arrow_array::RecordBatchReader as _;
 use arrow_data::ArrayData;
+use pyo3::exceptions::PyTypeError;
+use pyo3::types::PyAnyMethods;
 use pyo3::Borrowed;
 use pyo3::FromPyObject;
 use pyo3::PyAny;
 use pyo3::PyErr;
-use pyo3::exceptions::PyTypeError;
-use pyo3::types::PyAnyMethods;
-use vortex::ArrayRef;
-use vortex::arrow::FromArrowArray as _;
-use vortex::dtype::DType;
+use vortex::array::arrow::FromArrowArray as _;
+use vortex::array::iter::ArrayIteratorAdapter;
+use vortex::array::iter::ArrayIteratorExt;
+use vortex::array::ArrayRef;
 use vortex::dtype::arrow::FromArrowType as _;
+use vortex::dtype::DType;
 use vortex::error::VortexResult;
-use vortex::iter::ArrayIteratorAdapter;
-use vortex::iter::ArrayIteratorExt;
 
-use crate::PyVortex;
-use crate::arrays::PyArrayRef;
 use crate::arrays::native::PyNativeArray;
 use crate::arrays::py::PyPythonArray;
+use crate::arrays::PyArrayRef;
 use crate::arrow::FromPyArrow;
+use crate::PyVortex;
 
 /// Conversion type for converting Python objects into a [`vortex::Array`].
 pub struct PyIntoArray(PyArrayRef);

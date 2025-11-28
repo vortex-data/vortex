@@ -7,13 +7,13 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::pin::Pin;
 
-use anyhow::Result;
 use anyhow::anyhow;
+use anyhow::Result;
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
+use futures::stream;
 use futures::StreamExt;
 use futures::TryStreamExt;
-use futures::stream;
 use log::info;
 use parquet::arrow::AsyncArrowWriter;
 use parquet::basic::Compression;
@@ -30,19 +30,19 @@ use tpchgen::generators::PartSuppGenerator;
 use tpchgen::generators::RegionGenerator;
 use tpchgen::generators::SupplierGenerator;
 use tpchgen_arrow::RecordBatchIterator;
-use vortex::ArrayRef;
-use vortex::arrow::FromArrowArray;
-use vortex::dtype::DType;
+use vortex::array::arrow::FromArrowArray;
+use vortex::array::ArrayRef;
 use vortex::dtype::arrow::FromArrowType;
+use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::file::WriteOptionsSessionExt;
-use vortex::stream::ArrayStreamAdapter;
+use vortex::array::stream::ArrayStreamAdapter;
 
+use crate::utils::file_utils::idempotent_async;
 use crate::CompactionStrategy;
 use crate::Format;
 use crate::IdempotentPath;
 use crate::SESSION;
-use crate::utils::file_utils::idempotent_async;
 
 type TableFuture<'a> = Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
+use vortex::error::VortexResult;
 
 use crate::duckdb::LogicalType;
 use crate::duckdb::Value;
@@ -35,7 +35,7 @@ impl ColumnExporter for AllInvalidExporter {
 
 #[cfg(test)]
 mod tests {
-    use vortex::arrays::PrimitiveArray;
+    use vortex::array::arrays::PrimitiveArray;
 
     use super::*;
     use crate::duckdb::DataChunk;

@@ -5,26 +5,26 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use enum_iterator::Sequence;
 use enum_iterator::all;
+use enum_iterator::Sequence;
 use num_enum::IntoPrimitive;
 use num_enum::TryFromPrimitive;
 use vortex_dtype::DType;
 use vortex_dtype::DecimalDType;
-use vortex_dtype::MAX_PRECISION;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::Nullability::Nullable;
 use vortex_dtype::PType;
+use vortex_dtype::MAX_PRECISION;
 
-use crate::stats::LowerBound;
-use crate::stats::Precision;
-use crate::stats::StatType;
-use crate::stats::UpperBound;
+mod bound;
+mod precision;
+mod provider;
+mod stat_bound;
 
-pub mod bound;
-pub mod precision;
-pub mod provider;
-pub mod stat_bound;
+pub use bound::*;
+pub use precision::*;
+pub use provider::*;
+pub use stat_bound::*;
 
 #[derive(
     Debug,

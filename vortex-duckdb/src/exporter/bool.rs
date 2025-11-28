@@ -2,13 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex::arrays::BoolArray;
+use vortex::array::arrays::BoolArray;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
 use crate::duckdb::Vector;
-use crate::exporter::ColumnExporter;
 use crate::exporter::all_invalid;
+use crate::exporter::ColumnExporter;
 
 struct BoolExporter {
     array: BoolArray,

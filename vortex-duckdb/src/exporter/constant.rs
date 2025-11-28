@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::arrays::ConstantArray;
+use vortex::array::arrays::ConstantArray;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
 use crate::convert::ToDuckDBScalar;
 use crate::duckdb::Value;
 use crate::duckdb::Vector;
-use crate::exporter::ColumnExporter;
-use crate::exporter::ConversionCache;
 use crate::exporter::new_array_exporter;
 use crate::exporter::validity;
+use crate::exporter::ColumnExporter;
+use crate::exporter::ConversionCache;
 
 struct ConstantExporter {
     value: Option<Value>,

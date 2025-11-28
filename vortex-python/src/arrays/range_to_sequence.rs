@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::ArrayRef;
-use vortex::arrays::PrimitiveArray;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::validity::Validity;
+use vortex::array::ArrayRef;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
 use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
 use vortex::encodings::sequence::SequenceArray;
+use vortex::error::vortex_bail;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
-use vortex::error::vortex_bail;
 use vortex::scalar::PValue;
-use vortex::validity::Validity;
 
 pub fn sequence_array_from_range<T: NativePType + TryFrom<isize> + Into<PValue>>(
     start: isize,
@@ -71,8 +71,8 @@ fn range_len(start: isize, stop: isize, step: isize) -> Option<usize> {
 
 #[cfg(test)]
 mod test {
-    use vortex::IntoArray as _;
-    use vortex::assert_arrays_eq;
+    use vortex::array::assert_arrays_eq;
+    use vortex::array::IntoArray as _;
     use vortex::buffer::buffer;
     use vortex::dtype::DType;
     use vortex::dtype::Nullability;

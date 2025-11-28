@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
-use humansize::DECIMAL;
+use fuzzy_matcher::FuzzyMatcher;
 use humansize::make_format;
+use humansize::DECIMAL;
 use itertools::Itertools;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Constraint;
@@ -28,18 +28,18 @@ use ratatui::widgets::Widget;
 use ratatui::widgets::Wrap;
 use tokio::runtime::Handle;
 use tokio::task::block_in_place;
-use vortex::Array;
-use vortex::ArrayRef;
-use vortex::MaskFuture;
-use vortex::ToCanonical;
+use vortex::array::Array;
+use vortex::array::ArrayRef;
+use vortex::array::MaskFuture;
+use vortex::array::ToCanonical;
 use vortex::error::VortexExpect;
 use vortex::expr::root;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
 
-use crate::SESSION;
 use crate::browse::app::AppState;
 use crate::browse::app::LayoutCursor;
+use crate::SESSION;
 
 /// Render the Layouts tab.
 pub fn render_layouts(app_state: &mut AppState<'_>, area: Rect, buf: &mut Buffer) {

@@ -5,19 +5,19 @@ use vortex_compute::filter::Filter;
 use vortex_error::VortexResult;
 use vortex_vector::bool::BoolVector;
 
-use crate::ArrayRef;
-use crate::IntoArray;
-use crate::array::transform::ArrayParentReduceRule;
-use crate::array::transform::ArrayRuleContext;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
 use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
+use crate::execution::kernel;
 use crate::execution::BatchKernelRef;
 use crate::execution::BindCtx;
-use crate::execution::kernel;
+use crate::transform::ArrayParentReduceRule;
+use crate::transform::ArrayRuleContext;
 use crate::vtable::OperatorVTable;
 use crate::vtable::ValidityHelper;
+use crate::ArrayRef;
+use crate::IntoArray;
 
 impl OperatorVTable<BoolVTable> for BoolVTable {
     fn bind(

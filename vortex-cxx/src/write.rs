@@ -2,21 +2,21 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use anyhow::Result;
-use arrow_array::RecordBatchReader;
 use arrow_array::ffi_stream::ArrowArrayStreamReader;
 use arrow_array::ffi_stream::FFI_ArrowArrayStream;
-use vortex::ArrayRef;
-use vortex::arrow::FromArrowArray;
-use vortex::dtype::DType;
+use arrow_array::RecordBatchReader;
+use vortex::array::arrow::FromArrowArray;
+use vortex::array::iter::ArrayIteratorAdapter;
+use vortex::array::iter::ArrayIteratorExt;
+use vortex::array::ArrayRef;
 use vortex::dtype::arrow::FromArrowType;
+use vortex::dtype::DType;
 use vortex::error::VortexError;
 use vortex::file::VortexWriteOptions as WriteOptions;
 use vortex::file::WriteOptionsSessionExt;
-use vortex::io::VortexWrite;
 use vortex::io::runtime::BlockingRuntime;
-use vortex::iter::ArrayIteratorAdapter;
-use vortex::iter::ArrayIteratorExt;
-use vortex::stream::ArrayStream;
+use vortex::io::VortexWrite;
+use vortex::array::stream::ArrayStream;
 
 use crate::RUNTIME;
 use crate::SESSION;

@@ -7,12 +7,8 @@ use vortex_dtype::FieldNames;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::ArraySession;
 use crate::array::ArrayRef;
 use crate::array::IntoArray;
-use crate::array::transform::ArrayParentReduceRule;
-use crate::array::transform::ArrayReduceRule;
-use crate::array::transform::ArrayRuleContext;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
 use crate::arrays::ConstantArray;
@@ -22,7 +18,11 @@ use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
 use crate::expr::session::ExprSession;
 use crate::expr::transform::ExprOptimizer;
+use crate::transform::ArrayParentReduceRule;
+use crate::transform::ArrayReduceRule;
+use crate::transform::ArrayRuleContext;
 use crate::validity::Validity;
+use crate::ArraySession;
 
 /// Test rule that unwraps single-chunk ChunkedArrays
 #[derive(Debug, Default)]

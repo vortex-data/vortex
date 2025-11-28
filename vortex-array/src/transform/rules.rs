@@ -6,7 +6,7 @@ use std::fmt::Debug;
 use vortex_error::VortexResult;
 
 use crate::array::ArrayRef;
-use crate::array::transform::context::ArrayRuleContext;
+use crate::transform::context::ArrayRuleContext;
 use crate::vtable::VTable;
 
 /// Trait for matching parent array types in parent reduce rules

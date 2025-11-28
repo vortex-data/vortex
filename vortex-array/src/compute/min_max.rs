@@ -7,12 +7,11 @@ use arcref::ArcRef;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::StructFields;
+use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_scalar::Scalar;
 
-use crate::Array;
 use crate::arrays::ConstantVTable;
 use crate::compute::ComputeFn;
 use crate::compute::ComputeFnVTable;
@@ -20,10 +19,11 @@ use crate::compute::InvocationArgs;
 use crate::compute::Kernel;
 use crate::compute::Output;
 use crate::compute::UnaryArgs;
+use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
-use crate::stats::Precision;
-use crate::stats::StatsProvider;
+use crate::expr::stats::StatsProvider;
 use crate::vtable::VTable;
+use crate::Array;
 
 static MIN_MAX_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("min_max".into(), ArcRef::new_ref(&MinMax));
@@ -230,14 +230,14 @@ impl<V: VTable + MinMaxKernel> Kernel for MinMaxKernelAdapter<V> {
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
+    use vortex_buffer::BitBuffer;
 
     use crate::arrays::BoolArray;
     use crate::arrays::NullArray;
     use crate::arrays::PrimitiveArray;
-    use crate::compute::MinMaxResult;
     use crate::compute::min_max;
+    use crate::compute::MinMaxResult;
     use crate::validity::Validity;
 
     #[test]

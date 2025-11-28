@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use jni::JNIEnv;
 use jni::objects::JClass;
 use jni::sys::jlong;
+use jni::JNIEnv;
+use vortex::array::iter::ArrayIterator;
 use vortex::dtype::DType;
-use vortex::iter::ArrayIterator;
 
 use crate::array::NativeArray;
 use crate::errors::try_or_throw;

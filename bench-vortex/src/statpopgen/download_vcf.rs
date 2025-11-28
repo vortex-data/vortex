@@ -3,9 +3,9 @@
 
 use std::io;
 
+use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
-use anyhow::bail;
 use futures::StreamExt;
 use indicatif::ProgressBar;
 use indicatif::ProgressStyle;
@@ -13,27 +13,27 @@ use noodles_vcf::Record;
 use parquet::arrow::AsyncArrowWriter;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use reqwest::Client;
-use tokio::fs::File;
 use tokio::fs::create_dir_all;
+use tokio::fs::File;
 use tokio::io::BufReader;
 use tokio_util::io::StreamReader;
 use tracing::info;
-use vortex::ArrayRef;
-use vortex::arrow::FromArrowArray;
+use vortex::array::arrow::FromArrowArray;
+use vortex::array::stream::ArrayStreamAdapter;
+use vortex::array::ArrayRef;
 use vortex::compressor::CompactCompressor;
-use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
+use vortex::dtype::DType;
 use vortex::error::VortexError;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
-use vortex::stream::ArrayStreamAdapter;
 
 use super::StatPopGenBenchmark;
-use crate::Format;
-use crate::SESSION;
 use crate::idempotent_async;
 use crate::statpopgen::builder::GnomADBuilder;
 use crate::statpopgen::schema::schema_from_vcf_header;
+use crate::Format;
+use crate::SESSION;
 
 // DuckDB parallelizes parquet at row-group granularity. Each of our rows are quite big (~4000
 // genotypes each with tens of bytes of data).

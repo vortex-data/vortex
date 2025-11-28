@@ -3,15 +3,15 @@
 
 use std::fmt::{self};
 
-use humansize::DECIMAL;
 use humansize::format_size;
+use humansize::DECIMAL;
 
-use crate::ArrayRef;
-use crate::ArrayVisitor;
 use crate::arrays::ChunkedVTable;
 use crate::display::DisplayOptions;
+use crate::ArrayRef;
+use crate::ArrayVisitor;
 
-pub(super) struct TreeDisplayWrapper(pub(super) ArrayRef);
+pub(crate) struct TreeDisplayWrapper(pub(crate) ArrayRef);
 
 impl fmt::Display for TreeDisplayWrapper {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {

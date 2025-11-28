@@ -1,30 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_array::RecordBatchReader;
 use arrow_array::ffi_stream::ArrowArrayStreamReader;
+use arrow_array::RecordBatchReader;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::pyfunction;
 use tokio::fs::File;
-use vortex::ArrayRef;
-use vortex::Canonical;
-use vortex::IntoArray;
-use vortex::arrow::FromArrowArray;
+use vortex::array::arrow::FromArrowArray;
+use vortex::array::iter::ArrayIterator;
+use vortex::array::iter::ArrayIteratorAdapter;
+use vortex::array::iter::ArrayIteratorExt;
+use vortex::array::ArrayRef;
+use vortex::array::Canonical;
+use vortex::array::IntoArray;
 use vortex::compressor::CompactCompressor;
-use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
+use vortex::dtype::DType;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
-use vortex::iter::ArrayIterator;
-use vortex::iter::ArrayIteratorAdapter;
-use vortex::iter::ArrayIteratorExt;
 
-use crate::PyVortex;
-use crate::SESSION;
-use crate::TOKIO_RUNTIME;
 use crate::arrays::PyArray;
 use crate::arrays::PyArrayRef;
 use crate::arrow::FromPyArrow;
@@ -32,6 +29,9 @@ use crate::dataset::PyVortexDataset;
 use crate::expr::PyExpr;
 use crate::install_module;
 use crate::iter::PyArrayIterator;
+use crate::PyVortex;
+use crate::SESSION;
+use crate::TOKIO_RUNTIME;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "io")?;

@@ -3,19 +3,17 @@
 
 //! FFI interface for Vortex File I/O.
 
-use std::ffi::CStr;
 use std::ffi::c_char;
 use std::ffi::c_int;
 use std::ffi::c_uint;
 use std::ffi::c_ulong;
+use std::ffi::CStr;
 use std::ops::Range;
 use std::slice;
 use std::str::FromStr;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use object_store::ObjectStore;
-use object_store::ObjectStoreScheme;
 use object_store::aws::AmazonS3Builder;
 use object_store::aws::AmazonS3ConfigKey;
 use object_store::azure::AzureConfigKey;
@@ -23,28 +21,29 @@ use object_store::azure::MicrosoftAzureBuilder;
 use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::gcp::GoogleConfigKey;
 use object_store::local::LocalFileSystem;
+use object_store::ObjectStore;
+use object_store::ObjectStoreScheme;
 use prost::Message;
 use url::Url;
-use vortex::error::VortexError;
-use vortex::error::VortexResult;
+use vortex::array::iter::ArrayIteratorAdapter;
+use vortex::array::stream::ArrayStream;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
-use vortex::expr::Expression;
+use vortex::error::VortexError;
+use vortex::error::VortexResult;
 use vortex::expr::proto::deserialize_expr_proto;
 use vortex::expr::session::ExprRegistry;
 use vortex::expr::session::ExprSessionExt;
+use vortex::expr::Expression;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
-use vortex::iter::ArrayIteratorAdapter;
 use vortex::proto::expr::Expr;
 use vortex::scan::ScanBuilder;
 use vortex::scan::SplitBy;
 use vortex::session::VortexSession;
-use vortex::stream::ArrayStream;
 
-use crate::RUNTIME;
 use crate::arc_wrapper;
 use crate::array::vx_array;
 use crate::array_iterator::vx_array_iterator;
@@ -53,6 +52,7 @@ use crate::error::try_or_default;
 use crate::error::vx_error;
 use crate::session::vx_session;
 use crate::to_string_vec;
+use crate::RUNTIME;
 
 arc_wrapper!(
     /// A handle to a Vortex file encapsulating the footer and logic for instantiating a reader.

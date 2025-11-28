@@ -4,7 +4,7 @@
 use std::ffi::c_char;
 
 use itertools::Itertools;
-use vortex::arrays::VarBinViewArray;
+use vortex::array::arrays::VarBinViewArray;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;
@@ -14,8 +14,8 @@ use vortex_vector::binaryview::Inlined;
 
 use crate::duckdb::Vector;
 use crate::duckdb::VectorBuffer;
-use crate::exporter::ColumnExporter;
 use crate::exporter::all_invalid;
+use crate::exporter::ColumnExporter;
 
 struct VarBinViewExporter {
     views: Buffer<BinaryView>,

@@ -5,11 +5,11 @@
 use std::ptr;
 use std::sync::Arc;
 
-use vortex::Array;
-use vortex::ToCanonical;
+use vortex::array::Array;
 use vortex::dtype::half::f16;
-use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
+use vortex::error::VortexExpect;
+use vortex::array::ToCanonical;
 
 use crate::arc_dyn_wrapper;
 use crate::binary::vx_binary;
@@ -176,15 +176,15 @@ pub unsafe extern "C-unwind" fn vx_array_get_binary(
 mod tests {
     use std::ptr;
 
-    use vortex::IntoArray;
-    use vortex::arrays::PrimitiveArray;
-    use vortex::arrays::StructArray;
-    use vortex::arrays::VarBinViewArray;
-    use vortex::buffer::Buffer;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::array::arrays::VarBinViewArray;
+    use vortex::array::validity::Validity;
+    use vortex::array::IntoArray;
     use vortex::buffer::buffer;
+    use vortex::buffer::Buffer;
     #[cfg(not(miri))]
     use vortex::dtype::half::f16;
-    use vortex::validity::Validity;
 
     use crate::array::*;
     use crate::binary::vx_binary_free;

@@ -7,34 +7,34 @@
 use std::fmt;
 use std::ops::Deref;
 
-use divan::Bencher;
 #[cfg(not(codspeed))]
 use divan::counter::BytesCount;
+use divan::Bencher;
 use mimalloc::MiMalloc;
 use rand::Rng;
 use rand::SeedableRng;
-use vortex::Array;
-use vortex::ArrayRef;
-use vortex::IntoArray;
-use vortex::ToCanonical;
-use vortex::arrays::DictArray;
-use vortex::arrays::PrimitiveArray;
-use vortex::arrays::TemporalArray;
-use vortex::arrays::VarBinArray;
-use vortex::arrays::VarBinViewArray;
+use vortex::array::arrays::DictArray;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::TemporalArray;
+use vortex::array::arrays::VarBinArray;
+use vortex::array::arrays::VarBinViewArray;
+use vortex::array::vtable::ValidityHelper;
+use vortex::array::Array;
+use vortex::array::ArrayRef;
+use vortex::array::IntoArray;
+use vortex::array::ToCanonical;
 use vortex::compute::cast;
+use vortex::dtype::datetime::TimeUnit;
 use vortex::dtype::DType;
 use vortex::dtype::PType;
-use vortex::dtype::datetime::TimeUnit;
 use vortex::encodings::alp::alp_encode;
-use vortex::encodings::datetime_parts::DateTimePartsArray;
 use vortex::encodings::datetime_parts::split_temporal;
+use vortex::encodings::datetime_parts::DateTimePartsArray;
 use vortex::encodings::fastlanes::FoRArray;
-use vortex::encodings::fsst::FSSTArray;
 use vortex::encodings::fsst::fsst_compress;
 use vortex::encodings::fsst::fsst_train_compressor;
+use vortex::encodings::fsst::FSSTArray;
 use vortex::encodings::runend::RunEndArray;
-use vortex::vtable::ValidityHelper;
 use vortex_fastlanes::BitPackedArray;
 
 #[global_allocator]

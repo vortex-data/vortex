@@ -4,33 +4,32 @@
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
-use vortex::ArrayRef;
-use vortex::IntoArray;
-use vortex::arrays::BoolArray;
-use vortex::arrays::DecimalArray;
-use vortex::arrays::FixedSizeListArray;
-use vortex::arrays::ListViewArray;
-use vortex::arrays::PrimitiveArray;
-use vortex::arrays::StructArray;
-use vortex::arrays::TemporalArray;
+use vortex::array::arrays::BoolArray;
+use vortex::array::arrays::DecimalArray;
+use vortex::array::arrays::FixedSizeListArray;
+use vortex::array::arrays::ListViewArray;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::StructArray;
+use vortex::array::arrays::TemporalArray;
+use vortex::array::builders::ArrayBuilder;
+use vortex::array::builders::VarBinViewBuilder;
+use vortex::array::validity::Validity;
+use vortex::array::ArrayRef;
+use vortex::array::IntoArray;
 use vortex::buffer::BitBuffer;
 use vortex::buffer::Buffer;
 use vortex::buffer::BufferMut;
-use vortex::builders::ArrayBuilder;
-use vortex::builders::VarBinViewBuilder;
+use vortex::dtype::datetime::TimeUnit;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
 use vortex::dtype::FieldNames;
 use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
-use vortex::dtype::datetime::TimeUnit;
+use vortex::error::vortex_bail;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
-use vortex::error::vortex_bail;
 use vortex::scalar::DecimalType;
-use vortex::validity::Validity;
 
-use crate::cpp::DUCKDB_TYPE;
 use crate::cpp::duckdb_date;
 use crate::cpp::duckdb_list_entry;
 use crate::cpp::duckdb_string_t;
@@ -42,6 +41,7 @@ use crate::cpp::duckdb_timestamp;
 use crate::cpp::duckdb_timestamp_ms;
 use crate::cpp::duckdb_timestamp_ns;
 use crate::cpp::duckdb_timestamp_s;
+use crate::cpp::DUCKDB_TYPE;
 use crate::duckdb::DataChunk;
 use crate::duckdb::Vector;
 use crate::exporter::precision_to_duckdb_storage_size;
@@ -290,8 +290,8 @@ pub fn data_chunk_to_vortex(field_names: &FieldNames, chunk: &DataChunk) -> Vort
 mod tests {
     use std::ffi::CString;
 
-    use vortex::ToCanonical;
-    use vortex::arrays::PrimitiveVTable;
+    use vortex::array::arrays::PrimitiveVTable;
+    use vortex::array::ToCanonical;
     use vortex::error::VortexUnwrap;
     use vortex::mask::Mask;
 

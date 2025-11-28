@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use pyo3::PyRef;
 use pyo3::pyclass;
 use pyo3::pymethods;
-use vortex::arrays::ChunkedVTable;
+use pyo3::PyRef;
+use vortex::array::arrays::ChunkedVTable;
 
-use crate::arrays::PyArrayRef;
 use crate::arrays::native::AsArrayRef;
 use crate::arrays::native::EncodingSubclass;
 use crate::arrays::native::PyNativeArray;
+use crate::arrays::PyArrayRef;
 
 /// Concrete class for arrays with `vortex.chunked` encoding.
 #[pyclass(name = "ChunkedArray", module = "vortex", extends=PyNativeArray, frozen)]

@@ -4,9 +4,9 @@
 use std::path::Path;
 use std::path::PathBuf;
 
+use vortex::array::stream::ArrayStreamExt;
 use vortex::error::VortexResult;
 use vortex::file::OpenOptionsSessionExt;
-use vortex::stream::ArrayStreamExt;
 
 use crate::SESSION;
 

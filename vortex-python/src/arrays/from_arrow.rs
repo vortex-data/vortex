@@ -1,21 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_array::RecordBatchReader;
 use arrow_array::ffi_stream::ArrowArrayStreamReader;
 use arrow_array::make_array;
+use arrow_array::RecordBatchReader;
 use arrow_data::ArrayData as ArrowArrayData;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use itertools::Itertools;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use vortex::ArrayRef;
-use vortex::IntoArray;
-use vortex::arrays::ChunkedArray;
-use vortex::arrow::FromArrowArray;
-use vortex::dtype::DType;
+use vortex::array::arrays::ChunkedArray;
+use vortex::array::arrow::FromArrowArray;
+use vortex::array::ArrayRef;
+use vortex::array::IntoArray;
 use vortex::dtype::arrow::FromArrowType;
+use vortex::dtype::DType;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 

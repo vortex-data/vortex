@@ -4,14 +4,14 @@
 use std::ptr;
 use std::sync::Arc;
 
+use vortex::dtype::datetime::TemporalMetadata;
+use vortex::dtype::datetime::DATE_ID;
+use vortex::dtype::datetime::TIMESTAMP_ID;
+use vortex::dtype::datetime::TIME_ID;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
-use vortex::dtype::datetime::DATE_ID;
-use vortex::dtype::datetime::TIME_ID;
-use vortex::dtype::datetime::TIMESTAMP_ID;
-use vortex::dtype::datetime::TemporalMetadata;
-use vortex::error::VortexExpect;
 use vortex::error::vortex_panic;
+use vortex::error::VortexExpect;
 
 use crate::arc_wrapper;
 use crate::ptype::vx_ptype;
@@ -318,9 +318,9 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(dtype: *const DType) -> *cons
 mod tests {
     use std::slice;
 
-    use vortex::ArrayRef;
-    use vortex::IntoArray;
-    use vortex::arrays::StructArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::array::ArrayRef;
+    use vortex::array::IntoArray;
     use vortex::buffer::Buffer;
     use vortex::dtype::DType;
     use vortex::dtype::DecimalDType;

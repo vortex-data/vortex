@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::arrays::StructArray;
+use vortex::array::arrays::StructArray;
 use vortex::compute::mask;
 use vortex::error::VortexResult;
 
 use crate::duckdb::Vector;
-use crate::exporter::ColumnExporter;
-use crate::exporter::ConversionCache;
 use crate::exporter::new_array_exporter;
 use crate::exporter::validity;
+use crate::exporter::ColumnExporter;
+use crate::exporter::ConversionCache;
 
 struct StructExporter {
     children: Vec<Box<dyn ColumnExporter>>,
@@ -56,16 +56,16 @@ impl ColumnExporter for StructExporter {
 mod tests {
     use std::ffi::CString;
 
-    use vortex::IntoArray;
-    use vortex::arrays::ConstantArray;
-    use vortex::arrays::DictArray;
-    use vortex::arrays::PrimitiveArray;
-    use vortex::arrays::VarBinViewArray;
-    use vortex::buffer::BitBuffer;
+    use vortex::array::arrays::ConstantArray;
+    use vortex::array::arrays::DictArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::VarBinViewArray;
+    use vortex::array::validity::Validity;
+    use vortex::array::IntoArray;
     use vortex::buffer::buffer;
+    use vortex::buffer::BitBuffer;
     use vortex::error::VortexExpect;
     use vortex::error::VortexUnwrap;
-    use vortex::validity::Validity;
 
     use super::*;
     use crate::cpp;

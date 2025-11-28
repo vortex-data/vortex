@@ -3,7 +3,7 @@
 
 use std::ptr;
 
-use vortex::iter::ArrayIterator;
+use vortex::array::iter::ArrayIterator;
 
 use crate::array::vx_array;
 use crate::box_dyn_wrapper;

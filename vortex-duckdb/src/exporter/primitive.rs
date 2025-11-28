@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::arrays::PrimitiveArray;
+use vortex::array::arrays::PrimitiveArray;
 use vortex::buffer::Buffer;
-use vortex::dtype::NativePType;
 use vortex::dtype::match_each_native_ptype;
+use vortex::dtype::NativePType;
 use vortex::error::VortexResult;
 
 use crate::duckdb::Vector;
 use crate::duckdb::VectorBuffer;
-use crate::exporter::ColumnExporter;
 use crate::exporter::validity;
+use crate::exporter::ColumnExporter;
 
 struct PrimitiveExporter<T: NativePType> {
     buffer: Buffer<T>,
@@ -52,9 +52,9 @@ mod tests {
 
     use super::*;
     use crate::cpp;
-    use crate::duckdb::DUCKDB_STANDARD_VECTOR_SIZE;
     use crate::duckdb::DataChunk;
     use crate::duckdb::LogicalType;
+    use crate::duckdb::DUCKDB_STANDARD_VECTOR_SIZE;
 
     #[test]
     fn test_primitive_exporter() {

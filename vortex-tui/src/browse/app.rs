@@ -7,6 +7,7 @@ use std::sync::Arc;
 use futures::executor::block_on;
 use ratatui::prelude::Size;
 use ratatui::widgets::ListState;
+use vortex::array::serde::ArrayParts;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -15,16 +16,15 @@ use vortex::file::Footer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::SegmentSpec;
 use vortex::file::VortexFile;
-use vortex::layout::LayoutRef;
-use vortex::layout::VTable;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
 use vortex::layout::segments::SegmentId;
 use vortex::layout::segments::SegmentSource;
-use vortex::serde::ArrayParts;
+use vortex::layout::LayoutRef;
+use vortex::layout::VTable;
 
-use crate::SESSION;
 use crate::browse::ui::SegmentGridState;
+use crate::SESSION;
 
 #[derive(Default, Copy, Clone, Eq, PartialEq)]
 pub enum Tab {

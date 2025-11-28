@@ -2,24 +2,24 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_compute::filter::Filter;
-use vortex_dtype::PrecisionScale;
 use vortex_dtype::match_each_decimal_value_type;
+use vortex_dtype::PrecisionScale;
 use vortex_error::VortexResult;
 use vortex_vector::decimal::DVector;
 
-use crate::ArrayRef;
-use crate::IntoArray;
-use crate::array::transform::ArrayParentReduceRule;
-use crate::array::transform::ArrayRuleContext;
 use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
 use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
+use crate::execution::kernel;
 use crate::execution::BatchKernelRef;
 use crate::execution::BindCtx;
-use crate::execution::kernel;
+use crate::transform::ArrayParentReduceRule;
+use crate::transform::ArrayRuleContext;
 use crate::vtable::OperatorVTable;
 use crate::vtable::ValidityHelper;
+use crate::ArrayRef;
+use crate::IntoArray;
 
 impl OperatorVTable<DecimalVTable> for DecimalVTable {
     fn bind(

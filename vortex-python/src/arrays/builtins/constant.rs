@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use pyo3::pyclass;
+use pyo3::pymethods;
 use pyo3::Bound;
 use pyo3::PyRef;
 use pyo3::PyResult;
-use pyo3::pyclass;
-use pyo3::pymethods;
-use vortex::arrays::ConstantVTable;
+use vortex::array::arrays::ConstantVTable;
 
 use crate::arrays::native::AsArrayRef;
 use crate::arrays::native::EncodingSubclass;

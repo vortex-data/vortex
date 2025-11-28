@@ -10,16 +10,16 @@ use indicatif::ProgressBar;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
-use vortex::ArrayRef;
-use vortex::arrow::FromArrowArray;
+use vortex::array::arrow::FromArrowArray;
+use vortex::array::ArrayRef;
 use vortex::compressor::CompactCompressor;
-use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
+use vortex::dtype::DType;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
-use vortex::stream::ArrayStreamAdapter;
+use vortex::array::stream::ArrayStreamAdapter;
 
 use crate::SESSION;
 

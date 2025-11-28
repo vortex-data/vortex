@@ -9,11 +9,11 @@ use vortex_error::VortexResult;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::array::ArrayRef;
-use crate::array::transform::context::ArrayRuleContext;
-use crate::array::transform::rules::AnyArrayParent;
-use crate::array::transform::rules::ArrayParentMatcher;
-use crate::array::transform::rules::ArrayParentReduceRule;
-use crate::array::transform::rules::ArrayReduceRule;
+use crate::transform::context::ArrayRuleContext;
+use crate::transform::rules::AnyArrayParent;
+use crate::transform::rules::ArrayParentMatcher;
+use crate::transform::rules::ArrayParentReduceRule;
+use crate::transform::rules::ArrayReduceRule;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 

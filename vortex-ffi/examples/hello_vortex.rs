@@ -17,21 +17,21 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::LazyLock;
 
-use vortex::Array;
-use vortex::ArrayRef;
-use vortex::IntoArray;
-use vortex::VortexSessionDefault;
-use vortex::arrays::ChunkedArray;
-use vortex::arrays::StructArray;
+use vortex::array::arrays::ChunkedArray;
+use vortex::array::arrays::StructArray;
+use vortex::array::Array;
+use vortex::array::ArrayRef;
+use vortex::array::IntoArray;
 use vortex::buffer::Buffer;
-use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex::error::VortexResult;
 use vortex::file::WriteOptionsSessionExt;
-use vortex::io::VortexWrite;
-use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::CurrentThreadRuntime;
+use vortex::io::runtime::BlockingRuntime;
 use vortex::io::session::RuntimeSessionExt;
+use vortex::io::VortexWrite;
 use vortex::session::VortexSession;
+use vortex::VortexSessionDefault;
 
 static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
 static SESSION: LazyLock<VortexSession> =
