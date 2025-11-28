@@ -53,10 +53,12 @@ jobs:
         with:
           sync: false
           prune-cache: false
+      # Use uvx for ruff to avoid building the Rust extension (saves ~4.5 min)
       - name: Python Lint - Format
-        run: uv run ruff format --check .
+        run: uvx ruff format --check .
       - name: Python Lint - Ruff
-        run: uv run ruff check .
+        run: uvx ruff check .
+      # PyRight needs the project for type information, so use uv run
       - name: Python Lint - PyRight
         run: uv run basedpyright vortex-python
 
@@ -97,7 +99,21 @@ jobs:
           uv run --all-packages make html
         working-directory: docs/
 
+  python-wheel-build:
+    name: "Python (wheel build)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: mlugg/setup-zig@v2
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
+        with:
+          sync: false
+          prune-cache: false
       - name: Ensure wheel and sdist can be built on Linux - PyVortex
         shell: bash
         run: |
@@ -324,10 +340,12 @@ jobs:
         run: |
           cargo build -p vortex-ffi
           cargo run -p vortex-ffi --example hello_vortex
+      - name: Install llvm-tools-preview
+        run: rustup component add llvm-tools-preview
       - name: Generate coverage report
         run: |
-          rustup component add llvm-tools-preview
           grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
+            --threads $(nproc) \
             --ignore '../*' --ignore '/*' --ignore 'fuzz/*' --ignore 'bench-vortex/*' \
             --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*' --ignore 'vortex-error/*' \
             --ignore 'vortex-python/*' --ignore 'vortex-jni/*' --ignore 'vortex-flatbuffers/*' \
