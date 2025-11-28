@@ -8,7 +8,7 @@ use crate::vtable::ValidityVTable;
 use crate::Array;
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
-use vortex_vector::VectorOps;
+use vortex_vector::{Datum, VectorOps};
 
 impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
     fn is_valid(array: &ScalarFnArray, index: usize) -> bool {
@@ -42,10 +42,17 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
     }
 
     fn validity_mask(array: &ScalarFnArray) -> Mask {
-        array
+        match array
             .execute()
             .vortex_expect("Validity mask computation should be fallible")
-            .validity()
-            .clone()
+        {
+            Datum::Scalar(s) => Mask::new_filled(
+                array.len(),
+                s.into_bool()
+                    .value()
+                    .vortex_expect("Validity mask must be non-null"),
+            ),
+            Datum::Vector(v) => Mask::from_buffer(v.into_bool().into_bits()),
+        }
     }
 }

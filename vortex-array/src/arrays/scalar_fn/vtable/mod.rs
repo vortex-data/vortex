@@ -99,7 +99,7 @@ impl VTable for ScalarFnVTable {
         })
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
-        todo!()
+    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
+        array.scalar_fn.execute(ctx)
     }
 }

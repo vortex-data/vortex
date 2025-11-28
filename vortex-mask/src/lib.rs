@@ -23,11 +23,11 @@ use std::sync::OnceLock;
 
 use itertools::Itertools;
 pub use mask_mut::*;
+use vortex_buffer::set_bit_unchecked;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
-use vortex_buffer::set_bit_unchecked;
-use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
+use vortex_error::VortexResult;
 
 /// Represents a set of values that are all included, all excluded, or some mixture of both.
 pub enum AllOr<T> {
@@ -150,6 +150,16 @@ impl Mask {
     #[inline]
     pub fn new_false(length: usize) -> Self {
         Self::AllFalse(length)
+    }
+
+    /// Create a new [`Mask`] filled with the given value.
+    #[inline]
+    pub fn new_filled(length: usize, value: bool) -> Self {
+        if value {
+            Self::new_true(length)
+        } else {
+            Self::new_false(length)
+        }
     }
 
     /// Create a new [`Mask`] from a [`BitBuffer`].

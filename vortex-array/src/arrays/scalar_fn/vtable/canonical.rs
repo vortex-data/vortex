@@ -13,7 +13,7 @@ use vortex_error::VortexExpect;
 impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
     fn canonicalize(array: &ScalarFnArray) -> Canonical {
         let child_dtypes: Vec<_> = array.children.iter().map(|c| c.dtype().clone()).collect();
-        let child_vectors: Vec<_> = array
+        let child_datums: Vec<_> = array
             .children()
             .iter()
             .map(|child| child.execute())
@@ -23,7 +23,7 @@ impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
                 "Failed to execute child array during canonicalization of ScalarFnArray",
             );
 
-        let ctx = ExecutionCtx::new(array.len, array.dtype.clone(), child_dtypes, child_vectors);
+        let ctx = ExecutionCtx::new(array.len, array.dtype.clone(), child_dtypes, child_datums);
 
         let result_vector = array
             .scalar_fn

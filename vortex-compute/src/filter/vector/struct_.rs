@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use vortex_mask::Mask;
 use vortex_mask::MaskMut;
-use vortex_vector::Datum;
+use vortex_vector::Vector;
 use vortex_vector::VectorMut;
 use vortex_vector::VectorMutOps;
 use vortex_vector::VectorOps;
@@ -17,12 +17,12 @@ use crate::filter::Filter;
 impl<M> Filter<M> for &StructVector
 where
     for<'a> &'a Mask: Filter<M, Output = Mask>,
-    for<'a> &'a Datum: Filter<M, Output =Datum>,
+    for<'a> &'a Vector: Filter<M, Output = Vector>,
 {
     type Output = StructVector;
 
     fn filter(self, selection: &M) -> Self::Output {
-        let fields: Vec<Datum> = self
+        let fields: Vec<Vector> = self
             .fields()
             .iter()
             .map(|field| Filter::filter(field, selection))

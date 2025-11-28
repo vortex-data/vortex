@@ -54,6 +54,6 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
             .vortex_expect("Scalar function execution should return scalar");
 
         // Convert the vector scalar back into a legacy Scalar for now.
-        todo!()
+        todo!("Implement legacy scalar conversion")
     }
 }

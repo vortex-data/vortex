@@ -25,15 +25,14 @@ use crate::primitive::PrimitiveScalar;
 use crate::primitive::PrimitiveVector;
 use crate::struct_::StructScalar;
 use crate::struct_::StructVector;
-use crate::Scalar;
-use crate::Datum;
+use crate::{Scalar, Vector};
 
 /// Represents either a scalar or vector value.
 pub enum Datum {
     /// A scalar value.
     Scalar(Scalar),
     /// A vector value.
-    Vector(Datum),
+    Vector(Vector),
 }
 
 impl From<Scalar> for Datum {
@@ -42,8 +41,8 @@ impl From<Scalar> for Datum {
     }
 }
 
-impl From<Datum> for Datum {
-    fn from(value: Datum) -> Self {
+impl From<Vector> for Datum {
+    fn from(value: Vector) -> Self {
         Datum::Vector(value)
     }
 }
@@ -58,7 +57,7 @@ impl Datum {
     }
 
     /// Returns the vector value if this `Datum` is a `Vector`, otherwise returns `None`.
-    pub fn into_vector(self) -> Option<Datum> {
+    pub fn into_vector(self) -> Option<Vector> {
         match self {
             Datum::Scalar(_) => None,
             Datum::Vector(vector) => Some(vector),
@@ -74,7 +73,7 @@ impl Datum {
     }
 
     /// Returns a reference to the vector value if this `Datum` is a `Vector`, otherwise returns `None`.
-    pub fn as_vector(&self) -> Option<&Datum> {
+    pub fn as_vector(&self) -> Option<&Vector> {
         match self {
             Datum::Scalar(_) => None,
             Datum::Vector(vector) => Some(vector),

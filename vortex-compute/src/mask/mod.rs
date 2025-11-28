@@ -8,7 +8,7 @@ use std::ops::BitAnd;
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::NativePType;
 use vortex_mask::Mask;
-use vortex_vector::Datum;
+use vortex_vector::Vector;
 use vortex_vector::binaryview::BinaryViewType;
 use vortex_vector::binaryview::BinaryViewVector;
 use vortex_vector::bool::BoolVector;
@@ -33,7 +33,7 @@ pub trait MaskValidity {
     fn mask_validity(self, mask: &Mask) -> Self;
 }
 
-impl MaskValidity for Datum {
+impl MaskValidity for Vector {
     fn mask_validity(self, mask: &Mask) -> Self {
         match_each_vector!(self, |v| { MaskValidity::mask_validity(v, mask).into() })
     }
