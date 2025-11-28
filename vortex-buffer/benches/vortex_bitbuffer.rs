@@ -143,6 +143,7 @@ fn slice_vortex_buffer(bencher: Bencher, length: usize) {
         });
 }
 
+#[cfg(not(codspeed))]
 #[divan::bench(args = INPUT_SIZE)]
 fn slice_arrow_buffer(bencher: Bencher, length: usize) {
     let buffer = Arrow(BooleanBuffer::from_iter((0..length).map(|i| i % 2 == 0)));
