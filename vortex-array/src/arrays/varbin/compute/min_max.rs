@@ -71,7 +71,7 @@ mod tests {
     use crate::compute::MinMaxResult;
     use crate::compute::min_max;
     use crate::expr::stats::Stat;
-    use crate::stats::StatsProvider;
+    use crate::expr::stats::StatsProvider;
 
     #[test]
     fn some_nulls() {

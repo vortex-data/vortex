@@ -11,13 +11,13 @@ use pyo3::PyAny;
 use pyo3::PyErr;
 use pyo3::exceptions::PyTypeError;
 use pyo3::types::PyAnyMethods;
-use vortex::ArrayRef;
-use vortex::arrow::FromArrowArray as _;
+use vortex::array::ArrayRef;
+use vortex::array::arrow::FromArrowArray as _;
+use vortex::array::iter::ArrayIteratorAdapter;
+use vortex::array::iter::ArrayIteratorExt;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType as _;
 use vortex::error::VortexResult;
-use vortex::iter::ArrayIteratorAdapter;
-use vortex::iter::ArrayIteratorExt;
 
 use crate::PyVortex;
 use crate::arrays::PyArrayRef;

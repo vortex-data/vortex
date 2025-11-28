@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 use pyo3::Bound;
 use pyo3::PyResult;
 use pyo3::Python;
-use vortex::session::ArraySessionExt;
+use vortex::array::session::ArraySessionExt;
 use vortex::vtable::ArrayVTableExt;
 
 use crate::arrays::py::PythonVTable;

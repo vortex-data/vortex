@@ -3,10 +3,10 @@
 
 use async_trait::async_trait;
 use tokio::fs::File;
-use vortex::ArrayRef;
+use vortex::array::ArrayRef;
+use vortex::array::stream::ArrayStreamExt;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
-use vortex::stream::ArrayStreamExt;
 
 use crate::IdempotentPath;
 use crate::SESSION;

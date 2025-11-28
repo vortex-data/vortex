@@ -8,7 +8,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::expr::pruning::field_path_stat_field_name;
 use vortex_array::expr::stats::Stat;
-use vortex_array::stats::StatsProvider;
+use vortex_array::expr::stats::StatsProvider;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;
 use vortex_dtype::Field;

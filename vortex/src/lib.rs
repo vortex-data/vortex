@@ -4,9 +4,14 @@
 // https://github.com/rust-lang/cargo/pull/11645#issuecomment-1536905941
 #![doc = include_str!(concat!("../", env!("CARGO_PKG_README")))]
 
+pub use vortex_array as array;
+// vortex::compute is deprecated and will be ported over to expressions.
+pub use vortex_array::compute;
+// vortex::expr is in the process of having its dependencies inverted, and will eventually be
+// pulled back out into a vortex_expr crate.
+pub use vortex_array::expr;
 use vortex_array::expr::session::ExprSession;
 use vortex_array::session::ArraySession;
-pub use vortex_array::*;
 pub use vortex_buffer as buffer;
 pub use vortex_dtype as dtype;
 pub use vortex_error as error;
@@ -106,8 +111,8 @@ mod test {
 
         use arrow_array::RecordBatchReader;
         use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-        use vortex::Array;
-        use vortex::arrays::ChunkedArray;
+        use vortex::array::Array;
+        use vortex::array::arrays::ChunkedArray;
         use vortex::dtype::DType;
         use vortex::dtype::arrow::FromArrowType;
         use vortex_array::arrow::FromArrowArray;

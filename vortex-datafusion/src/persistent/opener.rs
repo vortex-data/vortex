@@ -32,7 +32,7 @@ use futures::stream;
 use object_store::ObjectStore;
 use object_store::path::Path;
 use tracing::Instrument;
-use vortex::ArrayRef;
+use vortex::array::ArrayRef;
 use vortex::dtype::FieldName;
 use vortex::error::VortexError;
 use vortex::expr::root;
@@ -432,7 +432,7 @@ mod tests {
     use object_store::memory::InMemory;
     use rstest::rstest;
     use vortex::VortexSessionDefault;
-    use vortex::arrow::FromArrowArray;
+    use vortex::array::arrow::FromArrowArray;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::ObjectStoreWriter;
     use vortex::io::VortexWrite;

@@ -22,10 +22,10 @@ use crate::compute::InvocationArgs;
 use crate::compute::Kernel;
 use crate::compute::Options;
 use crate::compute::Output;
+use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
-use crate::stats::Precision;
-use crate::stats::StatsProvider;
-use crate::stats::StatsProviderExt;
+use crate::expr::stats::StatsProvider;
+use crate::expr::stats::StatsProviderExt;
 use crate::vtable::VTable;
 
 static IS_CONSTANT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {

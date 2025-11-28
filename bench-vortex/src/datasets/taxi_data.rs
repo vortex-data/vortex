@@ -7,10 +7,10 @@ use anyhow::Result;
 use async_trait::async_trait;
 use tokio::fs::File as TokioFile;
 use tokio::io::AsyncWriteExt;
-use vortex::ArrayRef;
+use vortex::array::ArrayRef;
+use vortex::array::stream::ArrayStreamExt;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
-use vortex::stream::ArrayStreamExt;
 #[cfg(feature = "lance")]
 #[rustfmt::skip]
 use {

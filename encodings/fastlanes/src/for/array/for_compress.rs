@@ -47,7 +47,7 @@ mod test {
     use itertools::Itertools;
     use vortex_array::ToCanonical;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::stats::StatsProvider;
+    use vortex_array::expr::stats::StatsProvider;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_dtype::PType;

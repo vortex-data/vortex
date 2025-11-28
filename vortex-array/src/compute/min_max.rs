@@ -20,9 +20,9 @@ use crate::compute::InvocationArgs;
 use crate::compute::Kernel;
 use crate::compute::Output;
 use crate::compute::UnaryArgs;
+use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
-use crate::stats::Precision;
-use crate::stats::StatsProvider;
+use crate::expr::stats::StatsProvider;
 use crate::vtable::VTable;
 
 static MIN_MAX_FN: LazyLock<ComputeFn> = LazyLock::new(|| {

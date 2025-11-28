@@ -11,7 +11,7 @@ use crate::ArrayVisitor;
 use crate::arrays::ChunkedVTable;
 use crate::display::DisplayOptions;
 
-pub(super) struct TreeDisplayWrapper(pub(super) ArrayRef);
+pub(crate) struct TreeDisplayWrapper(pub(crate) ArrayRef);
 
 impl fmt::Display for TreeDisplayWrapper {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {

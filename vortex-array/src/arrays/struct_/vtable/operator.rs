@@ -82,7 +82,10 @@ impl ArrayParentReduceRule<StructVTable, ExprVTable> for StructExprPartitionRule
 
 #[cfg(test)]
 mod tests {
+<<<<<<< HEAD
     use crate::session::ArraySession;
+=======
+>>>>>>> develop
     use vortex_dtype::FieldNames;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PTypeDowncast;

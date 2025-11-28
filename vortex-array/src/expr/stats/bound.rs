@@ -6,12 +6,12 @@ use std::cmp::Ordering;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 
+use crate::expr::stats::Precision;
+use crate::expr::stats::Precision::Exact;
+use crate::expr::stats::Precision::Inexact;
+use crate::expr::stats::StatBound;
 use crate::partial_ord::partial_max;
 use crate::partial_ord::partial_min;
-use crate::stats::Precision;
-use crate::stats::Precision::Exact;
-use crate::stats::Precision::Inexact;
-use crate::stats::StatBound;
 
 /// Interpret the value as a lower bound.
 /// These form a partial order over successively more precise bounds
@@ -246,11 +246,11 @@ impl<T: PartialOrd> PartialOrd<T> for UpperBound<T> {
 
 #[cfg(test)]
 mod tests {
+    use crate::expr::stats::LowerBound;
+    use crate::expr::stats::Precision;
+    use crate::expr::stats::StatBound;
+    use crate::expr::stats::UpperBound;
     use crate::expr::stats::bound::IntersectionResult;
-    use crate::stats::LowerBound;
-    use crate::stats::Precision;
-    use crate::stats::StatBound;
-    use crate::stats::UpperBound;
 
     #[test]
     fn test_upper_bound_cmp() {

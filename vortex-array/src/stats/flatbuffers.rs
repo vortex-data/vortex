@@ -14,8 +14,8 @@ use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::array as fba;
 use vortex_scalar::ScalarValue;
 
+use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
-use crate::stats::Precision;
 use crate::stats::StatsSet;
 use crate::stats::StatsSetRef;
 

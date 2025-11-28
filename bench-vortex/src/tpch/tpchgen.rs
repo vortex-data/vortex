@@ -30,13 +30,13 @@ use tpchgen::generators::PartSuppGenerator;
 use tpchgen::generators::RegionGenerator;
 use tpchgen::generators::SupplierGenerator;
 use tpchgen_arrow::RecordBatchIterator;
-use vortex::ArrayRef;
-use vortex::arrow::FromArrowArray;
+use vortex::array::ArrayRef;
+use vortex::array::arrow::FromArrowArray;
+use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexExpect;
 use vortex::file::WriteOptionsSessionExt;
-use vortex::stream::ArrayStreamAdapter;
 
 use crate::CompactionStrategy;
 use crate::Format;

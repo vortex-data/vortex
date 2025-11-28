@@ -13,8 +13,6 @@ use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
 
 use super::MutTypedStatsSetRef;
-use super::Precision;
-use super::StatsProvider;
 use super::StatsSet;
 use super::StatsSetIntoIter;
 use super::TypedStatsSetRef;
@@ -27,7 +25,9 @@ use crate::compute::is_strict_sorted;
 use crate::compute::min_max;
 use crate::compute::nan_count;
 use crate::compute::sum;
+use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
+use crate::expr::stats::StatsProvider;
 
 /// A shared [`StatsSet`] stored in an array. Can be shared by copies of the array and can also be mutated in place.
 // TODO(adamg): This is a very bad name.

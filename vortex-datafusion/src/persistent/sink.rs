@@ -26,8 +26,9 @@ use futures::StreamExt;
 use object_store::ObjectStore;
 use object_store::path::Path;
 use tokio_stream::wrappers::ReceiverStream;
-use vortex::ArrayRef;
-use vortex::arrow::FromArrowArray;
+use vortex::array::ArrayRef;
+use vortex::array::arrow::FromArrowArray;
+use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexResult;
@@ -35,7 +36,6 @@ use vortex::file::WriteOptionsSessionExt;
 use vortex::io::ObjectStoreWriter;
 use vortex::io::VortexWrite;
 use vortex::session::VortexSession;
-use vortex::stream::ArrayStreamAdapter;
 
 pub struct VortexSink {
     config: FileSinkConfig,

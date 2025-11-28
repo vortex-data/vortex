@@ -14,8 +14,8 @@ use parquet::basic::Compression;
 use parquet::basic::ZstdLevel;
 use serde::Serialize;
 use tokio::runtime::Runtime;
-use vortex::Array;
-use vortex::arrays::ChunkedVTable;
+use vortex::array::Array;
+use vortex::array::arrays::ChunkedVTable;
 use vortex::utils::aliases::hash_map::HashMap;
 #[cfg(feature = "lance")]
 #[rustfmt::skip]

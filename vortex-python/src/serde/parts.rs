@@ -11,8 +11,8 @@ use pyo3::Python;
 use pyo3::prelude::PyAnyMethods;
 use pyo3::pyclass;
 use pyo3::pymethods;
+use vortex::array::serde::ArrayParts;
 use vortex::buffer::ByteBuffer;
-use vortex::serde::ArrayParts;
 
 use crate::arrays::PyArrayRef;
 use crate::dtype::PyDType;

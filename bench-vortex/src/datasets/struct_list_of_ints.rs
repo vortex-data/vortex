@@ -6,14 +6,14 @@ use async_trait::async_trait;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use vortex::ArrayRef;
-use vortex::IntoArray;
-use vortex::arrays::ChunkedArray;
-use vortex::arrays::ListArray;
-use vortex::arrays::PrimitiveArray;
-use vortex::arrays::StructArray;
+use vortex::array::ArrayRef;
+use vortex::array::IntoArray;
+use vortex::array::arrays::ChunkedArray;
+use vortex::array::arrays::ListArray;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::StructArray;
+use vortex::array::validity::Validity;
 use vortex::dtype::FieldNames;
-use vortex::validity::Validity;
 
 use crate::datasets::Dataset;
 
