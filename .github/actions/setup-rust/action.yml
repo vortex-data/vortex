@@ -37,9 +37,6 @@ runs:
         targets: "${{inputs.targets || ''}}"
         components: "${{ inputs.components || 'clippy, rustfmt' }}"
 
-    # Skip rust-cache when S3 sccache is already configured (detected via SCCACHE_BUCKET env).
-    # The rust-cache was ~10GB and took 3+ minutes to extract, while sccache
-    # S3 backend already provides efficient compile caching.
     - name: Rust Dependency Cache
       uses: Swatinem/rust-cache@v2
       with:
