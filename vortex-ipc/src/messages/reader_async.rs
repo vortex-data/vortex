@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::pin::Pin;
-use std::task::ready;
 use std::task::Context;
 use std::task::Poll;
+use std::task::ready;
 
 use bytes::BytesMut;
 use futures::AsyncRead;

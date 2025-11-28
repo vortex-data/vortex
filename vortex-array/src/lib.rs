@@ -47,7 +47,6 @@ pub mod stats;
 pub mod stream;
 #[cfg(any(test, feature = "test-harness"))]
 pub mod test_harness;
-pub mod transform;
 pub mod validity;
 pub mod variants;
 pub mod vectors;

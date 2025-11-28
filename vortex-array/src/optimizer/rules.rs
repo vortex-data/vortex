@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::marker::PhantomData;
+
 use vortex_error::VortexResult;
 
 use crate::array::ArrayRef;
@@ -82,13 +83,13 @@ pub trait DynArrayParentReduceRule: Debug + Send + Sync {
 }
 
 /// Adapter for ArrayReduceRule
-pub(super) struct ArrayReduceRuleAdapter<V: VTable, R> {
+pub(crate) struct ArrayReduceRuleAdapter<V: VTable, R> {
     rule: R,
     _phantom: PhantomData<V>,
 }
 
 impl<V: VTable, R> ArrayReduceRuleAdapter<V, R> {
-    pub(super) fn new(rule: R) -> Self {
+    pub(crate) fn new(rule: R) -> Self {
         Self {
             rule,
             _phantom: PhantomData,
@@ -105,13 +106,13 @@ impl<V: VTable, R: Debug> Debug for ArrayReduceRuleAdapter<V, R> {
 }
 
 /// Adapter for ArrayParentReduceRule
-pub(super) struct ArrayParentReduceRuleAdapter<Child: VTable, Parent: ArrayParentMatcher, R> {
+pub(crate) struct ArrayParentReduceRuleAdapter<Child: VTable, Parent: ArrayParentMatcher, R> {
     rule: R,
     _phantom: PhantomData<(Child, Parent)>,
 }
 
 impl<Child: VTable, Parent: ArrayParentMatcher, R> ArrayParentReduceRuleAdapter<Child, Parent, R> {
-    pub(super) fn new(rule: R) -> Self {
+    pub(crate) fn new(rule: R) -> Self {
         Self {
             rule,
             _phantom: PhantomData,

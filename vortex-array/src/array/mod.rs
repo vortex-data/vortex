@@ -3,7 +3,6 @@
 
 pub mod evaluate;
 mod operator;
-pub mod optimizer;
 mod visitor;
 
 use std::any::Any;
@@ -19,13 +18,18 @@ pub use visitor::*;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_panic;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
+use crate::ArrayEq;
+use crate::ArrayHash;
+use crate::Canonical;
+use crate::DynArrayEq;
+use crate::DynArrayHash;
 use crate::arrays::BoolVTable;
 use crate::arrays::ConstantVTable;
 use crate::arrays::DecimalVTable;
@@ -38,15 +42,16 @@ use crate::arrays::StructVTable;
 use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewVTable;
 use crate::builders::ArrayBuilder;
-use crate::compute::is_constant_opts;
 use crate::compute::ComputeFn;
 use crate::compute::Cost;
 use crate::compute::InvocationArgs;
 use crate::compute::IsConstantOpts;
 use crate::compute::Output;
+use crate::compute::is_constant_opts;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
+use crate::hash;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::vtable::ArrayId;
@@ -58,11 +63,6 @@ use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 use crate::vtable::VisitorVTable;
-use crate::ArrayHash;
-use crate::Canonical;
-use crate::DynArrayEq;
-use crate::DynArrayHash;
-use crate::{hash, ArrayEq};
 
 /// The public API trait for all Vortex arrays.
 pub trait Array:

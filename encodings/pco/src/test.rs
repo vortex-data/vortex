@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #![allow(clippy::cast_possible_truncation)]
 
+use vortex_array::ArrayContext;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrow::compute::to_arrow_preferred;
@@ -12,9 +15,6 @@ use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::ArrayContext;
-use vortex_array::IntoArray;
-use vortex_array::ToCanonical;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_dtype::DType;

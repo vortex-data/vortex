@@ -7,9 +7,6 @@ use vortex_dtype::FieldNames;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::array::optimizer::rules::ArrayParentReduceRule;
-use crate::array::optimizer::rules::ArrayReduceRule;
-use crate::array::optimizer::ArrayOptimizer;
 use crate::array::ArrayRef;
 use crate::array::IntoArray;
 use crate::arrays::ChunkedArray;
@@ -19,14 +16,9 @@ use crate::arrays::ConstantVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
-<<<<<<<< HEAD:vortex-array/src/array/optimizer/tests.rs
-========
-use crate::expr::session::ExprSession;
-use crate::expr::transform::ExprOptimizer;
-use crate::transform::ArrayParentReduceRule;
-use crate::transform::ArrayReduceRule;
-use crate::transform::ArrayRuleContext;
->>>>>>>> develop:vortex-array/src/transform/tests.rs
+use crate::optimizer::ArrayOptimizer;
+use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::optimizer::rules::ArrayReduceRule;
 use crate::validity::Validity;
 
 /// Test rule that unwraps single-chunk ChunkedArrays

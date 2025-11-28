@@ -6,16 +6,22 @@
 //!
 //! This module stores expression evaluation logic in the VortexSession.
 
-use crate::expr::functions::scalar::ScalarFn;
-use crate::expr::functions::FunctionId;
-use crate::expr::{functions, ExprId, Expression, ExpressionView};
-use crate::{expr, ArrayRef};
 use std::any::Any;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::Arc;
+
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
+
+use crate::ArrayRef;
+use crate::expr;
+use crate::expr::ExprId;
+use crate::expr::Expression;
+use crate::expr::ExpressionView;
+use crate::expr::functions;
+use crate::expr::functions::FunctionId;
+use crate::expr::functions::scalar::ScalarFn;
 
 /// Evaluate an expression against a Vortex array.
 ///

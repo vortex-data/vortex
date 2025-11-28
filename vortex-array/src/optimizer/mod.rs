@@ -2,16 +2,21 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
-use vortex_error::VortexResult;
 
-use crate::array::optimizer::rules::{
-    AnyArrayParent, ArrayParentReduceRule, ArrayParentReduceRuleAdapter, ArrayReduceRule,
-    ArrayReduceRuleAdapter, DynArrayParentReduceRule, DynArrayReduceRule,
-};
-use crate::array::ArrayRef;
-use crate::vtable::{ArrayId, VTable};
-use crate::ArrayVisitor;
+use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
+
+use crate::ArrayVisitor;
+use crate::array::ArrayRef;
+use crate::optimizer::rules::AnyArrayParent;
+use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::optimizer::rules::ArrayParentReduceRuleAdapter;
+use crate::optimizer::rules::ArrayReduceRule;
+use crate::optimizer::rules::ArrayReduceRuleAdapter;
+use crate::optimizer::rules::DynArrayParentReduceRule;
+use crate::optimizer::rules::DynArrayReduceRule;
+use crate::vtable::ArrayId;
+use crate::vtable::VTable;
 
 pub mod rules;
 

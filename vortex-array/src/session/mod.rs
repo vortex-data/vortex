@@ -1,18 +1,37 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::array::evaluate::ArrayEvaluator;
-use crate::array::optimizer::rules::{AnyArrayParent, ArrayParentReduceRule, ArrayReduceRule};
-use crate::array::optimizer::ArrayOptimizer;
-use crate::arrays::{
-    BoolMaskedValidityRule, BoolVTable, ChunkedVTable, ConstantVTable, DecimalMaskedValidityRule,
-    DecimalVTable, ExprVTable, ExtensionVTable, FixedSizeListVTable, ListVTable, ListViewVTable,
-    MaskedVTable, NullVTable, PrimitiveMaskedValidityRule, PrimitiveVTable,
-    StructExprPartitionRule, StructVTable, VarBinVTable, VarBinViewVTable,
-};
-use crate::vtable::{ArrayVTable, ArrayVTableExt, VTable};
+use vortex_session::Ref;
+use vortex_session::SessionExt;
 use vortex_session::registry::Registry;
-use vortex_session::{Ref, SessionExt};
+
+use crate::array::evaluate::ArrayEvaluator;
+use crate::arrays::BoolMaskedValidityRule;
+use crate::arrays::BoolVTable;
+use crate::arrays::ChunkedVTable;
+use crate::arrays::ConstantVTable;
+use crate::arrays::DecimalMaskedValidityRule;
+use crate::arrays::DecimalVTable;
+use crate::arrays::ExprVTable;
+use crate::arrays::ExtensionVTable;
+use crate::arrays::FixedSizeListVTable;
+use crate::arrays::ListVTable;
+use crate::arrays::ListViewVTable;
+use crate::arrays::MaskedVTable;
+use crate::arrays::NullVTable;
+use crate::arrays::PrimitiveMaskedValidityRule;
+use crate::arrays::PrimitiveVTable;
+use crate::arrays::StructExprPartitionRule;
+use crate::arrays::StructVTable;
+use crate::arrays::VarBinVTable;
+use crate::arrays::VarBinViewVTable;
+use crate::optimizer::ArrayOptimizer;
+use crate::optimizer::rules::AnyArrayParent;
+use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::optimizer::rules::ArrayReduceRule;
+use crate::vtable::ArrayVTable;
+use crate::vtable::ArrayVTableExt;
+use crate::vtable::VTable;
 
 pub type ArrayRegistry = Registry<ArrayVTable>;
 
