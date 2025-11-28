@@ -3,10 +3,18 @@
 
 //! WASM-compatible fuzz target for array operations.
 //!
-//! This target is designed to work with wasmfuzz and exports the
-//! `LLVMFuzzerTestOneInput` function that wasmfuzz expects.
+//! This target is designed to work with wasmfuzz and exports:
+//! - `LLVMFuzzerTestOneInput` - the fuzzing entry point
+//! - `wasmfuzz_malloc` / `wasmfuzz_free` - memory allocation for wasmfuzz to pass input data
+//!
+//! wasmfuzz looks for `wasmfuzz_malloc`/`wasmfuzz_free` or `malloc`/`free` exports.
+//! We provide `wasmfuzz_malloc`/`wasmfuzz_free` using Rust's global allocator.
 
 #![allow(clippy::unwrap_used, clippy::result_large_err)]
+
+use std::alloc::Layout;
+use std::alloc::alloc;
+use std::alloc::dealloc;
 
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
@@ -37,6 +45,40 @@ use vortex_fuzz::error::VortexFuzzError;
 use vortex_fuzz::error::VortexFuzzResult;
 use vortex_fuzz::sort_canonical_array;
 use vortex_scalar::Scalar;
+
+/// Allocate memory for wasmfuzz to pass input data.
+///
+/// wasmfuzz requires a `wasmfuzz_malloc` or `malloc` export to allocate space for fuzz inputs.
+///
+/// # Safety
+///
+/// Returns a pointer to allocated memory of at least `size` bytes, or null on failure.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wasmfuzz_malloc(size: usize) -> *mut u8 {
+    if size == 0 {
+        return std::ptr::null_mut();
+    }
+    let layout = match Layout::from_size_align(size, 8) {
+        Ok(layout) => layout,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    unsafe { alloc(layout) }
+}
+
+/// Free memory allocated by wasmfuzz_malloc.
+///
+/// # Safety
+///
+/// The pointer must have been allocated by wasmfuzz_malloc with the given size.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wasmfuzz_free(ptr: *mut u8, size: usize) {
+    if ptr.is_null() || size == 0 {
+        return;
+    }
+    if let Ok(layout) = Layout::from_size_align(size, 8) {
+        unsafe { dealloc(ptr, layout) };
+    }
+}
 
 /// The entry point for wasmfuzz.
 ///
