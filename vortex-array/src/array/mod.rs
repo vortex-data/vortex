@@ -4,8 +4,8 @@
 pub mod display;
 pub mod evaluate;
 mod operator;
+pub mod optimizer;
 pub mod session;
-pub mod transform;
 mod visitor;
 
 use std::any::Any;

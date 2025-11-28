@@ -35,8 +35,6 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::arrays::MaskedArray;
     use crate::arrays::PrimitiveArray;
-    use crate::expr::session::ExprSession;
-    use crate::expr::transform::ExprOptimizer;
     use crate::validity::Validity;
     use crate::IntoArray;
 
@@ -55,9 +53,7 @@ mod tests {
 
         // Use the new ArrayOptimizer via ArraySession
         let array_session = ArraySession::default();
-        let expr_session = ExprSession::default();
-        let expr_optimizer = ExprOptimizer::new(&expr_session);
-        let optimizer = array_session.optimizer(expr_optimizer);
+        let optimizer = array_session.optimizer();
 
         let result = optimizer.optimize_array(masked.into_array()).unwrap();
         assert_eq!(&masked_dtype, result.dtype());

@@ -7,8 +7,7 @@ use vortex_error::VortexResult;
 use vortex_vector::struct_::StructVector;
 use vortex_vector::Vector;
 
-use crate::array::transform::ArrayParentReduceRule;
-use crate::array::transform::ArrayRuleContext;
+use crate::array::optimizer::rules::ArrayParentReduceRule;
 use crate::arrays::expr::ExprArray;
 use crate::arrays::expr::ExprVTable;
 use crate::arrays::struct_::vtable::reduce::apply_partitioned_expr;
@@ -63,7 +62,6 @@ impl ArrayParentReduceRule<StructVTable, ExprVTable> for StructExprPartitionRule
         array: &StructArray,
         parent: &ExprArray,
         _child_idx: usize,
-        _ctx: &ArrayRuleContext,
     ) -> VortexResult<Option<ArrayRef>> {
         if array.dtype().is_nullable() {
             // TODO(joe): cannot handle nullable struct pushdown yet.
@@ -84,6 +82,7 @@ impl ArrayParentReduceRule<StructVTable, ExprVTable> for StructExprPartitionRule
 
 #[cfg(test)]
 mod tests {
+    use crate::session::ArraySession;
     use vortex_dtype::FieldNames;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PTypeDowncast;
@@ -107,7 +106,6 @@ mod tests {
     use crate::expr::lt;
     use crate::expr::pack;
     use crate::expr::root;
-    use crate::expr::transform::ExprOptimizer;
     use crate::validity::Validity;
     use crate::Array;
     use crate::IntoArray;
@@ -276,10 +274,8 @@ mod tests {
         assert_arrays_eq!(expected, actual);
 
         // Use the optimizer to apply parent rules
-        let array_session = crate::array::session::ArraySession::default();
-        let expr_session = ExprSession::default();
-        let expr_optimizer = ExprOptimizer::new(&expr_session);
-        let optimizer = array_session.optimizer(expr_optimizer);
+        let array_session = ArraySession::default();
+        let optimizer = array_session.optimizer();
 
         let result = optimizer.optimize_array(expr_array.into_array())?;
 
@@ -310,10 +306,8 @@ mod tests {
         assert_arrays_eq!(expected, actual);
 
         // Use the optimizer to apply parent rules
-        let array_session = crate::array::session::ArraySession::default();
-        let expr_session = ExprSession::default();
-        let expr_optimizer = ExprOptimizer::new(&expr_session);
-        let optimizer = array_session.optimizer(expr_optimizer);
+        let array_session = ArraySession::default();
+        let optimizer = array_session.optimizer();
 
         let result = optimizer.optimize_array(expr_array.into_array())?;
 
@@ -340,10 +334,8 @@ mod tests {
         let expr_array = ExprArray::new_infer_dtype(struct_array.clone().into_array(), expr)?;
 
         // Use the optimizer to apply parent rules
-        let array_session = crate::array::session::ArraySession::default();
-        let expr_session = ExprSession::default();
-        let expr_optimizer = ExprOptimizer::new(&expr_session);
-        let optimizer = array_session.optimizer(expr_optimizer);
+        let array_session = ArraySession::default();
+        let optimizer = array_session.optimizer();
 
         let result = optimizer.optimize_array(expr_array.into_array())?;
 
@@ -425,10 +417,8 @@ mod tests {
         assert_arrays_eq!(expected, actual);
 
         // Use the optimizer to apply parent rules
-        let array_session = crate::array::session::ArraySession::default();
-        let expr_session = ExprSession::default();
-        let expr_optimizer = ExprOptimizer::new(&expr_session);
-        let optimizer = array_session.optimizer(expr_optimizer);
+        let array_session = ArraySession::default();
+        let optimizer = array_session.optimizer();
 
         let result = optimizer.optimize_array(expr_array.into_array())?;
         let actual = result.to_canonical().into_array();

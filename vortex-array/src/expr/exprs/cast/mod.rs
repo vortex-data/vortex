@@ -6,15 +6,16 @@ use std::ops::Deref;
 
 use prost::Message;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_proto::expr as pb;
 use vortex_vector::Vector;
 
-use crate::ArrayRef;
 use crate::compute::cast as compute_cast;
+use crate::expr::expression::Expression;
+use crate::expr::stats::Stat;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
@@ -22,8 +23,7 @@ use crate::expr::ExpressionView;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::expr::expression::Expression;
-use crate::expr::stats::Stat;
+use crate::ArrayRef;
 
 /// A cast expression that converts values to a target data type.
 pub struct Cast;
@@ -166,12 +166,12 @@ mod tests {
     use vortex_error::VortexUnwrap as _;
 
     use super::cast;
-    use crate::IntoArray;
     use crate::arrays::StructArray;
-    use crate::expr::Expression;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::root::root;
     use crate::expr::test_harness;
+    use crate::expr::Expression;
+    use crate::IntoArray;
 
     #[test]
     fn dtype() {

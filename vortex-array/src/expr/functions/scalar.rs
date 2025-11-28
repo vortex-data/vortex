@@ -13,14 +13,14 @@ use vortex_error::VortexResult;
 use vortex_utils::debug_with::DebugWith;
 use vortex_vector::Datum;
 
-use crate::expr::Expression;
-use crate::expr::StatsCatalog;
-use crate::expr::functions::ArgName;
+use crate::expr::functions::execution::ExecutionCtx;
 use crate::expr::functions::Arity;
 use crate::expr::functions::NullHandling;
 use crate::expr::functions::ScalarFnVTable;
-use crate::expr::functions::execution::ExecutionCtx;
+use crate::expr::functions::{ArgName, FunctionId};
 use crate::expr::stats::Stat;
+use crate::expr::Expression;
+use crate::expr::StatsCatalog;
 
 /// An instance of a scalar function bound to some invocation options.
 pub struct ScalarFn {
@@ -39,6 +39,11 @@ impl ScalarFn {
         options: Box<dyn Any + Send + Sync>,
     ) -> Self {
         Self { vtable, options }
+    }
+
+    /// Return the function ID for this scalar function.
+    pub fn id(&self) -> FunctionId {
+        self.vtable.id()
     }
 
     /// Get the options for this scalar function.

@@ -1,19 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-pub mod rewrite;
-
 use crate::array::evaluate::ArrayEvaluator;
+use crate::array::optimizer::rules::{AnyArrayParent, ArrayParentReduceRule, ArrayReduceRule};
+use crate::array::optimizer::ArrayOptimizer;
 use crate::arrays::{
     BoolMaskedValidityRule, BoolVTable, ChunkedVTable, ConstantVTable, DecimalMaskedValidityRule,
-    DecimalVTable, ExprOptimizationRule, ExprVTable, ExtensionVTable, FixedSizeListVTable,
-    ListVTable, ListViewVTable, MaskedVTable, NullVTable, PrimitiveMaskedValidityRule,
-    PrimitiveVTable, StructExprPartitionRule, StructVTable, VarBinVTable, VarBinViewVTable,
+    DecimalVTable, ExprVTable, ExtensionVTable, FixedSizeListVTable, ListVTable, ListViewVTable,
+    MaskedVTable, NullVTable, PrimitiveMaskedValidityRule, PrimitiveVTable,
+    StructExprPartitionRule, StructVTable, VarBinVTable, VarBinViewVTable,
 };
-use crate::expr;
-use crate::transform::{AnyArrayParent, ArrayOptimizer, ArrayParentReduceRule, ArrayReduceRule};
 use crate::vtable::{ArrayVTable, ArrayVTableExt, VTable};
-pub use rewrite::ArrayRewriteRuleRegistry;
 use vortex_session::registry::Registry;
 use vortex_session::{Ref, SessionExt};
 
@@ -24,8 +21,8 @@ pub struct ArraySession {
     /// The set of registered array encodings.
     registry: ArrayRegistry,
 
-    /// The set of registered rewrite rules.
-    rewrite_rules: ArrayRewriteRuleRegistry,
+    /// The array optimizer containing rules.
+    optimizer: ArrayOptimizer,
 
     /// An evaluator for apply expressions to arrays.
     /// This temporary until expressions becomes a closed grammar with lazy evaluation.
@@ -37,8 +34,20 @@ impl ArraySession {
         &self.registry
     }
 
-    pub fn rewrite_rules(&self) -> &ArrayRewriteRuleRegistry {
-        &self.rewrite_rules
+    pub fn optimizer(&self) -> &ArrayOptimizer {
+        &self.optimizer
+    }
+
+    pub fn optimizer_mut(&mut self) -> &mut ArrayOptimizer {
+        &mut self.optimizer
+    }
+
+    pub fn evaluator(&self) -> &ArrayEvaluator {
+        &self.evaluator
+    }
+
+    pub fn evaluator_mut(&mut self) -> &mut ArrayEvaluator {
+        &mut self.evaluator
     }
 
     /// Register a new array encoding, replacing any existing encoding with the same ID.
@@ -52,18 +61,17 @@ impl ArraySession {
     }
 
     /// Register a reduce rule for a specific array encoding
-    pub fn register_reduce_rule<V, R>(&self, encoding: &V, rule: R)
+    pub fn register_reduce_rule<V, R>(&mut self, encoding: &V, rule: R)
     where
         V: VTable,
         R: 'static + ArrayReduceRule<V>,
     {
-        self.rewrite_rules
-            .register_reduce_rule::<V, R>(encoding, rule);
+        self.optimizer.register_reduce_rule::<V, R>(encoding, rule);
     }
 
     /// Register a parent reduce rule for specific child and parent types
     pub fn register_parent_rule<Child, Parent, R>(
-        &self,
+        &mut self,
         child_encoding: &Child,
         parent_encoding: &Parent,
         rule: R,
@@ -72,7 +80,7 @@ impl ArraySession {
         Parent: VTable,
         R: 'static + ArrayParentReduceRule<Child, Parent>,
     {
-        self.rewrite_rules.register_parent_rule::<Child, Parent, R>(
+        self.optimizer.register_parent_rule::<Child, Parent, R>(
             child_encoding,
             parent_encoding,
             rule,
@@ -80,18 +88,13 @@ impl ArraySession {
     }
 
     /// Register a parent reduce rule that matches any parent type
-    pub fn register_any_parent_rule<Child, R>(&self, child_encoding: &Child, rule: R)
+    pub fn register_any_parent_rule<Child, R>(&mut self, child_encoding: &Child, rule: R)
     where
         Child: VTable,
         R: 'static + ArrayParentReduceRule<Child, AnyArrayParent>,
     {
-        self.rewrite_rules
+        self.optimizer
             .register_any_parent_rule::<Child, R>(child_encoding, rule);
-    }
-
-    /// Create an ArrayOptimizer using this session's rules
-    pub fn optimizer(&self, expr_optimizer: expr::transform::ExprOptimizer) -> ArrayOptimizer {
-        ArrayOptimizer::new(self.rewrite_rules.clone(), expr_optimizer)
     }
 }
 
@@ -121,9 +124,9 @@ impl Default for ArraySession {
             VarBinVTable.as_vtable(),
         ]);
 
-        let session = Self {
+        let mut session = Self {
             registry: encodings,
-            rewrite_rules: ArrayRewriteRuleRegistry::default(),
+            optimizer: ArrayOptimizer::default(),
             evaluator: ArrayEvaluator::default(),
         };
 
@@ -149,11 +152,6 @@ impl Default for ArraySession {
             &StructVTable,
             &ExprVTable,
             StructExprPartitionRule,
-        );
-
-        session.register_reduce_rule::<ExprVTable, ExprOptimizationRule>(
-            &ExprVTable,
-            ExprOptimizationRule,
         );
 
         session

@@ -18,14 +18,6 @@ pub use context::*;
 pub use hash::*;
 pub use mask_future::*;
 pub use metadata::*;
-use vortex_session::SessionExt;
-
-use crate::array::transform::ArrayParentReduceRule;
-use crate::array::transform::ArrayReduceRule;
-use crate::arrays::MaskedVTable;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
-use crate::vtable::VTable;
 
 pub mod accessor;
 #[doc(hidden)]
