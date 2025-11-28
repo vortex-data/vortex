@@ -30,7 +30,7 @@ runs:
 
     - name: Rust Toolchain
       id: rust-toolchain
-      uses: dtolnay/rust-toolchain@master
+      uses: dtolnay/rust-toolchain@stable
       if: steps.rustup-cache.outputs.cache-hit != 'true'
       with:
         toolchain: "${{ inputs.toolchain || steps.rust-version.outputs.version }}"

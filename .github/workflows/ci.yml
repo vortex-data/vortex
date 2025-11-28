@@ -17,7 +17,7 @@ permissions:
   issues: write  # audit-check creates issues
 
 env:
-  CARGO_TERM_COLOR: always
+  CARGO_TERM_COLOR: auto
   RUST_BACKTRACE: 1
 
 jobs:
