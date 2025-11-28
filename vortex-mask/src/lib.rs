@@ -152,16 +152,6 @@ impl Mask {
         Self::AllFalse(length)
     }
 
-    /// Create a new [`Mask`] filled with the given value.
-    #[inline]
-    pub fn new_filled(length: usize, value: bool) -> Self {
-        if value {
-            Self::new_true(length)
-        } else {
-            Self::new_false(length)
-        }
-    }
-
     /// Create a new [`Mask`] from a [`BitBuffer`].
     pub fn from_buffer(buffer: BitBuffer) -> Self {
         let len = buffer.len();
