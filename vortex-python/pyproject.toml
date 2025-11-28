@@ -72,4 +72,5 @@ dev = [
     "pcodec>=0.3.3",
     "pyarrow-stubs>=17.16",
     "pytest-benchmark>=5.1.0",
+    "pytest-xdist>=3.5.0",
 ]
