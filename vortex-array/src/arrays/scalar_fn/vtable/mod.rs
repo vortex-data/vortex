@@ -90,7 +90,7 @@ impl VTable for ScalarFnVTable {
         #[cfg(debug_assertions)]
         {
             let child_dtypes: Vec<_> = children.iter().map(|c| c.dtype().clone()).collect();
-            vortex_ensure!(
+            vortex_error::vortex_ensure!(
                 &metadata.scalar_fn.return_dtype(&child_dtypes)? == dtype,
                 "Return dtype mismatch when building ScalarFnArray"
             );
