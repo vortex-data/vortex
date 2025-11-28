@@ -472,15 +472,23 @@ jobs:
   bench-codspeed:
     strategy:
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
-    name: "Benchmark with Codspeed (Shard #${{ matrix.shard }})"
+        include:
+          - { shard: 1, name: "Core foundation", packages: "vortex-buffer vortex-dtype vortex-error" }
+          - { shard: 2, name: "Array types", packages: "vortex-array vortex-scalar vortex-vector", features: "--features test-harness" }
+          - { shard: 3, name: "Main library", packages: "vortex vortex-compute" }
+          - { shard: 4, name: "Encodings 1", packages: "vortex-alp vortex-bytebool vortex-datetime-parts" }
+          - { shard: 5, name: "Encodings 2", packages: "vortex-decimal-byte-parts vortex-fastlanes vortex-fsst", features: "--features test-harness" }
+          - { shard: 6, name: "Encodings 3", packages: "vortex-pco vortex-runend vortex-sequence" }
+          - { shard: 7, name: "Encodings 4", packages: "vortex-sparse vortex-zigzag vortex-zstd" }
+          - { shard: 8, name: "Storage formats", packages: "vortex-flatbuffers vortex-proto vortex-btrblocks" }
+    name: "Benchmark (${{ matrix.shard }}: ${{ matrix.name }})"
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=c6id.8xlarge
       - extras=s3-cache
       - image=ubuntu24-full-x64
-      - tag=bench-codspeed-${{matrix.shard}}
+      - tag=bench-codspeed-${{ matrix.shard }}
     steps:
       - uses: runs-on/action@v2
         with:
@@ -489,98 +497,12 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Install Codspeed
-        shell: bash
         run: cargo install --force cargo-codspeed --locked
-
-      - name: Build benchmarks (shard 1 - Core foundation)
+      - name: Build benchmarks
         env:
           RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
-        if: ${{ matrix.shard == 1 }}
-        run: |
-          cargo codspeed build \
-            -p vortex-buffer \
-            -p vortex-dtype \
-            -p vortex-error \
-            --profile bench
-
-      - name: Build benchmarks (shard 2 - Array types)
-        env:
-          RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
-        if: ${{ matrix.shard == 2 }}
-        run: |
-          cargo codspeed build --features test-harness \
-            -p vortex-array \
-            -p vortex-scalar \
-            -p vortex-vector \
-            --profile bench
-
-      - name: Build benchmarks (shard 3 - Main library)
-        env:
-          RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
-        if: ${{ matrix.shard == 3 }}
-        run: |
-          cargo codspeed build \
-            -p vortex \
-            -p vortex-compute \
-            --profile bench
-
-      - name: Build benchmarks (shard 4 - Encodings 1)
-        env:
-          RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
-        if: ${{ matrix.shard == 4 }}
-        run: |
-          cargo codspeed build \
-            -p vortex-alp \
-            -p vortex-bytebool \
-            -p vortex-datetime-parts \
-            --profile bench
-
-      - name: Build benchmarks (shard 5 - Encodings 2)
-        env:
-          RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
-        if: ${{ matrix.shard == 5 }}
-        run: |
-          cargo codspeed build --features test-harness \
-            -p vortex-decimal-byte-parts \
-            -p vortex-fastlanes \
-            -p vortex-fsst \
-            --profile bench
-
-      - name: Build benchmarks (shard 6 - Encodings 3)
-        env:
-          RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
-        if: ${{ matrix.shard == 6 }}
-        run: |
-          cargo codspeed build \
-            -p vortex-pco \
-            -p vortex-runend \
-            -p vortex-sequence \
-            --profile bench
-
-      - name: Build benchmarks (shard 7 - Encodings 4)
-        env:
-          RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
-        if: ${{ matrix.shard == 7 }}
-        run: |
-          cargo codspeed build \
-            -p vortex-sparse \
-            -p vortex-zigzag \
-            -p vortex-zstd \
-            --profile bench
-
-      - name: Build benchmarks (shard 8 - Storage formats)
-        env:
-          RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
-        if: ${{ matrix.shard == 8 }}
-        run: |
-          cargo codspeed build \
-            -p vortex-flatbuffers \
-            -p vortex-proto \
-            -p vortex-btrblocks \
-            --profile bench
-
+        run: cargo codspeed build ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
       - name: Run benchmarks
         uses: CodSpeedHQ/action@346a2d8a8d9d38909abd0bc3d23f773110f076ad
         with:
