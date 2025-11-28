@@ -24,9 +24,14 @@ pub use context::*;
 pub use hash::*;
 pub use mask_future::*;
 pub use metadata::*;
-use vortex_session::registry::Registry;
+use session::rewrite::ArrayRewriteRuleRegistry;
+use transform::AnyArrayParent;
+use transform::ArrayOptimizer;
+use transform::ArrayParentReduceRule;
+use transform::ArrayReduceRule;
 use vortex_session::Ref;
 use vortex_session::SessionExt;
+use vortex_session::registry::Registry;
 
 use crate::arrays::BoolVTable;
 use crate::arrays::ChunkedVTable;
@@ -45,11 +50,6 @@ use crate::arrays::VarBinViewVTable;
 use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::VTable;
-use session::rewrite::ArrayRewriteRuleRegistry;
-use transform::AnyArrayParent;
-use transform::ArrayOptimizer;
-use transform::ArrayParentReduceRule;
-use transform::ArrayReduceRule;
 
 pub mod accessor;
 #[doc(hidden)]

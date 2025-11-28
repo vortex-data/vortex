@@ -3,11 +3,11 @@
 
 use std::sync::Arc;
 
-use pyo3::prelude::*;
 use pyo3::Bound;
 use pyo3::FromPyObject;
 use pyo3::Py;
 use pyo3::PyAny;
+use pyo3::prelude::*;
 use vortex::array::stats::ArrayStats;
 use vortex::array::vtable::ArrayVTable;
 use vortex::dtype::DType;

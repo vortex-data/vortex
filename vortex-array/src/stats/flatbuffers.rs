@@ -7,11 +7,11 @@ use flatbuffers::WIPOffset;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_error::vortex_bail;
 use vortex_error::VortexError;
-use vortex_flatbuffers::array as fba;
+use vortex_error::vortex_bail;
 use vortex_flatbuffers::ReadFlatBuffer;
 use vortex_flatbuffers::WriteFlatBuffer;
+use vortex_flatbuffers::array as fba;
 use vortex_scalar::ScalarValue;
 
 use crate::expr::stats::Precision;

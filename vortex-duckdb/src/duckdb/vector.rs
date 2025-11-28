@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ffi::c_void;
 use std::ffi::CStr;
 use std::ffi::CString;
+use std::ffi::c_void;
 use std::ptr;
 
 use bitvec::macros::internal::funty::Fundamental;
@@ -12,18 +12,18 @@ use bitvec::view::BitView;
 use vortex::array::validity::Validity;
 use vortex::buffer::BitBuffer;
 use vortex::buffer::Buffer;
-use vortex::error::vortex_bail;
-use vortex::error::vortex_err;
 use vortex::error::VortexResult;
 use vortex::error::VortexUnwrap;
+use vortex::error::vortex_bail;
+use vortex::error::vortex_err;
 
 use crate::cpp;
 use crate::cpp::duckdb_vx_error;
 use crate::cpp::idx_t;
-use crate::duckdb::vector_buffer::VectorBuffer;
 use crate::duckdb::LogicalType;
 use crate::duckdb::SelectionVector;
 use crate::duckdb::Value;
+use crate::duckdb::vector_buffer::VectorBuffer;
 use crate::wrapper;
 
 pub const DUCKDB_STANDARD_VECTOR_SIZE: usize = 2048;

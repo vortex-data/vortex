@@ -8,12 +8,12 @@
 //!
 //! Run with: cargo run --example compression_showcase
 
+use vortex::array::Array;
+use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinArray;
 use vortex::array::validity::Validity;
-use vortex::array::Array;
-use vortex::array::IntoArray;
 use vortex::compressor::BtrBlocksCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;

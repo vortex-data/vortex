@@ -4,26 +4,26 @@
 #![allow(clippy::unwrap_used)]
 #![allow(unexpected_cfgs)]
 
+use divan::Bencher;
 #[cfg(not(codspeed))]
 use divan::counter::BytesCount;
-use divan::Bencher;
 use mimalloc::MiMalloc;
-use rand::prelude::IndexedRandom;
-use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
+use rand::prelude::IndexedRandom;
+use rand::rngs::StdRng;
+use vortex::array::IntoArray;
+use vortex::array::ToCanonical;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::builders::dict::dict_encode;
-use vortex::array::IntoArray;
-use vortex::array::ToCanonical;
 use vortex::compute::cast;
 use vortex::dtype::PType;
-use vortex::encodings::alp::alp_encode;
 use vortex::encodings::alp::RDEncoder;
-use vortex::encodings::fastlanes::delta_compress;
+use vortex::encodings::alp::alp_encode;
 use vortex::encodings::fastlanes::DeltaArray;
 use vortex::encodings::fastlanes::FoRArray;
+use vortex::encodings::fastlanes::delta_compress;
 use vortex::encodings::fsst::fsst_compress;
 use vortex::encodings::fsst::fsst_train_compressor;
 use vortex::encodings::pco::PcoArray;

@@ -3,16 +3,16 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
+use rand::rngs::StdRng;
+use vortex::array::ArrayRef;
+use vortex::array::IntoArray;
 use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrays::ListArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::validity::Validity;
-use vortex::array::ArrayRef;
-use vortex::array::IntoArray;
 use vortex::dtype::FieldNames;
 
 use crate::datasets::Dataset;

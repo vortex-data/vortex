@@ -14,8 +14,8 @@ use vortex_vector::binaryview::Inlined;
 
 use crate::duckdb::Vector;
 use crate::duckdb::VectorBuffer;
-use crate::exporter::all_invalid;
 use crate::exporter::ColumnExporter;
+use crate::exporter::all_invalid;
 
 struct VarBinViewExporter {
     views: Buffer<BinaryView>,

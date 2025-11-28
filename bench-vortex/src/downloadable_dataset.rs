@@ -4,9 +4,9 @@
 use async_trait::async_trait;
 use tokio::fs::File;
 use vortex::array::ArrayRef;
+use vortex::array::stream::ArrayStreamExt;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
-use vortex::array::stream::ArrayStreamExt;
 
 use crate::IdempotentPath;
 use crate::SESSION;

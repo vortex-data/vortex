@@ -5,6 +5,13 @@
 #![doc = include_str!(concat!("../", env!("CARGO_PKG_README")))]
 
 pub use vortex_array as array;
+use vortex_array::ArraySession;
+// vortex::compute is deprecated and will be ported over to expressions.
+pub use vortex_array::compute;
+// vortex::expr is in the process of having its dependencies inverted, and will eventually be
+// pulled back out into a vortex_expr crate.
+pub use vortex_array::expr;
+use vortex_array::expr::session::ExprSession;
 pub use vortex_buffer as buffer;
 pub use vortex_dtype as dtype;
 pub use vortex_error as error;
@@ -12,28 +19,19 @@ pub use vortex_error as error;
 pub use vortex_file as file;
 pub use vortex_flatbuffers as flatbuffers;
 pub use vortex_io as io;
+use vortex_io::session::RuntimeSession;
 pub use vortex_ipc as ipc;
 pub use vortex_layout as layout;
+use vortex_layout::session::LayoutSession;
 pub use vortex_mask as mask;
 pub use vortex_metrics as metrics;
+use vortex_metrics::VortexMetrics;
 pub use vortex_proto as proto;
 pub use vortex_scalar as scalar;
 pub use vortex_scan as scan;
 pub use vortex_session as session;
-pub use vortex_utils as utils;
-
-// vortex::compute is deprecated and will be ported over to expressions.
-pub use vortex_array::compute;
-// vortex::expr is in the process of having its dependencies inverted, and will eventually be
-// pulled back out into a vortex_expr crate.
-pub use vortex_array::expr;
-
-use vortex_array::expr::session::ExprSession;
-use vortex_array::ArraySession;
-use vortex_io::session::RuntimeSession;
-use vortex_layout::session::LayoutSession;
-use vortex_metrics::VortexMetrics;
 use vortex_session::VortexSession;
+pub use vortex_utils as utils;
 
 pub mod compressor {
     pub use vortex_btrblocks::BtrBlocksCompressor;
@@ -85,6 +83,9 @@ impl VortexSessionDefault for VortexSession {
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
+    use vortex_array::ArrayRef;
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
@@ -92,9 +93,6 @@ mod test {
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
-    use vortex_array::ArrayRef;
-    use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_file::OpenOptionsSessionExt;

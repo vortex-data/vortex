@@ -15,15 +15,18 @@ use vortex::dtype::FieldNames;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::PType;
 use vortex::error::VortexResult;
+use vortex::expr::Expression;
 use vortex::expr::root;
 use vortex::expr::select;
-use vortex::expr::Expression;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::layout::segments::MokaSegmentCache;
 use vortex::scan::ScanBuilder;
 use vortex::scan::SplitBy;
 
+use crate::RUNTIME;
+use crate::SESSION;
+use crate::TOKIO_RUNTIME;
 use crate::arrays::PyArrayRef;
 use crate::arrow::IntoPyArrow;
 use crate::dataset::PyVortexDataset;
@@ -32,9 +35,6 @@ use crate::expr::PyExpr;
 use crate::install_module;
 use crate::iter::PyArrayIterator;
 use crate::scan::PyRepeatedScan;
-use crate::RUNTIME;
-use crate::SESSION;
-use crate::TOKIO_RUNTIME;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "file")?;

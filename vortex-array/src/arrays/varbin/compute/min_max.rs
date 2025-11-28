@@ -4,8 +4,8 @@
 use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_error::vortex_panic;
 use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
 
 use crate::accessor::ArrayAccessor;
@@ -68,8 +68,8 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::arrays::VarBinArray;
-    use crate::compute::min_max;
     use crate::compute::MinMaxResult;
+    use crate::compute::min_max;
     use crate::expr::stats::Stat;
     use crate::expr::stats::StatsProvider;
 

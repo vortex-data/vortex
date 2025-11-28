@@ -7,19 +7,19 @@ use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 use vortex_vector::primitive::PVector;
 
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::PrimitiveVTable;
-use crate::execution::kernel;
 use crate::execution::BatchKernelRef;
 use crate::execution::BindCtx;
+use crate::execution::kernel;
 use crate::transform::ArrayParentReduceRule;
 use crate::transform::ArrayRuleContext;
 use crate::vtable::OperatorVTable;
 use crate::vtable::ValidityHelper;
-use crate::ArrayRef;
-use crate::IntoArray;
 
 impl OperatorVTable<PrimitiveVTable> for PrimitiveVTable {
     fn bind(

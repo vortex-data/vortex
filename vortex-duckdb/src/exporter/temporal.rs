@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::array::arrays::TemporalArray;
 use vortex::array::ToCanonical;
+use vortex::array::arrays::TemporalArray;
 use vortex::error::VortexResult;
 
 use crate::duckdb::Vector;
-use crate::exporter::primitive;
 use crate::exporter::ColumnExporter;
+use crate::exporter::primitive;
 
 struct TemporalExporter {
     storage_type_exporter: Box<dyn ColumnExporter>,
@@ -29,9 +29,9 @@ impl ColumnExporter for TemporalExporter {
 
 #[cfg(test)]
 mod tests {
+    use vortex::array::IntoArray as _;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::TemporalArray;
-    use vortex::array::IntoArray as _;
     use vortex::buffer::buffer;
     use vortex::dtype::datetime::TimeUnit;
 

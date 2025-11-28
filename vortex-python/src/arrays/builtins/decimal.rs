@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use pyo3::PyRef;
 use pyo3::pyclass;
 use pyo3::pymethods;
-use pyo3::PyRef;
 use vortex::array::arrays::DecimalVTable;
 
 use crate::arrays::native::AsArrayRef;

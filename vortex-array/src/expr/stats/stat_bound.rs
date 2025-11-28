@@ -3,9 +3,9 @@
 
 use std::cmp::Ordering;
 
-use crate::expr::stats::bound::IntersectionResult;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
+use crate::expr::stats::bound::IntersectionResult;
 use crate::partial_ord::partial_min;
 
 /// `StatType` define the bound of a given statistic. (e.g. `Max` is an upper bound),

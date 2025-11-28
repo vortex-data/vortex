@@ -8,10 +8,10 @@ use vortex::mask::Mask;
 use crate::convert::ToDuckDBScalar;
 use crate::duckdb::Value;
 use crate::duckdb::Vector;
-use crate::exporter::new_array_exporter;
-use crate::exporter::validity;
 use crate::exporter::ColumnExporter;
 use crate::exporter::ConversionCache;
+use crate::exporter::new_array_exporter;
+use crate::exporter::validity;
 
 struct ConstantExporter {
     value: Option<Value>,

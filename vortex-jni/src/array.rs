@@ -6,11 +6,14 @@ use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_schema::DataType;
 use arrow_schema::FieldRef;
 use arrow_schema::Fields;
+use jni::JNIEnv;
 use jni::objects::JClass;
 use jni::objects::JIntArray;
 use jni::objects::JLongArray;
 use jni::objects::JObject;
 use jni::objects::JValue;
+use jni::sys::JNI_FALSE;
+use jni::sys::JNI_TRUE;
 use jni::sys::jboolean;
 use jni::sys::jbyte;
 use jni::sys::jbyteArray;
@@ -21,24 +24,21 @@ use jni::sys::jlong;
 use jni::sys::jobject;
 use jni::sys::jshort;
 use jni::sys::jstring;
-use jni::sys::JNI_FALSE;
-use jni::sys::JNI_TRUE;
-use jni::JNIEnv;
-use vortex::array::arrays::VarBinArray;
-use vortex::array::arrays::VarBinViewArray;
-use vortex::array::arrow::IntoArrowArray;
 use vortex::array::Array;
 use vortex::array::ArrayRef;
 use vortex::array::ToCanonical;
+use vortex::array::arrays::VarBinArray;
+use vortex::array::arrays::VarBinViewArray;
+use vortex::array::arrow::IntoArrowArray;
 use vortex::dtype::DType;
-use vortex::error::vortex_err;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
-use vortex::scalar::i256;
+use vortex::error::vortex_err;
 use vortex::scalar::DecimalValue;
+use vortex::scalar::i256;
 
-use crate::errors::try_or_throw;
 use crate::errors::JNIError;
+use crate::errors::try_or_throw;
 
 pub struct NativeArray {
     inner: ArrayRef,

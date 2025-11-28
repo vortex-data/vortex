@@ -2,16 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use pyo3::pyclass;
-use pyo3::pymethods;
 use pyo3::PyRef;
 use pyo3::PyResult;
+use pyo3::pyclass;
+use pyo3::pymethods;
 use vortex::array::arrays::StructVTable;
 
+use crate::arrays::PyArrayRef;
 use crate::arrays::native::AsArrayRef;
 use crate::arrays::native::EncodingSubclass;
 use crate::arrays::native::PyNativeArray;
-use crate::arrays::PyArrayRef;
 
 /// Concrete class for arrays with `vortex.struct` encoding.
 #[pyclass(name = "StructArray", module = "vortex", extends=PyNativeArray, frozen)]

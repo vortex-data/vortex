@@ -3,10 +3,10 @@
 
 use std::sync::Arc;
 
+use ::vortex::array::arrays::ChunkedArray;
+use ::vortex::array::arrays::recursive_list_from_list_view;
 use arrow_array::RecordBatch;
 use arrow_schema::Schema;
-use ::vortex::array::arrays::recursive_list_from_list_view;
-use ::vortex::array::arrays::ChunkedArray;
 
 pub mod bench;
 

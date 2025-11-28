@@ -53,23 +53,23 @@ mod tests {
     use datafusion_physical_plan::display::DisplayableExecutionPlan;
     use insta::assert_snapshot;
     use rstest::rstest;
-    use tempfile::tempdir;
     use tempfile::TempDir;
+    use tempfile::tempdir;
     use tokio::fs::OpenOptions;
+    use vortex::VortexSessionDefault;
+    use vortex::array::IntoArray;
     use vortex::array::arrays::ChunkedArray;
     use vortex::array::arrays::StructArray;
     use vortex::array::arrays::VarBinArray;
     use vortex::array::validity::Validity;
-    use vortex::array::IntoArray;
     use vortex::buffer::buffer;
     use vortex::error::vortex_err;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::session::VortexSession;
-    use vortex::VortexSessionDefault;
 
-    use crate::persistent::register_vortex_format_factory;
-    use crate::persistent::VortexFormat;
     use crate::VortexFormatFactory;
+    use crate::persistent::VortexFormat;
+    use crate::persistent::register_vortex_format_factory;
 
     #[rstest]
     #[case(Some(1))]

@@ -9,13 +9,14 @@ use std::slice;
 use std::str::FromStr;
 
 use anyhow::Result;
-use jiff::tz;
-use jiff::tz::TimeZone;
 use jiff::Span;
 use jiff::Timestamp;
 use jiff::Zoned;
+use jiff::tz;
+use jiff::tz::TimeZone;
 use num_traits::AsPrimitive;
 use tempfile::NamedTempFile;
+use vortex::array::IntoArray;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::DictArray;
@@ -26,7 +27,6 @@ use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::validity::Validity;
-use vortex::array::IntoArray;
 use vortex::buffer::buffer;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
@@ -37,13 +37,13 @@ use vortex::scalar::Scalar;
 use vortex_runend::RunEndArray;
 use vortex_sequence::SequenceArray;
 
+use crate::RUNTIME;
+use crate::SESSION;
 use crate::cpp;
 use crate::cpp::duckdb_string_t;
 use crate::cpp::duckdb_timestamp;
 use crate::duckdb::Connection;
 use crate::duckdb::Database;
-use crate::RUNTIME;
-use crate::SESSION;
 
 fn database_connection() -> Connection {
     let db = Database::open_in_memory().unwrap();

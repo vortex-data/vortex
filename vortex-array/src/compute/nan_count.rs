@@ -5,13 +5,14 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
 
+use crate::Array;
 use crate::compute::ComputeFn;
 use crate::compute::ComputeFnVTable;
 use crate::compute::InvocationArgs;
@@ -22,7 +23,6 @@ use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
 use crate::vtable::VTable;
-use crate::Array;
 
 static NAN_COUNT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("nan_count".into(), ArcRef::new_ref(&NaNCount));

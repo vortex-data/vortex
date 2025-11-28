@@ -3,14 +3,14 @@
 
 use std::ops::Deref;
 
-use pyo3::prelude::PyAnyMethods;
-use pyo3::pyclass;
-use pyo3::pymethods;
 use pyo3::Bound;
 use pyo3::PyAny;
 use pyo3::PyRef;
 use pyo3::PyResult;
 use pyo3::Python;
+use pyo3::prelude::PyAnyMethods;
+use pyo3::pyclass;
+use pyo3::pymethods;
 use vortex::array::serde::ArrayParts;
 use vortex::buffer::ByteBuffer;
 

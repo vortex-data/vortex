@@ -5,40 +5,40 @@ use std::io::Cursor;
 
 use arrow_array::RecordBatch;
 use arrow_ipc::reader::StreamReader;
-use futures::channel::mpsc;
 use futures::SinkExt;
+use futures::channel::mpsc;
+use jni::JNIEnv;
 use jni::objects::JByteArray;
 use jni::objects::JClass;
 use jni::objects::JObject;
 use jni::objects::JString;
-use jni::sys::jboolean;
-use jni::sys::jlong;
 use jni::sys::JNI_FALSE;
 use jni::sys::JNI_TRUE;
-use jni::JNIEnv;
+use jni::sys::jboolean;
+use jni::sys::jlong;
 use object_store::path::Path;
 use url::Url;
-use vortex::array::arrow::FromArrowArray;
 use vortex::array::Array;
 use vortex::array::ArrayRef;
+use vortex::array::arrow::FromArrowArray;
+use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
+use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
-use vortex::error::VortexResult;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteSummary;
-use vortex::io::runtime::Task;
-use vortex::io::session::RuntimeSessionExt;
 use vortex::io::ObjectStoreWriter;
 use vortex::io::VortexWrite;
-use vortex::array::stream::ArrayStreamAdapter;
+use vortex::io::runtime::Task;
+use vortex::io::session::RuntimeSessionExt;
 use vortex::utils::aliases::hash_map::HashMap;
 
-use crate::errors::try_or_throw;
-use crate::errors::JNIError;
-use crate::object_store::make_object_store;
 use crate::SESSION;
 use crate::TOKIO_RUNTIME;
+use crate::errors::JNIError;
+use crate::errors::try_or_throw;
+use crate::object_store::make_object_store;
 
 /// Native writer around a file writer.
 pub struct NativeWriter {

@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
@@ -19,18 +19,18 @@ use datafusion_datasource::write::demux::DemuxedStreamReceiver;
 use datafusion_datasource::write::get_writer_schema;
 use datafusion_execution::SendableRecordBatchStream;
 use datafusion_execution::TaskContext;
-use datafusion_physical_plan::metrics::MetricsSet;
 use datafusion_physical_plan::DisplayAs;
 use datafusion_physical_plan::DisplayFormatType;
+use datafusion_physical_plan::metrics::MetricsSet;
 use futures::StreamExt;
-use object_store::path::Path;
 use object_store::ObjectStore;
+use object_store::path::Path;
 use tokio_stream::wrappers::ReceiverStream;
+use vortex::array::ArrayRef;
 use vortex::array::arrow::FromArrowArray;
 use vortex::array::stream::ArrayStreamAdapter;
-use vortex::array::ArrayRef;
-use vortex::dtype::arrow::FromArrowType;
 use vortex::dtype::DType;
+use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexResult;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::ObjectStoreWriter;
@@ -203,8 +203,8 @@ mod tests {
     use tempfile::TempDir;
     use walkdir::WalkDir;
 
-    use crate::persistent::register_vortex_format_factory;
     use crate::persistent::VortexFormatFactory;
+    use crate::persistent::register_vortex_format_factory;
 
     #[tokio::test]
     async fn test_insert_into() {

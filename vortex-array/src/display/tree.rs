@@ -3,13 +3,13 @@
 
 use std::fmt::{self};
 
-use humansize::format_size;
 use humansize::DECIMAL;
+use humansize::format_size;
 
-use crate::arrays::ChunkedVTable;
-use crate::display::DisplayOptions;
 use crate::ArrayRef;
 use crate::ArrayVisitor;
+use crate::arrays::ChunkedVTable;
+use crate::display::DisplayOptions;
 
 pub(crate) struct TreeDisplayWrapper(pub(crate) ArrayRef);
 

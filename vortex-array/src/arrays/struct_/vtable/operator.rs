@@ -4,24 +4,24 @@
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
-use vortex_vector::struct_::StructVector;
 use vortex_vector::Vector;
+use vortex_vector::struct_::StructVector;
 
+use crate::ArrayRef;
+use crate::arrays::StructArray;
+use crate::arrays::StructVTable;
 use crate::arrays::expr::ExprArray;
 use crate::arrays::expr::ExprVTable;
 use crate::arrays::struct_::vtable::reduce::apply_partitioned_expr;
 use crate::arrays::struct_::vtable::reduce::partition_struct_expr;
-use crate::arrays::StructArray;
-use crate::arrays::StructVTable;
-use crate::execution::kernel;
 use crate::execution::BatchKernelRef;
 use crate::execution::BindCtx;
+use crate::execution::kernel;
 use crate::expr::session::ExprSession;
 use crate::transform::ArrayParentReduceRule;
 use crate::transform::ArrayRuleContext;
 use crate::vtable::OperatorVTable;
 use crate::vtable::ValidityHelper;
-use crate::ArrayRef;
 
 impl OperatorVTable<StructVTable> for StructVTable {
     fn bind(
@@ -92,11 +92,13 @@ mod tests {
     use vortex_vector::VectorOps;
 
     use super::*;
-    use crate::arrays::expr::ExprVTable;
+    use crate::Array;
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::arrays::ExprArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
+    use crate::arrays::expr::ExprVTable;
     use crate::assert_arrays_eq;
     use crate::expr::and;
     use crate::expr::col;
@@ -109,8 +111,6 @@ mod tests {
     use crate::expr::root;
     use crate::expr::transform::ExprOptimizer;
     use crate::validity::Validity;
-    use crate::Array;
-    use crate::IntoArray;
 
     #[test]
     fn test_struct_operator_basic() {

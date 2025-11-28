@@ -16,15 +16,15 @@ use vortex::file::Footer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::SegmentSpec;
 use vortex::file::VortexFile;
+use vortex::layout::LayoutRef;
+use vortex::layout::VTable;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
 use vortex::layout::segments::SegmentId;
 use vortex::layout::segments::SegmentSource;
-use vortex::layout::LayoutRef;
-use vortex::layout::VTable;
 
-use crate::browse::ui::SegmentGridState;
 use crate::SESSION;
+use crate::browse::ui::SegmentGridState;
 
 #[derive(Default, Copy, Clone, Eq, PartialEq)]
 pub enum Tab {

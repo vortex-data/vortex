@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
-use humansize::make_format;
+use fuzzy_matcher::skim::SkimMatcherV2;
 use humansize::DECIMAL;
+use humansize::make_format;
 use itertools::Itertools;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Constraint;
@@ -37,9 +37,9 @@ use vortex::expr::root;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
 
+use crate::SESSION;
 use crate::browse::app::AppState;
 use crate::browse::app::LayoutCursor;
-use crate::SESSION;
 
 /// Render the Layouts tab.
 pub fn render_layouts(app_state: &mut AppState<'_>, area: Rect, buf: &mut Buffer) {

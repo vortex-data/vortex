@@ -3,9 +3,12 @@
 
 use std::ops::Deref;
 
+use pyo3::PyClass;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
-use pyo3::PyClass;
+use vortex::array::Array;
+use vortex::array::ArrayAdapter;
+use vortex::array::ArrayRef;
 use vortex::array::arrays::BoolVTable;
 use vortex::array::arrays::ChunkedVTable;
 use vortex::array::arrays::ConstantVTable;
@@ -20,9 +23,6 @@ use vortex::array::arrays::StructVTable;
 use vortex::array::arrays::VarBinVTable;
 use vortex::array::arrays::VarBinViewVTable;
 use vortex::array::vtable::VTable;
-use vortex::array::Array;
-use vortex::array::ArrayAdapter;
-use vortex::array::ArrayRef;
 use vortex::encodings::alp::ALPRDVTable;
 use vortex::encodings::alp::ALPVTable;
 use vortex::encodings::bytebool::ByteBoolVTable;
@@ -37,6 +37,7 @@ use vortex::encodings::sparse::SparseVTable;
 use vortex::encodings::zigzag::ZigZagVTable;
 use vortex::error::VortexExpect;
 
+use crate::arrays::PyArray;
 use crate::arrays::builtins::PyBoolArray;
 use crate::arrays::builtins::PyByteBoolArray;
 use crate::arrays::builtins::PyChunkedArray;
@@ -62,7 +63,6 @@ use crate::arrays::compressed::PyZigZagArray;
 use crate::arrays::fastlanes::PyFastLanesBitPackedArray;
 use crate::arrays::fastlanes::PyFastLanesDeltaArray;
 use crate::arrays::fastlanes::PyFastLanesFoRArray;
-use crate::arrays::PyArray;
 use crate::dtype::PyDType;
 
 #[pyclass(name = "NativeArray", module = "vortex", extends=PyArray, sequence, subclass, frozen)]

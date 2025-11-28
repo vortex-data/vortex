@@ -12,6 +12,7 @@ mod range_to_sequence;
 
 use arrow_array::Array as ArrowArray;
 use arrow_array::ArrayRef as ArrowArrayRef;
+use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -19,24 +20,24 @@ use pyo3::types::PyDict;
 use pyo3::types::PyList;
 use pyo3::types::PyRange;
 use pyo3::types::PyRangeMethods;
-use pyo3::IntoPyObjectExt;
 use pyo3_bytes::PyBytes;
-use vortex::array::arrays::ChunkedVTable;
-use vortex::array::arrow::IntoArrowArray;
 use vortex::array::Array;
 use vortex::array::ArrayRef;
 use vortex::array::ToCanonical;
+use vortex::array::arrays::ChunkedVTable;
+use vortex::array::arrow::IntoArrowArray;
+use vortex::compute::Operator;
 use vortex::compute::compare;
 use vortex::compute::take;
-use vortex::compute::Operator;
-use vortex::dtype::match_each_integer_ptype;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
+use vortex::dtype::match_each_integer_ptype;
 use vortex::error::VortexError;
 use vortex::ipc::messages::EncoderMessage;
 use vortex::ipc::messages::MessageEncoder;
 
+use crate::PyVortex;
 use crate::arrays::native::PyNativeArray;
 use crate::arrays::py::PyPythonArray;
 use crate::arrays::py::PythonArray;
@@ -46,7 +47,6 @@ use crate::install_module;
 use crate::python_repr::PythonRepr;
 use crate::scalar::PyScalar;
 use crate::serde::context::PyArrayContext;
-use crate::PyVortex;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "arrays")?;

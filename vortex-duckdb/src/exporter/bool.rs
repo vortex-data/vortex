@@ -7,8 +7,8 @@ use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
 use crate::duckdb::Vector;
-use crate::exporter::all_invalid;
 use crate::exporter::ColumnExporter;
+use crate::exporter::all_invalid;
 
 struct BoolExporter {
     array: BoolArray,

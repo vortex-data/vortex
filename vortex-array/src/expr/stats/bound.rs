@@ -246,11 +246,11 @@ impl<T: PartialOrd> PartialOrd<T> for UpperBound<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::expr::stats::bound::IntersectionResult;
     use crate::expr::stats::LowerBound;
     use crate::expr::stats::Precision;
     use crate::expr::stats::StatBound;
     use crate::expr::stats::UpperBound;
+    use crate::expr::stats::bound::IntersectionResult;
 
     #[test]
     fn test_upper_bound_cmp() {

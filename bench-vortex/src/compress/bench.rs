@@ -14,8 +14,8 @@ use parquet::basic::Compression;
 use parquet::basic::ZstdLevel;
 use serde::Serialize;
 use tokio::runtime::Runtime;
-use vortex::array::arrays::ChunkedVTable;
 use vortex::array::Array;
+use vortex::array::arrays::ChunkedVTable;
 use vortex::utils::aliases::hash_map::HashMap;
 #[cfg(feature = "lance")]
 #[rustfmt::skip]
@@ -31,6 +31,7 @@ use {
     std::sync::Arc,
 };
 
+use crate::Format;
 use crate::bench_run::run;
 use crate::compress::chunked_to_vec_record_batch;
 use crate::compress::parquet::parquet_compress_write;
@@ -39,7 +40,6 @@ use crate::compress::vortex::vortex_compress_write;
 use crate::compress::vortex::vortex_decompress_read;
 use crate::measurements::CompressionTimingMeasurement;
 use crate::measurements::CustomUnitMeasurement;
-use crate::Format;
 
 #[derive(Default)]
 pub struct CompressMeasurements {

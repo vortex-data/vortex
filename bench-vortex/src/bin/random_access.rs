@@ -3,15 +3,18 @@
 
 use std::fs::File;
 use std::future::Future;
-use std::io::stdout;
 use std::io::Write;
+use std::io::stdout;
 use std::path::PathBuf;
 
+use bench_vortex::Engine;
+use bench_vortex::Format;
+use bench_vortex::Target;
 use bench_vortex::bench_run::run_timed_with_setup;
 use bench_vortex::datasets::taxi_data::*;
+use bench_vortex::display::DisplayFormat;
 use bench_vortex::display::print_measurements_json;
 use bench_vortex::display::render_table;
-use bench_vortex::display::DisplayFormat;
 use bench_vortex::measurements::TimingMeasurement;
 #[cfg(feature = "lance")]
 use bench_vortex::random_access::take::take_lance;
@@ -20,17 +23,14 @@ use bench_vortex::random_access::take::take_vortex_tokio;
 use bench_vortex::setup_logging_and_tracing;
 use bench_vortex::utils::constants::STORAGE_NVME;
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::Engine;
-use bench_vortex::Format;
-use bench_vortex::Target;
 use clap::Parser;
 use indicatif::ProgressBar;
 use tokio::runtime::Runtime;
 use vortex::array::Array;
 use vortex::array::ArrayRef;
 use vortex::array::ToCanonical;
-use vortex::buffer::buffer;
 use vortex::buffer::Buffer;
+use vortex::buffer::buffer;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::error::VortexExpect;
 use vortex::scalar::Scalar;
