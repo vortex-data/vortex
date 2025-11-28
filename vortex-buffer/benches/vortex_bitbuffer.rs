@@ -26,12 +26,15 @@ impl FromIterator<bool> for Arrow<BooleanBuffer> {
 
 const INPUT_SIZE: &[usize] = &[128, 1024, 2048, 16_384, 65_536];
 
-#[divan::bench(
-    types = [Arrow<BooleanBuffer>, BitBuffer],
-    args = INPUT_SIZE,
-)]
-fn from_iter<B: FromIterator<bool>>(n: usize) {
-    B::from_iter((0..n).map(|i| i % 2 == 0));
+#[cfg(not(codspeed))]
+#[divan::bench(args = INPUT_SIZE)]
+fn from_iter_arrow(n: usize) {
+    Arrow::<BooleanBuffer>::from_iter((0..n).map(|i| i % 2 == 0));
+}
+
+#[divan::bench(args = INPUT_SIZE)]
+fn from_iter_bit_buffer(n: usize) {
+    BitBuffer::from_iter((0..n).map(|i| i % 2 == 0));
 }
 
 #[divan::bench(args = INPUT_SIZE)]
