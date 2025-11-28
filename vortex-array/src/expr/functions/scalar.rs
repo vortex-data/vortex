@@ -15,6 +15,7 @@ use vortex_vector::Datum;
 
 use crate::expr::functions::ArgName;
 use crate::expr::functions::Arity;
+use crate::expr::functions::NullHandling;
 use crate::expr::functions::ScalarFnVTable;
 use crate::expr::functions::execution::ExecutionCtx;
 
@@ -128,6 +129,10 @@ pub struct ScalarFnSignature<'a> {
 impl ScalarFnSignature<'_> {
     pub fn arity(&self) -> Arity {
         self.vtable.as_dyn().arity(self.options)
+    }
+
+    pub fn null_handling(&self) -> NullHandling {
+        self.vtable.as_dyn().null_handling(self.options)
     }
 
     pub fn arg_name(&self, arg_idx: usize) -> ArgName {

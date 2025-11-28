@@ -153,6 +153,7 @@ pub(crate) trait DynScalarFnVTable: 'static + Send + Sync {
 
     fn arity(&self, options: &dyn Any) -> Arity;
     fn arg_name(&self, options: &dyn Any, arg_idx: usize) -> ArgName;
+    fn null_handling(&self, options: &dyn Any) -> NullHandling;
 
     fn return_dtype(&self, options: &dyn Any, arg_types: &[DType]) -> VortexResult<DType>;
     fn execute(&self, options: &dyn Any, ctx: &ExecutionCtx) -> VortexResult<Datum>;
@@ -199,6 +200,10 @@ impl<V: VTable> DynScalarFnVTable for ScalarFnVTableAdapter<V> {
 
     fn arg_name(&self, options: &dyn Any, arg_idx: usize) -> ArgName {
         V::arg_name(&self.0, downcast::<V>(options), arg_idx)
+    }
+
+    fn null_handling(&self, options: &dyn Any) -> NullHandling {
+        V::null_handling(&self.0, downcast::<V>(options))
     }
 
     fn return_dtype(&self, options: &dyn Any, arg_types: &[DType]) -> VortexResult<DType> {
