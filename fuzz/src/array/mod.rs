@@ -17,14 +17,14 @@ mod take;
 use std::iter;
 use std::ops::Range;
 
+use arbitrary::Arbitrary;
+use arbitrary::Error::EmptyChoose;
+use arbitrary::Unstructured;
 pub(crate) use cast::*;
 pub(crate) use compare::*;
 pub(crate) use fill_null::*;
 pub(crate) use filter::*;
 use itertools::Itertools;
-use libfuzzer_sys::arbitrary::Arbitrary;
-use libfuzzer_sys::arbitrary::Error::EmptyChoose;
-use libfuzzer_sys::arbitrary::Unstructured;
 pub(crate) use mask::*;
 pub(crate) use min_max::*;
 pub(crate) use scalar_at::*;
@@ -70,7 +70,7 @@ pub enum CompressorStrategy {
 }
 
 impl<'a> Arbitrary<'a> for CompressorStrategy {
-    fn arbitrary(u: &mut Unstructured<'a>) -> libfuzzer_sys::arbitrary::Result<Self> {
+    fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
         if u.arbitrary()? {
             Ok(CompressorStrategy::Default)
         } else {
@@ -145,7 +145,7 @@ impl ExpectedValue {
 }
 
 impl<'a> Arbitrary<'a> for FuzzArrayAction {
-    fn arbitrary(u: &mut Unstructured<'a>) -> libfuzzer_sys::arbitrary::Result<Self> {
+    fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
         let array = ArbitraryArray::arbitrary(u)?.0;
         let mut current_array = array.to_array();
 
@@ -249,7 +249,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                 ActionType::Filter => {
                     let mask = (0..current_array.len())
                         .map(|_| bool::arbitrary(u))
-                        .collect::<libfuzzer_sys::arbitrary::Result<Vec<_>>>()?;
+                        .collect::<arbitrary::Result<Vec<_>>>()?;
                     current_array = filter_canonical_array(&current_array, &mask).vortex_unwrap();
                     (
                         Action::Filter(Mask::from_iter(mask)),
@@ -338,7 +338,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     // Mask - returns an array, updates current_array
                     let mask = (0..current_array.len())
                         .map(|_| bool::arbitrary(u))
-                        .collect::<libfuzzer_sys::arbitrary::Result<Vec<_>>>()?;
+                        .collect::<arbitrary::Result<Vec<_>>>()?;
 
                     // Compute expected result on canonical form
                     let expected_result = mask_canonical_array(
@@ -456,7 +456,7 @@ fn random_vec_in_range(
     u: &mut Unstructured<'_>,
     min: usize,
     max: usize,
-) -> libfuzzer_sys::arbitrary::Result<Vec<Option<usize>>> {
+) -> arbitrary::Result<Vec<Option<usize>>> {
     iter::from_fn(|| {
         u.arbitrary().unwrap_or(false).then(|| {
             if u.arbitrary()? {
@@ -466,12 +466,12 @@ fn random_vec_in_range(
             }
         })
     })
-    .collect::<libfuzzer_sys::arbitrary::Result<Vec<_>>>()
+    .collect::<arbitrary::Result<Vec<_>>>()
 }
 
 fn random_action_from_list(
     u: &mut Unstructured<'_>,
     actions: &[ActionType],
-) -> libfuzzer_sys::arbitrary::Result<ActionType> {
+) -> arbitrary::Result<ActionType> {
     u.choose_iter(actions).copied()
 }

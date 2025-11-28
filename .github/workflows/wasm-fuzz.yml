@@ -1,0 +1,109 @@
+name: WASM Fuzz Build
+
+on:
+  pull_request:
+    paths:
+      - "fuzz/**"
+      - ".github/workflows/wasm-fuzz.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-wasm-fuzz:
+    name: "Build WASM Fuzzer"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          toolchain: nightly
+          targets: "wasm32-wasip1"
+          components: "rust-src"
+
+      - name: Build WASM fuzz target
+        run: |
+          cargo +nightly build \
+            --manifest-path fuzz/Cargo.toml \
+            --target wasm32-wasip1 \
+            --no-default-features \
+            --features wasmfuzz \
+            --release \
+            --bin array_ops_wasm
+
+      - name: Verify WASM binary exists
+        run: |
+          ls -lh target/wasm32-wasip1/release/array_ops_wasm.wasm
+          file target/wasm32-wasip1/release/array_ops_wasm.wasm
+
+      - name: Install wabt tools
+        run: sudo apt-get update && sudo apt-get install -y wabt
+
+      - name: Verify LLVMFuzzerTestOneInput export
+        run: |
+          wasm-objdump -x target/wasm32-wasip1/release/array_ops_wasm.wasm | grep -E "LLVMFuzzer"
+          echo "LLVMFuzzerTestOneInput is properly exported"
+
+      - name: Setup Wasmtime
+        uses: bytecodealliance/actions/wasmtime/setup@v1
+
+      - name: Test WASM binary runs
+        run: |
+          wasmtime --version
+          # Run the binary - it should exit cleanly (main() does nothing)
+          wasmtime target/wasm32-wasip1/release/array_ops_wasm.wasm
+          echo "WASM binary runs successfully"
+
+      - name: Upload WASM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-fuzzer
+          path: target/wasm32-wasip1/release/array_ops_wasm.wasm
+          retention-days: 7
+
+  test-wasmfuzz:
+    name: "Test with wasmfuzz"
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: build-wasm-fuzz
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          toolchain: nightly
+
+      - name: Download WASM artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-fuzzer
+          path: ./wasm-fuzzer
+
+      - name: Install wasmfuzz
+        id: install-wasmfuzz
+        continue-on-error: true
+        run: |
+          cargo install --git https://github.com/CISPA-SysSec/wasmfuzz --locked
+          echo "installed=true" >> $GITHUB_OUTPUT
+
+      - name: Run wasmfuzz (brief test)
+        if: steps.install-wasmfuzz.outputs.installed == 'true'
+        run: |
+          mkdir -p corpus
+          timeout 60s wasmfuzz fuzz --cores 1 --dir corpus/ ./wasm-fuzzer/array_ops_wasm.wasm || true
+          echo "wasmfuzz test completed"
+
+      - name: Report wasmfuzz status
+        if: steps.install-wasmfuzz.outputs.installed != 'true'
+        run: |
+          echo "::warning::wasmfuzz failed to install (likely upstream dependency issue)"
+          echo "The WASM binary was built successfully and can be used with wasmfuzz once it compiles"
