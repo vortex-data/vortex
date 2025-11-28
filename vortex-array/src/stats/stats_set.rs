@@ -15,21 +15,21 @@ use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
 
-use crate::expr::stats::IsSorted;
-use crate::expr::stats::IsStrictSorted;
-use crate::expr::stats::NaNCount;
-use crate::expr::stats::NullCount;
 use super::StatType;
 use super::StatsProvider;
-use crate::expr::stats::UncompressedSizeInBytes;
 use crate::expr::stats::IsConstant;
+use crate::expr::stats::IsSorted;
+use crate::expr::stats::IsStrictSorted;
 use crate::expr::stats::Max;
 use crate::expr::stats::Min;
-use crate::stats::Precision;
+use crate::expr::stats::NaNCount;
+use crate::expr::stats::NullCount;
 use crate::expr::stats::Stat;
+use crate::expr::stats::Sum;
+use crate::expr::stats::UncompressedSizeInBytes;
+use crate::stats::Precision;
 use crate::stats::StatBound;
 use crate::stats::StatsProviderExt;
-use crate::expr::stats::Sum;
 
 #[derive(Default, Debug, Clone)]
 pub struct StatsSet {
@@ -545,8 +545,8 @@ mod test {
 
     use crate::arrays::PrimitiveArray;
     use crate::expr::stats::IsConstant;
-    use crate::stats::Precision;
     use crate::expr::stats::Stat;
+    use crate::stats::Precision;
     use crate::stats::StatsProvider;
     use crate::stats::StatsProviderExt;
     use crate::stats::StatsSet;

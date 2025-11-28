@@ -3,9 +3,9 @@
 
 //! Traits and utilities to compute and access array statistics.
 
-use arrow_buffer::bit_iterator::BitIterator;
 use arrow_buffer::BooleanBufferBuilder;
 use arrow_buffer::MutableBuffer;
+use arrow_buffer::bit_iterator::BitIterator;
 use enum_iterator::last;
 use log::debug;
 pub use stats_set::*;
@@ -14,14 +14,15 @@ mod array;
 pub mod flatbuffers;
 mod stats_set;
 
+pub use array::*;
+use vortex_error::VortexExpect;
+
+use crate::expr::stats::Stat;
 pub use crate::expr::stats::bound::LowerBound;
 pub use crate::expr::stats::bound::UpperBound;
 pub use crate::expr::stats::precision::Precision;
 pub use crate::expr::stats::provider::*;
 pub use crate::expr::stats::stat_bound::*;
-use crate::expr::stats::Stat;
-pub use array::*;
-use vortex_error::VortexExpect;
 
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
 /// Sum is included for boolean arrays.

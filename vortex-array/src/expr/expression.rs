@@ -17,8 +17,7 @@ use vortex_error::VortexResult;
 use vortex_vector::Vector;
 use vortex_vector::VectorOps;
 
-use crate::expr::display::DisplayTreeExpr;
-use crate::expr::stats::Stat;
+use crate::ArrayRef;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
@@ -27,7 +26,8 @@ use crate::expr::ExpressionView;
 use crate::expr::Root;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
-use crate::ArrayRef;
+use crate::expr::display::DisplayTreeExpr;
+use crate::expr::stats::Stat;
 
 /// A node in a Vortex expression tree.
 ///

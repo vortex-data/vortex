@@ -7,15 +7,16 @@ use arcref::ArcRef;
 use num_traits::CheckedAdd;
 use num_traits::CheckedSub;
 use vortex_dtype::DType;
+use vortex_error::VortexError;
+use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_error::VortexError;
-use vortex_error::VortexResult;
 use vortex_scalar::NumericOperator;
 use vortex_scalar::Scalar;
 
+use crate::Array;
 use crate::compute::ComputeFn;
 use crate::compute::ComputeFnVTable;
 use crate::compute::InvocationArgs;
@@ -25,7 +26,6 @@ use crate::expr::stats::Stat;
 use crate::stats::Precision;
 use crate::stats::StatsProvider;
 use crate::vtable::VTable;
-use crate::Array;
 
 static SUM_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("sum".into(), ArcRef::new_ref(&Sum));
@@ -276,12 +276,12 @@ mod test {
     use vortex_error::VortexUnwrap;
     use vortex_scalar::Scalar;
 
+    use crate::IntoArray as _;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::sum;
     use crate::compute::sum_with_accumulator;
-    use crate::IntoArray as _;
 
     #[test]
     fn sum_all_invalid() {

@@ -7,12 +7,13 @@ use std::sync::LazyLock;
 use arcref::ArcRef;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_scalar::Scalar;
 
+use crate::Array;
 use crate::arrays::ConstantVTable;
 use crate::arrays::NullVTable;
 use crate::compute::ComputeFn;
@@ -25,7 +26,6 @@ use crate::expr::stats::Stat;
 use crate::stats::Precision;
 use crate::stats::StatsProviderExt;
 use crate::vtable::VTable;
-use crate::Array;
 
 static IS_SORTED_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("is_sorted".into(), ArcRef::new_ref(&IsSorted));
@@ -309,12 +309,12 @@ fn is_sorted_impl(
 mod tests {
     use vortex_buffer::buffer;
 
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::is_sorted;
     use crate::compute::is_strict_sorted;
     use crate::validity::Validity;
-    use crate::IntoArray;
     #[test]
     fn test_is_sorted() {
         assert!(

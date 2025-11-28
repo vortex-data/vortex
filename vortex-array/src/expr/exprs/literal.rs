@@ -4,16 +4,18 @@
 use std::fmt::Formatter;
 
 use prost::Message;
-use vortex_dtype::match_each_float_ptype;
 use vortex_dtype::DType;
+use vortex_dtype::match_each_float_ptype;
+use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_error::VortexResult;
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::ConstantArray;
-use crate::expr::stats::Stat;
 use crate::expr::ChildName;
 use crate::expr::ExprId;
 use crate::expr::Expression;
@@ -21,9 +23,7 @@ use crate::expr::ExpressionView;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::Array;
-use crate::ArrayRef;
-use crate::IntoArray;
+use crate::expr::stats::Stat;
 
 /// Expression that represents a literal scalar value.
 pub struct Literal;

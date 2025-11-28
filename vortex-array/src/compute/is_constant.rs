@@ -7,12 +7,13 @@ use std::sync::LazyLock;
 use arcref::ArcRef;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_scalar::Scalar;
 
+use crate::Array;
 use crate::arrays::ConstantVTable;
 use crate::arrays::NullVTable;
 use crate::compute::ComputeFn;
@@ -26,7 +27,6 @@ use crate::stats::Precision;
 use crate::stats::StatsProvider;
 use crate::stats::StatsProviderExt;
 use crate::vtable::VTable;
-use crate::Array;
 
 static IS_CONSTANT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("is_constant".into(), ArcRef::new_ref(&IsConstant));
@@ -305,9 +305,9 @@ impl IsConstantOpts {
 mod tests {
     use vortex_buffer::buffer;
 
+    use crate::IntoArray as _;
     use crate::arrays::PrimitiveArray;
     use crate::expr::stats::Stat;
-    use crate::IntoArray as _;
 
     #[test]
     fn is_constant_min_max_no_nan() {

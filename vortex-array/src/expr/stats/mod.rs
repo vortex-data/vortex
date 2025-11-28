@@ -1,12 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::stats::{LowerBound, Precision, StatType, UpperBound};
-use enum_iterator::{all, Sequence};
-use num_enum::{IntoPrimitive, TryFromPrimitive};
-use std::fmt::{Debug, Display, Formatter};
-use vortex_dtype::Nullability::{NonNullable, Nullable};
-use vortex_dtype::{DType, DecimalDType, PType, MAX_PRECISION};
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
+
+use enum_iterator::Sequence;
+use enum_iterator::all;
+use num_enum::IntoPrimitive;
+use num_enum::TryFromPrimitive;
+use vortex_dtype::DType;
+use vortex_dtype::DecimalDType;
+use vortex_dtype::MAX_PRECISION;
+use vortex_dtype::Nullability::NonNullable;
+use vortex_dtype::Nullability::Nullable;
+use vortex_dtype::PType;
+
+use crate::stats::LowerBound;
+use crate::stats::Precision;
+use crate::stats::StatType;
+use crate::stats::UpperBound;
 
 pub mod bound;
 pub mod precision;

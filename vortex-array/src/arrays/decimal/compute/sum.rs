@@ -6,12 +6,12 @@ use num_traits::AsPrimitive;
 use num_traits::CheckedAdd;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
-use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::DecimalType;
 use vortex_dtype::Nullability::Nullable;
-use vortex_error::vortex_bail;
+use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 use vortex_scalar::DecimalScalar;
 use vortex_scalar::DecimalValue;
@@ -130,10 +130,10 @@ mod tests {
     use vortex_dtype::DecimalDType;
     use vortex_dtype::Nullability;
     use vortex_error::VortexUnwrap;
-    use vortex_scalar::i256;
     use vortex_scalar::DecimalValue;
     use vortex_scalar::Scalar;
     use vortex_scalar::ScalarValue;
+    use vortex_scalar::i256;
 
     use crate::arrays::DecimalArray;
     use crate::compute::sum;

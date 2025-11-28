@@ -12,11 +12,11 @@ use vortex_dtype::FieldPathSet;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use super::relation::Relation;
+use crate::expr::Expression;
+use crate::expr::StatsCatalog;
 use crate::expr::exprs::get_item::get_item;
 use crate::expr::exprs::root::root;
 use crate::expr::stats::Stat;
-use crate::expr::Expression;
-use crate::expr::StatsCatalog;
 
 pub type RequiredStats = Relation<FieldPath, Stat>;
 

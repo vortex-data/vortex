@@ -5,21 +5,21 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
-use vortex_array::expr::stats::Stat;
 use vortex_array::Array;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
+use vortex_array::expr::stats::Stat;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 
+use crate::LayoutRef;
+use crate::LayoutStrategy;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
 use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt;
-use crate::LayoutRef;
-use crate::LayoutStrategy;
 
 /// A boxed compressor function from arrays into compressed arrays.
 ///
