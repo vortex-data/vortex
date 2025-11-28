@@ -37,35 +37,14 @@ runs:
         targets: "${{inputs.targets || ''}}"
         components: "${{ inputs.components || 'clippy, rustfmt' }}"
 
-    - name: test print runner
-      shell: bash
-      run: |
-        echo "=== Runner Context ==="
-        echo "runner.name: ${{ runner.name }}"
-        echo "runner.os: ${{ runner.os }}"
-        echo "runner.arch: ${{ runner.arch }}"
-        echo "runner.environment: ${{ runner.environment }}"
-        echo "runner.temp: ${{ runner.temp }}"
-        echo "runner.tool_cache: ${{ runner.tool_cache }}"
-        echo "runner.debug: ${{ runner.debug }}"
-        echo ""
-        echo "=== Environment Variables ==="
-        env | grep -i runs || true
-        env | grep -i sccache || true
-        echo ""
-        echo "=== Rust Info ==="
-        echo "Rust version: $(rustc --version)"
-        echo "Rust toolchain: $(rustup toolchain list)"
-
     # Skip rust-cache when S3 sccache is already configured (detected via SCCACHE_BUCKET env).
     # The rust-cache was ~10GB and took 3+ minutes to extract, while sccache
     # S3 backend already provides efficient compile caching.
     - name: Rust Dependency Cache
-      if: ${{ !env.SCCACHE_BUCKET }}
       uses: Swatinem/rust-cache@v2
       with:
         save-if: ${{ github.ref_name == 'develop' }}
-        shared-key: "rust-cache-${{ runner.os }}-${{ runner.environment }}"
+        shared-key: "rust-cache-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}"
 
     - name: Rust Compile Cache
       uses: mozilla-actions/sccache-action@v0.0.9
