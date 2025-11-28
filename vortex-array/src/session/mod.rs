@@ -5,14 +5,12 @@ use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::registry::Registry;
 
-use crate::array::evaluate::ArrayEvaluator;
 use crate::arrays::BoolMaskedValidityRule;
 use crate::arrays::BoolVTable;
 use crate::arrays::ChunkedVTable;
 use crate::arrays::ConstantVTable;
 use crate::arrays::DecimalMaskedValidityRule;
 use crate::arrays::DecimalVTable;
-use crate::arrays::ExprVTable;
 use crate::arrays::ExtensionVTable;
 use crate::arrays::FixedSizeListVTable;
 use crate::arrays::ListVTable;
@@ -21,7 +19,6 @@ use crate::arrays::MaskedVTable;
 use crate::arrays::NullVTable;
 use crate::arrays::PrimitiveMaskedValidityRule;
 use crate::arrays::PrimitiveVTable;
-use crate::arrays::StructExprPartitionRule;
 use crate::arrays::StructVTable;
 use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewVTable;
@@ -42,10 +39,6 @@ pub struct ArraySession {
 
     /// The array optimizer containing rules.
     optimizer: ArrayOptimizer,
-
-    /// An evaluator for apply expressions to arrays.
-    /// This temporary until expressions becomes a closed grammar with lazy evaluation.
-    evaluator: ArrayEvaluator,
 }
 
 impl ArraySession {
@@ -59,14 +52,6 @@ impl ArraySession {
 
     pub fn optimizer_mut(&mut self) -> &mut ArrayOptimizer {
         &mut self.optimizer
-    }
-
-    pub fn evaluator(&self) -> &ArrayEvaluator {
-        &self.evaluator
-    }
-
-    pub fn evaluator_mut(&mut self) -> &mut ArrayEvaluator {
-        &mut self.evaluator
     }
 
     /// Register a new array encoding, replacing any existing encoding with the same ID.
@@ -146,7 +131,6 @@ impl Default for ArraySession {
         let mut session = Self {
             registry: encodings,
             optimizer: ArrayOptimizer::default(),
-            evaluator: ArrayEvaluator::default(),
         };
 
         session.register_parent_rule::<BoolVTable, MaskedVTable, BoolMaskedValidityRule>(
@@ -165,12 +149,6 @@ impl Default for ArraySession {
             &DecimalVTable,
             &MaskedVTable,
             DecimalMaskedValidityRule,
-        );
-
-        session.register_parent_rule::<StructVTable, ExprVTable, StructExprPartitionRule>(
-            &StructVTable,
-            &ExprVTable,
-            StructExprPartitionRule,
         );
 
         session
