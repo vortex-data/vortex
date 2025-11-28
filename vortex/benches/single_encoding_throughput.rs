@@ -92,8 +92,8 @@ fn bench_bitpacked_compress_u32(bencher: Bencher) {
     let bit_width = 8;
 
     with_counter!(bencher, NUM_VALUES * 4)
-        .with_inputs(|| &uint_array)
-        .bench_refs(|a| unsafe { bitpack_encode_unchecked(a.clone(), bit_width).unwrap() });
+        .with_inputs(|| uint_array.clone())
+        .bench_values(|a| unsafe { bitpack_encode_unchecked(a, bit_width).unwrap() });
 }
 
 #[divan::bench(name = "bitpacked_decompress_u32")]
@@ -114,8 +114,8 @@ fn bench_runend_compress_u32(bencher: Bencher) {
     let (uint_array, ..) = setup_primitive_arrays();
 
     with_counter!(bencher, NUM_VALUES * 4)
-        .with_inputs(|| &uint_array)
-        .bench_refs(|a| RunEndArray::encode(a.clone().into_array()).unwrap());
+        .with_inputs(|| uint_array.clone())
+        .bench_values(|a| RunEndArray::encode(a.into_array()).unwrap());
 }
 
 #[divan::bench(name = "runend_decompress_u32")]
@@ -158,8 +158,8 @@ fn bench_for_compress_i32(bencher: Bencher) {
     let (_, int_array, _) = setup_primitive_arrays();
 
     with_counter!(bencher, NUM_VALUES * 4)
-        .with_inputs(|| &int_array)
-        .bench_refs(|a| FoRArray::encode(a.clone()).unwrap());
+        .with_inputs(|| int_array.clone())
+        .bench_values(|a| FoRArray::encode(a).unwrap());
 }
 
 #[divan::bench(name = "for_decompress_i32")]
@@ -196,8 +196,8 @@ fn bench_zigzag_compress_i32(bencher: Bencher) {
     let (_, int_array, _) = setup_primitive_arrays();
 
     with_counter!(bencher, NUM_VALUES * 4)
-        .with_inputs(|| &int_array)
-        .bench_refs(|a| zigzag_encode(a.clone()).unwrap());
+        .with_inputs(|| int_array.clone())
+        .bench_values(|a| zigzag_encode(a).unwrap());
 }
 
 #[divan::bench(name = "zigzag_decompress_i32")]
