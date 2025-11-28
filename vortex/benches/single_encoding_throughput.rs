@@ -11,6 +11,7 @@ use mimalloc::MiMalloc;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::prelude::IndexedRandom;
+use rand::rngs::StdRng;
 use vortex::IntoArray;
 use vortex::ToCanonical;
 use vortex::arrays::PrimitiveArray;
@@ -55,7 +56,7 @@ macro_rules! with_counter {
 
 // Setup functions
 fn setup_primitive_arrays() -> (PrimitiveArray, PrimitiveArray, PrimitiveArray) {
-    let mut rng = rand::rngs::StdRng::seed_from_u64(0);
+    let mut rng = StdRng::seed_from_u64(0);
     let uint_array =
         PrimitiveArray::from_iter((0..NUM_VALUES).map(|_| rng.random_range(42u32..256)));
     let int_array = cast(uint_array.as_ref(), PType::I32.into())
@@ -69,7 +70,7 @@ fn setup_primitive_arrays() -> (PrimitiveArray, PrimitiveArray, PrimitiveArray) 
 
 #[allow(clippy::cast_possible_truncation)]
 fn gen_varbin_words(len: usize, uniqueness: f64) -> Vec<String> {
-    let mut rng = rand::rng();
+    let mut rng = StdRng::seed_from_u64(0);
     let uniq_cnt = (len as f64 * uniqueness) as usize;
     let dict: Vec<String> = (0..uniq_cnt)
         .map(|_| {

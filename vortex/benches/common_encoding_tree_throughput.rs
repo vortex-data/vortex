@@ -63,10 +63,12 @@ macro_rules! with_counter {
 // Encoding tree setup functions
 
 mod setup {
+    use rand::rngs::StdRng;
+
     use super::*;
 
     fn setup_primitive_arrays() -> (PrimitiveArray, PrimitiveArray, PrimitiveArray) {
-        let mut rng = rand::rngs::StdRng::seed_from_u64(0);
+        let mut rng = StdRng::seed_from_u64(0);
         let uint_array =
             PrimitiveArray::from_iter((0..NUM_VALUES).map(|_| rng.random_range(42u32..256)));
         let int_array = cast(uint_array.as_ref(), PType::I32.into())
@@ -113,7 +115,7 @@ mod setup {
     /// Create Dict <- VarBinView encoding tree for strings with BitPacked codes
     #[allow(clippy::cast_possible_truncation)]
     pub fn dict_varbinview_string() -> ArrayRef {
-        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+        let mut rng = StdRng::seed_from_u64(42);
 
         // Create unique values (0.005% uniqueness = 50 unique strings)
         let num_unique = ((NUM_VALUES as f64) * 0.00005) as usize;
@@ -147,7 +149,7 @@ mod setup {
     /// Create RunEnd <- FoR <- BitPacked encoding tree for u32
     #[allow(clippy::cast_possible_truncation)]
     pub fn runend_for_bp_u32() -> ArrayRef {
-        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+        let mut rng = StdRng::seed_from_u64(42);
         // Create data with runs of repeated values
         let mut values = Vec::with_capacity(NUM_VALUES as usize);
         let mut current_value = rng.random_range(0u32..100);
@@ -189,7 +191,7 @@ mod setup {
     /// Create Dict <- FSST <- VarBin encoding tree for strings
     #[allow(clippy::cast_possible_truncation)]
     pub fn dict_fsst_varbin_string() -> ArrayRef {
-        let mut rng = rand::rngs::StdRng::seed_from_u64(43);
+        let mut rng = StdRng::seed_from_u64(43);
 
         // Create unique values (1% uniqueness = 10,000 unique strings)
         let num_unique = ((NUM_VALUES as f64) * 0.01) as usize;
@@ -221,7 +223,7 @@ mod setup {
     /// Compress the VarBin offsets inside FSST with BitPacked
     #[allow(clippy::cast_possible_truncation)]
     pub fn dict_fsst_varbin_bp_string() -> ArrayRef {
-        let mut rng = rand::rngs::StdRng::seed_from_u64(45);
+        let mut rng = StdRng::seed_from_u64(45);
 
         // Create unique values (1% uniqueness = 10,000 unique strings)
         let num_unique = ((NUM_VALUES as f64) * 0.01) as usize;
@@ -276,7 +278,7 @@ mod setup {
     /// Create DateTimeParts <- FoR <- BitPacked encoding tree
     pub fn datetime_for_bp() -> ArrayRef {
         // Create timestamp data (microseconds since epoch)
-        let mut rng = rand::rngs::StdRng::seed_from_u64(123);
+        let mut rng = StdRng::seed_from_u64(123);
         let base_timestamp = 1_600_000_000_000_000i64; // Sept 2020 in microseconds
         let timestamps: Vec<i64> = (0..NUM_VALUES)
             .map(|_| base_timestamp + rng.random_range(0..86_400_000_000)) // Random times within a day

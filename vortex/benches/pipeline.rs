@@ -117,6 +117,8 @@
 use divan::Bencher;
 use fastlanes::BitPacking;
 use rand::Rng;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 use vortex_alp::ALPFloat;
 use vortex_alp::Exponents;
 use vortex_error::vortex_panic;
@@ -256,7 +258,7 @@ fn setup(size: usize) -> (InputData, BenchmarkBuffers) {
 fn create_random_values(len: usize) -> Vec<f32> {
     assert!(len.is_multiple_of(N));
 
-    let mut rng = rand::rng();
+    let mut rng = StdRng::seed_from_u64(0);
     (0..len)
         .map(|_| rng.random_range(0..1024))
         .map(|x| x as f32 / 100.0)
