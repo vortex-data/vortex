@@ -503,7 +503,7 @@ jobs:
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=c6id.8xlarge
+      - family=c7i.8xlarge
       - extras=s3-cache
       - image=ubuntu24-full-x64
       - tag=bench-codspeed-${{ matrix.shard }}
