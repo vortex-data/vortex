@@ -13,15 +13,15 @@ use vortex_error::VortexResult;
 use vortex_utils::debug_with::DebugWith;
 use vortex_vector::Datum;
 
-use crate::expr::Expression;
-use crate::expr::StatsCatalog;
-use crate::expr::functions::ArgName;
+use crate::expr::functions::execution::ExecutionCtx;
 use crate::expr::functions::Arity;
 use crate::expr::functions::FunctionId;
 use crate::expr::functions::NullHandling;
 use crate::expr::functions::ScalarFnVTable;
-use crate::expr::functions::execution::ExecutionCtx;
+use crate::expr::functions::{ArgName, VTable};
 use crate::expr::stats::Stat;
+use crate::expr::Expression;
+use crate::expr::StatsCatalog;
 
 /// An instance of a scalar function bound to some invocation options.
 pub struct ScalarFn {
@@ -30,6 +30,20 @@ pub struct ScalarFn {
 }
 
 impl ScalarFn {
+    /// Create a new scalar function instance.
+    pub fn new<V: VTable>(vtable: V, options: V::Options) -> ScalarFn {
+        let vtable = ScalarFnVTable::new::<V>(vtable);
+        let options = Box::new(options);
+        ScalarFn { vtable, options }
+    }
+
+    /// Create a new scalar function instance from a static vtable.
+    pub fn new_static<V: VTable>(vtable: &'static V, options: V::Options) -> ScalarFn {
+        let vtable = ScalarFnVTable::new_static(vtable);
+        let options = Box::new(options);
+        ScalarFn { vtable, options }
+    }
+
     /// Create a new scalar function instance.
     ///
     /// # Safety
@@ -45,6 +59,11 @@ impl ScalarFn {
     /// Return the function ID for this scalar function.
     pub fn id(&self) -> FunctionId {
         self.vtable.id()
+    }
+
+    /// Return the vtable of this scalar function.
+    pub fn vtable(&self) -> &ScalarFnVTable {
+        &self.vtable
     }
 
     /// Get the options for this scalar function.
@@ -73,10 +92,15 @@ impl ScalarFn {
             .stat_falsification(self.options.as_ref(), expr, catalog)
     }
 
-    pub fn stat_expression(&self, stat: Stat, catalog: &dyn StatsCatalog) -> Option<Expression> {
+    pub fn stat_expression(
+        &self,
+        expr: &Expression,
+        stat: Stat,
+        catalog: &dyn StatsCatalog,
+    ) -> Option<Expression> {
         self.vtable
             .as_dyn()
-            .stat_expression(self.options.as_ref(), stat, catalog)
+            .stat_expression(self.options.as_ref(), expr, stat, catalog)
     }
 
     pub fn return_dtype(&self, arg_types: &[DType]) -> VortexResult<DType> {

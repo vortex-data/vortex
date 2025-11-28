@@ -12,21 +12,22 @@ use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
+use vortex_error::{vortex_bail, vortex_ensure};
 use vortex_vector::Vector;
 
-use crate::Array;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
 use crate::execution::ExecutionCtx;
 use crate::expr::functions;
+use crate::expr::functions::scalar::ScalarFn;
 use crate::serde::ArrayChildren;
-use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
+use crate::{vtable, IntoArray};
+use crate::{Array, ArrayRef};
 
 vtable!(ScalarFn);
 
@@ -127,3 +128,40 @@ impl VTable for ScalarFnVTable {
             .vortex_expect("Vector inputs should return vector outputs"))
     }
 }
+
+/// Array factory functions for scalar functions.
+pub trait ScalarFnArrayExt: functions::VTable {
+    fn try_new_array(
+        &'static self,
+        len: usize,
+        options: Self::Options,
+        children: impl Into<Vec<ArrayRef>>,
+    ) -> VortexResult<ArrayRef> {
+        let scalar_fn = ScalarFn::new_static(self, options);
+
+        let children = children.into();
+        vortex_ensure!(
+            children.iter().all(|c| c.len() == len),
+            "All child arrays must have the same length as the scalar function array"
+        );
+
+        let child_dtypes = children.iter().map(|c| c.dtype().clone()).collect_vec();
+        let dtype = scalar_fn.return_dtype(&child_dtypes)?;
+
+        let array_vtable: ArrayVTable = ScalarFnVTable {
+            vtable: scalar_fn.vtable().clone(),
+        }
+        .into_vtable();
+
+        Ok(ScalarFnArray {
+            vtable: array_vtable,
+            scalar_fn,
+            dtype,
+            len,
+            children,
+            stats: Default::default(),
+        }
+        .into_array())
+    }
+}
+impl<V: functions::VTable> ScalarFnArrayExt for V {}

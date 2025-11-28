@@ -12,19 +12,19 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_vector::Vector;
 use vortex_vector::VectorOps;
 
-use crate::ArrayRef;
+use crate::expr::expression::Expression;
+use crate::expr::stats::Stat;
 use crate::expr::ExprId;
 use crate::expr::ExpressionView;
 use crate::expr::StatsCatalog;
-use crate::expr::expression::Expression;
-use crate::expr::stats::Stat;
+use crate::ArrayRef;
 
 ///
 /// This trait defines the interface for expression vtables, including methods for
@@ -182,8 +182,8 @@ pub trait VTableExt: VTable {
         instance: Self::Instance,
         children: impl Into<Arc<[Expression]>>,
     ) -> VortexResult<Expression> {
-        Expression::try_new(
-            ExprVTable::from_static(self),
+        Expression::try_new_erased(
+            ExprVTable::new_static(self),
             Arc::new(instance),
             children.into(),
         )
@@ -399,8 +399,13 @@ impl ExprVTable {
         self.0.as_ref()
     }
 
+    /// Creates a new [`ExprVTable`] from a vtable.
+    pub fn new<V: VTable>(vtable: V) -> Self {
+        Self(ArcRef::new_arc(Arc::new(VTableAdapter(vtable))))
+    }
+
     /// Creates a new [`ExprVTable`] from a static reference to a vtable.
-    pub const fn from_static<V: VTable>(vtable: &'static V) -> Self {
+    pub const fn new_static<V: VTable>(vtable: &'static V) -> Self {
         // SAFETY: We can safely cast the vtable to a VTableAdapter since it has the same layout.
         let adapted: &'static VTableAdapter<V> =
             unsafe { &*(vtable as *const V as *const VTableAdapter<V>) };
@@ -437,7 +442,7 @@ impl ExprVTable {
                 self.as_dyn().id()
             )
         })?;
-        Expression::try_new(self.clone(), instance_data, children)
+        Expression::try_new_erased(self.clone(), instance_data, children)
     }
 }
 
@@ -488,8 +493,8 @@ mod tests {
     use crate::expr::exprs::root::root;
     use crate::expr::exprs::select::select;
     use crate::expr::exprs::select::select_exclude;
-    use crate::expr::proto::ExprSerializeProtoExt;
     use crate::expr::proto::deserialize_expr_proto;
+    use crate::expr::proto::ExprSerializeProtoExt;
     use crate::expr::session::ExprRegistry;
     use crate::expr::session::ExprSession;
 

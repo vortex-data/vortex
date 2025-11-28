@@ -4,34 +4,34 @@
 mod rewrite;
 
 pub use rewrite::RewriteRuleRegistry;
+use vortex_session::registry::Registry;
 use vortex_session::Ref;
 use vortex_session::SessionExt;
-use vortex_session::registry::Registry;
 
-use crate::expr::ExprVTable;
-use crate::expr::VTable;
 use crate::expr::exprs::between::Between;
 use crate::expr::exprs::binary::Binary;
 use crate::expr::exprs::cast::Cast;
-use crate::expr::exprs::get_item::GetItem;
 use crate::expr::exprs::get_item::transform::PackGetItemRule;
+use crate::expr::exprs::get_item::GetItem;
 use crate::expr::exprs::is_null::IsNull;
 use crate::expr::exprs::like::Like;
 use crate::expr::exprs::list_contains::ListContains;
 use crate::expr::exprs::literal::Literal;
-use crate::expr::exprs::merge::Merge;
 use crate::expr::exprs::merge::transform::RemoveMergeRule;
+use crate::expr::exprs::merge::Merge;
 use crate::expr::exprs::not::Not;
 use crate::expr::exprs::pack::Pack;
 use crate::expr::exprs::root::Root;
-use crate::expr::exprs::select::Select;
 use crate::expr::exprs::select::transform::RemoveSelectRule;
+use crate::expr::exprs::select::Select;
 use crate::expr::transform::rules::Any;
 use crate::expr::transform::rules::Exact;
 use crate::expr::transform::rules::ParentReduceRule;
 use crate::expr::transform::rules::ReduceRule;
 use crate::expr::transform::rules::RuleContext;
 use crate::expr::transform::rules::TypedRuleContext;
+use crate::expr::ExprVTable;
+use crate::expr::VTable;
 
 /// Registry of expression vtables.
 pub type ExprRegistry = Registry<ExprVTable>;
@@ -155,19 +155,19 @@ impl Default for ExprSession {
 
         // Register built-in expressions here if needed.
         expressions.register_many([
-            ExprVTable::from_static(&Between),
-            ExprVTable::from_static(&Binary),
-            ExprVTable::from_static(&Cast),
-            ExprVTable::from_static(&GetItem),
-            ExprVTable::from_static(&IsNull),
-            ExprVTable::from_static(&Like),
-            ExprVTable::from_static(&ListContains),
-            ExprVTable::from_static(&Literal),
-            ExprVTable::from_static(&Merge),
-            ExprVTable::from_static(&Not),
-            ExprVTable::from_static(&Pack),
-            ExprVTable::from_static(&Root),
-            ExprVTable::from_static(&Select),
+            ExprVTable::new_static(&Between),
+            ExprVTable::new_static(&Binary),
+            ExprVTable::new_static(&Cast),
+            ExprVTable::new_static(&GetItem),
+            ExprVTable::new_static(&IsNull),
+            ExprVTable::new_static(&Like),
+            ExprVTable::new_static(&ListContains),
+            ExprVTable::new_static(&Literal),
+            ExprVTable::new_static(&Merge),
+            ExprVTable::new_static(&Not),
+            ExprVTable::new_static(&Pack),
+            ExprVTable::new_static(&Root),
+            ExprVTable::new_static(&Select),
         ]);
 
         // Register built-in rewrite rules

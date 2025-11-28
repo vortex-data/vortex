@@ -1,19 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use itertools::Itertools;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
-
-use itertools::Itertools;
+use std::sync::Arc;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::VortexResult;
 use vortex_session::SessionVar;
 use vortex_vector::Vector;
 
-use crate::ArrayRef;
+use crate::expr::functions;
+use crate::expr::functions::scalar::ScalarFn;
+use crate::expr::functions::ScalarFnVTable;
+use crate::expr::stats::Stat;
+use crate::expr::transform::rules::Matcher;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
@@ -21,11 +25,7 @@ use crate::expr::Expression;
 use crate::expr::ExpressionView;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
-use crate::expr::functions;
-use crate::expr::functions::ScalarFnVTable;
-use crate::expr::functions::scalar::ScalarFn;
-use crate::expr::stats::Stat;
-use crate::expr::transform::rules::Matcher;
+use crate::ArrayRef;
 
 /// An expression that wraps arbitrary scalar functions.
 ///
@@ -147,3 +147,19 @@ impl<F: functions::VTable> Matcher for ExactScalarFn<F> {
         expr_view.data().as_any().downcast_ref::<F::Options>()
     }
 }
+
+/// Expression factory functions for ScalarFn vtables.
+pub trait ScalarFnExprExt: functions::VTable {
+    fn try_new_expr(
+        &'static self,
+        options: Self::Options,
+        children: impl Into<Arc<[Expression]>>,
+    ) -> VortexResult<Expression> {
+        let expr_vtable = ScalarFnExpr {
+            vtable: ScalarFnVTable::new_static(self),
+        };
+        let scalar_fn = ScalarFn::new_static(self, options);
+        Expression::try_new(expr_vtable, scalar_fn, children)
+    }
+}
+impl<V: functions::VTable> ScalarFnExprExt for V {}

@@ -12,34 +12,25 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
+use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_vector::Datum;
 
-use crate::expr::Expression;
-use crate::expr::StatsCatalog;
-use crate::expr::functions::ArgName;
-use crate::expr::functions::FunctionId;
 use crate::expr::functions::execution::ExecutionCtx;
 use crate::expr::functions::scalar::ScalarFn;
+use crate::expr::functions::ArgName;
+use crate::expr::functions::FunctionId;
 use crate::expr::stats::Stat;
+use crate::expr::Expression;
+use crate::expr::StatsCatalog;
 
 /// A non-object-safe vtable trait for scalar function types.
 ///
 /// This trait should be implemented in order to define new scalar functions within Vortex.
-pub trait VTable: 'static + Send + Sync {
+pub trait VTable: 'static + Send + Sync + Sized {
     /// Any options for configuring the function's behaviour.
-    type Options: 'static
-        + Send
-        + Sync
-        + Default
-        + Clone
-        + PartialEq
-        + Eq
-        + Hash
-        + fmt::Debug
-        + fmt::Display;
+    type Options: 'static + Send + Sync + Clone + PartialEq + Eq + Hash + fmt::Debug + fmt::Display;
 
     /// The globally unique identifier for this function.
     fn id(&self) -> FunctionId;
@@ -96,10 +87,12 @@ pub trait VTable: 'static + Send + Sync {
     fn stat_expression(
         &self,
         options: &Self::Options,
+        expr: &Expression,
         stat: Stat,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         _ = options;
+        _ = expr;
         _ = stat;
         _ = catalog;
         None
@@ -111,9 +104,7 @@ pub trait VTable: 'static + Send + Sync {
     /// Binds the function for execution over a specific set of inputs.
     // TODO(ngates): in the future, we should return a kernel as a node in a physical plan and
     //  continue to run further cost-based optimizations prior to execution.
-    fn execute(&self, _options: &Self::Options, _ctx: &ExecutionCtx) -> VortexResult<Datum> {
-        vortex_bail!("Execution is not supported for {}", self.id())
-    }
+    fn execute(&self, _options: &Self::Options, _ctx: &ExecutionCtx) -> VortexResult<Datum>;
 }
 
 /// The arity (number of arguments) of a function.
@@ -199,6 +190,7 @@ pub(crate) trait DynScalarFnVTable: 'static + Send + Sync {
     fn stat_expression(
         &self,
         options: &dyn Any,
+        expr: &Expression,
         stat: Stat,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression>;
@@ -266,10 +258,11 @@ impl<V: VTable> DynScalarFnVTable for ScalarFnVTableAdapter<V> {
     fn stat_expression(
         &self,
         options: &dyn Any,
+        expr: &Expression,
         stat: Stat,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
-        V::stat_expression(&self.0, downcast::<V>(options), stat, catalog)
+        V::stat_expression(&self.0, downcast::<V>(options), expr, stat, catalog)
     }
 
     fn return_dtype(&self, options: &dyn Any, arg_types: &[DType]) -> VortexResult<DType> {

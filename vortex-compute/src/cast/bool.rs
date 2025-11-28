@@ -4,19 +4,21 @@
 use num_traits::One;
 use num_traits::Zero;
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
 use vortex_dtype::match_each_native_ptype;
-use vortex_error::VortexResult;
+use vortex_dtype::DType;
 use vortex_error::vortex_bail;
-use vortex_vector::Vector;
-use vortex_vector::VectorOps;
+use vortex_error::VortexResult;
 use vortex_vector::bool::BoolVector;
 use vortex_vector::null::NullVector;
 use vortex_vector::primitive::PVector;
+use vortex_vector::Vector;
+use vortex_vector::VectorOps;
 
 use crate::cast::Cast;
 
 impl Cast for BoolVector {
+    type Output = Vector;
+
     fn cast(&self, dtype: &DType) -> VortexResult<Vector> {
         match dtype {
             DType::Null if self.validity().all_false() => {

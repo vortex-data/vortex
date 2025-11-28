@@ -50,6 +50,7 @@ pub use listview::*;
 pub use masked::*;
 pub use null::*;
 pub use primitive::*;
+pub use scalar_fn::*;
 pub use struct_::*;
 pub use varbin::*;
 pub use varbinview::*;
