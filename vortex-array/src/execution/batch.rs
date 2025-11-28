@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_vector::Datum;
+use vortex_vector::Vector;
 
 use crate::ArrayRef;
 
@@ -11,20 +11,20 @@ pub type BatchKernelRef = Box<dyn BatchKernel>;
 
 /// Trait for batch execution kernels that produce a vector result.
 pub trait BatchKernel: 'static + Send {
-    fn execute(self: Box<Self>) -> VortexResult<Datum>;
+    fn execute(self: Box<Self>) -> VortexResult<Vector>;
 }
 
 /// Adapter to create a batch kernel from a closure.
 pub struct BatchKernelAdapter<F>(F);
-impl<F: FnOnce() -> VortexResult<Datum> + Send + 'static> BatchKernel for BatchKernelAdapter<F> {
-    fn execute(self: Box<Self>) -> VortexResult<Datum> {
+impl<F: FnOnce() -> VortexResult<Vector> + Send + 'static> BatchKernel for BatchKernelAdapter<F> {
+    fn execute(self: Box<Self>) -> VortexResult<Vector> {
         self.0()
     }
 }
 
 /// Create a batch execution kernel from the given closure.
 #[inline(always)]
-pub fn kernel<F: FnOnce() -> VortexResult<Datum> + Send + 'static>(f: F) -> BatchKernelRef {
+pub fn kernel<F: FnOnce() -> VortexResult<Vector> + Send + 'static>(f: F) -> BatchKernelRef {
     Box::new(BatchKernelAdapter(f))
 }
 

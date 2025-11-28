@@ -15,7 +15,7 @@ use vortex_dtype::DType;
 use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_vector::Datum;
+use vortex_vector::Vector;
 
 use crate::functions::execution::ExecutionCtx;
 use crate::functions::scalar::ScalarFn;
@@ -60,7 +60,7 @@ pub trait VTable: 'static + Send + Sync {
     /// Binds the function for execution over a specific set of inputs.
     // TODO(ngates): in the future, we should return a kernel as a node in a physical plan and
     //  continue to run further cost-based optimizations prior to execution.
-    fn execute(&self, _options: &Self::Options, _ctx: &ExecutionCtx) -> VortexResult<Datum> {
+    fn execute(&self, _options: &Self::Options, _ctx: &ExecutionCtx) -> VortexResult<Vector> {
         vortex_bail!("Execution is not supported for {}", self.id())
     }
 }
@@ -74,11 +74,11 @@ pub(super) trait DynScalarFnVTable: 'static + Send + Sync {
     fn clone_options(&self, options: &dyn Any) -> Box<dyn Any + Send + Sync>;
     fn eq_options(&self, a: &dyn Any, b: &dyn Any) -> bool;
     fn hash_options(&self, options: &dyn Any, hasher: &mut dyn Hasher);
-    fn fmt_options(&self, options: &dyn Any, fmt: &mut fmt::Formatter<'_>) -> fmt::Result;
-    fn debug_options(&self, options: &dyn Any, fmt: &mut fmt::Formatter<'_>) -> fmt::Result;
+    fn fmt_options(&self, options: &dyn Any, fmt: &mut Formatter<'_>) -> fmt::Result;
+    fn debug_options(&self, options: &dyn Any, fmt: &mut Formatter<'_>) -> fmt::Result;
 
     fn return_dtype(&self, options: &dyn Any, arg_types: &[DType]) -> VortexResult<DType>;
-    fn execute(&self, options: &dyn Any, ctx: &ExecutionCtx) -> VortexResult<Datum>;
+    fn execute(&self, options: &dyn Any, ctx: &ExecutionCtx) -> VortexResult<Vector>;
 }
 
 #[repr(transparent)]
@@ -108,11 +108,11 @@ impl<V: VTable> DynScalarFnVTable for ScalarFnVTableAdapter<V> {
         downcast::<V>(options).hash(&mut hasher);
     }
 
-    fn fmt_options(&self, options: &dyn Any, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt_options(&self, options: &dyn Any, f: &mut Formatter) -> fmt::Result {
         fmt::Display::fmt(downcast::<V>(options), f)
     }
 
-    fn debug_options(&self, options: &dyn Any, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn debug_options(&self, options: &dyn Any, f: &mut Formatter) -> fmt::Result {
         fmt::Debug::fmt(downcast::<V>(options), f)
     }
 
@@ -120,7 +120,7 @@ impl<V: VTable> DynScalarFnVTable for ScalarFnVTableAdapter<V> {
         V::return_dtype(&self.0, downcast::<V>(options), arg_types)
     }
 
-    fn execute(&self, options: &dyn Any, ctx: &ExecutionCtx) -> VortexResult<Datum> {
+    fn execute(&self, options: &dyn Any, ctx: &ExecutionCtx) -> VortexResult<Vector> {
         // TODO(ngates): validate result matches expected dtype from ctx.
         V::execute(&self.0, downcast::<V>(options), ctx)
     }
@@ -178,7 +178,7 @@ impl fmt::Debug for ScalarFnVTable {
 #[derive(Default, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct EmptyOptions;
 impl fmt::Display for EmptyOptions {
-    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> fmt::Result {
         Ok(())
     }
 }

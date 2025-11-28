@@ -9,20 +9,13 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
-use vortex_vector::Datum;
 use vortex_vector::null::NullVector;
+use vortex_vector::Vector;
 
-use crate::ArrayBufferVisitor;
-use crate::ArrayChildVisitor;
-use crate::ArrayRef;
-use crate::Canonical;
-use crate::EmptyMetadata;
-use crate::IntoArray;
-use crate::Precision;
+use crate::execution::kernel;
 use crate::execution::BatchKernelRef;
 use crate::execution::BindCtx;
 use crate::execution::ExecutionCtx;
-use crate::execution::kernel;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSetRef;
@@ -38,6 +31,13 @@ use crate::vtable::OperatorVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 use crate::vtable::VisitorVTable;
+use crate::ArrayBufferVisitor;
+use crate::ArrayChildVisitor;
+use crate::ArrayRef;
+use crate::Canonical;
+use crate::EmptyMetadata;
+use crate::IntoArray;
+use crate::Precision;
 
 mod compute;
 
@@ -88,7 +88,7 @@ impl VTable for NullVTable {
         Ok(NullArray::new(len))
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
+    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
         Ok(NullVector::new(array.len()).into())
     }
 }

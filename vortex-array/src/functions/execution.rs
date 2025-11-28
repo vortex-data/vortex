@@ -5,7 +5,7 @@
 // TODO(ngates): these definitions should be lifted out of the functions module.
 
 use vortex_dtype::DType;
-use vortex_vector::{Datum, VectorOps};
+use vortex_vector::{Vector, VectorOps};
 
 /// Context provided when executing an object using vectorized execution.
 pub struct ExecutionCtx {
@@ -16,7 +16,7 @@ pub struct ExecutionCtx {
     /// The input data types.
     input_dtypes: Vec<DType>,
     /// The input datums.
-    input_datums: Vec<Datum>,
+    input_datums: Vec<Vector>,
 }
 
 impl ExecutionCtx {
@@ -24,9 +24,9 @@ impl ExecutionCtx {
         row_count: usize,
         return_dtype: DType,
         input_types: Vec<DType>,
-        input_datums: Vec<impl Into<Datum>>,
+        input_datums: Vec<impl Into<Vector>>,
     ) -> Self {
-        let input_datums: Vec<Datum> = input_datums.into_iter().map(|d| d.into()).collect();
+        let input_datums: Vec<Vector> = input_datums.into_iter().map(|d| d.into()).collect();
         assert!(
             input_datums
                 .iter()
@@ -53,7 +53,7 @@ impl ExecutionCtx {
         &self.input_dtypes[idx]
     }
 
-    pub fn input_datums(&self, idx: usize) -> &Datum {
+    pub fn input_datums(&self, idx: usize) -> &Vector {
         &self.input_datums[idx]
     }
 }

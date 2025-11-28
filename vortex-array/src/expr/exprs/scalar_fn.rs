@@ -15,7 +15,7 @@ use std::marker::PhantomData;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_session::SessionVar;
-use vortex_vector::Datum;
+use vortex_vector::Vector;
 
 /// An expression that wraps arbitrary scalar functions.
 ///
@@ -75,11 +75,11 @@ impl VTable for ScalarFnExpr {
         expr.data().return_dtype(&arg_dtypes)
     }
 
-    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(&self, _expr: &ExpressionView<Self>, _scope: &ArrayRef) -> VortexResult<ArrayRef> {
         vortex_bail!("Scalar function evaluation not yet implemented")
     }
 
-    fn execute(&self, data: &Self::Instance, args: ExecutionArgs) -> VortexResult<Datum> {
+    fn execute(&self, _data: &Self::Instance, _args: ExecutionArgs) -> VortexResult<Vector> {
         vortex_bail!("Scalar function execution not yet implemented")
     }
 
@@ -104,7 +104,7 @@ impl VTable for ScalarFnExpr {
         todo!()
     }
 
-    fn is_null_sensitive(&self, func: &ScalarFn) -> bool {
+    fn is_null_sensitive(&self, _func: &ScalarFn) -> bool {
         todo!()
     }
 }

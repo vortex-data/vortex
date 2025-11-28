@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_dtype::i256;
 use vortex_dtype::DecimalTypeUpcast;
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::PrecisionScale;
-use vortex_dtype::i256;
 use vortex_error::VortexExpect;
 
+use crate::decimal::DVectorMut;
 use crate::Scalar;
 use crate::ScalarOps;
 use crate::VectorMut;
 use crate::VectorMutOps;
-use crate::decimal::DVectorMut;
 
 /// Represents a decimal scalar value.
 #[derive(Debug)]
@@ -28,6 +28,32 @@ pub enum DecimalScalar {
     D128(DScalar<i128>),
     /// 256-bit decimal scalar.
     D256(DScalar<i256>),
+}
+
+impl DecimalScalar {
+    /// Returns the precision of the decimal scalar.
+    pub fn precision(&self) -> u8 {
+        match self {
+            DecimalScalar::D8(v) => v.ps.precision(),
+            DecimalScalar::D16(v) => v.ps.precision(),
+            DecimalScalar::D32(v) => v.ps.precision(),
+            DecimalScalar::D64(v) => v.ps.precision(),
+            DecimalScalar::D128(v) => v.ps.precision(),
+            DecimalScalar::D256(v) => v.ps.precision(),
+        }
+    }
+
+    /// Returns the scale of the decimal scalar.
+    pub fn scale(&self) -> i8 {
+        match self {
+            DecimalScalar::D8(v) => v.ps.scale(),
+            DecimalScalar::D16(v) => v.ps.scale(),
+            DecimalScalar::D32(v) => v.ps.scale(),
+            DecimalScalar::D64(v) => v.ps.scale(),
+            DecimalScalar::D128(v) => v.ps.scale(),
+            DecimalScalar::D256(v) => v.ps.scale(),
+        }
+    }
 }
 
 impl ScalarOps for DecimalScalar {

@@ -19,7 +19,7 @@ use vortex_proto::expr::select_opts::Opts;
 use vortex_proto::expr::FieldNames as ProtoFieldNames;
 use vortex_proto::expr::SelectOpts;
 use vortex_vector::struct_::StructVector;
-use vortex_vector::Datum;
+use vortex_vector::Vector;
 
 use crate::expr::expression::Expression;
 use crate::expr::field::DisplayFieldNames;
@@ -161,7 +161,7 @@ impl VTable for Select {
         .into_array())
     }
 
-    fn execute(&self, selection: &FieldSelection, mut args: ExecutionArgs) -> VortexResult<Datum> {
+    fn execute(&self, selection: &FieldSelection, mut args: ExecutionArgs) -> VortexResult<Vector> {
         let child = args
             .vectors
             .pop()

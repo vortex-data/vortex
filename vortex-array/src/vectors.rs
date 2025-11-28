@@ -21,7 +21,7 @@ use vortex_vector::null::NullVector;
 use vortex_vector::primitive::PVector;
 use vortex_vector::primitive::PrimitiveVector;
 use vortex_vector::struct_::StructVector;
-use vortex_vector::Datum;
+use vortex_vector::Vector;
 use vortex_vector::VectorOps;
 
 use crate::arrays::BoolArray;
@@ -43,7 +43,7 @@ pub trait VectorIntoArray {
     fn into_array(self, dtype: &DType) -> ArrayRef;
 }
 
-impl VectorIntoArray for Datum {
+impl VectorIntoArray for Vector {
     fn into_array(self, dtype: &DType) -> ArrayRef {
         match dtype {
             DType::Null => self.into_null().into_array(dtype),

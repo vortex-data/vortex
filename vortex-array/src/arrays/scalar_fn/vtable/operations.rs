@@ -9,7 +9,7 @@ use crate::{ArrayRef, IntoArray};
 use std::ops::Range;
 use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
-use vortex_vector::Datum;
+use vortex_vector::Vector;
 
 impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
     fn slice(array: &ScalarFnArray, range: Range<usize>) -> ArrayRef {
@@ -36,7 +36,7 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
             .children()
             .iter()
             .map(|c| c.scalar_at(index))
-            .map(|scalar| Datum::from(scalar.to_vector_scalar()))
+            .map(|scalar| Vector::from(scalar.to_vector_scalar()))
             .collect();
 
         let ctx = ExecutionCtx::new(

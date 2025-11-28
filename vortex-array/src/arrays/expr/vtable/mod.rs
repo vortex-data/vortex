@@ -14,7 +14,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::vortex_bail;
 use vortex_error::VortexResult;
-use vortex_vector::Datum;
+use vortex_vector::Vector;
 
 use crate::arrays::expr::ExprArray;
 use crate::execution::ExecutionCtx;
@@ -87,7 +87,7 @@ impl VTable for ExprVTable {
         ExprArray::try_new(child, expr.clone(), dtype.clone())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
+    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
         let scope = array.child().execute_batch(ctx)?;
         array.expr().execute(&scope, array.child().dtype())
     }

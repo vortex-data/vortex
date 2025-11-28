@@ -28,6 +28,7 @@ use crate::struct_::StructVector;
 use crate::{Scalar, Vector};
 
 /// Represents either a scalar or vector value.
+#[derive(Debug)]
 pub enum Datum {
     /// A scalar value.
     Scalar(Scalar),

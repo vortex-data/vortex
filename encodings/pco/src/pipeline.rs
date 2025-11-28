@@ -10,27 +10,27 @@ use vortex_array::pipeline::BindContext;
 use vortex_array::pipeline::BitView;
 use vortex_array::pipeline::Kernel;
 use vortex_array::pipeline::KernelCtx;
-use vortex_array::pipeline::N;
 use vortex_array::pipeline::PipelineInputs;
 use vortex_array::pipeline::PipelinedNode;
+use vortex_array::pipeline::N;
 use vortex_buffer::ByteBuffer;
 use vortex_compute::expand::Expand;
+use vortex_dtype::half;
 use vortex_dtype::NativePType;
 use vortex_dtype::PTypeDowncastExt;
-use vortex_dtype::half;
+use vortex_error::vortex_err;
 use vortex_error::VortexResult;
 use vortex_error::VortexUnwrap;
-use vortex_error::vortex_err;
 use vortex_mask::MaskMut;
-use vortex_vector::Datum;
+use vortex_vector::primitive::PVectorMut;
+use vortex_vector::Vector;
 use vortex_vector::VectorMutOps;
 use vortex_vector::VectorOps;
-use vortex_vector::primitive::PVectorMut;
 
-use crate::PcoArray;
-use crate::PcoMetadata;
 use crate::array::number_type_from_dtype;
 use crate::array::vortex_err_from_pco;
+use crate::PcoArray;
+use crate::PcoMetadata;
 
 impl PipelinedNode for PcoArray {
     fn inputs(&self) -> PipelineInputs {
@@ -150,7 +150,7 @@ impl<T: Number + NativePType> PcoKernel<T> {
 }
 
 impl<T: Number + NativePType> Kernel for PcoKernel<T> {
-    fn step(&mut self, _ctx: &KernelCtx, selection: &BitView, out: Datum) -> VortexResult<Datum> {
+    fn step(&mut self, _ctx: &KernelCtx, selection: &BitView, out: Vector) -> VortexResult<Vector> {
         let remaining_validity = self.validity.split_off(N.min(self.validity.len()));
         let step_validity = std::mem::take(&mut self.validity).freeze();
         let step_true_count = step_validity.true_count();
@@ -205,8 +205,8 @@ impl<T: Number + NativePType> Kernel for PcoKernel<T> {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::ToCanonical;
     use vortex_dtype::PTypeDowncast;
     use vortex_mask::Mask;
     use vortex_vector::VectorOps;

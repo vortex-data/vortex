@@ -5,7 +5,7 @@
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_vector::Datum;
+use vortex_vector::Vector;
 use vortex_vector::VectorMut;
 use vortex_vector::VectorMutOps;
 
@@ -20,7 +20,7 @@ pub struct VectorAllocation {
     /// Where each node writes its output
     pub(crate) output_targets: Vec<VectorId>,
     /// The actual allocated vectors
-    pub(crate) vectors: Vec<Datum>,
+    pub(crate) vectors: Vec<Vector>,
 }
 
 // ============================================================================

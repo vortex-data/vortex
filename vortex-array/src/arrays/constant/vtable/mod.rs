@@ -3,16 +3,15 @@
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
-use vortex_vector::Datum;
+use vortex_vector::Vector;
 use vortex_vector::VectorMutOps;
 
-use crate::EmptyMetadata;
-use crate::arrays::ConstantArray;
 use crate::arrays::constant::vector::to_vector;
+use crate::arrays::ConstantArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::vtable;
@@ -21,6 +20,7 @@ use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
+use crate::EmptyMetadata;
 
 mod array;
 mod canonical;
@@ -85,7 +85,7 @@ impl VTable for ConstantVTable {
         Ok(ConstantArray::new(scalar, len))
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
+    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
         Ok(to_vector(array.scalar().clone(), array.len()).freeze())
     }
 }

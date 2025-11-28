@@ -6,16 +6,13 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_vector::Datum;
+use vortex_error::VortexResult;
+use vortex_vector::Vector;
 use vortex_vector::VectorMut;
 use vortex_vector::VectorMutOps;
 
-use crate::ArrayOperator;
-use crate::EmptyMetadata;
-use crate::ToCanonical;
 use crate::arrays::ChunkedArray;
 use crate::arrays::PrimitiveArray;
 use crate::execution::ExecutionCtx;
@@ -27,6 +24,9 @@ use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
+use crate::ArrayOperator;
+use crate::EmptyMetadata;
+use crate::ToCanonical;
 
 mod array;
 mod canonical;
@@ -127,7 +127,7 @@ impl VTable for ChunkedVTable {
         })
     }
 
-    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
+    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
         let mut vector = VectorMut::with_capacity(array.dtype(), 0);
         for chunk in array.chunks() {
             let chunk_vector = chunk.execute_batch(ctx)?;

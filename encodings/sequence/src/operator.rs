@@ -4,20 +4,20 @@
 use std::ops::Mul;
 
 use num_traits::One;
-use vortex_array::ArrayRef;
 use vortex_array::execution::BatchKernel;
 use vortex_array::execution::BatchKernelRef;
 use vortex_array::execution::BindCtx;
 use vortex_array::execution::MaskExecution;
 use vortex_array::vtable::OperatorVTable;
-use vortex_dtype::NativePType;
+use vortex_array::ArrayRef;
 use vortex_dtype::match_each_native_ptype;
+use vortex_dtype::NativePType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
-use vortex_vector::Datum;
-use vortex_vector::VectorMutOps;
 use vortex_vector::primitive::PVectorMut;
+use vortex_vector::Vector;
+use vortex_vector::VectorMutOps;
 
 use crate::SequenceArray;
 use crate::SequenceVTable;
@@ -53,7 +53,7 @@ struct SequenceKernel<T> {
 }
 
 impl<T: NativePType> BatchKernel for SequenceKernel<T> {
-    fn execute(self: Box<Self>) -> VortexResult<Datum> {
+    fn execute(self: Box<Self>) -> VortexResult<Vector> {
         let selection = self.selection.execute()?;
 
         let elements = match selection.indices() {
@@ -84,7 +84,7 @@ struct MultiplierSequenceKernel<T> {
 }
 
 impl<T: NativePType + Mul> BatchKernel for MultiplierSequenceKernel<T> {
-    fn execute(self: Box<Self>) -> VortexResult<Datum> {
+    fn execute(self: Box<Self>) -> VortexResult<Vector> {
         let selection = self.selection.execute()?;
 
         let elements = match selection.indices() {

@@ -14,10 +14,10 @@ use crate::expr::transform::rules::ParentReduceRule;
 use crate::expr::transform::rules::ReduceRule;
 use crate::expr::transform::rules::RuleContext;
 use crate::expr::transform::rules::TypedRuleContext;
-use crate::expr::transform::DynParentReduceRule;
 use crate::expr::transform::DynReduceRule;
 use crate::expr::transform::DynTypedParentReduceRule;
 use crate::expr::transform::DynTypedReduceRule;
+use crate::expr::transform::{DynParentReduceRule, Exact};
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::VTable;
@@ -214,7 +214,7 @@ impl RewriteRuleRegistry {
     ) where
         Child: VTable,
         Parent: VTable,
-        R: 'static + ParentReduceRule<Child, Parent, RuleContext>,
+        R: 'static + ParentReduceRule<Child, Exact<Parent>, RuleContext>,
     {
         let adapter = ReduceParentRuleAdapter {
             rule,
@@ -253,7 +253,7 @@ impl RewriteRuleRegistry {
     ) where
         Child: VTable,
         Parent: VTable,
-        R: 'static + ParentReduceRule<Child, Parent, TypedRuleContext>,
+        R: 'static + ParentReduceRule<Child, Exact<Parent>, TypedRuleContext>,
     {
         let adapter = ReduceParentRuleAdapter {
             rule,

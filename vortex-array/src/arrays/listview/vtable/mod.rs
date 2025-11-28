@@ -11,7 +11,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::VortexResult;
 use vortex_vector::listview::ListViewVector;
-use vortex_vector::Datum;
+use vortex_vector::Vector;
 
 use crate::arrays::ListViewArray;
 use crate::execution::ExecutionCtx;
@@ -143,7 +143,7 @@ impl VTable for ListViewVTable {
         ListViewArray::try_new(elements, offsets, sizes, validity)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
+    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
         Ok(unsafe {
             ListViewVector::new_unchecked(
                 Arc::new(array.elements().execute_batch(ctx)?),

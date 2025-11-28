@@ -11,18 +11,18 @@ use vortex_array::pipeline::BindContext;
 use vortex_array::pipeline::BitView;
 use vortex_array::pipeline::Kernel;
 use vortex_array::pipeline::KernelCtx;
-use vortex_array::pipeline::N;
 use vortex_array::pipeline::PipelineInputs;
 use vortex_array::pipeline::PipelinedNode;
+use vortex_array::pipeline::N;
 use vortex_buffer::Buffer;
+use vortex_dtype::match_each_integer_ptype;
 use vortex_dtype::PTypeDowncastExt;
 use vortex_dtype::PhysicalPType;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_vector::Datum;
-use vortex_vector::VectorOps;
 use vortex_vector::primitive::PVector;
+use vortex_vector::Vector;
+use vortex_vector::VectorOps;
 
 use crate::BitPackedArray;
 
@@ -129,7 +129,7 @@ impl<BP: PhysicalPType<Physical: BitPacking>> AlignedBitPackedKernel<BP> {
 }
 
 impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<BP> {
-    fn step(&mut self, _ctx: &KernelCtx, selection: &BitView, out: Datum) -> VortexResult<Datum> {
+    fn step(&mut self, _ctx: &KernelCtx, selection: &BitView, out: Vector) -> VortexResult<Vector> {
         if selection.true_count() == 0 {
             debug_assert!(out.is_empty());
             return Ok(out);
@@ -210,15 +210,15 @@ impl<BP: PhysicalPType<Physical: BitPacking>> Kernel for AlignedBitPackedKernel<
 #[cfg(test)]
 mod tests {
     use itertools::Itertools;
-    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::IntoArray;
     use vortex_dtype::PTypeDowncast;
     use vortex_dtype::PTypeDowncastExt;
     use vortex_mask::Mask;
     use vortex_vector::VectorOps;
 
-    use crate::BitPackedArray;
     use crate::bitpack_compress::bitpack_encode;
+    use crate::BitPackedArray;
 
     #[test]
     fn test_bitpack_pipeline_basic() {

@@ -3,8 +3,6 @@
 
 use vortex_error::vortex_panic;
 
-use crate::ScalarOps;
-use crate::VectorMut;
 use crate::binaryview::BinaryScalar;
 use crate::binaryview::StringScalar;
 use crate::bool::BoolScalar;
@@ -15,6 +13,8 @@ use crate::match_each_scalar;
 use crate::null::NullScalar;
 use crate::primitive::PrimitiveScalar;
 use crate::struct_::StructScalar;
+use crate::ScalarOps;
+use crate::VectorMut;
 
 /// Represents a scalar value of any supported type.
 #[derive(Debug)]
@@ -42,6 +42,10 @@ pub enum Scalar {
 impl ScalarOps for Scalar {
     fn is_valid(&self) -> bool {
         match_each_scalar!(self, |v| { v.is_valid() })
+    }
+
+    fn is_invalid(&self) -> bool {
+        !self.is_valid()
     }
 
     fn repeat(&self, n: usize) -> VectorMut {

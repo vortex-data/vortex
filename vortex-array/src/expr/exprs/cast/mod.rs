@@ -11,7 +11,7 @@ use vortex_error::vortex_err;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_proto::expr as pb;
-use vortex_vector::Datum;
+use vortex_vector::Vector;
 
 use crate::compute::cast as compute_cast;
 use crate::expr::expression::Expression;
@@ -129,7 +129,7 @@ impl VTable for Cast {
         }
     }
 
-    fn execute(&self, target_dtype: &DType, mut args: ExecutionArgs) -> VortexResult<Datum> {
+    fn execute(&self, target_dtype: &DType, mut args: ExecutionArgs) -> VortexResult<Vector> {
         let input = args
             .vectors
             .pop()

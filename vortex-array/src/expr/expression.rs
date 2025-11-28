@@ -14,10 +14,10 @@ use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_vector::Datum;
+use vortex_vector::Vector;
 use vortex_vector::VectorOps;
 
-use crate::ArrayRef;
+use crate::expr::display::DisplayTreeExpr;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
@@ -26,8 +26,8 @@ use crate::expr::ExpressionView;
 use crate::expr::Root;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
-use crate::expr::display::DisplayTreeExpr;
 use crate::stats::Stat;
+use crate::ArrayRef;
 
 /// A node in a Vortex expression tree.
 ///
@@ -156,7 +156,7 @@ impl Expression {
     }
 
     /// Executes the expression over the given vector input scope.
-    pub fn execute(&self, vector: &Datum, dtype: &DType) -> VortexResult<Datum> {
+    pub fn execute(&self, vector: &Vector, dtype: &DType) -> VortexResult<Vector> {
         // We special-case the "root" expression that must extract that scope vector directly.
         if self.is::<Root>() {
             return Ok(vector.clone());

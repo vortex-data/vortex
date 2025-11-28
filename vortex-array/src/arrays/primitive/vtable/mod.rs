@@ -4,15 +4,14 @@
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
+use vortex_dtype::match_each_native_ptype;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
-use vortex_dtype::match_each_native_ptype;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_vector::Datum;
+use vortex_error::VortexResult;
 use vortex_vector::primitive::PVector;
+use vortex_vector::Vector;
 
-use crate::EmptyMetadata;
 use crate::arrays::PrimitiveArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
@@ -22,6 +21,7 @@ use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
+use crate::EmptyMetadata;
 
 mod array;
 mod canonical;
@@ -117,7 +117,7 @@ impl VTable for PrimitiveVTable {
         })
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
+    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
         Ok(match_each_native_ptype!(array.ptype(), |T| {
             PVector::new(array.buffer::<T>(), array.validity_mask()).into()
         }))

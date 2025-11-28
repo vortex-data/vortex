@@ -4,20 +4,17 @@
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
+use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::DType;
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::PrecisionScale;
-use vortex_dtype::match_each_decimal_value_type;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::VortexResult;
 use vortex_scalar::DecimalType;
-use vortex_vector::Datum;
 use vortex_vector::decimal::DVector;
+use vortex_vector::Vector;
 
-use crate::DeserializeMetadata;
-use crate::ProstMetadata;
-use crate::SerializeMetadata;
 use crate::arrays::DecimalArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
@@ -27,6 +24,9 @@ use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
+use crate::DeserializeMetadata;
+use crate::ProstMetadata;
+use crate::SerializeMetadata;
 
 mod array;
 mod canonical;
@@ -124,7 +124,7 @@ impl VTable for DecimalVTable {
         })
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
+    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
         match_each_decimal_value_type!(array.values_type(), |D| {
             Ok(unsafe {
                 DVector::<D>::new_unchecked(
@@ -143,18 +143,18 @@ pub struct DecimalVTable;
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
+    use vortex_buffer::ByteBufferMut;
     use vortex_dtype::DecimalDType;
 
-    use crate::ArrayContext;
-    use crate::IntoArray;
     use crate::arrays::DecimalArray;
     use crate::arrays::DecimalVTable;
     use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
     use crate::validity::Validity;
     use crate::vtable::ArrayVTableExt;
+    use crate::ArrayContext;
+    use crate::IntoArray;
 
     #[test]
     fn test_array_serde() {

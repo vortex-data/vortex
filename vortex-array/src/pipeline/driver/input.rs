@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_vector::Datum;
 use vortex_vector::VectorMutOps;
 use vortex_vector::VectorOps;
+use vortex_vector::Vector;
 
 use crate::pipeline::BitView;
 use crate::pipeline::Kernel;
@@ -14,12 +14,12 @@ use crate::pipeline::N;
 /// A kernel that feeds a batch vector into the pipeline in chunks of size `N` with zero-copy.
 pub(super) struct InputKernel {
     // The batch vector to be fed into the pipeline.
-    input: Datum,
+    input: Vector,
 }
 
 impl InputKernel {
     /// Create a new input kernel with the given batch vector.
-    pub(super) fn new(input: Datum) -> Self {
+    pub(super) fn new(input: Vector) -> Self {
         Self { input }
     }
 }
@@ -29,8 +29,8 @@ impl Kernel for InputKernel {
         &mut self,
         _ctx: &KernelCtx,
         selection: &BitView,
-        _out: Datum,
-    ) -> VortexResult<Datum> {
+        _out: Vector,
+    ) -> VortexResult<Vector> {
         let next_chunk_len = N.min(self.input.len());
 
         let next_chunk = self.input.slice(0..next_chunk_len);
@@ -57,10 +57,10 @@ mod test {
     use vortex_dtype::PTypeDowncastExt;
     use vortex_mask::Mask;
 
+    use crate::pipeline::driver::PipelineDriver;
     use crate::Array;
     use crate::ArrayOperator;
     use crate::IntoArray;
-    use crate::pipeline::driver::PipelineDriver;
 
     #[test]
     fn test_pipeline_input() {

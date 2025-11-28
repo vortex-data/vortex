@@ -3,17 +3,17 @@
 
 use std::ops::Deref;
 
-use vortex_dtype::NativePType;
-use vortex_dtype::PTypeUpcast;
 use vortex_dtype::half::f16;
+use vortex_dtype::PTypeUpcast;
+use vortex_dtype::{NativePType, PType};
 use vortex_error::VortexExpect;
 
+use crate::primitive::PVectorMut;
+use crate::primitive::PrimitiveVectorMut;
 use crate::Scalar;
 use crate::ScalarOps;
 use crate::VectorMut;
 use crate::VectorMutOps;
-use crate::primitive::PVectorMut;
-use crate::primitive::PrimitiveVectorMut;
 
 /// Represents a primitive scalar value.
 #[derive(Debug)]
@@ -40,6 +40,25 @@ pub enum PrimitiveScalar {
     F32(PScalar<f32>),
     /// 64-bit floating point scalar
     F64(PScalar<f64>),
+}
+
+impl PrimitiveScalar {
+    /// Returns the primitive type of the scalar.
+    pub fn ptype(&self) -> PType {
+        match self {
+            PrimitiveScalar::I8(_) => PType::I8,
+            PrimitiveScalar::I16(_) => PType::I16,
+            PrimitiveScalar::I32(_) => PType::I32,
+            PrimitiveScalar::I64(_) => PType::I64,
+            PrimitiveScalar::U8(_) => PType::U8,
+            PrimitiveScalar::U16(_) => PType::U16,
+            PrimitiveScalar::U32(_) => PType::U32,
+            PrimitiveScalar::U64(_) => PType::U64,
+            PrimitiveScalar::F16(_) => PType::F16,
+            PrimitiveScalar::F32(_) => PType::F32,
+            PrimitiveScalar::F64(_) => PType::F64,
+        }
+    }
 }
 
 impl ScalarOps for PrimitiveScalar {

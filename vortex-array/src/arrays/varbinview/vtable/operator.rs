@@ -10,7 +10,7 @@ use vortex_error::VortexResult;
 use vortex_vector::binaryview::BinaryVector;
 use vortex_vector::binaryview::BinaryViewTypeUpcast;
 use vortex_vector::binaryview::StringVector;
-use vortex_vector::Datum;
+use vortex_vector::Vector;
 
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
@@ -44,12 +44,12 @@ impl OperatorVTable<VarBinViewVTable> for VarBinViewVTable {
 
             match dtype {
                 // SAFETY: the incoming array has the same validation as the vector
-                DType::Utf8(_) => Ok(Datum::from_string(unsafe {
+                DType::Utf8(_) => Ok(Vector::from_string(unsafe {
                     StringVector::new_unchecked(views, buffers, validity)
                 })),
 
                 // SAFETY: the incoming array has the same validation as the vector
-                DType::Binary(_) => Ok(Datum::from_binary(unsafe {
+                DType::Binary(_) => Ok(Vector::from_binary(unsafe {
                     BinaryVector::new_unchecked(views, buffers, validity)
                 })),
                 _ => unreachable!("invalid dtype for VarBinViewArray {dtype}"),

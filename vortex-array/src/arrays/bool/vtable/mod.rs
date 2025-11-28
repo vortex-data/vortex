@@ -7,7 +7,7 @@ use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_vector::bool::BoolVector;
-use vortex_vector::Datum;
+use vortex_vector::Vector;
 
 use crate::arrays::BoolArray;
 use crate::execution::ExecutionCtx;
@@ -106,7 +106,7 @@ impl VTable for BoolVTable {
         BoolArray::try_new(buffers[0].clone(), metadata.offset as usize, len, validity)
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
+    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
         Ok(BoolVector::new(array.bit_buffer().clone(), array.validity_mask()).into())
     }
 }

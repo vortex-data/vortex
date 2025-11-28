@@ -5,7 +5,6 @@ mod execution;
 pub mod scalar;
 mod session;
 mod signature;
-pub mod v2;
 mod vtable;
 
 use arcref::ArcRef;

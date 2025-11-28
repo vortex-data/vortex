@@ -10,7 +10,7 @@ use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_vector::struct_::StructVector;
-use vortex_vector::Datum;
+use vortex_vector::Vector;
 
 use crate::arrays::struct_::StructArray;
 use crate::execution::ExecutionCtx;
@@ -112,7 +112,7 @@ impl VTable for StructVTable {
         StructArray::try_new_with_dtype(children, struct_dtype.clone(), len, validity)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
+    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
         let fields: Box<[_]> = array
             .fields()
             .iter()

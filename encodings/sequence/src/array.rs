@@ -4,16 +4,8 @@
 use std::hash::Hash;
 use std::ops::Range;
 
-use num_traits::One;
 use num_traits::cast::FromPrimitive;
-use vortex_array::ArrayBufferVisitor;
-use vortex_array::ArrayChildVisitor;
-use vortex_array::ArrayRef;
-use vortex_array::Canonical;
-use vortex_array::DeserializeMetadata;
-use vortex_array::Precision;
-use vortex_array::ProstMetadata;
-use vortex_array::SerializeMetadata;
+use num_traits::One;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::execution::ExecutionCtx;
 use vortex_array::serde::ArrayChildren;
@@ -31,25 +23,33 @@ use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
 use vortex_array::vtable::VisitorVTable;
+use vortex_array::ArrayBufferVisitor;
+use vortex_array::ArrayChildVisitor;
+use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::DeserializeMetadata;
+use vortex_array::Precision;
+use vortex_array::ProstMetadata;
+use vortex_array::SerializeMetadata;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_dtype::match_each_native_ptype;
 use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::PType;
-use vortex_dtype::match_each_integer_ptype;
-use vortex_dtype::match_each_native_ptype;
-use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
-use vortex_vector::Datum;
 use vortex_vector::primitive::PVector;
+use vortex_vector::Vector;
 
 vtable!(Sequence);
 
@@ -269,7 +269,7 @@ impl VTable for SequenceVTable {
         ))
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
+    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
         Ok(match_each_native_ptype!(array.ptype(), |P| {
             let base = array.base().cast::<P>();
             let multiplier = array.multiplier().cast::<P>();
@@ -400,8 +400,8 @@ impl EncodeVTable<SequenceVTable> for SequenceVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::ToCanonical;
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
     use vortex_scalar::ScalarValue;

@@ -5,7 +5,7 @@ pub mod driver;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_vector::Datum;
+use vortex_vector::Vector;
 
 /// A view over a fixed-size `N`-bit vector used in Vortex pipeline execution.
 pub type BitView<'a> = vortex_buffer::BitView<'a, N_BYTES>;
@@ -60,7 +60,7 @@ pub trait BindContext {
     ///
     /// Note that this child index references the batch inputs only, not all children of the
     /// array.
-    fn batch_input(&mut self, batch_child_idx: usize) -> Datum;
+    fn batch_input(&mut self, batch_child_idx: usize) -> Vector;
 }
 
 /// A pipeline kernel is a stateful object that performs steps of a pipeline.
@@ -83,7 +83,7 @@ pub trait BindContext {
 /// The pipeline driver will verify these conditions before and after each step.
 pub trait Kernel: Send {
     /// Perform a single step of the kernel.
-    fn step(&mut self, ctx: &KernelCtx, selection: &BitView, out: Datum) -> VortexResult<Datum>;
+    fn step(&mut self, ctx: &KernelCtx, selection: &BitView, out: Vector) -> VortexResult<Vector>;
 }
 
 /// A pipeline sink that consumes vectors as emitted from the root of the pipeline.
@@ -91,16 +91,16 @@ pub trait Kernel: Send {
 /// The returned vector will be reused by the pipeline driver to pass existing allocations back
 /// to the root of the pipeline.
 pub trait Sink: Send {
-    fn consume(&mut self, selection: &BitView, vector: Datum) -> VortexResult<Datum>;
+    fn consume(&mut self, selection: &BitView, vector: Vector) -> VortexResult<Vector>;
 }
 
 /// The context provided to kernels during execution to access input vectors.
 pub struct KernelCtx {
-    vectors: Vec<Option<Datum>>,
+    vectors: Vec<Option<Vector>>,
 }
 
 impl KernelCtx {
-    fn new(vectors: Vec<Datum>) -> Self {
+    fn new(vectors: Vec<Vector>) -> Self {
         Self {
             vectors: vectors.into_iter().map(Some).collect(),
         }
@@ -108,7 +108,7 @@ impl KernelCtx {
 
     /// Returns the input vector at the given index.
     ///
-    /// Note that a [`Datum`] is returned here, indicating that this is the only instance of
+    /// Note that a [`Vector`] is returned here, indicating that this is the only instance of
     /// the data. Kernels are encouraged to use [`std::mem::swap`] or similar to propagate data
     /// from input vectors to output vectors without unnecessary copies.
     ///
@@ -116,21 +116,21 @@ impl KernelCtx {
     ///
     /// If the input vector at the given index is not available (typically because the vector
     /// happens to be currently borrowed as an output vector!).
-    pub fn input(&mut self, id: VectorId) -> &Datum {
+    pub fn input(&mut self, id: VectorId) -> &Vector {
         self.vectors[id.0]
             .as_ref()
             .vortex_expect("Input vector at index is not available")
     }
 
     #[inline]
-    fn take_output(&mut self, id: &VectorId) -> Datum {
+    fn take_output(&mut self, id: &VectorId) -> Vector {
         self.vectors[id.0]
             .take()
             .vortex_expect("Output vector at index is not available")
     }
 
     #[inline]
-    fn replace_output(&mut self, id: &VectorId, vec: Datum) {
+    fn replace_output(&mut self, id: &VectorId, vec: Vector) {
         self.vectors[id.0] = Some(vec);
     }
 }

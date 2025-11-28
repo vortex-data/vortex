@@ -20,7 +20,7 @@ use vortex_vector::binaryview::BinaryView;
 use vortex_vector::binaryview::BinaryViewType;
 use vortex_vector::binaryview::BinaryViewVector;
 use vortex_vector::binaryview::StringType;
-use vortex_vector::Datum;
+use vortex_vector::Vector;
 
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinVTable;
@@ -86,7 +86,7 @@ impl<V> VarBinKernel<V> {
 }
 
 impl<V: BinaryViewType> BatchKernel for VarBinKernel<V> {
-    fn execute(self: Box<Self>) -> VortexResult<Datum> {
+    fn execute(self: Box<Self>) -> VortexResult<Vector> {
         let offsets = self.offsets.execute()?.into_primitive();
 
         match_each_integer_ptype!(offsets.ptype(), |T| {
@@ -127,7 +127,7 @@ impl<V: BinaryViewType> BatchKernel for VarBinKernel<V> {
 
             // SAFETY: views were constructed in the loop above to point at valid data from
             //  the buffer. Validity was checked immediately above to be of the appropriate length.
-            Ok(Datum::from(unsafe {
+            Ok(Vector::from(unsafe {
                 BinaryViewVector::<V>::new_unchecked(
                     views,
                     Arc::new(Box::new([self.bytes.clone()])),

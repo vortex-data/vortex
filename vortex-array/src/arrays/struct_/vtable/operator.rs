@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use vortex_error::VortexResult;
 use vortex_vector::struct_::StructVector;
-use vortex_vector::Datum;
+use vortex_vector::Vector;
 
 use crate::array::transform::ArrayParentReduceRule;
 use crate::array::transform::ArrayRuleContext;
@@ -39,7 +39,7 @@ impl OperatorVTable<StructVTable> for StructVTable {
 
         Ok(kernel(move || {
             // Execute all child field kernels.
-            let fields: Vec<Datum> = field_kernels
+            let fields: Vec<Vector> = field_kernels
                 .into_iter()
                 .map(|k| k.execute())
                 .collect::<VortexResult<_>>()?;

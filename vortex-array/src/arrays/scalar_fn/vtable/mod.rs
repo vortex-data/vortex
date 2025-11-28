@@ -12,13 +12,12 @@ use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::vtable::{ArrayId, ArrayVTable, ArrayVTableExt, BaseArrayVTable, NotSupported, VTable};
-use crate::{functions, vtable, Array, ArrayEq, ArrayHash};
+use crate::{functions, vtable, Array};
 use itertools::Itertools;
-use std::hash::{Hash, Hasher};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_ensure, VortexResult};
-use vortex_vector::Datum;
+use vortex_vector::Vector;
 
 vtable!(ScalarFn);
 
@@ -99,7 +98,19 @@ impl VTable for ScalarFnVTable {
         })
     }
 
-    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Datum> {
-        array.scalar_fn.execute(ctx)
+    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+        let input_dtypes: Vec<_> = array.children().iter().map(|c| c.dtype().clone()).collect();
+        let input_datums = array
+            .children()
+            .iter()
+            .map(|child| child.execute())
+            .try_collect()?;
+        let ctx = functions::ExecutionCtx::new(
+            array.len(),
+            array.dtype.clone(),
+            input_dtypes,
+            input_datums,
+        );
+        array.scalar_fn.execute(&ctx)
     }
 }

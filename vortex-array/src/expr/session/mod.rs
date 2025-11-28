@@ -29,6 +29,7 @@ use crate::expr::transform::rules::ParentReduceRule;
 use crate::expr::transform::rules::ReduceRule;
 use crate::expr::transform::rules::RuleContext;
 use crate::expr::transform::rules::TypedRuleContext;
+use crate::expr::transform::Exact;
 use crate::expr::ExprVTable;
 use crate::expr::VTable;
 
@@ -96,7 +97,7 @@ impl ExprSession {
         Child: VTable,
         Parent: VTable,
         R: 'static,
-        R: ParentReduceRule<Child, Parent, RuleContext>,
+        R: ParentReduceRule<Child, Exact<Parent>, RuleContext>,
     {
         self.rewrite_rules
             .register_parent_rule_specific::<Child, Parent, R>(child_vtable, parent_vtable, rule);
@@ -123,7 +124,7 @@ impl ExprSession {
         Child: VTable,
         Parent: VTable,
         R: 'static,
-        R: ParentReduceRule<Child, Parent, TypedRuleContext>,
+        R: ParentReduceRule<Child, Exact<Parent>, TypedRuleContext>,
     {
         self.rewrite_rules
             .register_typed_parent_rule_specific::<Child, Parent, R>(
