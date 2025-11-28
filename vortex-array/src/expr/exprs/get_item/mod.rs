@@ -12,17 +12,17 @@ use vortex_dtype::DType;
 use vortex_dtype::FieldName;
 use vortex_dtype::FieldPath;
 use vortex_dtype::Nullability;
-use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_proto::expr as pb;
 use vortex_vector::Vector;
 use vortex_vector::VectorOps;
 
-use crate::ArrayRef;
-use crate::ToCanonical;
 use crate::compute::mask;
+use crate::expr::exprs::root::root;
+use crate::expr::stats::Stat;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
@@ -31,8 +31,8 @@ use crate::expr::ExpressionView;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::expr::exprs::root::root;
-use crate::stats::Stat;
+use crate::ArrayRef;
+use crate::ToCanonical;
 
 pub struct GetItem;
 
@@ -196,11 +196,11 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use super::get_item;
-    use crate::Array;
-    use crate::IntoArray;
     use crate::arrays::StructArray;
     use crate::expr::exprs::root::root;
     use crate::validity::Validity;
+    use crate::Array;
+    use crate::IntoArray;
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[

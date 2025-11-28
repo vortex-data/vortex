@@ -5,12 +5,11 @@ use std::fmt::Formatter;
 
 use prost::Message;
 use vortex_dtype::DType;
+use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_proto::expr as pb;
 
-use crate::ArrayRef;
 use crate::compute;
 use crate::compute::add;
 use crate::compute::and_kleene;
@@ -19,16 +18,17 @@ use crate::compute::div;
 use crate::compute::mul;
 use crate::compute::or_kleene;
 use crate::compute::sub;
+use crate::expr::expression::Expression;
+use crate::expr::exprs::literal::lit;
+use crate::expr::exprs::operators::Operator;
+use crate::expr::stats::Stat;
 use crate::expr::ChildName;
 use crate::expr::ExprId;
 use crate::expr::ExpressionView;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::expr::expression::Expression;
-use crate::expr::exprs::literal::lit;
-use crate::expr::exprs::operators::Operator;
-use crate::stats::Stat;
+use crate::ArrayRef;
 
 pub struct Binary;
 
@@ -555,10 +555,10 @@ mod tests {
     use super::lt_eq;
     use super::not_eq;
     use super::or;
-    use crate::expr::Expression;
     use crate::expr::exprs::get_item::col;
     use crate::expr::exprs::literal::lit;
     use crate::expr::test_harness;
+    use crate::expr::Expression;
 
     #[test]
     fn and_collect_left_assoc() {

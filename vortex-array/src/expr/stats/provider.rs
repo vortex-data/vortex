@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexError;
 use vortex_error::vortex_panic;
+use vortex_error::VortexError;
 use vortex_scalar::Scalar;
 
-use super::Precision;
-use super::Stat;
 use super::StatType;
+use crate::expr::stats::Stat;
+use crate::stats::Precision;
 
 pub trait StatsProvider {
     fn get(&self, stat: Stat) -> Option<Precision<Scalar>>;

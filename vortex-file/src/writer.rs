@@ -3,53 +3,53 @@
 
 use std::io;
 use std::io::Write;
-use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
+use std::sync::Arc;
 
+use futures::future::ready;
+use futures::future::Fuse;
+use futures::future::LocalBoxFuture;
+use futures::pin_mut;
+use futures::select;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
-use futures::future::Fuse;
-use futures::future::LocalBoxFuture;
-use futures::future::ready;
-use futures::pin_mut;
-use futures::select;
-use vortex_array::ArrayContext;
-use vortex_array::ArrayRef;
+use vortex_array::expr::stats::Stat;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorExt;
 use vortex_array::stats::PRUNING_STATS;
-use vortex_array::stats::Stat;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
+use vortex_array::ArrayContext;
+use vortex_array::ArrayRef;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
-use vortex_io::IoBuf;
-use vortex_io::VortexWrite;
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::session::RuntimeSessionExt;
-use vortex_layout::LayoutStrategy;
+use vortex_io::IoBuf;
+use vortex_io::VortexWrite;
 use vortex_layout::layouts::file_stats::accumulate_stats;
 use vortex_layout::sequence::SequenceId;
 use vortex_layout::sequence::SequentialStreamAdapter;
 use vortex_layout::sequence::SequentialStreamExt;
+use vortex_layout::LayoutStrategy;
 use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 
-use crate::Footer;
-use crate::MAGIC_BYTES;
-use crate::WriteStrategyBuilder;
 use crate::counting::CountingVortexWrite;
 use crate::footer::FileStatistics;
 use crate::segments::writer::BufferedSegmentSink;
+use crate::Footer;
+use crate::WriteStrategyBuilder;
+use crate::MAGIC_BYTES;
 
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink
 /// that implements [`VortexWrite`].

@@ -5,28 +5,28 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::VortexError;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_error::VortexError;
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::Array;
-use crate::ArrayRef;
-use crate::Canonical;
-use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::compute::ComputeFn;
 use crate::compute::ComputeFnVTable;
 use crate::compute::InvocationArgs;
 use crate::compute::Kernel;
 use crate::compute::Output;
+use crate::expr::stats::Stat;
 use crate::stats::Precision;
-use crate::stats::Stat;
 use crate::stats::StatsProvider;
 use crate::stats::StatsProviderExt;
 use crate::stats::StatsSet;
 use crate::vtable::VTable;
+use crate::Array;
+use crate::ArrayRef;
+use crate::Canonical;
+use crate::IntoArray;
 
 static TAKE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("take".into(), ArcRef::new_ref(&Take));

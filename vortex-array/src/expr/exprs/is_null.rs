@@ -6,19 +6,19 @@ use std::ops::Not;
 
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
+use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_mask::Mask;
+use vortex_vector::bool::BoolVector;
 use vortex_vector::Vector;
 use vortex_vector::VectorOps;
-use vortex_vector::bool::BoolVector;
 
-use crate::Array;
-use crate::ArrayRef;
-use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
+use crate::expr::exprs::binary::eq;
+use crate::expr::exprs::literal::lit;
+use crate::expr::stats::Stat;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
@@ -27,9 +27,9 @@ use crate::expr::ExpressionView;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::expr::exprs::binary::eq;
-use crate::expr::exprs::literal::lit;
-use crate::stats::Stat;
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
 
 /// Expression that checks for null values.
 pub struct IsNull;
@@ -138,7 +138,6 @@ mod tests {
     use vortex_utils::aliases::hash_set::HashSet;
 
     use super::is_null;
-    use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::expr::exprs::binary::eq;
@@ -147,8 +146,9 @@ mod tests {
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::root::root;
     use crate::expr::pruning::checked_pruning_expr;
+    use crate::expr::stats::Stat;
     use crate::expr::test_harness;
-    use crate::stats::Stat;
+    use crate::IntoArray;
 
     #[test]
     fn dtype() {

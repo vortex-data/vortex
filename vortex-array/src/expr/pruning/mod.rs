@@ -4,14 +4,14 @@
 mod pruning_expr;
 mod relation;
 
-pub use pruning_expr::RequiredStats;
 pub use pruning_expr::checked_pruning_expr;
 pub use pruning_expr::field_path_stat_field_name;
+pub use pruning_expr::RequiredStats;
 pub use relation::Relation;
 use vortex_dtype::FieldPath;
 
+use crate::expr::stats::Stat;
 use crate::expr::Expression;
-use crate::stats::Stat;
 
 /// A catalog of available stats that are associated with field paths.
 pub trait StatsCatalog {

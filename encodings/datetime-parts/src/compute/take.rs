@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::compute::fill_null;
+use vortex_array::compute::take;
+use vortex_array::compute::TakeKernel;
+use vortex_array::compute::TakeKernelAdapter;
+use vortex_array::expr::stats::Stat;
+use vortex_array::register_kernel;
+use vortex_array::stats::StatsProvider;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_array::compute::TakeKernel;
-use vortex_array::compute::TakeKernelAdapter;
-use vortex_array::compute::fill_null;
-use vortex_array::compute::take;
-use vortex_array::register_kernel;
-use vortex_array::stats::Stat;
-use vortex_array::stats::StatsProvider;
 use vortex_dtype::Nullability;
-use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::DateTimePartsArray;
@@ -98,10 +98,10 @@ register_kernel!(TakeKernelAdapter(DateTimePartsVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::compute::conformance::take::test_take_conformance;
+    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::datetime::TimeUnit;
 

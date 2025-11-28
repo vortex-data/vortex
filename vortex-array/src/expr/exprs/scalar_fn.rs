@@ -7,13 +7,17 @@ use std::marker::PhantomData;
 
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::VortexResult;
 use vortex_session::SessionVar;
 use vortex_vector::Vector;
 
-use crate::ArrayRef;
+use crate::expr::functions;
+use crate::expr::functions::scalar::ScalarFn;
+use crate::expr::functions::ScalarFnVTable;
+use crate::expr::stats::Stat;
+use crate::expr::transform::rules::Matcher;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
@@ -21,11 +25,7 @@ use crate::expr::Expression;
 use crate::expr::ExpressionView;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
-use crate::expr::functions;
-use crate::expr::functions::ScalarFnVTable;
-use crate::expr::functions::scalar::ScalarFn;
-use crate::expr::transform::rules::Matcher;
-use crate::stats::Stat;
+use crate::ArrayRef;
 
 /// An expression that wraps arbitrary scalar functions.
 ///
