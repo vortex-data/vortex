@@ -328,6 +328,7 @@ jobs:
         run: |
           rustup component add llvm-tools-preview
           grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
+            --threads $(nproc) \
             --ignore '../*' --ignore '/*' --ignore 'fuzz/*' --ignore 'bench-vortex/*' \
             --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*' --ignore 'vortex-error/*' \
             --ignore 'vortex-python/*' --ignore 'vortex-jni/*' --ignore 'vortex-flatbuffers/*' \
@@ -429,11 +430,8 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v5
-      - name: Install Visual Studio Build Tools (Windows)
-        if: matrix.os == 'windows-x64'
-        shell: bash
-        run: |
-          choco install visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --passive" -y
+      # VS Build Tools already pre-installed on windows22-full-x64 image
+      # See: https://github.com/actions/runner-images/blob/main/images/windows/Windows2022-Readme.md
       - name: Setup Python (Windows)
         if: matrix.os == 'windows-x64'
         uses: actions/setup-python@v5
