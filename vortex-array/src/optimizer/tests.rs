@@ -7,7 +7,6 @@ use vortex_dtype::FieldNames;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::ArraySession;
 use crate::array::ArrayRef;
 use crate::array::IntoArray;
 use crate::arrays::ChunkedArray;
@@ -17,11 +16,9 @@ use crate::arrays::ConstantVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
-use crate::expr::session::ExprSession;
-use crate::expr::transform::ExprOptimizer;
-use crate::transform::ArrayParentReduceRule;
-use crate::transform::ArrayReduceRule;
-use crate::transform::ArrayRuleContext;
+use crate::optimizer::ArrayOptimizer;
+use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::optimizer::rules::ArrayReduceRule;
 use crate::validity::Validity;
 
 /// Test rule that unwraps single-chunk ChunkedArrays
@@ -29,11 +26,7 @@ use crate::validity::Validity;
 struct UnwrapSingleChunkRule;
 
 impl ArrayReduceRule<ChunkedVTable> for UnwrapSingleChunkRule {
-    fn reduce(
-        &self,
-        array: &ChunkedArray,
-        _ctx: &ArrayRuleContext,
-    ) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(&self, array: &ChunkedArray) -> VortexResult<Option<ArrayRef>> {
         if array.nchunks() == 1 {
             return Ok(Some(array.chunk(0).clone()));
         }
@@ -43,15 +36,11 @@ impl ArrayReduceRule<ChunkedVTable> for UnwrapSingleChunkRule {
 
 #[test]
 fn test_unwrap_single_chunk_rule() -> VortexResult<()> {
-    let expr_session = ExprSession::default();
-    let expr_optimizer = ExprOptimizer::new(&expr_session);
-    let ctx = ArrayRuleContext::new(expr_optimizer);
-
     let primitive = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
     let chunked = ChunkedArray::from_iter([primitive.clone()]);
 
     let result = UnwrapSingleChunkRule
-        .reduce(&chunked, &ctx)?
+        .reduce(&chunked)?
         .vortex_expect("transformed");
 
     assert!(Arc::ptr_eq(&primitive, &result));
@@ -60,16 +49,12 @@ fn test_unwrap_single_chunk_rule() -> VortexResult<()> {
 
 #[test]
 fn test_unwrap_single_chunk_rule_no_op() -> VortexResult<()> {
-    let expr_session = ExprSession::default();
-    let expr_optimizer = ExprOptimizer::new(&expr_session);
-    let ctx = ArrayRuleContext::new(expr_optimizer);
-
     let chunked = ChunkedArray::from_iter([
         PrimitiveArray::from_iter([1i32, 2]).into_array(),
         PrimitiveArray::from_iter([3i32, 4]).into_array(),
     ]);
 
-    let result = UnwrapSingleChunkRule.reduce(&chunked, &ctx)?;
+    let result = UnwrapSingleChunkRule.reduce(&chunked)?;
 
     assert!(result.is_none());
     Ok(())
@@ -77,16 +62,11 @@ fn test_unwrap_single_chunk_rule_no_op() -> VortexResult<()> {
 
 #[test]
 fn test_reduce_rules_traverse_whole_tree() -> VortexResult<()> {
-    let array_session = ArraySession::default();
-    let expr_session = ExprSession::default();
-
-    array_session.register_reduce_rule::<ChunkedVTable, UnwrapSingleChunkRule>(
+    let mut optimizer = ArrayOptimizer::default();
+    optimizer.register_reduce_rule::<ChunkedVTable, UnwrapSingleChunkRule>(
         &ChunkedVTable,
         UnwrapSingleChunkRule,
     );
-
-    let expr_optimizer = ExprOptimizer::new(&expr_session);
-    let optimizer = array_session.optimizer(expr_optimizer);
 
     let inner_field1 = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
     let inner_field1_chunked = ChunkedArray::from_iter([inner_field1.clone()]);
@@ -141,7 +121,6 @@ impl ArrayParentReduceRule<ConstantVTable, StructVTable> for ConstantInStructRul
         array: &ConstantArray,
         parent: &StructArray,
         _child_idx: usize,
-        _ctx: &ArrayRuleContext,
     ) -> VortexResult<Option<ArrayRef>> {
         StructArray::try_from_iter(
             parent
@@ -170,17 +149,13 @@ impl ArrayParentReduceRule<ConstantVTable, StructVTable> for ConstantInStructRul
 
 #[test]
 fn test_parent_rules_traverse_whole_tree() -> VortexResult<()> {
-    let array_session = ArraySession::default();
-    let expr_session = ExprSession::default();
+    let mut optimizer = ArrayOptimizer::default();
 
-    array_session.register_parent_rule::<ConstantVTable, StructVTable, ConstantInStructRule>(
+    optimizer.register_parent_rule::<ConstantVTable, StructVTable, ConstantInStructRule>(
         &ConstantVTable,
         &StructVTable,
         ConstantInStructRule,
     );
-
-    let expr_optimizer = ExprOptimizer::new(&expr_session);
-    let optimizer = array_session.optimizer(expr_optimizer);
 
     let deep_field1 = ConstantArray::new(100i32, 5);
     let deep_field2 = ConstantArray::new(200i32, 5);

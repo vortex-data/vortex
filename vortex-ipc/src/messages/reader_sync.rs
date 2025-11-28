@@ -4,7 +4,7 @@
 use std::io::Read;
 
 use bytes::BytesMut;
-use vortex_array::ArrayRegistry;
+use vortex_array::session::ArrayRegistry;
 use vortex_error::VortexResult;
 
 use crate::messages::DecoderMessage;

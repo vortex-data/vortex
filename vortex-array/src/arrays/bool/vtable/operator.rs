@@ -14,8 +14,7 @@ use crate::arrays::MaskedVTable;
 use crate::execution::BatchKernelRef;
 use crate::execution::BindCtx;
 use crate::execution::kernel;
-use crate::transform::ArrayParentReduceRule;
-use crate::transform::ArrayRuleContext;
+use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::vtable::OperatorVTable;
 use crate::vtable::ValidityHelper;
 
@@ -54,7 +53,6 @@ impl ArrayParentReduceRule<BoolVTable, MaskedVTable> for BoolMaskedValidityRule 
         array: &BoolArray,
         parent: &MaskedArray,
         _child_idx: usize,
-        _ctx: &ArrayRuleContext,
     ) -> VortexResult<Option<ArrayRef>> {
         // Merge the parent's validity mask into the child's validity
         // TODO(joe): make this lazy

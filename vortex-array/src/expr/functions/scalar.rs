@@ -13,11 +13,15 @@ use vortex_error::VortexResult;
 use vortex_utils::debug_with::DebugWith;
 use vortex_vector::Datum;
 
+use crate::expr::Expression;
+use crate::expr::StatsCatalog;
 use crate::expr::functions::ArgName;
 use crate::expr::functions::Arity;
+use crate::expr::functions::FunctionId;
 use crate::expr::functions::NullHandling;
 use crate::expr::functions::ScalarFnVTable;
 use crate::expr::functions::execution::ExecutionCtx;
+use crate::expr::stats::Stat;
 
 /// An instance of a scalar function bound to some invocation options.
 pub struct ScalarFn {
@@ -38,6 +42,11 @@ impl ScalarFn {
         Self { vtable, options }
     }
 
+    /// Return the function ID for this scalar function.
+    pub fn id(&self) -> FunctionId {
+        self.vtable.id()
+    }
+
     /// Get the options for this scalar function.
     pub fn options(&self) -> ScalarFnOptions<'_> {
         ScalarFnOptions {
@@ -52,6 +61,22 @@ impl ScalarFn {
             vtable: &self.vtable,
             options: self.options.as_ref(),
         }
+    }
+
+    pub fn stat_falsification(
+        &self,
+        expr: &Expression,
+        catalog: &dyn StatsCatalog,
+    ) -> Option<Expression> {
+        self.vtable
+            .as_dyn()
+            .stat_falsification(self.options.as_ref(), expr, catalog)
+    }
+
+    pub fn stat_expression(&self, stat: Stat, catalog: &dyn StatsCatalog) -> Option<Expression> {
+        self.vtable
+            .as_dyn()
+            .stat_expression(self.options.as_ref(), stat, catalog)
     }
 
     pub fn return_dtype(&self, arg_types: &[DType]) -> VortexResult<DType> {

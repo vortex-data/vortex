@@ -8,8 +8,8 @@ use flatbuffers::root;
 use flatbuffers::root_unchecked;
 use itertools::Itertools;
 use vortex_array::ArrayContext;
-use vortex_array::ArrayRegistry;
 use vortex_array::serde::ArrayParts;
+use vortex_array::session::ArrayRegistry;
 use vortex_buffer::AlignedBuf;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
@@ -176,9 +176,9 @@ impl MessageDecoder {
 mod test {
     use bytes::BytesMut;
     use vortex_array::Array;
-    use vortex_array::ArraySession;
     use vortex_array::IntoArray;
     use vortex_array::arrays::ConstantArray;
+    use vortex_array::session::ArraySession;
     use vortex_buffer::buffer;
     use vortex_error::vortex_panic;
 

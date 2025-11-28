@@ -121,8 +121,8 @@ mod tests {
 
     use crate::ArrayContext;
     use crate::IntoArray;
-    use crate::MaskedVTable;
     use crate::arrays::MaskedArray;
+    use crate::arrays::MaskedVTable;
     use crate::arrays::PrimitiveArray;
     use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;

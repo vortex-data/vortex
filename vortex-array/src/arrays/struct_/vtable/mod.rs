@@ -28,11 +28,8 @@ mod array;
 mod canonical;
 mod operations;
 pub mod operator;
-pub mod reduce;
 mod validity;
 mod visitor;
-
-pub use operator::StructExprPartitionRule;
 
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
