@@ -13,8 +13,6 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::BufferMut;
 use vortex_dtype::DType;
 use vortex_dtype::NativePType;
-use vortex_dtype::PType;
-use vortex_dtype::PTypeDowncast;
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -65,34 +63,15 @@ pub fn decompress_into_vector<T: ALPFloat>(
     let validity = encoded_primitive.validity().clone();
     let encoded_mutable = encoded_primitive.into_mut();
 
-    // TODO(0ax1): implement into<T> for primitive vector rather than a diff fn per type
-    if T::PTYPE == PType::F32 {
-        // SAFETY: `BufferMut<i32>` and `BufferMut<T::ALPInt>` have the same memory layout.
-        let alp_buffer: BufferMut<T::ALPInt> =
-            unsafe { transmute(encoded_mutable.into_i32().into_parts().0) };
+    let alp_buffer = T::ALPInt::downcast(encoded_mutable).into_parts().0;
 
-        decompress_from_buffer::<T>(
-            alp_buffer,
-            exponents,
-            patches_vectors,
-            patches_offset,
-            validity,
-        )
-    } else if T::PTYPE == PType::F64 {
-        // SAFETY: `BufferMut<i64>` and `BufferMut<T::ALPInt>` have the same memory layout.
-        let alp_buffer: BufferMut<T::ALPInt> =
-            unsafe { transmute(encoded_mutable.into_i64().into_parts().0) };
-
-        decompress_from_buffer::<T>(
-            alp_buffer,
-            exponents,
-            patches_vectors,
-            patches_offset,
-            validity,
-        )
-    } else {
-        unreachable!("ALPFloat can only be f32 or f64")
-    }
+    decompress_from_buffer::<T>(
+        alp_buffer,
+        exponents,
+        patches_vectors,
+        patches_offset,
+        validity,
+    )
 }
 
 fn decompress_from_buffer<T: ALPFloat>(
@@ -112,13 +91,13 @@ fn decompress_from_buffer<T: ALPFloat>(
         let patches_indices = patches_indices.into_primitive();
         let patches_values = patches_values.into_primitive();
 
+        let values_buffer = T::downcast(patches_values.into_mut()).into_parts().0;
+        let values_slice = values_buffer.as_slice();
+        let decoded_slice = decoded_buffer.as_mut_slice();
+
         match_each_unsigned_integer_ptype!(patches_indices.ptype(), |I| {
             let indices_buffer = I::downcast(patches_indices.into_mut()).into_parts().0;
-            let values_buffer = T::downcast(patches_values.into_mut()).into_parts().0;
-
             let indices_slice = indices_buffer.as_slice();
-            let values_slice = values_buffer.as_slice();
-            let decoded_slice = decoded_buffer.as_mut_slice();
 
             for (&idx, &value) in indices_slice.iter().zip(values_slice.iter()) {
                 decoded_slice[AsPrimitive::<usize>::as_(idx) - patches_offset] = value;
