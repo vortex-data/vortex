@@ -102,7 +102,7 @@ jobs:
 
       - name: Pytest - Vortex
         run: |
-          uv run --all-packages pytest --benchmark-disable test/
+          uv run --all-packages pytest --benchmark-disable -n auto test/
         working-directory: vortex-python/
 
       - name: Pytest Benchmarks - Vortex
