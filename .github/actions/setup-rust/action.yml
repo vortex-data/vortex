@@ -53,10 +53,6 @@ runs:
     - name: Rust Compile Cache
       uses: mozilla-actions/sccache-action@v0.0.9
 
-    - name: Export Path
-      shell: bash
-      run: echo "PATH=$PATH" >> $GITHUB_ENV
-
     - name: Install Protoc (for lance-encoding build step)
       if: runner.os != 'Windows'
       uses: arduino/setup-protoc@v3
