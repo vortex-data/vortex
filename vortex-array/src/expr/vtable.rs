@@ -15,11 +15,9 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_vector::Vector;
 use vortex_vector::VectorOps;
-use vortex_vector::vector_matches_dtype;
 
 use crate::ArrayRef;
 use crate::expr::ExprId;
@@ -318,11 +316,15 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
 
         // In debug mode, validate that the output dtype matches the expected return dtype.
         #[cfg(debug_assertions)]
-        vortex_ensure!(
-            vector_matches_dtype(&result, &expected_dtype),
-            "Expression execution invalid for dtype {}",
-            expected_dtype
-        );
+        {
+            use vortex_error::vortex_ensure;
+            use vortex_vector::vector_matches_dtype;
+            vortex_ensure!(
+                vector_matches_dtype(&result, &expected_dtype),
+                "Expression execution invalid for dtype {}",
+                expected_dtype
+            );
+        }
 
         Ok(result)
     }

@@ -17,7 +17,7 @@ permissions:
   issues: write  # audit-check creates issues
 
 env:
-  CARGO_TERM_COLOR: always
+  CARGO_TERM_COLOR: auto
   RUST_BACKTRACE: 1
 
 jobs:
@@ -44,10 +44,22 @@ jobs:
 
   python-lint:
     name: "Python (lint)"
-    runs-on: ubuntu-latest
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=16
+      - image=ubuntu24-full-x64
+      - extras=s3-cache
+      - tag=python-lint
     timeout-minutes: 120
     steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
         with:
@@ -64,11 +76,20 @@ jobs:
 
   python-test:
     name: "Python (test)"
-    runs-on: ubuntu-latest
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=16
+      - image=ubuntu24-full-x64
+      - extras=s3-cache
+      - tag=python-test
     timeout-minutes: 120
     env:
       RUST_LOG: "info,uv=debug"
     steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-rust
         with:
@@ -81,7 +102,7 @@ jobs:
 
       - name: Pytest - Vortex
         run: |
-          uv run --all-packages pytest --benchmark-disable test/
+          uv run --all-packages pytest --benchmark-disable -n auto test/
         working-directory: vortex-python/
 
       - name: Pytest Benchmarks - Vortex
@@ -256,7 +277,9 @@ jobs:
       - name: Rust Lint - Format
         run: cargo +nightly fmt --all --check
       - name: Rustc check
-        run: cargo check --locked --all-features --all-targets
+        run: RUSTFLAGS="-D warnings" cargo check --locked --all-features --all-targets
+      - name: Rustc check (release)
+        run: RUSTFLAGS="-D warnings" cargo check --locked --all-features --all-targets --release
       - name: Rust Lint - Clippy All Features
         run: cargo clippy --locked --all-features --all-targets -- -D warnings
       - name: Rust Lint - Clippy Default Features
@@ -302,7 +325,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
-      - cpu=8
+      - cpu=16
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=rust-coverage
@@ -368,7 +391,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
-      - cpu=8
+      - cpu=16
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=rust-test-sanitizer
@@ -392,6 +415,7 @@ jobs:
         uses: aminya/setup-cpp@v1
         with:
           compiler: llvm
+          cache-tools: true
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -473,9 +497,18 @@ jobs:
 
   build-java:
     name: "Java"
-    runs-on: ubuntu-latest
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=16
+      - image=ubuntu24-full-x64
+      - extras=s3-cache
+      - tag=java
     timeout-minutes: 120
     steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v5
         with:
