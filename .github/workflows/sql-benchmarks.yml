@@ -9,7 +9,7 @@ on:
       machine_type:
         required: false
         type: string
-        default: c6id.8xlarge
+        default: i7i.8xlarge
       benchmark_matrix:
         required: false
         type: string
