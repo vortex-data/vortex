@@ -5,17 +5,17 @@ use std::sync::Arc;
 
 use futures::executor::block_on;
 use parking_lot::RwLock;
-use vortex_array::ArraySessionExt;
+use vortex_array::session::ArraySessionExt;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_io::InstrumentedReadAt;
-use vortex_io::VortexReadAt;
 use vortex_io::file::IntoReadSource;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_io::InstrumentedReadAt;
+use vortex_io::VortexReadAt;
 use vortex_layout::segments::NoOpSegmentCache;
 use vortex_layout::segments::SegmentCache;
 use vortex_layout::segments::SegmentCacheMetrics;
@@ -28,13 +28,13 @@ use vortex_metrics::VortexMetrics;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::DeserializeStep;
-use crate::EOF_SIZE;
-use crate::MAX_POSTSCRIPT_SIZE;
-use crate::VortexFile;
 use crate::footer::Footer;
 use crate::segments::FileSegmentSource;
 use crate::segments::InitialReadSegmentCache;
+use crate::DeserializeStep;
+use crate::VortexFile;
+use crate::EOF_SIZE;
+use crate::MAX_POSTSCRIPT_SIZE;
 
 const INITIAL_READ_SIZE: usize = 1 << 20; // 1 MB
 

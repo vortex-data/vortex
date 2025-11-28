@@ -5,20 +5,20 @@ pub(crate) mod context;
 pub(crate) mod parts;
 
 use bytes::Bytes;
-use pyo3::Bound;
-use pyo3::Python;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use vortex::ArraySessionExt;
+use pyo3::Bound;
+use pyo3::Python;
 use vortex::ipc::messages::DecoderMessage;
 use vortex::ipc::messages::MessageDecoder;
 use vortex::ipc::messages::PollRead;
+use vortex_array::session::ArraySessionExt;
 
-use crate::SESSION;
 use crate::arrays::PyArrayRef;
 use crate::install_module;
 use crate::serde::context::PyArrayContext;
 use crate::serde::parts::PyArrayParts;
+use crate::SESSION;
 
 /// Register serde functions and classes.
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {

@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use pyo3::prelude::*;
 use pyo3::Bound;
 use pyo3::PyResult;
 use pyo3::Python;
-use pyo3::prelude::*;
-use vortex::ArraySessionExt;
 use vortex::vtable::ArrayVTableExt;
+use vortex_array::session::ArraySessionExt;
 
-use crate::SESSION;
 use crate::arrays::py::PythonVTable;
 use crate::install_module;
+use crate::SESSION;
 
 /// Register serde functions and classes.
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {

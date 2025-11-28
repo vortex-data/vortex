@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use bytes::Buf;
-use vortex_array::ArrayRegistry;
-use vortex_error::VortexResult;
+use vortex_array::session::ArrayRegistry;
 use vortex_error::vortex_err;
+use vortex_error::VortexResult;
 
 use crate::messages::DecoderMessage;
 use crate::messages::MessageDecoder;

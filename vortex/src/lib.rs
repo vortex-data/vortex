@@ -5,6 +5,7 @@
 #![doc = include_str!(concat!("../", env!("CARGO_PKG_README")))]
 
 use vortex_array::expr::session::ExprSession;
+use vortex_array::session::ArraySession;
 pub use vortex_array::*;
 pub use vortex_buffer as buffer;
 pub use vortex_dtype as dtype;
@@ -77,9 +78,6 @@ impl VortexSessionDefault for VortexSession {
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
-    use vortex_array::ArrayRef;
-    use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
@@ -87,6 +85,9 @@ mod test {
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
+    use vortex_array::ArrayRef;
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_file::OpenOptionsSessionExt;

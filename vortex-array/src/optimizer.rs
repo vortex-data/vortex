@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 
-use crate::ArrayRef;
 use crate::vtable::VTable;
+use crate::ArrayRef;
 
 /// An optimizer rule that tries to reduce/replace a parent array where the implementer is a
 /// child array in the `CHILD_IDX` position of the parent array.
@@ -31,14 +31,14 @@ mod tests {
     use vortex_dtype::PTypeDowncast;
     use vortex_vector::VectorOps;
 
-    use crate::ArraySession;
-    use crate::IntoArray;
+    use crate::array::session::ArraySession;
     use crate::arrays::BoolArray;
     use crate::arrays::MaskedArray;
     use crate::arrays::PrimitiveArray;
     use crate::expr::session::ExprSession;
     use crate::expr::transform::ExprOptimizer;
     use crate::validity::Validity;
+    use crate::IntoArray;
 
     #[test]
     fn test_masked_pushdown() {

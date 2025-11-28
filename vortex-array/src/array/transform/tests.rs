@@ -7,12 +7,12 @@ use vortex_dtype::FieldNames;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::ArraySession;
-use crate::array::ArrayRef;
-use crate::array::IntoArray;
+use crate::array::session::ArraySession;
 use crate::array::transform::ArrayParentReduceRule;
 use crate::array::transform::ArrayReduceRule;
 use crate::array::transform::ArrayRuleContext;
+use crate::array::ArrayRef;
+use crate::array::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
 use crate::arrays::ConstantArray;

@@ -3,13 +3,13 @@
 
 use vortex_error::VortexResult;
 
-use crate::ArrayRef;
 use crate::array::transform::ArrayReduceRule;
 use crate::array::transform::ArrayRuleContext;
 use crate::arrays::expr::ExprArray;
 use crate::arrays::expr::ExprVTable;
 use crate::expr::root;
 use crate::vtable::OperatorVTable;
+use crate::ArrayRef;
 
 impl OperatorVTable<ExprVTable> for ExprVTable {}
 
@@ -42,12 +42,10 @@ impl ArrayReduceRule<ExprVTable> for ExprOptimizationRule {
 
 #[cfg(test)]
 mod tests {
-
     use vortex_dtype::Nullability;
 
     use super::*;
-    use crate::ArraySession;
-    use crate::IntoArray;
+    use crate::array::session::ArraySession;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::PrimitiveVTable;
     use crate::expr::get_item;
@@ -55,6 +53,7 @@ mod tests {
     use crate::expr::root;
     use crate::expr::session::ExprSession;
     use crate::expr::transform::ExprOptimizer;
+    use crate::IntoArray;
 
     #[test]
     fn test_expr_array_reduce_pack_unpack() -> VortexResult<()> {
