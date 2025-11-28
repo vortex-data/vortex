@@ -22,8 +22,8 @@ use crate::compute::InvocationArgs;
 use crate::compute::Kernel;
 use crate::compute::Options;
 use crate::compute::Output;
+use crate::expr::stats::Stat;
 use crate::stats::Precision;
-use crate::stats::Stat;
 use crate::stats::StatsProviderExt;
 use crate::vtable::VTable;
 

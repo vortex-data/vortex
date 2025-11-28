@@ -5,7 +5,7 @@ use num_traits::PrimInt;
 use num_traits::WrappingSub;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::stats::Stat;
+use vortex_array::expr::stats::Stat;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;

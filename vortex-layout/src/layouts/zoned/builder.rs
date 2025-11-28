@@ -10,7 +10,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::BoolBuilder;
 use vortex_array::builders::builder_with_capacity;
-use vortex_array::stats::Stat;
+use vortex_array::expr::stats::Stat;
 use vortex_dtype::DType;
 use vortex_dtype::FieldName;
 use vortex_dtype::Nullability;

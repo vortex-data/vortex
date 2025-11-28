@@ -29,7 +29,7 @@ use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::expr::exprs::binary::eq;
 use crate::expr::exprs::literal::lit;
-use crate::stats::Stat;
+use crate::expr::stats::Stat;
 
 /// Expression that checks for null values.
 pub struct IsNull;
@@ -147,8 +147,8 @@ mod tests {
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::root::root;
     use crate::expr::pruning::checked_pruning_expr;
+    use crate::expr::stats::Stat;
     use crate::expr::test_harness;
-    use crate::stats::Stat;
 
     #[test]
     fn dtype() {

@@ -48,11 +48,11 @@ use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex::expr::stats::Stat;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
 use vortex::stats;
-use vortex::stats::Stat;
 use vortex::stats::StatsSet;
 
 use super::cache::VortexFileCache;

@@ -6,9 +6,10 @@
 //!
 //! This module stores expression evaluation logic in the VortexSession.
 
-use crate::expr::{ExprId, Expression};
-use crate::ArrayRef;
+use crate::expr::{ExprId, Expression, ExpressionView};
+use crate::{expr, ArrayRef};
 use std::fmt::Debug;
+use std::marker::PhantomData;
 use std::sync::Arc;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -19,13 +20,72 @@ use vortex_utils::aliases::hash_map::HashMap;
 /// In the future, this will be replaced by a fully lazy execution framework, where
 /// expressions can be applied to an array in essentially constant time, with optimization rules
 /// performing subsequent push-down.
-#[derive(Default, Debug)]
+#[derive(Default)]
 pub struct ArrayEvaluator {
-    evaluations: HashMap<ExprId, Arc<dyn ArrayExprEvaluation>>,
+    evaluations: HashMap<ExprId, Arc<dyn DynArrayExprEvaluation>>,
+}
+
+impl Debug for ArrayEvaluator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ArrayEvaluator")
+            .field("evaluations", &self.evaluations.keys())
+            .finish()
+    }
+}
+
+impl ArrayEvaluator {
+    /// Register the evaluation logic for the given expression ID.
+    pub fn register<V: expr::VTable>(
+        &mut self,
+        vtable: &'static V,
+        evaluator: impl ArrayExprEvaluation<V>,
+    ) {
+        self.evaluations.insert(
+            vtable.id(),
+            Arc::new(ArrayExprEvaluationAdapter {
+                inner: evaluator,
+                _marker: PhantomData,
+            }),
+        );
+    }
+
+    /// Evaluate an expression against an array.
+    pub fn evaluate(&self, expression: &Expression, array: &ArrayRef) -> VortexResult<ArrayRef> {
+        let evaluator = self
+            .evaluations
+            .get(&expression.vtable().id())
+            .ok_or_else(|| {
+                vortex_error::vortex_err!(
+                    "No evaluator registered for expression ID {}",
+                    expression.vtable().id()
+                )
+            })?;
+        evaluator.evaluate(expression, array)
+    }
 }
 
 /// A plugin trait for evaluating expressions against arrays.
-pub trait ArrayExprEvaluation: 'static + Send + Sync + Debug {
+pub trait ArrayExprEvaluation<V: expr::VTable>: 'static + Send + Sync {
+    /// Evaluate an expression against an array.
+    fn evaluate(&self, expression: &ExpressionView<V>, array: &ArrayRef) -> VortexResult<ArrayRef>;
+}
+
+/// A plugin trait for evaluating expressions against arrays.
+trait DynArrayExprEvaluation: 'static + Send + Sync {
     /// Evaluate an expression against an array.
     fn evaluate(&self, expression: &Expression, array: &ArrayRef) -> VortexResult<ArrayRef>;
+}
+
+struct ArrayExprEvaluationAdapter<V: expr::VTable, E: ArrayExprEvaluation<V>> {
+    inner: E,
+    _marker: PhantomData<V>,
+}
+
+impl<V: expr::VTable, E: ArrayExprEvaluation<V>> DynArrayExprEvaluation
+    for ArrayExprEvaluationAdapter<V, E>
+{
+    fn evaluate(&self, expression: &Expression, array: &ArrayRef) -> VortexResult<ArrayRef> {
+        let expr_view = ExpressionView::<V>::new(expression);
+        self.inner.evaluate(&expr_view, array)
+    }
 }

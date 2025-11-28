@@ -27,7 +27,7 @@ use crate::expr::Root;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::display::DisplayTreeExpr;
-use crate::stats::Stat;
+use crate::expr::stats::Stat;
 
 /// A node in a Vortex expression tree.
 ///

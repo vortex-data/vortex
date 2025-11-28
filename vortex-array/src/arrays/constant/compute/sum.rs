@@ -24,8 +24,8 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::compute::SumKernel;
 use crate::compute::SumKernelAdapter;
+use crate::expr::stats::Stat;
 use crate::register_kernel;
-use crate::stats::Stat;
 
 impl SumKernel for ConstantVTable {
     fn sum(&self, array: &ConstantArray, accumulator: &Scalar) -> VortexResult<Scalar> {
@@ -184,7 +184,7 @@ mod tests {
     use crate::arrays::ConstantArray;
     use crate::compute::sum;
     use crate::compute::sum_with_accumulator;
-    use crate::stats::Stat;
+    use crate::expr::stats::Stat;
 
     #[test]
     fn test_sum_unsigned() {

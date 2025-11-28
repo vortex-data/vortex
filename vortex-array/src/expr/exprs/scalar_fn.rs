@@ -24,8 +24,8 @@ use crate::expr::VTable;
 use crate::expr::functions;
 use crate::expr::functions::ScalarFnVTable;
 use crate::expr::functions::scalar::ScalarFn;
+use crate::expr::stats::Stat;
 use crate::expr::transform::rules::Matcher;
-use crate::stats::Stat;
 
 /// An expression that wraps arbitrary scalar functions.
 ///

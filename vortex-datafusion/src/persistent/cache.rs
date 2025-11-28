@@ -16,6 +16,7 @@ use vortex::dtype::DType;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex::expr::stats::Stat;
 use vortex::file::Footer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::SegmentSpec;
@@ -25,7 +26,6 @@ use vortex::layout::segments::SegmentId;
 use vortex::metrics::MetricsSessionExt;
 use vortex::session::VortexSession;
 use vortex::stats::Precision;
-use vortex::stats::Stat;
 use vortex::utils::aliases::DefaultHashBuilder;
 
 #[derive(Clone)]

@@ -24,7 +24,7 @@ use crate::expr::ExprId;
 use crate::expr::ExpressionView;
 use crate::expr::StatsCatalog;
 use crate::expr::expression::Expression;
-use crate::stats::Stat;
+use crate::expr::stats::Stat;
 
 ///
 /// This trait defines the interface for expression vtables, including methods for

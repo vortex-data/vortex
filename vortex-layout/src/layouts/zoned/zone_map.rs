@@ -9,8 +9,8 @@ use vortex_array::ArrayRef;
 use vortex_array::arrays::StructArray;
 use vortex_array::compute::sum;
 use vortex_array::expr::Expression;
+use vortex_array::expr::stats::Stat;
 use vortex_array::stats::Precision;
-use vortex_array::stats::Stat;
 use vortex_array::stats::StatsProvider;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;
@@ -268,7 +268,7 @@ mod tests {
     use vortex_array::expr::lt;
     use vortex_array::expr::pruning::checked_pruning_expr;
     use vortex_array::expr::root;
-    use vortex_array::stats::Stat;
+    use vortex_array::expr::stats::Stat;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;

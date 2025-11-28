@@ -11,7 +11,7 @@ pub use relation::Relation;
 use vortex_dtype::FieldPath;
 
 use crate::expr::Expression;
-use crate::stats::Stat;
+use crate::expr::stats::Stat;
 
 /// A catalog of available stats that are associated with field paths.
 pub trait StatsCatalog {

@@ -35,6 +35,7 @@ pub mod functions;
 pub mod proto;
 pub mod pruning;
 pub mod session;
+pub mod stats;
 pub mod transform;
 pub mod traversal;
 mod view;

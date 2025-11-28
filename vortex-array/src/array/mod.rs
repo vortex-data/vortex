@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod display;
-mod evaluate;
+pub mod evaluate;
 mod operator;
 pub mod session;
 pub mod transform;
@@ -46,10 +46,9 @@ use crate::compute::Cost;
 use crate::compute::InvocationArgs;
 use crate::compute::IsConstantOpts;
 use crate::compute::Output;
-use crate::hash;
+use crate::expr::stats::Stat;
 use crate::serde::ArrayChildren;
 use crate::stats::Precision;
-use crate::stats::Stat;
 use crate::stats::StatsProviderExt;
 use crate::stats::StatsSetRef;
 use crate::vtable::ArrayId;
@@ -61,11 +60,11 @@ use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 use crate::vtable::VisitorVTable;
-use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::Canonical;
 use crate::DynArrayEq;
 use crate::DynArrayHash;
+use crate::{hash, ArrayEq};
 
 /// The public API trait for all Vortex arrays.
 pub trait Array:

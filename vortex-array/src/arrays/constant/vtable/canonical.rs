@@ -336,7 +336,7 @@ mod tests {
     use crate::arrays::ConstantArray;
     use crate::arrays::ListViewRebuildMode;
     use crate::canonical::ToCanonical;
-    use crate::stats::Stat;
+    use crate::expr::stats::Stat;
     use crate::stats::StatsProvider;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;

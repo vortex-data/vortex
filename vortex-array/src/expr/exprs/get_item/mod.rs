@@ -32,7 +32,7 @@ use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::expr::exprs::root::root;
-use crate::stats::Stat;
+use crate::expr::stats::Stat;
 
 pub struct GetItem;
 

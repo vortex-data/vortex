@@ -21,8 +21,8 @@ use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
 use crate::compute::SumKernel;
 use crate::compute::SumKernelAdapter;
+use crate::expr::stats::Stat;
 use crate::register_kernel;
-use crate::stats::Stat;
 
 impl SumKernel for DecimalVTable {
     #[expect(

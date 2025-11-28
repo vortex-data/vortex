@@ -10,8 +10,8 @@ use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
 
-use crate::stats::precision::Precision::Exact;
-use crate::stats::precision::Precision::Inexact;
+use crate::expr::stats::precision::Precision::Exact;
+use crate::expr::stats::precision::Precision::Inexact;
 
 /// A statistic has a precision `Exact` or `Inexact`. This represents uncertainty in that value.
 /// Exact values are computed, where can inexact values are likely inferred from compute functions.
