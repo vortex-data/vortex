@@ -242,8 +242,8 @@ impl ListViewArray {
             );
         }
 
-        let offsets_primitive = offsets.to_primitive();
-        let sizes_primitive = sizes.to_primitive();
+        let offsets_primitive = offsets.to_primitive()?;
+        let sizes_primitive = sizes.to_primitive()?;
 
         // Validate the `offsets` and `sizes` arrays.
         match_each_integer_ptype!(offset_ptype, |O| {
@@ -284,8 +284,12 @@ impl ListViewArray {
         if cfg!(debug_assertions) && is_zctl {
             validate_zctl(
                 &self.elements,
-                self.offsets.to_primitive(),
-                self.sizes.to_primitive(),
+                self.offsets
+                    .to_primitive()
+                    .vortex_expect("Failed to get primitive offsets"),
+                self.sizes
+                    .to_primitive()
+                    .vortex_expect("Failed to get primitive sizes"),
             )
             .vortex_expect("Failed to validate zero-copy to list flag");
         }
@@ -311,12 +315,14 @@ impl ListViewArray {
     /// [`ListArray`]: crate::arrays::ListArray
     /// [`with_zero_copy_to_list`]: Self::with_zero_copy_to_list
     pub fn verify_is_zero_copy_to_list(&self) -> bool {
-        validate_zctl(
-            &self.elements,
-            self.offsets.to_primitive(),
-            self.sizes.to_primitive(),
-        )
-        .is_ok()
+        let Ok(offsets_primitive) = self.offsets.to_primitive() else {
+            return false;
+        };
+        let Ok(sizes_primitive) = self.sizes.to_primitive() else {
+            return false;
+        };
+
+        validate_zctl(&self.elements, offsets_primitive, sizes_primitive).is_ok()
     }
 
     /// Returns the offset at the given index.

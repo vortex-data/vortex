@@ -9,6 +9,7 @@ use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_error::VortexResult;
+use vortex_error::VortexUnwrap;
 use vortex_fastlanes::RLEArray;
 
 use crate::CompressorStats;
@@ -110,7 +111,7 @@ where
         new_excludes.extend_from_slice(excludes);
 
         let compressed_values = (self.compress_values_fn)(
-            &rle_array.values().to_primitive(),
+            &rle_array.values().to_primitive().vortex_unwrap(),
             is_sample,
             allowed_cascading - 1,
             &new_excludes,
@@ -130,14 +131,22 @@ where
 
         // #[cfg(not(feature = "unstable_encodings"))]
         let compressed_indices = IntCompressor::compress_no_dict(
-            &rle_array.indices().to_primitive().narrow()?,
+            &rle_array
+                .indices()
+                .to_primitive()
+                .vortex_unwrap()
+                .narrow()?,
             is_sample,
             allowed_cascading - 1,
             &[],
         )?;
 
         let compressed_offsets = IntCompressor::compress_no_dict(
-            &rle_array.values_idx_offsets().to_primitive().narrow()?,
+            &rle_array
+                .values_idx_offsets()
+                .to_primitive()
+                .vortex_unwrap()
+                .narrow()?,
             is_sample,
             allowed_cascading - 1,
             &[],

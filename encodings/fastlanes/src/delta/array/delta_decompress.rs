@@ -15,24 +15,25 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_unsigned_integer_ptype;
+use vortex_error::VortexResult;
 
 use crate::DeltaArray;
 
-pub fn delta_decompress(array: &DeltaArray) -> PrimitiveArray {
-    let bases = array.bases().to_primitive();
-    let deltas = array.deltas().to_primitive();
+pub fn delta_decompress(array: &DeltaArray) -> VortexResult<PrimitiveArray> {
+    let bases = array.bases().to_primitive()?;
+    let deltas = array.deltas().to_primitive()?;
     let decoded = match_each_unsigned_integer_ptype!(deltas.ptype(), |T| {
         const LANES: usize = T::LANES;
 
         PrimitiveArray::new(
             decompress_primitive::<T, LANES>(bases.as_slice(), deltas.as_slice()),
-            Validity::from_mask(array.deltas().validity_mask(), array.dtype().nullability()),
+            Validity::from_mask(array.deltas().validity_mask()?, array.dtype().nullability()),
         )
     });
 
-    decoded
+    Ok(decoded
         .slice(array.offset()..array.offset() + array.len())
-        .to_primitive()
+        .to_primitive()?)
 }
 
 // TODO(ngates): can we re-use the deltas buffer for the result? Might be tricky given the

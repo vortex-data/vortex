@@ -81,7 +81,7 @@ where
 
     let encoded_array = PrimitiveArray::new(encoded, values.validity().clone()).into_array();
 
-    let validity = values.validity_mask();
+    let validity = values.validity_mask()?;
     // exceptional_positions may contain exceptions at invalid positions (which contain garbage
     // data). We remove null exceptions in order to keep the Patches small.
     let (valid_exceptional_positions, valid_exceptional_values): (Buffer<u64>, Buffer<T>) =
@@ -140,15 +140,15 @@ where
 /// # Returns
 ///
 /// A `PrimitiveArray` containing the decompressed floating-point values with all patches applied.
-pub fn decompress(array: ALPArray) -> PrimitiveArray {
+pub fn decompress(array: ALPArray) -> VortexResult<PrimitiveArray> {
     let patches = array.patches().cloned();
     if let Some(patches) = patches
         && let Some(chunk_offsets) = patches.chunk_offsets()
     {
-        return decompress_chunked(array, &patches, &chunk_offsets.as_ref().to_primitive());
+        return decompress_chunked(array, &patches, &chunk_offsets.as_ref().to_primitive()?);
     }
 
-    decompress_unchunked(array)
+    Ok(decompress_unchunked(array))
 }
 
 /// Decompresses an ALP-encoded array in 1024-element chunks.
@@ -172,12 +172,12 @@ pub fn decompress_chunked(
     array: ALPArray,
     patches: &Patches,
     patches_chunk_offsets: &PrimitiveArray,
-) -> PrimitiveArray {
-    let encoded = array.encoded().to_primitive();
+) -> VortexResult<PrimitiveArray> {
+    let encoded = array.encoded().to_primitive()?;
     let validity = encoded.validity().clone();
 
-    let patches_indices = patches.indices().as_ref().to_primitive();
-    let patches_values = patches.values().as_ref().to_primitive();
+    let patches_indices = patches.indices().as_ref().to_primitive()?;
+    let patches_values = patches.values().as_ref().to_primitive()?;
     let ptype = array.dtype().as_ptype();
     let array_len = array.len();
     let exponents = array.exponents();
@@ -220,7 +220,7 @@ pub fn decompress_chunked(
                 }
 
                 let decoded_buffer: BufferMut<T> = unsafe { transmute(alp_buffer) };
-                PrimitiveArray::new::<T>(decoded_buffer.freeze(), validity)
+                Ok(PrimitiveArray::new::<T>(decoded_buffer.freeze(), validity))
             })
         })
     })
@@ -231,7 +231,7 @@ pub fn decompress_chunked(
 /// This function decodes the complete array at once and then applies any patches after.
 fn decompress_unchunked(array: ALPArray) -> PrimitiveArray {
     let patches = array.patches().cloned();
-    let encoded = array.encoded().to_primitive();
+    let encoded = array.encoded().to_primitive().unwrap();
     let validity = encoded.validity().clone();
     let exponents = array.exponents();
     let ptype = array.dtype().as_ptype();
@@ -278,7 +278,7 @@ mod tests {
         assert_arrays_eq!(encoded.encoded(), expected_encoded);
         assert_eq!(encoded.exponents(), Exponents { e: 9, f: 6 });
 
-        let decoded = decompress(encoded);
+        let decoded = decompress(encoded).unwrap();
         assert_arrays_eq!(decoded, array);
     }
 
@@ -291,7 +291,7 @@ mod tests {
         assert_arrays_eq!(encoded.encoded(), expected_encoded);
         assert_eq!(encoded.exponents(), Exponents { e: 9, f: 6 });
 
-        let decoded = decompress(encoded);
+        let decoded = decompress(encoded).unwrap();
         let expected = PrimitiveArray::from_option_iter(vec![None, Some(1.234f32), None]);
         assert_arrays_eq!(decoded, expected);
     }

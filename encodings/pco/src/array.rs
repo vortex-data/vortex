@@ -180,8 +180,8 @@ pub(crate) fn number_type_from_dtype(dtype: &DType) -> NumberType {
 }
 
 fn collect_valid(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
-    let mask = parray.validity_mask();
-    Ok(filter(&parray.to_array(), &mask)?.to_primitive())
+    let mask = parray.validity_mask()?;
+    Ok(filter(&parray.to_array(), &mask)?.to_primitive()?)
 }
 
 pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
@@ -346,6 +346,7 @@ impl PcoArray {
         let slice_value_indices = self
             .unsliced_validity
             .to_mask(self.unsliced_n_rows)
+            .vortex_unwrap()
             .valid_counts_for_indices(&[self.slice_start, self.slice_stop]);
         let slice_value_start = slice_value_indices[0];
         let slice_value_stop = slice_value_indices[1];
@@ -501,7 +502,7 @@ impl BaseArrayVTable<PcoVTable> for PcoVTable {
 }
 
 impl CanonicalVTable<PcoVTable> for PcoVTable {
-    fn canonicalize(array: &PcoArray) -> Canonical {
+    fn canonicalize(array: &PcoArray) -> VortexResult<Canonical> {
         array.decompress().to_canonical()
     }
 }

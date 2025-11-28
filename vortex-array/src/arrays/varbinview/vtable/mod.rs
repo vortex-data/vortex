@@ -108,7 +108,7 @@ impl VTable for VarBinViewVTable {
                 StringVector::new_unchecked(
                     array.views().clone(),
                     Arc::new(array.buffers().to_vec().into_boxed_slice()),
-                    array.validity_mask(),
+                    array.validity_mask()?,
                 )
             }
             .into(),
@@ -116,7 +116,7 @@ impl VTable for VarBinViewVTable {
                 BinaryVector::new_unchecked(
                     array.views().clone(),
                     Arc::new(array.buffers().to_vec().into_boxed_slice()),
-                    array.validity_mask(),
+                    array.validity_mask()?,
                 )
             }
             .into(),

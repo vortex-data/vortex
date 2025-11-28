@@ -67,7 +67,7 @@ fn compare_fsst_constant(
             // No value is lt ""
             Operator::Lt => BitBuffer::new_unset(left.len()),
             _ => {
-                let uncompressed_lengths = left.uncompressed_lengths().to_primitive();
+                let uncompressed_lengths = left.uncompressed_lengths().to_primitive()?;
                 match_each_integer_ptype!(uncompressed_lengths.ptype(), |P| {
                     compare_lengths_to_empty(
                         uncompressed_lengths.as_slice::<P>().iter().copied(),

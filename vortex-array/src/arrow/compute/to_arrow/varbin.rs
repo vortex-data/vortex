@@ -82,9 +82,9 @@ fn to_arrow<O: IntegerPType + OffsetSizeTrait>(array: &VarBinArray) -> VortexRes
         array.offsets(),
         &DType::Primitive(O::PTYPE, Nullability::NonNullable),
     )?
-    .to_primitive();
+    .to_primitive()?;
 
-    let nulls = to_null_buffer(array.validity_mask());
+    let nulls = to_null_buffer(array.validity_mask()?);
     let data = array.bytes().clone();
 
     // Match on the `DType`.

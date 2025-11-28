@@ -65,7 +65,7 @@ fn fill_bool_array(
         }
         Validity::AllInvalid => ConstantArray::new(fill_value.clone(), array.len()).into_array(),
         Validity::Array(validity_array) => {
-            let validity_bool_array = validity_array.to_bool();
+            let validity_bool_array = validity_array.to_bool().vortex_unwrap();
             let validity_bits = validity_bool_array.bit_buffer();
             let data_bits = array.bit_buffer();
 
@@ -100,7 +100,7 @@ fn fill_primitive_array(
                 ConstantArray::new(fill_value.clone(), array.len()).into_array()
             }
             Validity::Array(validity_array) => {
-                let validity_bool_array = validity_array.to_bool();
+                let validity_bool_array = validity_array.to_bool().vortex_unwrap();
                 let validity_bits = validity_bool_array.bit_buffer();
                 let data_slice = array.as_slice::<T>();
 
@@ -143,7 +143,7 @@ fn fill_decimal_array(
                 ConstantArray::new(fill_value.clone(), array.len()).into_array()
             }
             Validity::Array(validity_array) => {
-                let validity_bool_array = validity_array.to_bool();
+                let validity_bool_array = validity_array.to_bool().vortex_unwrap();
                 let validity_bits = validity_bool_array.bit_buffer();
                 let data_buffer = array.buffer::<D>();
 
@@ -173,7 +173,7 @@ fn fill_varbinview_array(
         Validity::NonNullable | Validity::AllValid => array.clone().into_array(),
         Validity::AllInvalid => ConstantArray::new(fill_value.clone(), array.len()).into_array(),
         Validity::Array(validity_array) => {
-            let validity_bool_array = validity_array.to_bool();
+            let validity_bool_array = validity_array.to_bool().vortex_unwrap();
             let validity_bits = validity_bool_array.bit_buffer();
 
             match array.dtype() {
@@ -200,8 +200,8 @@ fn fill_varbinview_array(
                     let result = VarBinViewArray::from_iter_str(string_refs).into_array();
                     if result_nullability == Nullability::Nullable {
                         VarBinViewArray::new(
-                            result.to_varbinview().views().clone(),
-                            result.to_varbinview().buffers().clone(),
+                            result.to_varbinview().vortex_unwrap().views().clone(),
+                            result.to_varbinview().vortex_unwrap().buffers().clone(),
                             result.dtype().as_nullable(),
                             result_nullability.into(),
                         )
@@ -233,8 +233,8 @@ fn fill_varbinview_array(
                     let result = VarBinViewArray::from_iter_bin(binary_refs).into_array();
                     if result_nullability == Nullability::Nullable {
                         VarBinViewArray::new(
-                            result.to_varbinview().views().clone(),
-                            result.to_varbinview().buffers().clone(),
+                            result.to_varbinview().vortex_unwrap().views().clone(),
+                            result.to_varbinview().vortex_unwrap().buffers().clone(),
                             result.dtype().as_nullable(),
                             result_nullability.into(),
                         )

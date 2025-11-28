@@ -72,16 +72,16 @@ pub(crate) fn new_exporter(
         }
     };
 
-    let offsets = array.offsets().to_primitive();
-    let sizes = array.sizes().to_primitive();
+    let offsets = array.offsets().to_primitive()?;
+    let sizes = array.sizes().to_primitive()?;
 
     let boxed = match_each_integer_ptype!(offsets.ptype(), |O| {
         match_each_integer_ptype!(sizes.ptype(), |S| {
             Box::new(ListExporter {
-                validity: array.validity_mask(),
+                validity: array.validity_mask()?,
                 duckdb_elements: shared_elements,
-                offsets,
-                sizes,
+                offsets: offsets.clone(),
+                sizes: sizes.clone(),
                 num_elements,
                 offset_type: PhantomData::<O>,
                 size_type: PhantomData::<S>,

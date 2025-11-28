@@ -174,7 +174,7 @@ impl ChunkedArray {
                     // All chunks are guaranteed to be valid arrays matching self.dtype().
                     unsafe {
                         ChunkedArray::new_unchecked(chunks_to_combine, self.dtype().clone())
-                            .to_canonical()
+                            .to_canonical()?
                             .into_array()
                     },
                 );
@@ -198,7 +198,7 @@ impl ChunkedArray {
                 // SAFETY: chunks_to_combine contains valid chunks of the same dtype as self.
                 // All chunks are guaranteed to be valid arrays matching self.dtype().
                 ChunkedArray::new_unchecked(chunks_to_combine, self.dtype().clone())
-                    .to_canonical()
+                    .to_canonical()?
                     .into_array()
             });
         }
@@ -259,11 +259,23 @@ mod test {
         let chunked = array.as_::<ChunkedVTable>();
         let chunks_out = chunked.chunks();
 
-        let results = chunks_out[0].to_primitive().as_slice::<u64>().to_vec();
+        let results = chunks_out[0]
+            .to_primitive()
+            .unwrap()
+            .as_slice::<u64>()
+            .to_vec();
         assert_eq!(results, &[0u64, 1, 2]);
-        let results = chunks_out[1].to_primitive().as_slice::<u64>().to_vec();
+        let results = chunks_out[1]
+            .to_primitive()
+            .unwrap()
+            .as_slice::<u64>()
+            .to_vec();
         assert_eq!(results, &[3u64, 4, 5]);
-        let results = chunks_out[2].to_primitive().as_slice::<u64>().to_vec();
+        let results = chunks_out[2]
+            .to_primitive()
+            .unwrap()
+            .as_slice::<u64>()
+            .to_vec();
         assert_eq!(results, &[6u64, 7, 8]);
     }
 

@@ -57,7 +57,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_field(
         let array = vx_array::as_ref(array);
 
         let field_array = array
-            .to_struct()
+            .to_struct()?
             .fields()
             .get(index as usize)
             .ok_or_else(|| vortex_err!("Field index out of bounds"))?
@@ -87,7 +87,7 @@ pub unsafe extern "C-unwind" fn vx_array_is_null(
     _error_out: *mut *mut vx_error,
 ) -> bool {
     let array = vx_array::as_ref(array);
-    array.is_invalid(index as usize)
+    array.is_invalid(index as usize).unwrap_or(true)
 }
 
 // TODO(robert): Make this return usize and remove error
@@ -97,7 +97,7 @@ pub unsafe extern "C-unwind" fn vx_array_null_count(
     error_out: *mut *mut vx_error,
 ) -> u32 {
     let array = vx_array::as_ref(array);
-    try_or_default(error_out, || Ok(array.invalid_count().try_into()?))
+    try_or_default(error_out, || Ok(array.invalid_count()?.try_into()?))
 }
 
 macro_rules! ffiarray_get_ptype {

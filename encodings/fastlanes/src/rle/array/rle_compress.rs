@@ -94,7 +94,7 @@ where
 
     RLEArray::try_new(
         values_buf.into_array(),
-        PrimitiveArray::new(indices_buf.freeze(), padded_validity(array)).into_array(),
+        PrimitiveArray::new(indices_buf.freeze(), padded_validity(array)?).into_array(),
         values_idx_offsets.into_array(),
         0,
         array.len(),
@@ -102,8 +102,8 @@ where
 }
 
 /// Returns validity padded to the next 1024 chunk for a given array.
-fn padded_validity(array: &PrimitiveArray) -> Validity {
-    match array.validity() {
+fn padded_validity(array: &PrimitiveArray) -> VortexResult<Validity> {
+    Ok(match array.validity() {
         Validity::NonNullable => Validity::NonNullable,
         Validity::AllValid => Validity::AllValid,
         Validity::AllInvalid => Validity::AllInvalid,
@@ -112,18 +112,18 @@ fn padded_validity(array: &PrimitiveArray) -> Validity {
             let padded_len = len.next_multiple_of(FL_CHUNK_SIZE);
 
             if len == padded_len {
-                return Validity::Array(validity_array.clone());
+                return Ok(Validity::Array(validity_array.clone()));
             }
 
             let mut builder = BitBufferMut::with_capacity(padded_len);
 
-            let bool_array = validity_array.to_bool();
+            let bool_array = validity_array.to_bool()?;
             builder.append_buffer(bool_array.bit_buffer());
             builder.append_n(false, padded_len - len);
 
             Validity::from(builder.freeze())
         }
-    }
+    })
 }
 
 #[cfg(test)]

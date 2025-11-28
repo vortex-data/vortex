@@ -67,7 +67,7 @@ impl PipelinedNode for BitPackedArray {
             Ok(Box::new(AlignedBitPackedKernel::<T>::new(
                 packed_bit_width,
                 packed_buffer,
-                self.validity.to_mask(self.len()),
+                self.validity.to_mask(self.len())?,
             )) as Box<dyn Kernel>)
         })
     }

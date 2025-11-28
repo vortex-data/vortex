@@ -76,7 +76,7 @@ impl PrimitiveArray {
                     self.as_ref(),
                     &DType::Primitive(PType::I8, self.dtype().nullability()),
                 )?
-                .to_primitive());
+                .to_primitive()?);
             }
 
             if min >= i16::MIN as i64 && max <= i16::MAX as i64 {
@@ -84,7 +84,7 @@ impl PrimitiveArray {
                     self.as_ref(),
                     &DType::Primitive(PType::I16, self.dtype().nullability()),
                 )?
-                .to_primitive());
+                .to_primitive()?);
             }
 
             if min >= i32::MIN as i64 && max <= i32::MAX as i64 {
@@ -92,7 +92,7 @@ impl PrimitiveArray {
                     self.as_ref(),
                     &DType::Primitive(PType::I32, self.dtype().nullability()),
                 )?
-                .to_primitive());
+                .to_primitive()?);
             }
         } else {
             // Unsigned
@@ -101,7 +101,7 @@ impl PrimitiveArray {
                     self.as_ref(),
                     &DType::Primitive(PType::U8, self.dtype().nullability()),
                 )?
-                .to_primitive());
+                .to_primitive()?);
             }
 
             if max <= u16::MAX as i64 {
@@ -109,7 +109,7 @@ impl PrimitiveArray {
                     self.as_ref(),
                     &DType::Primitive(PType::U16, self.dtype().nullability()),
                 )?
-                .to_primitive());
+                .to_primitive()?);
             }
 
             if max <= u32::MAX as i64 {
@@ -117,7 +117,7 @@ impl PrimitiveArray {
                     self.as_ref(),
                     &DType::Primitive(PType::U32, self.dtype().nullability()),
                 )?
-                .to_primitive());
+                .to_primitive()?);
             }
         }
 

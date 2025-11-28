@@ -165,8 +165,10 @@ impl BaseArrayVTable<ZigZagVTable> for ZigZagVTable {
 }
 
 impl CanonicalVTable<ZigZagVTable> for ZigZagVTable {
-    fn canonicalize(array: &ZigZagArray) -> Canonical {
-        Canonical::Primitive(zigzag_decode(array.encoded().to_primitive()))
+    fn canonicalize(array: &ZigZagArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Primitive(zigzag_decode(
+            array.encoded().to_primitive()?,
+        )))
     }
 }
 

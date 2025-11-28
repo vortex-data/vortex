@@ -16,37 +16,39 @@ use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::match_each_integer_ptype;
+use vortex_error::VortexResult;
 use vortex_vector::binaryview::BinaryView;
 
 use crate::FSSTArray;
 use crate::FSSTVTable;
 
 impl CanonicalVTable<FSSTVTable> for FSSTVTable {
-    fn canonicalize(array: &FSSTArray) -> Canonical {
-        let (buffer, views) = fsst_decode_views(array, 0);
+    fn canonicalize(array: &FSSTArray) -> VortexResult<Canonical> {
+        let (buffer, views) = fsst_decode_views(array, 0)?;
         // SAFETY: FSST already validates the bytes for binary/UTF-8. We build views directly on
         //  top of them, so the view pointers will all be valid.
-        unsafe {
+        Ok(unsafe {
             Canonical::VarBinView(VarBinViewArray::new_unchecked(
                 views,
                 Arc::new([buffer]),
                 array.dtype().clone(),
                 array.codes().validity().clone(),
             ))
-        }
+        })
     }
 
-    fn append_to_builder(array: &FSSTArray, builder: &mut dyn ArrayBuilder) {
+    fn append_to_builder(array: &FSSTArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
-            return builder.extend_from_array(&array.to_canonical().into_array());
+            return Ok(builder.extend_from_array(&array.to_canonical()?.into_array()));
         };
 
         // Decompress the whole block of data into a new buffer, and create some views
         // from it instead.
 
-        let (buffer, views) = fsst_decode_views(array, builder.completed_block_count());
+        let (buffer, views) = fsst_decode_views(array, builder.completed_block_count())?;
 
-        builder.push_buffer_and_adjusted_views(&[buffer], &views, array.validity_mask());
+        builder.push_buffer_and_adjusted_views(&[buffer], &views, array.validity_mask()?);
+        Ok(())
     }
 }
 
@@ -54,7 +56,10 @@ impl CanonicalVTable<FSSTVTable> for FSSTVTable {
     clippy::cast_possible_truncation,
     reason = "truncation is intentional for buffer index"
 )]
-fn fsst_decode_views(fsst_array: &FSSTArray, buf_index: u32) -> (ByteBuffer, Buffer<BinaryView>) {
+fn fsst_decode_views(
+    fsst_array: &FSSTArray,
+    buf_index: u32,
+) -> VortexResult<(ByteBuffer, Buffer<BinaryView>)> {
     // FSSTArray has two child arrays:
     //  1. A VarBinArray, which holds the string heap of the compressed codes.
     //  2. An uncompressed_lengths primitive array, storing the length of each original
@@ -64,7 +69,7 @@ fn fsst_decode_views(fsst_array: &FSSTArray, buf_index: u32) -> (ByteBuffer, Buf
     // necessary for a VarBinViewArray and construct the canonical array.
     let bytes = fsst_array.codes().sliced_bytes();
 
-    let uncompressed_lens_array = fsst_array.uncompressed_lengths().to_primitive();
+    let uncompressed_lens_array = fsst_array.uncompressed_lengths().to_primitive()?;
 
     // Decompress the full dataset.
     #[allow(clippy::cast_possible_truncation)]
@@ -101,7 +106,7 @@ fn fsst_decode_views(fsst_array: &FSSTArray, buf_index: u32) -> (ByteBuffer, Buf
         }
     });
 
-    (uncompressed_bytes.freeze(), views.freeze())
+    Ok((uncompressed_bytes.freeze(), views.freeze()))
 }
 
 #[cfg(test)]

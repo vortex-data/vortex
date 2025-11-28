@@ -28,8 +28,8 @@ impl CompareKernel for MaskedVTable {
         let compare_result = compare(&lhs.child, rhs, operator)?;
 
         // Get the boolean buffer from the comparison result
-        let bool_array = compare_result.to_bool();
-        let combined_validity = bool_array.validity().clone().and(lhs.validity().clone());
+        let bool_array = compare_result.to_bool()?;
+        let combined_validity = bool_array.validity().clone().and(lhs.validity().clone())?;
 
         // Return a plain BoolArray with the combined validity
         Ok(Some(
@@ -70,7 +70,7 @@ mod tests {
             Operator::Eq,
         )
         .unwrap();
-        let res = res.to_bool();
+        let res = res.to_bool().unwrap();
         assert_eq!(
             res.bit_buffer().iter().collect::<Vec<_>>(),
             vec![false, true, false]
@@ -91,7 +91,7 @@ mod tests {
             Operator::Gt,
         )
         .unwrap();
-        let res = res.to_bool();
+        let res = res.to_bool().unwrap();
         assert_eq!(
             res.bit_buffer().iter().collect::<Vec<_>>(),
             vec![false, false, true]
@@ -113,13 +113,16 @@ mod tests {
             Operator::Eq,
         )
         .unwrap();
-        let res = res.to_bool();
+        let res = res.to_bool().unwrap();
         assert_eq!(
             res.bit_buffer().iter().collect::<Vec<_>>(),
             vec![false, true, false]
         );
         assert_eq!(res.dtype().nullability(), Nullability::Nullable);
-        assert_eq!(res.validity_mask(), Mask::from_iter([false, true, false]));
+        assert_eq!(
+            res.validity_mask().unwrap(),
+            Mask::from_iter([false, true, false])
+        );
     }
 
     #[test]
@@ -135,13 +138,16 @@ mod tests {
         let rhs = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]);
 
         let res = compare(masked.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
-        let res = res.to_bool();
+        let res = res.to_bool().unwrap();
         assert_eq!(
             res.bit_buffer().iter().collect::<Vec<_>>(),
             vec![true, false, true]
         );
         assert_eq!(res.dtype().nullability(), Nullability::Nullable);
         // Validity is union of both: lhs=[T,T,F], rhs=[T,F,T] => result=[T,F,F]
-        assert_eq!(res.validity_mask(), Mask::from_iter([true, false, false]));
+        assert_eq!(
+            res.validity_mask().unwrap(),
+            Mask::from_iter([true, false, false])
+        );
     }
 }

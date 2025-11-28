@@ -44,10 +44,10 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
             Action::Compress(strategy) => {
                 current_array = match strategy {
                     CompressorStrategy::Default => BtrBlocksCompressor::default()
-                        .compress(current_array.to_canonical().as_ref())
+                        .compress(current_array.to_canonical().vortex_unwrap().as_ref())
                         .vortex_unwrap(),
                     CompressorStrategy::Compact => CompactCompressor::default()
-                        .compress(current_array.to_canonical().as_ref())
+                        .compress(current_array.to_canonical().vortex_unwrap().as_ref())
                         .vortex_unwrap(),
                 };
                 assert_array_eq(&expected.array(), &current_array, i).unwrap();

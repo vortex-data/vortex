@@ -225,13 +225,14 @@ impl Scheme for ConstantScheme {
         _allowed_cascading: usize,
         _excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
-        let scalar_idx = (0..stats.source().len()).position(|idx| stats.source().is_valid(idx));
+        let scalar_idx =
+            (0..stats.source().len()).position(|idx| stats.source().is_valid(idx).vortex_unwrap());
 
         match scalar_idx {
             Some(idx) => {
                 let scalar = stats.source().scalar_at(idx);
                 let const_arr = ConstantArray::new(scalar, stats.src.len()).into_array();
-                if !stats.source().all_valid() {
+                if !stats.source().all_valid().vortex_unwrap() {
                     Ok(MaskedArray::try_new(const_arr, stats.src.validity().clone())?.into_array())
                 } else {
                     Ok(const_arr)
@@ -301,7 +302,7 @@ impl Scheme for FORScheme {
         excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
         let for_array = FoRArray::encode(stats.src.clone())?;
-        let biased = for_array.encoded().to_primitive();
+        let biased = for_array.encoded().to_primitive().vortex_unwrap();
         let biased_stats = IntegerStats::generate_opts(
             &biased,
             GenerateStatsOptions {
@@ -368,7 +369,7 @@ impl Scheme for ZigZagScheme {
     ) -> VortexResult<ArrayRef> {
         // Zigzag encode the values, then recursively compress the inner values.
         let zag = zigzag_encode(stats.src.clone())?;
-        let encoded = zag.encoded().to_primitive();
+        let encoded = zag.encoded().to_primitive().vortex_unwrap();
 
         // ZigZag should be after Dict, RunEnd or Sparse.
         // We should only do these "container" style compressors once.
@@ -530,13 +531,18 @@ impl Scheme for SparseScheme {
             new_excludes.extend_from_slice(excludes);
 
             let compressed_values = IntCompressor::compress_no_dict(
-                &sparse.patches().values().to_primitive(),
+                &sparse.patches().values().to_primitive().vortex_unwrap(),
                 is_sample,
                 allowed_cascading - 1,
                 &new_excludes,
             )?;
 
-            let indices = sparse.patches().indices().to_primitive().narrow()?;
+            let indices = sparse
+                .patches()
+                .indices()
+                .to_primitive()
+                .vortex_unwrap()
+                .narrow()?;
 
             let compressed_indices = IntCompressor::compress_no_dict(
                 &indices,
@@ -626,7 +632,7 @@ impl Scheme for DictScheme {
         new_excludes.extend_from_slice(excludes);
 
         let compressed_codes = IntCompressor::compress_no_dict(
-            &dict.codes().to_primitive().narrow()?,
+            &dict.codes().to_primitive().vortex_unwrap().narrow()?,
             is_sample,
             allowed_cascading - 1,
             &new_excludes,
@@ -687,13 +693,13 @@ impl Scheme for RunEndScheme {
         assert!(allowed_cascading > 0);
 
         // run-end encode the ends
-        let (ends, values) = runend_encode(&stats.src);
+        let (ends, values) = runend_encode(&stats.src)?;
 
         let mut new_excludes = vec![RunEndScheme.code(), DictScheme.code()];
         new_excludes.extend_from_slice(excludes);
 
         let ends_stats = IntegerStats::generate_opts(
-            &ends.to_primitive(),
+            &ends.to_primitive().vortex_unwrap(),
             GenerateStatsOptions {
                 count_distinct_values: false,
             },
@@ -708,7 +714,7 @@ impl Scheme for RunEndScheme {
             ends_scheme.compress(&ends_stats, is_sample, allowed_cascading - 1, &new_excludes)?;
 
         let compressed_values = IntCompressor::compress_no_dict(
-            &values.to_primitive(),
+            &values.to_primitive().vortex_unwrap(),
             is_sample,
             allowed_cascading - 1,
             &new_excludes,

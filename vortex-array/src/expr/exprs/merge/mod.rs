@@ -137,7 +137,7 @@ impl VTable for Merge {
             if !array.dtype().is_struct() {
                 vortex_bail!("merge expects struct input");
             }
-            let array = array.to_struct();
+            let array = array.to_struct()?;
 
             for (field_name, array) in array.names().iter().zip_eq(array.fields().iter().cloned()) {
                 // Update or insert field.

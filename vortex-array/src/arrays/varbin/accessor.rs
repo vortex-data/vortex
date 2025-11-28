@@ -4,6 +4,7 @@
 use std::iter;
 
 use vortex_dtype::match_each_integer_ptype;
+use vortex_error::VortexExpect;
 
 use crate::ToCanonical;
 use crate::accessor::ArrayAccessor;
@@ -16,7 +17,7 @@ impl ArrayAccessor<[u8]> for VarBinArray {
     where
         F: for<'a> FnOnce(&mut dyn Iterator<Item = Option<&'a [u8]>>) -> R,
     {
-        let offsets = self.offsets().to_primitive();
+        let offsets = self.offsets().to_primitive().vortex_expect("to_primitive");
         let validity = self.validity();
 
         let bytes = self.bytes();
@@ -35,7 +36,7 @@ impl ArrayAccessor<[u8]> for VarBinArray {
                 }
                 Validity::AllInvalid => f(&mut iter::repeat_n(None, self.len())),
                 Validity::Array(v) => {
-                    let validity = v.to_bool();
+                    let validity = v.to_bool().vortex_expect("to_bool");
                     let mut iter = offsets
                         .windows(2)
                         .zip(validity.bit_buffer())

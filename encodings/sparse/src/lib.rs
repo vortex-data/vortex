@@ -255,7 +255,7 @@ impl SparseArray {
                 fill_value.dtype()
             )
         }
-        let mask = array.validity_mask();
+        let mask = array.validity_mask()?;
 
         if mask.all_false() {
             // Array is constant NULL
@@ -298,7 +298,7 @@ impl SparseArray {
         } else {
             // TODO(robert): Support other dtypes, only thing missing is getting most common value out of the array
             let (top_pvalue, _) = array
-                .to_primitive()
+                .to_primitive()?
                 .top_value()?
                 .vortex_expect("Non empty or all null array");
 
@@ -311,7 +311,7 @@ impl SparseArray {
                 &compare(array, &fill_array, Operator::NotEq)?,
                 &Scalar::bool(true, Nullability::NonNullable),
             )?
-            .to_bool()
+            .to_bool()?
             .bit_buffer()
             .clone(),
         );
@@ -359,43 +359,43 @@ impl BaseArrayVTable<SparseVTable> for SparseVTable {
 }
 
 impl ValidityVTable<SparseVTable> for SparseVTable {
-    fn is_valid(array: &SparseArray, index: usize) -> bool {
-        match array.patches().get_patched(index) {
+    fn is_valid(array: &SparseArray, index: usize) -> VortexResult<bool> {
+        Ok(match array.patches().get_patched(index) {
             None => array.fill_scalar().is_valid(),
             Some(patch_value) => patch_value.is_valid(),
-        }
+        })
     }
 
-    fn all_valid(array: &SparseArray) -> bool {
+    fn all_valid(array: &SparseArray) -> VortexResult<bool> {
         if array.fill_scalar().is_null() {
             // We need _all_ values to be patched, and all patches to be valid
-            return array.patches().values().len() == array.len()
-                && array.patches().values().all_valid();
+            return Ok(array.patches().values().len() == array.len()
+                && array.patches().values().all_valid()?);
         }
 
         array.patches().values().all_valid()
     }
 
-    fn all_invalid(array: &SparseArray) -> bool {
+    fn all_invalid(array: &SparseArray) -> VortexResult<bool> {
         if !array.fill_scalar().is_null() {
             // We need _all_ values to be patched, and all patches to be invalid
-            return array.patches().values().len() == array.len()
-                && array.patches().values().all_invalid();
+            return Ok(array.patches().values().len() == array.len()
+                && array.patches().values().all_invalid()?);
         }
 
         array.patches().values().all_invalid()
     }
 
-    fn validity_mask(array: &SparseArray) -> Mask {
+    fn validity_mask(array: &SparseArray) -> VortexResult<Mask> {
         let fill_is_valid = array.fill_scalar().is_valid();
-        let values_validity = array.patches().values().validity_mask();
+        let values_validity = array.patches().values().validity_mask()?;
         let len = array.len();
 
         if matches!(values_validity, Mask::AllTrue(_)) && fill_is_valid {
-            return Mask::AllTrue(len);
+            return Ok(Mask::AllTrue(len));
         }
         if matches!(values_validity, Mask::AllFalse(_)) && !fill_is_valid {
-            return Mask::AllFalse(len);
+            return Ok(Mask::AllFalse(len));
         }
 
         let mut is_valid_buffer = if fill_is_valid {
@@ -404,7 +404,7 @@ impl ValidityVTable<SparseVTable> for SparseVTable {
             BitBufferMut::new_unset(len)
         };
 
-        let indices = array.patches().indices().to_primitive();
+        let indices = array.patches().indices().to_primitive()?;
         let index_offset = array.patches().offset();
 
         match_each_integer_ptype!(indices.ptype(), |I| {
@@ -412,7 +412,7 @@ impl ValidityVTable<SparseVTable> for SparseVTable {
             patch_validity(&mut is_valid_buffer, indices, index_offset, values_validity);
         });
 
-        Mask::from_buffer(is_valid_buffer.freeze())
+        Ok(Mask::from_buffer(is_valid_buffer.freeze()))
     }
 }
 
@@ -556,7 +556,7 @@ mod test {
     pub fn validity_mask_sliced_null_fill() {
         let sliced = sparse_array(nullable_fill()).slice(2..7);
         assert_eq!(
-            sliced.validity_mask(),
+            sliced.validity_mask().unwrap(),
             Mask::from_iter(vec![true, false, false, true, false])
         );
     }
@@ -577,7 +577,7 @@ mod test {
         .slice(2..7);
 
         assert_eq!(
-            sliced.validity_mask(),
+            sliced.validity_mask().unwrap(),
             Mask::from_iter(vec![false, true, true, false, true])
         );
     }
@@ -595,7 +595,12 @@ mod test {
     pub fn sparse_validity_mask() {
         let array = sparse_array(nullable_fill());
         assert_eq!(
-            array.validity_mask().to_bit_buffer().iter().collect_vec(),
+            array
+                .validity_mask()
+                .unwrap()
+                .to_bit_buffer()
+                .iter()
+                .collect_vec(),
             [
                 false, false, true, false, false, true, false, false, true, false
             ]
@@ -605,7 +610,7 @@ mod test {
     #[test]
     fn sparse_validity_mask_non_null_fill() {
         let array = sparse_array(non_nullable_fill());
-        assert!(array.validity_mask().all_true());
+        assert!(array.validity_mask().unwrap().all_true());
     }
 
     #[test]
@@ -638,9 +643,9 @@ mod test {
             None,
         )
         .vortex_unwrap();
-        let canonical = sparse.to_primitive();
+        let canonical = sparse.to_primitive().unwrap();
         assert_eq!(
-            sparse.validity_mask(),
+            sparse.validity_mask().unwrap(),
             Mask::from_iter(vec![
                 true, true, false, true, false, true, false, true, true, false, true, false,
             ])
@@ -657,7 +662,7 @@ mod test {
         let values = PrimitiveArray::from_option_iter([Some(0i16), Some(1), None, None, Some(4)])
             .into_array();
         let array = SparseArray::try_new(indices, values, 10, Scalar::null_typed::<i16>()).unwrap();
-        let actual = array.validity_mask();
+        let actual = array.validity_mask().unwrap();
         let expected = Mask::from_iter([
             true, false, true, false, false, false, false, false, true, false,
         ]);

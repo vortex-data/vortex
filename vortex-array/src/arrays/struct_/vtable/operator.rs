@@ -268,7 +268,7 @@ mod tests {
         let expr = gt(get_item("a", root()), lit(5));
         let expr_array = ExprArray::new_infer_dtype(struct_array.clone().into_array(), expr)?;
 
-        let actual = expr_array.to_canonical().into_array();
+        let actual = expr_array.to_canonical()?.into_array();
         let expected = (0..5)
             .map(|i| (i * 2 + 1) > 5)
             .collect::<BoolArray>()
@@ -287,7 +287,7 @@ mod tests {
         let result = result.as_::<ExprVTable>();
         assert_eq!(&gt(root(), lit(5i32)), result.expr());
 
-        let actual = result.to_canonical().into_array();
+        let actual = result.to_canonical()?.into_array();
         assert_arrays_eq!(expected, actual);
 
         Ok(())
@@ -303,7 +303,7 @@ mod tests {
         );
         let expr_array = ExprArray::new_infer_dtype(struct_array.clone().into_array(), expr)?;
 
-        let actual = expr_array.to_canonical().into_array();
+        let actual = expr_array.to_canonical()?.into_array();
         let expected = (0..5)
             .map(|i| (i * 2 + 1) > 5 && (i * 2 + 1) < 10)
             .collect::<BoolArray>()
@@ -324,7 +324,7 @@ mod tests {
             result.expr()
         );
 
-        let actual = result.to_canonical().into_array();
+        let actual = result.to_canonical()?.into_array();
         assert_arrays_eq!(expected, actual);
 
         Ok(())
@@ -421,7 +421,7 @@ mod tests {
         let expr_array =
             ExprArray::new_infer_dtype(struct_array.clone().into_array(), expr.clone())?;
 
-        let actual = expr_array.to_canonical().into_array();
+        let actual = expr_array.to_canonical()?.into_array();
         let expected = (0..5).map(|_| false).collect::<BoolArray>().into_array();
         assert_arrays_eq!(expected, actual);
 
@@ -432,7 +432,7 @@ mod tests {
         let optimizer = array_session.optimizer(expr_optimizer);
 
         let result = optimizer.optimize_array(expr_array.into_array())?;
-        let actual = result.to_canonical().into_array();
+        let actual = result.to_canonical()?.into_array();
         assert_arrays_eq!(expected, actual);
 
         let result_struct = result.as_::<ExprVTable>();

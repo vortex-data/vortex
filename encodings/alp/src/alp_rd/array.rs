@@ -244,7 +244,7 @@ impl ALPRDArray {
 
         let left_parts_patches = left_parts_patches
             .map(|patches| {
-                if !patches.values().all_valid() {
+                if !patches.values().all_valid()? {
                     vortex_bail!("patches must be all valid: {}", patches.values());
                 }
                 // TODO(ngates): assert the DType, don't cast it.
@@ -369,9 +369,9 @@ impl BaseArrayVTable<ALPRDVTable> for ALPRDVTable {
 }
 
 impl CanonicalVTable<ALPRDVTable> for ALPRDVTable {
-    fn canonicalize(array: &ALPRDArray) -> Canonical {
-        let left_parts = array.left_parts().to_primitive();
-        let right_parts = array.right_parts().to_primitive();
+    fn canonicalize(array: &ALPRDArray) -> VortexResult<Canonical> {
+        let left_parts = array.left_parts().to_primitive()?;
+        let right_parts = array.right_parts().to_primitive()?;
 
         // Decode the left_parts using our builtin dictionary.
         let left_parts_dict = array.left_parts_dictionary();
@@ -384,7 +384,7 @@ impl CanonicalVTable<ALPRDVTable> for ALPRDVTable {
                     array.right_bit_width,
                     right_parts.into_buffer_mut::<u32>(),
                     array.left_parts_patches(),
-                ),
+                )?,
                 Validity::copy_from_array(array.as_ref()),
             )
         } else {
@@ -395,12 +395,12 @@ impl CanonicalVTable<ALPRDVTable> for ALPRDVTable {
                     array.right_bit_width,
                     right_parts.into_buffer_mut::<u64>(),
                     array.left_parts_patches(),
-                ),
+                )?,
                 Validity::copy_from_array(array.as_ref()),
             )
         };
 
-        Canonical::Primitive(decoded_array)
+        Ok(Canonical::Primitive(decoded_array))
     }
 }
 

@@ -50,12 +50,12 @@ pub(crate) fn new_exporter_with_flatten(
     if let Some(constant) = values.as_opt::<ConstantVTable>() {
         return constant::new_exporter_with_mask(
             &ConstantArray::new(constant.scalar().clone(), array.codes().len()),
-            array.codes().validity_mask(),
+            array.codes().validity_mask()?,
             cache,
         );
     }
 
-    let codes_mask = array.codes().validity_mask();
+    let codes_mask = array.codes().validity_mask()?;
 
     match codes_mask {
         Mask::AllTrue(_) => {}
@@ -68,7 +68,7 @@ pub(crate) fn new_exporter_with_flatten(
     }
 
     let values_key = Arc::as_ptr(values).addr();
-    let codes = array.codes().to_primitive();
+    let codes = array.codes().to_primitive()?;
 
     let exporter_values = if flatten {
         let canonical = cache
@@ -78,7 +78,7 @@ pub(crate) fn new_exporter_with_flatten(
         let canonical = match canonical {
             Some(c) => c,
             None => {
-                let canonical = values.to_canonical();
+                let canonical = values.to_canonical()?;
                 cache
                     .canonical_cache
                     .insert(values_key, (values.clone(), canonical.clone()));
@@ -114,7 +114,7 @@ pub(crate) fn new_exporter_with_flatten(
         Ok(Box::new(DictExporter {
             values_vector: exporter_values,
             values_len: values.len().as_u32(),
-            codes,
+            codes: codes.clone(),
             codes_type: PhantomData::<I>,
             cache_id: cache.instance_id(),
             value_id: values_key,

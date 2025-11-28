@@ -81,7 +81,9 @@ impl CompressorStats for FloatStats {
     }
 
     fn sample_opts(&self, sample_size: u32, sample_count: u32, opts: GenerateStatsOptions) -> Self {
-        let sampled = sample(self.src.as_ref(), sample_size, sample_count).to_primitive();
+        let sampled = sample(self.src.as_ref(), sample_size, sample_count)
+            .to_primitive()
+            .vortex_unwrap();
 
         Self::generate_opts(&sampled, opts)
     }
@@ -122,7 +124,7 @@ where
             }
             .into(),
         };
-    } else if array.all_invalid() {
+    } else if array.all_invalid().vortex_unwrap() {
         return FloatStats {
             src: array.clone(),
             null_count: array.len().try_into().vortex_expect("null_count"),
@@ -150,7 +152,7 @@ where
         HashSet::with_hasher(FxBuildHasher)
     };
 
-    let validity = array.validity_mask();
+    let validity = array.validity_mask().vortex_unwrap();
 
     let mut runs = 1;
     let head_idx = validity

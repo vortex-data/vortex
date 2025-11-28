@@ -119,7 +119,7 @@ impl VTable for PrimitiveVTable {
 
     fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
         Ok(match_each_native_ptype!(array.ptype(), |T| {
-            PVector::new(array.buffer::<T>(), array.validity_mask()).into()
+            PVector::new(array.buffer::<T>(), array.validity_mask()?).into()
         }))
     }
 }

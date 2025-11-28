@@ -25,10 +25,11 @@ impl FillNullKernel for BoolVTable {
 
         Ok(match array.validity() {
             Validity::Array(v) => {
+                let v_bool = v.to_bool()?;
                 let bool_buffer = if fill {
-                    array.bit_buffer() | &!v.to_bool().bit_buffer()
+                    array.bit_buffer() | &!v_bool.bit_buffer()
                 } else {
-                    array.bit_buffer() & v.to_bool().bit_buffer()
+                    array.bit_buffer() & v_bool.bit_buffer()
                 };
                 BoolArray::from_bit_buffer(bool_buffer, fill_value.dtype().nullability().into())
                     .into_array()
@@ -63,7 +64,8 @@ mod tests {
         );
         let non_null_array = fill_null(bool_array.as_ref(), &fill_value.into())
             .unwrap()
-            .to_bool();
+            .to_bool()
+            .unwrap();
         assert_eq!(non_null_array.bit_buffer(), &expected);
         assert_eq!(
             non_null_array.dtype(),

@@ -17,18 +17,26 @@ use vortex_dtype::Nullability;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
 
-pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Operator) -> ArrayRef {
+pub fn compare_canonical_array(
+    array: &dyn Array,
+    value: &Scalar,
+    operator: Operator,
+) -> VortexResult<ArrayRef> {
     if value.is_null() {
-        return BoolArray::from_bit_buffer(BitBuffer::new_unset(array.len()), Validity::AllInvalid)
-            .into_array();
+        return Ok(BoolArray::from_bit_buffer(
+            BitBuffer::new_unset(array.len()),
+            Validity::AllInvalid,
+        )
+        .into_array());
     }
 
     let result_nullability = array.dtype().nullability() | value.dtype().nullability();
 
-    match array.dtype() {
+    Ok(match array.dtype() {
         DType::Bool(_) => {
             let bool = value
                 .as_bool()
@@ -36,10 +44,10 @@ pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Oper
                 .vortex_expect("nulls handled before");
             compare_to(
                 array
-                    .to_bool()
+                    .to_bool()?
                     .bit_buffer()
                     .iter()
-                    .zip(array.validity_mask().to_bit_buffer().iter())
+                    .zip(array.validity_mask()?.to_bit_buffer().iter())
                     .map(|(b, v)| v.then_some(b)),
                 bool,
                 operator,
@@ -48,7 +56,7 @@ pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Oper
         }
         DType::Primitive(p, _) => {
             let primitive = value.as_primitive();
-            let primitive_array = array.to_primitive();
+            let primitive_array = array.to_primitive()?;
             match_each_native_ptype!(p, |P| {
                 let pval = primitive
                     .typed_value::<P>()
@@ -58,7 +66,7 @@ pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Oper
                         .as_slice::<P>()
                         .iter()
                         .copied()
-                        .zip(array.validity_mask().to_bit_buffer().iter())
+                        .zip(array.validity_mask()?.to_bit_buffer().iter())
                         .map(|(b, v)| v.then_some(NativeValue(b))),
                     NativeValue(pval),
                     operator,
@@ -68,7 +76,7 @@ pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Oper
         }
         DType::Decimal(..) => {
             let decimal = value.as_decimal();
-            let decimal_array = array.to_decimal();
+            let decimal_array = array.to_decimal()?;
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                 let dval = decimal
                     .decimal_value()
@@ -80,7 +88,7 @@ pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Oper
                     buf.as_slice()
                         .iter()
                         .copied()
-                        .zip(array.validity_mask().to_bit_buffer().iter())
+                        .zip(array.validity_mask()?.to_bit_buffer().iter())
                         .map(|(b, v)| v.then_some(b)),
                     dval,
                     operator,
@@ -88,7 +96,7 @@ pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Oper
                 )
             })
         }
-        DType::Utf8(_) => array.to_varbinview().with_iterator(|iter| {
+        DType::Utf8(_) => array.to_varbinview()?.with_iterator(|iter| {
             let utf8_value = value
                 .as_utf8()
                 .value()
@@ -100,7 +108,7 @@ pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Oper
                 result_nullability,
             )
         }),
-        DType::Binary(_) => array.to_varbinview().with_iterator(|iter| {
+        DType::Binary(_) => array.to_varbinview()?.with_iterator(|iter| {
             let binary_value = value
                 .as_binary()
                 .value()
@@ -126,7 +134,7 @@ pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Oper
         d @ (DType::Null | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
-    }
+    })
 }
 
 fn compare_to<T: PartialOrd>(

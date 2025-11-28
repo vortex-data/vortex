@@ -266,7 +266,8 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     };
 
                     let op = u.arbitrary()?;
-                    current_array = compare_canonical_array(&current_array, &scalar, op);
+                    current_array =
+                        compare_canonical_array(&current_array, &scalar, op).vortex_unwrap();
                     (
                         Action::Compare(scalar, op),
                         ExpectedValue::Array(current_array.to_array()),
@@ -294,13 +295,15 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
 
                     // Sum - returns a scalar, does NOT update current_array (terminal operation)
                     let sum_result =
-                        sum_canonical_array(current_array.to_canonical()).vortex_unwrap();
+                        sum_canonical_array(current_array.to_canonical().vortex_unwrap())
+                            .vortex_unwrap();
                     (Action::Sum, ExpectedValue::Scalar(sum_result))
                 }
                 ActionType::MinMax => {
                     // MinMax - returns a scalar, does NOT update current_array (terminal operation)
                     let min_max_result =
-                        min_max_canonical_array(current_array.to_canonical()).vortex_unwrap();
+                        min_max_canonical_array(current_array.to_canonical().vortex_unwrap())
+                            .vortex_unwrap();
                     (Action::MinMax, ExpectedValue::MinMax(min_max_result))
                 }
                 ActionType::FillNull => {
@@ -324,9 +327,11 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     }
 
                     // Compute expected result on canonical form
-                    let expected_result =
-                        fill_null_canonical_array(current_array.to_canonical(), &fill_value)
-                            .vortex_unwrap();
+                    let expected_result = fill_null_canonical_array(
+                        current_array.to_canonical().vortex_unwrap(),
+                        &fill_value,
+                    )
+                    .vortex_unwrap();
                     // Update current_array to the result for chaining
                     current_array = expected_result.clone();
                     (
@@ -342,7 +347,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
 
                     // Compute expected result on canonical form
                     let expected_result = mask_canonical_array(
-                        current_array.to_canonical(),
+                        current_array.to_canonical().vortex_unwrap(),
                         &Mask::from_iter(mask.iter().copied()),
                     )
                     .vortex_unwrap();
@@ -372,8 +377,11 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     let expected_scalars: Vec<Scalar> = indices_vec
                         .iter()
                         .map(|&idx| {
-                            scalar_at_canonical_array(current_array.to_canonical(), idx)
-                                .vortex_unwrap()
+                            scalar_at_canonical_array(
+                                current_array.to_canonical().vortex_unwrap(),
+                                idx,
+                            )
+                            .vortex_unwrap()
                         })
                         .collect();
 

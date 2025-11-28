@@ -94,8 +94,8 @@ impl DictReader {
                         MaskFuture::new_true(values_len),
                     )
                     .vortex_expect("must construct dict values array evaluation")
+                    .and_then(|arr| async move { arr.to_canonical().map(|c| c.into_array()) })
                     .map_err(Arc::new)
-                    .map_ok(|arr| arr.to_canonical().into_array())
                     .boxed()
                     .shared()
             })
@@ -174,7 +174,7 @@ impl LayoutReader for DictReader {
             let mask = mask.await?;
 
             // Short-circuit when the values are all true/false.
-            if values.all_valid()
+            if values.all_valid()?
                 && let Some(MinMaxResult { min, max }) = min_max(&values)?
             {
                 #[expect(clippy::bool_comparison, reason = "easy to follow")]
@@ -185,7 +185,7 @@ impl LayoutReader for DictReader {
                 #[expect(clippy::bool_comparison, reason = "easy to follow")]
                 if min.as_bool().value().vortex_expect("not null") == true {
                     // All values are true, but we still need to respect codes validity
-                    return Ok(mask.bitand(&codes.validity_mask()));
+                    return Ok(mask.bitand(&codes.validity_mask()?));
                 }
             }
 

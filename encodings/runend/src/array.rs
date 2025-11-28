@@ -321,7 +321,7 @@ impl RunEndArray {
     /// Run the array through run-end encoding.
     pub fn encode(array: ArrayRef) -> VortexResult<Self> {
         if let Some(parray) = array.as_opt::<PrimitiveVTable>() {
-            let (ends, values) = runend_encode(parray);
+            let (ends, values) = runend_encode(parray)?;
             // SAFETY: runend_encode handles this
             unsafe {
                 Ok(Self::new_unchecked(
@@ -392,21 +392,21 @@ impl BaseArrayVTable<RunEndVTable> for RunEndVTable {
 }
 
 impl ValidityVTable<RunEndVTable> for RunEndVTable {
-    fn is_valid(array: &RunEndArray, index: usize) -> bool {
+    fn is_valid(array: &RunEndArray, index: usize) -> VortexResult<bool> {
         let physical_idx = array.find_physical_index(index);
         array.values().is_valid(physical_idx)
     }
 
-    fn all_valid(array: &RunEndArray) -> bool {
-        array.values().all_valid()
+    fn all_valid(array: &RunEndArray) -> VortexResult<bool> {
+        Ok(array.values().all_valid()?)
     }
 
-    fn all_invalid(array: &RunEndArray) -> bool {
-        array.values().all_invalid()
+    fn all_invalid(array: &RunEndArray) -> VortexResult<bool> {
+        Ok(array.values().all_invalid()?)
     }
 
-    fn validity_mask(array: &RunEndArray) -> Mask {
-        match array.values().validity_mask() {
+    fn validity_mask(array: &RunEndArray) -> VortexResult<Mask> {
+        Ok(match array.values().validity_mask()? {
             Mask::AllTrue(_) => Mask::AllTrue(array.len()),
             Mask::AllFalse(_) => Mask::AllFalse(array.len()),
             Mask::Values(values) => {
@@ -421,36 +421,36 @@ impl ValidityVTable<RunEndVTable> for RunEndVTable {
                     )
                     .into_array()
                 };
-                Mask::from_buffer(ree_validity.to_bool().bit_buffer().clone())
+                Mask::from_buffer(ree_validity.to_bool()?.bit_buffer().clone())
             }
-        }
+        })
     }
 }
 
 impl CanonicalVTable<RunEndVTable> for RunEndVTable {
-    fn canonicalize(array: &RunEndArray) -> Canonical {
-        let pends = array.ends().to_primitive();
-        match array.dtype() {
+    fn canonicalize(array: &RunEndArray) -> VortexResult<Canonical> {
+        let pends = array.ends().to_primitive()?;
+        Ok(match array.dtype() {
             DType::Bool(_) => {
-                let bools = array.values().to_bool();
+                let bools = array.values().to_bool()?;
                 Canonical::Bool(runend_decode_bools(
                     pends,
                     bools,
                     array.offset(),
                     array.len(),
-                ))
+                )?)
             }
             DType::Primitive(..) => {
-                let pvalues = array.values().to_primitive();
+                let pvalues = array.values().to_primitive()?;
                 Canonical::Primitive(runend_decode_primitive(
                     pends,
                     pvalues,
                     array.offset(),
                     array.len(),
-                ))
+                )?)
             }
             _ => vortex_panic!("Only Primitive and Bool values are supported"),
-        }
+        })
     }
 }
 

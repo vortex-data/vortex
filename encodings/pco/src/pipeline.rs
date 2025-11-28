@@ -79,7 +79,7 @@ impl<T: Number + NativePType> PcoKernel<T> {
             metadata: array.metadata.clone(),
             validity: array
                 .unsliced_validity
-                .to_mask(array.unsliced_n_rows())
+                .to_mask(array.unsliced_n_rows())?
                 .into_mut(),
             current_chunk_idx: 0,
             current_page_idx_in_chunk: 0,

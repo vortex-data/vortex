@@ -11,6 +11,7 @@ use vortex_datetime_parts::DateTimePartsArray;
 use vortex_datetime_parts::TemporalParts;
 use vortex_datetime_parts::split_temporal;
 use vortex_error::VortexResult;
+use vortex_error::VortexUnwrap;
 
 use crate::Compressor;
 use crate::MAX_CASCADE;
@@ -25,16 +26,20 @@ pub fn compress_temporal(array: TemporalArray) -> VortexResult<ArrayRef> {
         subseconds,
     } = split_temporal(array)?;
 
-    let days =
-        IntCompressor::compress(&days.to_primitive().narrow()?, false, MAX_CASCADE - 1, &[])?;
+    let days = IntCompressor::compress(
+        &days.to_primitive().vortex_unwrap().narrow()?,
+        false,
+        MAX_CASCADE - 1,
+        &[],
+    )?;
     let seconds = IntCompressor::compress(
-        &seconds.to_primitive().narrow()?,
+        &seconds.to_primitive().vortex_unwrap().narrow()?,
         false,
         MAX_CASCADE - 1,
         &[],
     )?;
     let subseconds = IntCompressor::compress(
-        &subseconds.to_primitive().narrow()?,
+        &subseconds.to_primitive().vortex_unwrap().narrow()?,
         false,
         MAX_CASCADE - 1,
         &[],

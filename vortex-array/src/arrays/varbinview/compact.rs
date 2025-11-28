@@ -65,7 +65,7 @@ impl VarBinViewArray {
                 .iter()
                 .enumerate()
                 .map(|(idx, &view)| {
-                    if !self.is_valid(idx) || view.is_inlined() {
+                    if !self.is_valid(idx).unwrap_or(false) || view.is_inlined() {
                         0u64
                     } else {
                         view.len() as u64
@@ -90,7 +90,7 @@ impl VarBinViewArray {
         }
 
         for (idx, &view) in self.views().iter().enumerate() {
-            if !self.is_valid(idx) || view.is_inlined() {
+            if !self.is_valid(idx).unwrap_or(false) || view.is_inlined() {
                 continue;
             }
             let view = view.as_view();

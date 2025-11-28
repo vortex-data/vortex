@@ -115,7 +115,7 @@ impl VTable for FixedSizeListVTable {
             FixedSizeListVector::new_unchecked(
                 Arc::new(array.elements().execute_batch(ctx)?),
                 array.list_size(),
-                array.validity_mask(),
+                array.validity_mask()?,
             )
         }
         .into())

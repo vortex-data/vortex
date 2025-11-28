@@ -7,12 +7,13 @@ use std::ops::Range;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::ToCanonical;
 use vortex_array::vtable::OperationsVTable;
+use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
 
 use super::DeltaVTable;
 use crate::DeltaArray;
+use crate::delta::array::delta_decompress::delta_decompress;
 
 impl OperationsVTable<DeltaVTable> for DeltaVTable {
     fn slice(array: &DeltaArray, range: Range<usize>) -> ArrayRef {
@@ -42,7 +43,11 @@ impl OperationsVTable<DeltaVTable> for DeltaVTable {
     }
 
     fn scalar_at(array: &DeltaArray, index: usize) -> Scalar {
-        let decompressed = array.slice(index..index + 1).to_primitive();
+        let sliced = Self::slice(array, index..index + 1);
+        let delta_array = sliced
+            .as_opt::<DeltaVTable>()
+            .vortex_expect("sliced must be DeltaArray");
+        let decompressed = delta_decompress(delta_array).vortex_expect("delta_decompress failed");
         decompressed.scalar_at(0)
     }
 }

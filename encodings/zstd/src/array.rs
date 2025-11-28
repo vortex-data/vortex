@@ -185,12 +185,12 @@ fn choose_max_dict_size(uncompressed_size: usize) -> usize {
 }
 
 fn collect_valid_primitive(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
-    let mask = parray.validity_mask();
-    Ok(filter(&parray.to_array(), &mask)?.to_primitive())
+    let mask = parray.validity_mask()?;
+    Ok(filter(&parray.to_array(), &mask)?.to_primitive()?)
 }
 
 fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usize>)> {
-    let mask = vbv.validity_mask();
+    let mask = vbv.validity_mask()?;
     let buffer_and_value_byte_indices = match mask.bit_buffer() {
         AllOr::None => (Buffer::empty(), Vec::new()),
         _ => {
@@ -445,7 +445,7 @@ impl ZstdArray {
     }
 
     pub fn from_array(array: ArrayRef, level: i32, values_per_frame: usize) -> VortexResult<Self> {
-        Self::from_canonical(&array.to_canonical(), level, values_per_frame)?
+        Self::from_canonical(&array.to_canonical()?, level, values_per_frame)?
             .ok_or_else(|| vortex_err!("Zstd can only encode Primitive and VarBinView arrays"))
     }
 
@@ -457,14 +457,14 @@ impl ZstdArray {
         }
     }
 
-    pub fn decompress(&self) -> ArrayRef {
+    pub fn decompress(&self) -> VortexResult<ArrayRef> {
         // To start, we figure out which frames we need to decompress, and with
         // what row offset into the first such frame.
         let byte_width = self.byte_width();
         let slice_n_rows = self.slice_stop - self.slice_start;
         let slice_value_indices = self
             .unsliced_validity
-            .to_mask(self.unsliced_n_rows)
+            .to_mask(self.unsliced_n_rows)?
             .valid_counts_for_indices(&[self.slice_start, self.slice_stop]);
 
         let slice_value_idx_start = slice_value_indices[0];
@@ -546,7 +546,7 @@ impl ZstdArray {
         // implied by the DType.
         if !self.dtype().is_nullable() && slice_validity != Validity::NonNullable {
             assert!(
-                slice_validity.all_valid(slice_n_rows),
+                slice_validity.all_valid(slice_n_rows)?,
                 "ZSTD array expects to be non-nullable but there are nulls after decompression"
             );
 
@@ -558,7 +558,7 @@ impl ZstdArray {
         // END OF IMPORTANT BLOCK
         //
 
-        match &self.dtype {
+        Ok(match &self.dtype {
             DType::Primitive(..) => {
                 let slice_values_buffer = decompressed.slice(
                     (slice_value_idx_start - n_skipped_values) * byte_width
@@ -574,7 +574,7 @@ impl ZstdArray {
                 primitive.into_array()
             }
             DType::Binary(_) | DType::Utf8(_) => {
-                match slice_validity.to_mask(slice_n_rows).indices() {
+                match slice_validity.to_mask(slice_n_rows)?.indices() {
                     AllOr::All => {
                         // the decompressed buffer is a bunch of interleaved u32 lengths
                         // and strings of those lengths, we need to reconstruct the
@@ -627,7 +627,7 @@ impl ZstdArray {
                 }
             }
             _ => vortex_panic!("Unsupported dtype for Zstd array: {}", self.dtype),
-        }
+        })
     }
 
     pub(crate) fn _slice(&self, start: usize, stop: usize) -> ZstdArray {
@@ -737,8 +737,8 @@ impl BaseArrayVTable<ZstdVTable> for ZstdVTable {
 }
 
 impl CanonicalVTable<ZstdVTable> for ZstdVTable {
-    fn canonicalize(array: &ZstdArray) -> Canonical {
-        array.decompress().to_canonical()
+    fn canonicalize(array: &ZstdArray) -> VortexResult<Canonical> {
+        array.decompress()?.to_canonical()
     }
 }
 
@@ -748,7 +748,11 @@ impl OperationsVTable<ZstdVTable> for ZstdVTable {
     }
 
     fn scalar_at(array: &ZstdArray, index: usize) -> Scalar {
-        array._slice(index, index + 1).decompress().scalar_at(0)
+        array
+            ._slice(index, index + 1)
+            .decompress()
+            .vortex_expect("decompress failed")
+            .scalar_at(0)
     }
 }
 

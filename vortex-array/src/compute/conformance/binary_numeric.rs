@@ -88,7 +88,7 @@ fn test_standard_binary_numeric<T: NativePType + Num + Copy>(array: ArrayRef)
 where
     Scalar: From<T>,
 {
-    let canonicalized_array = array.to_primitive();
+    let canonicalized_array = array.to_primitive().vortex_unwrap();
     let original_values = to_vec_of_scalar(&canonicalized_array.into_array());
 
     let one = T::from(1)
@@ -322,7 +322,7 @@ where
     T: NativePType + Num + Copy + std::fmt::Debug,
     Scalar: From<T>,
 {
-    let canonicalized_array = array.to_primitive();
+    let canonicalized_array = array.to_primitive().vortex_unwrap();
     let original_values = to_vec_of_scalar(&canonicalized_array.into_array());
 
     let scalar = Scalar::from(scalar_value)

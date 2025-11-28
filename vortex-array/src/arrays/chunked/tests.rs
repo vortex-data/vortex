@@ -39,10 +39,10 @@ fn assert_equal_slices<T: NativePType>(arr: &dyn Array, slice: &[T]) {
     if let Some(arr) = arr.as_opt::<ChunkedVTable>() {
         arr.chunks()
             .iter()
-            .map(|a| a.to_primitive())
+            .map(|a| a.to_primitive().unwrap())
             .for_each(|a| values.extend_from_slice(a.as_slice::<T>()));
     } else {
-        values.extend_from_slice(arr.to_primitive().as_slice::<T>());
+        values.extend_from_slice(arr.to_primitive().unwrap().as_slice::<T>());
     }
     assert_eq!(values, slice);
 }
@@ -158,9 +158,9 @@ pub fn pack_nested_structs() {
     )
     .unwrap()
     .into_array();
-    let canonical_struct = chunked.to_struct();
-    let canonical_varbin = canonical_struct.fields()[0].to_varbinview();
-    let original_varbin = struct_array.fields()[0].to_varbinview();
+    let canonical_struct = chunked.to_struct().unwrap();
+    let canonical_varbin = canonical_struct.fields()[0].to_varbinview().unwrap();
+    let original_varbin = struct_array.fields()[0].to_varbinview().unwrap();
     let orig_values =
         original_varbin.with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>());
     let canon_values =
@@ -192,7 +192,7 @@ pub fn pack_nested_lists() {
         ),
     );
 
-    let canon_values = chunked_list.unwrap().to_listview();
+    let canon_values = chunked_list.unwrap().to_listview().unwrap();
 
     assert_eq!(l1.scalar_at(0), canon_values.scalar_at(0));
     assert_eq!(l2.scalar_at(0), canon_values.scalar_at(1));

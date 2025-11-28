@@ -20,24 +20,25 @@ use vortex_dtype::Nullability;
 use vortex_dtype::match_each_native_ptype;
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::iter::trimmed_ends_iter;
 
 /// Run-end encode a `PrimitiveArray`, returning a tuple of `(ends, values)`.
-pub fn runend_encode(array: &PrimitiveArray) -> (PrimitiveArray, ArrayRef) {
+pub fn runend_encode(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, ArrayRef)> {
     let validity = match array.validity() {
         Validity::NonNullable => None,
         Validity::AllValid => None,
         Validity::AllInvalid => {
             // We can trivially return an all-null REE array
-            return (
+            return Ok((
                 PrimitiveArray::new(buffer![array.len() as u64], Validity::NonNullable),
                 ConstantArray::new(Scalar::null(array.dtype().clone()), 1).into_array(),
-            );
+            ));
         }
-        Validity::Array(a) => Some(a.to_bool().bit_buffer().clone()),
+        Validity::Array(a) => Some(a.to_bool()?.bit_buffer().clone()),
     };
 
     let (ends, values) = match validity {
@@ -65,9 +66,9 @@ pub fn runend_encode(array: &PrimitiveArray) -> (PrimitiveArray, ArrayRef) {
     let ends = ends
         .narrow()
         .vortex_expect("Ends must succeed downcasting")
-        .to_primitive();
+        .to_primitive()?;
 
-    (ends, values)
+    Ok((ends, values))
 }
 
 fn runend_encode_primitive<T: NativePType>(elements: &[T]) -> (Buffer<u64>, Buffer<T>) {
@@ -162,18 +163,18 @@ pub fn runend_decode_primitive(
     values: PrimitiveArray,
     offset: usize,
     length: usize,
-) -> PrimitiveArray {
-    match_each_native_ptype!(values.ptype(), |P| {
+) -> VortexResult<PrimitiveArray> {
+    Ok(match_each_native_ptype!(values.ptype(), |P| {
         match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
             runend_decode_typed_primitive(
                 trimmed_ends_iter(ends.as_slice::<E>(), offset, length),
                 values.as_slice::<P>(),
-                values.validity_mask(),
+                values.validity_mask()?,
                 values.dtype().nullability(),
                 length,
             )
         })
-    })
+    }))
 }
 
 pub fn runend_decode_bools(
@@ -181,16 +182,16 @@ pub fn runend_decode_bools(
     values: BoolArray,
     offset: usize,
     length: usize,
-) -> BoolArray {
-    match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
+) -> VortexResult<BoolArray> {
+    Ok(match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
         runend_decode_typed_bool(
             trimmed_ends_iter(ends.as_slice::<E>(), offset, length),
             values.bit_buffer(),
-            values.validity_mask(),
+            values.validity_mask()?,
             values.dtype().nullability(),
             length,
         )
-    })
+    }))
 }
 
 pub fn runend_decode_typed_primitive<T: NativePType>(
@@ -300,8 +301,8 @@ mod test {
     #[test]
     fn encode() {
         let arr = PrimitiveArray::from_iter([1i32, 1, 2, 2, 2, 3, 3, 3, 3, 3]);
-        let (ends, values) = runend_encode(&arr);
-        let values = values.to_primitive();
+        let (ends, values) = runend_encode(&arr).unwrap();
+        let values = values.to_primitive().unwrap();
 
         let expected_ends = PrimitiveArray::from_iter(vec![2u8, 5, 10]);
         assert_arrays_eq!(ends, expected_ends);
@@ -317,8 +318,8 @@ mod test {
                 true, true, false, false, true, true, true, true, false, false,
             ])),
         );
-        let (ends, values) = runend_encode(&arr);
-        let values = values.to_primitive();
+        let (ends, values) = runend_encode(&arr).unwrap();
+        let values = values.to_primitive().unwrap();
 
         let expected_ends = PrimitiveArray::from_iter(vec![2u8, 4, 5, 8, 10]);
         assert_arrays_eq!(ends, expected_ends);
@@ -333,8 +334,8 @@ mod test {
             buffer![0, 0, 0, 0, 0],
             Validity::from(BitBuffer::new_unset(5)),
         );
-        let (ends, values) = runend_encode(&arr);
-        let values = values.to_primitive();
+        let (ends, values) = runend_encode(&arr).unwrap();
+        let values = values.to_primitive().unwrap();
 
         let expected_ends = PrimitiveArray::from_iter(vec![5u64]);
         assert_arrays_eq!(ends, expected_ends);
@@ -346,7 +347,7 @@ mod test {
     fn decode() {
         let ends = PrimitiveArray::from_iter([2u32, 5, 10]);
         let values = PrimitiveArray::from_iter([1i32, 2, 3]);
-        let decoded = runend_decode_primitive(ends, values, 0, 10);
+        let decoded = runend_decode_primitive(ends, values, 0, 10).unwrap();
 
         let expected = PrimitiveArray::from_iter(vec![1i32, 1, 2, 2, 2, 3, 3, 3, 3, 3]);
         assert_arrays_eq!(decoded, expected);

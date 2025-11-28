@@ -107,7 +107,7 @@ impl VTable for BoolVTable {
     }
 
     fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
-        Ok(BoolVector::new(array.bit_buffer().clone(), array.validity_mask()).into())
+        Ok(BoolVector::new(array.bit_buffer().clone(), array.validity_mask()?).into())
     }
 }
 

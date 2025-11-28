@@ -17,7 +17,7 @@ impl MaskKernel for MaskedVTable {
     fn mask(&self, array: &MaskedArray, mask_arg: &MaskType) -> VortexResult<ArrayRef> {
         // Combine the mask with the existing validity
         // The child remains unchanged (no nulls), only validity is updated
-        let combined_validity = array.validity().mask(mask_arg);
+        let combined_validity = array.validity().mask(mask_arg)?;
 
         Ok(MaskedArray::try_new(array.child.clone(), combined_validity)?.into_array())
     }

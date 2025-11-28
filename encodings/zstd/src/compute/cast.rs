@@ -46,7 +46,7 @@ impl CastKernel for ZstdVTable {
                 let has_nulls = !array
                     .unsliced_validity
                     .slice(array.slice_start()..array.slice_stop())
-                    .all_valid(sliced_len);
+                    .all_valid(sliced_len)?;
 
                 // We don't attempt to handle casting when there are nulls.
                 if has_nulls {

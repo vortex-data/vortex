@@ -187,10 +187,13 @@ impl BaseArrayVTable<ByteBoolVTable> for ByteBoolVTable {
 }
 
 impl CanonicalVTable<ByteBoolVTable> for ByteBoolVTable {
-    fn canonicalize(array: &ByteBoolArray) -> Canonical {
+    fn canonicalize(array: &ByteBoolArray) -> VortexResult<Canonical> {
         let boolean_buffer = BitBuffer::from(array.as_slice());
         let validity = array.validity().clone();
-        Canonical::Bool(BoolArray::from_bit_buffer(boolean_buffer, validity))
+        Ok(Canonical::Bool(BoolArray::from_bit_buffer(
+            boolean_buffer,
+            validity,
+        )))
     }
 }
 

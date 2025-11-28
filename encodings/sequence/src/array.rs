@@ -323,7 +323,7 @@ impl BaseArrayVTable<SequenceVTable> for SequenceVTable {
 }
 
 impl CanonicalVTable<SequenceVTable> for SequenceVTable {
-    fn canonicalize(array: &SequenceArray) -> Canonical {
+    fn canonicalize(array: &SequenceArray) -> VortexResult<Canonical> {
         let prim = match_each_native_ptype!(array.ptype(), |P| {
             let base = array.base().cast::<P>();
             let multiplier = array.multiplier().cast::<P>();
@@ -334,7 +334,7 @@ impl CanonicalVTable<SequenceVTable> for SequenceVTable {
             PrimitiveArray::new(values, array.dtype.nullability().into())
         });
 
-        Canonical::Primitive(prim)
+        Ok(Canonical::Primitive(prim))
     }
 }
 
@@ -359,20 +359,20 @@ impl OperationsVTable<SequenceVTable> for SequenceVTable {
 }
 
 impl ValidityVTable<SequenceVTable> for SequenceVTable {
-    fn is_valid(_array: &SequenceArray, _index: usize) -> bool {
-        true
+    fn is_valid(_array: &SequenceArray, _index: usize) -> VortexResult<bool> {
+        Ok(true)
     }
 
-    fn all_valid(_array: &SequenceArray) -> bool {
-        true
+    fn all_valid(_array: &SequenceArray) -> VortexResult<bool> {
+        Ok(true)
     }
 
-    fn all_invalid(_array: &SequenceArray) -> bool {
-        false
+    fn all_invalid(_array: &SequenceArray) -> VortexResult<bool> {
+        Ok(false)
     }
 
-    fn validity_mask(array: &SequenceArray) -> Mask {
-        Mask::AllTrue(array.len())
+    fn validity_mask(array: &SequenceArray) -> VortexResult<Mask> {
+        Ok(Mask::AllTrue(array.len()))
     }
 }
 

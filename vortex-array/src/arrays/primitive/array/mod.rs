@@ -176,7 +176,9 @@ impl PrimitiveArray {
             Validity::AllValid | Validity::NonNullable => valid_elems_buffer.aligned(alignment),
             Validity::AllInvalid => ByteBuffer::zeroed_aligned(n_rows * byte_width, alignment),
             Validity::Array(is_valid) => {
-                let bool_array = is_valid.to_bool();
+                let bool_array = is_valid
+                    .to_bool()
+                    .vortex_expect("Failed to convert to bool");
                 let bool_buffer = bool_array.bit_buffer();
                 let mut bytes = ByteBufferMut::zeroed_aligned(n_rows * byte_width, alignment);
                 for (i, valid_i) in bool_buffer.set_indices().enumerate() {
@@ -232,7 +234,7 @@ impl PrimitiveArray {
                 BufferMut::<R>::from_iter(buf_iter.zip(iter::repeat(false)).map(f))
             }
             Validity::Array(val) => {
-                let val = val.to_bool();
+                let val = val.to_bool()?;
                 BufferMut::<R>::from_iter(buf_iter.zip(val.bit_buffer()).map(f))
             }
         };

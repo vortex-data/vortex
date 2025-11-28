@@ -65,11 +65,11 @@ fn list_array_to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
     let offsets_dtype = DType::Primitive(O::PTYPE, array.dtype().nullability());
     let offsets = cast(array.offsets(), &offsets_dtype)
         .map_err(|err| err.with_context(format!("Failed to cast offsets to {offsets_dtype}")))?
-        .to_primitive();
+        .to_primitive()?;
 
     // Convert `offsets` and `validity` to Arrow buffers.
     let arrow_offsets = offsets.buffer::<O>().into_arrow_offset_buffer();
-    let nulls = to_null_buffer(array.validity_mask());
+    let nulls = to_null_buffer(array.validity_mask()?);
 
     // Convert the child `elements` array to Arrow.
     let (elements, element_field) = {

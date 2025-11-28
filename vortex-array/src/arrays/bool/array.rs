@@ -198,6 +198,7 @@ impl BoolArray {
 
     pub fn maybe_to_mask(&self) -> Option<Mask> {
         self.all_valid()
+            .ok()?
             .then(|| Mask::from_buffer(self.bit_buffer().clone()))
     }
 
@@ -211,7 +212,7 @@ impl BoolArray {
             }
         }
         // Extract a boolean buffer, treating null values to false
-        let buffer = match self.validity_mask() {
+        let buffer = match self.validity_mask().vortex_expect("validity_mask") {
             Mask::AllTrue(_) => self.bit_buffer().clone(),
             Mask::AllFalse(_) => return Mask::new_false(self.len()),
             Mask::Values(validity) => validity.bit_buffer() & self.bit_buffer(),
@@ -319,7 +320,11 @@ mod tests {
         let arr = BoolArray::from(BitBuffer::new_set(12));
         let sliced = arr.slice(4..12);
         assert_eq!(sliced.len(), 8);
-        let values = sliced.to_bool().into_bit_buffer().into_mut();
+        let values = sliced
+            .to_bool()
+            .vortex_expect("to_bool")
+            .into_bit_buffer()
+            .into_mut();
         assert_eq!(values.len(), 8);
         assert_eq!(values.as_slice(), &[255, 255]);
 
@@ -330,7 +335,11 @@ mod tests {
         };
         let sliced = arr.slice(4..12);
         let sliced_len = sliced.len();
-        let values = sliced.to_bool().into_bit_buffer().into_mut();
+        let values = sliced
+            .to_bool()
+            .vortex_expect("to_bool")
+            .into_bit_buffer()
+            .into_mut();
         assert_eq!(values.as_slice(), &[254, 15]);
 
         // patch the underlying array
@@ -343,12 +352,20 @@ mod tests {
         );
         let arr = arr.patch(&patches);
         let arr_len = arr.len();
-        let values = arr.to_bool().into_bit_buffer().into_mut();
+        let values = arr
+            .to_bool()
+            .vortex_expect("to_bool")
+            .into_bit_buffer()
+            .into_mut();
         assert_eq!(values.len(), arr_len);
         assert_eq!(values.as_slice(), &[238, 15]);
 
         // the slice should be unchanged
-        let values = sliced.to_bool().into_bit_buffer().into_mut();
+        let values = sliced
+            .to_bool()
+            .vortex_expect("to_bool")
+            .into_bit_buffer()
+            .into_mut();
         assert_eq!(values.len(), sliced_len);
         assert_eq!(values.as_slice(), &[254, 15]); // unchanged
     }
@@ -358,7 +375,11 @@ mod tests {
         let arr = BoolArray::from(BitBuffer::new_set(16));
         let sliced = arr.slice(4..12);
         let sliced_len = sliced.len();
-        let values = sliced.to_bool().into_bit_buffer().into_mut();
+        let values = sliced
+            .to_bool()
+            .vortex_expect("to_bool")
+            .into_bit_buffer()
+            .into_mut();
         assert_eq!(values.len(), sliced_len);
         assert_eq!(values.as_slice(), &[255, 255]);
     }
@@ -386,7 +407,11 @@ mod tests {
     fn patch_sliced_bools_offset() {
         let arr = BoolArray::from(BitBuffer::new_set(15));
         let sliced = arr.slice(4..15);
-        let values = sliced.to_bool().into_bit_buffer().into_mut();
+        let values = sliced
+            .to_bool()
+            .vortex_expect("to_bool")
+            .into_bit_buffer()
+            .into_mut();
         assert_eq!(values.as_slice(), &[255, 255]);
     }
 }

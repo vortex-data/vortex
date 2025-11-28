@@ -35,12 +35,12 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
                     #[allow(clippy::cast_possible_truncation)]
                     PrimitiveArray::new(
                         array
-                            .to_primitive()
+                            .to_primitive()?
                             .as_slice::<In>()
                             .iter()
                             .map(|v| *v as Out)
                             .collect::<Buffer<Out>>(),
-                        Validity::from_mask(array.validity_mask(), target.nullability()),
+                        Validity::from_mask(array.validity_mask()?, target.nullability()),
                     )
                     .to_array()
                 })
@@ -61,12 +61,12 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
             (PType::F32, PType::F64) => Ok(Some(
                 PrimitiveArray::new(
                     array
-                        .to_primitive()
+                        .to_primitive()?
                         .as_slice::<f32>()
                         .iter()
                         .map(|v| *v as f64)
                         .collect::<Buffer<f64>>(),
-                    Validity::from_mask(array.validity_mask(), target.nullability()),
+                    Validity::from_mask(array.validity_mask()?, target.nullability()),
                 )
                 .to_array(),
             )),
@@ -76,12 +76,12 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
                 Ok(Some(
                     PrimitiveArray::new(
                         array
-                            .to_primitive()
+                            .to_primitive()?
                             .as_slice::<f64>()
                             .iter()
                             .map(|v| *v as f32)
                             .collect::<Buffer<f32>>(),
-                        Validity::from_mask(array.validity_mask(), target.nullability()),
+                        Validity::from_mask(array.validity_mask()?, target.nullability()),
                     )
                     .to_array(),
                 ))

@@ -34,7 +34,7 @@ struct DecimalZeroCopyExporter<D: NativeDecimalType> {
 }
 
 pub(crate) fn new_exporter(array: &DecimalArray) -> VortexResult<Box<dyn ColumnExporter>> {
-    let validity = array.validity_mask();
+    let validity = array.validity_mask()?;
     let dest_values_type = precision_to_duckdb_storage_size(&array.decimal_dtype())?;
 
     if array.values_type() == dest_values_type {
@@ -128,7 +128,7 @@ mod tests {
     pub(crate) fn new_zero_copy_exporter(
         array: &DecimalArray,
     ) -> VortexResult<Box<dyn ColumnExporter>> {
-        let validity = array.validity_mask();
+        let validity = array.validity_mask()?;
         let dest_values_type = precision_to_duckdb_storage_size(&array.decimal_dtype())?;
 
         assert_eq!(array.values_type(), dest_values_type);

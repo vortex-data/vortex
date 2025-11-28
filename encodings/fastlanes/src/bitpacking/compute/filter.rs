@@ -70,8 +70,8 @@ fn filter_primitive<T: NativePType + BitPacking>(
         // with a "Cascade Lake" CPU.
     };
     if mask.density() >= full_decompression_threshold {
-        let decompressed_array = array.to_primitive();
-        Ok(filter(decompressed_array.as_ref(), mask)?.to_primitive())
+        let decompressed_array = array.to_primitive()?;
+        Ok(filter(decompressed_array.as_ref(), mask)?.to_primitive()?)
     } else {
         filter_primitive_no_decompression::<T>(array, mask)
     }

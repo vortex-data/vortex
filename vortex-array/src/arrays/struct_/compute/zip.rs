@@ -48,8 +48,8 @@ impl ZipKernel for StructVTable {
             (&Validity::AllInvalid, &Validity::AllInvalid) => Validity::AllInvalid,
 
             (v1, v2) => {
-                let v1m = v1.to_mask(if_true.len());
-                let v2m = v2.to_mask(if_false.len());
+                let v1m = v1.to_mask(if_true.len())?;
+                let v2m = v2.to_mask(if_false.len())?;
 
                 let combined = (v1m.bitand(mask)).bitor(&v2m.bitand(&mask.not()));
                 Validity::from_mask(

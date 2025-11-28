@@ -114,9 +114,15 @@ impl ListViewArray {
             .as_list_element_opt()
             .vortex_expect("somehow had a canonical list that was not a list");
 
-        let offsets_canonical = self.offsets().to_primitive();
+        let offsets_canonical = self
+            .offsets()
+            .to_primitive()
+            .vortex_expect("offsets must be primitive");
         let offsets_slice = offsets_canonical.as_slice::<O>();
-        let sizes_canonical = self.sizes().to_primitive();
+        let sizes_canonical = self
+            .sizes()
+            .to_primitive()
+            .vortex_expect("sizes must be primitive");
         let sizes_slice = sizes_canonical.as_slice::<S>();
 
         let len = offsets_slice.len();
@@ -129,7 +135,11 @@ impl ListViewArray {
         let mut new_sizes = BufferMut::<S>::with_capacity(len);
 
         // Canonicalize the elements up front as we will be slicing the elements quite a lot.
-        let elements_canonical = self.elements().to_canonical().into_array();
+        let elements_canonical = self
+            .elements()
+            .to_canonical()
+            .vortex_expect("elements must be canonical")
+            .into_array();
 
         // Note that we do not know what the exact capacity should be of the new elements since
         // there could be overlaps in the existing `ListViewArray`.
@@ -138,7 +148,7 @@ impl ListViewArray {
 
         let mut n_elements = NewOffset::zero();
         for index in 0..len {
-            if !self.is_valid(index) {
+            if !self.is_valid(index).vortex_expect("validity check failed") {
                 // For NULL lists, place them after the previous item's data to maintain the
                 // no-overlap invariant for zero-copy to `ListArray` arrays.
                 new_offsets.push(n_elements);
@@ -293,10 +303,10 @@ mod tests {
         assert_eq!(flattened.size_at(1), 2);
 
         // Verify the data is correct
-        let list0 = flattened.list_elements_at(0).to_primitive();
+        let list0 = flattened.list_elements_at(0).to_primitive().unwrap();
         assert_eq!(list0.as_slice::<i32>(), &[1, 2, 3]);
 
-        let list1 = flattened.list_elements_at(1).to_primitive();
+        let list1 = flattened.list_elements_at(1).to_primitive().unwrap();
         assert_eq!(list1.as_slice::<i32>(), &[2, 3]);
     }
 
@@ -327,10 +337,10 @@ mod tests {
         assert!(flattened.validity().is_valid(2));
 
         // Verify valid lists contain correct data
-        let list0 = flattened.list_elements_at(0).to_primitive();
+        let list0 = flattened.list_elements_at(0).to_primitive().unwrap();
         assert_eq!(list0.as_slice::<i32>(), &[1, 2]);
 
-        let list2 = flattened.list_elements_at(2).to_primitive();
+        let list2 = flattened.list_elements_at(2).to_primitive().unwrap();
         assert_eq!(list2.as_slice::<i32>(), &[3]);
     }
 
@@ -362,14 +372,14 @@ mod tests {
         assert_eq!(trimmed.size_at(1), 2);
 
         // Verify the data is correct.
-        let list0 = trimmed.list_elements_at(0).to_primitive();
+        let list0 = trimmed.list_elements_at(0).to_primitive().unwrap();
         assert_eq!(list0.as_slice::<i32>(), &[1, 2]);
 
-        let list1 = trimmed.list_elements_at(1).to_primitive();
+        let list1 = trimmed.list_elements_at(1).to_primitive().unwrap();
         assert_eq!(list1.as_slice::<i32>(), &[3, 4]);
 
         // Note that element at index 2 (97) is preserved as a gap.
-        let all_elements = trimmed.elements().to_primitive();
+        let all_elements = trimmed.elements().to_primitive().unwrap();
         assert_eq!(all_elements.scalar_at(2), 97i32.into());
     }
 
@@ -415,10 +425,10 @@ mod tests {
         assert!(!exact.is_valid(3));
 
         // Verify data is preserved
-        let list0 = exact.list_elements_at(0).to_primitive();
+        let list0 = exact.list_elements_at(0).to_primitive().unwrap();
         assert_eq!(list0.as_slice::<i32>(), &[1, 2]);
 
-        let list1 = exact.list_elements_at(1).to_primitive();
+        let list1 = exact.list_elements_at(1).to_primitive().unwrap();
         assert_eq!(list1.as_slice::<i32>(), &[3, 4]);
     }
 }

@@ -108,6 +108,7 @@ fn random_array_chunk(
             PType::I64 => random_primitive::<i64>(u, *n, chunk_len),
             PType::F16 => Ok(random_primitive::<u16>(u, *n, chunk_len)?
                 .to_primitive()
+                .vortex_expect("to_primitive")
                 .reinterpret_cast(PType::F16)
                 .into_array()),
             PType::F32 => random_primitive::<f32>(u, *n, chunk_len),

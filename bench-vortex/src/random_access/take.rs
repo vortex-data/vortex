@@ -53,7 +53,7 @@ async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> anyhow::
         .read_all()
         .await?
         // We canonicalize / decompress for equivalence to Arrow's `RecordBatch`es.
-        .to_canonical()
+        .to_canonical()?
         .into_array())
 }
 

@@ -130,7 +130,7 @@ impl VTable for DecimalVTable {
                 DVector::<D>::new_unchecked(
                     PrecisionScale::new_unchecked(array.precision(), array.scale()),
                     array.buffer::<D>(),
-                    array.validity_mask(),
+                    array.validity_mask()?,
                 )
             }
             .into())

@@ -16,7 +16,7 @@ use crate::vtable::ValidityHelper;
 impl MaskKernel for BoolVTable {
     fn mask(&self, array: &BoolArray, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(
-            BoolArray::from_bit_buffer(array.bit_buffer().clone(), array.validity().mask(mask))
+            BoolArray::from_bit_buffer(array.bit_buffer().clone(), array.validity().mask(mask)?)
                 .into_array(),
         )
     }

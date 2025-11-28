@@ -275,10 +275,16 @@ impl ArrayBuilder for VarBinViewBuilder {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
-        let array = array.to_varbinview();
+        let array = array
+            .to_varbinview()
+            .vortex_expect("failed to convert to varbinview");
         self.flush_in_progress();
 
-        self.push_only_validity_mask(array.validity_mask());
+        self.push_only_validity_mask(
+            array
+                .validity_mask()
+                .vortex_expect("failed to get validity mask"),
+        );
 
         let view_adjustment =
             self.completed
@@ -296,7 +302,10 @@ impl ArrayBuilder for VarBinViewBuilder {
             ),
             ViewAdjustment::Rewriting(adjustment) => {
                 for (idx, &view) in array.views().iter().enumerate() {
-                    let new_view = if !array.is_valid(idx) {
+                    let new_view = if !array
+                        .is_valid(idx)
+                        .vortex_expect("failed to check validity")
+                    {
                         BinaryView::empty_view()
                     } else if view.is_inlined() {
                         view

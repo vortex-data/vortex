@@ -206,13 +206,13 @@ impl BaseArrayVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 }
 
 impl CanonicalVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
-    fn canonicalize(array: &DecimalBytePartsArray) -> Canonical {
+    fn canonicalize(array: &DecimalBytePartsArray) -> VortexResult<Canonical> {
         // TODO(joe): support parts len != 1
-        let prim = array.msp.to_primitive();
+        let prim = array.msp.to_primitive()?;
         // Depending on the decimal type and the min/max of the primitive array we can choose
         // the correct buffer size
 
-        match_each_signed_integer_ptype!(prim.ptype(), |P| {
+        Ok(match_each_signed_integer_ptype!(prim.ptype(), |P| {
             // SAFETY: The primitive array's buffer is already validated with correct type.
             // The decimal dtype matches the array's dtype, and validity is preserved.
             Canonical::Decimal(unsafe {
@@ -222,7 +222,7 @@ impl CanonicalVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
                     prim.validity().clone(),
                 )
             })
-        })
+        }))
     }
 }
 

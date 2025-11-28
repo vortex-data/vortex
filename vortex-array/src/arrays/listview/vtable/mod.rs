@@ -149,7 +149,7 @@ impl VTable for ListViewVTable {
                 Arc::new(array.elements().execute_batch(ctx)?),
                 array.offsets().execute_batch(ctx)?.into_primitive(),
                 array.sizes().execute_batch(ctx)?.into_primitive(),
-                array.validity_mask(),
+                array.validity_mask()?,
             )
         }
         .into())

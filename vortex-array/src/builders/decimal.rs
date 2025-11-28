@@ -189,7 +189,7 @@ impl ArrayBuilder for DecimalBuilder {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
-        let decimal_array = array.to_decimal();
+        let decimal_array = array.to_decimal().vortex_expect("to_decimal");
 
         match_each_decimal_value_type!(decimal_array.values_type(), |D| {
             // Extends the values buffer from another buffer of type D where D can be coerced to the
@@ -199,7 +199,7 @@ impl ArrayBuilder for DecimalBuilder {
         });
 
         self.nulls
-            .append_validity_mask(decimal_array.validity_mask());
+            .append_validity_mask(decimal_array.validity_mask().vortex_expect("validity_mask"));
     }
 
     fn reserve_exact(&mut self, additional: usize) {

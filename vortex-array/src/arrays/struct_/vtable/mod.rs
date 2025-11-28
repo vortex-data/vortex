@@ -119,7 +119,7 @@ impl VTable for StructVTable {
             .map(|field| field.execute_batch(ctx))
             .try_collect()?;
         // SAFETY: we know that all field lengths match the struct array length, and the validity
-        Ok(unsafe { StructVector::new_unchecked(Arc::new(fields), array.validity_mask()) }.into())
+        Ok(unsafe { StructVector::new_unchecked(Arc::new(fields), array.validity_mask()?) }.into())
     }
 }
 

@@ -59,7 +59,7 @@ pub fn dict_encode_with_constraints(
     constraints: &DictConstraints,
 ) -> VortexResult<DictArray> {
     let mut encoder = dict_encoder(array, constraints);
-    let codes = encoder.encode(array).to_primitive().narrow()?;
+    let codes = encoder.encode(array).to_primitive()?.narrow()?;
     // SAFETY: The encoding process will produce a value set of codes and values
     // All values in the dictionary are guaranteed to be referenced by at least one code
     // since we build the dictionary from the codes we observe during encoding

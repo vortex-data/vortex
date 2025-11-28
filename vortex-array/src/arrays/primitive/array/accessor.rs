@@ -4,6 +4,7 @@
 use std::iter;
 
 use vortex_dtype::NativePType;
+use vortex_error::VortexExpect;
 
 use crate::ToCanonical;
 use crate::accessor::ArrayAccessor;
@@ -23,7 +24,7 @@ impl<T: NativePType> ArrayAccessor<T> for PrimitiveArray {
             }
             Validity::AllInvalid => f(&mut iter::repeat_n(None, self.len())),
             Validity::Array(v) => {
-                let validity = v.to_bool();
+                let validity = v.to_bool().vortex_expect("to_bool");
                 let mut iter = self
                     .as_slice::<T>()
                     .iter()

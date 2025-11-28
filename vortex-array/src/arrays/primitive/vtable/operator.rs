@@ -69,7 +69,7 @@ impl ArrayParentReduceRule<PrimitiveVTable, MaskedVTable> for PrimitiveMaskedVal
             unsafe {
                 PrimitiveArray::new_unchecked(
                     Buffer::<T>::from_byte_buffer(array.byte_buffer().clone()),
-                    array.validity().clone().and(parent.validity().clone()),
+                    array.validity().clone().and(parent.validity().clone())?,
                 )
             }
             .into_array()

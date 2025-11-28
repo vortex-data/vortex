@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::Canonical;
@@ -12,20 +12,16 @@ use crate::compute::mask;
 use crate::vtable::CanonicalVTable;
 
 impl CanonicalVTable<MaskedVTable> for MaskedVTable {
-    fn canonicalize(array: &MaskedArray) -> Canonical {
+    fn canonicalize(array: &MaskedArray) -> VortexResult<Canonical> {
         if array.child.is::<ConstantVTable>() {
             // To allow constant array to produce masked array from mask call, we have to unwrap constant here and canonicalize it first
             mask(
-                array.child.to_canonical().as_ref(),
-                &!array.validity.to_mask(array.len()),
-            )
-            .vortex_expect("constant masked to canonical")
+                array.child.to_canonical()?.as_ref(),
+                &!array.validity.to_mask(array.len())?,
+            )?
             .to_canonical()
         } else {
-            array
-                .masked_child()
-                .vortex_expect("masked child of a masked array")
-                .to_canonical()
+            array.masked_child()?.to_canonical()
         }
     }
 }

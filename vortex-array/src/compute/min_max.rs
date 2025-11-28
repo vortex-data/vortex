@@ -143,7 +143,7 @@ fn min_max_impl(
     array: &dyn Array,
     kernels: &[ArcRef<dyn Kernel>],
 ) -> VortexResult<Option<MinMaxResult>> {
-    if array.is_empty() || array.valid_count() == 0 {
+    if array.is_empty() || array.valid_count()? == 0 {
         return Ok(None);
     }
 
@@ -182,7 +182,7 @@ fn min_max_impl(
     }
 
     if !array.is_canonical() {
-        let array = array.to_canonical();
+        let array = array.to_canonical()?;
         return min_max(array.as_ref());
     }
 

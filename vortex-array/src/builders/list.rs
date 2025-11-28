@@ -193,18 +193,30 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
-        let list = array.to_listview();
+        let list = array
+            .to_listview()
+            .vortex_expect("failed to convert to listview");
         if list.is_empty() {
             return;
         }
 
         // Append validity information.
-        self.nulls.append_validity_mask(array.validity_mask());
+        self.nulls.append_validity_mask(
+            array
+                .validity_mask()
+                .vortex_expect("failed to get validity mask"),
+        );
 
         // Note that `ListViewArray` has `n` offsets and sizes, not `n+1` offsets like `ListArray`.
         let elements = list.elements();
-        let offsets = list.offsets().to_primitive();
-        let sizes = list.sizes().to_primitive();
+        let offsets = list
+            .offsets()
+            .to_primitive()
+            .vortex_expect("failed to convert offsets to primitive");
+        let sizes = list
+            .sizes()
+            .to_primitive()
+            .vortex_expect("failed to convert sizes to primitive");
 
         fn extend_inner<O, OffsetType, SizeType>(
             builder: &mut ListBuilder<O>,

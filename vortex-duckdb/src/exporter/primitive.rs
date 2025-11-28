@@ -26,7 +26,7 @@ pub fn new_exporter(array: &PrimitiveArray) -> VortexResult<Box<dyn ColumnExport
         }) as Box<dyn ColumnExporter>
     });
     Ok(if array.dtype().is_nullable() {
-        validity::new_exporter(array.validity_mask(), prim)
+        validity::new_exporter(array.validity_mask()?, prim)
     } else {
         prim
     })

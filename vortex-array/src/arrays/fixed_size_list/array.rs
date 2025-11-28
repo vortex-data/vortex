@@ -223,7 +223,7 @@ impl FixedSizeListArray {
             "index out of bounds: the len is {} but the index is {index}",
             self.len
         );
-        debug_assert!(self.validity.is_valid(index));
+        debug_assert!(self.validity.is_valid(index).unwrap_or(false));
 
         let start = self.list_size as usize * index;
         let end = self.list_size as usize * (index + 1);

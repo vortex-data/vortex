@@ -6,6 +6,7 @@ use vortex_dtype::NativePType;
 use vortex_dtype::UnsignedPType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_dtype::match_each_native_ptype;
+use vortex_error::VortexExpect;
 
 use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
@@ -15,15 +16,25 @@ use crate::vtable::ValidityHelper;
 
 impl PrimitiveArray {
     pub fn patch(self, patches: &Patches) -> Self {
-        let patch_indices = patches.indices().to_primitive();
-        let patch_values = patches.values().to_primitive();
+        let patch_indices = patches
+            .indices()
+            .to_primitive()
+            .vortex_expect("patch indices must be primitive");
+        let patch_values = patches
+            .values()
+            .to_primitive()
+            .vortex_expect("patch values must be primitive");
 
-        let patched_validity = self.validity().clone().patch(
-            self.len(),
-            patches.offset(),
-            patch_indices.as_ref(),
-            patch_values.validity(),
-        );
+        let patched_validity = self
+            .validity()
+            .clone()
+            .patch(
+                self.len(),
+                patches.offset(),
+                patch_indices.as_ref(),
+                patch_values.validity(),
+            )
+            .vortex_expect("patch validity");
         match_each_integer_ptype!(patch_indices.ptype(), |I| {
             match_each_native_ptype!(self.ptype(), |T| {
                 self.patch_typed::<T, I>(

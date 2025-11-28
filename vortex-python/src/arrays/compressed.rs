@@ -89,7 +89,7 @@ impl PyZigZagArray {
     #[staticmethod]
     pub fn encode(array: PyArrayRef) -> PyResult<PyArrayRef> {
         Ok(PyVortex(
-            zigzag_encode(array.inner().clone().to_primitive())?.into_array(),
+            zigzag_encode(array.inner().clone().to_primitive()?)?.into_array(),
         ))
     }
 }

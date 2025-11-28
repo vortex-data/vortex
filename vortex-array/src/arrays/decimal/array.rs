@@ -259,15 +259,25 @@ impl DecimalArray {
     )]
     pub fn patch(self, patches: &Patches) -> Self {
         let offset = patches.offset();
-        let patch_indices = patches.indices().to_primitive();
-        let patch_values = patches.values().to_decimal();
+        let patch_indices = patches
+            .indices()
+            .to_primitive()
+            .vortex_expect("patch indices must be primitive");
+        let patch_values = patches
+            .values()
+            .to_decimal()
+            .vortex_expect("patch values must be decimal");
 
-        let patched_validity = self.validity().clone().patch(
-            self.len(),
-            offset,
-            patch_indices.as_ref(),
-            patch_values.validity(),
-        );
+        let patched_validity = self
+            .validity()
+            .clone()
+            .patch(
+                self.len(),
+                offset,
+                patch_indices.as_ref(),
+                patch_values.validity(),
+            )
+            .vortex_expect("failed to patch validity");
         assert_eq!(self.decimal_dtype(), patch_values.decimal_dtype());
 
         match_each_integer_ptype!(patch_indices.ptype(), |I| {

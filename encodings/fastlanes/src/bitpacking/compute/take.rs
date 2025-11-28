@@ -40,7 +40,7 @@ impl TakeKernel for BitPackedVTable {
     fn take(&self, array: &BitPackedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         // If the indices are large enough, it's faster to flatten and take the primitive array.
         if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
-            return take(array.to_primitive().as_ref(), indices);
+            return take(array.to_primitive()?.as_ref(), indices);
         }
 
         // NOTE: we use the unsigned PType because all values in the BitPackedArray must
@@ -49,7 +49,7 @@ impl TakeKernel for BitPackedVTable {
         let validity = array.validity();
         let taken_validity = validity.take(indices)?;
 
-        let indices = indices.to_primitive();
+        let indices = indices.to_primitive()?;
         let taken = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |T| {
             match_each_integer_ptype!(indices.ptype(), |I| {
                 take_primitive::<T, I>(array, &indices, taken_validity)?

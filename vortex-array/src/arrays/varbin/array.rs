@@ -170,7 +170,7 @@ impl VarBinArray {
 
         // Validate UTF-8 for Utf8 dtype
         if matches!(dtype, DType::Utf8(_)) {
-            let primitive_offsets = offsets.to_primitive();
+            let primitive_offsets = offsets.to_primitive()?;
             match_each_integer_ptype!(primitive_offsets.dtype().as_ptype(), |O| {
                 let offsets_slice = primitive_offsets.as_slice::<O>();
                 for (i, (start, end)) in offsets_slice
@@ -178,7 +178,7 @@ impl VarBinArray {
                     .map(|o| (o[0].as_(), o[1].as_()))
                     .enumerate()
                 {
-                    if validity.is_null(i) {
+                    if validity.is_null(i)? {
                         continue;
                     }
 

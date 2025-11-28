@@ -16,7 +16,7 @@ struct BoolExporter {
 }
 
 pub(crate) fn new_exporter(array: &BoolArray) -> VortexResult<Box<dyn ColumnExporter>> {
-    let validity_mask = array.validity_mask();
+    let validity_mask = array.validity_mask()?;
     if validity_mask.all_false() {
         return Ok(all_invalid::new_exporter(
             array.len(),

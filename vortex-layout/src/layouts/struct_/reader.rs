@@ -350,11 +350,11 @@ impl LayoutReader for StructReader {
         Ok(Box::pin(async move {
             if let Some(validity_fut) = validity_fut {
                 let (array, validity) = try_join!(projected, validity_fut)?;
-                let mask = Mask::from_buffer(validity.to_bool().bit_buffer().not());
+                let mask = Mask::from_buffer(validity.to_bool()?.bit_buffer().not());
 
                 // If root expression was a pack, then we apply the validity to each child field
                 if is_pack_merge {
-                    let struct_array = array.to_struct();
+                    let struct_array = array.to_struct()?;
                     let masked_fields: Vec<ArrayRef> = struct_array
                         .fields()
                         .iter()

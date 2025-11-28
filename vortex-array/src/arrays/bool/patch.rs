@@ -3,6 +3,7 @@
 
 use itertools::Itertools;
 use vortex_dtype::match_each_unsigned_integer_ptype;
+use vortex_error::VortexExpect;
 
 use crate::ToCanonical;
 use crate::arrays::BoolArray;
@@ -13,13 +14,17 @@ impl BoolArray {
     pub fn patch(self, patches: &Patches) -> Self {
         let len = self.len();
         let offset = patches.offset();
-        let indices = patches.indices().to_primitive();
-        let values = patches.values().to_bool();
+        let indices = patches
+            .indices()
+            .to_primitive()
+            .vortex_expect("to_primitive");
+        let values = patches.values().to_bool().vortex_expect("to_bool");
 
-        let patched_validity =
-            self.validity()
-                .clone()
-                .patch(len, offset, indices.as_ref(), values.validity());
+        let patched_validity = self
+            .validity()
+            .clone()
+            .patch(len, offset, indices.as_ref(), values.validity())
+            .vortex_expect("patch validity");
 
         let mut own_values = self.into_bit_buffer().into_mut();
         match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
@@ -48,7 +53,11 @@ mod tests {
     fn patch_sliced_bools() {
         let arr = BoolArray::from(BitBuffer::new_set(12));
         let sliced = arr.slice(4..12);
-        let values = sliced.to_bool().into_bit_buffer().into_mut();
+        let values = sliced
+            .to_bool()
+            .vortex_expect("to_bool")
+            .into_bit_buffer()
+            .into_mut();
         assert_eq!(values.len(), 8);
         assert_eq!(values.as_slice(), &[255, 255]);
     }
@@ -57,7 +66,11 @@ mod tests {
     fn patch_sliced_bools_offset() {
         let arr = BoolArray::from(BitBuffer::new_set(15));
         let sliced = arr.slice(4..15);
-        let values = sliced.to_bool().into_bit_buffer().into_mut();
+        let values = sliced
+            .to_bool()
+            .vortex_expect("to_bool")
+            .into_bit_buffer()
+            .into_mut();
         assert_eq!(values.len(), 11);
         assert_eq!(values.as_slice(), &[255, 255]);
     }

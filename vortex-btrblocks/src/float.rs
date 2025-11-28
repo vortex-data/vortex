@@ -19,6 +19,7 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::PType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::VortexUnwrap;
 use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
 use vortex_sparse::SparseArray;
@@ -173,13 +174,14 @@ impl Scheme for ConstantScheme {
         _allowed_cascading: usize,
         _excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
-        let scalar_idx = (0..stats.source().len()).position(|idx| stats.source().is_valid(idx));
+        let scalar_idx =
+            (0..stats.source().len()).position(|idx| stats.source().is_valid(idx).vortex_unwrap());
 
         match scalar_idx {
             Some(idx) => {
                 let scalar = stats.source().scalar_at(idx);
                 let const_arr = ConstantArray::new(scalar, stats.src.len()).into_array();
-                if !stats.source().all_valid() {
+                if !stats.source().all_valid().vortex_unwrap() {
                     Ok(MaskedArray::try_new(const_arr, stats.src.validity().clone())?.into_array())
                 } else {
                     Ok(const_arr)
@@ -241,10 +243,10 @@ impl Scheme for ALPScheme {
     ) -> VortexResult<ArrayRef> {
         let alp_encoded = ALPVTable
             .as_vtable()
-            .encode(&stats.source().to_canonical(), None)?
+            .encode(&stats.source().to_canonical().vortex_unwrap(), None)?
             .vortex_expect("Input is a supported floating point array");
         let alp = alp_encoded.as_::<ALPVTable>();
-        let alp_ints = alp.encoded().to_primitive();
+        let alp_ints = alp.encoded().to_primitive().vortex_unwrap();
 
         // Compress the ALP ints.
         // Patches are not compressed. They should be infrequent, and if they are not then we want
@@ -364,7 +366,7 @@ impl Scheme for DictScheme {
 
         // Only compress the codes.
         let codes_stats = IntegerStats::generate_opts(
-            &dict_array.codes().to_primitive().narrow()?,
+            &dict_array.codes().to_primitive().vortex_unwrap().narrow()?,
             GenerateStatsOptions {
                 count_distinct_values: false,
             },
@@ -383,7 +385,7 @@ impl Scheme for DictScheme {
         )?;
 
         let compressed_values = FloatCompressor::compress(
-            &dict_array.values().to_primitive(),
+            &dict_array.values().to_primitive().vortex_unwrap(),
             is_sample,
             allowed_cascading - 1,
             &[DICT_SCHEME],
@@ -452,7 +454,12 @@ impl Scheme for NullDominated {
 
             // Don't attempt to compress the non-null values
 
-            let indices = sparse.patches().indices().to_primitive().narrow()?;
+            let indices = sparse
+                .patches()
+                .indices()
+                .to_primitive()
+                .vortex_unwrap()
+                .narrow()?;
             let compressed_indices = IntCompressor::compress_no_dict(
                 &indices,
                 is_sample,

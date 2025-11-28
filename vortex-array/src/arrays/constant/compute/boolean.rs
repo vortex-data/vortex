@@ -104,8 +104,8 @@ mod test {
     )]
     #[case(BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array(), ConstantArray::new(true, 4).into_array()
     )]
-    fn test_or(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
-        let r = or(&lhs, &rhs).unwrap().to_bool().into_array();
+    fn test_or(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) -> VortexResult<()> {
+        let r = or(&lhs, &rhs).unwrap().to_bool()?.into_array();
 
         let v0 = r.scalar_at(0).as_bool().value();
         let v1 = r.scalar_at(1).as_bool().value();
@@ -116,6 +116,7 @@ mod test {
         assert!(v1.unwrap());
         assert!(v2.unwrap());
         assert!(v3.unwrap());
+        Ok(())
     }
 
     #[rstest]
@@ -123,8 +124,8 @@ mod test {
     )]
     #[case(BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array(),
         ConstantArray::new(true, 4).into_array())]
-    fn test_and(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
-        let r = and(&lhs, &rhs).unwrap().to_bool().into_array();
+    fn test_and(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) -> VortexResult<()> {
+        let r = and(&lhs, &rhs).unwrap().to_bool()?.into_array();
 
         let v0 = r.scalar_at(0).as_bool().value();
         let v1 = r.scalar_at(1).as_bool().value();
@@ -135,5 +136,6 @@ mod test {
         assert!(!v1.unwrap());
         assert!(v2.unwrap());
         assert!(!v3.unwrap());
+        Ok(())
     }
 }

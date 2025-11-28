@@ -110,7 +110,7 @@ impl VTable for MaskedVTable {
 
     fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
         let vector = array.child().execute_batch(ctx)?;
-        Ok(MaskValidity::mask_validity(vector, &array.validity_mask()))
+        Ok(MaskValidity::mask_validity(vector, &array.validity_mask()?))
     }
 }
 

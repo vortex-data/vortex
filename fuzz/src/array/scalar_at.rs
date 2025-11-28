@@ -18,7 +18,7 @@ use vortex_scalar::Scalar;
 /// This implementation manually extracts the scalar value from each canonical type
 /// without using the scalar_at method, to serve as an independent baseline for testing.
 pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexResult<Scalar> {
-    if canonical.as_ref().is_invalid(index) {
+    if canonical.as_ref().is_invalid(index)? {
         return Ok(Scalar::null(canonical.as_ref().dtype().clone()));
     }
     Ok(match canonical {
@@ -44,7 +44,10 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
         Canonical::List(array) => {
             let list = array.list_elements_at(index);
             let children: Vec<Scalar> = (0..list.len())
-                .map(|i| scalar_at_canonical_array(list.to_canonical(), i).vortex_unwrap())
+                .map(|i| {
+                    scalar_at_canonical_array(list.to_canonical().vortex_unwrap(), i)
+                        .vortex_unwrap()
+                })
                 .collect();
             Scalar::list(
                 Arc::new(list.dtype().clone()),
@@ -55,7 +58,10 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
         Canonical::FixedSizeList(array) => {
             let list = array.fixed_size_list_elements_at(index);
             let children: Vec<Scalar> = (0..list.len())
-                .map(|i| scalar_at_canonical_array(list.to_canonical(), i).vortex_unwrap())
+                .map(|i| {
+                    scalar_at_canonical_array(list.to_canonical().vortex_unwrap(), i)
+                        .vortex_unwrap()
+                })
                 .collect();
             Scalar::fixed_size_list(list.dtype().clone(), children, array.dtype().nullability())
         }
@@ -63,12 +69,15 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
             let field_scalars: Vec<Scalar> = array
                 .fields()
                 .iter()
-                .map(|field| scalar_at_canonical_array(field.to_canonical(), index).vortex_unwrap())
+                .map(|field| {
+                    scalar_at_canonical_array(field.to_canonical().vortex_unwrap(), index)
+                        .vortex_unwrap()
+                })
                 .collect();
             Scalar::struct_(array.dtype().clone(), field_scalars)
         }
         Canonical::Extension(array) => {
-            let storage_scalar = scalar_at_canonical_array(array.storage().to_canonical(), index)?;
+            let storage_scalar = scalar_at_canonical_array(array.storage().to_canonical()?, index)?;
             Scalar::extension(array.ext_dtype().clone(), storage_scalar)
         }
     })

@@ -67,7 +67,7 @@ pub struct NamedArrays {
 }
 
 impl NamedArrays {
-    pub fn all_invalid(&self) -> bool {
+    pub fn all_invalid(&self) -> VortexResult<bool> {
         // by convention we assume that the first array is the one we care about for logical validity
         self.arrays[0].all_invalid()
     }

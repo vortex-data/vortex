@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 
 use crate::Canonical;
 use crate::arrays::expr::ExprArray;
@@ -9,12 +9,8 @@ use crate::arrays::expr::ExprVTable;
 use crate::vtable::CanonicalVTable;
 
 impl CanonicalVTable<ExprVTable> for ExprVTable {
-    fn canonicalize(array: &ExprArray) -> Canonical {
-        array
-            .expr
-            .evaluate(&array.child)
-            .vortex_expect("Failed to evaluate expression")
-            .to_canonical()
+    fn canonicalize(array: &ExprArray) -> VortexResult<Canonical> {
+        array.expr.evaluate(&array.child)?.to_canonical()
     }
 }
 

@@ -25,7 +25,7 @@ struct VarBinViewExporter {
 }
 
 pub(crate) fn new_exporter(array: &VarBinViewArray) -> VortexResult<Box<dyn ColumnExporter>> {
-    let validity = array.validity_mask();
+    let validity = array.validity_mask()?;
     if validity.all_false() {
         return Ok(all_invalid::new_exporter(
             array.len(),
@@ -42,7 +42,7 @@ pub(crate) fn new_exporter(array: &VarBinViewArray) -> VortexResult<Box<dyn Colu
             .cloned()
             .map(VectorBuffer::new)
             .collect_vec(),
-        validity: array.validity_mask(),
+        validity: array.validity_mask()?,
     }))
 }
 

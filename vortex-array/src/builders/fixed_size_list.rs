@@ -208,13 +208,16 @@ impl ArrayBuilder for FixedSizeListBuilder {
     /// This will increase the capacity if extending with this `array` would go past the original
     /// capacity.
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
-        let fsl = array.to_fixed_size_list();
+        let fsl = array
+            .to_fixed_size_list()
+            .vortex_expect("to_fixed_size_list");
         if fsl.is_empty() {
             return;
         }
 
         self.elements_builder.extend_from_array(fsl.elements());
-        self.nulls.append_validity_mask(array.validity_mask());
+        self.nulls
+            .append_validity_mask(array.validity_mask().vortex_expect("validity_mask"));
     }
 
     fn reserve_exact(&mut self, additional: usize) {

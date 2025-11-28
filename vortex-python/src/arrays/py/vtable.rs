@@ -170,7 +170,7 @@ impl BaseArrayVTable<PythonVTable> for PythonVTable {
 }
 
 impl CanonicalVTable<PythonVTable> for PythonVTable {
-    fn canonicalize(_array: &PythonArray) -> Canonical {
+    fn canonicalize(_array: &PythonArray) -> VortexResult<Canonical> {
         todo!()
     }
 }
@@ -186,19 +186,19 @@ impl OperationsVTable<PythonVTable> for PythonVTable {
 }
 
 impl ValidityVTable<PythonVTable> for PythonVTable {
-    fn is_valid(_array: &PythonArray, _index: usize) -> bool {
+    fn is_valid(_array: &PythonArray, _index: usize) -> VortexResult<bool> {
         todo!()
     }
 
-    fn all_valid(_array: &PythonArray) -> bool {
+    fn all_valid(_array: &PythonArray) -> VortexResult<bool> {
         todo!()
     }
 
-    fn all_invalid(_array: &PythonArray) -> bool {
+    fn all_invalid(_array: &PythonArray) -> VortexResult<bool> {
         todo!()
     }
 
-    fn validity_mask(_array: &PythonArray) -> Mask {
+    fn validity_mask(_array: &PythonArray) -> VortexResult<Mask> {
         todo!()
     }
 }

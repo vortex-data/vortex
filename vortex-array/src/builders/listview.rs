@@ -254,7 +254,9 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
-        let listview = array.to_listview();
+        let listview = array
+            .to_listview()
+            .vortex_expect("failed to convert to listview");
         if listview.is_empty() {
             return;
         }
@@ -277,7 +279,11 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         let listview = listview.rebuild(ListViewRebuildMode::MakeExact);
         debug_assert!(listview.is_zero_copy_to_list());
 
-        self.nulls.append_validity_mask(array.validity_mask());
+        self.nulls.append_validity_mask(
+            array
+                .validity_mask()
+                .vortex_expect("failed to get validity mask"),
+        );
 
         // Bulk append the new elements (which should have no gaps or overlaps).
         let old_elements_len = self.elements_builder.len();
@@ -303,7 +309,10 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         let uninit_range = self.offsets_builder.uninit_range(extend_length);
 
         // This should be cheap because we didn't compress after rebuilding.
-        let new_offsets = listview.offsets().to_primitive();
+        let new_offsets = listview
+            .offsets()
+            .to_primitive()
+            .vortex_expect("failed to convert offsets to primitive");
 
         match_each_integer_ptype!(new_offsets.ptype(), |A| {
             adjust_and_extend_offsets::<O, A>(

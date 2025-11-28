@@ -18,7 +18,7 @@ use crate::register_kernel;
 
 impl MinMaxKernel for BoolVTable {
     fn min_max(&self, array: &BoolArray) -> VortexResult<Option<MinMaxResult>> {
-        let mask = array.validity_mask();
+        let mask = array.validity_mask()?;
         let true_non_null = match mask {
             Mask::AllTrue(_) => array.bit_buffer().clone(),
             Mask::AllFalse(_) => return Ok(None),

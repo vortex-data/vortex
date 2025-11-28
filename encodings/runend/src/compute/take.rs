@@ -30,7 +30,7 @@ impl TakeKernel for RunEndVTable {
         reason = "index cast to usize inside macro"
     )]
     fn take(&self, array: &RunEndArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let primitive_indices = indices.to_primitive();
+        let primitive_indices = indices.to_primitive()?;
 
         let checked_indices = match_each_integer_ptype!(primitive_indices.ptype(), |P| {
             primitive_indices
@@ -59,7 +59,7 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
     indices: &[T],
     validity: &Validity,
 ) -> VortexResult<ArrayRef> {
-    let ends = array.ends().to_primitive();
+    let ends = array.ends().to_primitive()?;
     let ends_len = ends.len();
 
     // TODO(joe): use the validity mask to skip search sorted.

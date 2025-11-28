@@ -167,7 +167,7 @@ impl ArrayBuilder for StructBuilder {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
-        let array = array.to_struct();
+        let array = array.to_struct().vortex_expect("to_struct");
 
         for (a, builder) in array
             .fields()
@@ -175,10 +175,12 @@ impl ArrayBuilder for StructBuilder {
             .cloned()
             .zip_eq(self.builders.iter_mut())
         {
-            a.append_to_builder(builder.as_mut());
+            a.append_to_builder(builder.as_mut())
+                .vortex_expect("append_to_builder");
         }
 
-        self.nulls.append_validity_mask(array.validity_mask());
+        self.nulls
+            .append_validity_mask(array.validity_mask().vortex_expect("validity_mask"));
     }
 
     fn reserve_exact(&mut self, capacity: usize) {

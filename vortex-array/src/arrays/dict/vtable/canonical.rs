@@ -6,7 +6,6 @@ use std::ops::Not;
 use vortex_buffer::BitBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
@@ -30,24 +29,18 @@ use crate::validity::Validity;
 use crate::vtable::CanonicalVTable;
 
 impl CanonicalVTable<DictVTable> for DictVTable {
-    fn canonicalize(array: &DictArray) -> Canonical {
+    fn canonicalize(array: &DictArray) -> VortexResult<Canonical> {
         match array.dtype() {
             // NOTE: Utf8 and Binary will decompress into VarBinViewArray, which requires a full
             // decompression to construct the views child array.
             // For this case, it is *always* faster to decompress the values first and then create
             // copies of the view pointers.
             DType::Utf8(_) | DType::Binary(_) => {
-                let canonical_values: ArrayRef = array.values().to_canonical().into_array();
-                take(&canonical_values, array.codes())
-                    .vortex_expect("taking codes from dictionary values shouldn't fail")
-                    .to_canonical()
+                let canonical_values: ArrayRef = array.values().to_canonical()?.into_array();
+                take(&canonical_values, array.codes())?.to_canonical()
             }
-            DType::Bool(_) => {
-                dict_bool_take(array).vortex_expect("Canonicalizing dict bool array shouldn't fail")
-            }
-            _ => take(array.values(), array.codes())
-                .vortex_expect("taking codes from dictionary values shouldn't fail")
-                .to_canonical(),
+            DType::Bool(_) => dict_bool_take(array),
+            _ => take(array.values(), array.codes())?.to_canonical(),
         }
     }
 }
@@ -57,8 +50,8 @@ fn dict_bool_take(dict_array: &DictArray) -> VortexResult<Canonical> {
     let codes = dict_array.codes();
     let result_nullability = dict_array.dtype().nullability();
 
-    let bool_values = values.to_bool();
-    let result_validity = bool_values.validity_mask();
+    let bool_values = values.to_bool()?;
+    let result_validity = bool_values.validity_mask()?;
     let bool_buffer = bool_values.bit_buffer();
     let (first_match, second_match) = match result_validity.bit_buffer() {
         AllOr::All => {
@@ -79,17 +72,17 @@ fn dict_bool_take(dict_array: &DictArray) -> VortexResult<Canonical> {
                 BitBuffer::new_unset(codes.len()),
                 Validity::copy_from_array(codes).union_nullability(result_nullability),
             )
-            .to_canonical(),
+            .to_canonical()?,
             Mask::AllFalse(_) => ConstantArray::new(
                 Scalar::null(DType::Bool(Nullability::Nullable)),
                 codes.len(),
             )
-            .to_canonical(),
+            .to_canonical()?,
             Mask::Values(_) => BoolArray::from_bit_buffer(
                 BitBuffer::new_unset(codes.len()),
                 Validity::from_mask(result_validity, result_nullability).take(codes)?,
             )
-            .to_canonical(),
+            .to_canonical()?,
         },
         // We found a single matching value so we can compare the codes directly.
         (Some(code), None) => match result_validity {
@@ -104,12 +97,12 @@ fn dict_bool_take(dict_array: &DictArray) -> VortexResult<Canonical> {
                 )?,
                 &DType::Bool(result_nullability),
             )?
-            .to_canonical(),
+            .to_canonical()?,
             Mask::AllFalse(_) => ConstantArray::new(
                 Scalar::null(DType::Bool(Nullability::Nullable)),
                 codes.len(),
             )
-            .to_canonical(),
+            .to_canonical()?,
             Mask::Values(rv) => mask(
                 &compare(
                     codes,
@@ -121,16 +114,14 @@ fn dict_bool_take(dict_array: &DictArray) -> VortexResult<Canonical> {
                 )?,
                 &Mask::from_buffer(
                     take(BoolArray::from(rv.bit_buffer().clone()).as_ref(), codes)?
-                        .to_bool()
+                        .to_bool()?
                         .bit_buffer()
                         .not(),
                 ),
             )?
-            .to_canonical(),
+            .to_canonical()?,
         },
         // More than one value matches.
-        _ => take(bool_values.as_ref(), codes)
-            .vortex_expect("taking codes from dictionary values shouldn't fail")
-            .to_canonical(),
+        _ => take(bool_values.as_ref(), codes)?.to_canonical()?,
     })
 }

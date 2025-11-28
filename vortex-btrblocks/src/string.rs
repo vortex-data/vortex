@@ -14,6 +14,7 @@ use vortex_array::builders::dict::dict_encode;
 use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::VortexUnwrap;
 use vortex_fsst::FSSTArray;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
@@ -90,7 +91,9 @@ impl CompressorStats for StringStats {
     }
 
     fn sample_opts(&self, sample_size: u32, sample_count: u32, opts: GenerateStatsOptions) -> Self {
-        let sampled = sample(self.src.as_ref(), sample_size, sample_count).to_varbinview();
+        let sampled = sample(self.src.as_ref(), sample_size, sample_count)
+            .to_varbinview()
+            .vortex_unwrap();
 
         Self::generate_opts(&sampled, opts)
     }
@@ -231,7 +234,7 @@ impl Scheme for DictScheme {
 
         // Find best compressor for codes and values separately
         let compressed_codes = IntCompressor::compress(
-            &dict.codes().to_primitive(),
+            &dict.codes().to_primitive().vortex_unwrap(),
             is_sample,
             allowed_cascading - 1,
             &[integer::DictScheme.code(), integer::SequenceScheme.code()],
@@ -240,7 +243,7 @@ impl Scheme for DictScheme {
         // Attempt to compress the values with non-Dict compression.
         // Currently this will only be FSST.
         let compressed_values = StringCompressor::compress(
-            &dict.values().to_varbinview(),
+            &dict.values().to_varbinview().vortex_unwrap(),
             is_sample,
             allowed_cascading - 1,
             &[DictScheme.code()],
@@ -276,14 +279,23 @@ impl Scheme for FSSTScheme {
         let fsst = fsst_compress(&stats.src, &compressor);
 
         let compressed_original_lengths = IntCompressor::compress(
-            &fsst.uncompressed_lengths().to_primitive().narrow()?,
+            &fsst
+                .uncompressed_lengths()
+                .to_primitive()
+                .vortex_unwrap()
+                .narrow()?,
             is_sample,
             allowed_cascading,
             &[],
         )?;
 
         let compressed_codes_offsets = IntCompressor::compress(
-            &fsst.codes().offsets().to_primitive().narrow()?,
+            &fsst
+                .codes()
+                .offsets()
+                .to_primitive()
+                .vortex_unwrap()
+                .narrow()?,
             is_sample,
             allowed_cascading,
             &[],
@@ -345,13 +357,14 @@ impl Scheme for ConstantScheme {
         _allowed_cascading: usize,
         _excludes: &[Self::CodeType],
     ) -> VortexResult<ArrayRef> {
-        let scalar_idx = (0..stats.source().len()).position(|idx| stats.source().is_valid(idx));
+        let scalar_idx =
+            (0..stats.source().len()).position(|idx| stats.source().is_valid(idx).vortex_unwrap());
 
         match scalar_idx {
             Some(idx) => {
                 let scalar = stats.source().scalar_at(idx);
                 let const_arr = ConstantArray::new(scalar, stats.src.len()).into_array();
-                if !stats.source().all_valid() {
+                if !stats.source().all_valid().vortex_unwrap() {
                     Ok(MaskedArray::try_new(const_arr, stats.src.validity().clone())?.into_array())
                 } else {
                     Ok(const_arr)
@@ -417,7 +430,12 @@ impl Scheme for NullDominated {
             let new_excludes = vec![integer::SparseScheme.code()];
 
             // Don't attempt to compress the non-null values
-            let indices = sparse.patches().indices().to_primitive().narrow()?;
+            let indices = sparse
+                .patches()
+                .indices()
+                .to_primitive()
+                .vortex_unwrap()
+                .narrow()?;
             let compressed_indices = IntCompressor::compress_no_dict(
                 &indices,
                 is_sample,

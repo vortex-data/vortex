@@ -43,7 +43,7 @@ impl CompareKernel for DictVTable {
             };
 
             // We canonicalize the result because dictionary-encoded bools is dumb.
-            return Ok(Some(result.to_canonical().into_array()));
+            return Ok(Some(result.to_canonical()?.into_array()));
         }
 
         // It's a little more complex, but we could perform a comparison against the dictionary
@@ -83,7 +83,7 @@ mod tests {
             Operator::Eq,
         )
         .unwrap();
-        let res = res.to_bool();
+        let res = res.to_bool().unwrap();
         assert_eq!(
             res.bit_buffer().iter().collect::<Vec<_>>(),
             vec![true, false, false]
@@ -104,7 +104,7 @@ mod tests {
             Operator::Gt,
         )
         .unwrap();
-        let res = res.to_bool();
+        let res = res.to_bool().unwrap();
         assert_eq!(
             res.bit_buffer().iter().collect::<Vec<_>>(),
             vec![false, true, true]
@@ -129,13 +129,16 @@ mod tests {
             Operator::Eq,
         )
         .unwrap();
-        let res = res.to_bool();
+        let res = res.to_bool().unwrap();
         assert_eq!(
             res.bit_buffer().iter().collect::<Vec<_>>(),
             vec![false, false, false]
         );
         assert_eq!(res.dtype().nullability(), Nullability::Nullable);
-        assert_eq!(res.validity_mask(), Mask::from_iter([false, true, false]));
+        assert_eq!(
+            res.validity_mask().unwrap(),
+            Mask::from_iter([false, true, false])
+        );
     }
 
     #[test]
@@ -156,12 +159,15 @@ mod tests {
             Operator::Eq,
         )
         .unwrap();
-        let res = res.to_bool();
+        let res = res.to_bool().unwrap();
         assert_eq!(
             res.bit_buffer().iter().collect::<Vec<_>>(),
             vec![false, false, false]
         );
         assert_eq!(res.dtype().nullability(), Nullability::Nullable);
-        assert_eq!(res.validity_mask(), Mask::from_iter([true, true, false]));
+        assert_eq!(
+            res.validity_mask().unwrap(),
+            Mask::from_iter([true, true, false])
+        );
     }
 }

@@ -8,6 +8,7 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
@@ -165,7 +166,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
-        let array = array.to_primitive();
+        let array = array.to_primitive().vortex_expect("to_primitive");
 
         // This should be checked in `extend_from_array` but we can check it again.
         debug_assert_eq!(
@@ -175,7 +176,8 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         );
 
         self.values.extend_from_slice(array.as_slice::<T>());
-        self.nulls.append_validity_mask(array.validity_mask());
+        self.nulls
+            .append_validity_mask(array.validity_mask().vortex_expect("validity_mask"));
     }
 
     fn reserve_exact(&mut self, additional: usize) {

@@ -24,7 +24,7 @@ impl MaskKernel for FixedSizeListVTable {
             FixedSizeListArray::new_unchecked(
                 array.elements().clone(),
                 array.list_size(),
-                array.validity().mask(mask),
+                array.validity().mask(mask)?,
                 array.len(),
             )
         }

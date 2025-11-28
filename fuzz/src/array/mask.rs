@@ -31,11 +31,11 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
             array.into_array()
         }
         Canonical::Bool(array) => {
-            let new_validity = array.validity().mask(mask);
+            let new_validity = array.validity().mask(mask).vortex_unwrap();
             BoolArray::from_bit_buffer(array.bit_buffer().clone(), new_validity).into_array()
         }
         Canonical::Primitive(array) => {
-            let new_validity = array.validity().mask(mask);
+            let new_validity = array.validity().mask(mask).vortex_unwrap();
             PrimitiveArray::from_byte_buffer(
                 array.byte_buffer().clone(),
                 array.ptype(),
@@ -44,14 +44,14 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
             .into_array()
         }
         Canonical::Decimal(array) => {
-            let new_validity = array.validity().mask(mask);
+            let new_validity = array.validity().mask(mask).vortex_unwrap();
             match_each_decimal_value_type!(array.values_type(), |D| {
                 DecimalArray::new(array.buffer::<D>(), array.decimal_dtype(), new_validity)
                     .into_array()
             })
         }
         Canonical::VarBinView(array) => {
-            let new_validity = array.validity().mask(mask);
+            let new_validity = array.validity().mask(mask).vortex_unwrap();
             VarBinViewArray::new(
                 array.views().clone(),
                 array.buffers().clone(),
@@ -61,7 +61,7 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
             .into_array()
         }
         Canonical::List(array) => {
-            let new_validity = array.validity().mask(mask);
+            let new_validity = array.validity().mask(mask).vortex_unwrap();
 
             // SAFETY: Since we are only masking the validity and everything else comes from an
             // already valid `ListViewArray`, all of the invariants are still upheld.
@@ -77,7 +77,7 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
             .into_array()
         }
         Canonical::FixedSizeList(array) => {
-            let new_validity = array.validity().mask(mask);
+            let new_validity = array.validity().mask(mask).vortex_unwrap();
             FixedSizeListArray::new(
                 array.elements().clone(),
                 array.list_size(),
@@ -87,7 +87,7 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
             .into_array()
         }
         Canonical::Struct(array) => {
-            let new_validity = array.validity().mask(mask);
+            let new_validity = array.validity().mask(mask).vortex_unwrap();
             StructArray::try_new_with_dtype(
                 array.fields().clone(),
                 array.struct_fields().clone(),
@@ -100,7 +100,8 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
         Canonical::Extension(array) => {
             // Recursively mask the storage array
             let masked_storage =
-                mask_canonical_array(array.storage().to_canonical(), mask).vortex_unwrap();
+                mask_canonical_array(array.storage().to_canonical().vortex_unwrap(), mask)
+                    .vortex_unwrap();
 
             if masked_storage.dtype().nullability()
                 == array.ext_dtype().storage_dtype().nullability()
@@ -149,7 +150,7 @@ mod tests {
         assert_eq!(result.len(), 5);
         // All values should still be null
         for i in 0..5 {
-            assert!(!result.is_valid(i));
+            assert!(!result.is_valid(i).unwrap());
         }
     }
 
@@ -161,10 +162,10 @@ mod tests {
         let result = mask_canonical_array(array.to_canonical(), &mask).unwrap();
 
         assert_eq!(result.len(), 5);
-        assert!(!result.is_valid(0));
+        assert!(!result.is_valid(0).unwrap());
         assert_eq!(result.scalar_at(1), Scalar::from(Some(false)));
         assert_eq!(result.scalar_at(2), Scalar::from(Some(true)));
-        assert!(!result.is_valid(3));
+        assert!(!result.is_valid(3).unwrap());
         assert_eq!(result.scalar_at(4), Scalar::from(Some(true)));
     }
 
@@ -177,9 +178,9 @@ mod tests {
 
         assert_eq!(result.len(), 5);
         assert_eq!(result.scalar_at(0), Scalar::from(Some(1)));
-        assert!(!result.is_valid(1));
+        assert!(!result.is_valid(1).unwrap());
         assert_eq!(result.scalar_at(2), Scalar::from(Some(3)));
-        assert!(!result.is_valid(3));
+        assert!(!result.is_valid(3).unwrap());
         assert_eq!(result.scalar_at(4), Scalar::from(Some(5)));
     }
 
@@ -191,11 +192,11 @@ mod tests {
         let result = mask_canonical_array(array.to_canonical(), &mask).unwrap();
 
         assert_eq!(result.len(), 5);
-        assert!(!result.is_valid(0));
-        assert!(!result.is_valid(1)); // was already null
+        assert!(!result.is_valid(0).unwrap());
+        assert!(!result.is_valid(1).unwrap()); // was already null
         assert_eq!(result.scalar_at(2), Scalar::from(Some(3)));
-        assert!(!result.is_valid(3));
-        assert!(!result.is_valid(4)); // was already null
+        assert!(!result.is_valid(3).unwrap());
+        assert!(!result.is_valid(4).unwrap()); // was already null
     }
 
     #[test]
@@ -209,11 +210,11 @@ mod tests {
         let result = mask_canonical_array(array.to_canonical(), &mask).unwrap();
 
         assert_eq!(result.len(), 5);
-        assert!(result.is_valid(0));
-        assert!(result.is_valid(1));
-        assert!(!result.is_valid(2));
-        assert!(result.is_valid(3));
-        assert!(result.is_valid(4));
+        assert!(result.is_valid(0).unwrap());
+        assert!(result.is_valid(1).unwrap());
+        assert!(!result.is_valid(2).unwrap());
+        assert!(result.is_valid(3).unwrap());
+        assert!(result.is_valid(4).unwrap());
     }
 
     #[test]
@@ -224,17 +225,17 @@ mod tests {
         let result = mask_canonical_array(array.to_canonical(), &mask).unwrap();
 
         assert_eq!(result.len(), 5);
-        assert!(!result.is_valid(0));
+        assert!(!result.is_valid(0).unwrap());
         assert_eq!(
             result.scalar_at(1),
             Scalar::utf8("two", Nullability::Nullable)
         );
-        assert!(!result.is_valid(2));
+        assert!(!result.is_valid(2).unwrap());
         assert_eq!(
             result.scalar_at(3),
             Scalar::utf8("four", Nullability::Nullable)
         );
-        assert!(!result.is_valid(4));
+        assert!(!result.is_valid(4).unwrap());
     }
 
     #[test]
@@ -252,9 +253,9 @@ mod tests {
         let result = mask_canonical_array(array.to_canonical(), &mask).unwrap();
 
         assert_eq!(result.len(), 3);
-        assert!(result.is_valid(0));
-        assert!(!result.is_valid(1));
-        assert!(result.is_valid(2));
+        assert!(result.is_valid(0).unwrap());
+        assert!(!result.is_valid(1).unwrap());
+        assert!(result.is_valid(2).unwrap());
     }
 
     #[test]
@@ -268,9 +269,9 @@ mod tests {
         let result = mask_canonical_array(array.to_canonical(), &mask).unwrap();
 
         assert_eq!(result.len(), 3);
-        assert!(!result.is_valid(0));
-        assert!(result.is_valid(1));
-        assert!(!result.is_valid(2));
+        assert!(!result.is_valid(0).unwrap());
+        assert!(result.is_valid(1).unwrap());
+        assert!(!result.is_valid(2).unwrap());
     }
 
     #[test]
@@ -292,9 +293,9 @@ mod tests {
         let result = mask_canonical_array(array.to_canonical(), &mask).unwrap();
 
         assert_eq!(result.len(), 3);
-        assert!(result.is_valid(0));
-        assert!(!result.is_valid(1));
-        assert!(result.is_valid(2));
+        assert!(result.is_valid(0).unwrap());
+        assert!(!result.is_valid(1).unwrap());
+        assert!(result.is_valid(2).unwrap());
     }
 
     #[test]
@@ -307,7 +308,7 @@ mod tests {
         assert_eq!(result.len(), 5);
         // All values should be masked out (null)
         for i in 0..5 {
-            assert!(!result.is_valid(i));
+            assert!(!result.is_valid(i).unwrap());
         }
     }
 
@@ -321,7 +322,7 @@ mod tests {
         assert_eq!(result.len(), 5);
         // No values should be masked out
         for i in 0..5 {
-            assert!(result.is_valid(i));
+            assert!(result.is_valid(i).unwrap());
             #[allow(clippy::cast_possible_truncation)]
             let expected = (i + 1) as i32;
             assert_eq!(result.scalar_at(i), Scalar::from(Some(expected)));

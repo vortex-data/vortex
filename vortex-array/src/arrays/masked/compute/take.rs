@@ -18,7 +18,7 @@ use crate::vtable::ValidityHelper;
 
 impl TakeKernel for MaskedVTable {
     fn take(&self, array: &MaskedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let taken_child = if !indices.all_valid() {
+        let taken_child = if !indices.all_valid()? {
             // This is safe because we'll mask out these positions in the validity
             let filled_take = fill_null(
                 indices,

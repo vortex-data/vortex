@@ -68,7 +68,7 @@ impl ArrayIteratorExporter {
             if self.array_exporter.is_none() {
                 if let Some(array) = self.iter.next() {
                     // Create a new array exporter for the current array.
-                    let array = array?.to_struct();
+                    let array = array?.to_struct()?;
                     self.array_exporter = Some(ArrayExporter::try_new(&array, &self.cache)?);
                 } else {
                     // No more arrays to export.
@@ -184,7 +184,7 @@ fn new_array_exporter_with_flatten(
     }
 
     // Otherwise, we fall back to canonical
-    match array.to_canonical() {
+    match array.to_canonical()? {
         Canonical::Null(_) => Ok(all_invalid::new_exporter(
             array.len(),
             &LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL),

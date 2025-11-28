@@ -25,7 +25,7 @@ use crate::vtable::ValidityHelper;
 
 impl TakeKernel for BoolVTable {
     fn take(&self, array: &BoolArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let indices_nulls_zeroed = match indices.validity_mask() {
+        let indices_nulls_zeroed = match indices.validity_mask()? {
             Mask::AllTrue(_) => indices.to_array(),
             Mask::AllFalse(_) => {
                 return Ok(ConstantArray::new(
@@ -36,7 +36,7 @@ impl TakeKernel for BoolVTable {
             }
             Mask::Values(_) => fill_null(indices, &Scalar::from(0).cast(indices.dtype())?)?,
         };
-        let indices_nulls_zeroed = indices_nulls_zeroed.to_primitive();
+        let indices_nulls_zeroed = indices_nulls_zeroed.to_primitive()?;
         let buffer = match_each_integer_ptype!(indices_nulls_zeroed.ptype(), |I| {
             take_valid_indices(array.bit_buffer(), indices_nulls_zeroed.as_slice::<I>())
         });
@@ -101,7 +101,8 @@ mod test {
 
         let b = take(reference.as_ref(), buffer![0, 3, 4].into_array().as_ref())
             .unwrap()
-            .to_bool();
+            .to_bool()
+            .unwrap();
         assert_eq!(
             b.bit_buffer(),
             BoolArray::from_iter([Some(false), None, Some(false)]).bit_buffer()

@@ -24,7 +24,7 @@ impl MaskedArray {
             vortex_bail!("MaskedArray must have nullable validity, got {validity:?}")
         }
 
-        if !child.all_valid() {
+        if !child.all_valid()? {
             vortex_bail!("MaskedArray children must not have nulls");
         }
 
@@ -52,7 +52,7 @@ impl MaskedArray {
 
     pub(crate) fn masked_child(&self) -> VortexResult<ArrayRef> {
         // Invert the validity mask - we want to set values to null where validity is false.
-        let inverted_mask = !self.validity.to_mask(self.len());
+        let inverted_mask = !self.validity.to_mask(self.len())?;
         mask(&self.child, &inverted_mask)
     }
 }

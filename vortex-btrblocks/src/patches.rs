@@ -7,11 +7,17 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::patches::Patches;
 use vortex_error::VortexResult;
+use vortex_error::VortexUnwrap;
 
 /// Compresses the given patches by downscaling integers and checking for constant values.
 pub fn compress_patches(patches: &Patches) -> VortexResult<Patches> {
     // Downscale the patch indices.
-    let indices = patches.indices().to_primitive().narrow()?.into_array();
+    let indices = patches
+        .indices()
+        .to_primitive()
+        .vortex_unwrap()
+        .narrow()?
+        .into_array();
 
     // Check if the values are constant.
     let values = patches.values();

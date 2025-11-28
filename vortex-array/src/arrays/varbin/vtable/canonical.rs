@@ -8,7 +8,7 @@ use arrow_array::StringViewArray;
 use arrow_array::cast::AsArray;
 use arrow_schema::DataType;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -20,14 +20,11 @@ use crate::arrow::IntoArrowArray;
 use crate::vtable::CanonicalVTable;
 
 impl CanonicalVTable<VarBinVTable> for VarBinVTable {
-    fn canonicalize(array: &VarBinArray) -> Canonical {
+    fn canonicalize(array: &VarBinArray) -> VortexResult<Canonical> {
         let dtype = array.dtype().clone();
         let nullable = dtype.is_nullable();
 
-        let array_ref = array
-            .to_array()
-            .into_arrow_preferred()
-            .vortex_expect("VarBinArray must be convertible to arrow array");
+        let array_ref = array.to_array().into_arrow_preferred()?;
 
         let array = match (&dtype, array_ref.data_type()) {
             (DType::Utf8(_), DataType::Utf8) => {
@@ -51,7 +48,9 @@ impl CanonicalVTable<VarBinVTable> for VarBinVTable {
             }
             _ => unreachable!("VarBinArray must have Utf8 or Binary dtype, instead got: {dtype}",),
         };
-        Canonical::VarBinView(ArrayRef::from_arrow(array.as_ref(), nullable).to_varbinview())
+        Ok(Canonical::VarBinView(
+            ArrayRef::from_arrow(array.as_ref(), nullable).to_varbinview()?,
+        ))
     }
 }
 

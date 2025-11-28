@@ -28,7 +28,7 @@ impl TakeKernel for VarBinViewVTable {
         // This is valid since all elements (of all arrays) even null values must be inside
         // min-max valid range.
         let validity = array.validity().take(indices)?;
-        let indices = indices.to_primitive();
+        let indices = indices.to_primitive()?;
 
         let views_buffer = match_each_integer_ptype!(indices.ptype(), |I| {
             // This is valid since all elements even null values are inside the min-max valid range.
@@ -92,7 +92,7 @@ mod tests {
 
         assert!(taken.dtype().is_nullable());
         assert_eq!(
-            taken.to_varbinview().with_iterator(|it| it
+            taken.to_varbinview().unwrap().with_iterator(|it| it
                 .map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
                 .collect::<Vec<_>>()),
             [Some("one".to_string()), Some("four".to_string())]
@@ -111,7 +111,7 @@ mod tests {
 
         assert!(taken.dtype().is_nullable());
         assert_eq!(
-            taken.to_varbinview().with_iterator(|it| it
+            taken.to_varbinview().unwrap().with_iterator(|it| it
                 .map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
                 .collect::<Vec<_>>()),
             [Some("two".to_string()), None]

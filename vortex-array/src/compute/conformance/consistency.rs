@@ -821,17 +821,17 @@ fn test_slice_aggregate_consistency(array: &dyn Array) {
 
     // Get sliced array and canonical slice
     let sliced = array.slice(start..end);
-    let canonical = array.to_canonical();
+    let canonical = array.to_canonical().vortex_unwrap();
     let canonical_sliced = canonical.as_ref().slice(start..end);
 
     // Test null count through invalid_count
     assert_eq!(
-        sliced.invalid_count(),
-        canonical_sliced.invalid_count(),
+        sliced.invalid_count().unwrap(),
+        canonical_sliced.invalid_count().unwrap(),
         "null_count on sliced array should match canonical. \
              Sliced: {}, Canonical: {}",
-        sliced.invalid_count(),
-        canonical_sliced.invalid_count()
+        sliced.invalid_count().unwrap(),
+        canonical_sliced.invalid_count().unwrap()
     );
 
     // Test sum for numeric types
@@ -910,7 +910,7 @@ fn test_cast_slice_consistency(array: &dyn Array) {
     let end = 7.min(len - 2).max(start + 1); // Ensure we have at least 1 element
 
     // Get canonical form of the original array
-    let canonical = array.to_canonical();
+    let canonical = array.to_canonical().vortex_unwrap();
 
     // Choose appropriate target dtype based on the array's type
     let target_dtypes = match array.dtype() {

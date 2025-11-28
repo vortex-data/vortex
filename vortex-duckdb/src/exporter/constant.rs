@@ -31,7 +31,7 @@ pub fn new_exporter_with_mask(
         // TODO(joe): we can splat the constant in a specific exporter and save a copy.
         return Ok(validity::new_exporter(
             mask,
-            new_array_exporter(array.to_canonical().as_ref(), cache)?,
+            new_array_exporter(array.to_canonical()?.as_ref(), cache)?,
         ));
     }
 

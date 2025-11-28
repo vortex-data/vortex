@@ -129,7 +129,7 @@ mod test {
         let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
         let bp = BitPackedArray::encode(array.as_ref(), 2).unwrap();
         let compressed = FoRArray::try_new(bp.clone().into_array(), 10u32.into()).unwrap();
-        let decompressed = fused_decompress::<u32>(&compressed, &bp);
+        let decompressed = fused_decompress::<u32>(&compressed, &bp).unwrap();
         assert_arrays_eq!(decompressed, expect);
     }
 
@@ -154,7 +154,7 @@ mod test {
         let expected_unsigned = PrimitiveArray::from_iter(unsigned);
         assert_arrays_eq!(encoded, expected_unsigned);
 
-        let decompressed = decompress(&compressed);
+        let decompressed = decompress(&compressed).unwrap();
         array
             .as_slice::<i8>()
             .iter()

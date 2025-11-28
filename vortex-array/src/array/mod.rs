@@ -23,7 +23,6 @@ use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -139,37 +138,37 @@ pub trait Array:
     }
 
     /// Returns whether the item at `index` is valid.
-    fn is_valid(&self, index: usize) -> bool;
+    fn is_valid(&self, index: usize) -> VortexResult<bool>;
 
     /// Returns whether the item at `index` is invalid.
-    fn is_invalid(&self, index: usize) -> bool;
+    fn is_invalid(&self, index: usize) -> VortexResult<bool>;
 
     /// Returns whether all items in the array are valid.
     ///
     /// This is usually cheaper than computing a precise `valid_count`.
-    fn all_valid(&self) -> bool;
+    fn all_valid(&self) -> VortexResult<bool>;
 
     /// Returns whether the array is all invalid.
     ///
     /// This is usually cheaper than computing a precise `invalid_count`.
-    fn all_invalid(&self) -> bool;
+    fn all_invalid(&self) -> VortexResult<bool>;
 
     /// Returns the number of valid elements in the array.
-    fn valid_count(&self) -> usize;
+    fn valid_count(&self) -> VortexResult<usize>;
 
     /// Returns the number of invalid elements in the array.
-    fn invalid_count(&self) -> usize;
+    fn invalid_count(&self) -> VortexResult<usize>;
 
     /// Returns the canonical validity mask for the array.
-    fn validity_mask(&self) -> Mask;
+    fn validity_mask(&self) -> VortexResult<Mask>;
 
     /// Returns the canonical representation of the array.
-    fn to_canonical(&self) -> Canonical;
+    fn to_canonical(&self) -> VortexResult<Canonical>;
 
     /// Writes the array into the canonical builder.
     ///
     /// The [`DType`] of the builder must match that of the array.
-    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder);
+    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()>;
 
     /// Returns the statistics of the array.
     // TODO(ngates): change how this works. It's weird.
@@ -240,45 +239,45 @@ impl Array for Arc<dyn Array> {
     }
 
     #[inline]
-    fn is_valid(&self, index: usize) -> bool {
+    fn is_valid(&self, index: usize) -> VortexResult<bool> {
         self.as_ref().is_valid(index)
     }
 
     #[inline]
-    fn is_invalid(&self, index: usize) -> bool {
+    fn is_invalid(&self, index: usize) -> VortexResult<bool> {
         self.as_ref().is_invalid(index)
     }
 
     #[inline]
-    fn all_valid(&self) -> bool {
+    fn all_valid(&self) -> VortexResult<bool> {
         self.as_ref().all_valid()
     }
 
     #[inline]
-    fn all_invalid(&self) -> bool {
+    fn all_invalid(&self) -> VortexResult<bool> {
         self.as_ref().all_invalid()
     }
 
     #[inline]
-    fn valid_count(&self) -> usize {
+    fn valid_count(&self) -> VortexResult<usize> {
         self.as_ref().valid_count()
     }
 
     #[inline]
-    fn invalid_count(&self) -> usize {
+    fn invalid_count(&self) -> VortexResult<usize> {
         self.as_ref().invalid_count()
     }
 
     #[inline]
-    fn validity_mask(&self) -> Mask {
+    fn validity_mask(&self) -> VortexResult<Mask> {
         self.as_ref().validity_mask()
     }
 
-    fn to_canonical(&self) -> Canonical {
+    fn to_canonical(&self) -> VortexResult<Canonical> {
         self.as_ref().to_canonical()
     }
 
-    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) {
+    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         self.as_ref().append_to_builder(builder)
     }
 
@@ -501,7 +500,10 @@ impl<V: VTable> Array for ArrayAdapter<V> {
 
     fn scalar_at(&self, index: usize) -> Scalar {
         assert!(index < self.len(), "index {index} out of bounds");
-        if self.is_invalid(index) {
+        if self
+            .is_invalid(index)
+            .vortex_expect("is_invalid should not fail")
+        {
             return Scalar::null(self.dtype().clone());
         }
         let scalar = <V::OperationsVTable as OperationsVTable<V>>::scalar_at(&self.0, index);
@@ -509,65 +511,65 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         scalar
     }
 
-    fn is_valid(&self, index: usize) -> bool {
+    fn is_valid(&self, index: usize) -> VortexResult<bool> {
         if index >= self.len() {
-            vortex_panic!(OutOfBounds: index, 0, self.len());
+            vortex_bail!(OutOfBounds: index, 0, self.len());
         }
         <V::ValidityVTable as ValidityVTable<V>>::is_valid(&self.0, index)
     }
 
-    fn is_invalid(&self, index: usize) -> bool {
-        !self.is_valid(index)
+    fn is_invalid(&self, index: usize) -> VortexResult<bool> {
+        Ok(!self.is_valid(index)?)
     }
 
-    fn all_valid(&self) -> bool {
+    fn all_valid(&self) -> VortexResult<bool> {
         <V::ValidityVTable as ValidityVTable<V>>::all_valid(&self.0)
     }
 
-    fn all_invalid(&self) -> bool {
+    fn all_invalid(&self) -> VortexResult<bool> {
         <V::ValidityVTable as ValidityVTable<V>>::all_invalid(&self.0)
     }
 
-    fn valid_count(&self) -> usize {
+    fn valid_count(&self) -> VortexResult<usize> {
         if let Some(Precision::Exact(invalid_count)) =
             self.statistics().get_as::<usize>(Stat::NullCount)
         {
-            return self.len() - invalid_count;
+            return Ok(self.len() - invalid_count);
         }
 
-        let count = <V::ValidityVTable as ValidityVTable<V>>::valid_count(&self.0);
+        let count = <V::ValidityVTable as ValidityVTable<V>>::valid_count(&self.0)?;
         assert!(count <= self.len(), "Valid count exceeds array length");
 
         self.statistics()
             .set(Stat::NullCount, Precision::exact(self.len() - count));
 
-        count
+        Ok(count)
     }
 
-    fn invalid_count(&self) -> usize {
+    fn invalid_count(&self) -> VortexResult<usize> {
         if let Some(Precision::Exact(invalid_count)) =
             self.statistics().get_as::<usize>(Stat::NullCount)
         {
-            return invalid_count;
+            return Ok(invalid_count);
         }
 
-        let count = <V::ValidityVTable as ValidityVTable<V>>::invalid_count(&self.0);
+        let count = <V::ValidityVTable as ValidityVTable<V>>::invalid_count(&self.0)?;
         assert!(count <= self.len(), "Invalid count exceeds array length");
 
         self.statistics()
             .set(Stat::NullCount, Precision::exact(count));
 
-        count
+        Ok(count)
     }
 
-    fn validity_mask(&self) -> Mask {
-        let mask = <V::ValidityVTable as ValidityVTable<V>>::validity_mask(&self.0);
+    fn validity_mask(&self) -> VortexResult<Mask> {
+        let mask = <V::ValidityVTable as ValidityVTable<V>>::validity_mask(&self.0)?;
         assert_eq!(mask.len(), self.len(), "Validity mask length mismatch");
-        mask
+        Ok(mask)
     }
 
-    fn to_canonical(&self) -> Canonical {
-        let canonical = <V::CanonicalVTable as CanonicalVTable<V>>::canonicalize(&self.0);
+    fn to_canonical(&self) -> VortexResult<Canonical> {
+        let canonical = <V::CanonicalVTable as CanonicalVTable<V>>::canonicalize(&self.0)?;
         assert_eq!(
             self.len(),
             canonical.as_ref().len(),
@@ -588,12 +590,12 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             .as_ref()
             .statistics()
             .inherit_from(self.statistics());
-        canonical
+        Ok(canonical)
     }
 
-    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) {
+    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         if builder.dtype() != self.dtype() {
-            vortex_panic!(
+            vortex_bail!(
                 "Builder dtype mismatch: expected {}, got {}",
                 self.dtype(),
                 builder.dtype(),
@@ -601,13 +603,14 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         }
         let len = builder.len();
 
-        <V::CanonicalVTable as CanonicalVTable<V>>::append_to_builder(&self.0, builder);
+        <V::CanonicalVTable as CanonicalVTable<V>>::append_to_builder(&self.0, builder)?;
         assert_eq!(
             len + self.len(),
             builder.len(),
             "Builder length mismatch after writing array for encoding {}",
             self.encoding_id(),
         );
+        Ok(())
     }
 
     fn statistics(&self) -> StatsSetRef<'_> {

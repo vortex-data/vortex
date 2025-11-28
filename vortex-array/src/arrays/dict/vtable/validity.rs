@@ -4,6 +4,7 @@
 use vortex_buffer::BitBuffer;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
@@ -14,11 +15,11 @@ use crate::arrays::dict::DictArray;
 use crate::vtable::ValidityVTable;
 
 impl ValidityVTable<DictVTable> for DictVTable {
-    fn is_valid(array: &DictArray, index: usize) -> bool {
+    fn is_valid(array: &DictArray, index: usize) -> VortexResult<bool> {
         let scalar = array.codes().scalar_at(index);
 
         if scalar.is_null() {
-            return false;
+            return Ok(false);
         };
         let values_index: usize = scalar
             .as_ref()
@@ -27,20 +28,20 @@ impl ValidityVTable<DictVTable> for DictVTable {
         array.values().is_valid(values_index)
     }
 
-    fn all_valid(array: &DictArray) -> bool {
-        array.codes().all_valid() && array.values().all_valid()
+    fn all_valid(array: &DictArray) -> VortexResult<bool> {
+        Ok(array.codes().all_valid()? && array.values().all_valid()?)
     }
 
-    fn all_invalid(array: &DictArray) -> bool {
-        array.codes().all_invalid() || array.values().all_invalid()
+    fn all_invalid(array: &DictArray) -> VortexResult<bool> {
+        Ok(array.codes().all_invalid()? || array.values().all_invalid()?)
     }
 
-    fn validity_mask(array: &DictArray) -> Mask {
-        let codes_validity = array.codes().validity_mask();
-        match codes_validity.bit_buffer() {
+    fn validity_mask(array: &DictArray) -> VortexResult<Mask> {
+        let codes_validity = array.codes().validity_mask()?;
+        Ok(match codes_validity.bit_buffer() {
             AllOr::All => {
-                let primitive_codes = array.codes().to_primitive();
-                let values_mask = array.values().validity_mask();
+                let primitive_codes = array.codes().to_primitive()?;
+                let values_mask = array.values().validity_mask()?;
                 let is_valid_buffer = match_each_integer_ptype!(primitive_codes.ptype(), |P| {
                     let codes_slice = primitive_codes.as_slice::<P>();
                     BitBuffer::collect_bool(array.len(), |idx| {
@@ -52,8 +53,8 @@ impl ValidityVTable<DictVTable> for DictVTable {
             }
             AllOr::None => Mask::AllFalse(array.len()),
             AllOr::Some(validity_buff) => {
-                let primitive_codes = array.codes().to_primitive();
-                let values_mask = array.values().validity_mask();
+                let primitive_codes = array.codes().to_primitive()?;
+                let values_mask = array.values().validity_mask()?;
                 let is_valid_buffer = match_each_integer_ptype!(primitive_codes.ptype(), |P| {
                     let codes_slice = primitive_codes.as_slice::<P>();
                     #[allow(clippy::cast_possible_truncation)]
@@ -63,6 +64,6 @@ impl ValidityVTable<DictVTable> for DictVTable {
                 });
                 Mask::from_buffer(is_valid_buffer)
             }
-        }
+        })
     }
 }

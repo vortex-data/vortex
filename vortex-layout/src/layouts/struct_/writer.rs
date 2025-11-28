@@ -94,12 +94,12 @@ impl LayoutStrategy for StructStrategy {
         let columns_vec_stream = stream.map(move |chunk| {
             let (sequence_id, chunk) = chunk?;
             let mut sequence_pointer = sequence_id.descend();
-            let struct_chunk = chunk.to_struct();
+            let struct_chunk = chunk.to_struct()?;
             let mut columns: Vec<(SequenceId, ArrayRef)> = Vec::new();
             if is_nullable {
                 columns.push((
                     sequence_pointer.advance(),
-                    chunk.validity_mask().into_array(),
+                    chunk.validity_mask()?.into_array(),
                 ));
             }
 

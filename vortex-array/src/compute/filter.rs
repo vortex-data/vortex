@@ -106,7 +106,7 @@ impl ComputeFnVTable for Filter {
         }
 
         // If the entire array is null, then we only need to adjust the length of the array.
-        if array.validity_mask().true_count() == 0 {
+        if array.validity_mask()?.true_count() == 0 {
             return Ok(
                 ConstantArray::new(Scalar::null(array.dtype().clone()), true_count)
                     .into_array()
@@ -135,7 +135,7 @@ impl ComputeFnVTable for Filter {
         log::debug!("No filter implementation found for {}", array.encoding_id(),);
 
         if !array.is_canonical() {
-            let canonical = array.to_canonical().into_array();
+            let canonical = array.to_canonical()?.into_array();
             return filter(&canonical, mask).map(Into::into);
         };
 
@@ -237,7 +237,7 @@ impl dyn Array + '_ {
         // Convert nulls to false first in case this can be done cheaply by the encoding.
         let array = fill_null(self, &Scalar::bool(false, self.dtype().nullability()))?;
 
-        Ok(array.to_bool().to_mask_fill_null_false())
+        Ok(array.to_bool()?.to_mask_fill_null_false())
     }
 }
 
@@ -273,7 +273,7 @@ mod test {
 
         let filtered = filter(&items, &mask).unwrap();
         assert_eq!(
-            filtered.to_primitive().as_slice::<i32>(),
+            filtered.to_primitive().unwrap().as_slice::<i32>(),
             &[0i32, 1i32, 2i32]
         );
     }

@@ -87,16 +87,16 @@ impl ComputeFnVTable for Zip {
 
         if !if_true.is_canonical() || !if_false.is_canonical() {
             return zip(
-                if_true.to_canonical().as_ref(),
-                if_false.to_canonical().as_ref(),
+                if_true.to_canonical()?.as_ref(),
+                if_false.to_canonical()?.as_ref(),
                 mask,
             )
             .map(Into::into);
         }
 
         Ok(zip_impl(
-            if_true.to_canonical().as_ref(),
-            if_false.to_canonical().as_ref(),
+            if_true.to_canonical()?.as_ref(),
+            if_false.to_canonical()?.as_ref(),
             mask,
         )?
         .into())

@@ -61,7 +61,7 @@ where
 }
 
 fn compute_is_sorted<T: NativePType>(array: &PrimitiveArray, strict: bool) -> VortexResult<bool> {
-    match array.validity_mask() {
+    match array.validity_mask()? {
         Mask::AllFalse(_) => Ok(!strict),
         Mask::AllTrue(_) => {
             let slice = array.as_slice::<T>();

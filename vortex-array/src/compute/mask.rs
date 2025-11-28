@@ -127,7 +127,7 @@ impl ComputeFnVTable for MaskFn {
         }
 
         // Do nothing if the array is already all nulls.
-        if array.all_invalid() {
+        if array.all_invalid()? {
             return Ok(array.to_array().into());
         }
 

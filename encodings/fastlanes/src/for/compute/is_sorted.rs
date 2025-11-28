@@ -72,7 +72,7 @@ use crate::FoRVTable;
 /// unwrapped values.
 impl IsSortedKernel for FoRVTable {
     fn is_sorted(&self, array: &FoRArray) -> VortexResult<Option<bool>> {
-        let encoded = array.encoded().to_primitive();
+        let encoded = array.encoded().to_primitive()?;
         is_sorted(
             &encoded
                 .reinterpret_cast(encoded.ptype().to_unsigned())
@@ -81,7 +81,7 @@ impl IsSortedKernel for FoRVTable {
     }
 
     fn is_strict_sorted(&self, array: &FoRArray) -> VortexResult<Option<bool>> {
-        let encoded = array.encoded().to_primitive();
+        let encoded = array.encoded().to_primitive()?;
         is_strict_sorted(
             &encoded
                 .reinterpret_cast(encoded.ptype().to_unsigned())

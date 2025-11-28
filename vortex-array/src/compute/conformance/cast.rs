@@ -100,7 +100,7 @@ fn test_cast_from_null(array: &dyn Array) {
 }
 
 fn test_cast_to_non_nullable(array: &dyn Array) {
-    if array.invalid_count() == 0 {
+    if array.invalid_count().unwrap() == 0 {
         let non_nullable = cast(array, &array.dtype().as_nonnullable())
             .vortex_expect("arrays without nulls can cast to non-nullable");
         assert_eq!(non_nullable.dtype(), &array.dtype().as_nonnullable());
@@ -223,7 +223,10 @@ fn test_cast_to_primitive(array: &dyn Array, target_ptype: PType, test_round_tri
             array.display_values(),
         )
     });
-    assert_eq!(array.validity_mask(), casted.validity_mask());
+    assert_eq!(
+        array.validity_mask().vortex_unwrap(),
+        casted.validity_mask().vortex_unwrap()
+    );
     for i in 0..array.len().min(10) {
         let original = array.scalar_at(i);
         let casted = casted.scalar_at(i);

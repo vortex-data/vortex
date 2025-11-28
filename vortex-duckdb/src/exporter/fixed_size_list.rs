@@ -39,12 +39,12 @@ pub(crate) fn new_exporter(
 
     let ltype: LogicalType = array.dtype().try_into()?;
 
-    if let Mask::AllFalse(len) = array.validity_mask() {
+    if let Mask::AllFalse(len) = array.validity_mask()? {
         return Ok(all_invalid::new_exporter(len, &ltype));
     }
 
     Ok(Box::new(FixedSizeListExporter {
-        validity: array.validity_mask(),
+        validity: array.validity_mask()?,
         elements_exporter,
         list_size: array.list_size(),
     }))

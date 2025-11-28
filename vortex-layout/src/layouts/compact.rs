@@ -68,7 +68,7 @@ impl CompactCompressor {
     }
 
     pub fn compress(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
-        self.compress_canonical(array.to_canonical())
+        self.compress_canonical(array.to_canonical()?)
     }
 
     /// Compress a single array using the compact strategy
@@ -144,9 +144,9 @@ impl CompactCompressor {
                 // Note that since the type of our offsets and sizes is not encoded in our `DType`,
                 // we can narrow the widths.
                 let compressed_offsets =
-                    self.compress(&listview.offsets().to_primitive().narrow()?.into_array())?;
+                    self.compress(&listview.offsets().to_primitive()?.narrow()?.into_array())?;
                 let compressed_sizes =
-                    self.compress(&listview.sizes().to_primitive().narrow()?.into_array())?;
+                    self.compress(&listview.sizes().to_primitive()?.narrow()?.into_array())?;
 
                 // SAFETY: Since compression does not change the logical values of arrays, this is
                 // effectively the same array but represented differently, so all invariants that

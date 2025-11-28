@@ -379,7 +379,9 @@ impl Patches {
     /// with the insertion point if not found.
     fn search_index_binary_search(indices: &dyn Array, needle: usize) -> SearchResult {
         if indices.is_canonical() {
-            let primitive = indices.to_primitive();
+            let Ok(primitive) = indices.to_primitive() else {
+                return SearchResult::NotFound(0);
+            };
             match_each_integer_ptype!(primitive.ptype(), |T| {
                 let Ok(needle) = T::try_from(needle) else {
                     // If the needle is not of type T, then it cannot possibly be in this array.
@@ -566,7 +568,7 @@ impl Patches {
             AllOr::All => Ok(Some(self.clone())),
             AllOr::None => Ok(None),
             AllOr::Some(mask_indices) => {
-                let flat_indices = self.indices().to_primitive();
+                let flat_indices = self.indices().to_primitive()?;
                 match_each_unsigned_integer_ptype!(flat_indices.ptype(), |I| {
                     filter_patches_with_mask(
                         flat_indices.as_slice::<I>(),
@@ -595,7 +597,7 @@ impl Patches {
             AllOr::All => return Ok(None),
             AllOr::None => return Ok(Some(self.clone())),
             AllOr::Some(masked) => {
-                let patch_indices = self.indices().to_primitive();
+                let patch_indices = self.indices().to_primitive()?;
                 match_each_unsigned_integer_ptype!(patch_indices.ptype(), |P| {
                     let patch_indices = patch_indices.as_slice::<P>();
                     Mask::from_buffer(BitBuffer::collect_bool(patch_indices.len(), |i| {
@@ -680,7 +682,7 @@ impl Patches {
             return Ok(None);
         }
 
-        let take_indices = take_indices.to_primitive();
+        let take_indices = take_indices.to_primitive()?;
         if self.is_map_faster_than_search(&take_indices) {
             self.take_map(take_indices, true)
         } else {
@@ -696,7 +698,7 @@ impl Patches {
             return Ok(None);
         }
 
-        let take_indices = take_indices.to_primitive();
+        let take_indices = take_indices.to_primitive()?;
         if self.is_map_faster_than_search(&take_indices) {
             self.take_map(take_indices, false)
         } else {
@@ -714,8 +716,12 @@ impl Patches {
         include_nulls: bool,
     ) -> VortexResult<Option<Self>> {
         let take_indices_validity = take_indices.validity();
-        let patch_indices = self.indices.to_primitive();
-        let chunk_offsets = self.chunk_offsets().as_ref().map(|co| co.to_primitive());
+        let patch_indices = self.indices.to_primitive()?;
+        let chunk_offsets = self
+            .chunk_offsets()
+            .as_ref()
+            .map(|co| co.to_primitive())
+            .transpose()?;
 
         let (values_indices, new_indices): (BufferMut<u64>, BufferMut<u64>) =
             match_each_unsigned_integer_ptype!(patch_indices.ptype(), |PatchT| {
@@ -729,7 +735,7 @@ impl Patches {
                             take_indices_with_search_fn(
                                 patch_indices_slice,
                                 take_slice,
-                                take_indices.validity_mask(),
+                                take_indices.validity_mask()?,
                                 include_nulls,
                                 |take_idx| {
                                     self.search_index_chunked_batch(
@@ -744,7 +750,7 @@ impl Patches {
                         take_indices_with_search_fn(
                             patch_indices_slice,
                             take_slice,
-                            take_indices.validity_mask(),
+                            take_indices.validity_mask()?,
                             include_nulls,
                             |take_idx| {
                                 let Some(offset) = <PatchT as NumCast>::from(self.offset) else {
@@ -786,7 +792,7 @@ impl Patches {
         take_indices: PrimitiveArray,
         include_nulls: bool,
     ) -> VortexResult<Option<Self>> {
-        let indices = self.indices.to_primitive();
+        let indices = self.indices.to_primitive()?;
         let new_length = take_indices.len();
 
         let Some((new_sparse_indices, value_indices)) =
@@ -830,8 +836,14 @@ impl Patches {
     /// - All patch indices after offset adjustment must be valid indices into the buffer.
     /// - The buffer and validity mask must have the same length.
     pub unsafe fn apply_to_buffer<P: NativePType>(&self, buffer: &mut [P], validity: &mut MaskMut) {
-        let patch_indices = self.indices.to_primitive();
-        let patch_values = self.values.to_primitive();
+        let patch_indices = self
+            .indices
+            .to_primitive()
+            .vortex_expect("patch indices must be primitive");
+        let patch_values = self
+            .values
+            .to_primitive()
+            .vortex_expect("patch values must be primitive");
         let patches_validity = patch_values.validity();
 
         let patch_values_slice = patch_values.as_slice::<P>();
@@ -932,7 +944,7 @@ unsafe fn apply_patches_to_buffer_inner<P, I>(
         }
         Validity::Array(array) => {
             // Some patch values may be null, check each one.
-            let bool_array = array.to_bool();
+            let bool_array = array.to_bool().vortex_expect("validity array must be bool");
             let mask = bool_array.bit_buffer();
             for (patch_idx, (&i, &value)) in patch_indices.iter().zip_eq(patch_values).enumerate() {
                 let index = i.as_() - patch_offset;
@@ -984,7 +996,8 @@ where
             iter.enumerate()
                 .filter_map(|(idx_in_take, ti)| {
                     // If we have to take nulls the take index doesn't matter, make it 0 for consistency
-                    if include_nulls && take_indices_validity.is_null(idx_in_take) {
+                    if include_nulls && take_indices_validity.is_null(idx_in_take).unwrap_or(false)
+                    {
                         Some((idx_in_take as u64, 0))
                     } else if ti < min_index || ti > max_index {
                         None

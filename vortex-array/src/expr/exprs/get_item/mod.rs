@@ -104,12 +104,12 @@ impl VTable for GetItem {
     }
 
     fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        let input = expr.children()[0].evaluate(scope)?.to_struct();
+        let input = expr.children()[0].evaluate(scope)?.to_struct()?;
         let field = input.field_by_name(expr.data()).cloned()?;
 
         match input.dtype().nullability() {
             Nullability::NonNullable => Ok(field),
-            Nullability::Nullable => mask(&field, &input.validity_mask().not()),
+            Nullability::Nullable => mask(&field, &input.validity_mask()?.not()),
         }
     }
 

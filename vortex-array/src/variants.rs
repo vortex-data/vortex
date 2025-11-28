@@ -110,7 +110,11 @@ impl PrimitiveTyped<'_> {
 
     /// Return the primitive value at the given index.
     pub fn value(&self, idx: usize) -> Option<PValue> {
-        self.0.is_valid(idx).then(|| self.value_unchecked(idx))
+        use vortex_error::VortexExpect as _;
+        self.0
+            .is_valid(idx)
+            .vortex_expect("is_valid")
+            .then(|| self.value_unchecked(idx))
     }
 
     /// Return the primitive value at the given index, ignoring nullability.
@@ -136,7 +140,8 @@ impl IndexOrd<Option<PValue>> for PrimitiveTyped<'_> {
 // TODO(ngates): add generics to the `value` function and implement this over T.
 impl IndexOrd<PValue> for PrimitiveTyped<'_> {
     fn index_cmp(&self, idx: usize, elem: &PValue) -> Option<Ordering> {
-        assert!(self.0.all_valid());
+        use vortex_error::VortexExpect as _;
+        assert!(self.0.all_valid().vortex_expect("all_valid"));
         self.value_unchecked(idx).partial_cmp(elem)
     }
 

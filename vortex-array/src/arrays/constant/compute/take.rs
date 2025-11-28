@@ -18,7 +18,7 @@ use crate::validity::Validity;
 
 impl TakeKernel for ConstantVTable {
     fn take(&self, array: &ConstantArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        match indices.validity_mask().bit_buffer() {
+        match indices.validity_mask()?.bit_buffer() {
             AllOr::All => {
                 let scalar = Scalar::new(
                     array
@@ -71,7 +71,7 @@ mod tests {
     use crate::validity::Validity;
 
     #[test]
-    fn take_nullable_indices() {
+    fn take_nullable_indices() -> VortexResult<()> {
         let array = ConstantArray::new(42, 10).to_array();
         let taken = take(
             &array,
@@ -87,12 +87,13 @@ mod tests {
             &array.dtype().with_nullability(Nullability::Nullable),
             taken.dtype()
         );
-        assert_eq!(taken.to_primitive().as_slice::<i32>(), &[42, 42, 42]);
-        assert_eq!(taken.validity_mask().indices(), AllOr::Some(valid_indices));
+        assert_eq!(taken.to_primitive()?.as_slice::<i32>(), &[42, 42, 42]);
+        assert_eq!(taken.validity_mask()?.indices(), AllOr::Some(valid_indices));
+        Ok(())
     }
 
     #[test]
-    fn take_all_valid_indices() {
+    fn take_all_valid_indices() -> VortexResult<()> {
         let array = ConstantArray::new(42, 10).to_array();
         let taken = take(
             &array,
@@ -103,8 +104,9 @@ mod tests {
             &array.dtype().with_nullability(Nullability::Nullable),
             taken.dtype()
         );
-        assert_eq!(taken.to_primitive().as_slice::<i32>(), &[42, 42, 42]);
-        assert_eq!(taken.validity_mask().indices(), AllOr::All);
+        assert_eq!(taken.to_primitive()?.as_slice::<i32>(), &[42, 42, 42]);
+        assert_eq!(taken.validity_mask()?.indices(), AllOr::All);
+        Ok(())
     }
 
     #[rstest]

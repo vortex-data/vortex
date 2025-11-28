@@ -16,6 +16,7 @@ use vortex_array::register_kernel;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_dtype::match_each_unsigned_integer_ptype;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 
 use crate::BitPackedArray;
@@ -44,12 +45,15 @@ fn bitpacked_is_constant<T: BitPacked, const WIDTH: usize>(
     array: &BitPackedArray,
 ) -> VortexResult<bool> {
     let mut bit_unpack_iterator = array.unpacked_chunks::<T>();
-    let patches = array.patches().map(|p| {
-        let values = p.values().to_primitive();
-        let indices = p.indices().to_primitive();
-        let offset = p.offset();
-        (indices, values, offset)
-    });
+    let patches = array
+        .patches()
+        .map(|p| {
+            let values = p.values().to_primitive()?;
+            let indices = p.indices().to_primitive()?;
+            let offset = p.offset();
+            Ok::<_, VortexError>((indices, values, offset))
+        })
+        .transpose()?;
 
     let mut header_constant_value = None;
     let mut current_idx = 0;

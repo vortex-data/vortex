@@ -7,6 +7,7 @@ use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -26,9 +27,9 @@ use crate::validity::Validity;
 use crate::vtable::CanonicalVTable;
 
 impl CanonicalVTable<ChunkedVTable> for ChunkedVTable {
-    fn canonicalize(array: &ChunkedArray) -> Canonical {
+    fn canonicalize(array: &ChunkedArray) -> VortexResult<Canonical> {
         if array.nchunks() == 0 {
-            return Canonical::empty(array.dtype());
+            return Ok(Canonical::empty(array.dtype()));
         }
         if array.nchunks() == 1 {
             return array.chunks()[0].to_canonical();
@@ -40,26 +41,27 @@ impl CanonicalVTable<ChunkedVTable> for ChunkedVTable {
                     array.chunks(),
                     Validity::copy_from_array(array.as_ref()),
                     struct_dtype,
-                );
-                Canonical::Struct(struct_array)
+                )?;
+                Ok(Canonical::Struct(struct_array))
             }
-            DType::List(elem_dtype, _) => Canonical::List(swizzle_list_chunks(
+            DType::List(elem_dtype, _) => Ok(Canonical::List(swizzle_list_chunks(
                 array.chunks(),
                 Validity::copy_from_array(array.as_ref()),
                 elem_dtype,
-            )),
+            )?)),
             _ => {
                 let mut builder = builder_with_capacity(array.dtype(), array.len());
-                array.append_to_builder(builder.as_mut());
-                builder.finish_into_canonical()
+                array.append_to_builder(builder.as_mut())?;
+                Ok(builder.finish_into_canonical())
             }
         }
     }
 
-    fn append_to_builder(array: &ChunkedArray, builder: &mut dyn ArrayBuilder) {
+    fn append_to_builder(array: &ChunkedArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         for chunk in array.chunks() {
-            chunk.append_to_builder(builder);
+            chunk.append_to_builder(builder)?;
         }
+        Ok(())
     }
 }
 
@@ -71,7 +73,7 @@ fn pack_struct_chunks(
     chunks: &[ArrayRef],
     validity: Validity,
     struct_dtype: &StructFields,
-) -> StructArray {
+) -> VortexResult<StructArray> {
     let len = chunks.iter().map(|chunk| chunk.len()).sum();
     let mut field_arrays = Vec::new();
 
@@ -79,13 +81,14 @@ fn pack_struct_chunks(
         let field_chunks = chunks
             .iter()
             .map(|c| {
-                c.to_struct()
-                    .fields()
-                    .get(field_idx)
-                    .vortex_expect("Invalid field index")
-                    .to_array()
+                c.to_struct().map(|s| {
+                    s.fields()
+                        .get(field_idx)
+                        .vortex_expect("Invalid field index")
+                        .to_array()
+                })
             })
-            .collect::<Vec<_>>();
+            .collect::<VortexResult<Vec<_>>>()?;
 
         // SAFETY: field_chunks are extracted from valid StructArrays with matching dtypes.
         // Each chunk's field array is guaranteed to be valid for field_dtype.
@@ -95,7 +98,7 @@ fn pack_struct_chunks(
 
     // SAFETY: field_arrays are built from corresponding chunks of same length, dtypes match by
     // construction.
-    unsafe { StructArray::new_unchecked(field_arrays, struct_dtype.clone(), len, validity) }
+    Ok(unsafe { StructArray::new_unchecked(field_arrays, struct_dtype.clone(), len, validity) })
 }
 
 /// Packs [`ListViewArray`]s together into a chunked `ListViewArray`.
@@ -107,7 +110,7 @@ fn swizzle_list_chunks(
     chunks: &[ArrayRef],
     validity: Validity,
     elem_dtype: &DType,
-) -> ListViewArray {
+) -> VortexResult<ListViewArray> {
     let len: usize = chunks.iter().map(|c| c.len()).sum();
 
     assert_eq!(
@@ -133,7 +136,7 @@ fn swizzle_list_chunks(
     let mut sizes = BufferMut::<u64>::with_capacity(len);
 
     for chunk in chunks {
-        let chunk_array = chunk.to_listview();
+        let chunk_array = chunk.to_listview()?;
         // By rebuilding as zero-copy to `List` and trimming all elements (to prevent gaps), we make
         // the final output `ListView` also zero-copyable to `List`.
         let chunk_array = chunk_array.rebuild(ListViewRebuildMode::MakeExact);
@@ -145,16 +148,14 @@ fn swizzle_list_chunks(
         let offsets_arr = cast(
             chunk_array.offsets(),
             &DType::Primitive(PType::U64, Nullability::NonNullable),
-        )
-        .vortex_expect("Must be able to fit array offsets in u64")
-        .to_primitive();
+        )?
+        .to_primitive()?;
 
         let sizes_arr = cast(
             chunk_array.sizes(),
             &DType::Primitive(PType::U64, Nullability::NonNullable),
-        )
-        .vortex_expect("Must be able to fit array offsets in u64")
-        .to_primitive();
+        )?
+        .to_primitive()?;
 
         let offsets_slice = offsets_arr.as_slice::<u64>();
         let sizes_slice = sizes_arr.as_slice::<u64>();
@@ -181,10 +182,10 @@ fn swizzle_list_chunks(
     // - Validity came from the outer chunked array so it must have the same length
     // - Since we made sure that all chunks were zero-copyable to a list above, we know that the
     //   final concatenated output is also zero-copyable to a list.
-    unsafe {
+    Ok(unsafe {
         ListViewArray::new_unchecked(chunked_elements, offsets, sizes, validity)
             .with_zero_copy_to_list(true)
-    }
+    })
 }
 
 #[cfg(test)]
@@ -226,9 +227,9 @@ mod tests {
         )
         .unwrap()
         .into_array();
-        let canonical_struct = chunked.to_struct();
-        let canonical_varbin = canonical_struct.fields()[0].to_varbinview();
-        let original_varbin = struct_array.fields()[0].to_varbinview();
+        let canonical_struct = chunked.to_struct().unwrap();
+        let canonical_varbin = canonical_struct.fields()[0].to_varbinview().unwrap();
+        let original_varbin = struct_array.fields()[0].to_varbinview().unwrap();
         let orig_values = original_varbin
             .with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>());
         let canon_values = canonical_varbin
@@ -257,7 +258,7 @@ mod tests {
             List(Arc::new(Primitive(I32, NonNullable)), NonNullable),
         );
 
-        let canon_values = chunked_list.unwrap().to_listview();
+        let canon_values = chunked_list.unwrap().to_listview().unwrap();
 
         assert_eq!(l1.scalar_at(0), canon_values.scalar_at(0));
         assert_eq!(l2.scalar_at(0), canon_values.scalar_at(1));

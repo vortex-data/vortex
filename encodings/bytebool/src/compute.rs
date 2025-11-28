@@ -49,7 +49,7 @@ register_kernel!(CastKernelAdapter(ByteBoolVTable).lift());
 
 impl MaskKernel for ByteBoolVTable {
     fn mask(&self, array: &ByteBoolArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        Ok(ByteBoolArray::new(array.buffer().clone(), array.validity().mask(mask)).into_array())
+        Ok(ByteBoolArray::new(array.buffer().clone(), array.validity().mask(mask)?).into_array())
     }
 }
 
@@ -57,7 +57,7 @@ register_kernel!(MaskKernelAdapter(ByteBoolVTable).lift());
 
 impl TakeKernel for ByteBoolVTable {
     fn take(&self, array: &ByteBoolArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let indices = indices.to_primitive();
+        let indices = indices.to_primitive()?;
         let bools = array.as_slice();
 
         // This handles combining validity from both source array and nullable indices

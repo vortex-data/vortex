@@ -18,7 +18,7 @@ impl MaskKernel for ListVTable {
         ListArray::try_new(
             array.elements().clone(),
             array.offsets().clone(),
-            array.validity().mask(mask),
+            array.validity().mask(mask)?,
         )
         .map(|a| a.into_array())
     }

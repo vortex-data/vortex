@@ -135,7 +135,7 @@ impl ComputeFnVTable for ListContains {
             );
         };
 
-        if value.all_invalid() || array.all_invalid() {
+        if value.all_invalid()? || array.all_invalid()? {
             return Ok(Output::Array(
                 ConstantArray::new(
                     Scalar::null(DType::Bool(Nullability::Nullable)),
@@ -260,7 +260,7 @@ fn list_contains_scalar(
         return Ok(ConstantArray::new(contains.scalar_at(0), array.len()).into_array());
     }
 
-    let list_array = array.to_listview();
+    let list_array = array.to_listview()?;
 
     let elems = list_array.elements();
     if elems.is_empty() {
@@ -270,7 +270,7 @@ fn list_contains_scalar(
 
     let rhs = ConstantArray::new(value.clone(), elems.len());
     let matching_elements = compute::compare(elems, rhs.as_ref(), Operator::Eq)?;
-    let matches = matching_elements.to_bool();
+    let matches = matching_elements.to_bool()?;
 
     // Fast path: no elements match.
     if let Some(pred) = matches.as_constant() {
@@ -302,8 +302,8 @@ fn list_contains_scalar(
     }
 
     // Get the offsets and sizes as primitive arrays.
-    let offsets = list_array.offsets().to_primitive();
-    let sizes = list_array.sizes().to_primitive();
+    let offsets = list_array.offsets().to_primitive()?;
+    let sizes = list_array.sizes().to_primitive()?;
 
     // Process based on the offset and size types.
     let list_matches = match_each_integer_ptype!(offsets.ptype(), |O| {
@@ -400,7 +400,7 @@ fn list_is_not_empty(
         .into_array());
     }
 
-    let sizes = list_array.sizes().to_primitive();
+    let sizes = list_array.sizes().to_primitive()?;
     let buffer = match_each_integer_ptype!(sizes.ptype(), |S| {
         BitBuffer::from_iter(sizes.as_slice::<S>().iter().map(|&size| size != S::zero()))
     });

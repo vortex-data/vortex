@@ -128,10 +128,10 @@ where
 {
     let values_dtype = DType::Primitive(T::Native::PTYPE, array.dtype().nullability());
     let values = cast(array.temporal_values(), &values_dtype)?
-        .to_primitive()
+        .to_primitive()?
         .into_buffer()
         .into_arrow_scalar_buffer();
-    let nulls = to_null_buffer(array.temporal_values().validity_mask());
+    let nulls = to_null_buffer(array.temporal_values().validity_mask()?);
     Ok(ArrowPrimitiveArray::<T>::new(values, nulls))
 }
 

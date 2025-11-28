@@ -120,7 +120,7 @@ mod tests {
         assert_eq!(zipped.nchunks(), 4);
         let mut values: Vec<i32> = Vec::new();
         for chunk in zipped.chunks() {
-            let primitive = chunk.to_primitive();
+            let primitive = chunk.to_primitive().unwrap();
             values.extend_from_slice(primitive.as_slice::<i32>());
         }
         assert_eq!(values, vec![1, 11, 3, 13, 5]);

@@ -13,6 +13,7 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_native_ptype;
 use vortex_dtype::match_each_unsigned_integer_ptype;
+use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
 use crate::FL_CHUNK_SIZE;
@@ -26,6 +27,7 @@ use crate::RLEArray;
 pub fn rle_decompress(array: &RLEArray) -> PrimitiveArray {
     match_each_native_ptype!(array.values().dtype().as_ptype(), |V| {
         match_each_unsigned_integer_ptype!(array.values_idx_offsets().dtype().as_ptype(), |O| {
+            use vortex_dtype::PType;
             // RLE indices are always u16 (or u8 if downcasted).
             match array.indices().dtype().as_ptype() {
                 PType::U8 => rle_decode_typed::<V, u8, O>(array),
@@ -46,10 +48,16 @@ where
     I: NativePType + Into<usize>,
     O: NativePType + AsPrimitive<u64>,
 {
-    let values = array.values().to_primitive();
+    let values = array
+        .values()
+        .to_primitive()
+        .vortex_expect("values cannot fail");
     let values = values.as_slice::<V>();
 
-    let indices = array.indices().to_primitive();
+    let indices = array
+        .indices()
+        .to_primitive()
+        .vortex_expect("indices cannot fail");
     let indices = indices.as_slice::<I>();
     assert_eq!(indices.len() % FL_CHUNK_SIZE, 0);
 
@@ -60,7 +68,10 @@ where
     let mut buffer = BufferMut::<V>::with_capacity(num_chunks * FL_CHUNK_SIZE);
     let buffer_uninit = buffer.spare_capacity_mut();
 
-    let values_idx_offsets = array.values_idx_offsets().to_primitive();
+    let values_idx_offsets = array
+        .values_idx_offsets()
+        .to_primitive()
+        .vortex_expect("values_idx_offsets cannot fail");
     let values_idx_offsets = values_idx_offsets.as_slice::<O>();
 
     for chunk_idx in 0..num_chunks {

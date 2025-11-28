@@ -145,7 +145,7 @@ impl VTable for Select {
     }
 
     fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        let batch = expr.child().evaluate(scope)?.to_struct();
+        let batch = expr.child().evaluate(scope)?.to_struct()?;
         Ok(match expr.data() {
             FieldSelection::Include(f) => batch.project(f.as_ref()),
             FieldSelection::Exclude(names) => {

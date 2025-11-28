@@ -197,7 +197,7 @@ impl VortexWriteOptions {
             if self.file_statistics.is_empty() {
                 None
             } else {
-                Some(FileStatistics(file_stats.stats_sets().into()))
+                Some(FileStatistics(file_stats.stats_sets()?.into()))
             },
             ctx,
         );

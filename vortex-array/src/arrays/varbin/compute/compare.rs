@@ -61,7 +61,7 @@ impl CompareKernel for VarBinVTable {
                     Operator::Gte => BitBuffer::new_set(len), // Every possible value is >= ""
                     Operator::Lt => BitBuffer::new_unset(len), // No value is < ""
                     Operator::Eq | Operator::NotEq | Operator::Gt | Operator::Lte => {
-                        let lhs_offsets = lhs.offsets().to_primitive();
+                        let lhs_offsets = lhs.offsets().to_primitive()?;
                         match_each_integer_ptype!(lhs_offsets.ptype(), |P| {
                             compare_offsets_to_empty::<P>(lhs_offsets, operator)
                         })
@@ -114,7 +114,7 @@ impl CompareKernel for VarBinVTable {
             // NOTE: If the rhs is not a VarBin array it will be canonicalized to a VarBinView
             // Arrow doesn't support comparing VarBin to VarBinView arrays, so we convert ourselves
             // to VarBinView and re-invoke.
-            return Ok(Some(compare(lhs.to_varbinview().as_ref(), rhs, operator)?));
+            return Ok(Some(compare(lhs.to_varbinview()?.as_ref(), rhs, operator)?));
         } else {
             Ok(None)
         }
@@ -166,10 +166,14 @@ mod test {
             Operator::Eq,
         )
         .unwrap()
-        .to_bool();
+        .to_bool()
+        .unwrap();
 
         assert_eq!(
-            &result.validity_mask().to_bit_buffer(),
+            &result
+                .validity_mask()
+                .vortex_expect("validity_mask")
+                .to_bit_buffer(),
             &BitBuffer::from_iter([true, false, true])
         );
         assert_eq!(
@@ -190,10 +194,14 @@ mod test {
         );
         let result = compare(array.as_ref(), vbv.as_ref(), Operator::Eq)
             .unwrap()
-            .to_bool();
+            .to_bool()
+            .unwrap();
 
         assert_eq!(
-            &result.validity_mask().to_bit_buffer(),
+            &result
+                .validity_mask()
+                .vortex_expect("validity_mask")
+                .to_bit_buffer(),
             &BitBuffer::from_iter([false, false, true])
         );
         assert_eq!(

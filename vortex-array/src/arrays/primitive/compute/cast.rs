@@ -45,7 +45,7 @@ impl CastKernel for PrimitiveVTable {
             ));
         }
 
-        let mask = array.validity_mask();
+        let mask = array.validity_mask()?;
 
         // Otherwise, we need to cast the values one-by-one
         Ok(Some(match_each_native_ptype!(new_ptype, |T| {
@@ -117,7 +117,7 @@ mod test {
         let arr = buffer![0u32, 10, 200].into_array();
 
         // cast from u32 to u8
-        let p = cast(&arr, PType::U8.into()).unwrap().to_primitive();
+        let p = cast(&arr, PType::U8.into()).unwrap().to_primitive()?;
         assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
         assert_eq!(p.validity(), &Validity::NonNullable);
 
@@ -127,7 +127,7 @@ mod test {
             &DType::Primitive(PType::U8, Nullability::Nullable),
         )
         .unwrap()
-        .to_primitive();
+        .to_primitive()?;
         assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
         assert_eq!(p.validity(), &Validity::AllValid);
 
@@ -137,7 +137,7 @@ mod test {
             &DType::Primitive(PType::U8, Nullability::NonNullable),
         )
         .unwrap()
-        .to_primitive();
+        .to_primitive()?;
         assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
         assert_eq!(p.validity(), &Validity::NonNullable);
 
@@ -147,7 +147,7 @@ mod test {
             &DType::Primitive(PType::U32, Nullability::Nullable),
         )
         .unwrap()
-        .to_primitive();
+        .to_primitive()?;
         assert_eq!(p.as_slice::<u32>(), vec![0u32, 10, 200]);
         assert_eq!(p.validity(), &Validity::AllValid);
 
@@ -157,7 +157,7 @@ mod test {
             &DType::Primitive(PType::U8, Nullability::NonNullable),
         )
         .unwrap()
-        .to_primitive();
+        .to_primitive()?;
         assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
         assert_eq!(p.validity(), &Validity::NonNullable);
     }
@@ -165,7 +165,7 @@ mod test {
     #[test]
     fn cast_u32_f32() {
         let arr = buffer![0u32, 10, 200].into_array();
-        let u8arr = cast(&arr, PType::F32.into()).unwrap().to_primitive();
+        let u8arr = cast(&arr, PType::F32.into()).unwrap().to_primitive()?;
         assert_eq!(u8arr.as_slice::<f32>(), vec![0.0f32, 10., 200.]);
     }
 
@@ -203,7 +203,7 @@ mod test {
             &DType::Primitive(PType::U32, Nullability::Nullable),
         )
         .unwrap()
-        .to_primitive();
+        .to_primitive()?;
         assert_eq!(p.as_slice::<u32>(), vec![0, 0, 10]);
         assert_eq!(
             p.validity_mask(),

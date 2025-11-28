@@ -52,14 +52,14 @@ fn filter_select_var_bin_by_slice(
     mask_slices: &[(usize, usize)],
     selection_count: usize,
 ) -> VortexResult<VarBinArray> {
-    let offsets = values.offsets().to_primitive();
+    let offsets = values.offsets().to_primitive()?;
     match_each_integer_ptype!(offsets.ptype(), |O| {
         filter_select_var_bin_by_slice_primitive_offset(
             values.dtype().clone(),
             offsets.as_slice::<O>(),
             values.bytes().as_slice(),
             mask_slices,
-            values.validity_mask(),
+            values.validity_mask()?,
             selection_count,
         )
     })
@@ -150,7 +150,7 @@ fn filter_select_var_bin_by_index(
     mask_indices: &[usize],
     selection_count: usize,
 ) -> VortexResult<VarBinArray> {
-    let offsets = values.offsets().to_primitive();
+    let offsets = values.offsets().to_primitive()?;
     match_each_integer_ptype!(offsets.ptype(), |O| {
         filter_select_var_bin_by_index_primitive_offset(
             values.dtype().clone(),
@@ -174,7 +174,7 @@ fn filter_select_var_bin_by_index_primitive_offset<O: IntegerPType>(
 ) -> VortexResult<VarBinArray> {
     let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
     for idx in mask_indices.iter().copied() {
-        if validity.is_valid(idx) {
+        if validity.is_valid(idx)? {
             let (start, end) = (
                 offsets[idx].to_usize().ok_or_else(|| {
                     vortex_err!("Failed to convert offset to usize: {}", offsets[idx])

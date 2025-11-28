@@ -174,7 +174,7 @@ impl<Code: UnsignedPType> DictEncoder for BytesDictBuilder<Code> {
         } else {
             // NOTE(aduffy): it is very rare that this path would be taken, only e.g.
             //  if we're performing dictionary encoding downstream of some other compression.
-            self.encode_bytes(&array.to_varbinview(), len)
+            self.encode_bytes(&array.to_varbinview().vortex_unwrap(), len)
         }
     }
 

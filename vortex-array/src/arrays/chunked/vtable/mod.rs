@@ -93,7 +93,7 @@ impl VTable for ChunkedVTable {
                 // 1 extra offset for the end of the last chunk
                 nchunks + 1,
             )?
-            .to_primitive();
+            .to_primitive()?;
 
         let chunk_offsets_buf = chunk_offsets_array.buffer::<u64>();
 

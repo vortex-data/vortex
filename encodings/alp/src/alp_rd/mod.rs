@@ -31,6 +31,7 @@ use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_error::VortexUnwrap;
 use vortex_error::vortex_panic;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -289,7 +290,7 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     right_bit_width: u8,
     right_parts: BufferMut<T::UINT>,
     left_parts_patches: Option<&Patches>,
-) -> Buffer<T> {
+) -> VortexResult<Buffer<T>> {
     if left_parts.len() != right_parts.len() {
         vortex_panic!("alp_rd_decode: left_parts.len != right_parts.len");
     }
@@ -303,8 +304,8 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
 
     // Apply any patches
     if let Some(patches) = left_parts_patches {
-        let indices = patches.indices().to_primitive();
-        let patch_values = patches.values().to_primitive();
+        let indices = patches.indices().to_primitive()?;
+        let patch_values = patches.values().to_primitive()?;
         match_each_integer_ptype!(indices.ptype(), |T| {
             indices
                 .as_slice::<T>()
@@ -318,14 +319,14 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
 
     // Shift the left-parts and add in the right-parts.
     let mut index = 0;
-    right_parts
+    Ok(right_parts
         .map_each_in_place(|right| {
             let left = values[index];
             index += 1;
             let left = <T as ALPRDFloat>::from_u16(left);
             T::from_bits((left << (right_bit_width as usize)) | right)
         })
-        .freeze()
+        .freeze())
 }
 
 /// Find the best "cut point" for a set of floating point values such that we can

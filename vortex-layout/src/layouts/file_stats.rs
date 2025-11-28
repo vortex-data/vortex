@@ -92,12 +92,12 @@ impl FileStatsAccumulator {
     ) -> VortexResult<(SequenceId, ArrayRef)> {
         let (sequence_id, chunk) = chunk?;
         if chunk.dtype().is_struct() {
-            let chunk = chunk.to_struct();
+            let chunk_struct = chunk.to_struct()?;
             for (acc, field) in self
                 .accumulators
                 .lock()
                 .iter_mut()
-                .zip_eq(chunk.fields().iter())
+                .zip_eq(chunk_struct.fields().iter())
             {
                 acc.push_chunk(field)?;
             }
@@ -107,18 +107,21 @@ impl FileStatsAccumulator {
         Ok((sequence_id, chunk))
     }
 
-    pub fn stats_sets(&self) -> Vec<StatsSet> {
+    pub fn stats_sets(&self) -> VortexResult<Vec<StatsSet>> {
         self.accumulators
             .lock()
             .iter_mut()
             .map(|acc| {
-                acc.as_stats_table()
-                    .map(|table| {
-                        table
-                            .to_stats_set(&self.stats)
-                            .vortex_expect("shouldn't fail to convert table we just created")
-                    })
-                    .unwrap_or_default()
+                acc.as_stats_table().and_then(|table_opt| {
+                    table_opt
+                        .map(|table| {
+                            table
+                                .to_stats_set(&self.stats)
+                                .vortex_expect("shouldn't fail to convert table we just created")
+                        })
+                        .map(Ok)
+                        .unwrap_or_else(|| Ok(StatsSet::default()))
+                })
             })
             .collect()
     }

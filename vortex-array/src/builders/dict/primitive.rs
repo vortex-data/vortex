@@ -126,7 +126,7 @@ where
     fn encode(&mut self, array: &dyn Array) -> ArrayRef {
         let mut codes = BufferMut::<Code>::with_capacity(array.len());
 
-        array.to_primitive().with_iterator(|it| {
+        array.to_primitive().unwrap().with_iterator(|it| {
             for value in it {
                 let Some(code) = self.encode_value(value.copied()) else {
                     break;

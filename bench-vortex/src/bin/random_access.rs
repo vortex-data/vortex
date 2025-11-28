@@ -231,7 +231,7 @@ fn random_access(
 }
 
 fn validate_vortex_array(array: ArrayRef) {
-    let struct_ = array.to_struct();
+    let struct_ = array.to_struct().vortex_expect("to_struct");
     assert_eq!(struct_.len(), 6, "expected 6 rows");
     let pu_location_id = struct_
         .field_by_name("PULocationID")

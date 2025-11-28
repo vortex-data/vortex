@@ -15,7 +15,7 @@ use crate::vtable::ValidityHelper;
 
 impl MaskKernel for StructVTable {
     fn mask(&self, array: &StructArray, filter_mask: &Mask) -> VortexResult<ArrayRef> {
-        let validity = array.validity().mask(filter_mask);
+        let validity = array.validity().mask(filter_mask)?;
 
         StructArray::try_new_with_dtype(
             array.fields().clone(),

@@ -74,7 +74,10 @@ fn build_sizes_from_offsets<O: IntegerPType>(list: &ListArray) -> ArrayRef {
     // Create `UninitRange` for direct memory access.
     let mut sizes_range = sizes_builder.uninit_range(len);
 
-    let offsets = list.offsets().to_primitive();
+    let offsets = list
+        .offsets()
+        .to_primitive()
+        .vortex_expect("list offsets must be primitive");
     let offsets_slice = offsets.as_slice::<O>();
     debug_assert_eq!(len + 1, offsets_slice.len());
     debug_assert!(offsets_slice.is_sorted());
@@ -144,7 +147,10 @@ unsafe fn build_list_offsets_from_list_view<O: IntegerPType>(
     // Create uninit range for direct memory access.
     let mut offsets_range = offsets_builder.uninit_range(len + 1);
 
-    let offsets = list_view.offsets().to_primitive();
+    let offsets = list_view
+        .offsets()
+        .to_primitive()
+        .vortex_expect("listview offsets must be primitive");
     let offsets_slice = offsets.as_slice::<O>();
     debug_assert!(offsets_slice.is_sorted());
 
@@ -182,7 +188,9 @@ pub fn recursive_list_from_list_view(array: ArrayRef) -> ArrayRef {
         return array;
     }
 
-    let canonical = array.to_canonical();
+    let canonical = array
+        .to_canonical()
+        .vortex_expect("canonicalization failed");
 
     match canonical {
         Canonical::List(listview) => {
