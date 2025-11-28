@@ -46,18 +46,15 @@ fn main() {
 
 const NUM_VALUES: u64 = 1_000_000;
 
-// Helper macro to conditionally add counter based on codspeed cfg
-macro_rules! with_counter {
-    ($bencher:expr, $bytes:expr) => {{
-        #[cfg(not(codspeed))]
-        let bencher = $bencher.counter(BytesCount::new($bytes));
-        #[cfg(codspeed)]
-        let bencher = {
-            let _ = $bytes; // Consume the bytes value to avoid unused variable warning
-            $bencher
-        };
-        bencher
-    }};
+// Helper function to conditionally add counter based on codspeed cfg
+fn with_byte_counter<'a, 'b>(bencher: Bencher<'a, 'b>, bytes: u64) -> Bencher<'a, 'b> {
+    #[cfg(not(codspeed))]
+    return bencher.counter(BytesCount::new(bytes));
+    #[cfg(codspeed)]
+    {
+        _ = bytes; // Consume the bytes value to avoid unused variable warning.
+        return bencher;
+    }
 }
 
 // Encoding tree setup functions
@@ -390,7 +387,7 @@ fn decompress(bencher: Bencher, setup_fn: SetupFn) {
     let compressed = setup_fn();
     let nbytes = compressed.nbytes();
 
-    with_counter!(bencher, nbytes)
+    with_byte_counter(bencher, nbytes)
         .with_inputs(|| &compressed)
         .bench_refs(|a| a.to_canonical());
 }
