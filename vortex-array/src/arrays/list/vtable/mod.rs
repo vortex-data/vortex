@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -82,7 +82,7 @@ impl VTable for ListVTable {
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
-        _buffers: &[ByteBuffer],
+        _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ListArray> {
         let validity = if children.len() == 2 {

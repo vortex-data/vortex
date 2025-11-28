@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -87,7 +87,7 @@ impl VTable for BoolVTable {
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
-        buffers: &[ByteBuffer],
+        buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<BoolArray> {
         if buffers.len() != 1 {
@@ -103,7 +103,8 @@ impl VTable for BoolVTable {
             vortex_bail!("Expected 0 or 1 child, got {}", children.len());
         };
 
-        BoolArray::try_new(buffers[0].clone(), metadata.offset as usize, len, validity)
+        let buffer = buffers[0].clone().try_to_bytes()?;
+        BoolArray::try_new(buffer, metadata.offset as usize, len, validity)
     }
 
     fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {

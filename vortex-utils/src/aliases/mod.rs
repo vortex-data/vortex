@@ -13,6 +13,8 @@ pub mod dash_map;
 pub mod hash_map;
 /// HashSet type aliases and re-exports.
 pub mod hash_set;
+mod string_escape;
 
 /// The default hash builder used by HashMap and HashSet.
 pub use hashbrown::DefaultHashBuilder;
+pub use string_escape::StringEscape;

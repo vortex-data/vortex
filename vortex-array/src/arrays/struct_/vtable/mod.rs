@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -78,7 +78,7 @@ impl VTable for StructVTable {
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
-        _buffers: &[ByteBuffer],
+        _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<StructArray> {
         let DType::Struct(struct_dtype, nullability) = dtype else {

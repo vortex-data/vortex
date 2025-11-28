@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_schema::DECIMAL256_MAX_PRECISION;
+use itertools::Itertools;
 use num_traits::AsPrimitive;
-use vortex_dtype::DecimalDType;
+use num_traits::CheckedAdd;
+use vortex_buffer::BitBuffer;
+use vortex_buffer::Buffer;
 use vortex_dtype::DecimalType;
 use vortex_dtype::Nullability::Nullable;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_scalar::DecimalScalar;
 use vortex_scalar::DecimalValue;
@@ -21,32 +22,7 @@ use crate::arrays::DecimalVTable;
 use crate::compute::SumKernel;
 use crate::compute::SumKernelAdapter;
 use crate::register_kernel;
-
-// Its safe to use `AsPrimitive` here because we always cast up.
-macro_rules! sum_decimal {
-    ($ty:ty, $values:expr, $initial:expr) => {{
-        let mut sum: $ty = $initial;
-        for v in $values.iter() {
-            let v: $ty = (*v).as_();
-            sum = num_traits::CheckedAdd::checked_add(&sum, &v)
-                .ok_or_else(|| vortex_err!("Overflow when summing decimal {sum:?} + {v:?}"))?
-        }
-        sum
-    }};
-    ($ty:ty, $values:expr, $validity:expr, $initial:expr) => {{
-        use itertools::Itertools;
-
-        let mut sum: $ty = $initial;
-        for (v, valid) in $values.iter().zip_eq($validity) {
-            if valid {
-                let v: $ty = (*v).as_();
-                sum = num_traits::CheckedAdd::checked_add(&sum, &v)
-                    .ok_or_else(|| vortex_err!("Overflow when summing decimal {sum:?} + {v:?}"))?
-            }
-        }
-        sum
-    }};
-}
+use crate::stats::Stat;
 
 impl SumKernel for DecimalVTable {
     #[expect(
@@ -54,14 +30,12 @@ impl SumKernel for DecimalVTable {
         reason = "complexity from nested match_each_* macros"
     )]
     fn sum(&self, array: &DecimalArray, accumulator: &Scalar) -> VortexResult<Scalar> {
-        let decimal_dtype = array.decimal_dtype();
-
-        // Both Spark and DataFusion use this heuristic.
-        // - https://github.com/apache/spark/blob/fcf636d9eb8d645c24be3db2d599aba2d7e2955a/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/aggregate/Sum.scala#L66
-        // - https://github.com/apache/datafusion/blob/4153adf2c0f6e317ef476febfdc834208bd46622/datafusion/functions-aggregate/src/sum.rs#L188
-        let new_precision = u8::min(DECIMAL256_MAX_PRECISION, decimal_dtype.precision() + 10);
-        let new_scale = decimal_dtype.scale();
-        let return_dtype = DecimalDType::new(new_precision, new_scale);
+        let return_dtype = Stat::Sum
+            .dtype(array.dtype())
+            .vortex_expect("sum for decimals exists");
+        let return_decimal_dtype = return_dtype
+            .as_decimal_opt()
+            .vortex_expect("must be decimal");
 
         // Extract the initial value as a DecimalValue
         let initial_decimal = DecimalScalar::try_from(accumulator)
@@ -74,42 +48,77 @@ impl SumKernel for DecimalVTable {
                 vortex_bail!("invalid state, all-null array should be checked by top-level sum fn")
             }
             Mask::AllTrue(_) => {
-                let values_type = DecimalType::smallest_decimal_value_type(&return_dtype);
+                let values_type = DecimalType::smallest_decimal_value_type(return_decimal_dtype);
                 match_each_decimal_value_type!(array.values_type(), |I| {
                     match_each_decimal_value_type!(values_type, |O| {
                         let initial_val: O = initial_decimal
                             .cast()
                             .vortex_expect("cannot fail to cast initial value");
-                        Ok(Scalar::decimal(
-                            DecimalValue::from(sum_decimal!(O, array.buffer::<I>(), initial_val)),
-                            return_dtype,
-                            Nullable,
-                        ))
+                        if let Some(sum) = sum_decimal(array.buffer::<I>(), initial_val) {
+                            Ok(Scalar::decimal(
+                                DecimalValue::from(sum),
+                                *return_decimal_dtype,
+                                Nullable,
+                            ))
+                        } else {
+                            Ok(Scalar::null(return_dtype))
+                        }
                     })
                 })
             }
             Mask::Values(mask_values) => {
-                let values_type = DecimalType::smallest_decimal_value_type(&return_dtype);
+                let values_type = DecimalType::smallest_decimal_value_type(return_decimal_dtype);
                 match_each_decimal_value_type!(array.values_type(), |I| {
                     match_each_decimal_value_type!(values_type, |O| {
                         let initial_val: O = initial_decimal
                             .cast()
                             .vortex_expect("cannot fail to cast initial value");
-                        Ok(Scalar::decimal(
-                            DecimalValue::from(sum_decimal!(
-                                O,
-                                array.buffer::<I>(),
-                                mask_values.bit_buffer(),
-                                initial_val
-                            )),
-                            return_dtype,
-                            Nullable,
-                        ))
+
+                        if let Some(sum) = sum_decimal_with_validity(
+                            array.buffer::<I>(),
+                            mask_values.bit_buffer(),
+                            initial_val,
+                        ) {
+                            Ok(Scalar::decimal(
+                                DecimalValue::from(sum),
+                                *return_decimal_dtype,
+                                Nullable,
+                            ))
+                        } else {
+                            Ok(Scalar::null(return_dtype))
+                        }
                     })
                 })
             }
         }
     }
+}
+
+fn sum_decimal<T: AsPrimitive<I>, I: Copy + CheckedAdd + 'static>(
+    values: Buffer<T>,
+    initial: I,
+) -> Option<I> {
+    let mut sum = initial;
+    for v in values.iter() {
+        let v: I = v.as_();
+        sum = CheckedAdd::checked_add(&sum, &v)?;
+    }
+    Some(sum)
+}
+
+fn sum_decimal_with_validity<T: AsPrimitive<I>, I: Copy + CheckedAdd + 'static>(
+    values: Buffer<T>,
+    validity: &BitBuffer,
+    initial: I,
+) -> Option<I> {
+    let mut sum = initial;
+    for (v, valid) in values.iter().zip_eq(validity) {
+        if valid {
+            let v: I = v.as_();
+            sum = CheckedAdd::checked_add(&sum, &v)?;
+        }
+    }
+    Some(sum)
 }
 
 register_kernel!(SumKernelAdapter(DecimalVTable).lift());
@@ -120,9 +129,11 @@ mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::DecimalDType;
     use vortex_dtype::Nullability;
+    use vortex_error::VortexUnwrap;
     use vortex_scalar::DecimalValue;
     use vortex_scalar::Scalar;
     use vortex_scalar::ScalarValue;
+    use vortex_scalar::i256;
 
     use crate::arrays::DecimalArray;
     use crate::compute::sum;
@@ -327,8 +338,6 @@ mod tests {
 
     #[test]
     fn test_sum_i128_to_i256_boundary() {
-        use vortex_scalar::i256;
-
         // Test the boundary between i128 and i256 accumulation
         let large_i128 = i128::MAX / 10;
         let decimal = DecimalArray::new(
@@ -350,5 +359,20 @@ mod tests {
         );
 
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_i256_overflow() {
+        let decimal_dtype = DecimalDType::new(76, 0);
+        let decimal = DecimalArray::new(
+            buffer![i256::MAX, i256::MAX, i256::MAX],
+            decimal_dtype,
+            Validity::AllValid,
+        );
+
+        assert_eq!(
+            sum(decimal.as_ref()).vortex_unwrap(),
+            Scalar::null(DType::Decimal(decimal_dtype, Nullability::Nullable))
+        );
     }
 }

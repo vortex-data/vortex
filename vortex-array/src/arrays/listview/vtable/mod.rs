@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -95,7 +95,7 @@ impl VTable for ListViewVTable {
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
-        buffers: &[ByteBuffer],
+        buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ListViewArray> {
         vortex_ensure!(

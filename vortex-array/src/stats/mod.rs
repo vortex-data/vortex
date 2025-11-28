@@ -20,11 +20,10 @@ use num_enum::TryFromPrimitive;
 pub use stats_set::*;
 use vortex_dtype::DType;
 use vortex_dtype::DecimalDType;
-use vortex_dtype::NativeDecimalType;
+use vortex_dtype::MAX_PRECISION;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::Nullability::Nullable;
 use vortex_dtype::PType;
-use vortex_dtype::i256;
 
 mod array;
 mod bound;
@@ -221,8 +220,7 @@ impl Stat {
                         // Both Spark and DataFusion use this heuristic.
                         // - https://github.com/apache/spark/blob/fcf636d9eb8d645c24be3db2d599aba2d7e2955a/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/aggregate/Sum.scala#L66
                         // - https://github.com/apache/datafusion/blob/4153adf2c0f6e317ef476febfdc834208bd46622/datafusion/functions-aggregate/src/sum.rs#L188
-                        let precision =
-                            u8::min(i256::MAX_PRECISION, decimal_dtype.precision() + 10);
+                        let precision = u8::min(MAX_PRECISION, decimal_dtype.precision() + 10);
                         DType::Decimal(
                             DecimalDType::new(precision, decimal_dtype.scale()),
                             Nullable,

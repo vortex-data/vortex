@@ -11,7 +11,7 @@ use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChildSliceHelper;
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -90,7 +90,7 @@ impl VTable for RLEVTable {
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
-        _buffers: &[ByteBuffer],
+        _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<RLEArray> {
         let metadata = &metadata.0;

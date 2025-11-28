@@ -30,7 +30,7 @@ use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_array::vtable::VisitorVTable;
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -115,7 +115,7 @@ impl VTable for DateTimePartsVTable {
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
-        _buffers: &[ByteBuffer],
+        _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<DateTimePartsArray> {
         if children.len() != 3 {

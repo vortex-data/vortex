@@ -12,6 +12,7 @@ use flatbuffers::WIPOffset;
 use flatbuffers::root;
 use itertools::Itertools;
 use vortex_buffer::Alignment;
+use vortex_buffer::BufferHandle;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::TryFromBytes;
@@ -272,7 +273,7 @@ pub struct ArrayParts {
     flatbuffer: FlatBuffer,
     // The location of the current fb::ArrayNode
     flatbuffer_loc: usize,
-    buffers: Arc<[ByteBuffer]>,
+    buffers: Arc<[BufferHandle]>,
 }
 
 impl Debug for ArrayParts {
@@ -384,7 +385,7 @@ impl ArrayParts {
     }
 
     /// Returns the nth buffer of the current array.
-    pub fn buffer(&self, idx: usize) -> VortexResult<ByteBuffer> {
+    pub fn buffer(&self, idx: usize) -> VortexResult<BufferHandle> {
         let buffer_idx = self
             .flatbuffer()
             .buffers()
@@ -413,6 +414,59 @@ impl ArrayParts {
         let mut this = self.clone();
         this.flatbuffer_loc = root._tab.loc();
         this
+    }
+
+    /// Create an [`ArrayParts`] from a pre-existing flatbuffer (ArrayNode) and a segment containing
+    /// only the data buffers (without the flatbuffer suffix).
+    ///
+    /// This is used when the flatbuffer is stored separately in layout metadata (e.g., when
+    /// `FLAT_LAYOUT_INLINE_ARRAY_NODE` is enabled).
+    pub fn from_flatbuffer_and_segment(
+        array_tree: ByteBuffer,
+        segment: BufferHandle,
+    ) -> VortexResult<Self> {
+        // TODO: this can also work with device buffers.
+        let segment = segment.try_to_bytes()?;
+        // We align each buffer individually, so we remove alignment requirements on the buffer.
+        let segment = segment.aligned(Alignment::none());
+
+        let fb_buffer = FlatBuffer::align_from(array_tree);
+
+        // Parse the flatbuffer to extract buffer descriptors and root location.
+        let (flatbuffer_loc, buffers) = {
+            let fb_array = root::<fba::Array>(fb_buffer.as_ref())?;
+            let fb_root = fb_array.root().vortex_expect("Array must have a root node");
+            let flatbuffer_loc = fb_root._tab.loc();
+
+            let mut offset = 0;
+            let buffers: Arc<[_]> = fb_array
+                .buffers()
+                .unwrap_or_default()
+                .iter()
+                .map(|fb_buf| {
+                    // Skip padding
+                    offset += fb_buf.padding() as usize;
+
+                    let buffer_len = fb_buf.length() as usize;
+
+                    // Extract a buffer and ensure it's aligned, copying if necessary
+                    let buffer = segment
+                        .slice(offset..(offset + buffer_len))
+                        .aligned(Alignment::from_exponent(fb_buf.alignment_exponent()));
+
+                    offset += buffer_len;
+                    BufferHandle::Buffer(buffer)
+                })
+                .collect();
+
+            (flatbuffer_loc, buffers)
+        };
+
+        Ok(ArrayParts {
+            flatbuffer: fb_buffer,
+            flatbuffer_loc,
+            buffers,
+        })
     }
 }
 
@@ -456,7 +510,7 @@ impl TryFrom<ByteBuffer> for ArrayParts {
         let fb_root = fb_array.root().vortex_expect("Array must have a root node");
 
         let mut offset = 0;
-        let buffers: Arc<[ByteBuffer]> = fb_array
+        let buffers: Arc<[_]> = fb_array
             .buffers()
             .unwrap_or_default()
             .iter()
@@ -472,7 +526,7 @@ impl TryFrom<ByteBuffer> for ArrayParts {
                     .aligned(Alignment::from_exponent(fb_buffer.alignment_exponent()));
 
                 offset += buffer_len;
-                buffer
+                BufferHandle::Buffer(buffer)
             })
             .collect();
 
@@ -481,5 +535,13 @@ impl TryFrom<ByteBuffer> for ArrayParts {
             flatbuffer_loc: fb_root._tab.loc(),
             buffers,
         })
+    }
+}
+
+impl TryFrom<BufferHandle> for ArrayParts {
+    type Error = VortexError;
+
+    fn try_from(value: BufferHandle) -> Result<Self, Self::Error> {
+        Self::try_from(value.try_to_bytes()?)
     }
 }

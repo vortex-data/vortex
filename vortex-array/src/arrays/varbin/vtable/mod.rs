@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -82,7 +82,7 @@ impl VTable for VarBinVTable {
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
-        buffers: &[ByteBuffer],
+        buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<VarBinArray> {
         let validity = if children.len() == 1 {
@@ -103,7 +103,7 @@ impl VTable for VarBinVTable {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let bytes = buffers[0].clone();
+        let bytes = buffers[0].clone().try_to_bytes()?;
 
         VarBinArray::try_new(offsets, bytes, dtype.clone(), validity)
     }

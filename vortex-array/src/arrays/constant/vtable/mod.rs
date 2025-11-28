@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -74,13 +74,14 @@ impl VTable for ConstantVTable {
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
-        buffers: &[ByteBuffer],
+        buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
     ) -> VortexResult<ConstantArray> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let sv = ScalarValue::from_protobytes(&buffers[0])?;
+        let buffer = buffers[0].clone().try_to_bytes()?;
+        let sv = ScalarValue::from_protobytes(&buffer)?;
         let scalar = Scalar::new(dtype.clone(), sv);
         Ok(ConstantArray::new(scalar, len))
     }

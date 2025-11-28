@@ -18,7 +18,7 @@ use vortex::Canonical;
 use vortex::Precision;
 use vortex::RawMetadata;
 use vortex::SerializeMetadata;
-use vortex::buffer::ByteBuffer;
+use vortex::buffer::BufferHandle;
 use vortex::compute::ComputeFn;
 use vortex::compute::InvocationArgs;
 use vortex::compute::Output;
@@ -134,7 +134,7 @@ impl VTable for PythonVTable {
         _dtype: &DType,
         _len: usize,
         _metadata: &Self::Metadata,
-        _buffers: &[ByteBuffer],
+        _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
     ) -> VortexResult<PythonArray> {
         todo!()

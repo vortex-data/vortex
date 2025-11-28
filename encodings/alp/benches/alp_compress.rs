@@ -11,7 +11,7 @@ use vortex_alp::ALPFloat;
 use vortex_alp::ALPRDFloat;
 use vortex_alp::RDEncoder;
 use vortex_alp::alp_encode;
-use vortex_alp::decompress;
+use vortex_alp::decompress_into_array;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::warm_up_vtables;
 use vortex_array::validity::Validity;
@@ -97,7 +97,37 @@ fn decompress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64
             )
             .unwrap()
         })
-        .bench_values(decompress);
+        .bench_values(decompress_into_array);
+}
+
+#[divan::bench(types = [f32, f64], args = BENCH_ARGS)]
+fn decompress_alp_vector<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64, f64)) {
+    let (n, fraction_patch, fraction_valid) = args;
+    let mut rng = StdRng::seed_from_u64(0);
+    let mut values = buffer![T::from(1.234).unwrap(); n].into_mut();
+    if fraction_patch > 0.0 {
+        for index in 0..values.len() {
+            if rng.random_bool(fraction_patch) {
+                values[index] = T::from(1000.0).unwrap()
+            }
+        }
+    }
+    let validity = if fraction_valid < 1.0 {
+        Validity::from_iter((0..values.len()).map(|_| rng.random_bool(fraction_valid)))
+    } else {
+        Validity::NonNullable
+    };
+    let values = values.freeze();
+    bencher
+        .with_inputs(|| {
+            let alp_array = alp_encode(
+                &PrimitiveArray::new(Buffer::copy_from(&values), validity.clone()),
+                None,
+            )
+            .unwrap();
+            alp_array.to_array()
+        })
+        .bench_refs(|array| array.execute().unwrap());
 }
 
 #[divan::bench(types = [f32, f64], args = [10_000, 100_000])]

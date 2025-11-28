@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp;
+use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::sync::Arc;
@@ -14,6 +16,7 @@ use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_utils::aliases::StringEscape;
 
 use crate::InnerScalarValue;
 use crate::Scalar;
@@ -30,10 +33,10 @@ pub struct Utf8Scalar<'a> {
 }
 
 impl Display for Utf8Scalar<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match &self.value {
             None => write!(f, "null"),
-            Some(v) => write!(f, "\"{}\"", v.as_str()),
+            Some(v) => write!(f, "\"{}\"", StringEscape(v.as_str())),
         }
     }
 }
@@ -45,13 +48,13 @@ impl PartialEq for Utf8Scalar<'_> {
 }
 
 impl PartialOrd for Utf8Scalar<'_> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl Ord for Utf8Scalar<'_> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
         self.value.cmp(&other.value)
     }
 }
