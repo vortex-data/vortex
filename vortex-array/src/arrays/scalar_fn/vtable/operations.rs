@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
+use vortex_error::VortexExpect;
+use vortex_scalar::Scalar;
+use vortex_vector::Datum;
+
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::functions::ExecutionCtx;
 use crate::vtable::OperationsVTable;
-use crate::{ArrayRef, IntoArray};
-use std::ops::Range;
-use vortex_error::VortexExpect;
-use vortex_scalar::Scalar;
-use vortex_vector::Datum;
 
 impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
     fn slice(array: &ScalarFnArray, range: Range<usize>) -> ArrayRef {

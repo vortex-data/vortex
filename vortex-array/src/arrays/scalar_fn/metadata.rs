@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::functions::scalar::ScalarFn;
 use vortex_dtype::DType;
+
+use crate::functions::scalar::ScalarFn;
 
 #[derive(Clone, Debug)]
 pub struct ScalarFnMetadata {

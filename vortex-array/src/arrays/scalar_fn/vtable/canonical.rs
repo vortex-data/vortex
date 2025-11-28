@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use itertools::Itertools;
+use vortex_error::VortexExpect;
+use vortex_vector::Datum;
+
+use crate::Array;
+use crate::Canonical;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::functions::ExecutionCtx;
 use crate::vectors::VectorIntoArray;
 use crate::vtable::CanonicalVTable;
-use crate::{Array, Canonical};
-use itertools::Itertools;
-use vortex_error::VortexExpect;
-use vortex_vector::Datum;
 
 impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
     fn canonicalize(array: &ScalarFnArray) -> Canonical {

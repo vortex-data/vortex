@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_vector::Vector;
 use vortex_vector::VectorMutOps;
 use vortex_vector::VectorOps;
-use vortex_vector::Vector;
 
 use crate::pipeline::BitView;
 use crate::pipeline::Kernel;
@@ -57,10 +57,10 @@ mod test {
     use vortex_dtype::PTypeDowncastExt;
     use vortex_mask::Mask;
 
-    use crate::pipeline::driver::PipelineDriver;
     use crate::Array;
     use crate::ArrayOperator;
     use crate::IntoArray;
+    use crate::pipeline::driver::PipelineDriver;
 
     #[test]
     fn test_pipeline_input() {

@@ -4,12 +4,12 @@
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
+use crate::expr::Expression;
 use crate::expr::session::RewriteRuleRegistry;
 use crate::expr::transform::rules::RuleContext;
 use crate::expr::transform::rules::TypedRuleContext;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::Transformed;
-use crate::expr::Expression;
 
 /// Unlike `simplify`, this function simplifies an expression under the assumption that scope is
 /// a known DType. Simplification is applied first and then additional dtype-aware rules.

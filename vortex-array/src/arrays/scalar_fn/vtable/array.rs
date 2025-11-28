@@ -1,13 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hash;
+use std::hash::Hasher;
+
+use vortex_dtype::DType;
+
+use crate::ArrayEq;
+use crate::ArrayHash;
+use crate::Precision;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::stats::StatsSetRef;
 use crate::vtable::BaseArrayVTable;
-use crate::{ArrayEq, ArrayHash, Precision};
-use std::hash::{Hash, Hasher};
-use vortex_dtype::DType;
 
 impl BaseArrayVTable<ScalarFnVTable> for ScalarFnVTable {
     fn len(array: &ScalarFnArray) -> usize {
@@ -35,10 +40,10 @@ impl BaseArrayVTable<ScalarFnVTable> for ScalarFnVTable {
         if array.len != other.len {
             return false;
         }
-        if &array.dtype != &other.dtype {
+        if array.dtype != other.dtype {
             return false;
         }
-        if &array.scalar_fn != &other.scalar_fn {
+        if array.scalar_fn != other.scalar_fn {
             return false;
         }
         for (child, other_child) in array.children.iter().zip(other.children.iter()) {

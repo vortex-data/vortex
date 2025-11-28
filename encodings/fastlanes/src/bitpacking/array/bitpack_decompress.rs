@@ -3,26 +3,26 @@
 
 use fastlanes::BitPacking;
 use itertools::Itertools;
+use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::PrimitiveBuilder;
 use vortex_array::builders::UninitRange;
 use vortex_array::patches::Patches;
-use vortex_array::ToCanonical;
 use vortex_buffer::BufferMut;
-use vortex_dtype::match_each_integer_ptype;
-use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::NativePType;
-use vortex_error::vortex_panic;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexExpect;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 use vortex_vector::primitive::PVectorMut;
 use vortex_vector::primitive::PrimitiveVectorMut;
 
-use crate::unpack_iter::BitPacked;
 use crate::BitPackedArray;
+use crate::unpack_iter::BitPacked;
 
 /// Unpacks a bit-packed array into a primitive vector.
 pub fn unpack_to_primitive_vector(array: &BitPackedArray) -> PrimitiveVectorMut {
@@ -201,19 +201,19 @@ pub fn count_exceptions(bit_width: u8, bit_width_freq: &[usize]) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::IntoArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
-    use vortex_array::IntoArray;
-    use vortex_buffer::buffer;
     use vortex_buffer::Buffer;
     use vortex_buffer::BufferMut;
+    use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_vector::VectorMutOps;
     use vortex_vector::VectorOps;
 
     use super::*;
-    use crate::bitpack_compress::bitpack_encode;
     use crate::BitPackedVTable;
+    use crate::bitpack_compress::bitpack_encode;
 
     fn compression_roundtrip(n: usize) {
         let values = PrimitiveArray::from_iter((0..n).map(|i| (i % 2047) as u16));

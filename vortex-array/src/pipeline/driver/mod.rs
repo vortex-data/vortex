@@ -12,26 +12,15 @@ use std::hash::Hash;
 use std::hash::Hasher;
 
 use itertools::Itertools;
-use vortex_error::vortex_ensure;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_map::RandomState;
 use vortex_vector::Vector;
 use vortex_vector::VectorOps;
 
-use crate::pipeline::driver::allocation::allocate_vectors;
-use crate::pipeline::driver::bind::bind_kernels;
-use crate::pipeline::driver::output::OutputSink;
-use crate::pipeline::driver::toposort::topological_sort;
-use crate::pipeline::BitView;
-use crate::pipeline::Kernel;
-use crate::pipeline::KernelCtx;
-use crate::pipeline::PipelineInputs;
-use crate::pipeline::Sink;
-use crate::pipeline::VectorId;
-use crate::pipeline::N;
 use crate::Array;
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -39,6 +28,17 @@ use crate::ArrayOperator;
 use crate::ArrayRef;
 use crate::ArrayVisitor;
 use crate::Precision;
+use crate::pipeline::BitView;
+use crate::pipeline::Kernel;
+use crate::pipeline::KernelCtx;
+use crate::pipeline::N;
+use crate::pipeline::PipelineInputs;
+use crate::pipeline::Sink;
+use crate::pipeline::VectorId;
+use crate::pipeline::driver::allocation::allocate_vectors;
+use crate::pipeline::driver::bind::bind_kernels;
+use crate::pipeline::driver::output::OutputSink;
+use crate::pipeline::driver::toposort::topological_sort;
 
 /// A pipeline driver takes a Vortex array and executes it into a canonical vector.
 ///

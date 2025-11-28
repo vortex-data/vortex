@@ -3,6 +3,8 @@
 
 use vortex_error::vortex_panic;
 
+use crate::ScalarOps;
+use crate::VectorMut;
 use crate::binaryview::BinaryScalar;
 use crate::binaryview::StringScalar;
 use crate::bool::BoolScalar;
@@ -13,8 +15,6 @@ use crate::match_each_scalar;
 use crate::null::NullScalar;
 use crate::primitive::PrimitiveScalar;
 use crate::struct_::StructScalar;
-use crate::ScalarOps;
-use crate::VectorMut;
 
 /// Represents a scalar value of any supported type.
 #[derive(Debug)]

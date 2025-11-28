@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::DeserializeMetadata;
+use vortex_array::ProstMetadata;
+use vortex_array::SerializeMetadata;
 use vortex_array::execution::ExecutionCtx;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
@@ -13,21 +16,18 @@ use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromValidityHelper;
-use vortex_array::DeserializeMetadata;
-use vortex_array::ProstMetadata;
-use vortex_array::SerializeMetadata;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_vector::Vector;
 use vortex_vector::VectorMutOps;
 
-use crate::bitpack_decompress::unpack_to_primitive_vector;
 use crate::BitPackedArray;
+use crate::bitpack_decompress::unpack_to_primitive_vector;
 
 mod array;
 mod canonical;

@@ -5,11 +5,12 @@ use std::fmt::Formatter;
 
 use vortex_compute::logical::LogicalNot;
 use vortex_dtype::DType;
-use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_vector::Vector;
 
+use crate::ArrayRef;
 use crate::compute::invert;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -18,7 +19,6 @@ use crate::expr::Expression;
 use crate::expr::ExpressionView;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::ArrayRef;
 
 /// Expression that logically inverts boolean values.
 pub struct Not;
@@ -109,12 +109,12 @@ mod tests {
     use vortex_dtype::Nullability;
 
     use super::not;
+    use crate::ToCanonical;
     use crate::arrays::BoolArray;
     use crate::expr::exprs::get_item::col;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::root::root;
     use crate::expr::test_harness;
-    use crate::ToCanonical;
 
     #[test]
     fn invert_booleans() {

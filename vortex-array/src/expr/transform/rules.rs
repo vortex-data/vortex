@@ -8,6 +8,7 @@
 
 use std::fmt::Debug;
 use std::marker::PhantomData;
+
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 

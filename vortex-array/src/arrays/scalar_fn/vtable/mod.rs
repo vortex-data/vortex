@@ -7,17 +7,27 @@ mod operations;
 mod validity;
 mod visitor;
 
-use crate::arrays::scalar_fn::array::ScalarFnArray;
-use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
-use crate::execution::ExecutionCtx;
-use crate::serde::ArrayChildren;
-use crate::vtable::{ArrayId, ArrayVTable, ArrayVTableExt, NotSupported, VTable};
-use crate::{functions, vtable, Array};
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_ensure, VortexExpect, VortexResult};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_vector::Vector;
+
+use crate::Array;
+use crate::arrays::scalar_fn::array::ScalarFnArray;
+use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
+use crate::execution::ExecutionCtx;
+use crate::functions;
+use crate::serde::ArrayChildren;
+use crate::vtable;
+use crate::vtable::ArrayId;
+use crate::vtable::ArrayVTable;
+use crate::vtable::ArrayVTableExt;
+use crate::vtable::NotSupported;
+use crate::vtable::VTable;
 
 vtable!(ScalarFn);
 

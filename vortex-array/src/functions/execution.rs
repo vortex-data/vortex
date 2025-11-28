@@ -5,7 +5,8 @@
 // TODO(ngates): these definitions should be lifted out of the functions module.
 
 use vortex_dtype::DType;
-use vortex_vector::{Datum, VectorOps};
+use vortex_vector::Datum;
+use vortex_vector::VectorOps;
 
 /// Context provided when executing an object using vectorized execution.
 pub struct ExecutionCtx {

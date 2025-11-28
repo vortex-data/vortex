@@ -12,10 +12,12 @@ use std::fmt::Debug;
 pub use operator::ExprOptimizationRule;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::vortex_bail;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_vector::Vector;
 
+use crate::Array;
+use crate::ArrayOperator;
 use crate::arrays::expr::ExprArray;
 use crate::execution::ExecutionCtx;
 use crate::expr::Expression;
@@ -26,8 +28,6 @@ use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
-use crate::Array;
-use crate::ArrayOperator;
 
 vtable!(Expr);
 

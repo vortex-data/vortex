@@ -4,6 +4,8 @@
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::NativePType;
 
+use crate::Scalar;
+use crate::Vector;
 use crate::binaryview::BinaryViewScalar;
 use crate::binaryview::BinaryViewType;
 use crate::binaryview::BinaryViewVector;
@@ -25,7 +27,6 @@ use crate::primitive::PrimitiveScalar;
 use crate::primitive::PrimitiveVector;
 use crate::struct_::StructScalar;
 use crate::struct_::StructVector;
-use crate::{Scalar, Vector};
 
 /// Represents either a scalar or vector value.
 #[derive(Debug)]

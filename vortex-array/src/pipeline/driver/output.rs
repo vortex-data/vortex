@@ -10,8 +10,8 @@ use vortex_vector::VectorMutOps;
 use vortex_vector::VectorOps;
 
 use crate::pipeline::BitView;
-use crate::pipeline::Sink;
 use crate::pipeline::N;
+use crate::pipeline::Sink;
 
 pub struct OutputSink {
     vector: VectorMut,

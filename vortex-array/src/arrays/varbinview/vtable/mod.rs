@@ -6,14 +6,15 @@ use std::sync::Arc;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_vector::Vector;
 use vortex_vector::binaryview::BinaryVector;
 use vortex_vector::binaryview::BinaryView;
 use vortex_vector::binaryview::StringVector;
-use vortex_vector::Vector;
 
+use crate::EmptyMetadata;
 use crate::arrays::varbinview::VarBinViewArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
@@ -25,7 +26,6 @@ use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
-use crate::EmptyMetadata;
 
 mod array;
 mod canonical;

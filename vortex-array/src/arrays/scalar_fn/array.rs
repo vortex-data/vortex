@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_dtype::DType;
+
+use crate::ArrayRef;
 use crate::functions::scalar::ScalarFn;
 use crate::stats::ArrayStats;
 use crate::vtable::ArrayVTable;
-use crate::ArrayRef;
-use vortex_dtype::DType;
 
 #[derive(Clone, Debug)]
 pub struct ScalarFnArray {

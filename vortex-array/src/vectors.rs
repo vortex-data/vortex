@@ -3,13 +3,15 @@
 
 use std::sync::Arc;
 
-use vortex_dtype::match_each_decimal_value_type;
-use vortex_dtype::match_each_native_ptype;
 use vortex_dtype::DType;
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability::NonNullable;
+use vortex_dtype::match_each_decimal_value_type;
+use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
+use vortex_vector::Vector;
+use vortex_vector::VectorOps;
 use vortex_vector::binaryview::BinaryViewType;
 use vortex_vector::binaryview::BinaryViewVector;
 use vortex_vector::bool::BoolVector;
@@ -21,9 +23,9 @@ use vortex_vector::null::NullVector;
 use vortex_vector::primitive::PVector;
 use vortex_vector::primitive::PrimitiveVector;
 use vortex_vector::struct_::StructVector;
-use vortex_vector::Vector;
-use vortex_vector::VectorOps;
 
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::ExtensionArray;
@@ -34,8 +36,6 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
 use crate::validity::Validity;
-use crate::ArrayRef;
-use crate::IntoArray;
 
 /// Trait for converting vector types into arrays.
 pub trait VectorIntoArray {
@@ -129,7 +129,7 @@ impl<D: NativeDecimalType> VectorIntoArray for DVector<D> {
         unsafe {
             DecimalArray::new_unchecked::<D>(
                 values,
-                dec_dtype.clone(),
+                *dec_dtype,
                 Validity::from_mask(validity, nullability),
             )
         }
@@ -169,7 +169,7 @@ impl VectorIntoArray for ListViewVector {
         let elements_dtype = dtype.as_list_element_opt().vortex_expect("expected list");
         let elements = Arc::try_unwrap(elements)
             .unwrap_or_else(|e| (*e).clone())
-            .into_array(&elements_dtype);
+            .into_array(elements_dtype);
 
         let offsets_dtype = DType::Primitive(offsets.ptype(), NonNullable);
         let offsets = offsets.into_array(&offsets_dtype);
@@ -195,7 +195,7 @@ impl VectorIntoArray for FixedSizeListVector {
             .vortex_expect("expected fixed size list");
         let elements = Arc::try_unwrap(elements)
             .unwrap_or_else(|e| (*e).clone())
-            .into_array(&elements_dtype);
+            .into_array(elements_dtype);
 
         // SAFETY: vectors maintain all invariants required for array creation
         unsafe { FixedSizeListArray::new_unchecked(elements, size, validity, len) }.into_array()

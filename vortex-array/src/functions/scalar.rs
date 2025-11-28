@@ -2,16 +2,23 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
+
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_utils::debug_with::DebugWith;
-use vortex_vector::{Datum, Scalar};
+use vortex_vector::Datum;
+use vortex_vector::Scalar;
 
+use crate::functions::Arity;
+use crate::functions::Monotonicity;
+use crate::functions::NullHandling;
+use crate::functions::ScalarFnVTable;
 use crate::functions::execution::ExecutionCtx;
-use crate::functions::{Arity, Monotonicity, NullHandling, ScalarFnVTable};
 
 /// An instance of a scalar function bound to some invocation options.
 pub struct ScalarFn {

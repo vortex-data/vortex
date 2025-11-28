@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::functions::scalar::ScalarFn;
-use vortex_session::registry::Registry;
 use vortex_session::Ref;
 use vortex_session::SessionExt;
+use vortex_session::registry::Registry;
+
+use crate::functions::scalar::ScalarFn;
 
 #[derive(Default, Clone, Debug)]
 pub struct FunctionSession {

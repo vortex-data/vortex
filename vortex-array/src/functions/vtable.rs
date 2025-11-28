@@ -12,14 +12,15 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_vector::{Datum, Scalar};
+use vortex_error::vortex_bail;
+use vortex_vector::Datum;
+use vortex_vector::Scalar;
 
+use crate::functions::FunctionId;
 use crate::functions::execution::ExecutionCtx;
 use crate::functions::scalar::ScalarFn;
-use crate::functions::FunctionId;
 
 /// A non-object-safe vtable trait for scalar function types.
 ///
@@ -134,7 +135,7 @@ pub trait VTable: 'static + Send + Sync {
     ///
     /// # Examples
     /// - `x < y`: antitone in x (larger x → less likely to be less than y),
-    ///            isotone in y (larger y → more likely that x < y)
+    ///   isotone in y (larger y → more likely that x < y)
     /// - `x + y`: isotone in both arguments
     /// - `x - y`: isotone in x, antitone in y
     /// - `ABS(x)`: neither (non-monotonic)

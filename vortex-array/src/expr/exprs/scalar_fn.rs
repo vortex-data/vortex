@@ -1,21 +1,30 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::expr::transform::rules::Matcher;
-use crate::expr::{
-    ChildName, ExecutionArgs, ExprId, Expression, ExpressionView, StatsCatalog, VTable,
-};
-use crate::functions::scalar::ScalarFn;
-use crate::functions::ScalarFnVTable;
-use crate::stats::Stat;
-use crate::{functions, ArrayRef};
-use itertools::Itertools;
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::marker::PhantomData;
+
+use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_session::SessionVar;
 use vortex_vector::Vector;
+
+use crate::ArrayRef;
+use crate::expr::ChildName;
+use crate::expr::ExecutionArgs;
+use crate::expr::ExprId;
+use crate::expr::Expression;
+use crate::expr::ExpressionView;
+use crate::expr::StatsCatalog;
+use crate::expr::VTable;
+use crate::expr::transform::rules::Matcher;
+use crate::functions;
+use crate::functions::ScalarFnVTable;
+use crate::functions::scalar::ScalarFn;
+use crate::stats::Stat;
 
 /// An expression that wraps arbitrary scalar functions.
 ///

@@ -10,10 +10,12 @@ mod visitor;
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::vortex_bail;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_vector::Vector;
 
+use crate::ArrayOperator;
+use crate::EmptyMetadata;
 use crate::arrays::extension::ExtensionArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
@@ -24,8 +26,6 @@ use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromChild;
-use crate::ArrayOperator;
-use crate::EmptyMetadata;
 
 vtable!(Extension);
 

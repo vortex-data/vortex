@@ -11,18 +11,18 @@ use std::sync::Arc;
 use arcref::ArcRef;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 
-use crate::serde::ArrayChildren;
-use crate::vtable::EncodeVTable;
-use crate::vtable::VTable;
 use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
+use crate::serde::ArrayChildren;
+use crate::vtable::EncodeVTable;
+use crate::vtable::VTable;
 
 /// ArrayId is a globally unique name for the array's vtable.
 pub type ArrayId = ArcRef<str>;

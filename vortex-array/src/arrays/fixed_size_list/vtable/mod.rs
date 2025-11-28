@@ -5,12 +5,14 @@ use std::sync::Arc;
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
+use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::VortexResult;
-use vortex_vector::fixed_size_list::FixedSizeListVector;
 use vortex_vector::Vector;
+use vortex_vector::fixed_size_list::FixedSizeListVector;
 
+use crate::ArrayOperator;
+use crate::EmptyMetadata;
 use crate::arrays::FixedSizeListArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
@@ -22,8 +24,6 @@ use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
-use crate::ArrayOperator;
-use crate::EmptyMetadata;
 
 mod array;
 mod canonical;
