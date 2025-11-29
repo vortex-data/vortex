@@ -334,12 +334,12 @@ impl fmt::Display for EmptyOptions {
 
 pub trait ScalarFnVTableExt: VTable {
     /// Creates a new ScalarFn instance with the given options.
-    fn new(self, options: Self::Options) -> ScalarFn {
+    fn new_fn(self, options: Self::Options) -> ScalarFn {
         ScalarFn::new(self, options)
     }
 
     /// Creates a new ScalarFn instance with the given options from a 'static vtable.
-    fn new_static(&'static self, options: Self::Options) -> ScalarFn {
+    fn new_fn_static(&'static self, options: Self::Options) -> ScalarFn {
         ScalarFn::new_static(self, options)
     }
 }

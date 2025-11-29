@@ -41,11 +41,11 @@ impl VTable for CastFn {
     }
 
     fn deserialize(&self, bytes: &[u8]) -> VortexResult<DType> {
-        Ok(pb::CastOpts::decode(bytes)?
+        pb::CastOpts::decode(bytes)?
             .target
             .as_ref()
             .ok_or_else(|| vortex_err!("Missing target dtype in Cast expression"))?
-            .try_into()?)
+            .try_into()
     }
 
     fn arity(&self, _options: &DType) -> Arity {

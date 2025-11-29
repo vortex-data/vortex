@@ -52,7 +52,7 @@ impl Expression {
     ) -> VortexResult<Self> {
         let vtable = ExprVTable::new::<V>(vtable);
         let data = Arc::new(data);
-        Self::try_new_erased(vtable, data.clone(), children.into())
+        Self::try_new_erased(vtable, data, children.into())
     }
 
     /// Create a new expression from a static vtable.

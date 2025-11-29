@@ -17,6 +17,7 @@ use crate::execution::BatchKernelRef;
 use crate::execution::BindCtx;
 use crate::execution::kernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::optimizer::rules::Exact;
 use crate::vtable::OperatorVTable;
 use crate::vtable::ValidityHelper;
 
@@ -54,7 +55,9 @@ impl OperatorVTable<DecimalVTable> for DecimalVTable {
 #[derive(Default, Debug)]
 pub struct DecimalMaskedValidityRule;
 
-impl ArrayParentReduceRule<DecimalVTable, MaskedVTable> for DecimalMaskedValidityRule {
+impl ArrayParentReduceRule<Exact<DecimalVTable>, Exact<MaskedVTable>>
+    for DecimalMaskedValidityRule
+{
     fn reduce_parent(
         &self,
         array: &DecimalArray,

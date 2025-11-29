@@ -23,12 +23,8 @@ use crate::arrays::StructVTable;
 use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewVTable;
 use crate::optimizer::ArrayOptimizer;
-use crate::optimizer::rules::AnyArrayParent;
-use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::ArrayReduceRule;
 use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
-use crate::vtable::VTable;
 
 pub type ArrayRegistry = Registry<ArrayVTable>;
 
@@ -63,43 +59,6 @@ impl ArraySession {
     pub fn register_many(&self, encodings: impl IntoIterator<Item = ArrayVTable>) {
         self.registry.register_many(encodings);
     }
-
-    /// Register a reduce rule for a specific array encoding
-    pub fn register_reduce_rule<V, R>(&mut self, encoding: &V, rule: R)
-    where
-        V: VTable,
-        R: 'static + ArrayReduceRule<V>,
-    {
-        self.optimizer.register_reduce_rule::<V, R>(encoding, rule);
-    }
-
-    /// Register a parent reduce rule for specific child and parent types
-    pub fn register_parent_rule<Child, Parent, R>(
-        &mut self,
-        child_encoding: &Child,
-        parent_encoding: &Parent,
-        rule: R,
-    ) where
-        Child: VTable,
-        Parent: VTable,
-        R: 'static + ArrayParentReduceRule<Child, Parent>,
-    {
-        self.optimizer.register_parent_rule::<Child, Parent, R>(
-            child_encoding,
-            parent_encoding,
-            rule,
-        );
-    }
-
-    /// Register a parent reduce rule that matches any parent type
-    pub fn register_any_parent_rule<Child, R>(&mut self, child_encoding: &Child, rule: R)
-    where
-        Child: VTable,
-        R: 'static + ArrayParentReduceRule<Child, AnyArrayParent>,
-    {
-        self.optimizer
-            .register_any_parent_rule::<Child, R>(child_encoding, rule);
-    }
 }
 
 impl Default for ArraySession {
@@ -133,23 +92,10 @@ impl Default for ArraySession {
             optimizer: ArrayOptimizer::default(),
         };
 
-        session.register_parent_rule::<BoolVTable, MaskedVTable, BoolMaskedValidityRule>(
-            &BoolVTable,
-            &MaskedVTable,
-            BoolMaskedValidityRule,
-        );
-
-        session.register_parent_rule::<PrimitiveVTable, MaskedVTable, PrimitiveMaskedValidityRule>(
-            &PrimitiveVTable,
-            &MaskedVTable,
-            PrimitiveMaskedValidityRule,
-        );
-
-        session.register_parent_rule::<DecimalVTable, MaskedVTable, DecimalMaskedValidityRule>(
-            &DecimalVTable,
-            &MaskedVTable,
-            DecimalMaskedValidityRule,
-        );
+        let optimizer = session.optimizer_mut();
+        optimizer.register_parent_rule(BoolMaskedValidityRule);
+        optimizer.register_parent_rule(PrimitiveMaskedValidityRule);
+        optimizer.register_parent_rule(DecimalMaskedValidityRule);
 
         session
     }

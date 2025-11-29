@@ -19,13 +19,14 @@ use crate::arrays::StructVTable;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
+use crate::optimizer::rules::Exact;
 use crate::validity::Validity;
 
 /// Test rule that unwraps single-chunk ChunkedArrays
 #[derive(Debug, Default)]
 struct UnwrapSingleChunkRule;
 
-impl ArrayReduceRule<ChunkedVTable> for UnwrapSingleChunkRule {
+impl ArrayReduceRule<Exact<ChunkedVTable>> for UnwrapSingleChunkRule {
     fn reduce(&self, array: &ChunkedArray) -> VortexResult<Option<ArrayRef>> {
         if array.nchunks() == 1 {
             return Ok(Some(array.chunk(0).clone()));
@@ -63,10 +64,7 @@ fn test_unwrap_single_chunk_rule_no_op() -> VortexResult<()> {
 #[test]
 fn test_reduce_rules_traverse_whole_tree() -> VortexResult<()> {
     let mut optimizer = ArrayOptimizer::default();
-    optimizer.register_reduce_rule::<ChunkedVTable, UnwrapSingleChunkRule>(
-        &ChunkedVTable,
-        UnwrapSingleChunkRule,
-    );
+    optimizer.register_reduce_rule(UnwrapSingleChunkRule);
 
     let inner_field1 = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
     let inner_field1_chunked = ChunkedArray::from_iter([inner_field1.clone()]);
@@ -115,7 +113,7 @@ fn test_reduce_rules_traverse_whole_tree() -> VortexResult<()> {
 #[derive(Debug, Default)]
 struct ConstantInStructRule;
 
-impl ArrayParentReduceRule<ConstantVTable, StructVTable> for ConstantInStructRule {
+impl ArrayParentReduceRule<Exact<ConstantVTable>, Exact<StructVTable>> for ConstantInStructRule {
     fn reduce_parent(
         &self,
         array: &ConstantArray,
@@ -151,11 +149,7 @@ impl ArrayParentReduceRule<ConstantVTable, StructVTable> for ConstantInStructRul
 fn test_parent_rules_traverse_whole_tree() -> VortexResult<()> {
     let mut optimizer = ArrayOptimizer::default();
 
-    optimizer.register_parent_rule::<ConstantVTable, StructVTable, ConstantInStructRule>(
-        &ConstantVTable,
-        &StructVTable,
-        ConstantInStructRule,
-    );
+    optimizer.register_parent_rule(ConstantInStructRule);
 
     let deep_field1 = ConstantArray::new(100i32, 5);
     let deep_field2 = ConstantArray::new(200i32, 5);
