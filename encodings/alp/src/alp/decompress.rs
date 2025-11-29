@@ -15,7 +15,6 @@ use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 use vortex_vector::Vector;
 use vortex_vector::VectorMutOps;
 use vortex_vector::VectorOps;
@@ -59,31 +58,13 @@ pub fn decompress_into_vector<T: ALPFloat>(
     patches_vectors: Option<(Vector, Vector, Option<Vector>)>,
     patches_offset: usize,
 ) -> VortexResult<Vector> {
-    let encoded_primitive = encoded_vector.into_primitive();
+    let encoded_primitive = encoded_vector.into_primitive().into_mut();
     let validity = encoded_primitive.validity().clone();
-    let encoded_mutable = encoded_primitive.into_mut();
 
-    let alp_buffer = T::ALPInt::downcast(encoded_mutable).into_parts().0;
-
-    decompress_from_buffer::<T>(
-        alp_buffer,
-        exponents,
-        patches_vectors,
-        patches_offset,
-        validity,
-    )
-}
-
-fn decompress_from_buffer<T: ALPFloat>(
-    mut alp_buffer: BufferMut<T::ALPInt>,
-    exponents: Exponents,
-    patches_vectors: Option<(Vector, Vector, Option<Vector>)>,
-    patches_offset: usize,
-    validity: Mask,
-) -> VortexResult<Vector> {
+    let mut alp_buffer = T::ALPInt::downcast(encoded_primitive).into_parts().0;
     <T>::decode_slice_inplace(alp_buffer.as_mut_slice(), exponents);
 
-    // Convert to float buffer.
+    // SAFETY: `Buffer<T::ALPInt> and `BufferMut<T>` have the same layout.
     let mut decoded_buffer: BufferMut<T> = unsafe { transmute(alp_buffer) };
 
     // Apply patches if they exist.
@@ -105,8 +86,9 @@ fn decompress_from_buffer<T: ALPFloat>(
         });
     }
 
-    let result = PVectorMut::<T>::new(decoded_buffer, validity.into_mut());
-    Ok(result.freeze().into())
+    Ok(PVectorMut::<T>::new(decoded_buffer, validity)
+        .freeze()
+        .into())
 }
 
 /// Decompresses an ALP-encoded array in 1024-element chunks.
