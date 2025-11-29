@@ -59,9 +59,7 @@ pub fn decompress_into_vector<T: ALPFloat>(
     patches_offset: usize,
 ) -> VortexResult<Vector> {
     let encoded_primitive = encoded_vector.into_primitive().into_mut();
-    let validity = encoded_primitive.validity().clone();
-
-    let mut alp_buffer = T::ALPInt::downcast(encoded_primitive).into_parts().0;
+    let (mut alp_buffer, mask) = T::ALPInt::downcast(encoded_primitive).into_parts();
     <T>::decode_slice_inplace(alp_buffer.as_mut_slice(), exponents);
 
     // SAFETY: `Buffer<T::ALPInt> and `BufferMut<T>` have the same layout.
@@ -86,9 +84,7 @@ pub fn decompress_into_vector<T: ALPFloat>(
         });
     }
 
-    Ok(PVectorMut::<T>::new(decoded_buffer, validity)
-        .freeze()
-        .into())
+    Ok(PVectorMut::<T>::new(decoded_buffer, mask).freeze().into())
 }
 
 /// Decompresses an ALP-encoded array in 1024-element chunks.
