@@ -9,9 +9,16 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
-use vortex_vector::null::NullVector;
 use vortex_vector::Vector;
+use vortex_vector::null::NullVector;
 
+use crate::ArrayBufferVisitor;
+use crate::ArrayChildVisitor;
+use crate::ArrayRef;
+use crate::Canonical;
+use crate::EmptyMetadata;
+use crate::IntoArray;
+use crate::Precision;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
@@ -27,13 +34,6 @@ use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 use crate::vtable::VisitorVTable;
-use crate::ArrayBufferVisitor;
-use crate::ArrayChildVisitor;
-use crate::ArrayRef;
-use crate::Canonical;
-use crate::EmptyMetadata;
-use crate::IntoArray;
-use crate::Precision;
 
 mod compute;
 

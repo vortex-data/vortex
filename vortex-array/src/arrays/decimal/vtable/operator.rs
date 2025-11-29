@@ -4,6 +4,8 @@
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexResult;
 
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
 use crate::arrays::MaskedArray;
@@ -11,8 +13,6 @@ use crate::arrays::MaskedVTable;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::Exact;
 use crate::vtable::ValidityHelper;
-use crate::ArrayRef;
-use crate::IntoArray;
 
 /// Rule to push down validity masking from MaskedArray parent into DecimalArray child.
 ///

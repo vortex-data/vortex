@@ -25,14 +25,14 @@ pub use validity::*;
 pub use visitor::*;
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
-use vortex_error::vortex_bail;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_vector::Vector;
 
-use crate::execution::ExecutionCtx;
-use crate::serde::ArrayChildren;
 use crate::Array;
 use crate::IntoArray;
+use crate::execution::ExecutionCtx;
+use crate::serde::ArrayChildren;
 
 /// The array [`VTable`] encapsulates logic for an Array type within Vortex.
 ///

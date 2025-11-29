@@ -11,6 +11,7 @@ use vortex_error::vortex_ensure;
 use vortex_vector::Vector;
 use vortex_vector::fixed_size_list::FixedSizeListVector;
 
+use crate::EmptyMetadata;
 use crate::arrays::FixedSizeListArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
@@ -22,8 +23,6 @@ use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
-
-use crate::EmptyMetadata;
 
 mod array;
 mod canonical;

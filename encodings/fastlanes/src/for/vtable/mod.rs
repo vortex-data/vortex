@@ -4,6 +4,8 @@
 use std::fmt::Debug;
 use std::fmt::Formatter;
 
+use vortex_array::DeserializeMetadata;
+use vortex_array::SerializeMetadata;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
@@ -12,12 +14,10 @@ use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChild;
-use vortex_array::DeserializeMetadata;
-use vortex_array::SerializeMetadata;
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
-use vortex_error::vortex_bail;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
 
@@ -27,7 +27,6 @@ mod array;
 mod canonical;
 mod encode;
 mod operations;
-mod operator;
 mod validity;
 mod visitor;
 

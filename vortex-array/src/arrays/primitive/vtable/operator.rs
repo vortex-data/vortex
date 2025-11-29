@@ -5,6 +5,8 @@ use vortex_buffer::Buffer;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
 use crate::arrays::PrimitiveArray;
@@ -12,8 +14,6 @@ use crate::arrays::PrimitiveVTable;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::Exact;
 use crate::vtable::ValidityHelper;
-use crate::ArrayRef;
-use crate::IntoArray;
 
 /// Rule to push down validity masking from MaskedArray parent into PrimitiveArray child.
 ///

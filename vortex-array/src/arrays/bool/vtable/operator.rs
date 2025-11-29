@@ -3,6 +3,8 @@
 
 use vortex_error::VortexResult;
 
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
 use crate::arrays::MaskedArray;
@@ -10,8 +12,6 @@ use crate::arrays::MaskedVTable;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::Exact;
 use crate::vtable::ValidityHelper;
-use crate::ArrayRef;
-use crate::IntoArray;
 
 /// Rule to push down validity masking from MaskedArray parent into BoolArray child.
 ///

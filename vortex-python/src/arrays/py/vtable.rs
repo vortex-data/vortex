@@ -27,7 +27,6 @@ use vortex::array::vtable::BaseArrayVTable;
 use vortex::array::vtable::CanonicalVTable;
 use vortex::array::vtable::ComputeVTable;
 use vortex::array::vtable::EncodeVTable;
-use vortex::array::vtable::NotSupported;
 use vortex::array::vtable::OperationsVTable;
 use vortex::array::vtable::VTable;
 use vortex::array::vtable::ValidityVTable;

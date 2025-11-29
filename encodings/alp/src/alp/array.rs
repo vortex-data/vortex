@@ -453,14 +453,18 @@ impl VisitorVTable<ALPVTable> for ALPVTable {
 #[cfg(test)]
 mod tests {
     use std::f64::consts::PI;
+    use std::sync::LazyLock;
 
     use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::vtable::ValidityHelper;
     use vortex_dtype::PTypeDowncast;
+    use vortex_session::VortexSession;
     use vortex_vector::VectorOps;
 
     use super::*;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| VortexSession::empty());
 
     #[rstest]
     #[case(0)]
@@ -476,7 +480,10 @@ mod tests {
         let values = PrimitiveArray::from_iter((0..size).map(|i| i as f32));
         let encoded = alp_encode(&values, None).unwrap();
 
-        let result_vector = encoded.to_array().execute().unwrap();
+        let result_vector = encoded
+            .to_array()
+            .execute(&mut ExecutionCtx::new(SESSION.clone()))
+            .unwrap();
         // Compare against the traditional array-based decompress path
         let expected = decompress_into_array(encoded);
 
@@ -500,7 +507,10 @@ mod tests {
         let values = PrimitiveArray::from_iter((0..size).map(|i| i as f64));
         let encoded = alp_encode(&values, None).unwrap();
 
-        let result_vector = encoded.to_array().execute().unwrap();
+        let result_vector = encoded
+            .to_array()
+            .execute(&mut ExecutionCtx::new(SESSION.clone()))
+            .unwrap();
         // Compare against the traditional array-based decompress path
         let expected = decompress_into_array(encoded);
 
@@ -530,7 +540,10 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().unwrap().array_len() > 0);
 
-        let result_vector = encoded.to_array().execute().unwrap();
+        let result_vector = encoded
+            .to_array()
+            .execute(&mut ExecutionCtx::new(SESSION.clone()))
+            .unwrap();
         // Compare against the traditional array-based decompress path
         let expected = decompress_into_array(encoded);
 
@@ -558,7 +571,10 @@ mod tests {
         let array = PrimitiveArray::from_option_iter(values);
         let encoded = alp_encode(&array, None).unwrap();
 
-        let result_vector = encoded.to_array().execute().unwrap();
+        let result_vector = encoded
+            .to_array()
+            .execute(&mut ExecutionCtx::new(SESSION.clone()))
+            .unwrap();
         // Compare against the traditional array-based decompress path
         let expected = decompress_into_array(encoded);
 
@@ -597,7 +613,10 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().unwrap().array_len() > 0);
 
-        let result_vector = encoded.to_array().execute().unwrap();
+        let result_vector = encoded
+            .to_array()
+            .execute(&mut ExecutionCtx::new(SESSION.clone()))
+            .unwrap();
         // Compare against the traditional array-based decompress path
         let expected = decompress_into_array(encoded);
 
@@ -639,7 +658,9 @@ mod tests {
         let slice_len = slice_end - slice_start;
         let sliced_encoded = encoded.slice(slice_start..slice_end);
 
-        let result_vector = sliced_encoded.execute().unwrap();
+        let result_vector = sliced_encoded
+            .execute(&mut ExecutionCtx::new(SESSION.clone()))
+            .unwrap();
         let result_primitive = result_vector.into_primitive().into_f64();
 
         for idx in 0..slice_len {

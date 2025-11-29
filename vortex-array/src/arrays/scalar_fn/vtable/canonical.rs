@@ -5,14 +5,15 @@ use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_vector::Datum;
 
+use crate::Array;
+use crate::Canonical;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
-use crate::arrays::scalar_fn::vtable::{ScalarFnVTable, SCALAR_FN_SESSION};
+use crate::arrays::scalar_fn::vtable::SCALAR_FN_SESSION;
+use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::execution::ExecutionCtx;
 use crate::expr::functions::ExecutionArgs;
 use crate::vectors::VectorIntoArray;
 use crate::vtable::CanonicalVTable;
-use crate::Array;
-use crate::Canonical;
 
 impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
     fn canonicalize(array: &ScalarFnArray) -> Canonical {

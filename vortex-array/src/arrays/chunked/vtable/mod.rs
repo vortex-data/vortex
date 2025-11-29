@@ -13,6 +13,7 @@ use vortex_vector::Vector;
 use vortex_vector::VectorMut;
 use vortex_vector::VectorMutOps;
 
+use crate::Array;
 use crate::EmptyMetadata;
 use crate::ToCanonical;
 use crate::arrays::ChunkedArray;
@@ -20,12 +21,12 @@ use crate::arrays::PrimitiveArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
+use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
-use crate::{Array, vtable};
 
 mod array;
 mod canonical;

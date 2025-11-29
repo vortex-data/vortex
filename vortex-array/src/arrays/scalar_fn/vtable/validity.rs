@@ -4,12 +4,13 @@
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 
+use crate::Array;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
-use crate::arrays::scalar_fn::vtable::{ScalarFnVTable, SCALAR_FN_SESSION};
+use crate::arrays::scalar_fn::vtable::SCALAR_FN_SESSION;
+use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::execution::ExecutionCtx;
 use crate::expr::functions::NullHandling;
 use crate::vtable::ValidityVTable;
-use crate::Array;
 
 impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
     fn is_valid(array: &ScalarFnArray, index: usize) -> bool {
