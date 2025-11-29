@@ -7,12 +7,12 @@ use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
 use vortex_vector::Datum;
 
-use crate::ArrayRef;
-use crate::IntoArray;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
-use crate::expr::functions::ExecutionCtx;
+use crate::expr::functions::ExecutionArgs;
 use crate::vtable::OperationsVTable;
+use crate::ArrayRef;
+use crate::IntoArray;
 
 impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
     fn slice(array: &ScalarFnArray, range: Range<usize>) -> ArrayRef {
@@ -42,7 +42,7 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
             .map(|scalar| Datum::from(scalar.to_vector_scalar()))
             .collect();
 
-        let ctx = ExecutionCtx::new(
+        let ctx = ExecutionArgs::new(
             1,
             array.dtype.clone(),
             array.children().iter().map(|s| s.dtype().clone()).collect(),

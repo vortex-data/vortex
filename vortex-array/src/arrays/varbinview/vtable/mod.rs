@@ -7,15 +7,14 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferHandle;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
+use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_vector::Vector;
 use vortex_vector::binaryview::BinaryVector;
 use vortex_vector::binaryview::BinaryView;
 use vortex_vector::binaryview::StringVector;
+use vortex_vector::Vector;
 
-use crate::EmptyMetadata;
 use crate::arrays::varbinview::VarBinViewArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
@@ -27,11 +26,11 @@ use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
+use crate::EmptyMetadata;
 
 mod array;
 mod canonical;
 mod operations;
-mod operator;
 mod validity;
 mod visitor;
 
@@ -49,7 +48,6 @@ impl VTable for VarBinViewVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type OperatorVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.varbinview")
@@ -106,7 +104,7 @@ impl VTable for VarBinViewVTable {
         VarBinViewArray::try_new(views, Arc::from(buffers), dtype.clone(), validity)
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(match array.dtype() {
             DType::Utf8(_) => unsafe {
                 StringVector::new_unchecked(

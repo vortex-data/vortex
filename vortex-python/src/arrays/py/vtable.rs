@@ -92,7 +92,6 @@ impl VTable for PythonVTable {
     type VisitorVTable = Self;
     type ComputeVTable = Self;
     type EncodeVTable = Self;
-    type OperatorVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         self.id.clone()

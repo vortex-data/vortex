@@ -4,20 +4,15 @@
 mod array;
 mod canonical;
 mod operations;
-mod operator;
 mod validity;
 
 use vortex_buffer::BufferHandle;
 use vortex_compute::mask::MaskValidity;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::VortexResult;
 use vortex_vector::Vector;
 
-use crate::ArrayBufferVisitor;
-use crate::ArrayChildVisitor;
-use crate::ArrayOperator;
-use crate::EmptyMetadata;
 use crate::arrays::masked::MaskedArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
@@ -30,6 +25,10 @@ use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
 use crate::vtable::VisitorVTable;
+use crate::ArrayBufferVisitor;
+use crate::ArrayChildVisitor;
+
+use crate::EmptyMetadata;
 
 vtable!(Masked);
 
@@ -57,7 +56,6 @@ impl VTable for MaskedVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type OperatorVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.masked")
@@ -108,8 +106,8 @@ impl VTable for MaskedVTable {
         MaskedArray::try_new(child, validity)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
-        let vector = array.child().execute_batch(ctx)?;
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        let vector = array.child().execute(ctx)?;
         Ok(MaskValidity::mask_validity(vector, &array.validity_mask()))
     }
 }
@@ -119,8 +117,6 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::ByteBufferMut;
 
-    use crate::ArrayContext;
-    use crate::IntoArray;
     use crate::arrays::MaskedArray;
     use crate::arrays::MaskedVTable;
     use crate::arrays::PrimitiveArray;
@@ -128,6 +124,8 @@ mod tests {
     use crate::serde::SerializeOptions;
     use crate::validity::Validity;
     use crate::vtable::ArrayVTableExt;
+    use crate::ArrayContext;
+    use crate::IntoArray;
 
     #[rstest]
     #[case(

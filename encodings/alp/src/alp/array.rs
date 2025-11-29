@@ -64,7 +64,6 @@ impl VTable for ALPVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type OperatorVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.alp")
@@ -141,17 +140,17 @@ impl VTable for ALPVTable {
         )
     }
 
-    fn execute(array: &ALPArray, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
-        let encoded_vector = array.encoded().execute_batch(ctx)?;
+    fn execute(array: &ALPArray, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        let encoded_vector = array.encoded().execute(ctx)?;
 
         let patches_vectors = if let Some(patches) = array.patches() {
             Some((
-                patches.indices().execute_batch(ctx)?,
-                patches.values().execute_batch(ctx)?,
+                patches.indices().execute(ctx)?,
+                patches.values().execute(ctx)?,
                 patches
                     .chunk_offsets()
                     .as_ref()
-                    .map(|co| co.execute_batch(ctx))
+                    .map(|co| co.execute(ctx))
                     .transpose()?,
             ))
         } else {

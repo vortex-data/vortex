@@ -11,8 +11,6 @@ use vortex_error::vortex_ensure;
 use vortex_vector::Vector;
 use vortex_vector::fixed_size_list::FixedSizeListVector;
 
-use crate::ArrayOperator;
-use crate::EmptyMetadata;
 use crate::arrays::FixedSizeListArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
@@ -24,6 +22,8 @@ use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
+
+use crate::EmptyMetadata;
 
 mod array;
 mod canonical;
@@ -48,7 +48,6 @@ impl VTable for FixedSizeListVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type OperatorVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.fixed_size_list")
@@ -110,10 +109,10 @@ impl VTable for FixedSizeListVTable {
         FixedSizeListArray::try_new(elements, *list_size, validity, len)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(unsafe {
             FixedSizeListVector::new_unchecked(
-                Arc::new(array.elements().execute_batch(ctx)?),
+                Arc::new(array.elements().execute(ctx)?),
                 array.list_size(),
                 array.validity_mask(),
             )

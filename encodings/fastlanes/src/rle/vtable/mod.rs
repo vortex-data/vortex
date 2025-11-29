@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use prost::Message;
-use vortex_array::ProstMetadata;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
@@ -11,6 +10,7 @@ use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChildSliceHelper;
+use vortex_array::ProstMetadata;
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
@@ -56,7 +56,6 @@ impl VTable for RLEVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type OperatorVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("fastlanes.rle")

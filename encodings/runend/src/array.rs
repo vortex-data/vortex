@@ -70,7 +70,6 @@ impl VTable for RunEndVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type OperatorVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.runend")

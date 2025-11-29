@@ -6,8 +6,6 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::Range;
 
-use pco::ChunkConfig;
-use pco::PagingSpec;
 use pco::data_types::Number;
 use pco::data_types::NumberType;
 use pco::errors::PcoError;
@@ -15,17 +13,9 @@ use pco::match_number_enum;
 use pco::wrapped::ChunkDecompressor;
 use pco::wrapped::FileCompressor;
 use pco::wrapped::FileDecompressor;
+use pco::ChunkConfig;
+use pco::PagingSpec;
 use prost::Message;
-use vortex_array::ArrayBufferVisitor;
-use vortex_array::ArrayChildVisitor;
-use vortex_array::ArrayEq;
-use vortex_array::ArrayHash;
-use vortex_array::ArrayRef;
-use vortex_array::Canonical;
-use vortex_array::IntoArray;
-use vortex_array::Precision;
-use vortex_array::ProstMetadata;
-use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::compute::filter;
@@ -49,19 +39,29 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValiditySliceHelper;
 use vortex_array::vtable::ValidityVTableFromValiditySliceHelper;
 use vortex_array::vtable::VisitorVTable;
+use vortex_array::ArrayBufferVisitor;
+use vortex_array::ArrayChildVisitor;
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
+use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::IntoArray;
+use vortex_array::Precision;
+use vortex_array::ProstMetadata;
+use vortex_array::ToCanonical;
 use vortex_buffer::BufferHandle;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
+use vortex_dtype::half;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
-use vortex_dtype::half;
-use vortex_error::VortexError;
-use vortex_error::VortexResult;
-use vortex_error::VortexUnwrap;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::VortexError;
+use vortex_error::VortexResult;
+use vortex_error::VortexUnwrap;
 use vortex_scalar::Scalar;
 
 use crate::PcoChunkInfo;
@@ -102,7 +102,6 @@ impl VTable for PcoVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type OperatorVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.pco")
@@ -558,11 +557,11 @@ impl OperatorVTable<PcoVTable> for PcoVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
     use vortex_buffer::Buffer;
 
     use crate::PcoArray;

@@ -5,13 +5,10 @@ use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
+use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 
-use crate::DeserializeMetadata;
-use crate::ProstMetadata;
-use crate::SerializeMetadata;
 use crate::arrays::varbin::VarBinArray;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
@@ -22,11 +19,13 @@ use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
+use crate::DeserializeMetadata;
+use crate::ProstMetadata;
+use crate::SerializeMetadata;
 
 mod array;
 mod canonical;
 mod operations;
-mod operator;
 mod validity;
 mod visitor;
 
@@ -50,7 +49,6 @@ impl VTable for VarBinVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type OperatorVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.varbin")

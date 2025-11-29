@@ -9,20 +9,10 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
-use vortex_vector::Vector;
 use vortex_vector::null::NullVector;
+use vortex_vector::Vector;
 
-use crate::ArrayBufferVisitor;
-use crate::ArrayChildVisitor;
-use crate::ArrayRef;
-use crate::Canonical;
-use crate::EmptyMetadata;
-use crate::IntoArray;
-use crate::Precision;
-use crate::execution::BatchKernelRef;
-use crate::execution::BindCtx;
 use crate::execution::ExecutionCtx;
-use crate::execution::kernel;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSetRef;
@@ -34,10 +24,16 @@ use crate::vtable::BaseArrayVTable;
 use crate::vtable::CanonicalVTable;
 use crate::vtable::NotSupported;
 use crate::vtable::OperationsVTable;
-use crate::vtable::OperatorVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 use crate::vtable::VisitorVTable;
+use crate::ArrayBufferVisitor;
+use crate::ArrayChildVisitor;
+use crate::ArrayRef;
+use crate::Canonical;
+use crate::EmptyMetadata;
+use crate::IntoArray;
+use crate::Precision;
 
 mod compute;
 
@@ -55,7 +51,6 @@ impl VTable for NullVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type OperatorVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.null")
@@ -88,7 +83,7 @@ impl VTable for NullVTable {
         Ok(NullArray::new(len))
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(NullVector::new(array.len()).into())
     }
 }
@@ -194,16 +189,5 @@ impl ValidityVTable<NullVTable> for NullVTable {
 
     fn validity_mask(array: &NullArray) -> Mask {
         Mask::AllFalse(array.len)
-    }
-}
-
-impl OperatorVTable<NullVTable> for NullVTable {
-    fn bind(
-        array: &NullArray,
-        _selection: Option<&ArrayRef>,
-        _ctx: &mut dyn BindCtx,
-    ) -> VortexResult<BatchKernelRef> {
-        let len = array.len();
-        Ok(kernel(move || Ok(NullVector::new(len).into())))
     }
 }

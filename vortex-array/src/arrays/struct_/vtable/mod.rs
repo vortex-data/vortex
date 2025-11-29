@@ -6,14 +6,12 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
+use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_vector::Vector;
 use vortex_vector::struct_::StructVector;
+use vortex_vector::Vector;
 
-use crate::ArrayOperator;
-use crate::EmptyMetadata;
 use crate::arrays::struct_::StructArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
@@ -24,10 +22,11 @@ use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
+use crate::EmptyMetadata;
+
 mod array;
 mod canonical;
 mod operations;
-pub mod operator;
 mod validity;
 mod visitor;
 
@@ -48,7 +47,6 @@ impl VTable for StructVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type OperatorVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.struct")
@@ -109,11 +107,11 @@ impl VTable for StructVTable {
         StructArray::try_new_with_dtype(children, struct_dtype.clone(), len, validity)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         let fields: Box<[_]> = array
             .fields()
             .iter()
-            .map(|field| field.execute_batch(ctx))
+            .map(|field| field.execute(ctx))
             .try_collect()?;
         // SAFETY: we know that all field lengths match the struct array length, and the validity
         Ok(unsafe { StructVector::new_unchecked(Arc::new(fields), array.validity_mask()) }.into())

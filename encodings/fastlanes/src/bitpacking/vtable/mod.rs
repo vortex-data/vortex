@@ -60,7 +60,6 @@ impl VTable for BitPackedVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type OperatorVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("fastlanes.bitpacked")
@@ -173,7 +172,7 @@ impl VTable for BitPackedVTable {
         )
     }
 
-    fn execute(array: &BitPackedArray, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(array: &BitPackedArray, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(unpack_to_primitive_vector(array).freeze().into())
     }
 }

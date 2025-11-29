@@ -5,22 +5,22 @@ pub(crate) mod array;
 
 use prost::Message;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_proto::expr as pb;
 use vortex_vector::Datum;
 
-use crate::expr::Expression;
-use crate::expr::StatsCatalog;
 use crate::expr::functions::ArgName;
 use crate::expr::functions::Arity;
-use crate::expr::functions::ExecutionCtx;
+use crate::expr::functions::ExecutionArgs;
 use crate::expr::functions::FunctionId;
 use crate::expr::functions::NullHandling;
 use crate::expr::functions::VTable;
 use crate::expr::stats::Stat;
+use crate::expr::Expression;
+use crate::expr::StatsCatalog;
 use crate::scalar_fns::BuiltinScalarFns;
 
 pub struct CastFn;
@@ -101,8 +101,8 @@ impl VTable for CastFn {
         Ok(target_dtype.clone())
     }
 
-    fn execute(&self, target_dtype: &DType, ctx: &ExecutionCtx) -> VortexResult<Datum> {
-        let datum = ctx.input_datums(0);
+    fn execute(&self, target_dtype: &DType, args: &ExecutionArgs) -> VortexResult<Datum> {
+        let datum = args.input_datums(0);
         vortex_compute::cast::Cast::cast(datum, target_dtype)
     }
 }

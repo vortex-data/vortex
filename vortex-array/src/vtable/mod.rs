@@ -9,7 +9,6 @@ mod compute;
 mod dyn_;
 mod encode;
 mod operations;
-mod operator;
 mod validity;
 mod visitor;
 
@@ -22,19 +21,18 @@ pub use compute::*;
 pub use dyn_::*;
 pub use encode::*;
 pub use operations::*;
-pub use operator::*;
 pub use validity::*;
 pub use visitor::*;
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::VortexResult;
 use vortex_vector::Vector;
 
-use crate::Array;
-use crate::IntoArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
+use crate::Array;
+use crate::IntoArray;
 
 /// The array [`VTable`] encapsulates logic for an Array type within Vortex.
 ///
@@ -69,9 +67,6 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// compression.
     /// Can be disabled by assigning to the [`NotSupported`] type.
     type EncodeVTable: EncodeVTable<Self>;
-    /// Optionally enable the [`OperatorVTable`] for this encoding. This allows it to partake in
-    /// operator operations.
-    type OperatorVTable: OperatorVTable<Self>;
 
     /// Returns the ID of the encoding.
     fn id(&self) -> ArrayId;
@@ -145,7 +140,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     ///
     /// Implementations should recursively call [`crate::ArrayOperator::execute_batch`] on child
     /// arrays as needed.
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         vortex_bail!(
             "Array {} does not support vector execution",
             Self::encoding(array).id()

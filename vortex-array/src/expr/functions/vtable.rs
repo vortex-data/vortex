@@ -12,18 +12,18 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
+use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_vector::Datum;
 
-use crate::expr::Expression;
-use crate::expr::StatsCatalog;
+use crate::expr::functions::execution::ExecutionArgs;
+use crate::expr::functions::scalar::ScalarFn;
 use crate::expr::functions::ArgName;
 use crate::expr::functions::FunctionId;
-use crate::expr::functions::execution::ExecutionCtx;
-use crate::expr::functions::scalar::ScalarFn;
 use crate::expr::stats::Stat;
+use crate::expr::Expression;
+use crate::expr::StatsCatalog;
 
 /// A non-object-safe vtable trait for scalar function types.
 ///
@@ -104,7 +104,7 @@ pub trait VTable: 'static + Send + Sync + Sized {
     /// Binds the function for execution over a specific set of inputs.
     // TODO(ngates): in the future, we should return a kernel as a node in a physical plan and
     //  continue to run further cost-based optimizations prior to execution.
-    fn execute(&self, _options: &Self::Options, _ctx: &ExecutionCtx) -> VortexResult<Datum>;
+    fn execute(&self, _options: &Self::Options, _args: &ExecutionArgs) -> VortexResult<Datum>;
 }
 
 /// The arity (number of arguments) of a function.
@@ -198,7 +198,7 @@ pub(crate) trait DynScalarFnVTable: 'static + Send + Sync {
     ) -> Option<Expression>;
 
     fn return_dtype(&self, options: &dyn Any, arg_types: &[DType]) -> VortexResult<DType>;
-    fn execute(&self, options: &dyn Any, ctx: &ExecutionCtx) -> VortexResult<Datum>;
+    fn execute(&self, options: &dyn Any, args: &ExecutionArgs) -> VortexResult<Datum>;
 }
 
 #[repr(transparent)]
@@ -275,9 +275,9 @@ impl<V: VTable> DynScalarFnVTable for ScalarFnVTableAdapter<V> {
         V::return_dtype(&self.0, downcast::<V>(options), arg_types)
     }
 
-    fn execute(&self, options: &dyn Any, ctx: &ExecutionCtx) -> VortexResult<Datum> {
+    fn execute(&self, options: &dyn Any, args: &ExecutionArgs) -> VortexResult<Datum> {
         // TODO(ngates): validate result matches expected dtype from ctx.
-        V::execute(&self.0, downcast::<V>(options), ctx)
+        V::execute(&self.0, downcast::<V>(options), args)
     }
 }
 

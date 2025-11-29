@@ -3,15 +3,12 @@
 
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
+use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_vector::Vector;
 use vortex_vector::bool::BoolVector;
+use vortex_vector::Vector;
 
-use crate::DeserializeMetadata;
-use crate::ProstMetadata;
-use crate::SerializeMetadata;
 use crate::arrays::BoolArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
@@ -21,6 +18,9 @@ use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
+use crate::DeserializeMetadata;
+use crate::ProstMetadata;
+use crate::SerializeMetadata;
 
 mod array;
 mod canonical;
@@ -55,7 +55,6 @@ impl VTable for BoolVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type OperatorVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.bool")
@@ -107,7 +106,7 @@ impl VTable for BoolVTable {
         BoolArray::try_new(buffer, metadata.offset as usize, len, validity)
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(BoolVector::new(array.bit_buffer().clone(), array.validity_mask()).into())
     }
 }

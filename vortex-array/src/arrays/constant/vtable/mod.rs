@@ -47,7 +47,6 @@ impl VTable for ConstantVTable {
     // TODO(ngates): implement a compute kernel for elementwise operations
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type OperatorVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.constant")
@@ -86,7 +85,7 @@ impl VTable for ConstantVTable {
         Ok(ConstantArray::new(scalar, len))
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(to_vector(array.scalar().clone(), array.len()).freeze())
     }
 }
