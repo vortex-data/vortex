@@ -19,18 +19,18 @@ use vortex_error::VortexResult;
 mod cast;
 
 /// A collection of built-in scalar functions that can be applied to expressions or arrays.
-pub trait BuiltinFunctions: Sized {
+pub trait BuiltinScalarFns: Sized {
     /// Cast to the given data type.
     fn cast(&self, dtype: DType) -> VortexResult<Self>;
 }
 
-impl BuiltinFunctions for Expression {
+impl BuiltinScalarFns for Expression {
     fn cast(&self, dtype: DType) -> VortexResult<Expression> {
         CastFn.try_new_expr(dtype, [self.clone()])
     }
 }
 
-impl BuiltinFunctions for ArrayRef {
+impl BuiltinScalarFns for ArrayRef {
     fn cast(&self, dtype: DType) -> VortexResult<Self> {
         CastFn.try_new_array(self.len(), dtype, [self.clone()])
     }

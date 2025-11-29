@@ -91,25 +91,6 @@ impl Expression {
         Ok(this)
     }
 
-    /// Creates a new expression with the given encoding, metadata, and children.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that the provided `encoding` is compatible with the
-    /// `metadata` and `children`. Failure to do so may lead to undefined behavior
-    ///  when the expression is used.
-    pub(super) unsafe fn new_unchecked_erased(
-        vtable: ExprVTable,
-        data: Arc<dyn Any + Send + Sync>,
-        children: Arc<[Expression]>,
-    ) -> Self {
-        Self {
-            vtable,
-            data,
-            children,
-        }
-    }
-
     /// Returns if the expression is an instance of the given vtable.
     pub fn is<V: VTable>(&self) -> bool {
         self.vtable.is::<V>()

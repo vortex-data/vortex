@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod array;
+
 use crate::expr::functions::{ArgName, Arity, ExecutionCtx, FunctionId, NullHandling, VTable};
 use crate::expr::stats::Stat;
 use crate::expr::{Expression, StatsCatalog};
-use crate::scalar_fns::BuiltinFunctions;
+use crate::scalar_fns::BuiltinScalarFns;
 use prost::Message;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
@@ -12,7 +14,6 @@ use vortex_proto::expr as pb;
 use vortex_vector::Datum;
 
 pub struct CastFn;
-
 impl VTable for CastFn {
     type Options = DType;
 
