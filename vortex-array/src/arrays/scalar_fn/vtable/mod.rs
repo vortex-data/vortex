@@ -9,6 +9,7 @@ mod visitor;
 
 use std::marker::PhantomData;
 use std::ops::Deref;
+use std::sync::LazyLock;
 
 use itertools::Itertools;
 use vortex_buffer::BufferHandle;
@@ -17,6 +18,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_session::VortexSession;
 use vortex_vector::Vector;
 
 use crate::Array;
@@ -30,12 +32,19 @@ use crate::expr::functions::scalar::ScalarFn;
 use crate::optimizer::rules::MatchKey;
 use crate::optimizer::rules::Matcher;
 use crate::serde::ArrayChildren;
+use crate::session::ArraySession;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
+
+// TODO(ngates): canonicalize doesn't currently take a session, therefore we cannot dispatch
+//  to registered scalar function kernels. We therefore hold our own non-pluggable session here
+//  that contains all the built-in kernels while we migrate over to "execute" instead of canonicalize.
+static SCALAR_FN_SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 vtable!(ScalarFn);
 
@@ -54,7 +63,6 @@ impl VTable for ScalarFnVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type OperatorVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         self.vtable.id()
@@ -116,14 +124,14 @@ impl VTable for ScalarFnVTable {
         })
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn batch_execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         let input_dtypes: Vec<_> = array.children().iter().map(|c| c.dtype().clone()).collect();
         let input_datums = array
             .children()
             .iter()
-            .map(|child| child.execute())
+            .map(|child| child.batch_execute(ctx))
             .try_collect()?;
-        let ctx = functions::ExecutionCtx::new(
+        let ctx = functions::ExecutionArgs::new(
             array.len(),
             array.dtype.clone(),
             input_dtypes,

@@ -55,7 +55,6 @@ impl VTable for BoolVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type OperatorVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.bool")
@@ -107,7 +106,7 @@ impl VTable for BoolVTable {
         BoolArray::try_new(buffer, metadata.offset as usize, len, validity)
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn batch_execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(BoolVector::new(array.bit_buffer().clone(), array.validity_mask()).into())
     }
 }

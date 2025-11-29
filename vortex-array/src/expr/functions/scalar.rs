@@ -21,7 +21,7 @@ use crate::expr::functions::FunctionId;
 use crate::expr::functions::NullHandling;
 use crate::expr::functions::ScalarFnVTable;
 use crate::expr::functions::VTable;
-use crate::expr::functions::execution::ExecutionCtx;
+use crate::expr::functions::execution::ExecutionArgs;
 use crate::expr::stats::Stat;
 
 /// An instance of a scalar function bound to some invocation options.
@@ -110,8 +110,8 @@ impl ScalarFn {
             .return_dtype(self.options.as_ref(), arg_types)
     }
 
-    pub fn execute(&self, ctx: &ExecutionCtx) -> VortexResult<Datum> {
-        self.vtable.as_dyn().execute(self.options.as_ref(), ctx)
+    pub fn execute(&self, args: &ExecutionArgs) -> VortexResult<Datum> {
+        self.vtable.as_dyn().execute(self.options.as_ref(), args)
     }
 }
 

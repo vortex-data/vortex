@@ -13,7 +13,6 @@ use vortex_error::vortex_ensure;
 use vortex_vector::Vector;
 use vortex_vector::listview::ListViewVector;
 
-use crate::ArrayOperator;
 use crate::DeserializeMetadata;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
@@ -32,7 +31,6 @@ use crate::vtable::ValidityVTableFromValidityHelper;
 mod array;
 mod canonical;
 mod operations;
-mod operator;
 mod validity;
 mod visitor;
 
@@ -63,7 +61,6 @@ impl VTable for ListViewVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type OperatorVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.listview")
@@ -143,12 +140,12 @@ impl VTable for ListViewVTable {
         ListViewArray::try_new(elements, offsets, sizes, validity)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn batch_execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(unsafe {
             ListViewVector::new_unchecked(
-                Arc::new(array.elements().execute_batch(ctx)?),
-                array.offsets().execute_batch(ctx)?.into_primitive(),
-                array.sizes().execute_batch(ctx)?.into_primitive(),
+                Arc::new(array.elements().batch_execute(ctx)?),
+                array.offsets().batch_execute(ctx)?.into_primitive(),
+                array.sizes().batch_execute(ctx)?.into_primitive(),
                 array.validity_mask(),
             )
         }

@@ -8,8 +8,9 @@ use vortex_vector::Datum;
 use crate::Array;
 use crate::Canonical;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
+use crate::arrays::scalar_fn::vtable::SCALAR_FN_SESSION;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
-use crate::expr::functions::ExecutionCtx;
+use crate::expr::functions::ExecutionArgs;
 use crate::vectors::VectorIntoArray;
 use crate::vtable::CanonicalVTable;
 
@@ -20,14 +21,14 @@ impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
             .children()
             .iter()
             // TODO(ngates): we could make all execution operate over datums
-            .map(|child| child.execute().map(Datum::Vector))
+            .map(|child| child.execute(&SCALAR_FN_SESSION).map(Datum::Vector))
             .try_collect()
             // FIXME(ngates): canonicalizing really ought to be fallible
             .vortex_expect(
                 "Failed to execute child array during canonicalization of ScalarFnArray",
             );
 
-        let ctx = ExecutionCtx::new(array.len, array.dtype.clone(), child_dtypes, child_datums);
+        let ctx = ExecutionArgs::new(array.len, array.dtype.clone(), child_dtypes, child_datums);
 
         let result_vector = array
             .scalar_fn

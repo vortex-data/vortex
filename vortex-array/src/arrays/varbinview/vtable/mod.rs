@@ -31,7 +31,6 @@ use crate::vtable::ValidityVTableFromValidityHelper;
 mod array;
 mod canonical;
 mod operations;
-mod operator;
 mod validity;
 mod visitor;
 
@@ -49,7 +48,6 @@ impl VTable for VarBinViewVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type OperatorVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.varbinview")
@@ -106,7 +104,7 @@ impl VTable for VarBinViewVTable {
         VarBinViewArray::try_new(views, Arc::from(buffers), dtype.clone(), validity)
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn batch_execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(match array.dtype() {
             DType::Utf8(_) => unsafe {
                 StringVector::new_unchecked(

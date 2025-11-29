@@ -8360,6 +8360,7 @@ dependencies = [
  "vortex-fastlanes",
  "vortex-mask",
  "vortex-scalar",
+ "vortex-session",
  "vortex-utils",
  "vortex-vector",
 ]
@@ -8698,6 +8699,7 @@ dependencies = [
  "vortex-fastlanes",
  "vortex-mask",
  "vortex-scalar",
+ "vortex-session",
  "vortex-utils",
  "vortex-vector",
 ]

@@ -196,7 +196,6 @@ impl VTable for SequenceVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type OperatorVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.sequence")
@@ -269,7 +268,7 @@ impl VTable for SequenceVTable {
         ))
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn batch_execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(match_each_native_ptype!(array.ptype(), |P| {
             let base = array.base().cast::<P>();
             let multiplier = array.multiplier().cast::<P>();

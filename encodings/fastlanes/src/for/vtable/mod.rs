@@ -27,7 +27,6 @@ mod array;
 mod canonical;
 mod encode;
 mod operations;
-mod operator;
 mod validity;
 mod visitor;
 
@@ -45,7 +44,6 @@ impl VTable for FoRVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type OperatorVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("fastlanes.for")

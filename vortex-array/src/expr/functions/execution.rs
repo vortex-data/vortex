@@ -8,8 +8,8 @@ use vortex_dtype::DType;
 use vortex_vector::Datum;
 use vortex_vector::VectorOps;
 
-/// Context provided when executing an object using vectorized execution.
-pub struct ExecutionCtx {
+/// Arguments provided when executing an object using vectorized execution.
+pub struct ExecutionArgs {
     /// The number of rows to be processed.
     row_count: usize,
     /// The expected return dtype of the execution.
@@ -20,7 +20,7 @@ pub struct ExecutionCtx {
     input_datums: Vec<Datum>,
 }
 
-impl ExecutionCtx {
+impl ExecutionArgs {
     pub fn new(
         row_count: usize,
         return_dtype: DType,

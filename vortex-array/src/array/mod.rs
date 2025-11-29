@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod operator;
 mod visitor;
 
 use std::any::Any;
@@ -12,7 +11,6 @@ use std::hash::Hasher;
 use std::ops::Range;
 use std::sync::Arc;
 
-pub use operator::*;
 pub use visitor::*;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -20,9 +18,13 @@ use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
+use vortex_session::VortexSession;
+use vortex_vector::Vector;
+use vortex_vector::VectorOps;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -47,6 +49,7 @@ use crate::compute::InvocationArgs;
 use crate::compute::IsConstantOpts;
 use crate::compute::Output;
 use crate::compute::is_constant_opts;
+use crate::execution::ExecutionCtx;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
@@ -65,15 +68,7 @@ use crate::vtable::VisitorVTable;
 
 /// The public API trait for all Vortex arrays.
 pub trait Array:
-    'static
-    + private::Sealed
-    + Send
-    + Sync
-    + Debug
-    + DynArrayEq
-    + DynArrayHash
-    + ArrayVisitor
-    + ArrayOperator
+    'static + private::Sealed + Send + Sync + Debug + DynArrayEq + DynArrayHash + ArrayVisitor
 {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
@@ -193,6 +188,9 @@ pub trait Array:
     /// call.
     fn invoke(&self, compute_fn: &ComputeFn, args: &InvocationArgs)
     -> VortexResult<Option<Output>>;
+
+    /// Invoke the batch execution function for the array to produce a canonical vector.
+    fn batch_execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector>;
 }
 
 impl Array for Arc<dyn Array> {
@@ -295,6 +293,10 @@ impl Array for Arc<dyn Array> {
     ) -> VortexResult<Option<Output>> {
         self.as_ref().invoke(compute_fn, args)
     }
+
+    fn batch_execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        self.as_ref().batch_execute(ctx)
+    }
 }
 
 /// A reference counted pointer to a dynamic [`Array`] trait object.
@@ -359,6 +361,14 @@ impl dyn Array + '_ {
             }
         }
         nbytes
+    }
+
+    /// Execute the array and return the resulting vector.
+    ///
+    /// This entry-point function will choose an appropriate CPU-based execution strategy.
+    pub fn execute(&self, session: &VortexSession) -> VortexResult<Vector> {
+        let mut ctx = ExecutionCtx::new(session.clone());
+        self.batch_execute(&mut ctx)
     }
 }
 
@@ -655,6 +665,20 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         args: &InvocationArgs,
     ) -> VortexResult<Option<Output>> {
         <V::ComputeVTable as ComputeVTable<V>>::invoke(&self.0, compute_fn, args)
+    }
+
+    fn batch_execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        let result = V::batch_execute(&self.0, ctx)?;
+
+        // This check is so cheap we always run it. Whereas DType checks we only do in debug builds.
+        vortex_ensure!(result.len() == self.len(), "Result length mismatch");
+        #[cfg(debug_assertions)]
+        vortex_ensure!(
+            vortex_vector::vector_matches_dtype(&result, self.dtype()),
+            "Executed vector dtype mismatch",
+        );
+
+        Ok(result)
     }
 }
 

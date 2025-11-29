@@ -29,7 +29,6 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::compute::filter;
-use vortex_array::pipeline::PipelinedNode;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
@@ -43,7 +42,6 @@ use vortex_array::vtable::CanonicalVTable;
 use vortex_array::vtable::EncodeVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
-use vortex_array::vtable::OperatorVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValiditySliceHelper;
@@ -102,7 +100,6 @@ impl VTable for PcoVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type OperatorVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.pco")
@@ -547,12 +544,6 @@ impl VisitorVTable<PcoVTable> for PcoVTable {
 
     fn visit_children(array: &PcoArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_validity(&array.unsliced_validity, array.unsliced_n_rows());
-    }
-}
-
-impl OperatorVTable<PcoVTable> for PcoVTable {
-    fn pipeline_node(array: &PcoArray) -> Option<&dyn PipelinedNode> {
-        Some(array)
     }
 }
 

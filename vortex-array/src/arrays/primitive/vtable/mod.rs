@@ -49,7 +49,6 @@ impl VTable for PrimitiveVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type OperatorVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.primitive")
@@ -117,7 +116,7 @@ impl VTable for PrimitiveVTable {
         })
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn batch_execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(match_each_native_ptype!(array.ptype(), |T| {
             PVector::new(array.buffer::<T>(), array.validity_mask()).into()
         }))

@@ -16,7 +16,7 @@ use crate::expr::Expression;
 use crate::expr::StatsCatalog;
 use crate::expr::functions::ArgName;
 use crate::expr::functions::Arity;
-use crate::expr::functions::ExecutionCtx;
+use crate::expr::functions::ExecutionArgs;
 use crate::expr::functions::FunctionId;
 use crate::expr::functions::NullHandling;
 use crate::expr::functions::VTable;
@@ -101,8 +101,8 @@ impl VTable for CastFn {
         Ok(target_dtype.clone())
     }
 
-    fn execute(&self, target_dtype: &DType, ctx: &ExecutionCtx) -> VortexResult<Datum> {
-        let datum = ctx.input_datums(0);
+    fn execute(&self, target_dtype: &DType, args: &ExecutionArgs) -> VortexResult<Datum> {
+        let datum = args.input_datums(0);
         vortex_compute::cast::Cast::cast(datum, target_dtype)
     }
 }
