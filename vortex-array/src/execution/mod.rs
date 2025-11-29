@@ -18,10 +18,12 @@ pub struct ExecutionCtx {
 }
 
 impl ExecutionCtx {
-    pub fn new(session: VortexSession) -> Self {
+    /// Create a new execution context with the given session.
+    pub(crate) fn new(session: VortexSession) -> Self {
         Self { session }
     }
 
+    /// Get the session associated with this execution context.
     pub fn session(&self) -> &VortexSession {
         &self.session
     }

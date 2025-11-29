@@ -106,11 +106,11 @@ impl VTable for StructVTable {
         StructArray::try_new_with_dtype(children, struct_dtype.clone(), len, validity)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+    fn batch_execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         let fields: Box<[_]> = array
             .fields()
             .iter()
-            .map(|field| field.execute(ctx))
+            .map(|field| field.batch_execute(ctx))
             .try_collect()?;
         // SAFETY: we know that all field lengths match the struct array length, and the validity
         Ok(unsafe { StructVector::new_unchecked(Arc::new(fields), array.validity_mask()) }.into())

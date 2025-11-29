@@ -124,12 +124,12 @@ impl VTable for ScalarFnVTable {
         })
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+    fn batch_execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         let input_dtypes: Vec<_> = array.children().iter().map(|c| c.dtype().clone()).collect();
         let input_datums = array
             .children()
             .iter()
-            .map(|child| child.execute(ctx))
+            .map(|child| child.batch_execute(ctx))
             .try_collect()?;
         let ctx = functions::ExecutionArgs::new(
             array.len(),

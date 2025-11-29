@@ -22,6 +22,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
+use vortex_session::VortexSession;
 use vortex_vector::Vector;
 use vortex_vector::VectorOps;
 use vortex_vector::vector_matches_dtype;
@@ -189,8 +190,8 @@ pub trait Array:
     fn invoke(&self, compute_fn: &ComputeFn, args: &InvocationArgs)
     -> VortexResult<Option<Output>>;
 
-    /// Execute the array to produce a canonical vector.
-    fn execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector>;
+    /// Invoke the batch execution function for the array to produce a canonical vector.
+    fn batch_execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector>;
 }
 
 impl Array for Arc<dyn Array> {
@@ -294,8 +295,8 @@ impl Array for Arc<dyn Array> {
         self.as_ref().invoke(compute_fn, args)
     }
 
-    fn execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        self.as_ref().execute(ctx)
+    fn batch_execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        self.as_ref().batch_execute(ctx)
     }
 }
 
@@ -361,6 +362,14 @@ impl dyn Array + '_ {
             }
         }
         nbytes
+    }
+
+    /// Execute the array and return the resulting vector.
+    ///
+    /// This entry-point function will choose an appropriate CPU-based execution strategy.
+    pub fn execute(&self, session: &VortexSession) -> VortexResult<Vector> {
+        let mut ctx = ExecutionCtx::new(session.clone());
+        self.batch_execute(&mut ctx)
     }
 }
 
@@ -659,8 +668,8 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         <V::ComputeVTable as ComputeVTable<V>>::invoke(&self.0, compute_fn, args)
     }
 
-    fn execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        let result = V::execute(&self.0, ctx)?;
+    fn batch_execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        let result = V::batch_execute(&self.0, ctx)?;
 
         // This check is so cheap we always run it. Whereas DType checks we only do in debug builds.
         vortex_ensure!(result.len() == self.len(), "Result length mismatch");

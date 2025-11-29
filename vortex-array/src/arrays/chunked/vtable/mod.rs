@@ -13,7 +13,6 @@ use vortex_vector::Vector;
 use vortex_vector::VectorMut;
 use vortex_vector::VectorMutOps;
 
-use crate::Array;
 use crate::EmptyMetadata;
 use crate::ToCanonical;
 use crate::arrays::ChunkedArray;
@@ -126,10 +125,10 @@ impl VTable for ChunkedVTable {
         })
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+    fn batch_execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         let mut vector = VectorMut::with_capacity(array.dtype(), 0);
         for chunk in array.chunks() {
-            let chunk_vector = chunk.execute(ctx)?;
+            let chunk_vector = chunk.batch_execute(ctx)?;
             vector.extend_from_vector(&chunk_vector);
         }
         Ok(vector.freeze())

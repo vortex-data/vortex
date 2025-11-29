@@ -105,8 +105,8 @@ impl VTable for MaskedVTable {
         MaskedArray::try_new(child, validity)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        let vector = array.child().execute(ctx)?;
+    fn batch_execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        let vector = array.child().batch_execute(ctx)?;
         Ok(MaskValidity::mask_validity(vector, &array.validity_mask()))
     }
 }

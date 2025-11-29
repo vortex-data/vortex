@@ -78,8 +78,8 @@ impl VTable for ExtensionVTable {
         Ok(ExtensionArray::new(ext_dtype.clone(), storage))
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        array.storage().execute(ctx)
+    fn batch_execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        array.storage().batch_execute(ctx)
     }
 }
 

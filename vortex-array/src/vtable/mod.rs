@@ -130,7 +130,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         children: &dyn ArrayChildren,
     ) -> VortexResult<Self::Array>;
 
-    /// Executes this array tree to return a canonical [`Vector`].
+    /// Execute this array tree to return a canonical [`Vector`].
     ///
     /// The returned vector must be the appropriate one for the array's logical type (they are
     /// one-to-one with Vortex `DType`s), and should respect the output nullability of the array.
@@ -140,7 +140,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     ///
     /// Implementations should recursively call [`crate::ArrayOperator::execute_batch`] on child
     /// arrays as needed.
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+    fn batch_execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         vortex_bail!(
             "Array {} does not support vector execution",
             Self::encoding(array).id()

@@ -106,7 +106,7 @@ impl VTable for BoolVTable {
         BoolArray::try_new(buffer, metadata.offset as usize, len, validity)
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+    fn batch_execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(BoolVector::new(array.bit_buffer().clone(), array.validity_mask()).into())
     }
 }

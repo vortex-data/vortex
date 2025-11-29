@@ -83,7 +83,7 @@ impl VTable for NullVTable {
         Ok(NullArray::new(len))
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+    fn batch_execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(NullVector::new(array.len()).into())
     }
 }

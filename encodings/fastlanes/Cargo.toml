@@ -68,28 +68,3 @@ required-features = ["test-harness"]
 name = "compute_between"
 harness = false
 required-features = ["test-harness"]
-
-[[bench]]
-name = "pipeline_bitpacking"
-harness = false
-test = false
-
-[[bench]]
-name = "pipeline_for"
-harness = false
-test = false
-
-[[bench]]
-name = "pipeline_bitpacking_compare_scalar"
-harness = false
-test = false
-
-[[bench]]
-name = "pipeline_rle"
-harness = false
-test = false
-
-[[bench]]
-name = "pipeline_v2_bitpacking_basic"
-harness = false
-test = false

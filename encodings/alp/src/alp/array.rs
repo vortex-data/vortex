@@ -140,17 +140,17 @@ impl VTable for ALPVTable {
         )
     }
 
-    fn execute(array: &ALPArray, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        let encoded_vector = array.encoded().execute(ctx)?;
+    fn batch_execute(array: &ALPArray, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        let encoded_vector = array.encoded().batch_execute(ctx)?;
 
         let patches_vectors = if let Some(patches) = array.patches() {
             Some((
-                patches.indices().execute(ctx)?,
-                patches.values().execute(ctx)?,
+                patches.indices().batch_execute(ctx)?,
+                patches.values().batch_execute(ctx)?,
                 patches
                     .chunk_offsets()
                     .as_ref()
-                    .map(|co| co.execute(ctx))
+                    .map(|co| co.batch_execute(ctx))
                     .transpose()?,
             ))
         } else {
@@ -464,7 +464,7 @@ mod tests {
 
     use super::*;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| VortexSession::empty());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     #[case(0)]
@@ -480,10 +480,7 @@ mod tests {
         let values = PrimitiveArray::from_iter((0..size).map(|i| i as f32));
         let encoded = alp_encode(&values, None).unwrap();
 
-        let result_vector = encoded
-            .to_array()
-            .execute(&mut ExecutionCtx::new(SESSION.clone()))
-            .unwrap();
+        let result_vector = encoded.to_array().execute(&SESSION).unwrap();
         // Compare against the traditional array-based decompress path
         let expected = decompress_into_array(encoded);
 
@@ -507,10 +504,7 @@ mod tests {
         let values = PrimitiveArray::from_iter((0..size).map(|i| i as f64));
         let encoded = alp_encode(&values, None).unwrap();
 
-        let result_vector = encoded
-            .to_array()
-            .execute(&mut ExecutionCtx::new(SESSION.clone()))
-            .unwrap();
+        let result_vector = encoded.to_array().execute(&SESSION).unwrap();
         // Compare against the traditional array-based decompress path
         let expected = decompress_into_array(encoded);
 
@@ -540,10 +534,7 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().unwrap().array_len() > 0);
 
-        let result_vector = encoded
-            .to_array()
-            .execute(&mut ExecutionCtx::new(SESSION.clone()))
-            .unwrap();
+        let result_vector = encoded.to_array().execute(&SESSION).unwrap();
         // Compare against the traditional array-based decompress path
         let expected = decompress_into_array(encoded);
 
@@ -571,10 +562,7 @@ mod tests {
         let array = PrimitiveArray::from_option_iter(values);
         let encoded = alp_encode(&array, None).unwrap();
 
-        let result_vector = encoded
-            .to_array()
-            .execute(&mut ExecutionCtx::new(SESSION.clone()))
-            .unwrap();
+        let result_vector = encoded.to_array().execute(&SESSION).unwrap();
         // Compare against the traditional array-based decompress path
         let expected = decompress_into_array(encoded);
 
@@ -613,10 +601,7 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().unwrap().array_len() > 0);
 
-        let result_vector = encoded
-            .to_array()
-            .execute(&mut ExecutionCtx::new(SESSION.clone()))
-            .unwrap();
+        let result_vector = encoded.to_array().execute(&SESSION).unwrap();
         // Compare against the traditional array-based decompress path
         let expected = decompress_into_array(encoded);
 
@@ -658,9 +643,7 @@ mod tests {
         let slice_len = slice_end - slice_start;
         let sliced_encoded = encoded.slice(slice_start..slice_end);
 
-        let result_vector = sliced_encoded
-            .execute(&mut ExecutionCtx::new(SESSION.clone()))
-            .unwrap();
+        let result_vector = sliced_encoded.execute(&SESSION).unwrap();
         let result_primitive = result_vector.into_primitive().into_f64();
 
         for idx in 0..slice_len {

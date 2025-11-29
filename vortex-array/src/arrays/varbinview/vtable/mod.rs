@@ -104,7 +104,7 @@ impl VTable for VarBinViewVTable {
         VarBinViewArray::try_new(views, Arc::from(buffers), dtype.clone(), validity)
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+    fn batch_execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(match array.dtype() {
             DType::Utf8(_) => unsafe {
                 StringVector::new_unchecked(

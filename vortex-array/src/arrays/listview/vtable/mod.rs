@@ -140,12 +140,12 @@ impl VTable for ListViewVTable {
         ListViewArray::try_new(elements, offsets, sizes, validity)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+    fn batch_execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(unsafe {
             ListViewVector::new_unchecked(
-                Arc::new(array.elements().execute(ctx)?),
-                array.offsets().execute(ctx)?.into_primitive(),
-                array.sizes().execute(ctx)?.into_primitive(),
+                Arc::new(array.elements().batch_execute(ctx)?),
+                array.offsets().batch_execute(ctx)?.into_primitive(),
+                array.sizes().batch_execute(ctx)?.into_primitive(),
                 array.validity_mask(),
             )
         }

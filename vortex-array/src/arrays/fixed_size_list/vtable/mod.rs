@@ -108,10 +108,10 @@ impl VTable for FixedSizeListVTable {
         FixedSizeListArray::try_new(elements, *list_size, validity, len)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+    fn batch_execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(unsafe {
             FixedSizeListVector::new_unchecked(
-                Arc::new(array.elements().execute(ctx)?),
+                Arc::new(array.elements().batch_execute(ctx)?),
                 array.list_size(),
                 array.validity_mask(),
             )

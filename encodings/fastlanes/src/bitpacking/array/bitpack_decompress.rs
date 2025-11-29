@@ -205,7 +205,6 @@ mod tests {
 
     use vortex_array::IntoArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::execution::ExecutionCtx;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::BufferMut;
@@ -219,7 +218,7 @@ mod tests {
     use crate::BitPackedVTable;
     use crate::bitpack_compress::bitpack_encode;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| VortexSession::empty());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn compression_roundtrip(n: usize) {
         let values = PrimitiveArray::from_iter((0..n).map(|i| (i % 2047) as u16));
@@ -537,10 +536,7 @@ mod tests {
             let unpacked_array = unpack_array(&bitpacked);
 
             // Method 3: Using the execute() method (this is what would be used in production).
-            let executed = bitpacked
-                .into_array()
-                .execute(&mut ExecutionCtx::new(SESSION.clone()))
-                .unwrap();
+            let executed = bitpacked.into_array().execute(&SESSION).unwrap();
 
             // All three should produce the same length.
             assert_eq!(vector_result.len(), array.len(), "vector length mismatch");
@@ -560,10 +556,7 @@ mod tests {
 
             // Verify that the execute() method works correctly by comparing with unpack_array.
             // We convert unpack_array result to a vector using execute() to compare.
-            let unpacked_executed = unpacked_array
-                .into_array()
-                .execute(&mut ExecutionCtx::new(SESSION.clone()))
-                .unwrap();
+            let unpacked_executed = unpacked_array.into_array().execute(&SESSION).unwrap();
             match (&executed, &unpacked_executed) {
                 (Vector::Primitive(exec_pv), Vector::Primitive(unpack_pv)) => {
                     assert_eq!(
@@ -600,9 +593,7 @@ mod tests {
         let sliced_bp = sliced.as_::<BitPackedVTable>();
         let vector_result = unpack_to_primitive_vector(sliced_bp);
         let unpacked_array = unpack_array(sliced_bp);
-        let executed = sliced
-            .execute(&mut ExecutionCtx::new(SESSION.clone()))
-            .unwrap();
+        let executed = sliced.execute(&SESSION).unwrap();
 
         assert_eq!(
             vector_result.len(),

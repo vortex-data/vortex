@@ -123,7 +123,7 @@ impl VTable for DecimalVTable {
         })
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+    fn batch_execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         match_each_decimal_value_type!(array.values_type(), |D| {
             Ok(unsafe {
                 DVector::<D>::new_unchecked(
