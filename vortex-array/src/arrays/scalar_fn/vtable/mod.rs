@@ -7,6 +7,9 @@ mod operations;
 mod validity;
 mod visitor;
 
+use std::marker::PhantomData;
+use std::ops::Deref;
+
 use itertools::Itertools;
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
@@ -24,6 +27,8 @@ use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
 use crate::execution::ExecutionCtx;
 use crate::expr::functions;
 use crate::expr::functions::scalar::ScalarFn;
+use crate::optimizer::rules::MatchKey;
+use crate::optimizer::rules::Matcher;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
@@ -168,3 +173,75 @@ pub trait ScalarFnArrayExt: functions::VTable {
     }
 }
 impl<V: functions::VTable> ScalarFnArrayExt for V {}
+
+/// A matcher that matches any scalar function expression.
+#[derive(Debug)]
+pub struct AnyScalarFn;
+impl Matcher for AnyScalarFn {
+    type View<'a> = &'a ScalarFnArray;
+
+    fn key(&self) -> MatchKey {
+        MatchKey::Any
+    }
+
+    fn try_match<'a>(&self, array: &'a ArrayRef) -> Option<Self::View<'a>> {
+        array.as_opt::<ScalarFnVTable>()
+    }
+}
+
+/// A matcher that matches a specific scalar function expression.
+#[derive(Debug)]
+pub struct ExactScalarFn<F: functions::VTable> {
+    id: ArrayId,
+    _phantom: PhantomData<F>,
+}
+
+impl<F: functions::VTable> From<&'static F> for ExactScalarFn<F> {
+    fn from(value: &'static F) -> Self {
+        Self {
+            id: value.id(),
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<F: functions::VTable> Matcher for ExactScalarFn<F> {
+    type View<'a> = ScalarFnArrayView<'a, F>;
+
+    fn key(&self) -> MatchKey {
+        MatchKey::Array(self.id.clone())
+    }
+
+    fn try_match<'a>(&self, array: &'a ArrayRef) -> Option<Self::View<'a>> {
+        let scalar_fn_array = array.as_opt::<ScalarFnVTable>()?;
+        let scalar_fn_vtable = scalar_fn_array
+            .scalar_fn
+            .vtable()
+            .as_any()
+            .downcast_ref::<F>()?;
+        let scalar_fn_options = scalar_fn_array
+            .scalar_fn
+            .options()
+            .as_any()
+            .downcast_ref::<F::Options>()?;
+        Some(ScalarFnArrayView {
+            array,
+            vtable: scalar_fn_vtable,
+            options: scalar_fn_options,
+        })
+    }
+}
+
+pub struct ScalarFnArrayView<'a, F: functions::VTable> {
+    array: &'a ArrayRef,
+    pub vtable: &'a F,
+    pub options: &'a F::Options,
+}
+
+impl<F: functions::VTable> Deref for ScalarFnArrayView<'_, F> {
+    type Target = ArrayRef;
+
+    fn deref(&self) -> &Self::Target {
+        self.array
+    }
+}

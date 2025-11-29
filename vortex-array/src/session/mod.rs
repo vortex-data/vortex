@@ -23,6 +23,7 @@ use crate::arrays::StructVTable;
 use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewVTable;
 use crate::optimizer::ArrayOptimizer;
+use crate::scalar_fns::cast::array::CastArrayReduce;
 use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 
@@ -96,6 +97,9 @@ impl Default for ArraySession {
         optimizer.register_parent_rule(BoolMaskedValidityRule);
         optimizer.register_parent_rule(PrimitiveMaskedValidityRule);
         optimizer.register_parent_rule(DecimalMaskedValidityRule);
+
+        // Scalar function rules
+        optimizer.register_reduce_rule(CastArrayReduce);
 
         session
     }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod array;
+pub(crate) mod array;
 
 use prost::Message;
 use vortex_dtype::DType;

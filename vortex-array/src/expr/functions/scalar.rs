@@ -196,9 +196,9 @@ pub struct ScalarFnOptions<'a> {
     pub(crate) options: &'a dyn Any,
 }
 
-impl ScalarFnOptions<'_> {
+impl<'a> ScalarFnOptions<'a> {
     /// Get the options as a `dyn Any`.
-    pub fn as_any(&self) -> &dyn Any {
+    pub fn as_any(&self) -> &'a dyn Any {
         self.options
     }
 }

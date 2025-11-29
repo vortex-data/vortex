@@ -17,9 +17,8 @@ use crate::ArrayRef;
 use crate::arrays::ScalarFnArrayExt;
 use crate::expr::Expression;
 use crate::expr::ScalarFnExprExt;
-use crate::scalar_fns::cast::CastFn;
 
-mod cast;
+pub mod cast;
 
 /// A collection of built-in scalar functions that can be applied to expressions or arrays.
 pub trait BuiltinScalarFns: Sized {
@@ -29,12 +28,12 @@ pub trait BuiltinScalarFns: Sized {
 
 impl BuiltinScalarFns for Expression {
     fn cast(&self, dtype: DType) -> VortexResult<Expression> {
-        CastFn.try_new_expr(dtype, [self.clone()])
+        cast::CastFn.try_new_expr(dtype, [self.clone()])
     }
 }
 
 impl BuiltinScalarFns for ArrayRef {
     fn cast(&self, dtype: DType) -> VortexResult<Self> {
-        CastFn.try_new_array(self.len(), dtype, [self.clone()])
+        cast::CastFn.try_new_array(self.len(), dtype, [self.clone()])
     }
 }

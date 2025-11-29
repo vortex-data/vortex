@@ -5,4 +5,4 @@ mod array;
 mod metadata;
 mod vtable;
 
-pub use vtable::ScalarFnArrayExt;
+pub use vtable::*;

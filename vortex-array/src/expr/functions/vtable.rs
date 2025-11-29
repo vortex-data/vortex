@@ -167,6 +167,8 @@ pub enum NullHandling {
 
 /// An object-safe vtable for scalar functions that dispatches to the non-object-safe vtable.
 pub(crate) trait DynScalarFnVTable: 'static + Send + Sync {
+    fn as_any(&self) -> &dyn Any;
+
     fn id(&self) -> FunctionId;
 
     fn options_serialize(&self, options: &dyn Any) -> VortexResult<Option<Vec<u8>>>;
@@ -202,6 +204,10 @@ pub(crate) trait DynScalarFnVTable: 'static + Send + Sync {
 #[repr(transparent)]
 pub struct ScalarFnVTableAdapter<V>(V);
 impl<V: VTable> DynScalarFnVTable for ScalarFnVTableAdapter<V> {
+    fn as_any(&self) -> &dyn Any {
+        &self.0
+    }
+
     fn id(&self) -> FunctionId {
         V::id(&self.0)
     }
@@ -306,6 +312,10 @@ impl ScalarFnVTable {
 
     pub fn id(&self) -> FunctionId {
         self.0.id()
+    }
+
+    pub fn as_any(&self) -> &dyn Any {
+        self.0.deref().as_any()
     }
 
     pub fn deserialize(&self, bytes: &[u8]) -> VortexResult<ScalarFn> {
