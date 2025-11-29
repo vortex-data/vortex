@@ -12,19 +12,19 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_vector::Vector;
 use vortex_vector::VectorOps;
 
-use crate::expr::expression::Expression;
-use crate::expr::stats::Stat;
+use crate::ArrayRef;
 use crate::expr::ExprId;
 use crate::expr::ExpressionView;
 use crate::expr::StatsCatalog;
-use crate::ArrayRef;
+use crate::expr::expression::Expression;
+use crate::expr::stats::Stat;
 
 ///
 /// This trait defines the interface for expression vtables, including methods for
@@ -493,8 +493,8 @@ mod tests {
     use crate::expr::exprs::root::root;
     use crate::expr::exprs::select::select;
     use crate::expr::exprs::select::select_exclude;
-    use crate::expr::proto::deserialize_expr_proto;
     use crate::expr::proto::ExprSerializeProtoExt;
+    use crate::expr::proto::deserialize_expr_proto;
     use crate::expr::session::ExprRegistry;
     use crate::expr::session::ExprSession;
 

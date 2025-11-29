@@ -13,15 +13,16 @@ use vortex_error::VortexResult;
 use vortex_utils::debug_with::DebugWith;
 use vortex_vector::Datum;
 
-use crate::expr::functions::execution::ExecutionCtx;
+use crate::expr::Expression;
+use crate::expr::StatsCatalog;
+use crate::expr::functions::ArgName;
 use crate::expr::functions::Arity;
 use crate::expr::functions::FunctionId;
 use crate::expr::functions::NullHandling;
 use crate::expr::functions::ScalarFnVTable;
-use crate::expr::functions::{ArgName, VTable};
+use crate::expr::functions::VTable;
+use crate::expr::functions::execution::ExecutionCtx;
 use crate::expr::stats::Stat;
-use crate::expr::Expression;
-use crate::expr::StatsCatalog;
 
 /// An instance of a scalar function bound to some invocation options.
 pub struct ScalarFn {

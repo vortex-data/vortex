@@ -9,12 +9,15 @@
 //! This set of functions should cover the basics, and in general leans towards the semantics of
 //! the equivalent Arrow compute function.
 
-use crate::arrays::ScalarFnArrayExt;
-use crate::expr::{Expression, ScalarFnExprExt};
-use crate::scalar_fns::cast::CastFn;
-use crate::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
+
+use crate::Array;
+use crate::ArrayRef;
+use crate::arrays::ScalarFnArrayExt;
+use crate::expr::Expression;
+use crate::expr::ScalarFnExprExt;
+use crate::scalar_fns::cast::CastFn;
 
 mod cast;
 

@@ -12,18 +12,18 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_vector::Datum;
 
-use crate::expr::functions::execution::ExecutionCtx;
-use crate::expr::functions::scalar::ScalarFn;
-use crate::expr::functions::ArgName;
-use crate::expr::functions::FunctionId;
-use crate::expr::stats::Stat;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
+use crate::expr::functions::ArgName;
+use crate::expr::functions::FunctionId;
+use crate::expr::functions::execution::ExecutionCtx;
+use crate::expr::functions::scalar::ScalarFn;
+use crate::expr::stats::Stat;
 
 /// A non-object-safe vtable trait for scalar function types.
 ///

@@ -3,15 +3,25 @@
 
 mod array;
 
-use crate::expr::functions::{ArgName, Arity, ExecutionCtx, FunctionId, NullHandling, VTable};
-use crate::expr::stats::Stat;
-use crate::expr::{Expression, StatsCatalog};
-use crate::scalar_fns::BuiltinScalarFns;
 use prost::Message;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_proto::expr as pb;
 use vortex_vector::Datum;
+
+use crate::expr::Expression;
+use crate::expr::StatsCatalog;
+use crate::expr::functions::ArgName;
+use crate::expr::functions::Arity;
+use crate::expr::functions::ExecutionCtx;
+use crate::expr::functions::FunctionId;
+use crate::expr::functions::NullHandling;
+use crate::expr::functions::VTable;
+use crate::expr::stats::Stat;
+use crate::scalar_fns::BuiltinScalarFns;
 
 pub struct CastFn;
 impl VTable for CastFn {

@@ -8,9 +8,11 @@ mod null;
 mod pvector;
 
 use vortex_dtype::DType;
-use vortex_error::vortex_bail;
 use vortex_error::VortexResult;
-use vortex_vector::{Datum, Scalar, Vector};
+use vortex_error::vortex_bail;
+use vortex_vector::Datum;
+use vortex_vector::Scalar;
+use vortex_vector::Vector;
 
 /// Trait for casting vectors to different data types.
 pub trait Cast {
