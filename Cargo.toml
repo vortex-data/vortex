@@ -206,7 +206,6 @@ tpchgen-arrow = { version = "2" }
 tracing = { version = "0.1.41" }
 tracing-perfetto = "0.1.5"
 tracing-subscriber = "0.3.20"
-type-map = "0.5.1"
 url = "2.5.7"
 uuid = { version = "1.18", features = ["js"] }
 walkdir = "2.5.0"

@@ -8145,15 +8145,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "type-map"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb30dbbd9036155e74adad6812e9898d03ec374946234fbcebd5dfc7b9187b90"
-dependencies = [
- "rustc-hash",
-]
-
-[[package]]
 name = "typeid"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8419,7 +8410,6 @@ dependencies = [
  "static_assertions",
  "tabled",
  "termtree",
- "type-map",
  "vortex-array",
  "vortex-buffer",
  "vortex-compute",
