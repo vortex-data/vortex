@@ -25,7 +25,6 @@ use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 use vortex_vector::Vector;
 use vortex_vector::VectorOps;
-use vortex_vector::vector_matches_dtype;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -675,7 +674,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         vortex_ensure!(result.len() == self.len(), "Result length mismatch");
         #[cfg(debug_assertions)]
         vortex_ensure!(
-            vector_matches_dtype(&result, self.dtype()),
+            vortex_vector::vector_matches_dtype(&result, self.dtype()),
             "Executed vector dtype mismatch",
         );
 

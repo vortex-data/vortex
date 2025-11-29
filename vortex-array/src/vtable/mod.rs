@@ -138,7 +138,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Debug builds will panic if the returned vector is of the wrong type, wrong length, or
     /// incorrectly contains null values.
     ///
-    /// Implementations should recursively call [`crate::ArrayOperator::execute_batch`] on child
+    /// Implementations should recursively call [`Array::batch_execute`] on child
     /// arrays as needed.
     fn batch_execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         vortex_bail!(
