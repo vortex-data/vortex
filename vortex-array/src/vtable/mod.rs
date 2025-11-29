@@ -13,7 +13,6 @@ mod operator;
 mod validity;
 mod visitor;
 
-use std::any::TypeId;
 use std::fmt::Debug;
 use std::ops::Deref;
 
@@ -35,7 +34,6 @@ use vortex_vector::Vector;
 use crate::Array;
 use crate::IntoArray;
 use crate::execution::ExecutionCtx;
-use crate::expr::VTableAdapter;
 use crate::serde::ArrayChildren;
 
 /// The array [`VTable`] encapsulates logic for an Array type within Vortex.
@@ -77,11 +75,6 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
 
     /// Returns the ID of the encoding.
     fn id(&self) -> ArrayId;
-
-    /// Returns the type ID of the adapted vtable.
-    fn type_id(&self) -> TypeId {
-        TypeId::of::<VTableAdapter<Self>>()
-    }
 
     /// Returns the encoding for the array.
     fn encoding(array: &Self::Array) -> ArrayVTable;

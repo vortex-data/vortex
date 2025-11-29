@@ -49,6 +49,14 @@ impl OperatorVTable<BoolVTable> for BoolVTable {
 pub struct BoolMaskedValidityRule;
 
 impl ArrayParentReduceRule<Exact<BoolVTable>, Exact<MaskedVTable>> for BoolMaskedValidityRule {
+    fn child(&self) -> Exact<BoolVTable> {
+        Exact::from(&BoolVTable)
+    }
+
+    fn parent(&self) -> Exact<MaskedVTable> {
+        Exact::from(&MaskedVTable)
+    }
+
     fn reduce_parent(
         &self,
         array: &BoolArray,

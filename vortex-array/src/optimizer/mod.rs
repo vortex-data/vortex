@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
-use vortex_session::SessionVar;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::Array;
@@ -12,13 +11,13 @@ use crate::ArrayVisitor;
 use crate::array::ArrayRef;
 use crate::optimizer::rules::AnyArray;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::ArrayParentReduceRuleAdapter;
 use crate::optimizer::rules::ArrayReduceRule;
-use crate::optimizer::rules::ArrayReduceRuleAdapter;
 use crate::optimizer::rules::DynArrayParentReduceRule;
 use crate::optimizer::rules::DynArrayReduceRule;
 use crate::optimizer::rules::MatchKey;
 use crate::optimizer::rules::Matcher;
+use crate::optimizer::rules::ParentReduceRuleAdapter;
+use crate::optimizer::rules::ReduceRuleAdapter;
 
 pub mod rules;
 
@@ -35,8 +34,6 @@ pub struct ArrayOptimizer {
     reduce_rules: HashMap<MatchKey, Vec<Arc<dyn DynArrayReduceRule>>>,
     /// Parent reduce rules for specific parent types, indexed by (child, parent)
     parent_rules: HashMap<(MatchKey, MatchKey), Vec<Arc<dyn DynArrayParentReduceRule>>>,
-    /// Wildcard parent rules (match any parent), indexed by child only
-    any_parent_rules: HashMap<MatchKey, Vec<Arc<dyn DynArrayParentReduceRule>>>,
 }
 
 impl ArrayOptimizer {
@@ -167,9 +164,10 @@ impl ArrayOptimizer {
         M: Matcher,
         R: ArrayReduceRule<M> + 'static,
     {
-        let adapter = ArrayReduceRuleAdapter::new(rule);
+        let key = rule.matcher().key();
+        let adapter = ReduceRuleAdapter::new(rule);
         self.reduce_rules
-            .entry(M::key())
+            .entry(key)
             .or_default()
             .push(Arc::new(adapter));
     }
@@ -181,9 +179,10 @@ impl ArrayOptimizer {
         Parent: Matcher,
         R: ArrayParentReduceRule<Child, Parent> + 'static,
     {
-        let adapter = ArrayParentReduceRuleAdapter::new(rule);
+        let key = (rule.child().key(), rule.parent().key());
+        let adapter = ParentReduceRuleAdapter::new(rule);
         self.parent_rules
-            .entry((Child::key(), Parent::key()))
+            .entry(key)
             .or_default()
             .push(Arc::new(adapter));
     }
@@ -194,9 +193,10 @@ impl ArrayOptimizer {
         Child: Matcher,
         R: ArrayParentReduceRule<Child, AnyArray> + 'static,
     {
-        let adapter = ArrayParentReduceRuleAdapter::new(rule);
-        self.any_parent_rules
-            .entry(Child::key())
+        let key = (rule.child().key(), MatchKey::Any);
+        let adapter = ParentReduceRuleAdapter::new(rule);
+        self.parent_rules
+            .entry(key)
             .or_default()
             .push(Arc::new(adapter));
     }
@@ -206,12 +206,13 @@ impl ArrayOptimizer {
     where
         F: FnOnce(&mut dyn Iterator<Item = &dyn DynArrayReduceRule>) -> R,
     {
-        f(&mut self
-            .reduce_rules
-            .get(&MatchKey::Type(array.encoding().as_any().type_id()))
+        let exact = self.reduce_rules.get(&MatchKey::Array(array.encoding_id()));
+        let any = self.reduce_rules.get(&MatchKey::Any);
+        f(&mut exact
             .iter()
+            .chain(any.iter())
             .flat_map(|v| v.iter())
-            .map(|arc| arc.as_ref()))
+            .map(|v| v.as_ref()))
     }
 
     /// Execute a callback with all parent reduce rules for a given child and parent encoding ID.
@@ -226,20 +227,20 @@ impl ArrayOptimizer {
     where
         F: FnOnce(&mut dyn Iterator<Item = &dyn DynArrayParentReduceRule>) -> R,
     {
-        let specific_entry = parent.and_then(|parent| {
+        let exact = parent.and_then(|parent| {
             self.parent_rules.get(&(
-                MatchKey::Type(child.encoding().as_any().type_id()),
-                MatchKey::Type(parent.encoding().as_any().type_id()),
+                MatchKey::Array(child.encoding_id()),
+                MatchKey::Array(parent.encoding_id()),
             ))
         });
-        let wildcard_entry = self
-            .any_parent_rules
-            .get(&MatchKey::Type(child.encoding().as_any().type_id()));
+        let any = self
+            .parent_rules
+            .get(&(MatchKey::Array(child.encoding_id()), MatchKey::Any));
 
-        f(&mut specific_entry
+        f(&mut exact
             .iter()
+            .chain(any.iter())
             .flat_map(|v| v.iter())
-            .chain(wildcard_entry.iter().flat_map(|v| v.iter()))
             .map(|arc| arc.as_ref()))
     }
 }

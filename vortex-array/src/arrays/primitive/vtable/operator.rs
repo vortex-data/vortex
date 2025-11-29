@@ -56,6 +56,14 @@ pub struct PrimitiveMaskedValidityRule;
 impl ArrayParentReduceRule<Exact<PrimitiveVTable>, Exact<MaskedVTable>>
     for PrimitiveMaskedValidityRule
 {
+    fn child(&self) -> Exact<PrimitiveVTable> {
+        Exact::from(&PrimitiveVTable)
+    }
+
+    fn parent(&self) -> Exact<MaskedVTable> {
+        Exact::from(&MaskedVTable)
+    }
+
     fn reduce_parent(
         &self,
         array: &PrimitiveArray,

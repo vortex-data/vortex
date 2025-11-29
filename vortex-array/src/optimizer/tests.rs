@@ -27,6 +27,10 @@ use crate::validity::Validity;
 struct UnwrapSingleChunkRule;
 
 impl ArrayReduceRule<Exact<ChunkedVTable>> for UnwrapSingleChunkRule {
+    fn matcher(&self) -> Exact<ChunkedVTable> {
+        Exact::from(&ChunkedVTable)
+    }
+
     fn reduce(&self, array: &ChunkedArray) -> VortexResult<Option<ArrayRef>> {
         if array.nchunks() == 1 {
             return Ok(Some(array.chunk(0).clone()));
@@ -114,6 +118,14 @@ fn test_reduce_rules_traverse_whole_tree() -> VortexResult<()> {
 struct ConstantInStructRule;
 
 impl ArrayParentReduceRule<Exact<ConstantVTable>, Exact<StructVTable>> for ConstantInStructRule {
+    fn child(&self) -> Exact<ConstantVTable> {
+        Exact::from(&ConstantVTable)
+    }
+
+    fn parent(&self) -> Exact<StructVTable> {
+        Exact::from(&StructVTable)
+    }
+
     fn reduce_parent(
         &self,
         array: &ConstantArray,

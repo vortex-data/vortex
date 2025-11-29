@@ -58,6 +58,14 @@ pub struct DecimalMaskedValidityRule;
 impl ArrayParentReduceRule<Exact<DecimalVTable>, Exact<MaskedVTable>>
     for DecimalMaskedValidityRule
 {
+    fn child(&self) -> Exact<DecimalVTable> {
+        Exact::from(&DecimalVTable)
+    }
+
+    fn parent(&self) -> Exact<MaskedVTable> {
+        Exact::from(&MaskedVTable)
+    }
+
     fn reduce_parent(
         &self,
         array: &DecimalArray,
