@@ -6,17 +6,18 @@ use std::sync::Arc;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::Array;
 use crate::ArrayVisitor;
 use crate::array::ArrayRef;
-use crate::optimizer::rules::AnyArrayParent;
+use crate::optimizer::rules::AnyArray;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::ArrayParentReduceRuleAdapter;
 use crate::optimizer::rules::ArrayReduceRule;
-use crate::optimizer::rules::ArrayReduceRuleAdapter;
 use crate::optimizer::rules::DynArrayParentReduceRule;
 use crate::optimizer::rules::DynArrayReduceRule;
-use crate::vtable::ArrayId;
-use crate::vtable::VTable;
+use crate::optimizer::rules::MatchKey;
+use crate::optimizer::rules::Matcher;
+use crate::optimizer::rules::ParentReduceRuleAdapter;
+use crate::optimizer::rules::ReduceRuleAdapter;
 
 pub mod rules;
 
@@ -30,11 +31,9 @@ mod tests;
 #[derive(Default, Debug, Clone)]
 pub struct ArrayOptimizer {
     /// Reduce rules indexed by encoding ID
-    reduce_rules: HashMap<ArrayId, Vec<Arc<dyn DynArrayReduceRule>>>,
-    /// Parent reduce rules for specific parent types, indexed by (child_id, parent_id)
-    parent_rules: HashMap<(ArrayId, ArrayId), Vec<Arc<dyn DynArrayParentReduceRule>>>,
-    /// Wildcard parent rules (match any parent), indexed by child_id only
-    any_parent_rules: HashMap<ArrayId, Vec<Arc<dyn DynArrayParentReduceRule>>>,
+    reduce_rules: HashMap<MatchKey, Vec<Arc<dyn DynArrayReduceRule>>>,
+    /// Parent reduce rules for specific parent types, indexed by (child, parent)
+    parent_rules: HashMap<(MatchKey, MatchKey), Vec<Arc<dyn DynArrayParentReduceRule>>>,
 }
 
 impl ArrayOptimizer {
@@ -85,12 +84,9 @@ impl ArrayOptimizer {
         // let mut transformed_children = Vec::with_capacity(optimized_children.len());
 
         for (idx, child) in optimized_children.iter().enumerate() {
-            let child_id = child.encoding_id();
-            let parent_id = array.encoding_id();
-
             let result = self.with_parent_rules(
-                &child_id,
-                Some(&parent_id),
+                child,
+                Some(&array),
                 |rules| -> VortexResult<Option<ArrayRef>> {
                     for rule in rules {
                         if let Some(new_array) = rule.reduce_parent(child, &array, idx)? {
@@ -144,16 +140,14 @@ impl ArrayOptimizer {
 
     /// Try to apply reduce rules to a single array, recursively if a rule matches.
     fn try_reduce(&self, array: ArrayRef) -> VortexResult<ArrayRef> {
-        let encoding_id = array.encoding_id();
-        let result =
-            self.with_reduce_rules(&encoding_id, |rules| -> VortexResult<Option<ArrayRef>> {
-                for rule in rules {
-                    if let Some(new_array) = rule.reduce(&array)? {
-                        return Ok(Some(new_array));
-                    }
+        let result = self.with_reduce_rules(&array, |rules| -> VortexResult<Option<ArrayRef>> {
+            for rule in rules {
+                if let Some(new_array) = rule.reduce(&array)? {
+                    return Ok(Some(new_array));
                 }
-                Ok(None)
-            })?;
+            }
+            Ok(None)
+        })?;
 
         if let Some(transformed) = result {
             // Rule matched - recursively try to reduce the result
@@ -165,64 +159,60 @@ impl ArrayOptimizer {
     }
 
     /// Register a reduce rule for a specific array encoding.
-    pub fn register_reduce_rule<V, R>(&mut self, vtable: &V, rule: R)
+    pub fn register_reduce_rule<M, R>(&mut self, rule: R)
     where
-        V: VTable,
-        R: ArrayReduceRule<V> + 'static,
+        M: Matcher,
+        R: ArrayReduceRule<M> + 'static,
     {
-        let adapter = ArrayReduceRuleAdapter::new(rule);
-        let encoding_id = V::id(vtable);
+        let key = rule.matcher().key();
+        let adapter = ReduceRuleAdapter::new(rule);
         self.reduce_rules
-            .entry(encoding_id)
+            .entry(key)
             .or_default()
             .push(Arc::new(adapter));
     }
 
     /// Register a parent rule for a specific parent type.
-    pub fn register_parent_rule<Child, Parent, R>(
-        &mut self,
-        child_encoding: &Child,
-        parent_encoding: &Parent,
-        rule: R,
-    ) where
-        Child: VTable,
-        Parent: VTable,
+    pub fn register_parent_rule<Child, Parent, R>(&mut self, rule: R)
+    where
+        Child: Matcher,
+        Parent: Matcher,
         R: ArrayParentReduceRule<Child, Parent> + 'static,
     {
-        let adapter = ArrayParentReduceRuleAdapter::new(rule);
-        let child_id = Child::id(child_encoding);
-        let parent_id = Parent::id(parent_encoding);
+        let key = (rule.child().key(), rule.parent().key());
+        let adapter = ParentReduceRuleAdapter::new(rule);
         self.parent_rules
-            .entry((child_id, parent_id))
+            .entry(key)
             .or_default()
             .push(Arc::new(adapter));
     }
 
     /// Register a parent rule that matches ANY parent type (wildcard).
-    pub fn register_any_parent_rule<Child, R>(&mut self, child_encoding: &Child, rule: R)
+    pub fn register_any_parent_rule<Child, R>(&mut self, rule: R)
     where
-        Child: VTable,
-        R: ArrayParentReduceRule<Child, AnyArrayParent> + 'static,
+        Child: Matcher,
+        R: ArrayParentReduceRule<Child, AnyArray> + 'static,
     {
-        let adapter = ArrayParentReduceRuleAdapter::new(rule);
-        let child_id = Child::id(child_encoding);
-        self.any_parent_rules
-            .entry(child_id)
+        let key = (rule.child().key(), MatchKey::Any);
+        let adapter = ParentReduceRuleAdapter::new(rule);
+        self.parent_rules
+            .entry(key)
             .or_default()
             .push(Arc::new(adapter));
     }
 
     /// Execute a callback with all reduce rules for a given encoding ID.
-    pub(crate) fn with_reduce_rules<F, R>(&self, id: &ArrayId, f: F) -> R
+    pub(crate) fn with_reduce_rules<F, R>(&self, array: &ArrayRef, f: F) -> R
     where
         F: FnOnce(&mut dyn Iterator<Item = &dyn DynArrayReduceRule>) -> R,
     {
-        f(&mut self
-            .reduce_rules
-            .get(id)
+        let exact = self.reduce_rules.get(&MatchKey::Array(array.encoding_id()));
+        let any = self.reduce_rules.get(&MatchKey::Any);
+        f(&mut exact
             .iter()
+            .chain(any.iter())
             .flat_map(|v| v.iter())
-            .map(|arc| arc.as_ref()))
+            .map(|v| v.as_ref()))
     }
 
     /// Execute a callback with all parent reduce rules for a given child and parent encoding ID.
@@ -230,21 +220,27 @@ impl ArrayOptimizer {
     /// Returns rules from both specific parent rules (if parent_id provided) and "any parent" wildcard rules.
     pub(crate) fn with_parent_rules<F, R>(
         &self,
-        child_id: &ArrayId,
-        parent_id: Option<&ArrayId>,
+        child: &ArrayRef,
+        parent: Option<&ArrayRef>,
         f: F,
     ) -> R
     where
         F: FnOnce(&mut dyn Iterator<Item = &dyn DynArrayParentReduceRule>) -> R,
     {
-        let specific_entry =
-            parent_id.and_then(|pid| self.parent_rules.get(&(child_id.clone(), pid.clone())));
-        let wildcard_entry = self.any_parent_rules.get(child_id);
+        let exact = parent.and_then(|parent| {
+            self.parent_rules.get(&(
+                MatchKey::Array(child.encoding_id()),
+                MatchKey::Array(parent.encoding_id()),
+            ))
+        });
+        let any = self
+            .parent_rules
+            .get(&(MatchKey::Array(child.encoding_id()), MatchKey::Any));
 
-        f(&mut specific_entry
+        f(&mut exact
             .iter()
+            .chain(any.iter())
             .flat_map(|v| v.iter())
-            .chain(wildcard_entry.iter().flat_map(|v| v.iter()))
             .map(|arc| arc.as_ref()))
     }
 }

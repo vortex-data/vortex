@@ -15,6 +15,7 @@ use crate::execution::BatchKernelRef;
 use crate::execution::BindCtx;
 use crate::execution::kernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::optimizer::rules::Exact;
 use crate::vtable::OperatorVTable;
 use crate::vtable::ValidityHelper;
 
@@ -47,7 +48,15 @@ impl OperatorVTable<BoolVTable> for BoolVTable {
 #[derive(Default, Debug)]
 pub struct BoolMaskedValidityRule;
 
-impl ArrayParentReduceRule<BoolVTable, MaskedVTable> for BoolMaskedValidityRule {
+impl ArrayParentReduceRule<Exact<BoolVTable>, Exact<MaskedVTable>> for BoolMaskedValidityRule {
+    fn child(&self) -> Exact<BoolVTable> {
+        Exact::from(&BoolVTable)
+    }
+
+    fn parent(&self) -> Exact<MaskedVTable> {
+        Exact::from(&MaskedVTable)
+    }
+
     fn reduce_parent(
         &self,
         array: &BoolArray,

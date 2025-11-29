@@ -20,6 +20,7 @@ use crate::expr::functions::Arity;
 use crate::expr::functions::FunctionId;
 use crate::expr::functions::NullHandling;
 use crate::expr::functions::ScalarFnVTable;
+use crate::expr::functions::VTable;
 use crate::expr::functions::execution::ExecutionCtx;
 use crate::expr::stats::Stat;
 
@@ -30,6 +31,20 @@ pub struct ScalarFn {
 }
 
 impl ScalarFn {
+    /// Create a new scalar function instance.
+    pub fn new<V: VTable>(vtable: V, options: V::Options) -> ScalarFn {
+        let vtable = ScalarFnVTable::new::<V>(vtable);
+        let options = Box::new(options);
+        ScalarFn { vtable, options }
+    }
+
+    /// Create a new scalar function instance from a static vtable.
+    pub fn new_static<V: VTable>(vtable: &'static V, options: V::Options) -> ScalarFn {
+        let vtable = ScalarFnVTable::new_static(vtable);
+        let options = Box::new(options);
+        ScalarFn { vtable, options }
+    }
+
     /// Create a new scalar function instance.
     ///
     /// # Safety
@@ -45,6 +60,11 @@ impl ScalarFn {
     /// Return the function ID for this scalar function.
     pub fn id(&self) -> FunctionId {
         self.vtable.id()
+    }
+
+    /// Return the vtable of this scalar function.
+    pub fn vtable(&self) -> &ScalarFnVTable {
+        &self.vtable
     }
 
     /// Get the options for this scalar function.
@@ -73,10 +93,15 @@ impl ScalarFn {
             .stat_falsification(self.options.as_ref(), expr, catalog)
     }
 
-    pub fn stat_expression(&self, stat: Stat, catalog: &dyn StatsCatalog) -> Option<Expression> {
+    pub fn stat_expression(
+        &self,
+        expr: &Expression,
+        stat: Stat,
+        catalog: &dyn StatsCatalog,
+    ) -> Option<Expression> {
         self.vtable
             .as_dyn()
-            .stat_expression(self.options.as_ref(), stat, catalog)
+            .stat_expression(self.options.as_ref(), expr, stat, catalog)
     }
 
     pub fn return_dtype(&self, arg_types: &[DType]) -> VortexResult<DType> {
@@ -171,9 +196,9 @@ pub struct ScalarFnOptions<'a> {
     pub(crate) options: &'a dyn Any,
 }
 
-impl ScalarFnOptions<'_> {
+impl<'a> ScalarFnOptions<'a> {
     /// Get the options as a `dyn Any`.
-    pub fn as_any(&self) -> &dyn Any {
+    pub fn as_any(&self) -> &'a dyn Any {
         self.options
     }
 }

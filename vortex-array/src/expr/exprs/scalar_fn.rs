@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::DType;
@@ -147,3 +148,19 @@ impl<F: functions::VTable> Matcher for ExactScalarFn<F> {
         expr_view.data().as_any().downcast_ref::<F::Options>()
     }
 }
+
+/// Expression factory functions for ScalarFn vtables.
+pub trait ScalarFnExprExt: functions::VTable {
+    fn try_new_expr(
+        &'static self,
+        options: Self::Options,
+        children: impl Into<Arc<[Expression]>>,
+    ) -> VortexResult<Expression> {
+        let expr_vtable = ScalarFnExpr {
+            vtable: ScalarFnVTable::new_static(self),
+        };
+        let scalar_fn = ScalarFn::new_static(self, options);
+        Expression::try_new(expr_vtable, scalar_fn, children)
+    }
+}
+impl<V: functions::VTable> ScalarFnExprExt for V {}

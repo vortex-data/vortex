@@ -155,19 +155,19 @@ impl Default for ExprSession {
 
         // Register built-in expressions here if needed.
         expressions.register_many([
-            ExprVTable::from_static(&Between),
-            ExprVTable::from_static(&Binary),
-            ExprVTable::from_static(&Cast),
-            ExprVTable::from_static(&GetItem),
-            ExprVTable::from_static(&IsNull),
-            ExprVTable::from_static(&Like),
-            ExprVTable::from_static(&ListContains),
-            ExprVTable::from_static(&Literal),
-            ExprVTable::from_static(&Merge),
-            ExprVTable::from_static(&Not),
-            ExprVTable::from_static(&Pack),
-            ExprVTable::from_static(&Root),
-            ExprVTable::from_static(&Select),
+            ExprVTable::new_static(&Between),
+            ExprVTable::new_static(&Binary),
+            ExprVTable::new_static(&Cast),
+            ExprVTable::new_static(&GetItem),
+            ExprVTable::new_static(&IsNull),
+            ExprVTable::new_static(&Like),
+            ExprVTable::new_static(&ListContains),
+            ExprVTable::new_static(&Literal),
+            ExprVTable::new_static(&Merge),
+            ExprVTable::new_static(&Not),
+            ExprVTable::new_static(&Pack),
+            ExprVTable::new_static(&Root),
+            ExprVTable::new_static(&Select),
         ]);
 
         // Register built-in rewrite rules

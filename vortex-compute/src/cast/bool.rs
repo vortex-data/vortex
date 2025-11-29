@@ -17,6 +17,8 @@ use vortex_vector::primitive::PVector;
 use crate::cast::Cast;
 
 impl Cast for BoolVector {
+    type Output = Vector;
+
     fn cast(&self, dtype: &DType) -> VortexResult<Vector> {
         match dtype {
             DType::Null if self.validity().all_false() => {

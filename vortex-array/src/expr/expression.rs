@@ -44,13 +44,39 @@ pub struct Expression {
 }
 
 impl Expression {
+    /// Create a new expression from a vtable.
+    pub fn try_new<V: VTable>(
+        vtable: V,
+        data: V::Instance,
+        children: impl Into<Arc<[Expression]>>,
+    ) -> VortexResult<Self> {
+        let vtable = ExprVTable::new::<V>(vtable);
+        let data = Arc::new(data);
+        Self::try_new_erased(vtable, data, children.into())
+    }
+
+    /// Create a new expression from a static vtable.
+    pub fn new_static<V: VTable>(
+        vtable: &'static V,
+        data: V::Instance,
+        children: impl Into<Arc<[Expression]>>,
+    ) -> Self {
+        let vtable = ExprVTable::new_static::<V>(vtable);
+        let data = Arc::new(data);
+        Self {
+            vtable,
+            data,
+            children: children.into(),
+        }
+    }
+
     /// Creates a new expression with the given encoding, metadata, and children.
     ///
     /// # Errors
     ///
     /// Returns an error if the provided `encoding` is not compatible with the
     /// `metadata` and `children` or the encoding's own validation logic fails.
-    pub fn try_new(
+    pub(super) fn try_new_erased(
         vtable: ExprVTable,
         data: Arc<dyn Any + Send + Sync>,
         children: Arc<[Expression]>,
@@ -63,25 +89,6 @@ impl Expression {
         // Validate that the encoding is compatible with the metadata and children.
         this.vtable.as_dyn().validate(&this)?;
         Ok(this)
-    }
-
-    /// Creates a new expression with the given encoding, metadata, and children.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that the provided `encoding` is compatible with the
-    /// `metadata` and `children`. Failure to do so may lead to undefined behavior
-    ///  when the expression is used.
-    pub unsafe fn new_unchecked(
-        vtable: ExprVTable,
-        data: Arc<dyn Any + Send + Sync>,
-        children: Arc<[Expression]>,
-    ) -> Self {
-        Self {
-            vtable,
-            data,
-            children,
-        }
     }
 
     /// Returns if the expression is an instance of the given vtable.

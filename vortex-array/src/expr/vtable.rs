@@ -182,8 +182,8 @@ pub trait VTableExt: VTable {
         instance: Self::Instance,
         children: impl Into<Arc<[Expression]>>,
     ) -> VortexResult<Expression> {
-        Expression::try_new(
-            ExprVTable::from_static(self),
+        Expression::try_new_erased(
+            ExprVTable::new_static(self),
             Arc::new(instance),
             children.into(),
         )
@@ -399,8 +399,13 @@ impl ExprVTable {
         self.0.as_ref()
     }
 
+    /// Creates a new [`ExprVTable`] from a vtable.
+    pub fn new<V: VTable>(vtable: V) -> Self {
+        Self(ArcRef::new_arc(Arc::new(VTableAdapter(vtable))))
+    }
+
     /// Creates a new [`ExprVTable`] from a static reference to a vtable.
-    pub const fn from_static<V: VTable>(vtable: &'static V) -> Self {
+    pub const fn new_static<V: VTable>(vtable: &'static V) -> Self {
         // SAFETY: We can safely cast the vtable to a VTableAdapter since it has the same layout.
         let adapted: &'static VTableAdapter<V> =
             unsafe { &*(vtable as *const V as *const VTableAdapter<V>) };
@@ -437,7 +442,7 @@ impl ExprVTable {
                 self.as_dyn().id()
             )
         })?;
-        Expression::try_new(self.clone(), instance_data, children)
+        Expression::try_new_erased(self.clone(), instance_data, children)
     }
 }
 

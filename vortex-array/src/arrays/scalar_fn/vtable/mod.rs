@@ -7,19 +7,28 @@ mod operations;
 mod validity;
 mod visitor;
 
+use std::marker::PhantomData;
+use std::ops::Deref;
+
 use itertools::Itertools;
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_vector::Vector;
 
 use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
 use crate::execution::ExecutionCtx;
 use crate::expr::functions;
+use crate::expr::functions::scalar::ScalarFn;
+use crate::optimizer::rules::MatchKey;
+use crate::optimizer::rules::Matcher;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
@@ -125,5 +134,114 @@ impl VTable for ScalarFnVTable {
             .execute(&ctx)?
             .into_vector()
             .vortex_expect("Vector inputs should return vector outputs"))
+    }
+}
+
+/// Array factory functions for scalar functions.
+pub trait ScalarFnArrayExt: functions::VTable {
+    fn try_new_array(
+        &'static self,
+        len: usize,
+        options: Self::Options,
+        children: impl Into<Vec<ArrayRef>>,
+    ) -> VortexResult<ArrayRef> {
+        let scalar_fn = ScalarFn::new_static(self, options);
+
+        let children = children.into();
+        vortex_ensure!(
+            children.iter().all(|c| c.len() == len),
+            "All child arrays must have the same length as the scalar function array"
+        );
+
+        let child_dtypes = children.iter().map(|c| c.dtype().clone()).collect_vec();
+        let dtype = scalar_fn.return_dtype(&child_dtypes)?;
+
+        let array_vtable: ArrayVTable = ScalarFnVTable {
+            vtable: scalar_fn.vtable().clone(),
+        }
+        .into_vtable();
+
+        Ok(ScalarFnArray {
+            vtable: array_vtable,
+            scalar_fn,
+            dtype,
+            len,
+            children,
+            stats: Default::default(),
+        }
+        .into_array())
+    }
+}
+impl<V: functions::VTable> ScalarFnArrayExt for V {}
+
+/// A matcher that matches any scalar function expression.
+#[derive(Debug)]
+pub struct AnyScalarFn;
+impl Matcher for AnyScalarFn {
+    type View<'a> = &'a ScalarFnArray;
+
+    fn key(&self) -> MatchKey {
+        MatchKey::Any
+    }
+
+    fn try_match<'a>(&self, array: &'a ArrayRef) -> Option<Self::View<'a>> {
+        array.as_opt::<ScalarFnVTable>()
+    }
+}
+
+/// A matcher that matches a specific scalar function expression.
+#[derive(Debug)]
+pub struct ExactScalarFn<F: functions::VTable> {
+    id: ArrayId,
+    _phantom: PhantomData<F>,
+}
+
+impl<F: functions::VTable> From<&'static F> for ExactScalarFn<F> {
+    fn from(value: &'static F) -> Self {
+        Self {
+            id: value.id(),
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<F: functions::VTable> Matcher for ExactScalarFn<F> {
+    type View<'a> = ScalarFnArrayView<'a, F>;
+
+    fn key(&self) -> MatchKey {
+        MatchKey::Array(self.id.clone())
+    }
+
+    fn try_match<'a>(&self, array: &'a ArrayRef) -> Option<Self::View<'a>> {
+        let scalar_fn_array = array.as_opt::<ScalarFnVTable>()?;
+        let scalar_fn_vtable = scalar_fn_array
+            .scalar_fn
+            .vtable()
+            .as_any()
+            .downcast_ref::<F>()?;
+        let scalar_fn_options = scalar_fn_array
+            .scalar_fn
+            .options()
+            .as_any()
+            .downcast_ref::<F::Options>()?;
+        Some(ScalarFnArrayView {
+            array,
+            vtable: scalar_fn_vtable,
+            options: scalar_fn_options,
+        })
+    }
+}
+
+pub struct ScalarFnArrayView<'a, F: functions::VTable> {
+    array: &'a ArrayRef,
+    pub vtable: &'a F,
+    pub options: &'a F::Options,
+}
+
+impl<F: functions::VTable> Deref for ScalarFnArrayView<'_, F> {
+    type Target = ArrayRef;
+
+    fn deref(&self) -> &Self::Target {
+        self.array
     }
 }
