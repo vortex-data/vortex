@@ -7,7 +7,7 @@
     clippy::tests_outside_test_module
 )]
 
-//! Test that checks we can evolve schemas in a cmpatible way across files.
+//! Test that checks we can evolve schemas in a compatible way across files.
 
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -16,18 +16,21 @@ use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Schema;
 use arrow_schema::SchemaRef;
+use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::array::StringViewArray;
+use datafusion::arrow::array::{Array, Int32Array};
+use datafusion::arrow::array::{ArrayRef as ArrowArrayRef, StructArray};
 use datafusion::arrow::compute::concat_batches;
 use datafusion::datasource::listing::ListingOptions;
 use datafusion::datasource::listing::ListingTable;
 use datafusion::datasource::listing::ListingTableConfig;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::execution::context::SessionContext;
-use datafusion_common::arrow::array::ArrayRef as ArrowArrayRef;
-use datafusion_common::arrow::array::RecordBatch;
-use datafusion_common::record_batch;
+use datafusion_common::{create_array, record_batch};
 use datafusion_datasource::ListingTableUrl;
 use datafusion_expr::col;
+use datafusion_expr::lit;
+use datafusion_functions::expr_fn::get_field;
 use object_store::ObjectStore;
 use object_store::memory::InMemory;
 use object_store::path::Path;
@@ -163,6 +166,247 @@ async fn test_filter_with_schema_evolution() {
             ]
         )
     );
+}
+
+#[tokio::test]
+async fn test_filter_schema_evolution_order() {
+    let (ctx, store) = make_session_ctx();
+
+    // file1 only contains field "a"
+    write_file(
+        &store,
+        "files/file1.vortex",
+        &record_batch!(("a", Int32, vec![Some(1), Some(3), Some(5)])).unwrap(),
+    )
+    .await;
+
+    // file2 containing fields "b" and "a", where "a" needs to be upcast at scan time.
+    write_file(
+        &store,
+        "files/file2.vortex",
+        &record_batch!(
+            ("b", Utf8, vec![Some("two"), Some("four"), Some("six")]),
+            ("a", Int16, vec![Some(2), Some(4), Some(6)])
+        )
+        .unwrap(),
+    )
+    .await;
+
+    // Read the table back as Vortex
+    let table_url = ListingTableUrl::parse("s3://in-memory/files").unwrap();
+    let list_opts = ListingOptions::new(Arc::new(VortexFormat::new(SESSION.clone())))
+        .with_session_config_options(ctx.state().config())
+        .with_file_extension("vortex");
+
+    // We force the table schema, because file1/file2 have different types for the "a" column
+    let read_schema = Arc::new(Schema::new(vec![
+        Field::new("a", DataType::Int32, true),
+        Field::new("b", DataType::Utf8View, true),
+    ]));
+
+    let table = ListingTable::try_new(
+        ListingTableConfig::new(table_url)
+            .with_listing_options(list_opts)
+            .with_schema(read_schema.clone()),
+    )
+    .unwrap();
+
+    let table = Arc::new(table);
+
+    let df = ctx.read_table(table.clone()).unwrap();
+
+    let table_schema = Arc::new(df.schema().as_arrow().clone());
+
+    // Table schema contains both fields
+    assert_eq!(
+        table_schema.as_ref(),
+        &Schema::new(vec![
+            Field::new("a", DataType::Int32, true),
+            Field::new("b", DataType::Utf8View, true),
+        ])
+    );
+
+    // Filter referencing the b column, which only appears in file2
+    let result = df
+        .filter(col("b").eq(lit("two")))
+        .unwrap()
+        .collect()
+        .await
+        .unwrap();
+    let result = concat_batches(&table_schema, result.iter()).unwrap();
+
+    assert_eq!(
+        result,
+        record_batch(
+            &table_schema,
+            vec![
+                // a
+                Arc::new(Int32Array::from(vec![Some(2)])) as ArrowArrayRef,
+                // b
+                Arc::new(StringViewArray::from(vec![Some("two"),])) as ArrowArrayRef,
+            ]
+        )
+    );
+
+    // Filter on the "a" column, which has different types for each file
+    let result = ctx
+        .read_table(table)
+        .unwrap()
+        .filter(col("a").gt_eq(lit(3i16)))
+        .unwrap()
+        .collect()
+        .await
+        .unwrap();
+    let table = concat_batches(&table_schema, result.iter()).unwrap();
+
+    // file1, then file2
+    assert_eq!(
+        table,
+        record_batch(
+            &table_schema,
+            vec![
+                // a field: present in both files
+                Arc::new(Int32Array::from(vec![Some(3), Some(5), Some(4), Some(6)]))
+                    as ArrowArrayRef,
+                // b field: only present in file2, file1 fills with nulls
+                Arc::new(StringViewArray::from(vec![
+                    None,
+                    None,
+                    Some("four"),
+                    Some("six")
+                ])) as ArrowArrayRef,
+            ]
+        )
+    );
+}
+
+#[tokio::test]
+async fn test_filter_schema_evolution_struct_fields() {
+    // Test for correct schema evolution behavior in the presence of nested struct fields.
+    // We use a hypothetical schema of some observability data with "wide records", struct columns
+    // with nullable payloads that may or may not be present for every file.
+
+    let (ctx, store) = make_session_ctx();
+
+    fn make_metrics(
+        hostname: &str,
+        uptime: Vec<i64>,
+        instance: Option<Vec<Option<&str>>>,
+    ) -> RecordBatch {
+        let values_array: ArrowArrayRef = create_array!(Int64, uptime);
+        let payload_array = if let Some(tags) = instance {
+            let tags_array: ArrowArrayRef = create_array!(Utf8, tags);
+            Arc::new(StructArray::new(
+                vec![
+                    Field::new("uptime", DataType::Int64, true),
+                    Field::new("instance", DataType::Utf8, true),
+                ]
+                .into(),
+                vec![values_array, tags_array],
+                None,
+            ))
+        } else {
+            Arc::new(StructArray::new(
+                vec![Field::new("uptime", DataType::Int64, true)].into(),
+                vec![values_array],
+                None,
+            ))
+        };
+
+        let len = payload_array.len();
+        let hostname_array = create_array!(Utf8, vec![Some(hostname); len]);
+
+        let payload_type = payload_array.data_type().clone();
+        let hostname_type = hostname_array.data_type().clone();
+
+        RecordBatch::from(StructArray::new(
+            vec![
+                Field::new("hostname", hostname_type, true),
+                Field::new("payload", payload_type, true),
+            ]
+            .into(),
+            vec![hostname_array, payload_array],
+            None,
+        ))
+    }
+
+    let host01 = make_metrics("host01.local", vec![1, 2, 3, 4], None);
+    let host02 = make_metrics(
+        "host02.local",
+        vec![10, 20, 30, 40],
+        // host02 has new logging code which adds the new "instance" nested field in its payload
+        Some(vec![Some("c6i"), Some("c6i"), Some("m5"), Some("r5")]),
+    );
+
+    // Write metrics files to storage
+    write_file(&store, "files/host01.vortex", &host01).await;
+    write_file(&store, "files/host02.vortex", &host02).await;
+
+    // Read the table back as Vortex
+    let table_url = ListingTableUrl::parse("s3://in-memory/files").unwrap();
+    let list_opts = ListingOptions::new(Arc::new(VortexFormat::new(SESSION.clone())))
+        .with_session_config_options(ctx.state().config())
+        .with_file_extension("vortex");
+
+    // We force the table schema to be the one inclusive of the new instance field.
+    let read_schema = host02.schema();
+
+    let table = ListingTable::try_new(
+        ListingTableConfig::new(table_url)
+            .with_listing_options(list_opts)
+            .with_schema(read_schema.clone()),
+    )
+    .unwrap();
+
+    let table = Arc::new(table);
+
+    let df = ctx.read_table(table.clone()).unwrap();
+
+    let table_schema = Arc::new(df.schema().as_arrow().clone());
+
+    // Table schema contains both fields
+    assert_eq!(table_schema.as_ref(), read_schema.as_ref(),);
+
+    // Scan all the records, NULLs are filled in for nested optional fields.
+    let full_scan = df.collect().await.unwrap();
+    let full_scan = concat_batches(&table_schema, full_scan.iter()).unwrap();
+
+    let expected = concat_batches(
+        &table_schema,
+        &[
+            // host01 with extra nulls for the payload.instance field
+            make_metrics("host01.local", vec![1, 2, 3, 4], Some(vec![None; 4])),
+            host02,
+        ],
+    )
+    .unwrap();
+    assert_eq!(full_scan, expected);
+
+    // run a filter that touches both the payload.uptime AND the payload.instance nested fields
+    let df = ctx.read_table(table.clone()).unwrap();
+    let filtered_scan = df
+        .filter(
+            // payload.instance = 'c6i' OR payload.uptime < 10
+            // We need to perform filtering over nested columns which don't exist in every
+            // file type.
+            get_field(col("payload"), "instance")
+                .eq(lit("c6i"))
+                .or(get_field(col("payload"), "uptime").lt(lit(10))),
+        )
+        .unwrap()
+        .collect()
+        .await
+        .unwrap();
+    let filtered_scan = concat_batches(&table_schema, filtered_scan.iter()).unwrap();
+    let expected = concat_batches(
+        &table_schema,
+        &[
+            make_metrics("host01", vec![1, 2, 3, 4], Some(vec![None; 4])),
+            make_metrics("host02", vec![10, 20], Some(vec![Some("c6i"), Some("c6i")])),
+        ],
+    )
+    .unwrap();
+    assert_eq!(filtered_scan, expected);
 }
 
 fn record_batch(
