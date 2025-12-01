@@ -81,18 +81,6 @@ impl Datum {
             Datum::Vector(vector) => Some(vector),
         }
     }
-
-    /// Maps over the scalar or vector value, applying the appropriate function based on the variant.
-    pub fn map2(
-        self,
-        sc_fn: impl FnOnce(Scalar) -> Scalar,
-        arr_fn: impl FnOnce(Vector) -> Vector,
-    ) -> Datum {
-        match self {
-            Datum::Scalar(scalar) => Datum::Scalar(sc_fn(scalar)),
-            Datum::Vector(vector) => Datum::Vector(arr_fn(vector)),
-        }
-    }
 }
 
 impl Datum {
