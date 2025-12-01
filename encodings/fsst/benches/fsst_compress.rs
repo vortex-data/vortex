@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used)]
-
 use divan::Bencher;
 use rand::Rng;
 use rand::SeedableRng;
@@ -18,6 +16,7 @@ use vortex_array::compute::compare;
 use vortex_array::compute::warm_up_vtables;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
+use vortex_error::VortexExpect;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 use vortex_scalar::Scalar;
@@ -81,7 +80,7 @@ fn pushdown_compare(bencher: Bencher, (string_count, avg_len, unique_chars): (us
     bencher
         .with_inputs(|| (&fsst_array, &constant))
         .bench_refs(|(fsst_array, constant)| {
-            compare(fsst_array.as_ref(), constant.as_ref(), Operator::Eq).unwrap();
+            compare(fsst_array.as_ref(), constant.as_ref(), Operator::Eq).vortex_expect("compare");
         })
 }
 
@@ -99,11 +98,14 @@ fn canonicalize_compare(
         .with_inputs(|| (&fsst_array, &constant))
         .bench_refs(|(fsst_array, constant)| {
             compare(
-                fsst_array.to_canonical().unwrap().as_ref(),
+                fsst_array
+                    .to_canonical()
+                    .vortex_expect("to_canonical")
+                    .as_ref(),
                 constant.as_ref(),
                 Operator::Eq,
             )
-            .unwrap()
+            .vortex_expect("compare")
         });
 }
 
@@ -130,7 +132,9 @@ fn chunked_canonicalize_into(
     bencher.with_inputs(|| &array).bench_refs(|array| {
         let mut builder =
             VarBinViewBuilder::with_capacity(DType::Binary(Nullability::NonNullable), array.len());
-        array.append_to_builder(&mut builder);
+        array
+            .append_to_builder(&mut builder)
+            .vortex_expect("append_to_builder");
         builder.finish()
     });
 }

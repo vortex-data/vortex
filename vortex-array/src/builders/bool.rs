@@ -148,6 +148,7 @@ mod tests {
     use rand::prelude::StdRng;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
+    use vortex_error::VortexResult;
     use vortex_scalar::Scalar;
 
     use crate::ArrayRef;
@@ -180,19 +181,20 @@ mod tests {
     }
 
     #[test]
-    fn tests() {
+    fn tests() -> VortexResult<()> {
         let len = 1000;
         let chunk_count = 10;
         let chunk = make_opt_bool_chunks(len, chunk_count);
 
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk.clone().append_to_builder(builder.as_mut());
+        chunk.clone().append_to_builder(builder.as_mut())?;
 
-        let canon_into = builder.finish().to_bool().unwrap();
-        let into_canon = chunk.to_bool().unwrap();
+        let canon_into = builder.finish().to_bool()?;
+        let into_canon = chunk.to_bool()?;
 
         assert_eq!(canon_into.validity(), into_canon.validity());
         assert_eq!(canon_into.bit_buffer(), into_canon.bit_buffer());
+        Ok(())
     }
 
     #[test]

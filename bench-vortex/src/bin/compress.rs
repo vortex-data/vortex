@@ -43,6 +43,7 @@ use vortex::array::IntoArray;
 use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrays::ChunkedVTable;
 use vortex::array::builders::builder_with_capacity;
+use vortex::error::VortexExpect;
 use vortex::utils::aliases::hash_map::HashMap;
 
 #[derive(Parser, Debug)]
@@ -235,7 +236,9 @@ pub fn benchmark_compress(
             .iter()
             .map(|chunk| {
                 let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());
-                chunk.append_to_builder(builder.as_mut());
+                chunk
+                    .append_to_builder(builder.as_mut())
+                    .vortex_expect("append_to_builder");
                 builder.finish()
             }),
     )

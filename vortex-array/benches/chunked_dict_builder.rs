@@ -9,6 +9,7 @@ use vortex_array::arrays::dict_test::gen_dict_primitive_chunks;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::compute::warm_up_vtables;
 use vortex_dtype::NativePType;
+use vortex_error::VortexExpect;
 
 fn main() {
     warm_up_vtables();
@@ -35,7 +36,9 @@ fn chunked_dict_primitive_canonical_into<T: NativePType>(
 
     bencher.with_inputs(|| &chunk).bench_refs(|chunk| {
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk.append_to_builder(builder.as_mut());
+        chunk
+            .append_to_builder(builder.as_mut())
+            .vortex_expect("append_to_builder");
         builder.finish()
     })
 }
