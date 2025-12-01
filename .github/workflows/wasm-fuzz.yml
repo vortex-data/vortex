@@ -1,6 +1,13 @@
 name: WASM Fuzz
 
 on:
+  workflow_dispatch:
+    inputs:
+      fuzz_duration:
+        description: "Fuzzing duration in hours"
+        required: false
+        default: "4"
+        type: string
   schedule:
     # Run daily at 2 AM UTC
     - cron: "0 2 * * *"
