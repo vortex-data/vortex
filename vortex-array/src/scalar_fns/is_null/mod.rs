@@ -5,19 +5,19 @@ use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_vector::bool::BoolVector;
 use vortex_vector::Datum;
 use vortex_vector::ScalarOps;
 use vortex_vector::Vector;
 use vortex_vector::VectorOps;
+use vortex_vector::bool::BoolVector;
 
+use crate::expr::ChildName;
+use crate::expr::ExprId;
 use crate::expr::functions::ArgName;
 use crate::expr::functions::Arity;
 use crate::expr::functions::EmptyOptions;
 use crate::expr::functions::ExecutionArgs;
 use crate::expr::functions::VTable;
-use crate::expr::ChildName;
-use crate::expr::ExprId;
 
 pub struct IsNull;
 impl VTable for IsNull {
@@ -48,7 +48,8 @@ impl VTable for IsNull {
             Datum::Vector(vec) => Vector::Bool(BoolVector::new(
                 vec.validity().to_bit_buffer(),
                 Mask::AllTrue(vec.len()),
-            )).into()
+            ))
+            .into(),
         })
     }
 }
