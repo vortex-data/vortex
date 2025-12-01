@@ -18,6 +18,11 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build s3_cat binary
+        run: cargo build --bin s3_cat --package bench-vortex --release
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v5
         with:
@@ -30,7 +35,7 @@ jobs:
 
           sudo apt-get update && sudo apt-get install -y jq
           bash scripts/commit-json.sh > new-commit.json
-          bash scripts/cat-s3.sh vortex-benchmark-results-database commits.json new-commit.json
+          target/release/s3_cat vortex-benchmark-results-database-test commits.json new-commit.json
 
   bench:
     timeout-minutes: 120
@@ -69,7 +74,7 @@ jobs:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         # The main difference between this and `bench-pr.yml` is that we add the `lance` feature.
         run: |
-          cargo build --bin ${{ matrix.benchmark.id }} --package bench-vortex --profile release_debug --features lance
+          cargo build --bin ${{ matrix.benchmark.id }} --bin s3_cat --package bench-vortex --profile release_debug --features lance
 
       - name: Setup Polar Signals
         uses: polarsignals/gh-actions-ps-profiling@v0.6.0
@@ -96,7 +101,7 @@ jobs:
       - name: Upload Benchmark Results
         shell: bash
         run: |
-          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json.gz ${{ matrix.benchmark.id }}.json
+          target/release_debug/s3_cat vortex-benchmark-results-database-test data.json.gz ${{ matrix.benchmark.id }}.json
   sql:
     uses: ./.github/workflows/sql-benchmarks.yml
     secrets: inherit

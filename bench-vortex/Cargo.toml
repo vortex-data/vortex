@@ -29,6 +29,8 @@ arrow-cast = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 async-trait = { workspace = true }
+aws-config = "1"
+aws-sdk-s3 = "1"
 bytes = { workspace = true }
 bzip2 = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
@@ -42,6 +44,7 @@ datafusion-common = { workspace = true }
 datafusion-physical-plan = { workspace = true }
 dirs = { workspace = true }
 erased-serde = { workspace = true }
+flate2 = "1"
 futures = { workspace = true }
 glob = { workspace = true }
 humansize = { workspace = true }
