@@ -58,9 +58,9 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::Array;
-    use crate::ArrayOperator;
-    use crate::IntoArray;
+
     use crate::pipeline::driver::PipelineDriver;
+    use crate::IntoArray;
 
     #[test]
     fn test_pipeline_input() {

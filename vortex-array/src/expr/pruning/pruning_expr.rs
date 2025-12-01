@@ -16,7 +16,7 @@ use crate::expr::Expression;
 use crate::expr::StatsCatalog;
 use crate::expr::exprs::get_item::get_item;
 use crate::expr::exprs::root::root;
-use crate::stats::Stat;
+use crate::expr::stats::Stat;
 
 pub type RequiredStats = Relation<FieldPath, Stat>;
 
@@ -140,7 +140,7 @@ mod tests {
     use crate::expr::exprs::root::root;
     use crate::expr::pruning::checked_pruning_expr;
     use crate::expr::pruning::field_path_stat_field_name;
-    use crate::stats::Stat;
+    use crate::expr::stats::Stat;
 
     // Implement some checked pruning expressions.
     #[fixture]

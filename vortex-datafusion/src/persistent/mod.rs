@@ -56,16 +56,16 @@ mod tests {
     use tempfile::TempDir;
     use tempfile::tempdir;
     use tokio::fs::OpenOptions;
-    use vortex::IntoArray;
     use vortex::VortexSessionDefault;
-    use vortex::arrays::ChunkedArray;
-    use vortex::arrays::StructArray;
-    use vortex::arrays::VarBinArray;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::ChunkedArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::array::arrays::VarBinArray;
+    use vortex::array::validity::Validity;
     use vortex::buffer::buffer;
     use vortex::error::vortex_err;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::session::VortexSession;
-    use vortex::validity::Validity;
 
     use crate::VortexFormatFactory;
     use crate::persistent::VortexFormat;

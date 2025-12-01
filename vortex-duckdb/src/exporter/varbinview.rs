@@ -4,7 +4,7 @@
 use std::ffi::c_char;
 
 use itertools::Itertools;
-use vortex::arrays::VarBinViewArray;
+use vortex::array::arrays::VarBinViewArray;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;

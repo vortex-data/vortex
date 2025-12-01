@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -11,7 +11,6 @@ use vortex_error::vortex_ensure;
 use vortex_vector::Vector;
 use vortex_vector::fixed_size_list::FixedSizeListVector;
 
-use crate::ArrayOperator;
 use crate::EmptyMetadata;
 use crate::arrays::FixedSizeListArray;
 use crate::execution::ExecutionCtx;
@@ -48,7 +47,6 @@ impl VTable for FixedSizeListVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type OperatorVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.fixed_size_list")
@@ -78,7 +76,7 @@ impl VTable for FixedSizeListVTable {
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
-        buffers: &[ByteBuffer],
+        buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<FixedSizeListArray> {
         vortex_ensure!(
@@ -110,10 +108,10 @@ impl VTable for FixedSizeListVTable {
         FixedSizeListArray::try_new(elements, *list_size, validity, len)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn batch_execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(unsafe {
             FixedSizeListVector::new_unchecked(
-                Arc::new(array.elements().execute_batch(ctx)?),
+                Arc::new(array.elements().batch_execute(ctx)?),
                 array.list_size(),
                 array.validity_mask()?,
             )

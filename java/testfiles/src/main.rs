@@ -5,15 +5,15 @@
 
 use std::path::Path;
 
-use vortex::arrays::StructArray;
-use vortex::builders::{ArrayBuilder, DecimalBuilder, VarBinViewBuilder};
+use vortex::array::arrays::StructArray;
+use vortex::array::builders::{ArrayBuilder, DecimalBuilder, VarBinViewBuilder};
+use vortex::array::validity::Validity;
 use vortex::dtype::{DType, DecimalDType, Nullability};
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
-use vortex::validity::Validity;
 use vortex::VortexSessionDefault;
 
 /// Generate a test dataset with the following small set of rows:

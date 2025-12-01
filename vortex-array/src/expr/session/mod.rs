@@ -26,7 +26,8 @@ use crate::expr::exprs::pack::Pack;
 use crate::expr::exprs::root::Root;
 use crate::expr::exprs::select::Select;
 use crate::expr::exprs::select::transform::RemoveSelectRule;
-use crate::expr::transform::rules::AnyParent;
+use crate::expr::transform::rules::Any;
+use crate::expr::transform::rules::Exact;
 use crate::expr::transform::rules::ParentReduceRule;
 use crate::expr::transform::rules::ReduceRule;
 use crate::expr::transform::rules::RuleContext;
@@ -96,7 +97,7 @@ impl ExprSession {
         Child: VTable,
         Parent: VTable,
         R: 'static,
-        R: ParentReduceRule<Child, Parent, RuleContext>,
+        R: ParentReduceRule<Child, Exact<Parent>, RuleContext>,
     {
         self.rewrite_rules
             .register_parent_rule_specific::<Child, Parent, R>(child_vtable, parent_vtable, rule);
@@ -107,7 +108,7 @@ impl ExprSession {
     where
         Child: VTable,
         R: 'static,
-        R: ParentReduceRule<Child, AnyParent, RuleContext>,
+        R: ParentReduceRule<Child, Any, RuleContext>,
     {
         self.rewrite_rules
             .register_parent_rule_any::<Child, R>(child_vtable, rule);
@@ -123,7 +124,7 @@ impl ExprSession {
         Child: VTable,
         Parent: VTable,
         R: 'static,
-        R: ParentReduceRule<Child, Parent, TypedRuleContext>,
+        R: ParentReduceRule<Child, Exact<Parent>, TypedRuleContext>,
     {
         self.rewrite_rules
             .register_typed_parent_rule_specific::<Child, Parent, R>(
@@ -141,7 +142,7 @@ impl ExprSession {
     ) where
         Child: VTable,
         R: 'static,
-        R: ParentReduceRule<Child, AnyParent, TypedRuleContext>,
+        R: ParentReduceRule<Child, Any, TypedRuleContext>,
     {
         self.rewrite_rules
             .register_typed_parent_rule_any::<Child, R>(child_vtable, rule);
@@ -154,19 +155,19 @@ impl Default for ExprSession {
 
         // Register built-in expressions here if needed.
         expressions.register_many([
-            ExprVTable::from_static(&Between),
-            ExprVTable::from_static(&Binary),
-            ExprVTable::from_static(&Cast),
-            ExprVTable::from_static(&GetItem),
-            ExprVTable::from_static(&IsNull),
-            ExprVTable::from_static(&Like),
-            ExprVTable::from_static(&ListContains),
-            ExprVTable::from_static(&Literal),
-            ExprVTable::from_static(&Merge),
-            ExprVTable::from_static(&Not),
-            ExprVTable::from_static(&Pack),
-            ExprVTable::from_static(&Root),
-            ExprVTable::from_static(&Select),
+            ExprVTable::new_static(&Between),
+            ExprVTable::new_static(&Binary),
+            ExprVTable::new_static(&Cast),
+            ExprVTable::new_static(&GetItem),
+            ExprVTable::new_static(&IsNull),
+            ExprVTable::new_static(&Like),
+            ExprVTable::new_static(&ListContains),
+            ExprVTable::new_static(&Literal),
+            ExprVTable::new_static(&Merge),
+            ExprVTable::new_static(&Not),
+            ExprVTable::new_static(&Pack),
+            ExprVTable::new_static(&Root),
+            ExprVTable::new_static(&Select),
         ]);
 
         // Register built-in rewrite rules

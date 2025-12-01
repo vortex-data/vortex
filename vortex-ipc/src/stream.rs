@@ -16,7 +16,7 @@ use futures::StreamExt;
 use futures::TryStreamExt;
 use pin_project_lite::pin_project;
 use vortex_array::ArrayRef;
-use vortex_array::ArrayRegistry;
+use vortex_array::session::ArrayRegistry;
 use vortex_array::stream::ArrayStream;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -201,9 +201,9 @@ impl Stream for ArrayStreamIPCBytes {
 #[cfg(test)]
 mod test {
     use futures::io::Cursor;
-    use vortex_array::ArraySession;
     use vortex_array::IntoArray as _;
     use vortex_array::ToCanonical;
+    use vortex_array::session::ArraySession;
     use vortex_array::stream::ArrayStream;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_buffer::buffer;

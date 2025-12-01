@@ -9,7 +9,7 @@
 //!
 //! [`DType::FixedSizeList`]: vortex_dtype::DType::FixedSizeList
 
-use vortex::arrays::FixedSizeListArray;
+use vortex::array::arrays::FixedSizeListArray;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
@@ -90,10 +90,10 @@ impl ColumnExporter for FixedSizeListExporter {
 
 #[cfg(test)]
 mod tests {
-    use vortex::IntoArray as _;
+    use vortex::array::IntoArray as _;
+    use vortex::array::validity::Validity;
     use vortex::buffer::buffer;
     use vortex::error::VortexExpect;
-    use vortex::validity::Validity;
 
     use super::*;
     use crate::cpp;

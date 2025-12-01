@@ -14,7 +14,7 @@ use itertools::Itertools;
 #[cfg(feature = "lance")]
 #[rustfmt::skip]
 use lance::dataset::{
-    Dataset, 
+    Dataset,
     ProjectionRequest
 };
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
@@ -22,12 +22,12 @@ use parquet::arrow::arrow_reader::ArrowReaderOptions;
 use parquet::arrow::async_reader::AsyncFileReader;
 use parquet::file::metadata::RowGroupMetaData;
 use stream::StreamExt;
-use vortex::Array;
-use vortex::ArrayRef;
-use vortex::IntoArray;
+use vortex::array::Array;
+use vortex::array::ArrayRef;
+use vortex::array::IntoArray;
+use vortex::array::stream::ArrayStreamExt;
 use vortex::buffer::Buffer;
 use vortex::file::OpenOptionsSessionExt;
-use vortex::stream::ArrayStreamExt;
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::SESSION;

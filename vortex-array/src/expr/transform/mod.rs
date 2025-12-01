@@ -13,4 +13,3 @@ mod simplify_typed;
 pub use optimizer::*;
 pub use partition::*;
 pub use replace::*;
-pub use rules::*;

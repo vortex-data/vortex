@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex::arrays::BoolArray;
+use vortex::array::arrays::BoolArray;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::hash::Hasher;
 
 use vortex_dtype::DType;
 
@@ -26,11 +27,7 @@ impl BaseArrayVTable<PrimitiveVTable> for PrimitiveVTable {
         array.stats_set.to_ref(array.as_ref())
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: &PrimitiveArray,
-        state: &mut H,
-        precision: Precision,
-    ) {
+    fn array_hash<H: Hasher>(array: &PrimitiveArray, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
         array.buffer.array_hash(state, precision);
         array.validity.array_hash(state, precision);

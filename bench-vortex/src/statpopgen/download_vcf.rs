@@ -18,15 +18,15 @@ use tokio::fs::create_dir_all;
 use tokio::io::BufReader;
 use tokio_util::io::StreamReader;
 use tracing::info;
-use vortex::ArrayRef;
-use vortex::arrow::FromArrowArray;
+use vortex::array::ArrayRef;
+use vortex::array::arrow::FromArrowArray;
+use vortex::array::stream::ArrayStreamAdapter;
 use vortex::compressor::CompactCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexError;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
-use vortex::stream::ArrayStreamAdapter;
 
 use super::StatPopGenBenchmark;
 use crate::Format;

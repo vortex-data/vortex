@@ -8,15 +8,15 @@
 //!
 //! Run with: cargo run --example compression_showcase
 
-use vortex::Array;
-use vortex::IntoArray;
-use vortex::arrays::PrimitiveArray;
-use vortex::arrays::StructArray;
-use vortex::arrays::VarBinArray;
+use vortex::array::Array;
+use vortex::array::IntoArray;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::StructArray;
+use vortex::array::arrays::VarBinArray;
+use vortex::array::validity::Validity;
 use vortex::compressor::BtrBlocksCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
-use vortex::validity::Validity;
 use vortex_buffer::Buffer;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

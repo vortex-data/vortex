@@ -64,11 +64,17 @@ impl FlatReader {
 
         let ctx = self.layout.array_ctx().clone();
         let dtype = self.layout.dtype().clone();
+        let array_tree = self.layout.array_tree().cloned();
         async move {
             let segment = segment_fut.await?;
-            ArrayParts::try_from(segment)?
-                .decode(&ctx, &dtype, row_count)
-                .map_err(Arc::new)
+            let parts = if let Some(array_tree) = array_tree {
+                // Use the pre-stored flatbuffer from layout metadata combined with segment buffers.
+                ArrayParts::from_flatbuffer_and_segment(array_tree, segment)?
+            } else {
+                // Parse the flatbuffer from the segment itself.
+                ArrayParts::try_from(segment)?
+            };
+            parts.decode(&ctx, &dtype, row_count).map_err(Arc::new)
         }
         .boxed()
         .shared()

@@ -4,10 +4,9 @@
 mod array;
 mod canonical;
 mod operations;
-mod operator;
 mod validity;
 
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_compute::mask::MaskValidity;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -16,7 +15,6 @@ use vortex_vector::Vector;
 
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
-use crate::ArrayOperator;
 use crate::EmptyMetadata;
 use crate::arrays::masked::MaskedArray;
 use crate::execution::ExecutionCtx;
@@ -57,7 +55,6 @@ impl VTable for MaskedVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type OperatorVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.masked")
@@ -84,7 +81,7 @@ impl VTable for MaskedVTable {
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
-        buffers: &[ByteBuffer],
+        buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<MaskedArray> {
         if !buffers.is_empty() {
@@ -108,8 +105,8 @@ impl VTable for MaskedVTable {
         MaskedArray::try_new(child, validity)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
-        let vector = array.child().execute_batch(ctx)?;
+    fn batch_execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        let vector = array.child().batch_execute(ctx)?;
         Ok(MaskValidity::mask_validity(vector, &array.validity_mask()?))
     }
 }
@@ -121,8 +118,8 @@ mod tests {
 
     use crate::ArrayContext;
     use crate::IntoArray;
-    use crate::MaskedVTable;
     use crate::arrays::MaskedArray;
+    use crate::arrays::MaskedVTable;
     use crate::arrays::PrimitiveArray;
     use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;

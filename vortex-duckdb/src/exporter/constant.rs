@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::arrays::ConstantArray;
+use vortex::array::arrays::ConstantArray;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 

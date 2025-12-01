@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use datafusion::prelude::SessionContext;
 use serde::Serialize;
 use url::Url;
-use vortex::ArrayRef;
+use vortex::array::ArrayRef;
 
 use crate::Format;
 use crate::clickbench;

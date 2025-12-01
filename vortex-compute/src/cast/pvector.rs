@@ -15,12 +15,16 @@ use vortex_vector::primitive::PrimitiveVector;
 use crate::cast::Cast;
 
 impl Cast for PrimitiveVector {
+    type Output = Vector;
+
     fn cast(&self, dtype: &DType) -> VortexResult<Vector> {
         match_each_pvector!(self, |v| { Cast::cast(v, dtype) })
     }
 }
 
 impl<T: NativePType> Cast for PVector<T> {
+    type Output = Vector;
+
     fn cast(&self, dtype: &DType) -> VortexResult<Vector> {
         match dtype {
             // Can cast an all-null PVector to NullVector.

@@ -8,8 +8,8 @@ use bytes::Bytes;
 use bytes::BytesMut;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
-use vortex_array::ArrayRegistry;
 use vortex_array::iter::ArrayIterator;
+use vortex_array::session::ArrayRegistry;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -162,11 +162,11 @@ impl Iterator for ArrayIteratorIPCBytes {
 mod test {
     use std::io::Cursor;
 
-    use vortex_array::ArraySession;
     use vortex_array::IntoArray as _;
     use vortex_array::ToCanonical;
     use vortex_array::iter::ArrayIterator;
     use vortex_array::iter::ArrayIteratorExt;
+    use vortex_array::session::ArraySession;
     use vortex_buffer::buffer;
 
     use super::*;

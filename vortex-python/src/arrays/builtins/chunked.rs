@@ -4,7 +4,7 @@
 use pyo3::PyRef;
 use pyo3::pyclass;
 use pyo3::pymethods;
-use vortex::arrays::ChunkedVTable;
+use vortex::array::arrays::ChunkedVTable;
 
 use crate::arrays::PyArrayRef;
 use crate::arrays::native::AsArrayRef;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::arrays::PrimitiveArray;
+use vortex::array::arrays::PrimitiveArray;
 use vortex::buffer::Buffer;
 use vortex::dtype::NativePType;
 use vortex::dtype::match_each_native_ptype;

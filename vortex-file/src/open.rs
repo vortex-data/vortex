@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use futures::executor::block_on;
 use parking_lot::RwLock;
-use vortex_array::ArraySessionExt;
+use vortex_array::session::ArraySessionExt;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;

@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferHandle;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
@@ -30,7 +31,6 @@ use crate::vtable::ValidityVTableFromValidityHelper;
 mod array;
 mod canonical;
 mod operations;
-mod operator;
 mod validity;
 mod visitor;
 
@@ -48,7 +48,6 @@ impl VTable for VarBinViewVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type OperatorVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.varbinview")
@@ -75,13 +74,16 @@ impl VTable for VarBinViewVTable {
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
-        buffers: &[ByteBuffer],
+        buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<VarBinViewArray> {
         if buffers.is_empty() {
             vortex_bail!("Expected at least 1 buffer, got {}", buffers.len());
         }
-        let mut buffers: Vec<ByteBuffer> = buffers.to_vec();
+        let mut buffers: Vec<ByteBuffer> = buffers
+            .iter()
+            .map(|b| b.clone().try_to_bytes())
+            .collect::<VortexResult<Vec<_>>>()?;
         let views = buffers.pop().vortex_expect("buffers non-empty");
 
         let views = Buffer::<BinaryView>::from_byte_buffer(views);
@@ -102,7 +104,7 @@ impl VTable for VarBinViewVTable {
         VarBinViewArray::try_new(views, Arc::from(buffers), dtype.clone(), validity)
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn batch_execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(match array.dtype() {
             DType::Utf8(_) => unsafe {
                 StringVector::new_unchecked(

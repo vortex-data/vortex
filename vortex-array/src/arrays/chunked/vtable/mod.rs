@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -13,7 +13,6 @@ use vortex_vector::Vector;
 use vortex_vector::VectorMut;
 use vortex_vector::VectorMutOps;
 
-use crate::ArrayOperator;
 use crate::EmptyMetadata;
 use crate::ToCanonical;
 use crate::arrays::ChunkedArray;
@@ -49,7 +48,6 @@ impl VTable for ChunkedVTable {
     type VisitorVTable = Self;
     type ComputeVTable = Self;
     type EncodeVTable = NotSupported;
-    type OperatorVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.chunked")
@@ -76,7 +74,7 @@ impl VTable for ChunkedVTable {
         dtype: &DType,
         _len: usize,
         _metadata: &Self::Metadata,
-        _buffers: &[ByteBuffer],
+        _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ChunkedArray> {
         if children.is_empty() {
@@ -127,10 +125,10 @@ impl VTable for ChunkedVTable {
         })
     }
 
-    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn batch_execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         let mut vector = VectorMut::with_capacity(array.dtype(), 0);
         for chunk in array.chunks() {
-            let chunk_vector = chunk.execute_batch(ctx)?;
+            let chunk_vector = chunk.batch_execute(ctx)?;
             vector.extend_from_vector(&chunk_vector);
         }
         Ok(vector.freeze())

@@ -10,9 +10,9 @@ use std::time::Duration;
 use bench_vortex::Engine;
 use bench_vortex::Format;
 use bench_vortex::Target;
+use bench_vortex::compress::bench as compress;
 use bench_vortex::compress::bench::CompressMeasurements;
 use bench_vortex::compress::bench::CompressOp;
-use bench_vortex::compress::bench::{self as compress};
 use bench_vortex::datasets::Dataset;
 use bench_vortex::datasets::struct_list_of_ints::StructListOfInts;
 use bench_vortex::datasets::taxi_data::TaxiData;
@@ -38,11 +38,11 @@ use indicatif::ProgressBar;
 use itertools::Itertools;
 use regex::Regex;
 use tokio::runtime::Runtime;
-use vortex::Array;
-use vortex::IntoArray;
-use vortex::arrays::ChunkedArray;
-use vortex::arrays::ChunkedVTable;
-use vortex::builders::builder_with_capacity;
+use vortex::array::Array;
+use vortex::array::IntoArray;
+use vortex::array::arrays::ChunkedArray;
+use vortex::array::arrays::ChunkedVTable;
+use vortex::array::builders::builder_with_capacity;
 use vortex::utils::aliases::hash_map::HashMap;
 
 #[derive(Parser, Debug)]

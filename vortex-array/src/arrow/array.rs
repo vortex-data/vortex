@@ -6,7 +6,7 @@ use std::hash::Hash;
 use std::ops::Range;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::arrow::FromArrowType;
@@ -54,7 +54,6 @@ impl VTable for ArrowVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type OperatorVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.arrow")
@@ -81,7 +80,7 @@ impl VTable for ArrowVTable {
         _dtype: &DType,
         _len: usize,
         _metadata: &Self::Metadata,
-        _buffers: &[ByteBuffer],
+        _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
     ) -> VortexResult<Self::Array> {
         vortex_bail!("ArrowArray cannot be deserialized")

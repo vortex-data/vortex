@@ -4,8 +4,8 @@
 use jni::JNIEnv;
 use jni::objects::JClass;
 use jni::sys::jlong;
+use vortex::array::iter::ArrayIterator;
 use vortex::dtype::DType;
-use vortex::iter::ArrayIterator;
 
 use crate::array::NativeArray;
 use crate::errors::try_or_throw;

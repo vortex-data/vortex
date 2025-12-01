@@ -15,6 +15,7 @@ use vortex_array::DeserializeMetadata;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
+use vortex_array::execution::ExecutionCtx;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
@@ -32,7 +33,7 @@ use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_array::vtable::VisitorVTable;
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
 use vortex_error::VortexError;
@@ -40,11 +41,14 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_vector::Vector;
 
 use crate::ALPFloat;
 use crate::alp::Exponents;
 use crate::alp::alp_encode;
-use crate::alp::decompress;
+use crate::alp::decompress::decompress_into_array;
+use crate::alp::decompress::decompress_into_vector;
+use crate::match_each_alp_float_ptype;
 
 vtable!(ALP);
 
@@ -60,7 +64,6 @@ impl VTable for ALPVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type OperatorVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.alp")
@@ -97,7 +100,7 @@ impl VTable for ALPVTable {
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
-        _buffers: &[ByteBuffer],
+        _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ALPArray> {
         let encoded_ptype = match &dtype {
@@ -135,6 +138,31 @@ impl VTable for ALPVTable {
             },
             patches,
         )
+    }
+
+    fn batch_execute(array: &ALPArray, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        let encoded_vector = array.encoded().batch_execute(ctx)?;
+
+        let patches_vectors = if let Some(patches) = array.patches() {
+            Some((
+                patches.indices().batch_execute(ctx)?,
+                patches.values().batch_execute(ctx)?,
+                patches
+                    .chunk_offsets()
+                    .as_ref()
+                    .map(|co| co.batch_execute(ctx))
+                    .transpose()?,
+            ))
+        } else {
+            None
+        };
+
+        let patches_offset = array.patches().map(|p| p.offset()).unwrap_or(0);
+        let exponents = array.exponents();
+
+        match_each_alp_float_ptype!(array.dtype().as_ptype(), |T| {
+            decompress_into_vector::<T>(encoded_vector, exponents, patches_vectors, patches_offset)
+        })
     }
 }
 
@@ -349,6 +377,12 @@ impl ALPArray {
     pub fn patches(&self) -> Option<&Patches> {
         self.patches.as_ref()
     }
+
+    /// Consumes the array and returns its parts.
+    #[inline]
+    pub fn into_parts(self) -> (ArrayRef, Exponents, Option<Patches>, DType) {
+        (self.encoded, self.exponents, self.patches, self.dtype)
+    }
 }
 
 impl ValidityChild<ALPVTable> for ALPVTable {
@@ -387,7 +421,7 @@ impl BaseArrayVTable<ALPVTable> for ALPVTable {
 
 impl CanonicalVTable<ALPVTable> for ALPVTable {
     fn canonicalize(array: &ALPArray) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(decompress(array.clone())?))
+        Ok(Canonical::Primitive(decompress_into_array(array.clone())))
     }
 }
 
@@ -412,6 +446,220 @@ impl VisitorVTable<ALPVTable> for ALPVTable {
         visitor.visit_child("encoded", array.encoded());
         if let Some(patches) = array.patches() {
             visitor.visit_patches(patches);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::f64::consts::PI;
+    use std::sync::LazyLock;
+
+    use rstest::rstest;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::vtable::ValidityHelper;
+    use vortex_dtype::PTypeDowncast;
+    use vortex_session::VortexSession;
+    use vortex_vector::VectorOps;
+
+    use super::*;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[rstest]
+    #[case(0)]
+    #[case(1)]
+    #[case(100)]
+    #[case(1023)]
+    #[case(1024)]
+    #[case(1025)]
+    #[case(2047)]
+    #[case(2048)]
+    #[case(2049)]
+    fn test_execute_f32(#[case] size: usize) {
+        let values = PrimitiveArray::from_iter((0..size).map(|i| i as f32));
+        let encoded = alp_encode(&values, None).unwrap();
+
+        let result_vector = encoded.to_array().execute(&SESSION).unwrap();
+        // Compare against the traditional array-based decompress path
+        let expected = decompress_into_array(encoded);
+
+        assert_eq!(result_vector.len(), size);
+
+        let result_primitive = result_vector.into_primitive().into_f32();
+        assert_eq!(result_primitive.as_ref(), expected.as_slice::<f32>());
+    }
+
+    #[rstest]
+    #[case(0)]
+    #[case(1)]
+    #[case(100)]
+    #[case(1023)]
+    #[case(1024)]
+    #[case(1025)]
+    #[case(2047)]
+    #[case(2048)]
+    #[case(2049)]
+    fn test_execute_f64(#[case] size: usize) {
+        let values = PrimitiveArray::from_iter((0..size).map(|i| i as f64));
+        let encoded = alp_encode(&values, None).unwrap();
+
+        let result_vector = encoded.to_array().execute(&SESSION).unwrap();
+        // Compare against the traditional array-based decompress path
+        let expected = decompress_into_array(encoded);
+
+        assert_eq!(result_vector.len(), size);
+
+        let result_primitive = result_vector.into_primitive().into_f64();
+        assert_eq!(result_primitive.as_ref(), expected.as_slice::<f64>());
+    }
+
+    #[rstest]
+    #[case(100)]
+    #[case(1023)]
+    #[case(1024)]
+    #[case(1025)]
+    #[case(2047)]
+    #[case(2048)]
+    #[case(2049)]
+    fn test_execute_with_patches(#[case] size: usize) {
+        let values: Vec<f64> = (0..size)
+            .map(|i| match i % 4 {
+                0..=2 => 1.0,
+                _ => PI,
+            })
+            .collect();
+
+        let array = PrimitiveArray::from_iter(values);
+        let encoded = alp_encode(&array, None).unwrap();
+        assert!(encoded.patches().unwrap().array_len() > 0);
+
+        let result_vector = encoded.to_array().execute(&SESSION).unwrap();
+        // Compare against the traditional array-based decompress path
+        let expected = decompress_into_array(encoded);
+
+        assert_eq!(result_vector.len(), size);
+
+        let result_primitive = result_vector.into_primitive().into_f64();
+        assert_eq!(result_primitive.as_ref(), expected.as_slice::<f64>());
+    }
+
+    #[rstest]
+    #[case(0)]
+    #[case(1)]
+    #[case(100)]
+    #[case(1023)]
+    #[case(1024)]
+    #[case(1025)]
+    #[case(2047)]
+    #[case(2048)]
+    #[case(2049)]
+    fn test_execute_with_validity(#[case] size: usize) {
+        let values: Vec<Option<f32>> = (0..size)
+            .map(|i| if i % 2 == 1 { None } else { Some(1.0) })
+            .collect();
+
+        let array = PrimitiveArray::from_option_iter(values);
+        let encoded = alp_encode(&array, None).unwrap();
+
+        let result_vector = encoded.to_array().execute(&SESSION).unwrap();
+        // Compare against the traditional array-based decompress path
+        let expected = decompress_into_array(encoded);
+
+        assert_eq!(result_vector.len(), size);
+
+        let result_primitive = result_vector.into_primitive().into_f32();
+        assert_eq!(result_primitive.as_ref(), expected.as_slice::<f32>());
+
+        // Test validity masks match
+        for idx in 0..size {
+            assert_eq!(
+                result_primitive.validity().value(idx),
+                expected.validity().is_valid(idx)
+            );
+        }
+    }
+
+    #[rstest]
+    #[case(100)]
+    #[case(1023)]
+    #[case(1024)]
+    #[case(1025)]
+    #[case(2047)]
+    #[case(2048)]
+    #[case(2049)]
+    fn test_execute_with_patches_and_validity(#[case] size: usize) {
+        let values: Vec<Option<f64>> = (0..size)
+            .map(|idx| match idx % 3 {
+                0 => Some(1.0),
+                1 => None,
+                _ => Some(PI),
+            })
+            .collect();
+
+        let array = PrimitiveArray::from_option_iter(values);
+        let encoded = alp_encode(&array, None).unwrap();
+        assert!(encoded.patches().unwrap().array_len() > 0);
+
+        let result_vector = encoded.to_array().execute(&SESSION).unwrap();
+        // Compare against the traditional array-based decompress path
+        let expected = decompress_into_array(encoded);
+
+        assert_eq!(result_vector.len(), size);
+
+        let result_primitive = result_vector.into_primitive().into_f64();
+        assert_eq!(result_primitive.as_ref(), expected.as_slice::<f64>());
+
+        // Test validity masks match
+        for idx in 0..size {
+            assert_eq!(
+                result_primitive.validity().value(idx),
+                expected.validity().is_valid(idx)
+            );
+        }
+    }
+
+    #[rstest]
+    #[case(500, 100)]
+    #[case(1000, 200)]
+    #[case(2048, 512)]
+    fn test_execute_sliced_vector(#[case] size: usize, #[case] slice_start: usize) {
+        let values: Vec<Option<f64>> = (0..size)
+            .map(|i| {
+                if i % 5 == 0 {
+                    None
+                } else if i % 4 == 3 {
+                    Some(PI)
+                } else {
+                    Some(1.0)
+                }
+            })
+            .collect();
+
+        let array = PrimitiveArray::from_option_iter(values.clone());
+        let encoded = alp_encode(&array, None).unwrap();
+
+        let slice_end = size - slice_start;
+        let slice_len = slice_end - slice_start;
+        let sliced_encoded = encoded.slice(slice_start..slice_end);
+
+        let result_vector = sliced_encoded.execute(&SESSION).unwrap();
+        let result_primitive = result_vector.into_primitive().into_f64();
+
+        for idx in 0..slice_len {
+            let expected_value = values[slice_start + idx];
+
+            let result_valid = result_primitive.validity().value(idx);
+            assert_eq!(
+                result_valid,
+                expected_value.is_some(),
+                "Validity mismatch at idx={idx}",
+            );
+
+            if let Some(expected_val) = expected_value {
+                let result_val = result_primitive.as_ref()[idx];
+                assert_eq!(result_val, expected_val, "Value mismatch at idx={idx}",);
+            }
         }
     }
 }

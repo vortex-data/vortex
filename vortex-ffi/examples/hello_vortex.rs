@@ -17,12 +17,12 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::LazyLock;
 
-use vortex::Array;
-use vortex::ArrayRef;
-use vortex::IntoArray;
 use vortex::VortexSessionDefault;
-use vortex::arrays::ChunkedArray;
-use vortex::arrays::StructArray;
+use vortex::array::Array;
+use vortex::array::ArrayRef;
+use vortex::array::IntoArray;
+use vortex::array::arrays::ChunkedArray;
+use vortex::array::arrays::StructArray;
 use vortex::buffer::Buffer;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;

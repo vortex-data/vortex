@@ -39,7 +39,15 @@ mod macros;
 mod private;
 mod scalar_macros;
 
-/// Returns true if the vector's is compatible with the provided data type.
+/// Returns true if the datum is compatible with the provided data type.
+pub fn datum_matches_dtype(datum: &Datum, dtype: &DType) -> bool {
+    match datum {
+        Datum::Scalar(scalar) => scalar_matches_dtype(scalar, dtype),
+        Datum::Vector(vector) => vector_matches_dtype(vector, dtype),
+    }
+}
+
+/// Returns true if the vector is compatible with the provided data type.
 ///
 /// This means that the vector's physical representation is compatible with the data type,
 /// typically meaning the enum variants match. In the case of nested types, this function
@@ -104,6 +112,59 @@ pub fn vector_matches_dtype(vector: &Vector, dtype: &DType) -> bool {
         DType::Extension(ext_dtype) => {
             // For extension types, we check the storage type.
             vector_matches_dtype(vector, ext_dtype.storage_dtype())
+        }
+    }
+}
+
+/// Returns true if the scalar's is compatible with the provided data type.
+pub fn scalar_matches_dtype(scalar: &Scalar, dtype: &DType) -> bool {
+    if !dtype.is_nullable() && scalar.is_valid() {
+        // Non-nullable dtype cannot have nulls in the scalar.
+        return false;
+    }
+
+    // Note that we don't match a tuple here to make sure we have an exhaustive match that will
+    // fail to compile if we ever add new DTypes.
+    match dtype {
+        DType::Null => {
+            matches!(scalar, Scalar::Null(_))
+        }
+        DType::Bool(_) => {
+            matches!(scalar, Scalar::Bool(_))
+        }
+        DType::Primitive(ptype, _) => match scalar {
+            Scalar::Primitive(s) => ptype == &s.ptype(),
+            _ => false,
+        },
+        DType::Decimal(dec_type, _) => match scalar {
+            Scalar::Decimal(s) => {
+                dec_type.precision() == s.precision() && dec_type.scale() == s.scale()
+            }
+            _ => false,
+        },
+        DType::Utf8(_) => {
+            matches!(scalar, Scalar::String(_))
+        }
+        DType::Binary(_) => {
+            matches!(scalar, Scalar::Binary(_))
+        }
+        DType::List(_, _) => match scalar {
+            Scalar::List(s) => vector_matches_dtype(&Vector::from(s.value().clone()), dtype),
+            _ => false,
+        },
+        DType::FixedSizeList(..) => match scalar {
+            Scalar::FixedSizeList(s) => {
+                vector_matches_dtype(&Vector::from(s.value().clone()), dtype)
+            }
+            _ => false,
+        },
+        DType::Struct(_, _) => match scalar {
+            Scalar::Struct(s) => vector_matches_dtype(&Vector::from(s.value().clone()), dtype),
+            _ => false,
+        },
+        DType::Extension(ext_dtype) => {
+            // For extension types, we check the storage type.
+            scalar_matches_dtype(scalar, ext_dtype.storage_dtype())
         }
     }
 }

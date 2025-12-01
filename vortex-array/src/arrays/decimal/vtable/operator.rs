@@ -1,52 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_compute::filter::Filter;
-use vortex_dtype::PrecisionScale;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexResult;
-use vortex_vector::decimal::DVector;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::array::transform::ArrayParentReduceRule;
-use crate::array::transform::ArrayRuleContext;
 use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
 use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
-use crate::execution::BatchKernelRef;
-use crate::execution::BindCtx;
-use crate::execution::kernel;
-use crate::vtable::OperatorVTable;
+use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::optimizer::rules::Exact;
 use crate::vtable::ValidityHelper;
-
-impl OperatorVTable<DecimalVTable> for DecimalVTable {
-    fn bind(
-        array: &DecimalArray,
-        selection: Option<&ArrayRef>,
-        ctx: &mut dyn BindCtx,
-    ) -> VortexResult<BatchKernelRef> {
-        let mask = ctx.bind_selection(array.len(), selection)?;
-        let validity = ctx.bind_validity(array.validity(), array.len(), selection)?;
-
-        match_each_decimal_value_type!(array.values_type(), |D| {
-            let elements = array.buffer::<D>();
-            let ps = PrecisionScale::<D>::try_from(&array.decimal_dtype())?;
-
-            Ok(kernel(move || {
-                let mask = mask.execute()?;
-                let validity = validity.execute()?;
-
-                // Note that validity already has the mask applied so we only need to apply it to
-                // the elements.
-                let elements = elements.filter(&mask);
-
-                Ok(DVector::<D>::try_new(ps, elements, validity)?.into())
-            }))
-        })
-    }
-}
 
 /// Rule to push down validity masking from MaskedArray parent into DecimalArray child.
 ///
@@ -55,13 +21,22 @@ impl OperatorVTable<DecimalVTable> for DecimalVTable {
 #[derive(Default, Debug)]
 pub struct DecimalMaskedValidityRule;
 
-impl ArrayParentReduceRule<DecimalVTable, MaskedVTable> for DecimalMaskedValidityRule {
+impl ArrayParentReduceRule<Exact<DecimalVTable>, Exact<MaskedVTable>>
+    for DecimalMaskedValidityRule
+{
+    fn child(&self) -> Exact<DecimalVTable> {
+        Exact::from(&DecimalVTable)
+    }
+
+    fn parent(&self) -> Exact<MaskedVTable> {
+        Exact::from(&MaskedVTable)
+    }
+
     fn reduce_parent(
         &self,
         array: &DecimalArray,
         parent: &MaskedArray,
         _child_idx: usize,
-        _ctx: &ArrayRuleContext,
     ) -> VortexResult<Option<ArrayRef>> {
         // Merge the parent's validity mask into the child's validity
         // TODO(joe): make this lazy

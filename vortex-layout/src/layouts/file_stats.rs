@@ -9,7 +9,7 @@ use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::ToCanonical as _;
-use vortex_array::stats::Stat;
+use vortex_array::expr::stats::Stat;
 use vortex_array::stats::StatsSet;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;

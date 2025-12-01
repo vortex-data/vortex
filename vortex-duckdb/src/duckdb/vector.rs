@@ -9,13 +9,13 @@ use std::ptr;
 use bitvec::macros::internal::funty::Fundamental;
 use bitvec::slice::BitSlice;
 use bitvec::view::BitView;
+use vortex::array::validity::Validity;
 use vortex::buffer::BitBuffer;
 use vortex::buffer::Buffer;
 use vortex::error::VortexResult;
 use vortex::error::VortexUnwrap;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
-use vortex::validity::Validity;
 
 use crate::cpp;
 use crate::cpp::duckdb_vx_error;

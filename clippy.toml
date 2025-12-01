@@ -4,11 +4,12 @@ allow-unwrap-in-tests = true
 allow-panic-in-tests = true
 single-char-binding-names-threshold = 2
 disallowed-types = [
-	{ path = "std::collections::HashMap", reason = "Use the HashMap in vortex_utils::aliases for better performance" },
-	{ path = "std::collections::HashSet", reason = "Use the HashSet in vortex_utils::aliases for better performance" },
-	{ path = "std::sync::Mutex", reason = "Prefer using parking_lot Mutex for improved ergonomics and performance" },
-	{ path = "std::sync::RwLock", reason = "Prefer using parking_lot RwLock for improved ergonomics and performance" }]
+    { path = "std::collections::HashMap", reason = "Use the HashMap in vortex_utils::aliases for better performance" },
+    { path = "std::collections::HashSet", reason = "Use the HashSet in vortex_utils::aliases for better performance" },
+    { path = "std::sync::Mutex", reason = "Prefer using parking_lot Mutex for improved ergonomics and performance" },
+    { path = "std::sync::RwLock", reason = "Prefer using parking_lot RwLock for improved ergonomics and performance" },
+]
 
 disallowed-methods = [
-    { path = "itertools::Itertools::counts", reason = "It uses the default hasher which is slow for primitives. Just inline the loop for better performance.", allow-invalid = true }
+    { path = "itertools::Itertools::counts", reason = "It uses the default hasher which is slow for primitives. Just inline the loop for better performance.", allow-invalid = true },
 ]

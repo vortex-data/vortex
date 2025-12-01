@@ -23,7 +23,7 @@ use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::expr::expression::Expression;
-use crate::stats::Stat;
+use crate::expr::stats::Stat;
 
 /// A cast expression that converts values to a target data type.
 pub struct Cast;

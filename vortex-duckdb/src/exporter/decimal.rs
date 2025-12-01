@@ -4,7 +4,7 @@
 use std::marker::PhantomData;
 
 use num_traits::ToPrimitive;
-use vortex::arrays::DecimalArray;
+use vortex::array::arrays::DecimalArray;
 use vortex::buffer::Buffer;
 use vortex::dtype::BigCast;
 use vortex::dtype::DecimalDType;
@@ -117,7 +117,7 @@ impl<D: NativeDecimalType> ColumnExporter for DecimalZeroCopyExporter<D> {
 
 #[cfg(test)]
 mod tests {
-    use vortex::arrays::DecimalArray;
+    use vortex::array::arrays::DecimalArray;
     use vortex::dtype::DecimalDType;
     use vortex::error::VortexUnwrap;
 

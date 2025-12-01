@@ -6,7 +6,7 @@ use pyo3::PyRef;
 use pyo3::PyResult;
 use pyo3::pyclass;
 use pyo3::pymethods;
-use vortex::arrays::StructVTable;
+use vortex::array::arrays::StructVTable;
 
 use crate::arrays::PyArrayRef;
 use crate::arrays::native::AsArrayRef;

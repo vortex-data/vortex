@@ -19,7 +19,7 @@ use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::expr::expression::Expression;
-use crate::stats::Stat;
+use crate::expr::stats::Stat;
 
 /// An expression that returns the full scope of the expression evaluation.
 // TODO(ngates): rename to "Scope"

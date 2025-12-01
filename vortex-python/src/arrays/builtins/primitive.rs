@@ -4,7 +4,7 @@
 use pyo3::PyRef;
 use pyo3::pyclass;
 use pyo3::pymethods;
-use vortex::arrays::PrimitiveVTable;
+use vortex::array::arrays::PrimitiveVTable;
 
 use crate::arrays::native::AsArrayRef;
 use crate::arrays::native::EncodingSubclass;

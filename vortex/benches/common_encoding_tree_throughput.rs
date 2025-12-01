@@ -13,15 +13,16 @@ use divan::counter::BytesCount;
 use mimalloc::MiMalloc;
 use rand::Rng;
 use rand::SeedableRng;
-use vortex::Array;
-use vortex::ArrayRef;
-use vortex::IntoArray;
-use vortex::ToCanonical;
-use vortex::arrays::DictArray;
-use vortex::arrays::PrimitiveArray;
-use vortex::arrays::TemporalArray;
-use vortex::arrays::VarBinArray;
-use vortex::arrays::VarBinViewArray;
+use vortex::array::Array;
+use vortex::array::ArrayRef;
+use vortex::array::IntoArray;
+use vortex::array::ToCanonical;
+use vortex::array::arrays::DictArray;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::TemporalArray;
+use vortex::array::arrays::VarBinArray;
+use vortex::array::arrays::VarBinViewArray;
+use vortex::array::vtable::ValidityHelper;
 use vortex::compute::cast;
 use vortex::dtype::DType;
 use vortex::dtype::PType;
@@ -34,7 +35,6 @@ use vortex::encodings::fsst::FSSTArray;
 use vortex::encodings::fsst::fsst_compress;
 use vortex::encodings::fsst::fsst_train_compressor;
 use vortex::encodings::runend::RunEndArray;
-use vortex::vtable::ValidityHelper;
 use vortex_fastlanes::BitPackedArray;
 
 #[global_allocator]
@@ -46,27 +46,26 @@ fn main() {
 
 const NUM_VALUES: u64 = 1_000_000;
 
-// Helper macro to conditionally add counter based on codspeed cfg
-macro_rules! with_counter {
-    ($bencher:expr, $bytes:expr) => {{
-        #[cfg(not(codspeed))]
-        let bencher = $bencher.counter(BytesCount::new($bytes));
-        #[cfg(codspeed)]
-        let bencher = {
-            let _ = $bytes; // Consume the bytes value to avoid unused variable warning
-            $bencher
-        };
-        bencher
-    }};
+// Helper function to conditionally add counter based on codspeed cfg
+fn with_byte_counter<'a, 'b>(bencher: Bencher<'a, 'b>, bytes: u64) -> Bencher<'a, 'b> {
+    #[cfg(not(codspeed))]
+    return bencher.counter(BytesCount::new(bytes));
+    #[cfg(codspeed)]
+    {
+        _ = bytes; // Consume the bytes value to avoid unused variable warning.
+        return bencher;
+    }
 }
 
 // Encoding tree setup functions
 
 mod setup {
+    use rand::rngs::StdRng;
+
     use super::*;
 
     fn setup_primitive_arrays() -> (PrimitiveArray, PrimitiveArray, PrimitiveArray) {
-        let mut rng = rand::rngs::StdRng::seed_from_u64(0);
+        let mut rng = StdRng::seed_from_u64(0);
         let uint_array =
             PrimitiveArray::from_iter((0..NUM_VALUES).map(|_| rng.random_range(42u32..256)));
         let int_array = cast(uint_array.as_ref(), PType::I32.into())
@@ -115,7 +114,7 @@ mod setup {
     /// Create Dict <- VarBinView encoding tree for strings with BitPacked codes
     #[allow(clippy::cast_possible_truncation)]
     pub fn dict_varbinview_string() -> ArrayRef {
-        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+        let mut rng = StdRng::seed_from_u64(42);
 
         // Create unique values (0.005% uniqueness = 50 unique strings)
         let num_unique = ((NUM_VALUES as f64) * 0.00005) as usize;
@@ -149,7 +148,7 @@ mod setup {
     /// Create RunEnd <- FoR <- BitPacked encoding tree for u32
     #[allow(clippy::cast_possible_truncation)]
     pub fn runend_for_bp_u32() -> ArrayRef {
-        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+        let mut rng = StdRng::seed_from_u64(42);
         // Create data with runs of repeated values
         let mut values = Vec::with_capacity(NUM_VALUES as usize);
         let mut current_value = rng.random_range(0u32..100);
@@ -191,7 +190,7 @@ mod setup {
     /// Create Dict <- FSST <- VarBin encoding tree for strings
     #[allow(clippy::cast_possible_truncation)]
     pub fn dict_fsst_varbin_string() -> ArrayRef {
-        let mut rng = rand::rngs::StdRng::seed_from_u64(43);
+        let mut rng = StdRng::seed_from_u64(43);
 
         // Create unique values (1% uniqueness = 10,000 unique strings)
         let num_unique = ((NUM_VALUES as f64) * 0.01) as usize;
@@ -223,7 +222,7 @@ mod setup {
     /// Compress the VarBin offsets inside FSST with BitPacked
     #[allow(clippy::cast_possible_truncation)]
     pub fn dict_fsst_varbin_bp_string() -> ArrayRef {
-        let mut rng = rand::rngs::StdRng::seed_from_u64(45);
+        let mut rng = StdRng::seed_from_u64(45);
 
         // Create unique values (1% uniqueness = 10,000 unique strings)
         let num_unique = ((NUM_VALUES as f64) * 0.01) as usize;
@@ -278,7 +277,7 @@ mod setup {
     /// Create DateTimeParts <- FoR <- BitPacked encoding tree
     pub fn datetime_for_bp() -> ArrayRef {
         // Create timestamp data (microseconds since epoch)
-        let mut rng = rand::rngs::StdRng::seed_from_u64(123);
+        let mut rng = StdRng::seed_from_u64(123);
         let base_timestamp = 1_600_000_000_000_000i64; // Sept 2020 in microseconds
         let timestamps: Vec<i64> = (0..NUM_VALUES)
             .map(|_| base_timestamp + rng.random_range(0..86_400_000_000)) // Random times within a day
@@ -390,7 +389,7 @@ fn decompress(bencher: Bencher, setup_fn: SetupFn) {
     let compressed = setup_fn();
     let nbytes = compressed.nbytes();
 
-    with_counter!(bencher, nbytes)
+    with_byte_counter(bencher, nbytes)
         .with_inputs(|| &compressed)
         .bench_refs(|a| a.to_canonical());
 }

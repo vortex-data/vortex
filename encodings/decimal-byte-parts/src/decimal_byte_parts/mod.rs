@@ -36,7 +36,7 @@ use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_array::vtable::VisitorVTable;
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::DecimalDType;
 use vortex_dtype::PType;
@@ -69,7 +69,6 @@ impl VTable for DecimalBytePartsVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type OperatorVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.decimal_byte_parts")
@@ -99,7 +98,7 @@ impl VTable for DecimalBytePartsVTable {
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
-        _buffers: &[ByteBuffer],
+        _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<DecimalBytePartsArray> {
         let Some(decimal_dtype) = dtype.as_decimal_opt() else {

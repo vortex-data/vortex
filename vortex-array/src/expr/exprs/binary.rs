@@ -28,7 +28,7 @@ use crate::expr::VTableExt;
 use crate::expr::expression::Expression;
 use crate::expr::exprs::literal::lit;
 use crate::expr::exprs::operators::Operator;
-use crate::stats::Stat;
+use crate::expr::stats::Stat;
 
 pub struct Binary;
 

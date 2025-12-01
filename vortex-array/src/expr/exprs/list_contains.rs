@@ -188,7 +188,7 @@ mod tests {
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::root::root;
     use crate::expr::pruning::checked_pruning_expr;
-    use crate::stats::Stat;
+    use crate::expr::stats::Stat;
     use crate::validity::Validity;
 
     fn test_array() -> ArrayRef {

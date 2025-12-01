@@ -22,10 +22,10 @@ use crate::compute::InvocationArgs;
 use crate::compute::Kernel;
 use crate::compute::Options;
 use crate::compute::Output;
-use crate::stats::Precision;
-use crate::stats::Stat;
-use crate::stats::StatsProvider;
-use crate::stats::StatsProviderExt;
+use crate::expr::stats::Precision;
+use crate::expr::stats::Stat;
+use crate::expr::stats::StatsProvider;
+use crate::expr::stats::StatsProviderExt;
 use crate::vtable::VTable;
 
 static IS_CONSTANT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
@@ -307,7 +307,7 @@ mod tests {
 
     use crate::IntoArray as _;
     use crate::arrays::PrimitiveArray;
-    use crate::stats::Stat;
+    use crate::expr::stats::Stat;
 
     #[test]
     fn is_constant_min_max_no_nan() {
