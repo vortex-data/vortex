@@ -9141,6 +9141,7 @@ dependencies = [
 name = "vortex-file"
 version = "0.1.0"
 dependencies = [
+ "async-fs",
  "async-trait",
  "bytes",
  "flatbuffers",
@@ -9569,6 +9570,25 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
+]
+
+[[package]]
+name = "vortex-wasm"
+version = "0.1.0"
+dependencies = [
+ "async-fs",
+ "serde",
+ "serde_json",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-dtype",
+ "vortex-error",
+ "vortex-file",
+ "vortex-io",
+ "vortex-layout",
+ "vortex-metrics",
+ "vortex-scalar",
+ "vortex-session",
 ]
 
 [[package]]

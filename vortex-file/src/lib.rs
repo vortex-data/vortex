@@ -99,6 +99,7 @@ pub mod segments;
 mod strategy;
 #[cfg(test)]
 mod tests;
+mod update;
 mod writer;
 
 pub use file::*;
@@ -106,6 +107,7 @@ pub use footer::*;
 pub use forever_constant::*;
 pub use open::*;
 pub use strategy::*;
+pub use update::*;
 use vortex_alp::ALPRDVTable;
 use vortex_alp::ALPVTable;
 use vortex_array::arrays::DictVTable;
