@@ -837,7 +837,7 @@ mod tests {
             }
         }
 
-        let primitive = codes.freeze().into_array().to_primitive();
+        let primitive = codes.freeze().into_array().to_primitive().unwrap();
         let compressed = IntCompressor::compress(&primitive, false, 3, &[]).unwrap();
         assert!(compressed.is::<DictVTable>());
     }
@@ -863,7 +863,7 @@ mod tests {
             values[random] = 5 * (rng.next_u64() % 100) as i32;
         }
 
-        let array = values.freeze().into_array().to_primitive();
+        let array = values.freeze().into_array().to_primitive().unwrap();
         let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
         log::info!("WindowName compressed: {}", compressed.display_tree());
     }

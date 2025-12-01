@@ -340,6 +340,7 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
     use vortex_dtype::half::f16;
+    use vortex_error::VortexResult;
     use vortex_scalar::Scalar;
 
     use crate::Array;
@@ -353,25 +354,27 @@ mod tests {
     use crate::vtable::ValidityHelper;
 
     #[test]
-    fn test_canonicalize_null() {
+    fn test_canonicalize_null() -> VortexResult<()> {
         let const_null = ConstantArray::new(Scalar::null(DType::Null), 42);
-        let actual = const_null.to_null();
+        let actual = const_null.to_null()?;
         assert_eq!(actual.len(), 42);
         assert_eq!(actual.scalar_at(33), Scalar::null(DType::Null));
+        Ok(())
     }
 
     #[test]
-    fn test_canonicalize_const_str() {
+    fn test_canonicalize_const_str() -> VortexResult<()> {
         let const_array = ConstantArray::new("four".to_string(), 4);
 
         // Check all values correct.
-        let canonical = const_array.to_varbinview();
+        let canonical = const_array.to_varbinview()?;
 
         assert_eq!(canonical.len(), 4);
 
         for i in 0..=3 {
             assert_eq!(canonical.scalar_at(i), "four".into());
         }
+        Ok(())
     }
 
     #[test]
@@ -481,7 +484,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalize_nullable_struct() {
+    fn test_canonicalize_nullable_struct() -> VortexResult<()> {
         let array = ConstantArray::new(
             Scalar::null(DType::struct_(
                 [(
@@ -493,9 +496,9 @@ mod tests {
             3,
         );
 
-        let struct_array = array.to_struct();
+        let struct_array = array.to_struct()?;
         assert_eq!(struct_array.len(), 3);
-        assert_eq!(struct_array.valid_count(), 0);
+        assert_eq!(struct_array.valid_count()?, 0);
 
         let field = struct_array.field_by_name("non_null_field").unwrap();
 
@@ -503,6 +506,7 @@ mod tests {
             field.dtype(),
             &DType::Primitive(PType::I8, Nullability::NonNullable)
         );
+        Ok(())
     }
 
     #[test]
@@ -560,7 +564,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalize_fixed_size_list_null() {
+    fn test_canonicalize_fixed_size_list_null() -> VortexResult<()> {
         // Test with a null fixed-size list constant.
         let fsl_scalar = Scalar::null(DType::FixedSizeList(
             Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable)),
@@ -569,20 +573,21 @@ mod tests {
         ));
 
         let const_array = ConstantArray::new(fsl_scalar, 5).into_array();
-        let canonical = const_array.to_fixed_size_list();
+        let canonical = const_array.to_fixed_size_list()?;
 
         assert_eq!(canonical.len(), 5);
         assert_eq!(canonical.list_size(), 4);
         assert_eq!(canonical.validity(), &Validity::AllInvalid);
 
         // Elements should be defaults (zeros).
-        let elements = canonical.elements().to_primitive();
+        let elements = canonical.elements().to_primitive()?;
         assert_eq!(elements.len(), 20); // 5 lists * 4 elements each
         assert!(elements.as_slice::<u64>().iter().all(|&x| x == 0));
+        Ok(())
     }
 
     #[test]
-    fn test_canonicalize_fixed_size_list_empty() {
+    fn test_canonicalize_fixed_size_list_empty() -> VortexResult<()> {
         // Test with size-0 lists (edge case).
         let fsl_scalar = Scalar::fixed_size_list(
             Arc::new(DType::Primitive(PType::I8, Nullability::NonNullable)),
@@ -591,7 +596,7 @@ mod tests {
         );
 
         let const_array = ConstantArray::new(fsl_scalar, 10).into_array();
-        let canonical = const_array.to_fixed_size_list();
+        let canonical = const_array.to_fixed_size_list()?;
 
         assert_eq!(canonical.len(), 10);
         assert_eq!(canonical.list_size(), 0);
@@ -599,10 +604,11 @@ mod tests {
 
         // Elements array should be empty.
         assert!(canonical.elements().is_empty());
+        Ok(())
     }
 
     #[test]
-    fn test_canonicalize_fixed_size_list_nested() {
+    fn test_canonicalize_fixed_size_list_nested() -> VortexResult<()> {
         // Test with nested data types (list of strings).
         let fsl_scalar = Scalar::fixed_size_list(
             Arc::new(DType::Utf8(Nullability::NonNullable)),
@@ -611,21 +617,22 @@ mod tests {
         );
 
         let const_array = ConstantArray::new(fsl_scalar, 2).into_array();
-        let canonical = const_array.to_fixed_size_list();
+        let canonical = const_array.to_fixed_size_list()?;
 
         assert_eq!(canonical.len(), 2);
         assert_eq!(canonical.list_size(), 2);
 
         // Check elements are repeated correctly.
-        let elements = canonical.elements().to_varbinview();
+        let elements = canonical.elements().to_varbinview()?;
         assert_eq!(elements.scalar_at(0), "hello".into());
         assert_eq!(elements.scalar_at(1), "world".into());
         assert_eq!(elements.scalar_at(2), "hello".into());
         assert_eq!(elements.scalar_at(3), "world".into());
+        Ok(())
     }
 
     #[test]
-    fn test_canonicalize_fixed_size_list_single_element() {
+    fn test_canonicalize_fixed_size_list_single_element() -> VortexResult<()> {
         // Test with a single-element list.
         let fsl_scalar = Scalar::fixed_size_list(
             Arc::new(DType::Primitive(PType::I16, Nullability::NonNullable)),
@@ -634,17 +641,18 @@ mod tests {
         );
 
         let const_array = ConstantArray::new(fsl_scalar, 1).into_array();
-        let canonical = const_array.to_fixed_size_list();
+        let canonical = const_array.to_fixed_size_list()?;
 
         assert_eq!(canonical.len(), 1);
         assert_eq!(canonical.list_size(), 1);
 
-        let elements = canonical.elements().to_primitive();
+        let elements = canonical.elements().to_primitive()?;
         assert_eq!(elements.as_slice::<i16>(), [42]);
+        Ok(())
     }
 
     #[test]
-    fn test_canonicalize_fixed_size_list_with_null_elements() {
+    fn test_canonicalize_fixed_size_list_with_null_elements() -> VortexResult<()> {
         // Test FSL with nullable element type where some elements are null.
         let fsl_scalar = Scalar::fixed_size_list(
             Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
@@ -657,32 +665,33 @@ mod tests {
         );
 
         let const_array = ConstantArray::new(fsl_scalar, 3).into_array();
-        let canonical = const_array.to_fixed_size_list();
+        let canonical = const_array.to_fixed_size_list()?;
 
         assert_eq!(canonical.len(), 3);
         assert_eq!(canonical.list_size(), 3);
         assert_eq!(canonical.validity(), &Validity::NonNullable);
 
         // Check elements including nulls.
-        let elements = canonical.elements().to_primitive();
+        let elements = canonical.elements().to_primitive()?;
         assert_eq!(elements.as_slice::<i32>()[0], 100);
         assert_eq!(elements.as_slice::<i32>()[1], 0); // null becomes 0
         assert_eq!(elements.as_slice::<i32>()[2], 200);
 
         // Check element validity.
         let element_validity = elements.validity();
-        assert!(element_validity.is_valid(0));
-        assert!(!element_validity.is_valid(1));
-        assert!(element_validity.is_valid(2));
+        assert!(element_validity.is_valid(0).unwrap());
+        assert!(!element_validity.is_valid(1).unwrap());
+        assert!(element_validity.is_valid(2).unwrap());
 
         // Pattern should repeat.
-        assert!(element_validity.is_valid(3));
-        assert!(!element_validity.is_valid(4));
-        assert!(element_validity.is_valid(5));
+        assert!(element_validity.is_valid(3).unwrap());
+        assert!(!element_validity.is_valid(4).unwrap());
+        assert!(element_validity.is_valid(5).unwrap());
+        Ok(())
     }
 
     #[test]
-    fn test_canonicalize_fixed_size_list_large() {
+    fn test_canonicalize_fixed_size_list_large() -> VortexResult<()> {
         // Test with a large constant array.
         let fsl_scalar = Scalar::fixed_size_list(
             Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
@@ -697,12 +706,12 @@ mod tests {
         );
 
         let const_array = ConstantArray::new(fsl_scalar, 1000).into_array();
-        let canonical = const_array.to_fixed_size_list();
+        let canonical = const_array.to_fixed_size_list()?;
 
         assert_eq!(canonical.len(), 1000);
         assert_eq!(canonical.list_size(), 5);
 
-        let elements = canonical.elements().to_primitive();
+        let elements = canonical.elements().to_primitive()?;
         assert_eq!(elements.len(), 5000);
 
         // Check pattern repeats correctly.
@@ -714,5 +723,6 @@ mod tests {
             assert_eq!(elements.as_slice::<u8>()[base + 3], 4);
             assert_eq!(elements.as_slice::<u8>()[base + 4], 5);
         }
+        Ok(())
     }
 }

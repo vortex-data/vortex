@@ -67,7 +67,7 @@ mod test {
         let compressed = FoRArray::encode(array.clone()).unwrap();
         assert_eq!(i32::try_from(compressed.reference_scalar()).unwrap(), 1);
 
-        let decompressed = compressed.to_primitive();
+        let decompressed = compressed.to_primitive().unwrap();
         assert_arrays_eq!(decompressed, array);
     }
 
@@ -107,7 +107,7 @@ mod test {
         // Create a range offset by a million.
         let array = PrimitiveArray::from_iter((0u32..100_000).step_by(1024).map(|v| v + 1_000_000));
         let compressed = FoRArray::encode(array.clone()).unwrap();
-        let decompressed = compressed.to_primitive();
+        let decompressed = compressed.to_primitive().unwrap();
         assert_arrays_eq!(decompressed, array);
     }
 
@@ -118,7 +118,7 @@ mod test {
         let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
         let bp = BitPackedArray::encode(array.as_ref(), 3).unwrap();
         let compressed = FoRArray::try_new(bp.into_array(), 10u32.into()).unwrap();
-        let decompressed = compressed.to_primitive();
+        let decompressed = compressed.to_primitive().unwrap();
         assert_arrays_eq!(decompressed, expect);
     }
 
@@ -149,6 +149,7 @@ mod test {
         let encoded = compressed
             .encoded()
             .to_primitive()
+            .unwrap()
             .reinterpret_cast(PType::U8);
         let unsigned: Vec<u8> = (0..=u8::MAX).collect_vec();
         let expected_unsigned = PrimitiveArray::from_iter(unsigned);

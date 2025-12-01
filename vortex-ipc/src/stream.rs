@@ -226,9 +226,9 @@ mod test {
             .unwrap();
 
         assert_eq!(reader.dtype(), array.dtype());
-        let result = reader.read_all().await.unwrap().to_primitive();
+        let result = reader.read_all().await.unwrap().to_primitive().unwrap();
         assert_eq!(
-            array.to_primitive().as_slice::<i32>(),
+            array.to_primitive().unwrap().as_slice::<i32>(),
             result.as_slice::<i32>()
         );
     }

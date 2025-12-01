@@ -90,8 +90,8 @@ fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
     );
 
     let source_array = PrimitiveArray::from_iter(0..(length as i32)).into_array();
-    let (ends, values) = runend_encode(&values);
-    let runend_array = RunEndArray::try_new(ends.into_array(), values)
+    let (ends, values) = runend_encode(&values).unwrap();
+    let runend_array = RunEndArray::try_new(ends.into_array(), values.into_array())
         .unwrap()
         .to_array();
 

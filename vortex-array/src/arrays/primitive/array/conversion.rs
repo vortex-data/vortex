@@ -176,11 +176,11 @@ mod tests {
 
         assert_eq!(result.len(), 5);
         assert_eq!(result.ptype(), PType::I32);
-        assert!(result.is_valid(0));
-        assert!(!result.is_valid(1));
-        assert!(result.is_valid(2));
-        assert!(result.is_valid(3));
-        assert!(!result.is_valid(4));
+        assert!(result.is_valid(0).unwrap());
+        assert!(!result.is_valid(1).unwrap());
+        assert!(result.is_valid(2).unwrap());
+        assert!(result.is_valid(3).unwrap());
+        assert!(!result.is_valid(4).unwrap());
     }
 
     #[test]

@@ -39,7 +39,8 @@ impl CanonicalVTable<FSSTVTable> for FSSTVTable {
 
     fn append_to_builder(array: &FSSTArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
-            return Ok(builder.extend_from_array(&array.to_canonical()?.into_array()));
+            builder.extend_from_array(&array.to_canonical()?.into_array());
+            return Ok(());
         };
 
         // Decompress the whole block of data into a new buffer, and create some views
@@ -183,7 +184,7 @@ mod tests {
 
         let mut builder =
             VarBinViewBuilder::with_capacity(chunked_arr.dtype().clone(), chunked_arr.len());
-        chunked_arr.append_to_builder(&mut builder);
+        chunked_arr.append_to_builder(&mut builder).unwrap();
 
         {
             let arr = builder.finish_into_canonical().into_varbinview();
@@ -193,7 +194,7 @@ mod tests {
         };
 
         {
-            let arr2 = chunked_arr.to_varbinview();
+            let arr2 = chunked_arr.to_varbinview().unwrap();
             let res2 =
                 arr2.with_iterator(|iter| iter.map(|b| b.map(|v| v.to_vec())).collect::<Vec<_>>());
             assert_eq!(data, res2)

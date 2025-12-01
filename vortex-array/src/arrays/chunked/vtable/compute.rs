@@ -108,7 +108,8 @@ mod tests {
 
         let result = boolean(chunked1.as_ref(), chunked2.as_ref(), BooleanOperator::Or)
             .unwrap()
-            .to_bool();
+            .to_bool()
+            .unwrap();
         assert_eq!(
             result.bit_buffer(),
             &BitBuffer::from_iter([true, true, false, false, true])

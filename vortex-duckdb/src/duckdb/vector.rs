@@ -371,7 +371,7 @@ mod tests {
 
         // Check that the right positions are null
         assert_eq!(
-            validity.to_mask(len),
+            validity.to_mask(len).unwrap(),
             Mask::from_indices(len, vec![0, 2, 4, 5, 6, 8, 9])
         );
     }
@@ -389,7 +389,7 @@ mod tests {
 
         let validity = vector.validity_ref(len);
         let validity = validity.to_validity();
-        assert!(validity.is_null(0));
+        assert!(validity.is_null(0).unwrap());
     }
 
     #[test]
@@ -405,7 +405,7 @@ mod tests {
 
         let validity = vector.validity_ref(len);
         let validity = validity.to_validity();
-        assert!(validity.is_valid(0));
+        assert!(validity.is_valid(0).unwrap());
     }
 
     #[test]

@@ -267,10 +267,11 @@ mod test {
                 .unwrap()
                 .await
                 .unwrap()
-                .to_primitive();
+                .to_primitive()
+                .unwrap();
 
             assert_eq!(
-                array.to_primitive().as_slice::<i32>(),
+                array.to_primitive().unwrap().as_slice::<i32>(),
                 result.as_slice::<i32>()
             );
         })
@@ -307,7 +308,8 @@ mod test {
                 .unwrap()
                 .await
                 .unwrap()
-                .to_bool();
+                .to_bool()
+                .unwrap();
 
             assert_eq!(
                 &BitBuffer::from_iter([false, false, false, true, true]),

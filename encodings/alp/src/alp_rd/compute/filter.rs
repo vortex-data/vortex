@@ -64,8 +64,11 @@ mod test {
         // The first two values need no patching
         let filtered = filter(encoded.as_ref(), &Mask::from_iter([true, false, true]))
             .unwrap()
-            .to_primitive();
-        assert_arrays_eq!(filtered, PrimitiveArray::from_iter([a, outlier]));
+            .as_ref()
+            .to_primitive()
+            .unwrap();
+        let expected = PrimitiveArray::from_iter([a, outlier]);
+        assert_arrays_eq!(filtered.as_ref(), expected.as_ref());
     }
 
     #[rstest]

@@ -45,6 +45,7 @@ impl BoolArray {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::BitBuffer;
+    use vortex_error::VortexExpect;
 
     use crate::ToCanonical;
     use crate::arrays::BoolArray;

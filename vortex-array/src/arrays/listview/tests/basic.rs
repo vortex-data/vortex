@@ -135,9 +135,9 @@ fn test_from_list_array() {
     assert_eq!(first.scalar_at(1), 2i32.into());
 
     // Check validity is preserved.
-    assert!(list_view.is_valid(0));
-    assert!(list_view.is_invalid(1));
-    assert!(list_view.is_valid(2));
+    assert!(list_view.is_valid(0).unwrap());
+    assert!(list_view.is_invalid(1).unwrap());
+    assert!(list_view.is_valid(2).unwrap());
 
     // Check third list.
     let third = list_view.list_elements_at(2);

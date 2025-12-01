@@ -47,16 +47,18 @@ fn test_project() -> vortex_error::VortexResult<()> {
 
     let bools = &struct_b.fields[0];
     assert_eq!(
-        bools.to_bool()?.bit_buffer().iter().collect::<Vec<_>>(),
+        bools
+            .to_bool()
+            .unwrap()
+            .bit_buffer()
+            .iter()
+            .collect::<Vec<_>>(),
         vec![true, true, true, false, false]
     );
 
     let prims = &struct_b.fields[1];
     assert_eq!(
-        prims
-            .to_primitive()?
-            .vortex_expect("to_primitive")
-            .as_slice::<i64>(),
+        prims.to_primitive().unwrap().as_slice::<i64>(),
         [0i64, 1, 2, 3, 4]
     );
     Ok(())
@@ -81,10 +83,7 @@ fn test_remove_column() -> vortex_error::VortexResult<()> {
         &DType::Primitive(PType::I64, Nullability::NonNullable)
     );
     assert_eq!(
-        removed
-            .to_primitive()?
-            .vortex_expect("to_primitive")
-            .as_slice::<i64>(),
+        removed.to_primitive().unwrap().as_slice::<i64>(),
         [0i64, 1, 2, 3, 4]
     );
 
@@ -96,10 +95,7 @@ fn test_remove_column() -> vortex_error::VortexResult<()> {
         &DType::Primitive(PType::U64, Nullability::NonNullable)
     );
     assert_eq!(
-        struct_a.fields[0]
-            .to_primitive()?
-            .vortex_expect("to_primitive")
-            .as_slice::<u64>(),
+        struct_a.fields[0].to_primitive().unwrap().as_slice::<u64>(),
         [4u64, 5, 6, 7, 8]
     );
 
@@ -131,30 +127,21 @@ fn test_duplicate_field_names() -> vortex_error::VortexResult<()> {
     // field_by_name should return the first field with the matching name
     let first_value_field = struct_array.field_by_name("value").unwrap();
     assert_eq!(
-        first_value_field
-            .to_primitive()?
-            .vortex_expect("to_primitive")
-            .as_slice::<i32>(),
+        first_value_field.to_primitive().unwrap().as_slice::<i32>(),
         [1i32, 2, 3] // This is field1, not field3
     );
 
     // Verify field_by_name_opt also returns the first match
     let opt_field = struct_array.field_by_name_opt("value").unwrap();
     assert_eq!(
-        opt_field
-            .to_primitive()?
-            .vortex_expect("to_primitive")
-            .as_slice::<i32>(),
+        opt_field.to_primitive().unwrap().as_slice::<i32>(),
         [1i32, 2, 3] // First "value" field
     );
 
     // Verify the third field (second "value") can be accessed by index
     let third_field = &struct_array.fields()[2];
     assert_eq!(
-        third_field
-            .to_primitive()?
-            .vortex_expect("to_primitive")
-            .as_slice::<i32>(),
+        third_field.to_primitive().unwrap().as_slice::<i32>(),
         [100i32, 200, 300]
     );
     Ok(())
@@ -169,11 +156,7 @@ fn test_uncompressed_size_in_bytes() {
         Validity::NonNullable,
     );
 
-    let canonical_size = struct_array
-        .to_canonical()
-        .vortex_expect("to_canonical")
-        .into_array()
-        .nbytes();
+    let canonical_size = struct_array.to_canonical().unwrap().into_array().nbytes();
     let uncompressed_size = struct_array
         .statistics()
         .compute_uncompressed_size_in_bytes();

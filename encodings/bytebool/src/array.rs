@@ -262,14 +262,14 @@ mod tests {
         assert_eq!(v_len, arr.len());
 
         for idx in 0..arr.len() {
-            assert!(arr.is_valid(idx));
+            assert!(arr.is_valid(idx).unwrap());
         }
 
         let v = vec![Some(true), None, Some(false)];
         let arr = ByteBoolArray::from(v);
-        assert!(arr.is_valid(0));
-        assert!(!arr.is_valid(1));
-        assert!(arr.is_valid(2));
+        assert!(arr.is_valid(0).unwrap());
+        assert!(!arr.is_valid(1).unwrap());
+        assert!(arr.is_valid(2).unwrap());
         assert_eq!(arr.len(), 3);
 
         let v: Vec<Option<bool>> = vec![None, None];
@@ -279,7 +279,7 @@ mod tests {
         assert_eq!(v_len, arr.len());
 
         for idx in 0..arr.len() {
-            assert!(!arr.is_valid(idx));
+            assert!(!arr.is_valid(idx).unwrap());
         }
         assert_eq!(arr.len(), 2);
     }

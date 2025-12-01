@@ -80,8 +80,8 @@ pub(crate) fn new_exporter(
             Box::new(ListExporter {
                 validity: array.validity_mask()?,
                 duckdb_elements: shared_elements,
-                offsets: offsets.clone(),
-                sizes: sizes.clone(),
+                offsets,
+                sizes,
                 num_elements,
                 offset_type: PhantomData::<O>,
                 size_type: PhantomData::<S>,

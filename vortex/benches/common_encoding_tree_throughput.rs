@@ -71,10 +71,12 @@ mod setup {
             PrimitiveArray::from_iter((0..NUM_VALUES).map(|_| rng.random_range(42u32..256)));
         let int_array = cast(uint_array.as_ref(), PType::I32.into())
             .unwrap()
-            .to_primitive();
+            .to_primitive()
+            .unwrap();
         let float_array = cast(uint_array.as_ref(), PType::F64.into())
             .unwrap()
-            .to_primitive();
+            .to_primitive()
+            .unwrap();
         (uint_array, int_array, float_array)
     }
 
@@ -95,7 +97,7 @@ mod setup {
         let alp_compressed = alp_encode(&float_array, None).unwrap();
 
         // Manually construct ALP <- FoR <- BitPacked tree
-        let for_array = FoRArray::encode(alp_compressed.encoded().to_primitive()).unwrap();
+        let for_array = FoRArray::encode(alp_compressed.encoded().to_primitive().unwrap()).unwrap();
         let inner = for_array.encoded();
         let bp = BitPackedArray::encode(inner, 8).unwrap();
         let for_with_bp =
@@ -166,7 +168,7 @@ mod setup {
         let runend = RunEndArray::encode(prim_array.into_array()).unwrap();
 
         // Compress the ends with FoR <- BitPacked
-        let ends_prim = runend.ends().to_primitive();
+        let ends_prim = runend.ends().to_primitive().unwrap();
         let ends_for = FoRArray::encode(ends_prim).unwrap();
         let ends_inner = ends_for.encoded();
         let ends_bp = BitPackedArray::encode(ends_inner, 8).unwrap();
@@ -176,7 +178,7 @@ mod setup {
                 .into_array();
 
         // Compress the values with BitPacked
-        let values_prim = runend.values().to_primitive();
+        let values_prim = runend.values().to_primitive().unwrap();
         let compressed_values = BitPackedArray::encode(values_prim.as_ref(), 8)
             .unwrap()
             .into_array();
@@ -240,7 +242,7 @@ mod setup {
 
         // Compress the VarBin offsets with BitPacked
         let codes = fsst.codes();
-        let offsets_prim = codes.offsets().to_primitive();
+        let offsets_prim = codes.offsets().to_primitive().unwrap();
         let offsets_bp = BitPackedArray::encode(offsets_prim.as_ref(), 20).unwrap();
 
         // Rebuild VarBin with compressed offsets
@@ -291,7 +293,7 @@ mod setup {
         let parts = split_temporal(temporal_array.clone()).unwrap();
 
         // Compress days with FoR <- BitPacked
-        let days_prim = parts.days.to_primitive();
+        let days_prim = parts.days.to_primitive().unwrap();
         let days_for = FoRArray::encode(days_prim).unwrap();
         let days_inner = days_for.encoded();
         let days_bp = BitPackedArray::encode(days_inner, 16).unwrap();
@@ -301,7 +303,7 @@ mod setup {
                 .into_array();
 
         // Compress seconds with FoR <- BitPacked
-        let seconds_prim = parts.seconds.to_primitive();
+        let seconds_prim = parts.seconds.to_primitive().unwrap();
         let seconds_for = FoRArray::encode(seconds_prim).unwrap();
         let seconds_inner = seconds_for.encoded();
         let seconds_bp = BitPackedArray::encode(seconds_inner, 17).unwrap();
@@ -313,7 +315,7 @@ mod setup {
         .into_array();
 
         // Compress subseconds with FoR <- BitPacked
-        let subseconds_prim = parts.subseconds.to_primitive();
+        let subseconds_prim = parts.subseconds.to_primitive().unwrap();
         let subseconds_for = FoRArray::encode(subseconds_prim).unwrap();
         let subseconds_inner = subseconds_for.encoded();
         let subseconds_bp = BitPackedArray::encode(subseconds_inner, 20).unwrap();

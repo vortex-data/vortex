@@ -10,6 +10,7 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_dtype::UnsignedPType;
+use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -126,14 +127,17 @@ where
     fn encode(&mut self, array: &dyn Array) -> ArrayRef {
         let mut codes = BufferMut::<Code>::with_capacity(array.len());
 
-        array.to_primitive().unwrap().with_iterator(|it| {
-            for value in it {
-                let Some(code) = self.encode_value(value.copied()) else {
-                    break;
-                };
-                unsafe { codes.push_unchecked(code) }
-            }
-        });
+        array
+            .to_primitive()
+            .vortex_expect("dict encode expects primitive array")
+            .with_iterator(|it| {
+                for value in it {
+                    let Some(code) = self.encode_value(value.copied()) else {
+                        break;
+                    };
+                    unsafe { codes.push_unchecked(code) }
+                }
+            });
 
         PrimitiveArray::new(codes, Validity::NonNullable).into_array()
     }

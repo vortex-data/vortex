@@ -114,7 +114,9 @@ mod tests {
     fn between_test(arr: &ALPArray, lower: f32, upper: f32, options: &BetweenOptions) -> bool {
         let res = between_impl(arr, lower, upper, Nullability::Nullable, options)
             .unwrap()
+            .as_ref()
             .to_bool()
+            .unwrap()
             .bit_buffer()
             .iter()
             .collect_vec();
@@ -130,7 +132,12 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded.encoded().to_primitive().as_slice::<i32>(),
+            encoded
+                .encoded()
+                .as_ref()
+                .to_primitive()
+                .unwrap()
+                .as_slice::<i32>(),
             vec![605; 1]
         );
 

@@ -89,6 +89,7 @@ fn kleene_or(left: Option<bool>, right: Option<bool>) -> Option<bool> {
 #[cfg(test)]
 mod test {
     use rstest::rstest;
+    use vortex_error::VortexResult;
 
     use crate::Array;
     use crate::ArrayRef;

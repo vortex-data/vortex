@@ -359,8 +359,8 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be all_valid since all non-empty chunks are all_valid
-        assert!(chunked.all_valid());
-        assert!(!chunked.all_invalid());
+        assert!(chunked.all_valid().unwrap());
+        assert!(!chunked.all_invalid().unwrap());
 
         Ok(())
     }
@@ -379,8 +379,8 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be all_invalid since all non-empty chunks are all_invalid
-        assert!(!chunked.all_valid());
-        assert!(chunked.all_invalid());
+        assert!(!chunked.all_valid().unwrap());
+        assert!(chunked.all_invalid().unwrap());
 
         Ok(())
     }
@@ -399,8 +399,8 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be neither all_valid nor all_invalid
-        assert!(!chunked.all_valid());
-        assert!(!chunked.all_invalid());
+        assert!(!chunked.all_valid().unwrap());
+        assert!(!chunked.all_invalid().unwrap());
 
         Ok(())
     }

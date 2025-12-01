@@ -181,7 +181,7 @@ pub(crate) fn number_type_from_dtype(dtype: &DType) -> NumberType {
 
 fn collect_valid(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
     let mask = parray.validity_mask()?;
-    Ok(filter(&parray.to_array(), &mask)?.to_primitive()?)
+    filter(&parray.to_array(), &mask)?.to_primitive()
 }
 
 pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
@@ -569,7 +569,7 @@ mod tests {
             Validity::from_iter([false, true, true, true, true, false]),
         );
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
-        let decoded = pco.to_primitive();
+        let decoded = pco.to_primitive().unwrap();
         assert_arrays_eq!(
             decoded,
             PrimitiveArray::from_option_iter([
@@ -588,6 +588,6 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(20u32), Some(30), Some(40), Some(50)])
                 .into_array();
         assert_arrays_eq!(sliced, expected);
-        assert_arrays_eq!(sliced.to_canonical().into_array(), expected);
+        assert_arrays_eq!(sliced.to_canonical().unwrap().into_array(), expected);
     }
 }

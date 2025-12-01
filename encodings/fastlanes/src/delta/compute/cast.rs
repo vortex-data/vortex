@@ -81,7 +81,7 @@ mod tests {
         );
 
         // Verify by decoding
-        let decoded = casted.to_primitive();
+        let decoded = casted.to_primitive().unwrap();
         assert_arrays_eq!(decoded, PrimitiveArray::from_iter([10u32, 20, 30, 40, 50]));
     }
 

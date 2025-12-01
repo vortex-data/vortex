@@ -81,7 +81,7 @@ mod test {
         let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i8..100)).unwrap();
         assert!(compressed.is::<ZigZagVTable>());
         assert_eq!(
-            compressed.to_primitive().as_slice::<i8>(),
+            compressed.to_primitive().unwrap().as_slice::<i8>(),
             (-100_i8..100).collect::<Vec<_>>()
         );
     }
@@ -90,7 +90,7 @@ mod test {
         let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i16..100)).unwrap();
         assert!(compressed.is::<ZigZagVTable>());
         assert_eq!(
-            compressed.to_primitive().as_slice::<i16>(),
+            compressed.to_primitive().unwrap().as_slice::<i16>(),
             (-100_i16..100).collect::<Vec<_>>()
         );
     }
@@ -99,7 +99,7 @@ mod test {
         let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i32..100)).unwrap();
         assert!(compressed.is::<ZigZagVTable>());
         assert_eq!(
-            compressed.to_primitive().as_slice::<i32>(),
+            compressed.to_primitive().unwrap().as_slice::<i32>(),
             (-100_i32..100).collect::<Vec<_>>()
         );
     }
@@ -108,7 +108,7 @@ mod test {
         let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i64..100)).unwrap();
         assert!(compressed.is::<ZigZagVTable>());
         assert_eq!(
-            compressed.to_primitive().as_slice::<i64>(),
+            compressed.to_primitive().unwrap().as_slice::<i64>(),
             (-100_i64..100).collect::<Vec<_>>()
         );
     }

@@ -66,7 +66,7 @@ mod tests {
             &DType::Primitive(PType::I64, Nullability::NonNullable)
         );
 
-        let decoded = casted.to_primitive();
+        let decoded = casted.to_primitive().unwrap();
         let values = decoded.as_slice::<i64>();
         assert_eq!(values[2], 100);
         assert_eq!(values[5], 200);

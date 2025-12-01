@@ -30,6 +30,8 @@ impl OperationsVTable<BoolVTable> for BoolVTable {
 mod tests {
     use std::iter;
 
+    use vortex_error::VortexExpect;
+
     use super::*;
     use crate::ToCanonical;
     use crate::assert_arrays_eq;

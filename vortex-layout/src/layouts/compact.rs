@@ -247,9 +247,9 @@ mod tests {
         let compressed = compressor.compress(struct_array.as_ref()).unwrap();
 
         // Verify we can decompress back to original
-        let decompressed = compressed.to_canonical().into_array();
+        let decompressed = compressed.to_canonical().unwrap().into_array();
         assert_eq!(decompressed.len(), n_rows);
-        let decompressed_struct = decompressed.to_struct();
+        let decompressed_struct = decompressed.to_struct().unwrap();
 
         // Verify each field can be accessed and has correct data
         for (i, name) in decompressed_struct.names().iter().enumerate() {

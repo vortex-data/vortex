@@ -110,8 +110,14 @@ mod tests {
             seconds,
             subseconds,
         } = split_temporal(temporal_array).unwrap();
-        assert_eq!(days.to_primitive().validity(), &validity);
-        assert_eq!(seconds.to_primitive().validity(), &Validity::NonNullable);
-        assert_eq!(subseconds.to_primitive().validity(), &Validity::NonNullable);
+        assert_eq!(days.to_primitive().unwrap().validity(), &validity);
+        assert_eq!(
+            seconds.to_primitive().unwrap().validity(),
+            &Validity::NonNullable
+        );
+        assert_eq!(
+            subseconds.to_primitive().unwrap().validity(),
+            &Validity::NonNullable
+        );
     }
 }

@@ -277,7 +277,7 @@ mod tests {
         let item = expr.evaluate(&arr).unwrap();
 
         assert_eq!(item.scalar_at(0), Scalar::bool(true, Nullability::Nullable));
-        assert!(!item.is_valid(1));
+        assert!(!item.is_valid(1).unwrap());
     }
 
     #[test]

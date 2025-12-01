@@ -60,10 +60,12 @@ fn setup_primitive_arrays() -> (PrimitiveArray, PrimitiveArray, PrimitiveArray) 
         PrimitiveArray::from_iter((0..NUM_VALUES).map(|_| rng.random_range(42u32..256)));
     let int_array = cast(uint_array.as_ref(), PType::I32.into())
         .unwrap()
-        .to_primitive();
+        .to_primitive()
+        .unwrap();
     let float_array = cast(uint_array.as_ref(), PType::F64.into())
         .unwrap()
-        .to_primitive();
+        .to_primitive()
+        .unwrap();
     (uint_array, int_array, float_array)
 }
 

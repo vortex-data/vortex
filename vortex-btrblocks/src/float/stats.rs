@@ -234,7 +234,7 @@ mod tests {
     #[test]
     fn test_float_stats() {
         let floats = buffer![0.0f32, 1.0f32, 2.0f32].into_array();
-        let floats = floats.to_primitive();
+        let floats = floats.to_primitive().unwrap();
 
         let stats = FloatStats::generate(&floats);
 

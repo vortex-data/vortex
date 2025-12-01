@@ -186,7 +186,10 @@ mod test {
 
         let mask = Mask::from_indices(bitpacked.len(), vec![0, 125, 2047, 2049, 2151, 2790]);
 
-        let primitive_result = filter(bitpacked.as_ref(), &mask).unwrap().to_primitive();
+        let primitive_result = filter(bitpacked.as_ref(), &mask)
+            .unwrap()
+            .to_primitive()
+            .unwrap();
         assert_arrays_eq!(
             primitive_result,
             PrimitiveArray::from_iter([0u8, 62, 31, 33, 9, 18])
@@ -202,7 +205,7 @@ mod test {
 
         let mask = Mask::from_indices(sliced.len(), vec![1919, 1921]);
 
-        let primitive_result = filter(&sliced, &mask).unwrap().to_primitive();
+        let primitive_result = filter(&sliced, &mask).unwrap().to_primitive().unwrap();
         assert_arrays_eq!(primitive_result, PrimitiveArray::from_iter([31u8, 33]));
     }
 
@@ -216,7 +219,7 @@ mod test {
         )
         .unwrap();
         assert_arrays_eq!(
-            filtered.to_primitive(),
+            filtered.to_primitive().unwrap(),
             PrimitiveArray::from_iter((0..1024).map(|i| (i % 63) as u8))
         );
     }
@@ -231,7 +234,8 @@ mod test {
             &Mask::from_indices(values.len(), (0..250).collect()),
         )
         .unwrap()
-        .to_primitive();
+        .to_primitive()
+        .unwrap();
 
         assert_arrays_eq!(
             filtered,

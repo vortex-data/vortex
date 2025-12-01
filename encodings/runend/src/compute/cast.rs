@@ -72,7 +72,7 @@ mod tests {
         );
 
         // Verify by decoding to canonical form
-        let decoded = casted.to_primitive();
+        let decoded = casted.to_primitive().unwrap();
         // RunEnd encoding should expand to [100, 100, 100, 200, 200, 100, 100, 100, 300, 300]
         assert_eq!(decoded.len(), 10);
         assert_eq!(
@@ -133,7 +133,7 @@ mod tests {
         let sliced = runend.slice(3..8);
 
         // Verify the slice is correct before casting
-        let sliced_decoded = sliced.to_primitive();
+        let sliced_decoded = sliced.to_primitive().unwrap();
         assert_eq!(sliced_decoded.len(), 5);
         assert_arrays_eq!(
             sliced_decoded,
@@ -148,7 +148,7 @@ mod tests {
         .unwrap();
 
         // Verify the cast preserved the offset
-        let casted_decoded = casted.to_primitive();
+        let casted_decoded = casted.to_primitive().unwrap();
         assert_eq!(casted_decoded.len(), 5);
         assert_arrays_eq!(
             casted_decoded,

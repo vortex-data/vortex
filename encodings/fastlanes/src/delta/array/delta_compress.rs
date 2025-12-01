@@ -119,7 +119,7 @@ mod tests {
     fn do_roundtrip_test<T: NativePType>(input: PrimitiveArray) {
         let delta = DeltaArray::try_from_primitive_array(&input).unwrap();
         assert_eq!(delta.len(), input.len());
-        let decompressed = delta_decompress(&delta);
+        let decompressed = delta_decompress(&delta).unwrap();
         let decompressed_slice = decompressed.as_slice::<T>();
         assert_eq!(decompressed_slice.len(), input.len());
         for (actual, expected) in decompressed_slice.iter().zip(input.as_slice()) {

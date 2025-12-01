@@ -242,7 +242,7 @@ mod test {
     #[test]
     fn test_compute_statistics() {
         let array = buffer![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array();
-        let canonical = array.to_canonical();
+        let canonical = array.to_canonical().unwrap();
         let zigzag = ZigZagVTable
             .as_vtable()
             .encode(&canonical, None)

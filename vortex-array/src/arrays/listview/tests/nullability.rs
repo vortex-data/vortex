@@ -33,9 +33,9 @@ fn test_nullable_listview_comprehensive() {
     assert_eq!(listview.len(), 3);
 
     // Check validity.
-    assert!(listview.is_valid(0));
-    assert!(listview.is_invalid(1));
-    assert!(listview.is_valid(2));
+    assert!(listview.is_valid(0).unwrap());
+    assert!(listview.is_invalid(1).unwrap());
+    assert!(listview.is_valid(2).unwrap());
 
     // Check dtype reflects nullability.
     assert!(matches!(
@@ -90,7 +90,7 @@ fn test_nullable_patterns(#[case] validity: Validity, #[case] expected_validity:
     let listview = unsafe { ListViewArray::new_unchecked(elements, offsets, sizes, validity) };
 
     for (i, &expected) in expected_validity.iter().enumerate() {
-        assert_eq!(listview.is_valid(i), expected);
+        assert_eq!(listview.is_valid(i).unwrap(), expected);
     }
 }
 

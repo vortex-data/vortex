@@ -529,7 +529,7 @@ mod tests {
             values[i] = (i % 50) as f32;
         }
 
-        let floats = values.into_array().to_primitive();
+        let floats = values.into_array().to_primitive().unwrap();
         let compressed = FloatCompressor::compress(&floats, false, MAX_CASCADE, &[]).unwrap();
         println!("compressed: {}", compressed.display_tree())
     }

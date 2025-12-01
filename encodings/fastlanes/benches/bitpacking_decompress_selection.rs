@@ -36,7 +36,8 @@ fn decompress_bitpacking_early_filter<T: IntegerPType>(bencher: Bencher, fractio
         .map(|_| T::from(rng.random_range(0..100)).unwrap())
         .collect::<BufferMut<T>>()
         .into_array()
-        .to_primitive();
+        .to_primitive()
+        .unwrap();
     let array = bitpack_to_best_bit_width(&values).unwrap();
     let mask = (0..100_000)
         .map(|_| rng.random_bool(fraction_kept))
@@ -56,7 +57,8 @@ fn decompress_bitpacking_late_filter<T: IntegerPType>(bencher: Bencher, fraction
         .map(|_| T::from(rng.random_range(0..100)).unwrap())
         .collect::<BufferMut<T>>()
         .into_array()
-        .to_primitive();
+        .to_primitive()
+        .unwrap();
 
     let array = bitpack_to_best_bit_width(&values).unwrap();
 
@@ -67,5 +69,5 @@ fn decompress_bitpacking_late_filter<T: IntegerPType>(bencher: Bencher, fraction
     bencher
         // Be sure to reconstruct the mask to avoid cached set_indices
         .with_inputs(|| (&array, Mask::from_buffer(mask.clone())))
-        .bench_refs(|(array, mask)| filter(array.to_canonical().as_ref(), mask).unwrap());
+        .bench_refs(|(array, mask)| filter(array.to_canonical().unwrap().as_ref(), mask).unwrap());
 }

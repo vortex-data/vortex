@@ -349,7 +349,7 @@ mod tests {
         let sliced_pco_array = pco_array.slice(slice_start..slice_end);
         assert_eq!(sliced_pco_array.len(), slice_end - slice_start);
 
-        let decompressed = sliced_pco_array.to_primitive();
+        let decompressed = sliced_pco_array.to_primitive().unwrap();
         assert_eq!(decompressed.len(), slice_end - slice_start);
 
         let expected_values: Vec<i32> = (slice_start..slice_end)

@@ -86,7 +86,7 @@ mod tests {
             &DType::Primitive(PType::F64, Nullability::NonNullable)
         );
 
-        let decoded = casted.to_primitive();
+        let decoded = casted.to_primitive().unwrap();
         let f64_values = decoded.as_slice::<f64>();
         assert_eq!(f64_values.len(), 5);
         assert!((f64_values[0] - 1.0).abs() < f64::EPSILON);
@@ -130,7 +130,7 @@ mod tests {
             &DType::Primitive(PType::U32, Nullability::NonNullable)
         );
         // Verify the values are correct
-        let decoded = casted.to_primitive();
+        let decoded = casted.to_primitive().unwrap();
         let u32_values = decoded.as_slice::<u32>();
         assert_eq!(u32_values, &[20, 30, 40, 50]);
     }
@@ -156,7 +156,7 @@ mod tests {
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::NonNullable)
         );
-        let decoded = casted.to_primitive();
+        let decoded = casted.to_primitive().unwrap();
         let expected = PrimitiveArray::from_iter([20u32, 30, 40, 50]);
         assert_arrays_eq!(decoded, expected);
     }

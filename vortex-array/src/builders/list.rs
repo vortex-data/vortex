@@ -351,7 +351,7 @@ mod tests {
         let list = builder.finish();
         assert_eq!(list.len(), 2);
 
-        let list_array = list.to_listview();
+        let list_array = list.to_listview().unwrap();
 
         assert_eq!(list_array.list_elements_at(0).len(), 3);
         assert_eq!(list_array.list_elements_at(1).len(), 3);
@@ -403,7 +403,7 @@ mod tests {
         let list = builder.finish();
         assert_eq!(list.len(), 3);
 
-        let list_array = list.to_listview();
+        let list_array = list.to_listview().unwrap();
 
         assert_eq!(list_array.list_elements_at(0).len(), 3);
         assert_eq!(list_array.list_elements_at(1).len(), 0);
@@ -439,18 +439,23 @@ mod tests {
             Arc::new(DType::Primitive(I32, NonNullable)),
         )
         .unwrap()
-        .to_listview();
+        .to_listview()
+        .unwrap();
 
         let actual = builder.finish_into_canonical().into_listview();
 
         assert_eq!(
-            actual.elements().to_primitive().as_slice::<i32>(),
-            expected.elements().to_primitive().as_slice::<i32>()
+            actual.elements().to_primitive().unwrap().as_slice::<i32>(),
+            expected
+                .elements()
+                .to_primitive()
+                .unwrap()
+                .as_slice::<i32>()
         );
 
         assert_eq!(
-            actual.offsets().to_primitive().as_slice::<O>(),
-            expected.offsets().to_primitive().as_slice::<O>()
+            actual.offsets().to_primitive().unwrap().as_slice::<O>(),
+            expected.offsets().to_primitive().unwrap().as_slice::<O>()
         );
 
         assert_eq!(actual.validity(), expected.validity())
@@ -493,7 +498,7 @@ mod tests {
             DType::List(Arc::new(DType::Primitive(I32, NonNullable)), NonNullable),
         );
 
-        let canon_values = chunked_list.unwrap().to_listview();
+        let canon_values = chunked_list.unwrap().to_listview().unwrap();
 
         assert_eq!(
             one_trailing_unused_element.scalar_at(0),
@@ -550,9 +555,9 @@ mod tests {
         assert!(list2.is_null()); // This should be null.
 
         // Check validity.
-        assert!(array.validity().is_valid(0));
-        assert!(array.validity().is_valid(1));
-        assert!(!array.validity().is_valid(2));
+        assert!(array.validity().is_valid(0).unwrap());
+        assert!(array.validity().is_valid(1).unwrap());
+        assert!(!array.validity().is_valid(2).unwrap());
 
         // Test wrong dtype error.
         let mut builder = ListBuilder::<u64>::with_capacity(dtype, NonNullable, 20, 10);

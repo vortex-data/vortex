@@ -78,7 +78,7 @@ mod test {
             Operator::Eq,
         )
         .unwrap();
-        let res_canon = res.to_bool();
+        let res_canon = res.to_bool().unwrap();
         assert_eq!(
             res_canon.bit_buffer(),
             &BitBuffer::from(vec![

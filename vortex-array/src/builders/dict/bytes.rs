@@ -211,17 +211,20 @@ mod test {
         let arr = VarBinArray::from(vec!["hello", "world", "hello", "again", "world"]);
         let dict = dict_encode(arr.as_ref()).unwrap();
         assert_eq!(
-            dict.codes().to_primitive().as_slice::<u8>(),
+            dict.codes().to_primitive().unwrap().as_slice::<u8>(),
             &[0, 1, 0, 2, 1]
         );
-        dict.values().to_varbinview().with_iterator(|iter| {
-            assert_eq!(
-                iter.flatten()
-                    .map(|b| unsafe { str::from_utf8_unchecked(b) })
-                    .collect::<Vec<_>>(),
-                vec!["hello", "world", "again"]
-            );
-        });
+        dict.values()
+            .to_varbinview()
+            .unwrap()
+            .with_iterator(|iter| {
+                assert_eq!(
+                    iter.flatten()
+                        .map(|b| unsafe { str::from_utf8_unchecked(b) })
+                        .collect::<Vec<_>>(),
+                    vec!["hello", "world", "again"]
+                );
+            });
     }
 
     #[test]
@@ -240,32 +243,38 @@ mod test {
         .collect();
         let dict = dict_encode(arr.as_ref()).unwrap();
         assert_eq!(
-            dict.codes().to_primitive().as_slice::<u8>(),
+            dict.codes().to_primitive().unwrap().as_slice::<u8>(),
             &[0, 1, 2, 0, 1, 3, 2, 1]
         );
-        dict.values().to_varbinview().with_iterator(|iter| {
-            assert_eq!(
-                iter.map(|b| b.map(|v| unsafe { str::from_utf8_unchecked(v) }))
-                    .collect::<Vec<_>>(),
-                vec![Some("hello"), None, Some("world"), Some("again")]
-            );
-        });
+        dict.values()
+            .to_varbinview()
+            .unwrap()
+            .with_iterator(|iter| {
+                assert_eq!(
+                    iter.map(|b| b.map(|v| unsafe { str::from_utf8_unchecked(v) }))
+                        .collect::<Vec<_>>(),
+                    vec![Some("hello"), None, Some("world"), Some("again")]
+                );
+            });
     }
 
     #[test]
     fn repeated_values() {
         let arr = VarBinArray::from(vec!["a", "a", "b", "b", "a", "b", "a", "b"]);
         let dict = dict_encode(arr.as_ref()).unwrap();
-        dict.values().to_varbinview().with_iterator(|iter| {
-            assert_eq!(
-                iter.flatten()
-                    .map(|b| unsafe { str::from_utf8_unchecked(b) })
-                    .collect::<Vec<_>>(),
-                vec!["a", "b"]
-            );
-        });
+        dict.values()
+            .to_varbinview()
+            .unwrap()
+            .with_iterator(|iter| {
+                assert_eq!(
+                    iter.flatten()
+                        .map(|b| unsafe { str::from_utf8_unchecked(b) })
+                        .collect::<Vec<_>>(),
+                    vec!["a", "b"]
+                );
+            });
         assert_eq!(
-            dict.codes().to_primitive().as_slice::<u8>(),
+            dict.codes().to_primitive().unwrap().as_slice::<u8>(),
             &[0, 0, 1, 1, 0, 1, 0, 1]
         );
     }

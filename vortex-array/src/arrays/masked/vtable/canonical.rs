@@ -56,7 +56,7 @@ mod tests {
         #[case] array: MaskedArray,
         #[case] expected_nullability: Nullability,
     ) {
-        let canonical = array.to_canonical();
+        let canonical = array.to_canonical().unwrap();
         assert_eq!(
             canonical.as_ref().dtype().nullability(),
             expected_nullability
@@ -72,16 +72,16 @@ mod tests {
         )
         .unwrap();
 
-        let canonical = array.to_canonical();
-        let prim = canonical.as_ref().to_primitive();
+        let canonical = array.to_canonical().unwrap();
+        let prim = canonical.as_ref().to_primitive().unwrap();
 
         // Check that null positions match validity.
-        assert_eq!(prim.valid_count(), 3);
-        assert!(prim.is_valid(0));
-        assert!(!prim.is_valid(1));
-        assert!(prim.is_valid(2));
-        assert!(!prim.is_valid(3));
-        assert!(prim.is_valid(4));
+        assert_eq!(prim.valid_count().unwrap(), 3);
+        assert!(prim.is_valid(0).unwrap());
+        assert!(!prim.is_valid(1).unwrap());
+        assert!(prim.is_valid(2).unwrap());
+        assert!(!prim.is_valid(3).unwrap());
+        assert!(prim.is_valid(4).unwrap());
     }
 
     #[test]
@@ -92,8 +92,8 @@ mod tests {
         )
         .unwrap();
 
-        let canonical = array.to_canonical();
-        assert_eq!(canonical.as_ref().valid_count(), 3);
+        let canonical = array.to_canonical().unwrap();
+        assert_eq!(canonical.as_ref().valid_count().unwrap(), 3);
         assert_eq!(
             canonical.as_ref().dtype().nullability(),
             Nullability::Nullable

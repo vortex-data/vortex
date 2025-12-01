@@ -67,7 +67,7 @@ mod tests {
             "Cast should preserve ZigZag encoding"
         );
 
-        let decoded = casted.to_primitive();
+        let decoded = casted.to_primitive().unwrap();
         assert_arrays_eq!(decoded, PrimitiveArray::from_iter([-100i64, -1, 0, 1, 100]));
     }
 
@@ -88,7 +88,7 @@ mod tests {
             "Should remain ZigZag encoded"
         );
 
-        let decoded = casted.to_primitive();
+        let decoded = casted.to_primitive().unwrap();
         assert_arrays_eq!(
             decoded,
             PrimitiveArray::from_iter([100i16, -50, 0, 25, -100])
@@ -109,7 +109,7 @@ mod tests {
             "Should remain ZigZag encoded"
         );
 
-        let decoded64 = casted64.to_primitive();
+        let decoded64 = casted64.to_primitive().unwrap();
         assert_arrays_eq!(
             decoded64,
             PrimitiveArray::from_iter([1000i64, -500, 0, 250, -1000])

@@ -80,7 +80,7 @@ mod tests {
             &DType::Primitive(PType::F64, Nullability::NonNullable)
         );
 
-        let decoded = casted.to_primitive();
+        let decoded = casted.as_ref().to_primitive().unwrap();
         let f64_values = decoded.as_slice::<f64>();
         assert_eq!(f64_values.len(), 5);
         assert!((f64_values[0] - 1.0).abs() < f64::EPSILON);

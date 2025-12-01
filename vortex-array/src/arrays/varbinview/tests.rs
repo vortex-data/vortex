@@ -34,7 +34,7 @@ pub fn slice_array() {
 #[test]
 pub fn flatten_array() {
     let binary_arr = VarBinViewArray::from_iter_str(["string1", "string2"]);
-    let var_bin = binary_arr.to_varbinview();
+    let var_bin = binary_arr.to_varbinview().unwrap();
     assert_eq!(var_bin.scalar_at(0), Scalar::from("string1"));
     assert_eq!(var_bin.scalar_at(1), Scalar::from("string2"));
 }

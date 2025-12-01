@@ -47,12 +47,12 @@ fn test_take_preserves_unreferenced_elements() {
     // Take only 2 lists.
     let indices = buffer![1u32, 3].into_array();
     let result = take(&listview, &indices).unwrap();
-    let result_list = result.to_listview();
+    let result_list = result.to_listview().unwrap();
 
     assert_eq!(result_list.len(), 2);
 
     // Verify the entire elements array is preserved.
-    let result_elements = result_list.elements().to_primitive();
+    let result_elements = result_list.elements().to_primitive().unwrap();
     assert_eq!(
         result_elements.as_slice::<i32>(),
         &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
@@ -77,10 +77,10 @@ fn test_take_with_gaps() {
 
     let indices = buffer![1u32, 3, 4, 2].into_array();
     let result = take(&listview, &indices).unwrap();
-    let result_list = result.to_listview();
+    let result_list = result.to_listview().unwrap();
 
     // Verify the entire elements array is preserved including gaps.
-    let result_elements = result_list.elements().to_primitive();
+    let result_elements = result_list.elements().to_primitive().unwrap();
     assert_eq!(
         result_elements.as_slice::<i32>(),
         &[1, 2, 3, 999, 999, 999, 7, 8, 9, 999, 11, 12]
@@ -113,7 +113,7 @@ fn test_take_constant_arrays() {
 
     let indices = buffer![3u32, 0, 2].into_array();
     let result = take(&const_offset_list, &indices).unwrap();
-    let result_list = result.to_listview();
+    let result_list = result.to_listview().unwrap();
 
     assert_eq!(result_list.len(), 3);
     assert_eq!(result_list.offset_at(0), 2); // All offsets are 2
@@ -137,7 +137,7 @@ fn test_take_constant_arrays() {
 
     let indices2 = buffer![2u32, 0].into_array();
     let result2 = take(&both_const_list, &indices2).unwrap();
-    let result2_list = result2.to_listview();
+    let result2_list = result2.to_listview().unwrap();
 
     assert_eq!(result2_list.len(), 2);
     assert_eq!(result2_list.offset_at(0), 1);
@@ -163,7 +163,7 @@ fn test_take_extreme_offsets() {
     // Take only 2 lists, demonstrating we keep all 10000 elements.
     let indices = buffer![1u32, 4].into_array();
     let result = take(&listview, &indices).unwrap();
-    let result_list = result.to_listview();
+    let result_list = result.to_listview().unwrap();
 
     assert_eq!(result_list.len(), 2);
 

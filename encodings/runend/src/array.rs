@@ -398,11 +398,11 @@ impl ValidityVTable<RunEndVTable> for RunEndVTable {
     }
 
     fn all_valid(array: &RunEndArray) -> VortexResult<bool> {
-        Ok(array.values().all_valid()?)
+        array.values().all_valid()
     }
 
     fn all_invalid(array: &RunEndArray) -> VortexResult<bool> {
-        Ok(array.values().all_invalid()?)
+        array.values().all_invalid()
     }
 
     fn validity_mask(array: &RunEndArray) -> VortexResult<Mask> {

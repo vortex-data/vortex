@@ -37,7 +37,8 @@ pub fn decompress_bitpacking_early_filter<T: NativePType>(bencher: Bencher, frac
         .map(|_| T::from(rng.random_range(0..100)).unwrap())
         .collect::<BufferMut<T>>()
         .into_array()
-        .to_primitive();
+        .to_primitive()
+        .unwrap();
     let array = bitpack_to_best_bit_width(&values).unwrap();
 
     let mask = (0..LENGTH)
@@ -57,7 +58,8 @@ pub fn decompress_bitpacking_late_filter<T: NativePType>(bencher: Bencher, fract
         .map(|_| T::from(rng.random_range(0..100)).unwrap())
         .collect::<BufferMut<T>>()
         .into_array()
-        .to_primitive();
+        .to_primitive()
+        .unwrap();
 
     let array = bitpack_to_best_bit_width(&values).unwrap();
 
@@ -68,7 +70,7 @@ pub fn decompress_bitpacking_late_filter<T: NativePType>(bencher: Bencher, fract
     bencher
         // Be sure to reconstruct the mask to avoid cached set_indices
         .with_inputs(|| Mask::from_buffer(mask.clone()))
-        .bench_refs(|mask| filter(array.to_canonical().as_ref(), mask).unwrap());
+        .bench_refs(|mask| filter(array.to_canonical().unwrap().as_ref(), mask).unwrap());
 }
 
 #[divan::bench(types = [i8, i16, i32, i64], args = TRUE_COUNT)]
@@ -78,7 +80,8 @@ pub fn decompress_bitpacking_pipeline_filter<T: NativePType>(bencher: Bencher, f
         .map(|_| T::from(rng.random_range(0..100)).unwrap())
         .collect::<BufferMut<T>>()
         .into_array()
-        .to_primitive();
+        .to_primitive()
+        .unwrap();
     let array = bitpack_to_best_bit_width(&values).unwrap();
 
     let mask = (0..LENGTH)

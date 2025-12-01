@@ -31,9 +31,9 @@ pub fn delta_decompress(array: &DeltaArray) -> VortexResult<PrimitiveArray> {
         )
     });
 
-    Ok(decoded
+    decoded
         .slice(array.offset()..array.offset() + array.len())
-        .to_primitive()?)
+        .to_primitive()
 }
 
 // TODO(ngates): can we re-use the deltas buffer for the result? Might be tricky given the

@@ -40,7 +40,7 @@ mod tests {
         let dtype = DType::Primitive(PType::I32, NonNullable);
         let expr_array = ExprArray::try_new(child, expr, dtype).unwrap();
 
-        let actual = expr_array.to_canonical().into_array();
+        let actual = expr_array.to_canonical().unwrap().into_array();
 
         let expect = (0..3).map(|_| 15i32).collect::<PrimitiveArray>();
         assert_arrays_eq!(expect, actual);

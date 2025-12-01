@@ -74,7 +74,7 @@ mod tests {
             &DType::Primitive(PType::I64, Nullability::NonNullable)
         );
 
-        let decoded = casted.to_primitive();
+        let decoded = casted.to_primitive().unwrap();
         assert_arrays_eq!(decoded, PrimitiveArray::from_iter([1i64, 2, 3, 2, 1]));
     }
 
@@ -175,8 +175,8 @@ mod tests {
         );
 
         // Verify values are unchanged
-        let original_values = dict.to_primitive();
-        let final_values = back_dict.to_primitive();
+        let original_values = dict.to_primitive().unwrap();
+        let final_values = back_dict.to_primitive().unwrap();
         assert_arrays_eq!(original_values, final_values);
     }
 

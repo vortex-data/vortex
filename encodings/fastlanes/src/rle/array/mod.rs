@@ -278,9 +278,9 @@ mod tests {
 
         assert_eq!(rle_array.len(), 3);
         assert_eq!(rle_array.values().len(), 2);
-        assert!(rle_array.is_valid(0));
-        assert!(!rle_array.is_valid(1));
-        assert!(rle_array.is_valid(2));
+        assert!(rle_array.is_valid(0).unwrap());
+        assert!(!rle_array.is_valid(1).unwrap());
+        assert!(rle_array.is_valid(2).unwrap());
     }
 
     #[test]
@@ -313,10 +313,10 @@ mod tests {
         .unwrap();
 
         let valid_slice = rle_array.slice(0..3);
-        assert!(valid_slice.all_valid());
+        assert!(valid_slice.all_valid().unwrap());
 
         let mixed_slice = rle_array.slice(1..5);
-        assert!(!mixed_slice.all_valid());
+        assert!(!mixed_slice.all_valid().unwrap());
     }
 
     #[test]
@@ -349,10 +349,10 @@ mod tests {
         .unwrap();
 
         let invalid_slice = rle_array.slice(2..5);
-        assert!(invalid_slice.all_invalid());
+        assert!(invalid_slice.all_invalid().unwrap());
 
         let mixed_slice = rle_array.slice(1..4);
-        assert!(!mixed_slice.all_invalid());
+        assert!(!mixed_slice.all_invalid().unwrap());
     }
 
     #[test]
@@ -385,9 +385,11 @@ mod tests {
         .unwrap();
 
         let sliced_array = rle_array.slice(1..4);
-        let validity_mask = sliced_array.validity_mask();
+        let validity_mask = sliced_array.validity_mask().unwrap();
 
-        let expected_mask = Validity::from_iter([false, true, false]).to_mask(3);
+        let expected_mask = Validity::from_iter([false, true, false])
+            .to_mask(3)
+            .unwrap();
         assert_eq!(validity_mask.len(), expected_mask.len());
         assert_eq!(validity_mask, expected_mask);
     }
@@ -430,7 +432,7 @@ mod tests {
         let rle_array = RLEArray::encode(&primitive).unwrap();
         assert_eq!(rle_array.len(), 2048);
 
-        let original_data = rle_array.to_primitive();
+        let original_data = rle_array.to_primitive().unwrap();
         let original_values = original_data.as_slice::<u32>();
 
         let ctx = ArrayContext::empty().with(RLEVTable.as_vtable());
@@ -454,7 +456,7 @@ mod tests {
             )
             .unwrap();
 
-        let decoded_data = decoded.to_primitive();
+        let decoded_data = decoded.to_primitive().unwrap();
         let decoded_values = decoded_data.as_slice::<u32>();
 
         assert_eq!(original_values, decoded_values);
@@ -481,8 +483,8 @@ mod tests {
         let parts = ArrayParts::try_from(concat).unwrap();
         let decoded = parts.decode(&ctx, sliced.dtype(), sliced.len()).unwrap();
 
-        let original_data = sliced.to_primitive();
-        let decoded_data = decoded.to_primitive();
+        let original_data = sliced.to_primitive().unwrap();
+        let decoded_data = decoded.to_primitive().unwrap();
 
         let original_values = original_data.as_slice::<u32>();
         let decoded_values = decoded_data.as_slice::<u32>();

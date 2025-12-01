@@ -186,9 +186,9 @@ mod test {
             SyncIPCReader::try_new(Cursor::new(ipc_buffer), session.registry().clone()).unwrap();
 
         assert_eq!(reader.dtype(), array.dtype());
-        let result = reader.read_all().unwrap().to_primitive();
+        let result = reader.read_all().unwrap().to_primitive().unwrap();
         assert_eq!(
-            array.to_primitive().as_slice::<i32>(),
+            array.to_primitive().unwrap().as_slice::<i32>(),
             result.as_slice::<i32>()
         );
     }

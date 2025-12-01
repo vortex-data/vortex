@@ -202,7 +202,7 @@ mod tests {
         let expected: Vec<u16> = (0..3000).map(|i| (i / 50) as u16).collect();
         let array = values.into_array();
 
-        let encoded = RLEArray::encode(&array.to_primitive()).unwrap();
+        let encoded = RLEArray::encode(&array.to_primitive().unwrap()).unwrap();
 
         // Access scalars from multiple chunks.
         for &idx in &[1023, 1024, 1025, 2047, 2048, 2049] {
@@ -283,7 +283,7 @@ mod tests {
     #[test]
     fn test_slice_decode_with_nulls() {
         let array = fixture::rle_array_with_nulls();
-        let sliced = array.slice(1..4).to_array().to_primitive(); // [null, 20, 20]
+        let sliced = array.slice(1..4).to_array().to_primitive().unwrap(); // [null, 20, 20]
 
         let expected = PrimitiveArray::from_option_iter([Option::<u32>::None, Some(20), Some(20)]);
         assert_arrays_eq!(sliced.to_array(), expected.to_array());
@@ -303,7 +303,7 @@ mod tests {
         let expected: Vec<u32> = (0..2100).map(|i| (i / 100) as u32).collect();
         let array = values.into_array();
 
-        let encoded = RLEArray::encode(&array.to_primitive()).unwrap();
+        let encoded = RLEArray::encode(&array.to_primitive().unwrap()).unwrap();
 
         // Slice across first and second chunk.
         let slice = encoded.slice(500..1500);

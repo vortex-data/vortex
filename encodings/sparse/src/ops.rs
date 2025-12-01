@@ -59,7 +59,7 @@ mod tests {
         let mut expected = vec![999u64; 1000];
         expected[0] = 0;
 
-        let values = sliced.to_primitive();
+        let values = sliced.to_primitive().unwrap();
         assert_arrays_eq!(values, PrimitiveArray::from_iter(expected));
     }
 }

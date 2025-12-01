@@ -120,6 +120,7 @@ mod test {
     use vortex_array::vtable::ValidityHelper;
     use vortex_buffer::buffer;
     use vortex_dtype::datetime::TimeUnit;
+    use vortex_error::VortexResult;
 
     use crate::DateTimePartsArray;
     use crate::canonical::decode_to_temporal;
@@ -129,7 +130,7 @@ mod test {
     #[case(Validity::AllValid)]
     #[case(Validity::AllInvalid)]
     #[case(Validity::from_iter([true, true, false, false, true, true]))]
-    fn test_decode_to_temporal(#[case] validity: Validity) {
+    fn test_decode_to_temporal(#[case] validity: Validity) -> VortexResult<()> {
         let milliseconds = PrimitiveArray::new(
             buffer![
                 86_400i64, // element with only day component
@@ -150,7 +151,7 @@ mod test {
 
         assert_eq!(
             date_times.validity_mask()?,
-            validity.to_mask(date_times.len())
+            validity.to_mask(date_times.len())?
         );
 
         let primitive_values = decode_to_temporal(&date_times)
@@ -163,5 +164,6 @@ mod test {
             milliseconds.as_slice::<i64>()
         );
         assert_eq!(primitive_values.validity(), &validity);
+        Ok(())
     }
 }

@@ -92,7 +92,10 @@ mod tests {
         .unwrap();
 
         let expected = PrimitiveArray::from_iter([15i32, 25, 35, 15, 25]);
-        assert_arrays_eq!(res.to_canonical().into_array(), expected.to_array());
+        assert_arrays_eq!(
+            res.to_canonical().unwrap().into_array(),
+            expected.to_array()
+        );
     }
 
     #[test]
@@ -114,7 +117,10 @@ mod tests {
         .unwrap();
 
         let expected = PrimitiveArray::from_iter([20i32, 30, 50, 30, 20]);
-        assert_arrays_eq!(res.to_canonical().into_array(), expected.to_array());
+        assert_arrays_eq!(
+            res.to_canonical().unwrap().into_array(),
+            expected.to_array()
+        );
     }
 
     #[test]
@@ -136,7 +142,10 @@ mod tests {
 
         // Verify the result by canonicalizing
         let expected = PrimitiveArray::from_iter([15i32, 25, 15, 25]);
-        assert_arrays_eq!(res.to_canonical().into_array(), expected.to_array());
+        assert_arrays_eq!(
+            res.to_canonical().unwrap().into_array(),
+            expected.to_array()
+        );
     }
 
     #[test]
@@ -158,6 +167,9 @@ mod tests {
         .unwrap();
 
         let expected = PrimitiveArray::from_iter([90i32, 40, 15]);
-        assert_arrays_eq!(res.to_canonical().into_array(), expected.to_array());
+        assert_arrays_eq!(
+            res.to_canonical().unwrap().into_array(),
+            expected.to_array()
+        );
     }
 }

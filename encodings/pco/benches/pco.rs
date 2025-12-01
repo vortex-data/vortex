@@ -46,7 +46,8 @@ pub fn pco_pipeline(bencher: Bencher, (size, selectivity): (usize, f64)) {
         .map(|i| (i % 10000) as i32)
         .collect::<BufferMut<i32>>()
         .into_array()
-        .to_primitive();
+        .to_primitive()
+        .unwrap();
 
     let pco_array = PcoArray::from_primitive(&values, 3, 0).unwrap();
     let mask = (0..size)
@@ -80,7 +81,8 @@ pub fn pco_canonical(bencher: Bencher, (size, selectivity): (usize, f64)) {
         .map(|i| (i % 10000) as i32)
         .collect::<BufferMut<i32>>()
         .into_array()
-        .to_primitive();
+        .to_primitive()
+        .unwrap();
 
     let pco_array = PcoArray::from_primitive(&values, 3, 0).unwrap();
     let mask = (0..size)
@@ -90,5 +92,7 @@ pub fn pco_canonical(bencher: Bencher, (size, selectivity): (usize, f64)) {
     bencher
         // Be sure to reconstruct the mask to avoid cached set_indices
         .with_inputs(|| (&pco_array, Mask::from_buffer(mask.clone())))
-        .bench_refs(|(pco_array, mask)| filter(pco_array.to_canonical().as_ref(), mask).unwrap());
+        .bench_refs(|(pco_array, mask)| {
+            filter(pco_array.to_canonical().unwrap().as_ref(), mask).unwrap()
+        });
 }

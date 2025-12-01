@@ -57,7 +57,7 @@ use crate::SparseVTable;
 impl CanonicalVTable<SparseVTable> for SparseVTable {
     fn canonicalize(array: &SparseArray) -> VortexResult<Canonical> {
         if array.patches().num_patches() == 0 {
-            return Ok(ConstantArray::new(array.fill_scalar().clone(), array.len()).to_canonical()?);
+            return ConstantArray::new(array.fill_scalar().clone(), array.len()).to_canonical();
         }
 
         match array.dtype() {
@@ -990,7 +990,7 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical().into_array();
+        let actual = sparse.to_canonical().unwrap().into_array();
         let result_listview = actual.to_listview().unwrap();
 
         // Check the structure
@@ -1042,7 +1042,7 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical().into_array();
+        let actual = sparse.to_canonical().unwrap().into_array();
         let result_listview = actual.to_listview().unwrap();
 
         // Check the structure
@@ -1085,7 +1085,7 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical().into_array();
+        let actual = sparse.to_canonical().unwrap().into_array();
         let result_listview = actual.to_listview().unwrap();
 
         // Check the structure
@@ -1195,7 +1195,7 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical().into_array();
+        let actual = sparse.to_canonical().unwrap().into_array();
 
         // Expected: [1,2,3], null, [4,5,6], [7,8,9], null.
         let expected_elements =
@@ -1232,7 +1232,7 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical().into_array();
+        let actual = sparse.to_canonical().unwrap().into_array();
 
         // Expected: [1,2], [99,88], [3,4], [99,88], [5,6], [99,88].
         let expected_elements = buffer![1i32, 2, 99, 88, 3, 4, 99, 88, 5, 6, 99, 88].into_array();
@@ -1269,7 +1269,7 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical().into_array();
+        let actual = sparse.to_canonical().unwrap().into_array();
 
         // Expected validity: [true, true, true, false, true, true].
         // Expected elements: [7,8], [10,20], [7,8], [30,40], [50,60], [7,8].
@@ -1316,7 +1316,7 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical().into_array();
+        let actual = sparse.to_canonical().unwrap().into_array();
 
         // Build expected: 97 copies of [99,99] with patches at positions 5, 50, 95.
         let mut expected_elements_vec = Vec::with_capacity(200);
@@ -1372,7 +1372,7 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical().into_array();
+        let actual = sparse.to_canonical().unwrap().into_array();
 
         // Expected: just [42, 43].
         let expected_elements = buffer![42i32, 43].into_array();
@@ -1397,7 +1397,7 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical().into_array();
+        let actual = sparse.to_canonical().unwrap().into_array();
         let mut expected_elements = buffer_mut![1, 2, 1, 2];
         expected_elements.extend(buffer![42i32; 252]);
         let expected = ListArray::try_new(
@@ -1463,7 +1463,7 @@ mod test {
         .unwrap();
 
         // Convert to canonical form - this triggers the function we're testing
-        let canonical = sparse.to_canonical().into_array();
+        let canonical = sparse.to_canonical().unwrap().into_array();
         let result_listview = canonical.to_listview().unwrap();
 
         // Verify the structure
@@ -1541,7 +1541,7 @@ mod test {
         let sparse =
             SparseArray::try_new(indices, values, 5, Scalar::null(sliced.dtype().clone())).unwrap();
 
-        let canonical = sparse.to_canonical().into_array();
+        let canonical = sparse.to_canonical().unwrap().into_array();
         let result_listview = canonical.to_listview().unwrap();
 
         assert_eq!(result_listview.len(), 5);

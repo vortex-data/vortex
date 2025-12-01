@@ -86,9 +86,12 @@ mod test {
 
         let taken = take(encoded.as_ref(), buffer![0, 2].into_array().as_ref())
             .unwrap()
-            .to_primitive();
+            .as_ref()
+            .to_primitive()
+            .unwrap();
 
-        assert_arrays_eq!(taken, PrimitiveArray::from_iter([a, outlier]));
+        let expected = PrimitiveArray::from_iter([a, outlier]);
+        assert_arrays_eq!(taken.as_ref(), expected.as_ref());
     }
 
     #[rstest]
@@ -112,12 +115,12 @@ mod test {
             PrimitiveArray::from_option_iter([Some(0), Some(2), None]).as_ref(),
         )
         .unwrap()
-        .to_primitive();
+        .as_ref()
+        .to_primitive()
+        .unwrap();
 
-        assert_arrays_eq!(
-            taken,
-            PrimitiveArray::from_option_iter([Some(a), Some(outlier), None])
-        );
+        let expected = PrimitiveArray::from_option_iter([Some(a), Some(outlier), None]);
+        assert_arrays_eq!(taken.as_ref(), expected.as_ref());
     }
 
     #[rstest]

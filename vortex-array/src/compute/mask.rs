@@ -58,11 +58,11 @@ pub(crate) fn warm_up_vtable() -> usize {
 ///
 /// let masked = mask(array.as_ref(), &mask_array).unwrap();
 /// assert_eq!(masked.len(), 5);
-/// assert!(!masked.is_valid(0));
-/// assert!(!masked.is_valid(1));
+/// assert!(!masked.is_valid(0).unwrap());
+/// assert!(!masked.is_valid(1).unwrap());
 /// assert_eq!(masked.scalar_at(2), Scalar::from(Some(1)));
-/// assert!(!masked.is_valid(3));
-/// assert!(!masked.is_valid(4));
+/// assert!(!masked.is_valid(3).unwrap());
+/// assert!(!masked.is_valid(4).unwrap());
 /// ```
 ///
 pub fn mask(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {

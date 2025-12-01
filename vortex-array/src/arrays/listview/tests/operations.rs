@@ -141,8 +141,8 @@ fn test_slice_with_nulls() {
     let sliced_list = sliced.as_::<ListViewVTable>();
 
     assert_eq!(sliced_list.len(), 2);
-    assert!(sliced_list.is_invalid(0)); // Original index 1 was null.
-    assert!(sliced_list.is_valid(1)); // Original index 2 was valid.
+    assert!(sliced_list.is_invalid(0).unwrap()); // Original index 1 was null.
+    assert!(sliced_list.is_valid(1).unwrap()); // Original index 2 was valid.
 
     // Verify offsets and sizes are preserved.
     assert_eq!(sliced_list.offset_at(0), 2);
@@ -229,7 +229,7 @@ fn test_cast_numeric_types(#[case] from_ptype: PType, #[case] to_ptype: PType) {
     let result = cast(&listview, &target_dtype).unwrap();
     assert_eq!(result.dtype(), &target_dtype);
 
-    let result_list = result.to_listview();
+    let result_list = result.to_listview().unwrap();
     assert!(
         result_list.len() == 3 || result_list.len() == 2,
         "Expected 2 or 3 lists"
@@ -265,9 +265,9 @@ fn test_cast_with_nulls() {
     let result = cast(&listview, &target_dtype).unwrap();
     assert_eq!(result.dtype(), &target_dtype);
 
-    let result_list = result.to_listview();
-    assert!(result_list.is_valid(0));
-    assert!(result_list.is_invalid(1));
+    let result_list = result.to_listview().unwrap();
+    assert!(result_list.is_valid(0).unwrap());
+    assert!(result_list.is_invalid(1).unwrap());
 }
 
 #[rstest]
@@ -307,7 +307,7 @@ fn test_cast_special_patterns(#[case] expected_sizes: Vec<usize>, #[case] list_c
     };
 
     let result = cast(&listview, &target_dtype).unwrap();
-    let result_list = result.to_listview();
+    let result_list = result.to_listview().unwrap();
 
     assert_eq!(result_list.len(), list_count);
 
@@ -339,7 +339,7 @@ fn test_cast_large_dataset() {
     );
 
     let result = cast(&listview, &target_dtype).unwrap();
-    let result_list = result.to_listview();
+    let result_list = result.to_listview().unwrap();
 
     assert_eq!(result_list.len(), 20);
     for i in 0..20 {
@@ -507,13 +507,13 @@ fn test_mask_preserves_structure() {
     let result = mask(&listview, &selection).unwrap();
 
     assert_eq!(result.len(), 4); // Length is preserved.
-    let result_list = result.to_listview();
+    let result_list = result.to_listview().unwrap();
 
     // Check validity: true in mask means null.
-    assert!(!result_list.is_valid(0)); // Masked.
-    assert!(result_list.is_valid(1)); // Not masked.
-    assert!(!result_list.is_valid(2)); // Masked.
-    assert!(!result_list.is_valid(3)); // Masked.
+    assert!(!result_list.is_valid(0).unwrap()); // Masked.
+    assert!(result_list.is_valid(1).unwrap()); // Not masked.
+    assert!(!result_list.is_valid(2).unwrap()); // Masked.
+    assert!(!result_list.is_valid(3).unwrap()); // Masked.
 
     // Offsets and sizes are preserved.
     assert_eq!(result_list.offset_at(0), 0);
@@ -544,12 +544,12 @@ fn test_mask_with_existing_nulls() {
     // Mask additional elements.
     let selection = Mask::from_iter([false, true, true]);
     let result = mask(&listview, &selection).unwrap();
-    let result_list = result.to_listview();
+    let result_list = result.to_listview().unwrap();
 
     // Check combined validity:
-    assert!(result_list.is_valid(0)); // Was valid, mask is false -> valid.
-    assert!(!result_list.is_valid(1)); // Was invalid, mask is true -> invalid.
-    assert!(!result_list.is_valid(2)); // Was valid, mask is true -> invalid.
+    assert!(result_list.is_valid(0).unwrap()); // Was valid, mask is false -> valid.
+    assert!(!result_list.is_valid(1).unwrap()); // Was invalid, mask is true -> invalid.
+    assert!(!result_list.is_valid(2).unwrap()); // Was valid, mask is true -> invalid.
 }
 
 #[test]
@@ -564,12 +564,12 @@ fn test_mask_with_gaps() {
 
     let selection = Mask::from_iter([true, false, false]);
     let result = mask(&listview, &selection).unwrap();
-    let result_list = result.to_listview();
+    let result_list = result.to_listview().unwrap();
 
     assert_eq!(result_list.len(), 3);
-    assert!(!result_list.is_valid(0)); // Masked
-    assert!(result_list.is_valid(1)); // Not masked
-    assert!(result_list.is_valid(2)); // Not masked
+    assert!(!result_list.is_valid(0).unwrap()); // Masked
+    assert!(result_list.is_valid(1).unwrap()); // Not masked
+    assert!(result_list.is_valid(2).unwrap()); // Not masked
 
     // Offsets and sizes still preserved
     assert_eq!(result_list.offset_at(1), 4);
@@ -596,12 +596,12 @@ fn test_mask_constant_arrays() {
 
     let selection = Mask::from_iter([false, true, false]);
     let result = mask(&const_list, &selection).unwrap();
-    let result_list = result.to_listview();
+    let result_list = result.to_listview().unwrap();
 
     assert_eq!(result_list.len(), 3);
-    assert!(result_list.is_valid(0));
-    assert!(!result_list.is_valid(1)); // Masked
-    assert!(result_list.is_valid(2));
+    assert!(result_list.is_valid(0).unwrap());
+    assert!(!result_list.is_valid(1).unwrap()); // Masked
+    assert!(result_list.is_valid(2).unwrap());
 
     // All offsets and sizes remain constant
     assert_eq!(result_list.offset_at(0), 1);

@@ -156,7 +156,8 @@ mod tests {
         // Ensure fastpath for Eq exists, and returns correct answer
         let equals = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq)
             .unwrap()
-            .to_bool();
+            .to_bool()
+            .unwrap();
 
         assert_eq!(equals.dtype(), &DType::Bool(Nullability::Nullable));
 
@@ -168,7 +169,8 @@ mod tests {
         // Ensure fastpath for Eq exists, and returns correct answer
         let not_equals = compare(lhs.as_ref(), rhs.as_ref(), Operator::NotEq)
             .unwrap()
-            .to_bool();
+            .to_bool()
+            .unwrap();
 
         assert_eq!(not_equals.dtype(), &DType::Bool(Nullability::Nullable));
         assert_eq!(

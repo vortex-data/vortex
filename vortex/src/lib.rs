@@ -223,7 +223,7 @@ mod test {
             .await?;
 
         assert_eq!(recovered_array.len(), array.len());
-        let recovered_primitive = recovered_array.to_primitive();
+        let recovered_primitive = recovered_array.to_primitive().unwrap();
         assert_eq!(recovered_primitive.validity(), array.validity());
         assert_eq!(recovered_primitive.buffer::<u64>(), array.buffer::<u64>());
 

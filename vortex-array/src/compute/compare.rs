@@ -422,13 +422,15 @@ mod tests {
 
         let matches = compare(arr.as_ref(), arr.as_ref(), Operator::Eq)
             .unwrap()
-            .to_bool();
+            .to_bool()
+            .unwrap();
 
         assert_eq!(to_int_indices(matches).unwrap(), [1u64, 2, 3, 4]);
 
         let matches = compare(arr.as_ref(), arr.as_ref(), Operator::NotEq)
             .unwrap()
-            .to_bool();
+            .to_bool()
+            .unwrap();
         let empty: [u64; 0] = [];
         assert_eq!(to_int_indices(matches).unwrap(), empty);
 
@@ -439,22 +441,26 @@ mod tests {
 
         let matches = compare(arr.as_ref(), other.as_ref(), Operator::Lte)
             .unwrap()
-            .to_bool();
+            .to_bool()
+            .unwrap();
         assert_eq!(to_int_indices(matches).unwrap(), [2u64, 3, 4]);
 
         let matches = compare(arr.as_ref(), other.as_ref(), Operator::Lt)
             .unwrap()
-            .to_bool();
+            .to_bool()
+            .unwrap();
         assert_eq!(to_int_indices(matches).unwrap(), [4u64]);
 
         let matches = compare(other.as_ref(), arr.as_ref(), Operator::Gte)
             .unwrap()
-            .to_bool();
+            .to_bool()
+            .unwrap();
         assert_eq!(to_int_indices(matches).unwrap(), [2u64, 3, 4]);
 
         let matches = compare(other.as_ref(), arr.as_ref(), Operator::Gt)
             .unwrap()
-            .to_bool();
+            .to_bool()
+            .unwrap();
         assert_eq!(to_int_indices(matches).unwrap(), [4u64]);
     }
 
@@ -495,7 +501,7 @@ mod tests {
     #[case(VarBinViewArray::from_iter_bin(["a".as_bytes(), "b".as_bytes()]).into_array(), VarBinArray::from(vec!["a".as_bytes(), "b".as_bytes()]).into_array())]
     fn arrow_compare_different_encodings(#[case] left: ArrayRef, #[case] right: ArrayRef) {
         let res = compare(&left, &right, Operator::Eq).unwrap();
-        assert_eq!(res.to_bool().bit_buffer().true_count(), left.len());
+        assert_eq!(res.to_bool().unwrap().bit_buffer().true_count(), left.len());
     }
 
     #[ignore = "Arrow's ListView cannot be compared"]
@@ -522,21 +528,21 @@ mod tests {
 
         // Test equality - first two lists should be equal, third should be different
         let result = compare(list1.as_ref(), list2.as_ref(), Operator::Eq).unwrap();
-        let bool_result = result.to_bool();
+        let bool_result = result.to_bool().unwrap();
         assert!(bool_result.bit_buffer().value(0)); // [1,2] == [1,2]
         assert!(bool_result.bit_buffer().value(1)); // [3,4] == [3,4]
         assert!(!bool_result.bit_buffer().value(2)); // [5,6] != [7,8]
 
         // Test inequality
         let result = compare(list1.as_ref(), list2.as_ref(), Operator::NotEq).unwrap();
-        let bool_result = result.to_bool();
+        let bool_result = result.to_bool().unwrap();
         assert!(!bool_result.bit_buffer().value(0));
         assert!(!bool_result.bit_buffer().value(1));
         assert!(bool_result.bit_buffer().value(2));
 
         // Test less than
         let result = compare(list1.as_ref(), list2.as_ref(), Operator::Lt).unwrap();
-        let bool_result = result.to_bool();
+        let bool_result = result.to_bool().unwrap();
         assert!(!bool_result.bit_buffer().value(0)); // [1,2] < [1,2] = false
         assert!(!bool_result.bit_buffer().value(1)); // [3,4] < [3,4] = false
         assert!(bool_result.bit_buffer().value(2)); // [5,6] < [7,8] = true
@@ -570,7 +576,7 @@ mod tests {
 
         // Compare list with constant - all should be compared to [3,4]
         let result = compare(list.as_ref(), constant.as_ref(), Operator::Eq).unwrap();
-        let bool_result = result.to_bool();
+        let bool_result = result.to_bool().unwrap();
         assert!(!bool_result.bit_buffer().value(0)); // [1,2] != [3,4]
         assert!(bool_result.bit_buffer().value(1)); // [3,4] == [3,4]
         assert!(!bool_result.bit_buffer().value(2)); // [5,6] != [3,4]
@@ -599,14 +605,14 @@ mod tests {
 
         // Test equality
         let result = compare(struct1.as_ref(), struct2.as_ref(), Operator::Eq).unwrap();
-        let bool_result = result.to_bool();
+        let bool_result = result.to_bool().unwrap();
         assert!(bool_result.bit_buffer().value(0)); // {true, 1} == {true, 1}
         assert!(bool_result.bit_buffer().value(1)); // {false, 2} == {false, 2}
         assert!(!bool_result.bit_buffer().value(2)); // {true, 3} != {false, 4}
 
         // Test greater than
         let result = compare(struct1.as_ref(), struct2.as_ref(), Operator::Gt).unwrap();
-        let bool_result = result.to_bool();
+        let bool_result = result.to_bool().unwrap();
         assert!(!bool_result.bit_buffer().value(0)); // {true, 1} > {true, 1} = false
         assert!(!bool_result.bit_buffer().value(1)); // {false, 2} > {false, 2} = false
         assert!(bool_result.bit_buffer().value(2)); // {true, 3} > {false, 4} = true (bool field takes precedence)
@@ -631,7 +637,7 @@ mod tests {
         .unwrap();
 
         let result = compare(empty1.as_ref(), empty2.as_ref(), Operator::Eq).unwrap();
-        let result = result.to_bool();
+        let result = result.to_bool().unwrap();
 
         for idx in 0..5 {
             assert!(result.bit_buffer().value(idx));

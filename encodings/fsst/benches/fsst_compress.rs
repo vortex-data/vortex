@@ -99,7 +99,7 @@ fn canonicalize_compare(
         .with_inputs(|| (&fsst_array, &constant))
         .bench_refs(|(fsst_array, constant)| {
             compare(
-                fsst_array.to_canonical().as_ref(),
+                fsst_array.to_canonical().unwrap().as_ref(),
                 constant.as_ref(),
                 Operator::Eq,
             )

@@ -304,7 +304,7 @@ impl ExpressionView<'_, Binary> {
 /// let result = eq(root(), lit(3)).evaluate(&xs.to_array()).unwrap();
 ///
 /// assert_eq!(
-///     result.to_bool().bit_buffer(),
+///     result.to_bool().unwrap().bit_buffer(),
 ///     BoolArray::from_iter(vec![false, false, true]).bit_buffer(),
 /// );
 /// ```
@@ -328,7 +328,7 @@ pub fn eq(lhs: Expression, rhs: Expression) -> Expression {
 /// let result = not_eq(root(), lit(3)).evaluate(&xs.to_array()).unwrap();
 ///
 /// assert_eq!(
-///     result.to_bool().bit_buffer(),
+///     result.to_bool().unwrap().bit_buffer(),
 ///     BoolArray::from_iter(vec![true, true, false]).bit_buffer(),
 /// );
 /// ```
@@ -352,7 +352,7 @@ pub fn not_eq(lhs: Expression, rhs: Expression) -> Expression {
 /// let result = gt_eq(root(), lit(3)).evaluate(&xs.to_array()).unwrap();
 ///
 /// assert_eq!(
-///     result.to_bool().bit_buffer(),
+///     result.to_bool().unwrap().bit_buffer(),
 ///     BoolArray::from_iter(vec![false, false, true]).bit_buffer(),
 /// );
 /// ```
@@ -376,7 +376,7 @@ pub fn gt_eq(lhs: Expression, rhs: Expression) -> Expression {
 /// let result = gt(root(), lit(2)).evaluate(&xs.to_array()).unwrap();
 ///
 /// assert_eq!(
-///     result.to_bool().bit_buffer(),
+///     result.to_bool().unwrap().bit_buffer(),
 ///     BoolArray::from_iter(vec![false, false, true]).bit_buffer(),
 /// );
 /// ```
@@ -400,7 +400,7 @@ pub fn gt(lhs: Expression, rhs: Expression) -> Expression {
 /// let result = lt_eq(root(), lit(2)).evaluate(&xs.to_array()).unwrap();
 ///
 /// assert_eq!(
-///     result.to_bool().bit_buffer(),
+///     result.to_bool().unwrap().bit_buffer(),
 ///     BoolArray::from_iter(vec![true, true, false]).bit_buffer(),
 /// );
 /// ```
@@ -424,7 +424,7 @@ pub fn lt_eq(lhs: Expression, rhs: Expression) -> Expression {
 /// let result = lt(root(), lit(3)).evaluate(&xs.to_array()).unwrap();
 ///
 /// assert_eq!(
-///     result.to_bool().bit_buffer(),
+///     result.to_bool().unwrap().bit_buffer(),
 ///     BoolArray::from_iter(vec![true, true, false]).bit_buffer(),
 /// );
 /// ```
@@ -446,7 +446,7 @@ pub fn lt(lhs: Expression, rhs: Expression) -> Expression {
 /// let result = or(root(), lit(false)).evaluate(&xs.to_array()).unwrap();
 ///
 /// assert_eq!(
-///     result.to_bool().bit_buffer(),
+///     result.to_bool().unwrap().bit_buffer(),
 ///     BoolArray::from_iter(vec![true, false, true]).bit_buffer(),
 /// );
 /// ```
@@ -480,7 +480,7 @@ where
 /// let result = and(root(), lit(true)).evaluate(&xs.to_array()).unwrap();
 ///
 /// assert_eq!(
-///     result.to_bool().bit_buffer(),
+///     result.to_bool().unwrap().bit_buffer(),
 ///     BoolArray::from_iter(vec![true, false, true]).bit_buffer(),
 /// );
 /// ```

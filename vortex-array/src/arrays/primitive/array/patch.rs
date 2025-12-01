@@ -130,6 +130,6 @@ mod tests {
     fn patch_sliced() {
         let input = PrimitiveArray::new(buffer![2u32; 10], Validity::AllValid);
         let sliced = input.slice(2..8);
-        assert_eq!(sliced.to_primitive().as_slice::<u32>(), &[2u32; 6]);
+        assert_eq!(sliced.to_primitive().unwrap().as_slice::<u32>(), &[2u32; 6]);
     }
 }

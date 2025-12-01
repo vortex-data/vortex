@@ -97,6 +97,6 @@ mod tests {
         .vortex_unwrap();
         let filled_primitive = filled.to_primitive().vortex_unwrap();
         assert_arrays_eq!(filled_primitive, PrimitiveArray::from_iter([10, 20, 20]));
-        assert!(filled_primitive.all_valid());
+        assert!(filled_primitive.all_valid().unwrap());
     }
 }

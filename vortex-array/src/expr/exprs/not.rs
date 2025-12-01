@@ -125,6 +125,7 @@ mod tests {
                 .evaluate(&bools.to_array())
                 .unwrap()
                 .to_bool()
+                .unwrap()
                 .bit_buffer()
                 .iter()
                 .collect::<Vec<_>>(),

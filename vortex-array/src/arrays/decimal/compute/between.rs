@@ -185,6 +185,6 @@ mod tests {
     }
 
     fn bool_to_vec(array: &dyn Array) -> Vec<bool> {
-        array.to_bool().bit_buffer().iter().collect()
+        array.to_bool().unwrap().bit_buffer().iter().collect()
     }
 }

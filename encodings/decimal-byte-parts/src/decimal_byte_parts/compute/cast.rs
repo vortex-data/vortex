@@ -79,7 +79,7 @@ mod tests {
         );
 
         // Verify the values are preserved
-        let decoded = casted.to_decimal();
+        let decoded = casted.to_decimal().unwrap();
         assert_eq!(decoded.len(), 4);
     }
 

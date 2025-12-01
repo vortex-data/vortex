@@ -483,9 +483,10 @@ mod test {
 
         let rd_array = encoder.encode(&real_array);
 
-        let decoded = rd_array.to_primitive();
+        let decoded = rd_array.to_primitive().unwrap();
+        let expected = PrimitiveArray::from_option_iter(reals);
 
-        assert_arrays_eq!(decoded, PrimitiveArray::from_option_iter(reals));
+        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
     }
 
     #[cfg_attr(miri, ignore)]

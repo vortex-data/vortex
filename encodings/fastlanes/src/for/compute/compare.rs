@@ -213,7 +213,7 @@ mod tests {
         result: VortexResult<Option<ArrayRef>>,
         expected: T,
     ) {
-        let result = result.unwrap().unwrap().to_bool();
+        let result = result.unwrap().unwrap().to_bool().unwrap();
         assert_eq!(result.bit_buffer(), &BitBuffer::from_iter(expected));
     }
 }

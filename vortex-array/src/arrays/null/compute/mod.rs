@@ -26,10 +26,10 @@ mod test {
     #[test]
     fn test_slice_nulls() {
         let nulls = NullArray::new(10);
-        let sliced = nulls.slice(0..4).to_null();
+        let sliced = nulls.slice(0..4).to_null().unwrap();
 
         assert_eq!(sliced.len(), 4);
-        assert!(matches!(sliced.validity_mask(), Mask::AllFalse(4)));
+        assert!(matches!(sliced.validity_mask().unwrap(), Mask::AllFalse(4)));
     }
 
     #[test]
@@ -37,10 +37,11 @@ mod test {
         let nulls = NullArray::new(10);
         let taken = take(nulls.as_ref(), &buffer![0u64, 2, 4, 6, 8].into_array())
             .unwrap()
-            .to_null();
+            .to_null()
+            .unwrap();
 
         assert_eq!(taken.len(), 5);
-        assert!(matches!(taken.validity_mask(), Mask::AllFalse(5)));
+        assert!(matches!(taken.validity_mask().unwrap(), Mask::AllFalse(5)));
     }
 
     #[test]

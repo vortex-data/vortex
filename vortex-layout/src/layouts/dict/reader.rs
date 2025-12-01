@@ -94,7 +94,7 @@ impl DictReader {
                         MaskFuture::new_true(values_len),
                     )
                     .vortex_expect("must construct dict values array evaluation")
-                    .and_then(|arr| async move { arr.to_canonical().map(|c| c.into_array()) })
+                    .and_then(|arr| async move { Ok(arr.to_canonical()?.into_array()) })
                     .map_err(Arc::new)
                     .boxed()
                     .shared()
@@ -477,7 +477,7 @@ mod tests {
                 .unwrap()
                 .await
                 .unwrap();
-            let expected = array.validity_mask().into_array();
+            let expected = array.validity_mask().unwrap().into_array();
             assert_arrays_eq!(actual, expected);
         })
     }

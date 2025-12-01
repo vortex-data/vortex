@@ -234,11 +234,11 @@ mod tests {
             vortex_bail!("empty field path");
         };
 
-        let mut array = array.to_struct().field_by_name(field)?.clone();
+        let mut array = array.to_struct().unwrap().field_by_name(field)?.clone();
         for field in field_path {
-            array = array.to_struct().field_by_name(field)?.clone();
+            array = array.to_struct().unwrap().field_by_name(field)?.clone();
         }
-        Ok(array.to_primitive())
+        Ok(array.to_primitive().unwrap())
     }
 
     #[test]
@@ -418,13 +418,18 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = expr.evaluate(&test_array.clone()).unwrap().to_struct();
+        let actual_array = expr
+            .evaluate(&test_array.clone())
+            .unwrap()
+            .to_struct()
+            .unwrap();
 
         assert_eq!(
             actual_array
                 .field_by_name("a")
                 .unwrap()
                 .to_struct()
+                .unwrap()
                 .names()
                 .iter()
                 .map(|name| name.as_ref())
@@ -459,7 +464,11 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = expr.evaluate(&test_array.clone()).unwrap().to_struct();
+        let actual_array = expr
+            .evaluate(&test_array.clone())
+            .unwrap()
+            .to_struct()
+            .unwrap();
 
         assert_eq!(actual_array.names(), ["a", "c", "b", "d"]);
     }

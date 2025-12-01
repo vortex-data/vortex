@@ -31,13 +31,13 @@ pub fn main() {
 fn create_for_bitpacked_array<T: NativePType>(
     values: BufferMut<T>,
 ) -> vortex_error::VortexResult<vortex_array::ArrayRef> {
-    let primitive_array = values.into_array().to_primitive();
+    let primitive_array = values.into_array().to_primitive()?;
 
     // First apply FoR encoding
     let for_array = FoRArray::encode(primitive_array)?;
 
     // Then bitpack the residuals
-    let residuals = for_array.encoded().to_primitive();
+    let residuals = for_array.encoded().to_primitive()?;
     let bitpacked = bitpack_to_best_bit_width(&residuals)?;
 
     // Create a new FoR array with bitpacked residuals

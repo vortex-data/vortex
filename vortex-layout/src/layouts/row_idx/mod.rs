@@ -339,7 +339,8 @@ mod tests {
             .unwrap()
             .await
             .unwrap()
-            .to_bool();
+            .to_bool()
+            .unwrap();
 
             assert_eq!(
                 &BitBuffer::from_iter([false, false, true, false, false]),
@@ -380,7 +381,8 @@ mod tests {
             .unwrap()
             .await
             .unwrap()
-            .to_bool();
+            .to_bool()
+            .unwrap();
 
             assert_eq!(
                 &BitBuffer::from_iter([false, false, false, false, true]),
@@ -425,7 +427,8 @@ mod tests {
             .unwrap()
             .await
             .unwrap()
-            .to_bool();
+            .to_bool()
+            .unwrap();
 
             assert_eq!(
                 vec![true, false, true, false, true],

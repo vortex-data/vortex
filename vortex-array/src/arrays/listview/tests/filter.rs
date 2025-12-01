@@ -47,12 +47,12 @@ fn test_filter_preserves_unreferenced_elements() {
     // Filter to keep only 2 lists.
     let mask = Mask::from_iter([true, false, false, true, false]);
     let result = filter(&listview, &mask).unwrap();
-    let result_list = result.to_listview();
+    let result_list = result.to_listview().unwrap();
 
     assert_eq!(result_list.len(), 2, "Wrong number of filtered lists");
 
     // Verify the entire elements array is preserved.
-    let result_elements = result_list.elements().to_primitive();
+    let result_elements = result_list.elements().to_primitive().unwrap();
     assert_eq!(
         result_elements.as_slice::<i32>(),
         &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
@@ -81,12 +81,12 @@ fn test_filter_with_gaps() {
     // Filter to keep lists with gaps and overlaps.
     let mask = Mask::from_iter([false, true, true, true, false]);
     let result = filter(&listview, &mask).unwrap();
-    let result_list = result.to_listview();
+    let result_list = result.to_listview().unwrap();
 
     assert_eq!(result_list.len(), 3, "Wrong filter result length");
 
     // Verify the entire elements array is preserved including gaps.
-    let result_elements = result_list.elements().to_primitive();
+    let result_elements = result_list.elements().to_primitive().unwrap();
     assert_eq!(
         result_elements.as_slice::<i32>(),
         &[1, 2, 3, 999, 999, 999, 7, 8, 9, 999, 11, 12]
@@ -125,7 +125,7 @@ fn test_filter_constant_arrays() {
 
     let mask1 = Mask::from_iter([true, false, true, false]);
     let result1 = filter(&const_offset_list, &mask1).unwrap();
-    let result1_list = result1.to_listview();
+    let result1_list = result1.to_listview().unwrap();
 
     assert_eq!(result1_list.len(), 2);
     assert_eq!(result1_list.offset_at(0), 2); // Both offsets are 2
@@ -148,7 +148,7 @@ fn test_filter_constant_arrays() {
 
     let mask2 = Mask::from_iter([true, false, true]);
     let result2 = filter(&both_const_list, &mask2).unwrap();
-    let result2_list = result2.to_listview();
+    let result2_list = result2.to_listview().unwrap();
 
     assert_eq!(result2_list.len(), 2);
     assert_eq!(result2_list.offset_at(0), 1);
@@ -174,7 +174,7 @@ fn test_filter_extreme_offsets() {
     // Filter to keep only 2 lists, demonstrating we keep all 10000 elements.
     let mask = Mask::from_iter([false, true, false, false, true]);
     let result = filter(&listview, &mask).unwrap();
-    let result_list = result.to_listview();
+    let result_list = result.to_listview().unwrap();
 
     assert_eq!(result_list.len(), 2);
 
@@ -199,7 +199,7 @@ fn test_filter_extreme_offsets() {
     // Test sparse selection from large dataset.
     let sparse_mask = Mask::from_iter((0..5).map(|i| i == 0 || i == 4));
     let sparse_result = filter(&listview, &sparse_mask).unwrap();
-    let sparse_list = sparse_result.to_listview();
+    let sparse_list = sparse_result.to_listview().unwrap();
 
     assert_eq!(sparse_list.len(), 2);
     assert_eq!(sparse_list.offset_at(0), 0); // First list

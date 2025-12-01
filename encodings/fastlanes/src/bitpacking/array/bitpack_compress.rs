@@ -396,7 +396,7 @@ pub mod test_harness {
             .collect::<BufferMut<i32>>();
 
         let values = if fraction_null == 0.0 {
-            values.into_array().to_primitive()
+            values.into_array().to_primitive()?
         } else {
             let validity = Validity::from_iter((0..len).map(|_| !rng.random_bool(fraction_null)));
             PrimitiveArray::new(values, validity)
@@ -472,20 +472,23 @@ mod test {
             .collect::<Vec<_>>();
         let chunked = ChunkedArray::from_iter(chunks).into_array();
 
-        let into_ca = chunked.clone().to_primitive();
+        let into_ca = chunked.clone().to_primitive().unwrap();
         let mut primitive_builder =
             PrimitiveBuilder::<i32>::with_capacity(chunked.dtype().nullability(), 10 * 100);
-        chunked.clone().append_to_builder(&mut primitive_builder);
+        chunked
+            .clone()
+            .append_to_builder(&mut primitive_builder)
+            .unwrap();
         let ca_into = primitive_builder.finish();
 
-        assert_arrays_eq!(into_ca, ca_into.to_primitive());
+        assert_arrays_eq!(into_ca, ca_into.to_primitive().unwrap());
 
         let mut primitive_builder =
             PrimitiveBuilder::<i32>::with_capacity(chunked.dtype().nullability(), 10 * 100);
         primitive_builder.extend_from_array(&chunked);
         let ca_into = primitive_builder.finish();
 
-        assert_arrays_eq!(into_ca, ca_into.to_primitive());
+        assert_arrays_eq!(into_ca, ca_into.to_primitive().unwrap());
     }
 
     #[test]
@@ -502,7 +505,12 @@ mod test {
         let bitpacked = bitpack_encode(&array, 4, None).unwrap();
 
         let patches = bitpacked.patches().unwrap();
-        let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
+        let chunk_offsets = patches
+            .chunk_offsets()
+            .as_ref()
+            .unwrap()
+            .to_primitive()
+            .unwrap();
 
         // chunk 0 (0-1023): patches at 100, 200 -> starts at patch index 0
         // chunk 1 (1024-2047): no patches -> points to patch index 2
@@ -525,7 +533,12 @@ mod test {
         let bitpacked = bitpack_encode(&array, 4, None).unwrap();
 
         let patches = bitpacked.patches().unwrap();
-        let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
+        let chunk_offsets = patches
+            .chunk_offsets()
+            .as_ref()
+            .unwrap()
+            .to_primitive()
+            .unwrap();
 
         assert_arrays_eq!(chunk_offsets, PrimitiveArray::from_iter([0u64, 2, 2]));
     }
@@ -544,7 +557,12 @@ mod test {
         let bitpacked = bitpack_encode(&array, 4, None).unwrap();
 
         let patches = bitpacked.patches().unwrap();
-        let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
+        let chunk_offsets = patches
+            .chunk_offsets()
+            .as_ref()
+            .unwrap()
+            .to_primitive()
+            .unwrap();
 
         // chunk 0 (0-1023): patches at 100, 200 -> starts at patch index 0
         // chunk 1 (1024-2047): patch at 1500 -> starts at patch index 2
@@ -568,7 +586,12 @@ mod test {
         let bitpacked = bitpack_encode(&array, 4, None).unwrap();
 
         let patches = bitpacked.patches().unwrap();
-        let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
+        let chunk_offsets = patches
+            .chunk_offsets()
+            .as_ref()
+            .unwrap()
+            .to_primitive()
+            .unwrap();
 
         // Single chunk starting at patch index 0.
         assert_arrays_eq!(chunk_offsets, PrimitiveArray::from_iter([0u64]));

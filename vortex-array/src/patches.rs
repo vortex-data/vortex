@@ -1176,8 +1176,8 @@ mod test {
             .unwrap()
             .unwrap();
 
-        let indices = filtered.indices().to_primitive();
-        let values = filtered.values().to_primitive();
+        let indices = filtered.indices().to_primitive().unwrap();
+        let values = filtered.values().to_primitive().unwrap();
         assert_eq!(indices.as_slice::<u64>(), &[0, 1]);
         assert_eq!(values.as_slice::<i32>(), &[100, 200]);
     }
@@ -1199,13 +1199,13 @@ mod test {
             )
             .unwrap()
             .unwrap();
-        let primitive_values = taken.values().to_primitive();
-        let primitive_indices = taken.indices().to_primitive();
+        let primitive_values = taken.values().to_primitive().unwrap();
+        let primitive_indices = taken.indices().to_primitive().unwrap();
         assert_eq!(taken.array_len(), 2);
         assert_eq!(primitive_values.as_slice::<i32>(), [44]);
         assert_eq!(primitive_indices.as_slice::<u64>(), [0]);
         assert_eq!(
-            primitive_values.validity_mask(),
+            primitive_values.validity_mask().unwrap(),
             Mask::from_iter(vec![true])
         );
     }
@@ -1228,14 +1228,14 @@ mod test {
             .unwrap()
             .unwrap();
 
-        let primitive_values = taken.values().to_primitive();
-        let primitive_indices = taken.indices().to_primitive();
+        let primitive_values = taken.values().to_primitive().unwrap();
+        let primitive_indices = taken.indices().to_primitive().unwrap();
         assert_eq!(taken.array_len(), 2);
         assert_eq!(primitive_values.as_slice::<i32>(), [44, 33]);
         assert_eq!(primitive_indices.as_slice::<u64>(), [0, 1]);
 
         assert_eq!(
-            primitive_values.validity_mask(),
+            primitive_values.validity_mask().unwrap(),
             Mask::from_iter([true, false])
         );
     }
@@ -1258,7 +1258,7 @@ mod test {
             .unwrap()
             .unwrap();
 
-        let primitive_values = taken.values().to_primitive();
+        let primitive_values = taken.values().to_primitive().unwrap();
         assert_eq!(taken.array_len(), 3);
         assert_eq!(primitive_values.as_slice::<i32>(), [20, 30]);
     }
@@ -1301,7 +1301,7 @@ mod test {
             .unwrap()
             .unwrap();
 
-        let primitive_values = taken.values().to_primitive();
+        let primitive_values = taken.values().to_primitive().unwrap();
         assert_eq!(taken.array_len(), 4);
         assert_eq!(primitive_values.as_slice::<i32>(), [200, 300]);
     }
@@ -1336,7 +1336,7 @@ mod test {
 
         let sliced = patches.slice(15..100).unwrap();
         assert_eq!(sliced.array_len(), 100 - 15);
-        let primitive = sliced.values().to_primitive();
+        let primitive = sliced.values().to_primitive().unwrap();
 
         assert_eq!(primitive.as_slice::<u32>(), &[13531]);
     }
@@ -1350,12 +1350,12 @@ mod test {
 
         let sliced = patches.slice(15..100).unwrap();
         assert_eq!(sliced.array_len(), 100 - 15);
-        let primitive = sliced.values().to_primitive();
+        let primitive = sliced.values().to_primitive().unwrap();
 
         assert_eq!(primitive.as_slice::<u32>(), &[13531]);
 
         let doubly_sliced = sliced.slice(35..36).unwrap();
-        let primitive_doubly_sliced = doubly_sliced.values().to_primitive();
+        let primitive_doubly_sliced = doubly_sliced.values().to_primitive().unwrap();
 
         assert_eq!(primitive_doubly_sliced.as_slice::<u32>(), &[13531]);
     }
@@ -1389,14 +1389,14 @@ mod test {
         let masked = patches.mask(&mask).unwrap().unwrap();
 
         // No patch values should be masked
-        let masked_values = masked.values().to_primitive();
+        let masked_values = masked.values().to_primitive().unwrap();
         assert_eq!(masked_values.as_slice::<i32>(), &[100, 200, 300]);
-        assert!(masked_values.is_valid(0));
-        assert!(masked_values.is_valid(1));
-        assert!(masked_values.is_valid(2));
+        assert!(masked_values.is_valid(0).unwrap());
+        assert!(masked_values.is_valid(1).unwrap());
+        assert!(masked_values.is_valid(2).unwrap());
 
         // Indices should remain unchanged
-        let indices = masked.indices().to_primitive();
+        let indices = masked.indices().to_primitive().unwrap();
         assert_eq!(indices.as_slice::<u64>(), &[2, 5, 8]);
     }
 
@@ -1417,12 +1417,12 @@ mod test {
         let masked = patches.mask(&mask).unwrap().unwrap();
 
         // Only the patch at index 5 should remain
-        let masked_values = masked.values().to_primitive();
+        let masked_values = masked.values().to_primitive().unwrap();
         assert_eq!(masked_values.len(), 1);
         assert_eq!(masked_values.as_slice::<i32>(), &[200]);
 
         // Only index 5 should remain
-        let indices = masked.indices().to_primitive();
+        let indices = masked.indices().to_primitive().unwrap();
         assert_eq!(indices.as_slice::<u64>(), &[5]);
     }
 
@@ -1444,9 +1444,9 @@ mod test {
         let masked = patches.mask(&mask).unwrap().unwrap();
         assert_eq!(masked.array_len(), 10);
         assert_eq!(masked.offset(), 5);
-        let indices = masked.indices().to_primitive();
+        let indices = masked.indices().to_primitive().unwrap();
         assert_eq!(indices.as_slice::<u64>(), &[10, 13]);
-        let masked_values = masked.values().to_primitive();
+        let masked_values = masked.values().to_primitive().unwrap();
         assert_eq!(masked_values.as_slice::<i32>(), &[200, 300]);
     }
 
@@ -1467,14 +1467,14 @@ mod test {
         let masked = patches.mask(&mask).unwrap().unwrap();
 
         // Patches at indices 5 and 8 should remain
-        let indices = masked.indices().to_primitive();
+        let indices = masked.indices().to_primitive().unwrap();
         assert_eq!(indices.as_slice::<u64>(), &[5, 8]);
 
         // Values should be the null and 300
-        let masked_values = masked.values().to_primitive();
+        let masked_values = masked.values().to_primitive().unwrap();
         assert_eq!(masked_values.len(), 2);
-        assert!(!masked_values.is_valid(0)); // the null value at index 5
-        assert!(masked_values.is_valid(1)); // the 300 value at index 8
+        assert!(!masked_values.is_valid(0).unwrap()); // the null value at index 5
+        assert!(masked_values.is_valid(1).unwrap()); // the 300 value at index 8
         assert_eq!(i32::try_from(&masked_values.scalar_at(1)).unwrap(), 300i32);
     }
 
@@ -1492,8 +1492,8 @@ mod test {
         let mask = Mask::from_indices(10, (0..10).collect());
         let filtered = patches.filter(&mask).unwrap().unwrap();
 
-        let indices = filtered.indices().to_primitive();
-        let values = filtered.values().to_primitive();
+        let indices = filtered.indices().to_primitive().unwrap();
+        let values = filtered.values().to_primitive().unwrap();
         assert_eq!(indices.as_slice::<u64>(), &[2, 5, 8]);
         assert_eq!(values.as_slice::<i32>(), &[100, 200, 300]);
     }
@@ -1528,8 +1528,8 @@ mod test {
         let mask = Mask::from_indices(10, vec![2, 5, 9]);
         let filtered = patches.filter(&mask).unwrap().unwrap();
 
-        let indices = filtered.indices().to_primitive();
-        let values = filtered.values().to_primitive();
+        let indices = filtered.indices().to_primitive().unwrap();
+        let values = filtered.values().to_primitive().unwrap();
         assert_eq!(indices.as_slice::<u64>(), &[0, 1]); // Adjusted indices
         assert_eq!(values.as_slice::<i32>(), &[100, 200]);
     }
@@ -1546,8 +1546,8 @@ mod test {
 
         let sliced = patches.slice(0..10).unwrap();
 
-        let indices = sliced.indices().to_primitive();
-        let values = sliced.values().to_primitive();
+        let indices = sliced.indices().to_primitive().unwrap();
+        let values = sliced.values().to_primitive().unwrap();
         assert_eq!(indices.as_slice::<u64>(), &[2, 5, 8]);
         assert_eq!(values.as_slice::<i32>(), &[100, 200, 300]);
     }
@@ -1565,8 +1565,8 @@ mod test {
         // Slice from 3 to 8 (includes patch at 5)
         let sliced = patches.slice(3..8).unwrap();
 
-        let indices = sliced.indices().to_primitive();
-        let values = sliced.values().to_primitive();
+        let indices = sliced.indices().to_primitive().unwrap();
+        let values = sliced.values().to_primitive().unwrap();
         assert_eq!(indices.as_slice::<u64>(), &[5]); // Index stays the same
         assert_eq!(values.as_slice::<i32>(), &[200]);
         assert_eq!(sliced.array_len(), 5); // 8 - 3 = 5
@@ -1601,8 +1601,8 @@ mod test {
         // Slice from 3 to 8 (includes patch at actual index 5)
         let sliced = patches.slice(3..8).unwrap();
 
-        let indices = sliced.indices().to_primitive();
-        let values = sliced.values().to_primitive();
+        let indices = sliced.indices().to_primitive().unwrap();
+        let values = sliced.values().to_primitive().unwrap();
         assert_eq!(indices.as_slice::<u64>(), &[10]); // Index stays the same (offset + 5 = 10)
         assert_eq!(values.as_slice::<i32>(), &[200]);
         assert_eq!(sliced.offset(), 8); // New offset = 5 + 3
@@ -1618,7 +1618,7 @@ mod test {
             None,
         );
 
-        let values = patches.values().to_primitive();
+        let values = patches.values().to_primitive().unwrap();
         assert_eq!(i32::try_from(&values.scalar_at(0)).unwrap(), 100i32);
         assert_eq!(i32::try_from(&values.scalar_at(1)).unwrap(), 200i32);
         assert_eq!(i32::try_from(&values.scalar_at(2)).unwrap(), 300i32);
@@ -1677,9 +1677,9 @@ mod test {
         let masked = patches.mask(&mask).unwrap();
         assert!(masked.is_some());
         let masked = masked.unwrap();
-        let indices = masked.indices().to_primitive();
+        let indices = masked.indices().to_primitive().unwrap();
         assert_eq!(indices.as_slice::<u64>(), &[9]);
-        let values = masked.values().to_primitive();
+        let values = masked.values().to_primitive().unwrap();
         assert_eq!(values.as_slice::<i32>(), &[200]);
     }
 
@@ -1719,9 +1719,9 @@ mod test {
         ]);
         let masked = patches.mask(&mask).unwrap().unwrap();
 
-        let indices = masked.indices().to_primitive();
+        let indices = masked.indices().to_primitive().unwrap();
         assert_eq!(indices.as_slice::<u64>(), &[2, 5, 8]);
-        let values = masked.values().to_primitive();
+        let values = masked.values().to_primitive().unwrap();
         assert_eq!(values.as_slice::<i32>(), &[100, 200, 300]);
     }
 
@@ -1744,7 +1744,7 @@ mod test {
         // Mask that keeps the single patch
         let mask = Mask::from_iter([true, false, false, true, false]);
         let masked = patches.mask(&mask).unwrap().unwrap();
-        let indices = masked.indices().to_primitive();
+        let indices = masked.indices().to_primitive().unwrap();
         assert_eq!(indices.as_slice::<u64>(), &[2]);
     }
 
@@ -1765,9 +1765,9 @@ mod test {
         ]);
         let masked = patches.mask(&mask).unwrap().unwrap();
 
-        let indices = masked.indices().to_primitive();
+        let indices = masked.indices().to_primitive().unwrap();
         assert_eq!(indices.as_slice::<u64>(), &[3, 6]);
-        let values = masked.values().to_primitive();
+        let values = masked.values().to_primitive().unwrap();
         assert_eq!(values.as_slice::<i32>(), &[100, 400]);
     }
 
@@ -1789,9 +1789,9 @@ mod test {
         ]);
         let masked = patches.mask(&mask).unwrap().unwrap();
 
-        let indices = masked.indices().to_primitive();
+        let indices = masked.indices().to_primitive().unwrap();
         assert_eq!(indices.as_slice::<u64>(), &[16, 19]);
-        let values = masked.values().to_primitive();
+        let values = masked.values().to_primitive().unwrap();
         assert_eq!(values.as_slice::<i32>(), &[100, 300]);
     }
 

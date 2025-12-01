@@ -338,7 +338,7 @@ mod tests {
         // Test conversion
         let result = flat_vector_to_vortex(&mut vector, len).unwrap();
         let vortex_array = TemporalArray::try_from(result).unwrap();
-        let vortex_values = vortex_array.temporal_values().to_primitive();
+        let vortex_values = vortex_array.temporal_values().to_primitive().unwrap();
         let values_slice = vortex_values.as_slice::<i64>();
 
         assert_eq!(values_slice, values);
@@ -361,7 +361,7 @@ mod tests {
         // Test conversion
         let result = flat_vector_to_vortex(&mut vector, len).unwrap();
         let vortex_array = TemporalArray::try_from(result).unwrap();
-        let vortex_values = vortex_array.temporal_values().to_primitive();
+        let vortex_values = vortex_array.temporal_values().to_primitive().unwrap();
         let values_slice = vortex_values.as_slice::<i64>();
 
         assert_eq!(values_slice, values);
@@ -384,7 +384,7 @@ mod tests {
         // Test conversion
         let result = flat_vector_to_vortex(&mut vector, len).unwrap();
         let vortex_array = TemporalArray::try_from(result).unwrap();
-        let vortex_values = vortex_array.temporal_values().to_primitive();
+        let vortex_values = vortex_array.temporal_values().to_primitive().unwrap();
         let values_slice = vortex_values.as_slice::<i64>();
 
         assert_eq!(values_slice, values);
@@ -412,12 +412,12 @@ mod tests {
         // Test conversion
         let result = flat_vector_to_vortex(&mut vector, len).unwrap();
         let vortex_array = TemporalArray::try_from(result).unwrap();
-        let vortex_values = vortex_array.temporal_values().to_primitive();
+        let vortex_values = vortex_array.temporal_values().to_primitive().unwrap();
         let values_slice = vortex_values.as_slice::<i64>();
 
         assert_eq!(values_slice, values);
         assert_eq!(
-            vortex_values.validity_mask(),
+            vortex_values.validity_mask().unwrap(),
             Mask::from_indices(3, vec![0, 2])
         );
     }
@@ -446,7 +446,7 @@ mod tests {
         // Test conversion
         let result = flat_vector_to_vortex(&mut vector, len).unwrap();
         let vortex_array = TemporalArray::try_from(result).unwrap();
-        let vortex_values = vortex_array.temporal_values().to_primitive();
+        let vortex_values = vortex_array.temporal_values().to_primitive().unwrap();
         let values_slice = vortex_values.as_slice::<i64>();
 
         assert_eq!(values_slice, values);
@@ -469,7 +469,7 @@ mod tests {
         // Test conversion
         let result = flat_vector_to_vortex(&mut vector, len).unwrap();
         let vortex_array = TemporalArray::try_from(result).unwrap();
-        let vortex_values = vortex_array.temporal_values().to_primitive();
+        let vortex_values = vortex_array.temporal_values().to_primitive().unwrap();
         let values_slice = vortex_values.as_slice::<i64>();
 
         assert_eq!(values_slice, values);
@@ -491,7 +491,7 @@ mod tests {
 
         // Test conversion
         let result = flat_vector_to_vortex(&mut vector, len).unwrap();
-        let vortex_array = result.to_bool();
+        let vortex_array = result.to_bool().unwrap();
 
         assert_eq!(vortex_array.len(), len);
         assert_eq!(vortex_array.bit_buffer().iter().collect::<Vec<_>>(), values);
@@ -518,12 +518,12 @@ mod tests {
 
         // Test conversion
         let result = flat_vector_to_vortex(&mut vector, len).unwrap();
-        let vortex_array = result.to_primitive();
+        let vortex_array = result.to_primitive().unwrap();
         let vortex_slice = vortex_array.as_slice::<i32>();
 
         assert_eq!(vortex_slice, values);
         assert_eq!(
-            vortex_array.validity_mask(),
+            vortex_array.validity_mask().unwrap(),
             Mask::from_indices(3, vec![0, 2])
         );
     }
@@ -552,13 +552,14 @@ mod tests {
 
         // Test conversion
         let result = flat_vector_to_vortex(&mut vector, len).unwrap();
-        let vortex_array = result.to_listview();
+        let vortex_array = result.to_listview().unwrap();
 
         assert_eq!(vortex_array.len(), len);
         assert_eq!(
             vortex_array
                 .list_elements_at(0)
                 .to_primitive()
+                .unwrap()
                 .as_slice::<i32>(),
             &[1, 2, 3, 4]
         );
@@ -583,13 +584,14 @@ mod tests {
 
         // Test conversion
         let result = flat_vector_to_vortex(&mut vector, len).unwrap();
-        let vortex_array = result.to_fixed_size_list();
+        let vortex_array = result.to_fixed_size_list().unwrap();
 
         assert_eq!(vortex_array.len(), len);
         assert_eq!(
             vortex_array
                 .fixed_size_list_elements_at(0)
                 .to_primitive()
+                .unwrap()
                 .as_slice::<i32>(),
             &[1, 2, 3, 4]
         );
@@ -603,7 +605,7 @@ mod tests {
 
         // Test conversion
         let result = flat_vector_to_vortex(&mut vector, len).unwrap();
-        let vortex_array = result.to_struct();
+        let vortex_array = result.to_struct().unwrap();
 
         assert_eq!(vortex_array.len(), len);
         assert_eq!(vortex_array.fields().len(), 0);
@@ -638,16 +640,22 @@ mod tests {
 
         // Test conversion
         let result = flat_vector_to_vortex(&mut vector, len).unwrap();
-        let vortex_array = result.to_struct();
+        let vortex_array = result.to_struct().unwrap();
 
         assert_eq!(vortex_array.len(), len);
         assert_eq!(vortex_array.fields().len(), 2);
         assert_eq!(
-            vortex_array.fields()[0].to_primitive().as_slice::<i32>(),
+            vortex_array.fields()[0]
+                .to_primitive()
+                .unwrap()
+                .as_slice::<i32>(),
             &[1, 2, 3, 4]
         );
         assert_eq!(
-            vortex_array.fields()[1].to_primitive().as_slice::<i32>(),
+            vortex_array.fields()[1]
+                .to_primitive()
+                .unwrap()
+                .as_slice::<i32>(),
             &[5, 6, 7, 8]
         );
     }

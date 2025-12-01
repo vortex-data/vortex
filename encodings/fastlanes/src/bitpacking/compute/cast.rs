@@ -86,7 +86,7 @@ mod tests {
             &DType::Primitive(PType::U32, Nullability::NonNullable)
         );
 
-        let decoded = casted.to_primitive();
+        let decoded = casted.to_primitive().unwrap();
         assert_arrays_eq!(
             decoded.as_ref(),
             PrimitiveArray::from_iter([10u32, 20, 30, 40, 50, 60])

@@ -316,7 +316,8 @@ mod tests {
             },
         )
         .unwrap()
-        .to_bool();
+        .to_bool()
+        .unwrap();
 
         let indices = to_int_indices(matches).unwrap();
         assert_eq!(indices, expected);
@@ -343,7 +344,8 @@ mod tests {
             },
         )
         .unwrap()
-        .to_bool();
+        .to_bool()
+        .unwrap();
 
         let indices = to_int_indices(matches).unwrap();
         assert!(indices.is_empty());
@@ -360,7 +362,8 @@ mod tests {
             },
         )
         .unwrap()
-        .to_bool();
+        .to_bool()
+        .unwrap();
         let indices = to_int_indices(matches).unwrap();
         assert_eq!(indices, vec![0, 1, 3]);
 
@@ -377,7 +380,8 @@ mod tests {
             },
         )
         .unwrap()
-        .to_bool();
+        .to_bool()
+        .unwrap();
         let indices = to_int_indices(matches).unwrap();
         assert_eq!(indices, vec![0, 1, 2, 3, 4]);
     }

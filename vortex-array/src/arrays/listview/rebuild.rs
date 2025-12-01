@@ -332,9 +332,9 @@ mod tests {
 
         // Verify nullability is preserved
         assert_eq!(flattened.dtype().nullability(), Nullability::Nullable);
-        assert!(flattened.validity().is_valid(0));
-        assert!(!flattened.validity().is_valid(1));
-        assert!(flattened.validity().is_valid(2));
+        assert!(flattened.validity().is_valid(0).unwrap());
+        assert!(!flattened.validity().is_valid(1).unwrap());
+        assert!(flattened.validity().is_valid(2).unwrap());
 
         // Verify valid lists contain correct data
         let list0 = flattened.list_elements_at(0).to_primitive().unwrap();
@@ -419,10 +419,10 @@ mod tests {
         let exact = rebuilt.rebuild(ListViewRebuildMode::MakeExact);
 
         // Verify the result is still valid
-        assert!(exact.is_valid(0));
-        assert!(exact.is_valid(1));
-        assert!(!exact.is_valid(2));
-        assert!(!exact.is_valid(3));
+        assert!(exact.is_valid(0).unwrap());
+        assert!(exact.is_valid(1).unwrap());
+        assert!(!exact.is_valid(2).unwrap());
+        assert!(!exact.is_valid(3).unwrap());
 
         // Verify data is preserved
         let list0 = exact.list_elements_at(0).to_primitive().unwrap();

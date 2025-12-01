@@ -62,9 +62,10 @@ mod test {
         let arr = PrimitiveArray::from_option_iter([None, Some(8u8), None, Some(10), None]);
         let p = fill_null(arr.as_ref(), &Scalar::from(42u8))
             .unwrap()
-            .to_primitive();
+            .to_primitive()
+            .unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![42, 8, 42, 10, 42]);
-        assert!(p.validity_mask().all_true());
+        assert!(p.validity_mask().unwrap().all_true());
     }
 
     #[test]
@@ -73,9 +74,10 @@ mod test {
 
         let p = fill_null(arr.as_ref(), &Scalar::from(255u8))
             .unwrap()
-            .to_primitive();
+            .to_primitive()
+            .unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![255, 255, 255, 255, 255]);
-        assert!(p.validity_mask().all_true());
+        assert!(p.validity_mask().unwrap().all_true());
     }
 
     #[test]
@@ -86,9 +88,10 @@ mod test {
         );
         let p = fill_null(arr.as_ref(), &Scalar::from(255u8))
             .unwrap()
-            .to_primitive();
+            .to_primitive()
+            .unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![8, 10, 12, 14, 16]);
-        assert!(p.validity_mask().all_true());
+        assert!(p.validity_mask().unwrap().all_true());
     }
 
     #[test]
@@ -96,8 +99,9 @@ mod test {
         let arr = buffer![8u8, 10, 12, 14, 16].into_array();
         let p = fill_null(&arr, &Scalar::from(255u8))
             .unwrap()
-            .to_primitive();
+            .to_primitive()
+            .unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![8u8, 10, 12, 14, 16]);
-        assert!(p.validity_mask().all_true());
+        assert!(p.validity_mask().unwrap().all_true());
     }
 }

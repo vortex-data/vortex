@@ -77,7 +77,8 @@ mod tests {
             ),
         )
         .unwrap()
-        .to_decimal();
+        .to_decimal()
+        .unwrap();
         assert_arrays_eq!(
             p,
             DecimalArray::from_iter([4200, 800, 4200, 1000, 4200], decimal_dtype)
@@ -86,7 +87,7 @@ mod tests {
             p.buffer::<i128>().as_slice(),
             vec![4200, 800, 4200, 1000, 4200]
         );
-        assert!(p.validity_mask().all_true());
+        assert!(p.validity_mask().unwrap().all_true());
     }
 
     #[test]
@@ -107,7 +108,8 @@ mod tests {
             ),
         )
         .unwrap()
-        .to_decimal();
+        .to_decimal()
+        .unwrap();
         assert_arrays_eq!(
             p,
             DecimalArray::from_iter([25500, 25500, 25500, 25500, 25500], decimal_dtype)
@@ -132,7 +134,8 @@ mod tests {
             ),
         )
         .unwrap()
-        .to_decimal();
+        .to_decimal()
+        .unwrap();
         assert_arrays_eq!(
             p,
             DecimalArray::from_iter([800i128, 1000, 1200, 1400, 1600], decimal_dtype)

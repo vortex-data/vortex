@@ -32,7 +32,7 @@ fn varbin(bencher: Bencher) {
 
 #[divan::bench]
 fn varbinview(bencher: Bencher) {
-    let array = fixture(65_535).to_varbinview();
+    let array = fixture(65_535).to_varbinview().unwrap();
     let indices = indices(1024, 65_535);
 
     bencher
@@ -52,7 +52,7 @@ fn varbin_non_null(bencher: Bencher) {
 
 #[divan::bench]
 fn varbinview_non_null(bencher: Bencher) {
-    let array = non_null_fixture(65_535).to_varbinview();
+    let array = non_null_fixture(65_535).to_varbinview().unwrap();
     let indices = indices(1024, 65_535);
 
     bencher

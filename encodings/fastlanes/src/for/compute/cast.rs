@@ -68,7 +68,7 @@ mod tests {
         );
 
         // Verify the values after decoding
-        let decoded = casted.to_primitive();
+        let decoded = casted.to_primitive().unwrap();
         assert_arrays_eq!(
             decoded,
             PrimitiveArray::from_iter([100i64, 110, 120, 130, 140])

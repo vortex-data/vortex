@@ -272,8 +272,8 @@ mod tests {
         let expected = buffer![10, 2, 3, 40, 5].into_array();
 
         assert_eq!(
-            result.to_primitive().as_slice::<i32>(),
-            expected.to_primitive().as_slice::<i32>()
+            result.to_primitive().unwrap().as_slice::<i32>(),
+            expected.to_primitive().unwrap().as_slice::<i32>()
         );
     }
 
@@ -287,8 +287,8 @@ mod tests {
         let result = zip(&if_true, &if_false, &mask).unwrap();
 
         assert_eq!(
-            result.to_primitive().as_slice::<i32>(),
-            if_true.to_primitive().as_slice::<i32>()
+            result.to_primitive().unwrap().as_slice::<i32>(),
+            if_true.to_primitive().unwrap().as_slice::<i32>()
         );
 
         // result must be nullable even if_true was not

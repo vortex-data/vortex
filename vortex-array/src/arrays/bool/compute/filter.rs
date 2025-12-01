@@ -95,7 +95,7 @@ mod test {
         let arr = BoolArray::from_iter([true, true, false]);
         let mask = Mask::from_iter([true, false, true]);
 
-        let filtered = filter(arr.as_ref(), &mask).unwrap().to_bool();
+        let filtered = filter(arr.as_ref(), &mask).unwrap().to_bool().unwrap();
         assert_eq!(2, filtered.len());
 
         assert_eq!(

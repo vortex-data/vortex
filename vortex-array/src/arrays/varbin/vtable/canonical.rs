@@ -76,11 +76,11 @@ mod tests {
         varbin.append_value("1234567890123".as_bytes());
         let varbin = varbin.finish(dtype.clone());
 
-        let canonical = varbin.to_varbinview();
+        let canonical = varbin.to_varbinview().unwrap();
         assert_eq!(canonical.dtype(), &dtype);
 
-        assert!(!canonical.is_valid(0));
-        assert!(!canonical.is_valid(1));
+        assert!(!canonical.is_valid(0).unwrap());
+        assert!(!canonical.is_valid(1).unwrap());
 
         // First value is inlined (12 bytes)
         assert!(canonical.views()[2].is_inlined());

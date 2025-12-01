@@ -42,7 +42,7 @@ fn test_canonical_dtype_matches_array_dtype() {
     let child = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
     let array = MaskedArray::try_new(child, Validity::AllValid).unwrap();
 
-    let canonical = array.to_canonical();
+    let canonical = array.to_canonical().unwrap();
     assert_eq!(canonical.as_ref().dtype(), array.dtype());
 }
 
@@ -54,15 +54,15 @@ fn test_masked_child_with_validity() {
         MaskedArray::try_new(child, Validity::from_iter([true, false, true, false, true])).unwrap();
 
     let masked = array.masked_child().unwrap();
-    let prim = masked.to_primitive();
+    let prim = masked.to_primitive().unwrap();
 
     // Positions where validity is false should be null in masked_child.
-    assert_eq!(prim.valid_count(), 3);
-    assert!(prim.is_valid(0));
-    assert!(!prim.is_valid(1));
-    assert!(prim.is_valid(2));
-    assert!(!prim.is_valid(3));
-    assert!(prim.is_valid(4));
+    assert_eq!(prim.valid_count().unwrap(), 3);
+    assert!(prim.is_valid(0).unwrap());
+    assert!(!prim.is_valid(1).unwrap());
+    assert!(prim.is_valid(2).unwrap());
+    assert!(!prim.is_valid(3).unwrap());
+    assert!(prim.is_valid(4).unwrap());
 
     assert_eq!(
         array.as_ref().display_values().to_string(),
@@ -78,7 +78,7 @@ fn test_masked_child_all_valid() {
 
     let masked = array.masked_child().unwrap();
     assert_eq!(masked.len(), 3);
-    assert_eq!(masked.valid_count(), 3);
+    assert_eq!(masked.valid_count().unwrap(), 3);
     assert_eq!(
         array.as_ref().display_values().to_string(),
         masked.display_values().to_string()
@@ -102,7 +102,10 @@ fn test_masked_child_preserves_length(#[case] validity: Validity) {
 
     let masked = array.masked_child().unwrap();
     assert_eq!(masked.len(), len);
-    assert_eq!(masked.validity_mask(), validity.to_mask(len));
+    assert_eq!(
+        masked.validity_mask().unwrap(),
+        validity.to_mask(len).unwrap()
+    );
     assert_eq!(
         array.as_ref().display_values().to_string(),
         masked.display_values().to_string()

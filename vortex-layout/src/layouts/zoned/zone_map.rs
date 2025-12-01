@@ -299,7 +299,10 @@ mod tests {
             StatsAccumulator::new(builder.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
         acc.push_chunk(&builder.finish()).vortex_unwrap();
         acc.push_chunk(&builder2.finish()).vortex_unwrap();
-        let stats_table = acc.as_stats_table().vortex_expect("Must have stats table");
+        let stats_table = acc
+            .as_stats_table()
+            .vortex_expect("Must have stats table")
+            .unwrap();
         assert_eq!(
             stats_table.array.names().as_ref(),
             &[
@@ -310,11 +313,17 @@ mod tests {
             ]
         );
         assert_eq!(
-            stats_table.array.fields()[1].to_bool().bit_buffer(),
+            stats_table.array.fields()[1]
+                .to_bool()
+                .unwrap()
+                .bit_buffer(),
             &BitBuffer::from(vec![false, true])
         );
         assert_eq!(
-            stats_table.array.fields()[3].to_bool().bit_buffer(),
+            stats_table.array.fields()[3]
+                .to_bool()
+                .unwrap()
+                .bit_buffer(),
             &BitBuffer::from(vec![true, false])
         );
     }
@@ -324,7 +333,10 @@ mod tests {
         let array = buffer![0, 1, 2].into_array();
         let mut acc = StatsAccumulator::new(array.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
         acc.push_chunk(&array).vortex_unwrap();
-        let stats_table = acc.as_stats_table().vortex_expect("Must have stats table");
+        let stats_table = acc
+            .as_stats_table()
+            .vortex_expect("Must have stats table")
+            .unwrap();
         assert_eq!(
             stats_table.array.names().as_ref(),
             &[
@@ -336,11 +348,17 @@ mod tests {
             ]
         );
         assert_eq!(
-            stats_table.array.fields()[1].to_bool().bit_buffer(),
+            stats_table.array.fields()[1]
+                .to_bool()
+                .unwrap()
+                .bit_buffer(),
             &BitBuffer::from(vec![false])
         );
         assert_eq!(
-            stats_table.array.fields()[3].to_bool().bit_buffer(),
+            stats_table.array.fields()[3]
+                .to_bool()
+                .unwrap()
+                .bit_buffer(),
             &BitBuffer::from(vec![false])
         );
     }

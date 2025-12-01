@@ -114,7 +114,7 @@ pub(crate) fn new_exporter_with_flatten(
         Ok(Box::new(DictExporter {
             values_vector: exporter_values,
             values_len: values.len().as_u32(),
-            codes: codes.clone(),
+            codes,
             codes_type: PhantomData::<I>,
             cache_id: cache.instance_id(),
             value_id: values_key,
@@ -229,10 +229,13 @@ mod tests {
         let mut flat_chunk =
             DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
-        new_array_exporter(arr.to_canonical().as_ref(), &ConversionCache::default())
-            .unwrap()
-            .export(0, 3, &mut flat_chunk.get_vector(0))
-            .unwrap();
+        new_array_exporter(
+            arr.to_canonical().unwrap().as_ref(),
+            &ConversionCache::default(),
+        )
+        .unwrap()
+        .export(0, 3, &mut flat_chunk.get_vector(0))
+        .unwrap();
         flat_chunk.set_len(3);
 
         assert_eq!(

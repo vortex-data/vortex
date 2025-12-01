@@ -231,7 +231,7 @@ mod tests {
     fn compression_roundtrip(n: usize) {
         let values = PrimitiveArray::from_iter((0..n).map(|i| (i % 2047) as u16));
         let compressed = BitPackedArray::encode(values.as_ref(), 11).unwrap();
-        let decompressed = compressed.to_primitive();
+        let decompressed = compressed.to_primitive().unwrap();
         assert_arrays_eq!(decompressed, values);
 
         values
@@ -259,7 +259,7 @@ mod tests {
 
     #[test]
     fn test_all_zeros() {
-        let zeros = buffer![0u16, 0, 0, 0].into_array().to_primitive();
+        let zeros = buffer![0u16, 0, 0, 0].into_array().to_primitive().unwrap();
         let bitpacked = bitpack_encode(&zeros, 0, None).unwrap();
         let actual = unpack_array(&bitpacked);
         assert_arrays_eq!(actual, PrimitiveArray::from_iter([0u16, 0, 0, 0]));
@@ -267,7 +267,7 @@ mod tests {
 
     #[test]
     fn test_simple_patches() {
-        let zeros = buffer![0u16, 1, 0, 1].into_array().to_primitive();
+        let zeros = buffer![0u16, 1, 0, 1].into_array().to_primitive().unwrap();
         let bitpacked = bitpack_encode(&zeros, 0, None).unwrap();
         let actual = unpack_array(&bitpacked);
         assert_arrays_eq!(actual, PrimitiveArray::from_iter([0u16, 1, 0, 1]));
@@ -275,7 +275,10 @@ mod tests {
 
     #[test]
     fn test_one_full_chunk() {
-        let zeros = BufferMut::from_iter(0u16..1024).into_array().to_primitive();
+        let zeros = BufferMut::from_iter(0u16..1024)
+            .into_array()
+            .to_primitive()
+            .unwrap();
         let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         let actual = unpack_array(&bitpacked);
         assert_arrays_eq!(actual, PrimitiveArray::from_iter(0u16..1024));
@@ -285,7 +288,8 @@ mod tests {
     fn test_three_full_chunks_with_patches() {
         let zeros = BufferMut::from_iter((5u16..1029).chain(5u16..1029).chain(5u16..1029))
             .into_array()
-            .to_primitive();
+            .to_primitive()
+            .unwrap();
         let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         assert!(bitpacked.patches().is_some());
         let actual = unpack_array(&bitpacked);
@@ -297,7 +301,10 @@ mod tests {
 
     #[test]
     fn test_one_full_chunk_and_one_short_chunk_no_patch() {
-        let zeros = BufferMut::from_iter(0u16..1025).into_array().to_primitive();
+        let zeros = BufferMut::from_iter(0u16..1025)
+            .into_array()
+            .to_primitive()
+            .unwrap();
         let bitpacked = bitpack_encode(&zeros, 11, None).unwrap();
         assert!(bitpacked.patches().is_none());
         let actual = unpack_array(&bitpacked);
@@ -308,7 +315,8 @@ mod tests {
     fn test_one_full_chunk_and_one_short_chunk_with_patches() {
         let zeros = BufferMut::from_iter(512u16..1537)
             .into_array()
-            .to_primitive();
+            .to_primitive()
+            .unwrap();
         let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         assert_eq!(bitpacked.len(), 1025);
         assert!(bitpacked.patches().is_some());
@@ -320,7 +328,8 @@ mod tests {
     fn test_offset_and_short_chunk_and_patches() {
         let zeros = BufferMut::from_iter(512u16..1537)
             .into_array()
-            .to_primitive();
+            .to_primitive()
+            .unwrap();
         let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         assert_eq!(bitpacked.len(), 1025);
         assert!(bitpacked.patches().is_some());
@@ -333,7 +342,8 @@ mod tests {
     fn test_offset_and_short_chunk_with_chunks_between_and_patches() {
         let zeros = BufferMut::from_iter(512u16..2741)
             .into_array()
-            .to_primitive();
+            .to_primitive()
+            .unwrap();
         let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         assert_eq!(bitpacked.len(), 2229);
         assert!(bitpacked.patches().is_some());

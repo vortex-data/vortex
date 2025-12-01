@@ -58,6 +58,7 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
+    use vortex_error::VortexResult;
     use vortex_mask::AllOr;
     use vortex_scalar::Scalar;
 

@@ -136,7 +136,7 @@ mod tests {
         );
 
         // Verify the values
-        let decoded = casted.to_primitive();
+        let decoded = casted.to_primitive().unwrap();
         assert_arrays_eq!(decoded, PrimitiveArray::from_iter([100i64, 110, 120, 130]));
     }
 
@@ -156,7 +156,7 @@ mod tests {
         );
 
         // Verify the values
-        let decoded = casted.to_primitive();
+        let decoded = casted.to_primitive().unwrap();
         assert_arrays_eq!(
             decoded,
             PrimitiveArray::from_option_iter([Some(5i32), Some(8), Some(11)])
@@ -180,7 +180,7 @@ mod tests {
         );
 
         // Verify the values were correctly converted
-        let decoded = casted.to_primitive();
+        let decoded = casted.to_primitive().unwrap();
         assert_arrays_eq!(
             decoded,
             PrimitiveArray::from_iter([0.0f32, 1.0, 2.0, 3.0, 4.0])

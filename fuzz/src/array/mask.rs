@@ -100,8 +100,7 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
         Canonical::Extension(array) => {
             // Recursively mask the storage array
             let masked_storage =
-                mask_canonical_array(array.storage().to_canonical().vortex_unwrap(), mask)
-                    .vortex_unwrap();
+                mask_canonical_array(array.storage().to_canonical()?, mask).vortex_unwrap();
 
             if masked_storage.dtype().nullability()
                 == array.ext_dtype().storage_dtype().nullability()
@@ -145,7 +144,7 @@ mod tests {
         let array = NullArray::new(5);
         let mask = Mask::from_iter([true, false, true, false, true]);
 
-        let result = mask_canonical_array(array.to_canonical(), &mask).unwrap();
+        let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
         assert_eq!(result.len(), 5);
         // All values should still be null
@@ -159,7 +158,7 @@ mod tests {
         let array = BoolArray::from_iter([true, false, true, false, true]);
         let mask = Mask::from_iter([true, false, false, true, false]);
 
-        let result = mask_canonical_array(array.to_canonical(), &mask).unwrap();
+        let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
         assert_eq!(result.len(), 5);
         assert!(!result.is_valid(0).unwrap());
@@ -174,7 +173,7 @@ mod tests {
         let array = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
         let mask = Mask::from_iter([false, true, false, true, false]);
 
-        let result = mask_canonical_array(array.to_canonical(), &mask).unwrap();
+        let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
         assert_eq!(result.len(), 5);
         assert_eq!(result.scalar_at(0), Scalar::from(Some(1)));
@@ -189,7 +188,7 @@ mod tests {
         let array = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None]);
         let mask = Mask::from_iter([true, false, false, true, false]);
 
-        let result = mask_canonical_array(array.to_canonical(), &mask).unwrap();
+        let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
         assert_eq!(result.len(), 5);
         assert!(!result.is_valid(0).unwrap());
@@ -207,7 +206,7 @@ mod tests {
         );
         let mask = Mask::from_iter([false, false, true, false, false]);
 
-        let result = mask_canonical_array(array.to_canonical(), &mask).unwrap();
+        let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
         assert_eq!(result.len(), 5);
         assert!(result.is_valid(0).unwrap());
@@ -222,7 +221,7 @@ mod tests {
         let array = VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]);
         let mask = Mask::from_iter([true, false, true, false, true]);
 
-        let result = mask_canonical_array(array.to_canonical(), &mask).unwrap();
+        let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
         assert_eq!(result.len(), 5);
         assert!(!result.is_valid(0).unwrap());
@@ -250,7 +249,7 @@ mod tests {
 
         let mask = Mask::from_iter([false, true, false]);
 
-        let result = mask_canonical_array(array.to_canonical(), &mask).unwrap();
+        let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
         assert_eq!(result.len(), 3);
         assert!(result.is_valid(0).unwrap());
@@ -266,7 +265,7 @@ mod tests {
 
         let mask = Mask::from_iter([true, false, true]);
 
-        let result = mask_canonical_array(array.to_canonical(), &mask).unwrap();
+        let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
         assert_eq!(result.len(), 3);
         assert!(!result.is_valid(0).unwrap());
@@ -290,7 +289,7 @@ mod tests {
 
         let mask = Mask::from_iter([false, true, false]);
 
-        let result = mask_canonical_array(array.to_canonical(), &mask).unwrap();
+        let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
         assert_eq!(result.len(), 3);
         assert!(result.is_valid(0).unwrap());
@@ -303,7 +302,7 @@ mod tests {
         let array = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
         let mask = Mask::AllTrue(5);
 
-        let result = mask_canonical_array(array.to_canonical(), &mask).unwrap();
+        let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
         assert_eq!(result.len(), 5);
         // All values should be masked out (null)
@@ -317,7 +316,7 @@ mod tests {
         let array = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
         let mask = Mask::AllFalse(5);
 
-        let result = mask_canonical_array(array.to_canonical(), &mask).unwrap();
+        let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
         assert_eq!(result.len(), 5);
         // No values should be masked out
@@ -334,7 +333,7 @@ mod tests {
         let array = PrimitiveArray::from_iter(Vec::<i32>::new());
         let mask = Mask::AllFalse(0);
 
-        let result = mask_canonical_array(array.to_canonical(), &mask).unwrap();
+        let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
         assert_eq!(result.len(), 0);
     }

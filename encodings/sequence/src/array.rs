@@ -415,7 +415,7 @@ mod tests {
         let canon = PrimitiveArray::from_iter((0..4).map(|i| 2i64 + i * 3));
 
         assert_eq!(
-            arr.to_primitive().as_slice::<i64>(),
+            arr.to_primitive().unwrap().as_slice::<i64>(),
             canon.as_slice::<i64>()
         )
     }
@@ -429,7 +429,7 @@ mod tests {
         let canon = PrimitiveArray::from_iter((2..3).map(|i| 2i64 + i * 3));
 
         assert_eq!(
-            arr.to_primitive().as_slice::<i64>(),
+            arr.to_primitive().unwrap().as_slice::<i64>(),
             canon.as_slice::<i64>()
         )
     }

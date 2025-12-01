@@ -41,7 +41,7 @@ pub(crate) fn new_exporter(
 
     match_each_integer_ptype!(ends.ptype(), |E| {
         Ok(Box::new(RunEndExporter {
-            ends: ends.clone(),
+            ends,
             ends_type: PhantomData::<E>,
             values,
             values_exporter,
