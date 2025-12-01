@@ -2,12 +2,6 @@ name: WASM Fuzz
 
 on:
   workflow_dispatch:
-    inputs:
-      fuzz_duration:
-        description: "Fuzzing duration in hours"
-        required: false
-        default: "4"
-        type: string
   schedule:
     # Run daily at 2 AM UTC
     - cron: "0 2 * * *"
@@ -54,16 +48,6 @@ jobs:
       - name: Install wasmfuzz
         run: cargo install --git https://github.com/CISPA-SysSec/wasmfuzz --locked
 
-      - name: Determine fuzz duration
-        id: duration
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            HOURS="${{ github.event.inputs.fuzz_duration }}"
-          else
-            HOURS="4"
-          fi
-          echo "hours=$HOURS" >> $GITHUB_OUTPUT
-
       - name: Run wasmfuzz
         id: fuzz
         run: |
@@ -71,7 +55,7 @@ jobs:
           # Capture exit code - wasmfuzz exits with error on crash
           set +e
           wasmfuzz fuzz \
-            --timeout="${{ steps.duration.outputs.hours }}h" \
+            --timeout=4h \
             --cores 2 \
             --dir corpus-wasm/ \
             target/wasm32-wasip1/release/array_ops_wasm.wasm
