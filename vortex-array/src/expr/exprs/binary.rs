@@ -28,7 +28,7 @@ use crate::expr::VTableExt;
 use crate::expr::expression::Expression;
 use crate::expr::exprs::literal::lit;
 use crate::expr::exprs::operators::Operator;
-use crate::stats::Stat;
+use crate::expr::stats::Stat;
 
 pub struct Binary;
 
@@ -255,6 +255,24 @@ impl VTable for Binary {
 
     fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
         false
+    }
+
+    fn is_fallible(&self, instance: &Self::Instance) -> bool {
+        // Opt-in not out for fallibility.
+        // Arithmetic operations could be better modelled here.
+        let infallible = matches!(
+            instance,
+            Operator::Eq
+                | Operator::NotEq
+                | Operator::Gt
+                | Operator::Gte
+                | Operator::Lt
+                | Operator::Lte
+                | Operator::And
+                | Operator::Or
+        );
+
+        !infallible
     }
 }
 

@@ -68,6 +68,18 @@ impl MaskFuture {
         let inner = self.inner.clone();
         Self::new(range.len(), async move { Ok(inner.await?.slice(range)) })
     }
+
+    pub fn inspect(
+        self,
+        f: impl FnOnce(&SharedVortexResult<Mask>) + 'static + Send + Sync,
+    ) -> Self {
+        let len = self.len;
+
+        Self {
+            inner: self.inner.inspect(f).boxed().shared(),
+            len,
+        }
+    }
 }
 
 impl Future for MaskFuture {

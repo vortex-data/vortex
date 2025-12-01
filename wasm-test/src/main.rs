@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::Array;
-use vortex::arrays::PrimitiveArray;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::validity::Validity;
+use vortex::array::Array;
 use vortex::buffer::buffer;
 use vortex::compressor::BtrBlocksCompressor;
-use vortex::validity::Validity;
 
 //use wasm_bindgen::prelude::*;
 

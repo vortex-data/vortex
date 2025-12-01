@@ -7,6 +7,7 @@ use std::ops::Index;
 use std::sync::Arc;
 
 use itertools::Itertools;
+use vortex_utils::aliases::StringEscape;
 
 /// A name for a field in a struct.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -43,7 +44,7 @@ impl<'de> serde::de::Deserialize<'de> for FieldName {
 
 impl fmt::Display for FieldName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", StringEscape(self.0.as_ref()))
     }
 }
 

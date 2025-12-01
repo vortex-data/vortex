@@ -32,6 +32,7 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValidityVTableFromValidityHelper;
 use vortex_array::vtable::VisitorVTable;
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -53,7 +54,6 @@ impl VTable for ByteBoolVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type OperatorVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.bytebool")
@@ -80,7 +80,7 @@ impl VTable for ByteBoolVTable {
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
-        buffers: &[ByteBuffer],
+        buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ByteBoolArray> {
         let validity = if children.is_empty() {
@@ -95,7 +95,7 @@ impl VTable for ByteBoolVTable {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let buffer = buffers[0].clone();
+        let buffer = buffers[0].clone().try_to_bytes()?;
 
         Ok(ByteBoolArray::new(buffer, validity))
     }
@@ -109,7 +109,7 @@ pub struct ByteBoolArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ByteBoolVTable;
 
 impl ByteBoolArray {

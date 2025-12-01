@@ -3,8 +3,8 @@
 
 use pyo3::exceptions::PyIndexError;
 use pyo3::prelude::*;
-use vortex::Array;
-use vortex::ArrayRef;
+use vortex::array::Array;
+use vortex::array::ArrayRef;
 use vortex::scan::RepeatedScan;
 
 use crate::RUNTIME;

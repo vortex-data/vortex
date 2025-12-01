@@ -31,8 +31,8 @@ use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
 use vortex_array::vtable::VisitorVTable;
+use vortex_buffer::BufferHandle;
 use vortex_buffer::BufferMut;
-use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
@@ -196,7 +196,6 @@ impl VTable for SequenceVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type OperatorVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.sequence")
@@ -228,7 +227,7 @@ impl VTable for SequenceVTable {
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
-        _buffers: &[ByteBuffer],
+        _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
     ) -> VortexResult<SequenceArray> {
         let ptype = dtype.as_ptype();
@@ -269,7 +268,7 @@ impl VTable for SequenceVTable {
         ))
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn batch_execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(match_each_native_ptype!(array.ptype(), |P| {
             let base = array.base().cast::<P>();
             let multiplier = array.multiplier().cast::<P>();
@@ -384,7 +383,7 @@ impl VisitorVTable<SequenceVTable> for SequenceVTable {
     fn visit_children(_array: &SequenceArray, _visitor: &mut dyn ArrayChildVisitor) {}
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct SequenceVTable;
 
 impl EncodeVTable<SequenceVTable> for SequenceVTable {

@@ -1,5 +1,13 @@
-include = ["**/Cargo.toml", "deny.toml", "_typos.toml"]
-exclude = ["**/target/**", "**/java/**", "**/.venv/**"]
+include = [
+    "Cargo.toml",
+    "clippy.toml",
+    "vortex-*/**/Cargo.toml",
+    "bench-vortex/Cargo.toml",
+    "*/Cargo.toml",
+    "pyproject.toml",
+    "*/pyproject.toml",
+]
+exclude = [".venv/**", "target/**", "java/**"]
 
 [formatting]
 allowed_blank_lines = 1

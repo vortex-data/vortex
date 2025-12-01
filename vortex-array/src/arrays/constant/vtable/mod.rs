@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -31,7 +31,7 @@ mod visitor;
 
 vtable!(Constant);
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ConstantVTable;
 
 impl VTable for ConstantVTable {
@@ -47,7 +47,6 @@ impl VTable for ConstantVTable {
     // TODO(ngates): implement a compute kernel for elementwise operations
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type OperatorVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.constant")
@@ -74,18 +73,19 @@ impl VTable for ConstantVTable {
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
-        buffers: &[ByteBuffer],
+        buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
     ) -> VortexResult<ConstantArray> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let sv = ScalarValue::from_protobytes(&buffers[0])?;
+        let buffer = buffers[0].clone().try_to_bytes()?;
+        let sv = ScalarValue::from_protobytes(&buffer)?;
         let scalar = Scalar::new(dtype.clone(), sv);
         Ok(ConstantArray::new(scalar, len))
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn batch_execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(to_vector(array.scalar().clone(), array.len()).freeze())
     }
 }

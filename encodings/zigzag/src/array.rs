@@ -31,7 +31,7 @@ use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_array::vtable::VisitorVTable;
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_unsigned_integer_ptype;
@@ -59,7 +59,6 @@ impl VTable for ZigZagVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type OperatorVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.zigzag")
@@ -86,7 +85,7 @@ impl VTable for ZigZagVTable {
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
-        _buffers: &[ByteBuffer],
+        _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ZigZagArray> {
         if children.len() != 1 {
@@ -108,7 +107,7 @@ pub struct ZigZagArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ZigZagVTable;
 
 impl ZigZagArray {

@@ -9,7 +9,7 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::NativeValue;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveVTable;
-use vortex_array::stats::Stat;
+use vortex_array::expr::stats::Stat;
 use vortex_buffer::BitBuffer;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::match_each_integer_ptype;

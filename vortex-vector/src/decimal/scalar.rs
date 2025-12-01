@@ -30,6 +30,32 @@ pub enum DecimalScalar {
     D256(DScalar<i256>),
 }
 
+impl DecimalScalar {
+    /// Returns the precision of the decimal scalar.
+    pub fn precision(&self) -> u8 {
+        match self {
+            DecimalScalar::D8(v) => v.ps.precision(),
+            DecimalScalar::D16(v) => v.ps.precision(),
+            DecimalScalar::D32(v) => v.ps.precision(),
+            DecimalScalar::D64(v) => v.ps.precision(),
+            DecimalScalar::D128(v) => v.ps.precision(),
+            DecimalScalar::D256(v) => v.ps.precision(),
+        }
+    }
+
+    /// Returns the scale of the decimal scalar.
+    pub fn scale(&self) -> i8 {
+        match self {
+            DecimalScalar::D8(v) => v.ps.scale(),
+            DecimalScalar::D16(v) => v.ps.scale(),
+            DecimalScalar::D32(v) => v.ps.scale(),
+            DecimalScalar::D64(v) => v.ps.scale(),
+            DecimalScalar::D128(v) => v.ps.scale(),
+            DecimalScalar::D256(v) => v.ps.scale(),
+        }
+    }
+}
+
 impl ScalarOps for DecimalScalar {
     fn is_valid(&self) -> bool {
         match self {

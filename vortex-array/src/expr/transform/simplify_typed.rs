@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 
 use crate::expr::Expression;
 use crate::expr::session::RewriteRuleRegistry;
-use crate::expr::transform::RuleContext;
+use crate::expr::transform::rules::RuleContext;
 use crate::expr::transform::rules::TypedRuleContext;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::Transformed;

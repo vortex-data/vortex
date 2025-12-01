@@ -2,22 +2,34 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fs::File;
-use std::io::{Write, stdout};
+use std::io::Write;
+use std::io::stdout;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
+use bench_vortex::BenchmarkDataset;
+use bench_vortex::Format;
+use bench_vortex::Target;
+use bench_vortex::df;
+use bench_vortex::display::DisplayFormat;
+use bench_vortex::display::print_measurements_json;
+use bench_vortex::display::render_table;
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::MetricsSetExt;
-use bench_vortex::public_bi::{FileType, PBI_DATASETS, PBIDataset};
+use bench_vortex::public_bi::FileType;
+use bench_vortex::public_bi::PBI_DATASETS;
+use bench_vortex::public_bi::PBIDataset;
+use bench_vortex::setup_logging_and_tracing;
 use bench_vortex::utils::constants::STORAGE_NVME;
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{BenchmarkDataset, Format, Target, df, setup_logging_and_tracing};
-use clap::{Parser, value_parser};
+use clap::Parser;
+use clap::value_parser;
 use indicatif::ProgressBar;
 use itertools::Itertools;
-use tracing::{Instrument, info_span};
-use vortex::error::{VortexExpect, vortex_panic};
+use tracing::Instrument;
+use tracing::info_span;
+use vortex::error::VortexExpect;
+use vortex::error::vortex_panic;
 use vortex_datafusion::metrics::VortexMetricsFinder;
 
 #[derive(Parser, Debug)]

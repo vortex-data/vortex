@@ -9,7 +9,6 @@ use rand::Rng;
 use rand::SeedableRng;
 use rand::distr::Uniform;
 use rand::prelude::StdRng;
-use rand::rng;
 use vortex_array::IntoArray as _;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::take;
@@ -100,7 +99,7 @@ fn take_200k_first_chunk_only(bencher: Bencher) {
 }
 
 fn fixture(len: usize, bits: usize) -> Buffer<u32> {
-    let rng = rng();
+    let rng = StdRng::seed_from_u64(0);
     let range = Uniform::new(0_u32, 2_u32.pow(bits as u32)).unwrap();
     rng.sample_iter(range).take(len).collect()
 }

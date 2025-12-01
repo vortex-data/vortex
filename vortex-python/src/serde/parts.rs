@@ -11,8 +11,8 @@ use pyo3::Python;
 use pyo3::prelude::PyAnyMethods;
 use pyo3::pyclass;
 use pyo3::pymethods;
+use vortex::array::serde::ArrayParts;
 use vortex::buffer::ByteBuffer;
-use vortex::serde::ArrayParts;
 
 use crate::arrays::PyArrayRef;
 use crate::dtype::PyDType;
@@ -81,7 +81,7 @@ impl PyArrayParts {
 
         let mut buffers = Vec::with_capacity(slf.nbuffers());
         for buffer in (0..slf.nbuffers()).map(|i| slf.buffer(i)) {
-            let buffer: ByteBuffer = buffer?;
+            let buffer: ByteBuffer = buffer.map(|b| b.into_bytes())?;
 
             let addr = buffer.as_ptr() as usize;
             let size = buffer.len();

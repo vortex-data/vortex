@@ -7,21 +7,27 @@ use anyhow::Result;
 use async_trait::async_trait;
 use tokio::fs::File as TokioFile;
 use tokio::io::AsyncWriteExt;
-use vortex::ArrayRef;
-use vortex::file::{OpenOptionsSessionExt, WriteOptionsSessionExt};
-use vortex::stream::ArrayStreamExt;
+use vortex::array::ArrayRef;
+use vortex::array::stream::ArrayStreamExt;
+use vortex::file::OpenOptionsSessionExt;
+use vortex::file::WriteOptionsSessionExt;
 #[cfg(feature = "lance")]
+#[rustfmt::skip]
 use {
-    lance::dataset::{Dataset as LanceDataset, WriteParams},
+    lance::dataset::Dataset as LanceDataset,
+    lance::dataset::WriteParams,
     lance_encoding::version::LanceFileVersion,
     parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder,
     std::fs::File,
 };
 
+use crate::CompactionStrategy;
+use crate::IdempotentPath;
+use crate::SESSION;
 use crate::conversions::parquet_to_vortex;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::download_data;
-use crate::{CompactionStrategy, IdempotentPath, SESSION, idempotent_async};
+use crate::idempotent_async;
 
 pub struct TaxiData;
 

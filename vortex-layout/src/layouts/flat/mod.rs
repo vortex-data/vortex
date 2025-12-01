@@ -179,6 +179,11 @@ impl FlatLayout {
     pub fn array_ctx(&self) -> &ArrayContext {
         &self.ctx
     }
+
+    #[inline]
+    pub fn array_tree(&self) -> Option<&ByteBuffer> {
+        self.array_tree.as_ref()
+    }
 }
 
 #[derive(prost::Message)]

@@ -3,11 +3,17 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use rand::{Rng, SeedableRng};
-use vortex::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray};
+use rand::Rng;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
+use vortex::array::ArrayRef;
+use vortex::array::IntoArray;
+use vortex::array::arrays::ChunkedArray;
+use vortex::array::arrays::ListArray;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::StructArray;
+use vortex::array::validity::Validity;
 use vortex::dtype::FieldNames;
-use vortex::validity::Validity;
-use vortex::{ArrayRef, IntoArray};
 
 use crate::datasets::Dataset;
 
@@ -41,7 +47,7 @@ impl Dataset for StructListOfInts {
         let names: FieldNames = (0..self.num_columns)
             .map(|col_idx| col_idx.to_string())
             .collect();
-        let mut rng = rand::rngs::StdRng::seed_from_u64(0);
+        let mut rng = StdRng::seed_from_u64(0);
 
         let rows_per_chunk = (self.row_count / self.chunk_count).max(1usize);
         let chunks: Result<Vec<_>> = (0..self.row_count)

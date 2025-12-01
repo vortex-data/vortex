@@ -111,6 +111,7 @@ maxdepth: 1
 caption: User Guides
 ---
 
+guides/wip-lazy-evaluation
 guides/python-integrations
 guides/writing-an-encoding
 ```

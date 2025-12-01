@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -31,7 +31,7 @@ mod visitor;
 
 vtable!(Dict);
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct DictVTable;
 
 impl VTable for DictVTable {
@@ -46,7 +46,6 @@ impl VTable for DictVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type OperatorVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.dict")
@@ -84,7 +83,7 @@ impl VTable for DictVTable {
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
-        _buffers: &[ByteBuffer],
+        _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<DictArray> {
         if children.len() != 2 {

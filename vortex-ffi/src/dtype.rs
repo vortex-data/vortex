@@ -318,9 +318,9 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(dtype: *const DType) -> *cons
 mod tests {
     use std::slice;
 
-    use vortex::ArrayRef;
-    use vortex::IntoArray;
-    use vortex::arrays::StructArray;
+    use vortex::array::ArrayRef;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::StructArray;
     use vortex::buffer::Buffer;
     use vortex::dtype::DType;
     use vortex::dtype::DecimalDType;

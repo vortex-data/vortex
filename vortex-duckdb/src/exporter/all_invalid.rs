@@ -35,7 +35,7 @@ impl ColumnExporter for AllInvalidExporter {
 
 #[cfg(test)]
 mod tests {
-    use vortex::arrays::PrimitiveArray;
+    use vortex::array::arrays::PrimitiveArray;
 
     use super::*;
     use crate::duckdb::DataChunk;

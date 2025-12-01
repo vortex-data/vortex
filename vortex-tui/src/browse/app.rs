@@ -7,6 +7,7 @@ use std::sync::Arc;
 use futures::executor::block_on;
 use ratatui::prelude::Size;
 use ratatui::widgets::ListState;
+use vortex::array::serde::ArrayParts;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -21,7 +22,6 @@ use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
 use vortex::layout::segments::SegmentId;
 use vortex::layout::segments::SegmentSource;
-use vortex::serde::ArrayParts;
 
 use crate::SESSION;
 use crate::browse::ui::SegmentGridState;

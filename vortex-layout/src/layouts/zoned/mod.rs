@@ -15,7 +15,7 @@ pub use builder::upper_bound;
 use vortex_array::ArrayContext;
 use vortex_array::DeserializeMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::stats::Stat;
+use vortex_array::expr::stats::Stat;
 use vortex_array::stats::as_stat_bitset_bytes;
 use vortex_array::stats::stats_from_bitset_bytes;
 use vortex_dtype::DType;

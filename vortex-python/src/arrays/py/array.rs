@@ -8,10 +8,10 @@ use pyo3::FromPyObject;
 use pyo3::Py;
 use pyo3::PyAny;
 use pyo3::prelude::*;
+use vortex::array::stats::ArrayStats;
+use vortex::array::vtable::ArrayVTable;
 use vortex::dtype::DType;
 use vortex::error::VortexError;
-use vortex::stats::ArrayStats;
-use vortex::vtable::ArrayVTable;
 
 use crate::arrays::py::PyPythonArray;
 

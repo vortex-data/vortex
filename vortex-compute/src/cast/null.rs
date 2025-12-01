@@ -13,6 +13,8 @@ use vortex_vector::null::NullVector;
 use crate::cast::Cast;
 
 impl Cast for NullVector {
+    type Output = Vector;
+
     fn cast(&self, dtype: &DType) -> VortexResult<Vector> {
         if dtype.is_nullable() {
             // We can create an all-null vector of _any_ type.

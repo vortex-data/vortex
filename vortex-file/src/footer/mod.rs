@@ -25,7 +25,7 @@ use flatbuffers::root;
 use itertools::Itertools;
 pub use segment::*;
 use vortex_array::ArrayContext;
-use vortex_array::ArraySessionExt;
+use vortex_array::session::ArraySessionExt;
 use vortex_array::stats::StatsSet;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;

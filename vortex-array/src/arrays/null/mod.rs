@@ -4,7 +4,7 @@
 use std::hash::Hash;
 use std::ops::Range;
 
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -19,10 +19,7 @@ use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::Precision;
-use crate::execution::BatchKernelRef;
-use crate::execution::BindCtx;
 use crate::execution::ExecutionCtx;
-use crate::execution::kernel;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSetRef;
@@ -34,7 +31,6 @@ use crate::vtable::BaseArrayVTable;
 use crate::vtable::CanonicalVTable;
 use crate::vtable::NotSupported;
 use crate::vtable::OperationsVTable;
-use crate::vtable::OperatorVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 use crate::vtable::VisitorVTable;
@@ -55,7 +51,6 @@ impl VTable for NullVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type OperatorVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.null")
@@ -82,13 +77,13 @@ impl VTable for NullVTable {
         _dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
-        _buffers: &[ByteBuffer],
+        _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
     ) -> VortexResult<NullArray> {
         Ok(NullArray::new(len))
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn batch_execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(NullVector::new(array.len()).into())
     }
 }
@@ -123,7 +118,7 @@ pub struct NullArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct NullVTable;
 
 impl NullArray {
@@ -194,16 +189,5 @@ impl ValidityVTable<NullVTable> for NullVTable {
 
     fn validity_mask(array: &NullArray) -> Mask {
         Mask::AllFalse(array.len)
-    }
-}
-
-impl OperatorVTable<NullVTable> for NullVTable {
-    fn bind(
-        array: &NullArray,
-        _selection: Option<&ArrayRef>,
-        _ctx: &mut dyn BindCtx,
-    ) -> VortexResult<BatchKernelRef> {
-        let len = array.len();
-        Ok(kernel(move || Ok(NullVector::new(len).into())))
     }
 }

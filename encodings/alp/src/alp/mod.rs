@@ -16,6 +16,7 @@ use num_traits::ToPrimitive;
 mod array;
 mod compress;
 mod compute;
+mod decompress;
 mod ops;
 
 #[cfg(test)]
@@ -49,7 +50,8 @@ mod tests {
 }
 
 pub use array::*;
-pub use compress::*;
+pub use compress::alp_encode;
+pub use decompress::decompress_into_array;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;

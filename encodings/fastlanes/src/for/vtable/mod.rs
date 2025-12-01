@@ -14,7 +14,7 @@ use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChild;
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -27,7 +27,6 @@ mod array;
 mod canonical;
 mod encode;
 mod operations;
-mod operator;
 mod validity;
 mod visitor;
 
@@ -45,7 +44,6 @@ impl VTable for FoRVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type OperatorVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("fastlanes.for")
@@ -74,7 +72,7 @@ impl VTable for FoRVTable {
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
-        _buffers: &[ByteBuffer],
+        _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<FoRArray> {
         if children.len() != 1 {
@@ -91,7 +89,7 @@ impl VTable for FoRVTable {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct FoRVTable;
 
 #[derive(Clone)]

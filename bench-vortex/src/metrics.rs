@@ -2,17 +2,31 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
+use std::time::SystemTime;
 
-use datafusion::physical_plan::metrics::{Label, MetricValue, MetricsSet};
-use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanVisitor, Metric, accept};
+use datafusion::physical_plan::ExecutionPlan;
+use datafusion::physical_plan::ExecutionPlanVisitor;
+use datafusion::physical_plan::Metric;
+use datafusion::physical_plan::accept;
+use datafusion::physical_plan::metrics::Label;
+use datafusion::physical_plan::metrics::MetricValue;
+use datafusion::physical_plan::metrics::MetricsSet;
 use itertools::Itertools;
-use opentelemetry::trace::{SpanContext, Status, TraceId};
-use opentelemetry::{InstrumentationScope, KeyValue, SpanId, TraceFlags};
+use opentelemetry::InstrumentationScope;
+use opentelemetry::KeyValue;
+use opentelemetry::SpanId;
+use opentelemetry::TraceFlags;
+use opentelemetry::trace::SpanContext;
+use opentelemetry::trace::Status;
+use opentelemetry::trace::TraceId;
 use opentelemetry_otlp::SpanExporter as OtlpSpanExporter;
 use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::error::OTelSdkResult;
-use opentelemetry_sdk::trace::{IdGenerator, RandomIdGenerator, SpanData, SpanExporter};
+use opentelemetry_sdk::trace::IdGenerator;
+use opentelemetry_sdk::trace::RandomIdGenerator;
+use opentelemetry_sdk::trace::SpanData;
+use opentelemetry_sdk::trace::SpanExporter;
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::Format;

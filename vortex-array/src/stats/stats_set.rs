@@ -15,21 +15,21 @@ use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
 
-use super::IsSorted;
-use super::IsStrictSorted;
-use super::NaNCount;
-use super::NullCount;
-use super::StatType;
-use super::StatsProvider;
-use super::UncompressedSizeInBytes;
-use crate::stats::IsConstant;
-use crate::stats::Max;
-use crate::stats::Min;
-use crate::stats::Precision;
-use crate::stats::Stat;
-use crate::stats::StatBound;
-use crate::stats::StatsProviderExt;
-use crate::stats::Sum;
+use crate::expr::stats::IsConstant;
+use crate::expr::stats::IsSorted;
+use crate::expr::stats::IsStrictSorted;
+use crate::expr::stats::Max;
+use crate::expr::stats::Min;
+use crate::expr::stats::NaNCount;
+use crate::expr::stats::NullCount;
+use crate::expr::stats::Precision;
+use crate::expr::stats::Stat;
+use crate::expr::stats::StatBound;
+use crate::expr::stats::StatType;
+use crate::expr::stats::StatsProvider;
+use crate::expr::stats::StatsProviderExt;
+use crate::expr::stats::Sum;
+use crate::expr::stats::UncompressedSizeInBytes;
 
 #[derive(Default, Debug, Clone)]
 pub struct StatsSet {
@@ -544,11 +544,11 @@ mod test {
     use vortex_dtype::PType;
 
     use crate::arrays::PrimitiveArray;
-    use crate::stats::IsConstant;
-    use crate::stats::Precision;
-    use crate::stats::Stat;
-    use crate::stats::StatsProvider;
-    use crate::stats::StatsProviderExt;
+    use crate::expr::stats::IsConstant;
+    use crate::expr::stats::Precision;
+    use crate::expr::stats::Stat;
+    use crate::expr::stats::StatsProvider;
+    use crate::expr::stats::StatsProviderExt;
     use crate::stats::StatsSet;
     use crate::stats::stats_set::Scalar;
 

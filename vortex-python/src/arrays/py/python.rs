@@ -4,10 +4,10 @@
 use pyo3::conversion::FromPyObject;
 use pyo3::prelude::*;
 use pyo3::types::PyType;
+use vortex::array::stats::ArrayStats;
+use vortex::array::vtable::ArrayVTable;
+use vortex::array::vtable::ArrayVTableExt;
 use vortex::dtype::DType;
-use vortex::stats::ArrayStats;
-use vortex::vtable::ArrayVTable;
-use vortex::vtable::ArrayVTableExt;
 
 use crate::arrays::PyArray;
 use crate::arrays::py::PythonVTable;

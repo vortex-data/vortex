@@ -23,7 +23,7 @@ use crate::expr::ExpressionView;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::stats::Stat;
+use crate::expr::stats::Stat;
 
 /// Expression that represents a literal scalar value.
 pub struct Literal;

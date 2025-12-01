@@ -15,6 +15,7 @@ pub(crate) mod not;
 pub(crate) mod operators;
 pub(crate) mod pack;
 pub(crate) mod root;
+pub(crate) mod scalar_fn;
 pub(crate) mod select;
 
 pub use between::*;
@@ -31,4 +32,5 @@ pub use not::*;
 pub use operators::*;
 pub use pack::*;
 pub use root::*;
+pub use scalar_fn::*;
 pub use select::*;

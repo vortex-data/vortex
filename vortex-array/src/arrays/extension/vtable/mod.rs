@@ -4,17 +4,15 @@
 mod array;
 mod canonical;
 mod operations;
-mod operator;
 mod validity;
 mod visitor;
 
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_vector::Vector;
 
-use crate::ArrayOperator;
 use crate::EmptyMetadata;
 use crate::arrays::extension::ExtensionArray;
 use crate::execution::ExecutionCtx;
@@ -41,7 +39,6 @@ impl VTable for ExtensionVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type OperatorVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.ext")
@@ -68,7 +65,7 @@ impl VTable for ExtensionVTable {
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
-        _buffers: &[ByteBuffer],
+        _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ExtensionArray> {
         let DType::Extension(ext_dtype) = dtype else {
@@ -81,10 +78,10 @@ impl VTable for ExtensionVTable {
         Ok(ExtensionArray::new(ext_dtype.clone(), storage))
     }
 
-    fn execute(array: &Self::Array, ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
-        array.storage().execute_batch(ctx)
+    fn batch_execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        array.storage().batch_execute(ctx)
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ExtensionVTable;

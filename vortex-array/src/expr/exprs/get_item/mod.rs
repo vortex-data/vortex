@@ -32,7 +32,7 @@ use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::expr::exprs::root::root;
-use crate::stats::Stat;
+use crate::expr::stats::Stat;
 
 pub struct GetItem;
 
@@ -80,7 +80,7 @@ impl VTable for GetItem {
     }
 
     fn fmt_data(&self, instance: &Self::Instance, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "\"{}\"", instance.inner().as_ref())
+        write!(f, "\"{}\"", instance)
     }
 
     fn return_dtype(&self, expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {

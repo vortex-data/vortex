@@ -6,7 +6,15 @@ use std::sync::LazyLock;
 /// Arrow schemas for TPC-H tables.
 ///
 /// Adapted from the SQL definitions in https://github.com/dimitri/tpch-citus/blob/master/schema/tpch-schema.sql
-use arrow_schema::{DataType, Field, Schema};
+use arrow_schema::DataType;
+/// Arrow schemas for TPC-H tables.
+///
+/// Adapted from the SQL definitions in https://github.com/dimitri/tpch-citus/blob/master/schema/tpch-schema.sql
+use arrow_schema::Field;
+/// Arrow schemas for TPC-H tables.
+///
+/// Adapted from the SQL definitions in https://github.com/dimitri/tpch-citus/blob/master/schema/tpch-schema.sql
+use arrow_schema::Schema;
 
 pub static NATION: LazyLock<Schema> = LazyLock::new(|| {
     Schema::new(vec![

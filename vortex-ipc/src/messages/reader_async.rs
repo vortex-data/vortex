@@ -10,7 +10,7 @@ use bytes::BytesMut;
 use futures::AsyncRead;
 use futures::Stream;
 use pin_project_lite::pin_project;
-use vortex_array::ArrayRegistry;
+use vortex_array::session::ArrayRegistry;
 use vortex_error::VortexResult;
 
 use crate::messages::DecoderMessage;

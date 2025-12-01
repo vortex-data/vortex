@@ -100,12 +100,14 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     assert_eq!(
         expected_array.len(),
         output_array.len(),
-        "Length was not preserved."
+        "Length was not preserved expected {} actual {}.",
+        expected_array.len(),
+        output_array.len()
     );
     assert_eq!(
         expected_array.dtype(),
         output_array.dtype(),
-        "DTypes aren't preserved expected {}, actual {}",
+        "DTypes aren't preserved expected {}, actual {}.",
         expected_array.dtype(),
         output_array.dtype()
     );

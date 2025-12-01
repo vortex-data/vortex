@@ -29,7 +29,6 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::compute::filter;
-use vortex_array::pipeline::PipelinedNode;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
@@ -43,12 +42,12 @@ use vortex_array::vtable::CanonicalVTable;
 use vortex_array::vtable::EncodeVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
-use vortex_array::vtable::OperatorVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValiditySliceHelper;
 use vortex_array::vtable::ValidityVTableFromValiditySliceHelper;
 use vortex_array::vtable::VisitorVTable;
+use vortex_buffer::BufferHandle;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
@@ -101,7 +100,6 @@ impl VTable for PcoVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type OperatorVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.pco")
@@ -128,7 +126,7 @@ impl VTable for PcoVTable {
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
-        buffers: &[ByteBuffer],
+        buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<PcoArray> {
         let validity = if children.is_empty() {
@@ -141,8 +139,14 @@ impl VTable for PcoVTable {
         };
 
         vortex_ensure!(buffers.len() >= metadata.0.chunks.len());
-        let chunk_metas = buffers[..metadata.0.chunks.len()].to_vec();
-        let pages = buffers[metadata.0.chunks.len()..].to_vec();
+        let chunk_metas = buffers[..metadata.0.chunks.len()]
+            .iter()
+            .map(|b| b.clone().try_to_bytes())
+            .collect::<VortexResult<Vec<_>>>()?;
+        let pages = buffers[metadata.0.chunks.len()..]
+            .iter()
+            .map(|b| b.clone().try_to_bytes())
+            .collect::<VortexResult<Vec<_>>>()?;
 
         let expected_n_pages = metadata
             .0
@@ -193,7 +197,7 @@ pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct PcoVTable;
 
 #[derive(Clone, Debug)]
@@ -540,12 +544,6 @@ impl VisitorVTable<PcoVTable> for PcoVTable {
 
     fn visit_children(array: &PcoArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_validity(&array.unsliced_validity, array.unsliced_n_rows());
-    }
-}
-
-impl OperatorVTable<PcoVTable> for PcoVTable {
-    fn pipeline_node(array: &PcoArray) -> Option<&dyn PipelinedNode> {
-        Some(array)
     }
 }
 

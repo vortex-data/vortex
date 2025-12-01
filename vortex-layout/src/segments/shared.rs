@@ -7,7 +7,7 @@ use futures::FutureExt;
 use futures::TryFutureExt;
 use futures::future::BoxFuture;
 use futures::future::WeakShared;
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferHandle;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
@@ -25,7 +25,7 @@ pub struct SharedSegmentSource<S> {
     in_flight: DashMap<SegmentId, WeakShared<SharedSegmentFuture>>,
 }
 
-type SharedSegmentFuture = BoxFuture<'static, SharedVortexResult<ByteBuffer>>;
+type SharedSegmentFuture = BoxFuture<'static, SharedVortexResult<BufferHandle>>;
 
 impl<S: SegmentSource> SharedSegmentSource<S> {
     /// Create a new `SharedSegmentSource` wrapping the provided inner source.
@@ -111,8 +111,8 @@ mod tests {
 
         // Both futures should resolve to the same data
         let (result1, result2) = futures::join!(future1, future2);
-        assert_eq!(result1.unwrap(), data);
-        assert_eq!(result2.unwrap(), data);
+        assert_eq!(*result1.unwrap().bytes(), data);
+        assert_eq!(*result2.unwrap().bytes(), data);
 
         // The inner source should have been called only once
         assert_eq!(source.request_count.load(Ordering::Relaxed), 1);
@@ -142,7 +142,7 @@ mod tests {
 
         // A new request should still work correctly
         let result = shared_source.request(id).await;
-        assert_eq!(result.unwrap(), data);
+        assert_eq!(*result.unwrap().bytes(), data);
 
         // Should have made 2 requests since the first was dropped before completion
         assert_eq!(source.request_count.load(Ordering::Relaxed), 2);

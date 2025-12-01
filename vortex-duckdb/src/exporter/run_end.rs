@@ -3,16 +3,16 @@
 
 use std::marker::PhantomData;
 
-use vortex::ArrayRef;
-use vortex::ToCanonical;
-use vortex::arrays::PrimitiveArray;
+use vortex::array::ArrayRef;
+use vortex::array::ToCanonical;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::search_sorted::SearchSorted;
+use vortex::array::search_sorted::SearchSortedSide;
 use vortex::dtype::IntegerPType;
 use vortex::dtype::match_each_integer_ptype;
 use vortex::encodings::runend::RunEndArray;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
-use vortex::search_sorted::SearchSorted;
-use vortex::search_sorted::SearchSortedSide;
 
 use crate::convert::ToDuckDBScalar;
 use crate::duckdb::SelectionVector;
