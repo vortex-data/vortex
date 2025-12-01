@@ -1,6 +1,12 @@
-[target.'cfg(target_family="unix")']
+[target.'cfg(target_os="macos")']
 rustflags = [
     "-C", "force-frame-pointers=yes",
+]
+
+[target.'cfg(target_os="linux")']
+rustflags = [
+    "-C", "force-frame-pointers=yes",
+    "--cfg", "tokio_unstable",
 ]
 
 [target.wasm32-unknown-unknown]

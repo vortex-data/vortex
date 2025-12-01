@@ -70,7 +70,7 @@ tabled = { workspace = true, features = ["std"] }
 tar = { workspace = true }
 target-lexicon = { workspace = true }
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["full"] }
+tokio = { workspace = true, features = ["full", "io-uring"] }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 tpchgen = { workspace = true }

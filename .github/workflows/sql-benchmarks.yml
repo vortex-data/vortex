@@ -143,7 +143,7 @@ jobs:
       - name: Build binary
         shell: bash
         env:
-          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes --cfg tokio_unstable"
         run: |
           cargo build --bin query_bench --package bench-vortex --profile release_debug ${{ matrix.build_args }}
 

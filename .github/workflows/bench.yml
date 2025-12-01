@@ -66,7 +66,7 @@ jobs:
       - name: Build binary
         shell: bash
         env:
-          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes --cfg tokio_unstable"
         # The main difference between this and `bench-pr.yml` is that we add the `lance` feature.
         run: |
           cargo build --bin ${{ matrix.benchmark.id }} --package bench-vortex --profile release_debug --features lance
