@@ -8,6 +8,7 @@ use vortex_buffer::buffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use super::common::create_basic_listview;
@@ -121,7 +122,7 @@ fn test_slice_out_of_order() {
 }
 
 #[test]
-fn test_slice_with_nulls() {
+fn test_slice_with_nulls() -> VortexResult<()> {
     // Test slicing with nullable ListView.
     // Logical lists: [[1,2], null, [5,6], null]
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8].into_array();
@@ -141,14 +142,16 @@ fn test_slice_with_nulls() {
     let sliced_list = sliced.as_::<ListViewVTable>();
 
     assert_eq!(sliced_list.len(), 2);
-    assert!(sliced_list.is_invalid(0).unwrap()); // Original index 1 was null.
-    assert!(sliced_list.is_valid(1).unwrap()); // Original index 2 was valid.
+    assert!(sliced_list.is_invalid(0)?); // Original index 1 was null.
+    assert!(sliced_list.is_valid(1)?); // Original index 2 was valid.
 
     // Verify offsets and sizes are preserved.
     assert_eq!(sliced_list.offset_at(0), 2);
     assert_eq!(sliced_list.size_at(0), 2);
     assert_eq!(sliced_list.offset_at(1), 4);
     assert_eq!(sliced_list.size_at(1), 2);
+
+    Ok(())
 }
 
 // Parameterized edge case tests.
@@ -194,7 +197,7 @@ fn test_slice_edge_cases(
 #[case::i32_to_i64(PType::I32, PType::I64)]
 #[case::f32_to_f64(PType::F32, PType::F64)]
 #[case::u8_to_u16(PType::U8, PType::U16)]
-fn test_cast_numeric_types(#[case] from_ptype: PType, #[case] to_ptype: PType) {
+fn test_cast_numeric_types(#[case] from_ptype: PType, #[case] to_ptype: PType) -> VortexResult<()> {
     let elements = match from_ptype {
         PType::I32 => buffer![1i32, 2, 3, 4, 5, 6].into_array(),
         PType::F32 => buffer![1.0f32, 2.0, 3.0, 4.0].into_array(),
@@ -229,7 +232,7 @@ fn test_cast_numeric_types(#[case] from_ptype: PType, #[case] to_ptype: PType) {
     let result = cast(&listview, &target_dtype).unwrap();
     assert_eq!(result.dtype(), &target_dtype);
 
-    let result_list = result.to_listview().unwrap();
+    let result_list = result.to_listview()?;
     assert!(
         result_list.len() == 3 || result_list.len() == 2,
         "Expected 2 or 3 lists"
@@ -241,10 +244,12 @@ fn test_cast_numeric_types(#[case] from_ptype: PType, #[case] to_ptype: PType) {
         elements.dtype(),
         &DType::Primitive(to_ptype, Nullability::NonNullable)
     );
+
+    Ok(())
 }
 
 #[test]
-fn test_cast_with_nulls() {
+fn test_cast_with_nulls() -> VortexResult<()> {
     // Logical lists: [[10,20], null]
     let elements = buffer![10i32, 20, 30, 40].into_array();
     let offsets = buffer![0u32, 2].into_array();
@@ -265,15 +270,17 @@ fn test_cast_with_nulls() {
     let result = cast(&listview, &target_dtype).unwrap();
     assert_eq!(result.dtype(), &target_dtype);
 
-    let result_list = result.to_listview().unwrap();
-    assert!(result_list.is_valid(0).unwrap());
-    assert!(result_list.is_invalid(1).unwrap());
+    let result_list = result.to_listview()?;
+    assert!(result_list.is_valid(0)?);
+    assert!(result_list.is_invalid(1)?);
+
+    Ok(())
 }
 
 #[rstest]
 #[case::empty_lists(vec![0, 1, 0, 1], 4)]
 #[case::overlapping(vec![3, 3, 5], 3)]
-fn test_cast_special_patterns(#[case] expected_sizes: Vec<usize>, #[case] list_count: usize) {
+fn test_cast_special_patterns(#[case] expected_sizes: Vec<usize>, #[case] list_count: usize) -> VortexResult<()> {
     let is_empty_case = list_count == 4;
 
     let (elements, offsets, sizes) = if is_empty_case {
@@ -307,17 +314,19 @@ fn test_cast_special_patterns(#[case] expected_sizes: Vec<usize>, #[case] list_c
     };
 
     let result = cast(&listview, &target_dtype).unwrap();
-    let result_list = result.to_listview().unwrap();
+    let result_list = result.to_listview()?;
 
     assert_eq!(result_list.len(), list_count);
 
     for (i, expected_size) in expected_sizes.iter().enumerate() {
         assert_eq!(result_list.size_at(i), *expected_size);
     }
+
+    Ok(())
 }
 
 #[test]
-fn test_cast_large_dataset() {
+fn test_cast_large_dataset() -> VortexResult<()> {
     // Test with larger data.
     // Logical lists: [[0..4], [4..8], [8..12], ..., [76..80]] (20 lists of size 4)
     let elements = buffer![0u16..100].into_array();
@@ -339,12 +348,14 @@ fn test_cast_large_dataset() {
     );
 
     let result = cast(&listview, &target_dtype).unwrap();
-    let result_list = result.to_listview().unwrap();
+    let result_list = result.to_listview()?;
 
     assert_eq!(result_list.len(), 20);
     for i in 0..20 {
         assert_eq!(result_list.size_at(i), 4);
     }
+
+    Ok(())
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -489,7 +500,7 @@ fn test_mask_listview_conformance(#[case] listview: ListViewArray) {
 }
 
 #[test]
-fn test_mask_preserves_structure() {
+fn test_mask_preserves_structure() -> VortexResult<()> {
     // ListView-specific: Verify mask preserves offsets and sizes.
     // Logical lists: [[1,2], [3,4], [5,6], [7,8]]
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8].into_array();
@@ -507,13 +518,13 @@ fn test_mask_preserves_structure() {
     let result = mask(&listview, &selection).unwrap();
 
     assert_eq!(result.len(), 4); // Length is preserved.
-    let result_list = result.to_listview().unwrap();
+    let result_list = result.to_listview()?;
 
     // Check validity: true in mask means null.
-    assert!(!result_list.is_valid(0).unwrap()); // Masked.
-    assert!(result_list.is_valid(1).unwrap()); // Not masked.
-    assert!(!result_list.is_valid(2).unwrap()); // Masked.
-    assert!(!result_list.is_valid(3).unwrap()); // Masked.
+    assert!(!result_list.is_valid(0)?); // Masked.
+    assert!(result_list.is_valid(1)?); // Not masked.
+    assert!(!result_list.is_valid(2)?); // Masked.
+    assert!(!result_list.is_valid(3)?); // Masked.
 
     // Offsets and sizes are preserved.
     assert_eq!(result_list.offset_at(0), 0);
@@ -524,10 +535,12 @@ fn test_mask_preserves_structure() {
     assert_eq!(result_list.size_at(2), 2);
     assert_eq!(result_list.offset_at(3), 6);
     assert_eq!(result_list.size_at(3), 2);
+
+    Ok(())
 }
 
 #[test]
-fn test_mask_with_existing_nulls() {
+fn test_mask_with_existing_nulls() -> VortexResult<()> {
     // ListView-specific: Test interaction between existing nulls and mask.
     // Logical lists: [[10,20], null, [50,60]]
     let elements = buffer![10i32, 20, 30, 40, 50, 60].into_array();
@@ -544,16 +557,18 @@ fn test_mask_with_existing_nulls() {
     // Mask additional elements.
     let selection = Mask::from_iter([false, true, true]);
     let result = mask(&listview, &selection).unwrap();
-    let result_list = result.to_listview().unwrap();
+    let result_list = result.to_listview()?;
 
     // Check combined validity:
-    assert!(result_list.is_valid(0).unwrap()); // Was valid, mask is false -> valid.
-    assert!(!result_list.is_valid(1).unwrap()); // Was invalid, mask is true -> invalid.
-    assert!(!result_list.is_valid(2).unwrap()); // Was valid, mask is true -> invalid.
+    assert!(result_list.is_valid(0)?); // Was valid, mask is false -> valid.
+    assert!(!result_list.is_valid(1)?); // Was invalid, mask is true -> invalid.
+    assert!(!result_list.is_valid(2)?); // Was valid, mask is true -> invalid.
+
+    Ok(())
 }
 
 #[test]
-fn test_mask_with_gaps() {
+fn test_mask_with_gaps() -> VortexResult<()> {
     // ListView-specific: Mask with gaps in elements.
     // Logical lists: [[1,2], [5,6], [9,10]] (999 values are gaps)
     let elements = buffer![1i32, 2, 999, 999, 5, 6, 999, 999, 9, 10].into_array();
@@ -564,20 +579,22 @@ fn test_mask_with_gaps() {
 
     let selection = Mask::from_iter([true, false, false]);
     let result = mask(&listview, &selection).unwrap();
-    let result_list = result.to_listview().unwrap();
+    let result_list = result.to_listview()?;
 
     assert_eq!(result_list.len(), 3);
-    assert!(!result_list.is_valid(0).unwrap()); // Masked
-    assert!(result_list.is_valid(1).unwrap()); // Not masked
-    assert!(result_list.is_valid(2).unwrap()); // Not masked
+    assert!(!result_list.is_valid(0)?); // Masked
+    assert!(result_list.is_valid(1)?); // Not masked
+    assert!(result_list.is_valid(2)?); // Not masked
 
     // Offsets and sizes still preserved
     assert_eq!(result_list.offset_at(1), 4);
     assert_eq!(result_list.size_at(1), 2);
+
+    Ok(())
 }
 
 #[test]
-fn test_mask_constant_arrays() {
+fn test_mask_constant_arrays() -> VortexResult<()> {
     // ListView-specific: Test mask with ConstantArray offsets/sizes.
     // Logical lists: [[200,300], [200,300], [200,300]]
     let elements = buffer![100i32, 200, 300, 400, 500, 600].into_array();
@@ -596,12 +613,12 @@ fn test_mask_constant_arrays() {
 
     let selection = Mask::from_iter([false, true, false]);
     let result = mask(&const_list, &selection).unwrap();
-    let result_list = result.to_listview().unwrap();
+    let result_list = result.to_listview()?;
 
     assert_eq!(result_list.len(), 3);
-    assert!(result_list.is_valid(0).unwrap());
-    assert!(!result_list.is_valid(1).unwrap()); // Masked
-    assert!(result_list.is_valid(2).unwrap());
+    assert!(result_list.is_valid(0)?);
+    assert!(!result_list.is_valid(1)?); // Masked
+    assert!(result_list.is_valid(2)?);
 
     // All offsets and sizes remain constant
     assert_eq!(result_list.offset_at(0), 1);
@@ -610,4 +627,6 @@ fn test_mask_constant_arrays() {
     assert_eq!(result_list.size_at(0), 2);
     assert_eq!(result_list.size_at(1), 2);
     assert_eq!(result_list.size_at(2), 2);
+
+    Ok(())
 }

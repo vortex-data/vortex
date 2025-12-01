@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 use vortex_vector::binaryview::BinaryView;
 
@@ -32,11 +33,12 @@ pub fn slice_array() {
 }
 
 #[test]
-pub fn flatten_array() {
+pub fn flatten_array() -> VortexResult<()> {
     let binary_arr = VarBinViewArray::from_iter_str(["string1", "string2"]);
-    let var_bin = binary_arr.to_varbinview().unwrap();
+    let var_bin = binary_arr.to_varbinview()?;
     assert_eq!(var_bin.scalar_at(0), Scalar::from("string1"));
     assert_eq!(var_bin.scalar_at(1), Scalar::from("string2"));
+    Ok(())
 }
 
 #[test]

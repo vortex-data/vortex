@@ -4,6 +4,7 @@
 use rstest::rstest;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
+use vortex_error::VortexResult;
 
 use super::*;
 use crate::Array;
@@ -37,52 +38,55 @@ fn test_dtype_nullability_with_nullable_child() {
 }
 
 #[test]
-fn test_canonical_dtype_matches_array_dtype() {
+fn test_canonical_dtype_matches_array_dtype() -> VortexResult<()> {
     // The canonical form should have the same nullability as the array's dtype.
     let child = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
     let array = MaskedArray::try_new(child, Validity::AllValid).unwrap();
 
-    let canonical = array.to_canonical().unwrap();
+    let canonical = array.to_canonical()?;
     assert_eq!(canonical.as_ref().dtype(), array.dtype());
+    Ok(())
 }
 
 #[test]
-fn test_masked_child_with_validity() {
+fn test_masked_child_with_validity() -> VortexResult<()> {
     // When validity has nulls, masked_child should apply inverted mask.
     let child = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]).into_array();
     let array =
         MaskedArray::try_new(child, Validity::from_iter([true, false, true, false, true])).unwrap();
 
     let masked = array.masked_child().unwrap();
-    let prim = masked.to_primitive().unwrap();
+    let prim = masked.to_primitive()?;
 
     // Positions where validity is false should be null in masked_child.
-    assert_eq!(prim.valid_count().unwrap(), 3);
-    assert!(prim.is_valid(0).unwrap());
-    assert!(!prim.is_valid(1).unwrap());
-    assert!(prim.is_valid(2).unwrap());
-    assert!(!prim.is_valid(3).unwrap());
-    assert!(prim.is_valid(4).unwrap());
+    assert_eq!(prim.valid_count()?, 3);
+    assert!(prim.is_valid(0)?);
+    assert!(!prim.is_valid(1)?);
+    assert!(prim.is_valid(2)?);
+    assert!(!prim.is_valid(3)?);
+    assert!(prim.is_valid(4)?);
 
     assert_eq!(
         array.as_ref().display_values().to_string(),
         masked.display_values().to_string()
     );
+    Ok(())
 }
 
 #[test]
-fn test_masked_child_all_valid() {
+fn test_masked_child_all_valid() -> VortexResult<()> {
     // When validity is AllValid, masked_child should invert to AllInvalid.
     let child = PrimitiveArray::from_iter([10i32, 20, 30]).into_array();
     let array = MaskedArray::try_new(child, Validity::AllValid).unwrap();
 
     let masked = array.masked_child().unwrap();
     assert_eq!(masked.len(), 3);
-    assert_eq!(masked.valid_count().unwrap(), 3);
+    assert_eq!(masked.valid_count()?, 3);
     assert_eq!(
         array.as_ref().display_values().to_string(),
         masked.display_values().to_string()
     );
+    Ok(())
 }
 
 #[rstest]
@@ -90,7 +94,7 @@ fn test_masked_child_all_valid() {
 #[case(Validity::from_iter([true, true, true]))]
 #[case(Validity::from_iter([false, false, false]))]
 #[case(Validity::from_iter([true, false, true, false]))]
-fn test_masked_child_preserves_length(#[case] validity: Validity) {
+fn test_masked_child_preserves_length(#[case] validity: Validity) -> VortexResult<()> {
     let len = match &validity {
         Validity::Array(arr) => arr.len(),
         _ => 3,
@@ -103,11 +107,12 @@ fn test_masked_child_preserves_length(#[case] validity: Validity) {
     let masked = array.masked_child().unwrap();
     assert_eq!(masked.len(), len);
     assert_eq!(
-        masked.validity_mask().unwrap(),
-        validity.to_mask(len).unwrap()
+        masked.validity_mask()?,
+        validity.to_mask(len)?
     );
     assert_eq!(
         array.as_ref().display_values().to_string(),
         masked.display_values().to_string()
     );
+    Ok(())
 }

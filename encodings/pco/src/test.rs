@@ -20,6 +20,7 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::PcoArray;
@@ -32,7 +33,7 @@ macro_rules! assert_nth_scalar {
 }
 
 #[test]
-fn test_compress_decompress() {
+fn test_compress_decompress() -> VortexResult<()> {
     let data: Vec<i32> = (0..200).collect();
     let array = PrimitiveArray::from_iter(data.clone());
     let compressed = PcoArray::from_primitive(&array, 3, 0).unwrap();
@@ -48,15 +49,17 @@ fn test_compress_decompress() {
     for i in 0_i32..5 {
         assert_nth_scalar!(slice, i as usize, 100 + i);
     }
-    let primitive = slice.to_primitive().unwrap();
+    let primitive = slice.to_primitive()?;
     assert_arrays_eq!(
         primitive,
         PrimitiveArray::from_iter([100, 101, 102, 103, 104])
     );
 
     let slice = compressed.slice(200..200);
-    let primitive = slice.to_primitive().unwrap();
+    let primitive = slice.to_primitive()?;
     assert_arrays_eq!(primitive, PrimitiveArray::from_iter(Vec::<i32>::new()));
+
+    Ok(())
 }
 
 #[test]
@@ -81,7 +84,7 @@ fn test_empty() {
 }
 
 #[test]
-fn test_validity_and_multiple_chunks_and_pages() {
+fn test_validity_and_multiple_chunks_and_pages() -> VortexResult<()> {
     let data: Vec<i32> = (0..200).collect();
     let mut validity: Vec<bool> = vec![true; 200];
     validity[7..15].fill(false);
@@ -115,15 +118,17 @@ fn test_validity_and_multiple_chunks_and_pages() {
     let slice = compressed.slice(100..103);
     assert_nth_scalar!(slice, 0, 100);
     assert_nth_scalar!(slice, 2, 102);
-    let primitive = slice.to_primitive().unwrap();
+    let primitive = slice.to_primitive()?;
     assert_eq!(
         primitive.validity(),
         &Validity::Array(BoolArray::from_iter(vec![true, false, true]).to_array())
     );
+
+    Ok(())
 }
 
 #[test]
-fn test_validity_vtable() {
+fn test_validity_vtable() -> VortexResult<()> {
     let data: Vec<i32> = (0..5).collect();
     let mask_bools = vec![false, true, true, false, true];
     let array = PrimitiveArray::new(
@@ -132,13 +137,15 @@ fn test_validity_vtable() {
     );
     let compressed = PcoArray::from_primitive(&array, 3, 0).unwrap();
     assert_eq!(
-        compressed.validity_mask().unwrap(),
+        compressed.validity_mask()?,
         Mask::from_iter(mask_bools)
     );
     assert_eq!(
-        compressed.slice(1..4).validity_mask().unwrap(),
+        compressed.slice(1..4).validity_mask()?,
         Mask::from_iter(vec![true, true, false])
     );
+
+    Ok(())
 }
 
 #[test]

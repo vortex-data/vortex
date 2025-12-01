@@ -3,6 +3,7 @@
 
 use rstest::rstest;
 use vortex_buffer::buffer;
+use vortex_error::VortexResult;
 
 use super::common::create_basic_listview;
 use super::common::create_empty_lists_listview;
@@ -34,7 +35,7 @@ fn test_take_listview_conformance(#[case] listview: ListViewArray) {
 
 #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `take`"]
 #[test]
-fn test_take_preserves_unreferenced_elements() {
+fn test_take_preserves_unreferenced_elements() -> VortexResult<()> {
     // ListView-specific: Test that take preserves the entire elements array
     // even when taking only a subset of lists.
     let elements = buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
@@ -47,12 +48,12 @@ fn test_take_preserves_unreferenced_elements() {
     // Take only 2 lists.
     let indices = buffer![1u32, 3].into_array();
     let result = take(&listview, &indices).unwrap();
-    let result_list = result.to_listview().unwrap();
+    let result_list = result.to_listview()?;
 
     assert_eq!(result_list.len(), 2);
 
     // Verify the entire elements array is preserved.
-    let result_elements = result_list.elements().to_primitive().unwrap();
+    let result_elements = result_list.elements().to_primitive()?;
     assert_eq!(
         result_elements.as_slice::<i32>(),
         &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
@@ -61,11 +62,13 @@ fn test_take_preserves_unreferenced_elements() {
     // Verify offsets are preserved.
     assert_eq!(result_list.offset_at(0), 2); // List 1
     assert_eq!(result_list.offset_at(1), 0); // List 3
+
+    Ok(())
 }
 
 #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `take`"]
 #[test]
-fn test_take_with_gaps() {
+fn test_take_with_gaps() -> VortexResult<()> {
     // ListView-specific: Test with gaps in elements array.
     // Elements with gaps (999 values are "gaps" between used ranges).
     let elements = buffer![1i32, 2, 3, 999, 999, 999, 7, 8, 9, 999, 11, 12].into_array();
@@ -77,10 +80,10 @@ fn test_take_with_gaps() {
 
     let indices = buffer![1u32, 3, 4, 2].into_array();
     let result = take(&listview, &indices).unwrap();
-    let result_list = result.to_listview().unwrap();
+    let result_list = result.to_listview()?;
 
     // Verify the entire elements array is preserved including gaps.
-    let result_elements = result_list.elements().to_primitive().unwrap();
+    let result_elements = result_list.elements().to_primitive()?;
     assert_eq!(
         result_elements.as_slice::<i32>(),
         &[1, 2, 3, 999, 999, 999, 7, 8, 9, 999, 11, 12]
@@ -91,11 +94,13 @@ fn test_take_with_gaps() {
     assert_eq!(list0.scalar_at(0).as_primitive().as_::<i32>().unwrap(), 7);
     assert_eq!(list0.scalar_at(1).as_primitive().as_::<i32>().unwrap(), 8);
     assert_eq!(list0.scalar_at(2).as_primitive().as_::<i32>().unwrap(), 9);
+
+    Ok(())
 }
 
 #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `take`"]
 #[test]
-fn test_take_constant_arrays() {
+fn test_take_constant_arrays() -> VortexResult<()> {
     // ListView-specific: Test with ConstantArray for offsets/sizes.
     let elements = buffer![100i32, 200, 300, 400, 500, 600, 700, 800].into_array();
 
@@ -113,7 +118,7 @@ fn test_take_constant_arrays() {
 
     let indices = buffer![3u32, 0, 2].into_array();
     let result = take(&const_offset_list, &indices).unwrap();
-    let result_list = result.to_listview().unwrap();
+    let result_list = result.to_listview()?;
 
     assert_eq!(result_list.len(), 3);
     assert_eq!(result_list.offset_at(0), 2); // All offsets are 2
@@ -137,18 +142,20 @@ fn test_take_constant_arrays() {
 
     let indices2 = buffer![2u32, 0].into_array();
     let result2 = take(&both_const_list, &indices2).unwrap();
-    let result2_list = result2.to_listview().unwrap();
+    let result2_list = result2.to_listview()?;
 
     assert_eq!(result2_list.len(), 2);
     assert_eq!(result2_list.offset_at(0), 1);
     assert_eq!(result2_list.offset_at(1), 1);
     assert_eq!(result2_list.size_at(0), 3);
     assert_eq!(result2_list.size_at(1), 3);
+
+    Ok(())
 }
 
 #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `take`"]
 #[test]
-fn test_take_extreme_offsets() {
+fn test_take_extreme_offsets() -> VortexResult<()> {
     // ListView-specific: Test with very large offsets to demonstrate
     // that we keep unreferenced elements.
     let elements = PrimitiveArray::from_iter(0i32..10000).into_array();
@@ -163,7 +170,7 @@ fn test_take_extreme_offsets() {
     // Take only 2 lists, demonstrating we keep all 10000 elements.
     let indices = buffer![1u32, 4].into_array();
     let result = take(&listview, &indices).unwrap();
-    let result_list = result.to_listview().unwrap();
+    let result_list = result.to_listview()?;
 
     assert_eq!(result_list.len(), 2);
 
@@ -184,4 +191,6 @@ fn test_take_extreme_offsets() {
         list0.scalar_at(1).as_primitive().as_::<i32>().unwrap(),
         5000
     );
+
+    Ok(())
 }

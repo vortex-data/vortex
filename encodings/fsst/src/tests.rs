@@ -12,6 +12,7 @@ use vortex_array::compute::take;
 use vortex_buffer::buffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::FSSTVTable;
@@ -39,7 +40,7 @@ pub(crate) fn build_fsst_array() -> ArrayRef {
 }
 
 #[test]
-fn test_fsst_array_ops() {
+fn test_fsst_array_ops() -> VortexResult<()> {
     // first test the scalar_at values
     let fsst_array = build_fsst_array();
     assert_nth_scalar!(
@@ -75,7 +76,7 @@ fn test_fsst_array_ops() {
 
     // test take
     let indices = buffer![0, 2].into_array();
-    let fsst_taken = take(&fsst_array, &indices).unwrap();
+    let fsst_taken = take(&fsst_array, &indices)?;
     assert!(fsst_taken.is::<FSSTVTable>());
     assert_eq!(fsst_taken.len(), 2);
     assert_nth_scalar!(
@@ -92,7 +93,7 @@ fn test_fsst_array_ops() {
     // test filter
     let mask = Mask::from_iter([false, true, true]);
 
-    let fsst_filtered = filter(&fsst_array, &mask).unwrap();
+    let fsst_filtered = filter(&fsst_array, &mask)?;
     assert!(fsst_filtered.is::<FSSTVTable>());
     assert_eq!(fsst_filtered.len(), 2);
     assert_nth_scalar!(
@@ -102,7 +103,9 @@ fn test_fsst_array_ops() {
     );
 
     // test to_canonical
-    let canonical_array = fsst_array.to_varbinview().unwrap().into_array();
+    let canonical_array = fsst_array.to_varbinview()?.into_array();
 
     assert_arrays_eq!(fsst_array.to_array(), canonical_array);
+
+    Ok(())
 }

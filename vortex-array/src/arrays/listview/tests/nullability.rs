@@ -8,6 +8,7 @@ use vortex_buffer::buffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::IntoArray;
@@ -17,7 +18,7 @@ use crate::arrays::PrimitiveArray;
 use crate::validity::Validity;
 
 #[test]
-fn test_nullable_listview_comprehensive() {
+fn test_nullable_listview_comprehensive() -> VortexResult<()> {
     // Comprehensive test for nullable ListView including scalar_at with nulls.
     // Logical lists: [[1,2], null, [5,6]]
     let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
@@ -33,9 +34,9 @@ fn test_nullable_listview_comprehensive() {
     assert_eq!(listview.len(), 3);
 
     // Check validity.
-    assert!(listview.is_valid(0).unwrap());
-    assert!(listview.is_invalid(1).unwrap());
-    assert!(listview.is_valid(2).unwrap());
+    assert!(listview.is_valid(0)?);
+    assert!(listview.is_invalid(1)?);
+    assert!(listview.is_valid(2)?);
 
     // Check dtype reflects nullability.
     assert!(matches!(
@@ -74,6 +75,8 @@ fn test_nullable_listview_comprehensive() {
     assert_eq!(null_list_data.len(), 2);
     assert_eq!(null_list_data.scalar_at(0), 3i32.into());
     assert_eq!(null_list_data.scalar_at(1), 4i32.into());
+
+    Ok(())
 }
 
 // Parameterized tests for different null patterns.
@@ -81,7 +84,7 @@ fn test_nullable_listview_comprehensive() {
 #[case::all_nulls(Validity::AllInvalid, vec![false, false, false])]
 #[case::all_valid(Validity::AllValid, vec![true, true, true])]
 #[case::mixed(Validity::from_iter([false, true, false]), vec![false, true, false])]
-fn test_nullable_patterns(#[case] validity: Validity, #[case] expected_validity: Vec<bool>) {
+fn test_nullable_patterns(#[case] validity: Validity, #[case] expected_validity: Vec<bool>) -> VortexResult<()> {
     // Logical lists: [[1,2], [3,4], [5,6]] with varying validity
     let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
     let offsets = buffer![0i32, 2, 4].into_array();
@@ -90,8 +93,10 @@ fn test_nullable_patterns(#[case] validity: Validity, #[case] expected_validity:
     let listview = unsafe { ListViewArray::new_unchecked(elements, offsets, sizes, validity) };
 
     for (i, &expected) in expected_validity.iter().enumerate() {
-        assert_eq!(listview.is_valid(i).unwrap(), expected);
+        assert_eq!(listview.is_valid(i)?, expected);
     }
+
+    Ok(())
 }
 
 #[test]

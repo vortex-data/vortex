@@ -5,6 +5,7 @@ use rstest::rstest;
 use vortex_buffer::buffer;
 use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::datetime::TimeUnit;
+use vortex_error::VortexResult;
 
 use crate::IntoArray;
 use crate::ToCanonical;
@@ -18,6 +19,18 @@ macro_rules! test_temporal_roundtrip {
     ($prim:ty, $constructor:expr, $unit:expr) => {{
         let array = buffer![100 as $prim].into_array();
         let temporal: TemporalArray = $constructor(array, $unit);
+        let prims = temporal.temporal_values().to_primitive()?;
+
+        assert_eq!(prims.as_slice::<$prim>(), vec![100 as $prim].as_slice(),);
+        assert_eq!(temporal.temporal_metadata().time_unit(), $unit);
+        Ok(())
+    }};
+}
+
+macro_rules! test_temporal_roundtrip_panic {
+    ($prim:ty, $constructor:expr, $unit:expr) => {{
+        let array = buffer![100 as $prim].into_array();
+        let temporal: TemporalArray = $constructor(array, $unit);
         let prims = temporal.temporal_values().to_primitive().unwrap();
 
         assert_eq!(prims.as_slice::<$prim>(), vec![100 as $prim].as_slice(),);
@@ -28,8 +41,8 @@ macro_rules! test_temporal_roundtrip {
 macro_rules! test_success_case {
     ($name:ident, $prim:ty, $constructor:expr, $unit:expr) => {
         #[test]
-        fn $name() {
-            test_temporal_roundtrip!($prim, $constructor, $unit);
+        fn $name() -> VortexResult<()> {
+            test_temporal_roundtrip!($prim, $constructor, $unit)
         }
     };
 }
@@ -39,7 +52,7 @@ macro_rules! test_fail_case {
         #[test]
         #[should_panic]
         fn $name() {
-            test_temporal_roundtrip!($prim, $constructor, $unit)
+            test_temporal_roundtrip_panic!($prim, $constructor, $unit)
         }
     };
 }
@@ -132,7 +145,7 @@ test_fail_case!(
 
 // We test Timestamp explicitly to avoid the macro getting too complex.
 #[test]
-fn test_timestamp() {
+fn test_timestamp() -> VortexResult<()> {
     let ts = buffer![100i64].into_array();
     let ts_array = ts.into_array();
 
@@ -146,7 +159,7 @@ fn test_timestamp() {
             let temporal_array =
                 TemporalArray::new_timestamp(ts_array.to_array(), unit, tz.clone());
 
-            let values = temporal_array.temporal_values().to_primitive().unwrap();
+            let values = temporal_array.temporal_values().to_primitive()?;
             assert_eq!(values.as_slice::<i64>(), vec![100i64].as_slice());
             assert_eq!(
                 temporal_array.temporal_metadata(),
@@ -154,6 +167,7 @@ fn test_timestamp() {
             );
         }
     }
+    Ok(())
 }
 
 #[test]
@@ -170,7 +184,7 @@ fn test_timestamp_fails_i32() {
 #[case(Validity::AllValid)]
 #[case(Validity::AllInvalid)]
 #[case(Validity::from_iter([true, false, true]))]
-fn test_validity_preservation(#[case] validity: Validity) {
+fn test_validity_preservation(#[case] validity: Validity) -> VortexResult<()> {
     let milliseconds = PrimitiveArray::new(
         buffer![
             86_400i64,            // element with only day component
@@ -188,9 +202,9 @@ fn test_validity_preservation(#[case] validity: Validity) {
     assert_eq!(
         temporal_array
             .temporal_values()
-            .to_primitive()
-            .unwrap()
+            .to_primitive()?
             .validity(),
         &validity
     );
+    Ok(())
 }

@@ -10,6 +10,8 @@ use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_scalar::Scalar;
 
+use vortex_error::VortexResult;
+
 use crate::Array;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
@@ -117,7 +119,7 @@ fn test_empty_listview() {
 }
 
 #[test]
-fn test_from_list_array() {
+fn test_from_list_array() -> VortexResult<()> {
     // Test conversion from ListArray to ListViewArray.
     // Logical lists: [[1,2], null, [5,6,7]]
     let offsets = buffer![0i64, 2, 4, 7].into_array();
@@ -135,15 +137,17 @@ fn test_from_list_array() {
     assert_eq!(first.scalar_at(1), 2i32.into());
 
     // Check validity is preserved.
-    assert!(list_view.is_valid(0).unwrap());
-    assert!(list_view.is_invalid(1).unwrap());
-    assert!(list_view.is_valid(2).unwrap());
+    assert!(list_view.is_valid(0)?);
+    assert!(list_view.is_invalid(1)?);
+    assert!(list_view.is_valid(2)?);
 
     // Check third list.
     let third = list_view.list_elements_at(2);
     assert_eq!(third.scalar_at(0), 5i32.into());
     assert_eq!(third.scalar_at(1), 6i32.into());
     assert_eq!(third.scalar_at(2), 7i32.into());
+
+    Ok(())
 }
 
 // Parameterized tests for ConstantArray scenarios.

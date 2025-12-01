@@ -3,6 +3,7 @@
 
 use rstest::rstest;
 use vortex_buffer::buffer;
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use super::common::create_basic_listview;
@@ -32,7 +33,7 @@ fn test_filter_listview_conformance(#[case] listview: ListViewArray) {
 
 #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `filter`"]
 #[test]
-fn test_filter_preserves_unreferenced_elements() {
+fn test_filter_preserves_unreferenced_elements() -> VortexResult<()> {
     // ListView-specific: Test that filter preserves the entire elements array.
     //
     // Logical list: [[5,6,7], [2,3], [8,9], [0,1], [1,2,3,4]]
@@ -47,12 +48,12 @@ fn test_filter_preserves_unreferenced_elements() {
     // Filter to keep only 2 lists.
     let mask = Mask::from_iter([true, false, false, true, false]);
     let result = filter(&listview, &mask).unwrap();
-    let result_list = result.to_listview().unwrap();
+    let result_list = result.to_listview()?;
 
     assert_eq!(result_list.len(), 2, "Wrong number of filtered lists");
 
     // Verify the entire elements array is preserved.
-    let result_elements = result_list.elements().to_primitive().unwrap();
+    let result_elements = result_list.elements().to_primitive()?;
     assert_eq!(
         result_elements.as_slice::<i32>(),
         &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
@@ -62,11 +63,13 @@ fn test_filter_preserves_unreferenced_elements() {
     // Verify offsets are unchanged.
     assert_eq!(result_list.offset_at(0), 5, "Wrong offset at index 0");
     assert_eq!(result_list.offset_at(1), 0, "Wrong offset at index 3");
+
+    Ok(())
 }
 
 #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `filter`"]
 #[test]
-fn test_filter_with_gaps() {
+fn test_filter_with_gaps() -> VortexResult<()> {
     // ListView-specific: Test filtering with gaps in elements array.
     //
     // Logical list: [[1,2,3], [7,8,9], [11,12], [2,3], [8,9]]
@@ -81,12 +84,12 @@ fn test_filter_with_gaps() {
     // Filter to keep lists with gaps and overlaps.
     let mask = Mask::from_iter([false, true, true, true, false]);
     let result = filter(&listview, &mask).unwrap();
-    let result_list = result.to_listview().unwrap();
+    let result_list = result.to_listview()?;
 
     assert_eq!(result_list.len(), 3, "Wrong filter result length");
 
     // Verify the entire elements array is preserved including gaps.
-    let result_elements = result_list.elements().to_primitive().unwrap();
+    let result_elements = result_list.elements().to_primitive()?;
     assert_eq!(
         result_elements.as_slice::<i32>(),
         &[1, 2, 3, 999, 999, 999, 7, 8, 9, 999, 11, 12]
@@ -102,11 +105,13 @@ fn test_filter_with_gaps() {
     assert_eq!(list0.scalar_at(0).as_primitive().as_::<i32>().unwrap(), 7);
     assert_eq!(list0.scalar_at(1).as_primitive().as_::<i32>().unwrap(), 8);
     assert_eq!(list0.scalar_at(2).as_primitive().as_::<i32>().unwrap(), 9);
+
+    Ok(())
 }
 
 #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `filter`"]
 #[test]
-fn test_filter_constant_arrays() {
+fn test_filter_constant_arrays() -> VortexResult<()> {
     // ListView-specific: Test filter with ConstantArray for offsets/sizes.
     let elements = buffer![100i32, 200, 300, 400, 500, 600, 700, 800].into_array();
 
@@ -125,7 +130,7 @@ fn test_filter_constant_arrays() {
 
     let mask1 = Mask::from_iter([true, false, true, false]);
     let result1 = filter(&const_offset_list, &mask1).unwrap();
-    let result1_list = result1.to_listview().unwrap();
+    let result1_list = result1.to_listview()?;
 
     assert_eq!(result1_list.len(), 2);
     assert_eq!(result1_list.offset_at(0), 2); // Both offsets are 2
@@ -148,18 +153,20 @@ fn test_filter_constant_arrays() {
 
     let mask2 = Mask::from_iter([true, false, true]);
     let result2 = filter(&both_const_list, &mask2).unwrap();
-    let result2_list = result2.to_listview().unwrap();
+    let result2_list = result2.to_listview()?;
 
     assert_eq!(result2_list.len(), 2);
     assert_eq!(result2_list.offset_at(0), 1);
     assert_eq!(result2_list.offset_at(1), 1);
     assert_eq!(result2_list.size_at(0), 3);
     assert_eq!(result2_list.size_at(1), 3);
+
+    Ok(())
 }
 
 #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `filter`"]
 #[test]
-fn test_filter_extreme_offsets() {
+fn test_filter_extreme_offsets() -> VortexResult<()> {
     // ListView-specific: Test with very large offsets.
     let elements = PrimitiveArray::from_iter(0i32..10000).into_array();
 
@@ -174,7 +181,7 @@ fn test_filter_extreme_offsets() {
     // Filter to keep only 2 lists, demonstrating we keep all 10000 elements.
     let mask = Mask::from_iter([false, true, false, false, true]);
     let result = filter(&listview, &mask).unwrap();
-    let result_list = result.to_listview().unwrap();
+    let result_list = result.to_listview()?;
 
     assert_eq!(result_list.len(), 2);
 
@@ -199,10 +206,12 @@ fn test_filter_extreme_offsets() {
     // Test sparse selection from large dataset.
     let sparse_mask = Mask::from_iter((0..5).map(|i| i == 0 || i == 4));
     let sparse_result = filter(&listview, &sparse_mask).unwrap();
-    let sparse_list = sparse_result.to_listview().unwrap();
+    let sparse_list = sparse_result.to_listview()?;
 
     assert_eq!(sparse_list.len(), 2);
     assert_eq!(sparse_list.offset_at(0), 0); // First list
     assert_eq!(sparse_list.offset_at(1), 7500); // Last list
     assert_eq!(sparse_list.elements().len(), 10000); // Still keeps all elements
+
+    Ok(())
 }
