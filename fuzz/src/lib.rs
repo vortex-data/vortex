@@ -13,7 +13,6 @@ pub use array::Action;
 pub use array::CompressorStrategy;
 pub use array::ExpectedValue;
 pub use array::FuzzArrayAction;
-pub use array::FuzzCompressor;
 pub use array::run_fuzz_action;
 pub use array::sort_canonical_array;
 #[cfg(not(target_arch = "wasm32"))]

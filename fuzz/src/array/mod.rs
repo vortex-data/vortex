@@ -66,15 +66,24 @@ pub struct FuzzArrayAction {
 #[derive(Debug, Clone, Copy)]
 pub enum CompressorStrategy {
     Default,
+    #[cfg(not(target_arch = "wasm32"))]
     Compact,
 }
 
 impl<'a> Arbitrary<'a> for CompressorStrategy {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
-        if u.arbitrary()? {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if u.arbitrary()? {
+                Ok(CompressorStrategy::Default)
+            } else {
+                Ok(CompressorStrategy::Compact)
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = u;
             Ok(CompressorStrategy::Default)
-        } else {
-            Ok(CompressorStrategy::Compact)
         }
     }
 }
@@ -476,16 +485,26 @@ fn random_action_from_list(
     u.choose_iter(actions).copied()
 }
 
-/// Trait for compressing arrays during fuzzing.
-///
-/// This allows different fuzz targets to use different compression strategies
-/// (e.g., native can use CompactCompressor which requires zstd, while WASM cannot).
-pub trait FuzzCompressor {
-    /// Compress an array using the default strategy.
-    fn compress_default(&self, array: &dyn Array) -> ArrayRef;
+/// Compress an array using the given strategy.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn compress_array(array: &dyn Array, strategy: CompressorStrategy) -> ArrayRef {
+    use vortex_layout::layouts::compact::CompactCompressor;
 
-    /// Compress an array using the compact strategy.
-    fn compress_compact(&self, array: &dyn Array) -> ArrayRef;
+    match strategy {
+        CompressorStrategy::Default => BtrBlocksCompressor::default()
+            .compress(array)
+            .vortex_unwrap(),
+        CompressorStrategy::Compact => CompactCompressor::default().compress(array).vortex_unwrap(),
+    }
+}
+
+/// Compress an array using the given strategy (WASM version - only Default available).
+#[cfg(target_arch = "wasm32")]
+pub fn compress_array(array: &dyn Array, _strategy: CompressorStrategy) -> ArrayRef {
+    // On WASM, only Default strategy is available (Compact requires zstd)
+    BtrBlocksCompressor::default()
+        .compress(array)
+        .vortex_unwrap()
 }
 
 /// Run a fuzz action and return whether to keep it in the corpus.
@@ -495,10 +514,7 @@ pub trait FuzzCompressor {
 /// - `Ok(false)` - reject from corpus
 /// - `Err(_)` - a bug was found
 #[allow(clippy::result_large_err)]
-pub fn run_fuzz_action<C: FuzzCompressor>(
-    fuzz_action: FuzzArrayAction,
-    compressor: &C,
-) -> crate::error::VortexFuzzResult<bool> {
+pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzzResult<bool> {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::compare;
@@ -516,10 +532,7 @@ pub fn run_fuzz_action<C: FuzzCompressor>(
         match action {
             Action::Compress(strategy) => {
                 let canonical = current_array.to_canonical();
-                current_array = match strategy {
-                    CompressorStrategy::Default => compressor.compress_default(canonical.as_ref()),
-                    CompressorStrategy::Compact => compressor.compress_compact(canonical.as_ref()),
-                };
+                current_array = compress_array(canonical.as_ref(), strategy);
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }
             Action::Slice(range) => {
@@ -537,7 +550,7 @@ pub fn run_fuzz_action<C: FuzzCompressor>(
                 let mut sorted = sort_canonical_array(&current_array).vortex_unwrap();
 
                 if !current_array.is_canonical() {
-                    sorted = compressor.compress_default(&sorted);
+                    sorted = compress_array(&sorted, CompressorStrategy::Default);
                 }
                 assert_search_sorted(sorted, s, side, expected.search(), i)?;
             }

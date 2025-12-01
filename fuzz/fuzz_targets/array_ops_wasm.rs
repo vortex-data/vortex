@@ -6,9 +6,6 @@
 //! This target is designed to work with wasmfuzz and exports:
 //! - `LLVMFuzzerTestOneInput` - the fuzzing entry point
 //! - `wasmfuzz_malloc` / `wasmfuzz_free` - memory allocation for wasmfuzz to pass input data
-//!
-//! wasmfuzz looks for `wasmfuzz_malloc`/`wasmfuzz_free` or `malloc`/`free` exports.
-//! We provide `wasmfuzz_malloc`/`wasmfuzz_free` using Rust's global allocator.
 
 #![allow(clippy::unwrap_used, clippy::result_large_err)]
 
@@ -18,37 +15,10 @@ use std::alloc::dealloc;
 
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
-use vortex_array::Array;
-use vortex_array::ArrayRef;
-use vortex_btrblocks::BtrBlocksCompressor;
-use vortex_error::VortexUnwrap;
 use vortex_fuzz::FuzzArrayAction;
-use vortex_fuzz::FuzzCompressor;
 use vortex_fuzz::run_fuzz_action;
 
-/// WASM compressor - uses BtrBlocks for both strategies since CompactCompressor
-/// requires zstd which may not be available in WASM.
-struct WasmCompressor;
-
-impl FuzzCompressor for WasmCompressor {
-    fn compress_default(&self, array: &dyn Array) -> ArrayRef {
-        BtrBlocksCompressor::default()
-            .compress(array)
-            .vortex_unwrap()
-    }
-
-    fn compress_compact(&self, array: &dyn Array) -> ArrayRef {
-        // CompactCompressor requires zstd which may not be available in WASM,
-        // so we fall back to BtrBlocks
-        BtrBlocksCompressor::default()
-            .compress(array)
-            .vortex_unwrap()
-    }
-}
-
 /// Allocate memory for wasmfuzz to pass input data.
-///
-/// wasmfuzz requires a `wasmfuzz_malloc` or `malloc` export to allocate space for fuzz inputs.
 ///
 /// # Safety
 ///
@@ -82,7 +52,6 @@ pub unsafe extern "C" fn wasmfuzz_free(ptr: *mut u8, size: usize) {
 
 /// The entry point for wasmfuzz.
 ///
-/// This function is called by wasmfuzz with fuzzer-generated input data.
 /// Returns 0 on success, -1 to reject the input from the corpus.
 ///
 /// # Safety
@@ -91,28 +60,18 @@ pub unsafe extern "C" fn wasmfuzz_free(ptr: *mut u8, size: usize) {
 /// `size` bytes. This is guaranteed by wasmfuzz when calling this function.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LLVMFuzzerTestOneInput(data: *const u8, size: usize) -> i32 {
-    // Safety: wasmfuzz guarantees data is valid for size bytes
     let slice = unsafe { std::slice::from_raw_parts(data, size) };
 
     let mut u = Unstructured::new(slice);
     let Ok(fuzz_action) = FuzzArrayAction::arbitrary(&mut u) else {
-        return -1; // Reject malformed input
+        return -1;
     };
 
-    match run_fuzz_action(fuzz_action, &WasmCompressor) {
-        Ok(true) => 0,   // Keep in corpus
-        Ok(false) => -1, // Reject from corpus
-        Err(_) => {
-            // A fuzz error means we found a bug - this will cause wasmfuzz to save the input
-            1
-        }
+    match run_fuzz_action(fuzz_action) {
+        Ok(true) => 0,
+        Ok(false) => -1,
+        Err(_) => 1,
     }
 }
 
-/// Main function required for WASM binary.
-///
-/// For wasmfuzz reactor mode, this is called once at initialization.
-/// The actual fuzzing happens through `LLVMFuzzerTestOneInput`.
-fn main() {
-    // Nothing to do - wasmfuzz calls LLVMFuzzerTestOneInput directly
-}
+fn main() {}
