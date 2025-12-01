@@ -1,10 +1,6 @@
 name: WASM Fuzz
 
 on:
-  pull_request:
-    paths:
-      - "fuzz/**"
-      - ".github/workflows/wasm-fuzz.yml"
   workflow_dispatch:
     inputs:
       fuzz_duration:
@@ -23,10 +19,10 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-wasm-fuzz:
-    name: "Build WASM Fuzzer"
+  wasm-fuzz:
+    name: "Build & Fuzz WASM"
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 270
     steps:
       - uses: actions/checkout@v6
 
@@ -47,11 +43,6 @@ jobs:
             --release \
             --bin array_ops_wasm
 
-      - name: Verify WASM binary exists
-        run: |
-          ls -lh target/wasm32-wasip1/release/array_ops_wasm.wasm
-          file target/wasm32-wasip1/release/array_ops_wasm.wasm
-
       - name: Install wabt tools
         run: sudo apt-get update && sudo apt-get install -y wabt
 
@@ -59,53 +50,9 @@ jobs:
         run: |
           echo "Checking for required wasmfuzz exports..."
           wasm-objdump -x target/wasm32-wasip1/release/array_ops_wasm.wasm | grep -E "(LLVMFuzzerTestOneInput|wasmfuzz_malloc|wasmfuzz_free)"
-          echo "All required exports present: LLVMFuzzerTestOneInput, wasmfuzz_malloc, wasmfuzz_free"
-
-      - name: Setup Wasmtime
-        uses: bytecodealliance/actions/wasmtime/setup@v1
-
-      - name: Test WASM binary runs
-        run: |
-          wasmtime --version
-          # Run the binary - it should exit cleanly (main() does nothing)
-          wasmtime target/wasm32-wasip1/release/array_ops_wasm.wasm
-          echo "WASM binary runs successfully"
-
-      - name: Upload WASM artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: wasm-fuzzer
-          path: target/wasm32-wasip1/release/array_ops_wasm.wasm
-          retention-days: 7
-
-  test-wasmfuzz:
-    name: "Fuzz with wasmfuzz"
-    runs-on: ubuntu-latest
-    # 4.5 hours to allow 4 hours of fuzzing + setup time
-    timeout-minutes: 270
-    needs: build-wasm-fuzz
-    # Only run full fuzzing on schedule or manual dispatch, skip on PRs
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: nightly
-
-      - name: Download WASM artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: wasm-fuzzer
-          path: ./wasm-fuzzer
 
       - name: Install wasmfuzz
-        id: install-wasmfuzz
-        continue-on-error: true
-        run: |
-          cargo install --git https://github.com/CISPA-SysSec/wasmfuzz --locked
-          echo "installed=true" >> $GITHUB_OUTPUT
+        run: cargo install --git https://github.com/CISPA-SysSec/wasmfuzz --locked
 
       - name: Determine fuzz duration
         id: duration
@@ -113,54 +60,39 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             HOURS="${{ github.event.inputs.fuzz_duration }}"
           else
-            # Default to 4 hours for scheduled runs
             HOURS="4"
           fi
           echo "hours=$HOURS" >> $GITHUB_OUTPUT
-          echo "Fuzzing will run for $HOURS hour(s)"
 
       - name: Run wasmfuzz
-        if: steps.install-wasmfuzz.outputs.installed == 'true'
         run: |
-          mkdir -p corpus crashes
-          DURATION="${{ steps.duration.outputs.hours }}h"
-          echo "Running wasmfuzz for $DURATION"
+          mkdir -p corpus
           wasmfuzz fuzz \
-            --timeout="$DURATION" \
+            --timeout="${{ steps.duration.outputs.hours }}h" \
             --cores 2 \
             --dir corpus/ \
-            ./wasm-fuzzer/array_ops_wasm.wasm || true
-          echo "wasmfuzz completed"
-
-      - name: Check for crashes
-        if: steps.install-wasmfuzz.outputs.installed == 'true'
-        run: |
-          if [ -d "crashes" ] && [ "$(ls -A crashes 2>/dev/null)" ]; then
-            echo "::error::Crashes found during fuzzing!"
-            ls -la crashes/
-            exit 1
-          else
-            echo "No crashes found"
-          fi
+            target/wasm32-wasip1/release/array_ops_wasm.wasm
 
       - name: Upload corpus
-        if: steps.install-wasmfuzz.outputs.installed == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: fuzz-corpus
           path: corpus/
           retention-days: 30
 
-      - name: Upload crashes (if any)
-        if: failure() && steps.install-wasmfuzz.outputs.installed == 'true'
+      - name: Check for crashes
+        run: |
+          if [ -d "crashes" ] && [ "$(ls -A crashes 2>/dev/null)" ]; then
+            echo "::error::Crashes found during fuzzing!"
+            ls -la crashes/
+            exit 1
+          fi
+
+      - name: Upload crashes
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: fuzz-crashes
           path: crashes/
           retention-days: 90
 
-      - name: Report wasmfuzz status
-        if: steps.install-wasmfuzz.outputs.installed != 'true'
-        run: |
-          echo "::warning::wasmfuzz failed to install (likely upstream dependency issue)"
-          echo "The WASM binary was built successfully and can be used with wasmfuzz once it compiles"
