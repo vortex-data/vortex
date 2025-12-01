@@ -396,16 +396,12 @@ jobs:
       - extras=s3-cache
       - tag=rust-test-sanitizer
     env:
-      # Add debug symbols and enable ASAN/LSAN with better output
-      RUSTFLAGS: "-A warnings -Zsanitizer=address -Zsanitizer=leak --cfg disable_loom -C debuginfo=2 -C opt-level=0 -C strip=none"
-      ASAN_OPTIONS: "symbolize=1:print_stats=1:check_initialization_order=1:detect_leaks=1:halt_on_error=0:verbosity=1:leak_check_at_exit=1"
-      LSAN_OPTIONS: "verbosity=1:report_objects=1"
+      # Enable ASAN with leak detection (LSAN is included in ASAN via detect_leaks)
+      RUSTFLAGS: "-A warnings -Zsanitizer=address --cfg disable_loom -C debuginfo=1 -C opt-level=1 -C strip=none"
+      ASAN_OPTIONS: "symbolize=1:check_initialization_order=1:detect_leaks=1:halt_on_error=0"
       ASAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
       # Link against DuckDB debug build
       VX_DUCKDB_DEBUG: "1"
-      # Keep frame pointers for better stack traces
-      CARGO_PROFILE_DEV_DEBUG: "true"
-      CARGO_PROFILE_TEST_DEBUG: "true"
     steps:
       - uses: runs-on/action@v2
         with:
@@ -431,16 +427,13 @@ jobs:
           tool: nextest
       - name: Rust Tests
         run: |
-          # Build with full debug info first (helps with caching)
-          cargo +nightly build --locked --workspace --all-features --target x86_64-unknown-linux-gnu
-          # Run tests with sanitizers and debug output
+          # Run tests with sanitizers (nextest builds what it needs)
           cargo +nightly nextest run \
             --locked \
             --workspace \
             --all-features \
             --no-fail-fast \
-            --target x86_64-unknown-linux-gnu \
-            --verbose
+            --target x86_64-unknown-linux-gnu
 
   rust-test-other:
     name: "Rust tests (${{ matrix.os }})"
