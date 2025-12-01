@@ -280,7 +280,10 @@ fn test_cast_with_nulls() -> VortexResult<()> {
 #[rstest]
 #[case::empty_lists(vec![0, 1, 0, 1], 4)]
 #[case::overlapping(vec![3, 3, 5], 3)]
-fn test_cast_special_patterns(#[case] expected_sizes: Vec<usize>, #[case] list_count: usize) -> VortexResult<()> {
+fn test_cast_special_patterns(
+    #[case] expected_sizes: Vec<usize>,
+    #[case] list_count: usize,
+) -> VortexResult<()> {
     let is_empty_case = list_count == 4;
 
     let (elements, offsets, sizes) = if is_empty_case {

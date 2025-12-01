@@ -8,9 +8,8 @@ use vortex_buffer::buffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_scalar::Scalar;
-
 use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::IntoArray;

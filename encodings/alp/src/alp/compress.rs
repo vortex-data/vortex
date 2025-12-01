@@ -150,7 +150,7 @@ mod tests {
         assert_arrays_eq!(encoded.encoded(), expected_encoded);
         assert_eq!(encoded.exponents(), Exponents { e: 9, f: 6 });
 
-        let decoded = decompress_into_array(encoded);
+        let decoded = decompress_into_array(encoded).unwrap();
         assert_arrays_eq!(decoded, array);
     }
 
@@ -163,7 +163,7 @@ mod tests {
         assert_arrays_eq!(encoded.encoded(), expected_encoded);
         assert_eq!(encoded.exponents(), Exponents { e: 9, f: 6 });
 
-        let decoded = decompress_into_array(encoded);
+        let decoded = decompress_into_array(encoded).unwrap();
         let expected = PrimitiveArray::from_option_iter(vec![None, Some(1.234f32), None]);
         assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
     }
@@ -179,7 +179,7 @@ mod tests {
         assert_arrays_eq!(encoded.encoded(), expected_encoded);
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
-        let decoded = decompress_into_array(encoded);
+        let decoded = decompress_into_array(encoded).unwrap();
         let expected_decoded = PrimitiveArray::new(values, Validity::NonNullable);
         assert_arrays_eq!(decoded.as_ref(), expected_decoded.as_ref());
     }
@@ -196,7 +196,7 @@ mod tests {
         assert_arrays_eq!(encoded.encoded(), expected_encoded);
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
-        let decoded = decompress_into_array(encoded);
+        let decoded = decompress_into_array(encoded).unwrap();
         assert_arrays_eq!(decoded, array);
     }
 
@@ -217,7 +217,7 @@ mod tests {
 
         assert_arrays_eq!(encoded.as_ref(), array.as_ref());
 
-        let _decoded = decompress_into_array(encoded);
+        let _decoded = decompress_into_array(encoded).unwrap();
     }
 
     #[test]
@@ -468,7 +468,7 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
 
         assert!(encoded.patches().is_none());
-        let decoded = decompress_into_array(encoded);
+        let decoded = decompress_into_array(encoded).unwrap();
         assert_eq!(array.as_slice::<f32>(), decoded.as_slice::<f32>());
     }
 
@@ -479,7 +479,7 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
 
         assert!(encoded.patches().is_none());
-        let decoded = decompress_into_array(encoded);
+        let decoded = decompress_into_array(encoded).unwrap();
         assert_eq!(array.as_slice::<f64>(), decoded.as_slice::<f64>());
     }
 
@@ -496,7 +496,7 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
 
         assert!(encoded.patches().is_some());
-        let decoded = decompress_into_array(encoded);
+        let decoded = decompress_into_array(encoded).unwrap();
         assert_eq!(values.as_slice(), decoded.as_slice::<f32>());
     }
 
@@ -517,7 +517,7 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
 
         assert!(encoded.patches().is_some());
-        let decoded = decompress_into_array(encoded);
+        let decoded = decompress_into_array(encoded).unwrap();
 
         for idx in 0..size {
             let decoded_val = decoded.as_slice::<f64>()[idx];
@@ -544,7 +544,7 @@ mod tests {
 
         let array = PrimitiveArray::from_option_iter(values);
         let encoded = alp_encode(&array, None).unwrap();
-        let decoded = decompress_into_array(encoded);
+        let decoded = decompress_into_array(encoded).unwrap();
 
         assert_arrays_eq!(decoded.as_ref(), array.as_ref());
     }
@@ -564,7 +564,7 @@ mod tests {
 
         let array = PrimitiveArray::new(Buffer::from(values), validity);
         let encoded = alp_encode(&array, None).unwrap();
-        let decoded = decompress_into_array(encoded);
+        let decoded = decompress_into_array(encoded).unwrap();
 
         assert_arrays_eq!(decoded.as_ref(), array.as_ref());
     }

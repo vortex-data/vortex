@@ -421,7 +421,7 @@ impl BaseArrayVTable<ALPVTable> for ALPVTable {
 
 impl CanonicalVTable<ALPVTable> for ALPVTable {
     fn canonicalize(array: &ALPArray) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(decompress_into_array(array.clone())))
+        Ok(Canonical::Primitive(decompress_into_array(array.clone())?))
     }
 }
 
@@ -482,7 +482,7 @@ mod tests {
 
         let result_vector = encoded.to_array().execute(&SESSION).unwrap();
         // Compare against the traditional array-based decompress path
-        let expected = decompress_into_array(encoded);
+        let expected = decompress_into_array(encoded).unwrap();
 
         assert_eq!(result_vector.len(), size);
 
@@ -506,7 +506,7 @@ mod tests {
 
         let result_vector = encoded.to_array().execute(&SESSION).unwrap();
         // Compare against the traditional array-based decompress path
-        let expected = decompress_into_array(encoded);
+        let expected = decompress_into_array(encoded).unwrap();
 
         assert_eq!(result_vector.len(), size);
 
@@ -536,7 +536,7 @@ mod tests {
 
         let result_vector = encoded.to_array().execute(&SESSION).unwrap();
         // Compare against the traditional array-based decompress path
-        let expected = decompress_into_array(encoded);
+        let expected = decompress_into_array(encoded).unwrap();
 
         assert_eq!(result_vector.len(), size);
 
@@ -564,7 +564,7 @@ mod tests {
 
         let result_vector = encoded.to_array().execute(&SESSION).unwrap();
         // Compare against the traditional array-based decompress path
-        let expected = decompress_into_array(encoded);
+        let expected = decompress_into_array(encoded).unwrap();
 
         assert_eq!(result_vector.len(), size);
 
@@ -575,7 +575,7 @@ mod tests {
         for idx in 0..size {
             assert_eq!(
                 result_primitive.validity().value(idx),
-                expected.validity().is_valid(idx)
+                expected.validity().is_valid(idx).unwrap()
             );
         }
     }
@@ -603,7 +603,7 @@ mod tests {
 
         let result_vector = encoded.to_array().execute(&SESSION).unwrap();
         // Compare against the traditional array-based decompress path
-        let expected = decompress_into_array(encoded);
+        let expected = decompress_into_array(encoded).unwrap();
 
         assert_eq!(result_vector.len(), size);
 
@@ -614,7 +614,7 @@ mod tests {
         for idx in 0..size {
             assert_eq!(
                 result_primitive.validity().value(idx),
-                expected.validity().is_valid(idx)
+                expected.validity().is_valid(idx).unwrap()
             );
         }
     }

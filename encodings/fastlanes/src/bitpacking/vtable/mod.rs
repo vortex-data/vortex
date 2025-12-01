@@ -172,7 +172,7 @@ impl VTable for BitPackedVTable {
         )
     }
 
-    fn execute(array: &BitPackedArray, _ctx: &mut dyn ExecutionCtx) -> VortexResult<Vector> {
+    fn batch_execute(array: &BitPackedArray, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(unpack_to_primitive_vector(array)?.freeze().into())
     }
 }

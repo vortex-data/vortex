@@ -84,7 +84,10 @@ fn test_nullable_listview_comprehensive() -> VortexResult<()> {
 #[case::all_nulls(Validity::AllInvalid, vec![false, false, false])]
 #[case::all_valid(Validity::AllValid, vec![true, true, true])]
 #[case::mixed(Validity::from_iter([false, true, false]), vec![false, true, false])]
-fn test_nullable_patterns(#[case] validity: Validity, #[case] expected_validity: Vec<bool>) -> VortexResult<()> {
+fn test_nullable_patterns(
+    #[case] validity: Validity,
+    #[case] expected_validity: Vec<bool>,
+) -> VortexResult<()> {
     // Logical lists: [[1,2], [3,4], [5,6]] with varying validity
     let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
     let offsets = buffer![0i32, 2, 4].into_array();

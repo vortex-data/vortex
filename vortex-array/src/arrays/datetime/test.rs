@@ -200,10 +200,7 @@ fn test_validity_preservation(#[case] validity: Validity) -> VortexResult<()> {
         Some("UTC".to_string()),
     );
     assert_eq!(
-        temporal_array
-            .temporal_values()
-            .to_primitive()?
-            .validity(),
+        temporal_array.temporal_values().to_primitive()?.validity(),
         &validity
     );
     Ok(())

@@ -106,10 +106,7 @@ fn test_masked_child_preserves_length(#[case] validity: Validity) -> VortexResul
 
     let masked = array.masked_child().unwrap();
     assert_eq!(masked.len(), len);
-    assert_eq!(
-        masked.validity_mask()?,
-        validity.to_mask(len)?
-    );
+    assert_eq!(masked.validity_mask()?, validity.to_mask(len)?);
     assert_eq!(
         array.as_ref().display_values().to_string(),
         masked.display_values().to_string()

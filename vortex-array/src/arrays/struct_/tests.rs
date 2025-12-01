@@ -47,19 +47,12 @@ fn test_project() -> vortex_error::VortexResult<()> {
 
     let bools = &struct_b.fields[0];
     assert_eq!(
-        bools
-            .to_bool()?
-            .bit_buffer()
-            .iter()
-            .collect::<Vec<_>>(),
+        bools.to_bool()?.bit_buffer().iter().collect::<Vec<_>>(),
         vec![true, true, true, false, false]
     );
 
     let prims = &struct_b.fields[1];
-    assert_eq!(
-        prims.to_primitive()?.as_slice::<i64>(),
-        [0i64, 1, 2, 3, 4]
-    );
+    assert_eq!(prims.to_primitive()?.as_slice::<i64>(), [0i64, 1, 2, 3, 4]);
     Ok(())
 }
 
