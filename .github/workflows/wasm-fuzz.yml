@@ -95,4 +95,3 @@ jobs:
           name: fuzz-crashes
           path: crashes/
           retention-days: 90
-
