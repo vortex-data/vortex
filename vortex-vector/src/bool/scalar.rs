@@ -43,3 +43,9 @@ impl From<BoolScalar> for Scalar {
         Scalar::Bool(val)
     }
 }
+
+impl From<bool> for Scalar {
+    fn from(value: bool) -> Self {
+        BoolScalar::new(Some(value)).into()
+    }
+}
