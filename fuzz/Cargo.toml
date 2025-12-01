@@ -30,7 +30,7 @@ itertools = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
 
 # Vortex core - no default features for WASM compatibility (files feature pulls in tokio)
-vortex = { workspace = true }
+vortex = { path = "../vortex", default-features = false }
 vortex-array = { workspace = true, features = ["arbitrary", "test-harness"] }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }

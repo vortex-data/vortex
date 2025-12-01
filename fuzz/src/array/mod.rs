@@ -66,13 +66,13 @@ pub struct FuzzArrayAction {
 #[derive(Debug, Clone, Copy)]
 pub enum CompressorStrategy {
     Default,
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "zstd")]
     Compact,
 }
 
 impl<'a> Arbitrary<'a> for CompressorStrategy {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(feature = "zstd")]
         {
             if u.arbitrary()? {
                 Ok(CompressorStrategy::Default)
@@ -80,7 +80,7 @@ impl<'a> Arbitrary<'a> for CompressorStrategy {
                 Ok(CompressorStrategy::Compact)
             }
         }
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(not(feature = "zstd"))]
         {
             let _ = u;
             Ok(CompressorStrategy::Default)
@@ -486,7 +486,7 @@ fn random_action_from_list(
 }
 
 /// Compress an array using the given strategy.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "zstd")]
 pub fn compress_array(array: &dyn Array, strategy: CompressorStrategy) -> ArrayRef {
     use vortex_layout::layouts::compact::CompactCompressor;
 
@@ -498,10 +498,9 @@ pub fn compress_array(array: &dyn Array, strategy: CompressorStrategy) -> ArrayR
     }
 }
 
-/// Compress an array using the given strategy (WASM version - only Default available).
-#[cfg(target_arch = "wasm32")]
+/// Compress an array using the given strategy (only Default).
+#[cfg(not(feature = "zstd"))]
 pub fn compress_array(array: &dyn Array, _strategy: CompressorStrategy) -> ArrayRef {
-    // On WASM, only Default strategy is available (Compact requires zstd)
     BtrBlocksCompressor::default()
         .compress(array)
         .vortex_unwrap()

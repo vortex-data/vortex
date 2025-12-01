@@ -32,7 +32,7 @@ paste = { workspace = true }
 prost = { workspace = true }
 simplelog = { workspace = true }
 url = { workspace = true, features = [] }
-vortex = { workspace = true, features = ["files", "object_store"] }
+vortex = { workspace = true, features = ["object_store"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

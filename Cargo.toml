@@ -214,7 +214,7 @@ witchcraft-metrics = "1.0.1"
 zip = "6.0.0"
 
 # BEGIN crates published by this project
-vortex = { version = "0.1.0", path = "./vortex", default-features = false }
+vortex = { version = "0.1.0", path = "./vortex" }
 vortex-alp = { version = "0.1.0", path = "./encodings/alp", default-features = false }
 vortex-array = { version = "0.1.0", path = "./vortex-array", default-features = false }
 vortex-btrblocks = { version = "0.1.0", path = "./vortex-btrblocks", default-features = false }
