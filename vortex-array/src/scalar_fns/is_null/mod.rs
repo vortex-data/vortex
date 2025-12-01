@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Not;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_error::VortexResult;
@@ -19,8 +20,8 @@ use crate::expr::functions::EmptyOptions;
 use crate::expr::functions::ExecutionArgs;
 use crate::expr::functions::VTable;
 
-pub struct IsNull;
-impl VTable for IsNull {
+pub struct IsNullFn;
+impl VTable for IsNullFn {
     type Options = EmptyOptions;
 
     fn id(&self) -> ExprId {
@@ -46,7 +47,7 @@ impl VTable for IsNull {
         Ok(match args.input_datums(0) {
             Datum::Scalar(sc) => Datum::Scalar(sc.is_invalid().into()),
             Datum::Vector(vec) => Vector::Bool(BoolVector::new(
-                vec.validity().to_bit_buffer(),
+                vec.validity().to_bit_buffer().not(),
                 Mask::AllTrue(vec.len()),
             ))
             .into(),

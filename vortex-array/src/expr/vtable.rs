@@ -156,6 +156,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
 
     /// **For internal usage**. This will return an Expression that is part of the
     /// expression -> new_expression migration.
+    #[doc(hidden)]
     fn expr_v2(&self, expr: &ExpressionView<Self>) -> VortexResult<Expression> {
         Ok(expr.deref().clone())
     }

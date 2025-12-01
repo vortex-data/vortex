@@ -3,7 +3,7 @@
 
 use std::fmt::Formatter;
 use std::ops::Not;
-
+use is_null::IsNullFn;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
@@ -115,7 +115,7 @@ impl VTable for IsNull {
     }
 
     fn expr_v2(&self, view: &ExpressionView<Self>) -> VortexResult<Expression> {
-        ScalarFnExprExt::try_new_expr(&is_null::IsNull, EmptyOptions, view.children().clone())
+        ScalarFnExprExt::try_new_expr(&IsNullFn, EmptyOptions, view.children().clone())
     }
 }
 
