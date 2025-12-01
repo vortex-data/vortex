@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_session::registry::Registry;
 use vortex_session::Ref;
 use vortex_session::SessionExt;
-use vortex_session::registry::Registry;
 
-use crate::arrays::BoolMaskedValidityRule;
 use crate::arrays::BoolVTable;
 use crate::arrays::ChunkedVTable;
 use crate::arrays::ConstantVTable;
-use crate::arrays::DecimalMaskedValidityRule;
 use crate::arrays::DecimalVTable;
 use crate::arrays::ExtensionVTable;
 use crate::arrays::FixedSizeListVTable;
@@ -17,7 +15,6 @@ use crate::arrays::ListVTable;
 use crate::arrays::ListViewVTable;
 use crate::arrays::MaskedVTable;
 use crate::arrays::NullVTable;
-use crate::arrays::PrimitiveMaskedValidityRule;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::StructVTable;
 use crate::arrays::VarBinVTable;
@@ -94,9 +91,6 @@ impl Default for ArraySession {
         };
 
         let optimizer = session.optimizer_mut();
-        optimizer.register_parent_rule(BoolMaskedValidityRule);
-        optimizer.register_parent_rule(PrimitiveMaskedValidityRule);
-        optimizer.register_parent_rule(DecimalMaskedValidityRule);
 
         // Scalar function rules
         optimizer.register_reduce_rule(CastArrayReduce);

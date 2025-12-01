@@ -6,16 +6,14 @@ mod canonical;
 mod operations;
 mod validity;
 
+use prost::Message;
 use vortex_buffer::BufferHandle;
 use vortex_compute::mask::MaskValidity;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::VortexResult;
 use vortex_vector::Vector;
 
-use crate::ArrayBufferVisitor;
-use crate::ArrayChildVisitor;
-use crate::EmptyMetadata;
 use crate::arrays::masked::MaskedArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
@@ -26,11 +24,14 @@ use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
-use crate::vtable::ValidityVTableFromValidityHelper;
 use crate::vtable::VisitorVTable;
+use crate::ArrayBufferVisitor;
+use crate::ArrayChildVisitor;
 
 vtable!(Masked);
 
+/// An array that returns the child array, but with its validity intersected with an additional
+/// validity mask.
 #[derive(Debug)]
 pub struct MaskedVTable;
 
@@ -43,15 +44,24 @@ impl VisitorVTable<MaskedVTable> for MaskedVTable {
     }
 }
 
+#[derive(Clone, prost::Message)]
+pub struct MaskedMetadata {
+    /// If true, then the child array's DType is the same as the masked array.
+    /// If false, then the child array's DType is the masked array's DType.as_nonnullable() as was
+    /// the legacy behavior of this array.
+    #[prost(bool, tag = "1")]
+    pub(super) passthrough_child_dtype: bool,
+}
+
 impl VTable for MaskedVTable {
     type Array = MaskedArray;
 
-    type Metadata = EmptyMetadata;
+    type Metadata = MaskedMetadata;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
@@ -65,22 +75,24 @@ impl VTable for MaskedVTable {
     }
 
     fn metadata(_array: &MaskedArray) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
+        Ok(MaskedMetadata {
+            passthrough_child_dtype: true,
+        })
     }
 
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
+    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.encode_to_vec()))
     }
 
-    fn deserialize(_buffer: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
+    fn deserialize(bytes: &[u8]) -> VortexResult<Self::Metadata> {
+        Ok(MaskedMetadata::decode(bytes)?)
     }
 
     fn build(
         &self,
         dtype: &DType,
         len: usize,
-        _metadata: &Self::Metadata,
+        metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<MaskedArray> {
@@ -88,7 +100,13 @@ impl VTable for MaskedVTable {
             vortex_bail!("Expected 0 buffer, got {}", buffers.len());
         }
 
-        let child = children.get(0, &dtype.as_nonnullable(), len)?;
+        let child_dtype = if metadata.passthrough_child_dtype {
+            dtype.clone()
+        } else {
+            dtype.as_nonnullable()
+        };
+
+        let child = children.get(0, &child_dtype, len)?;
 
         let validity = if children.len() == 1 {
             Validity::from(dtype.nullability())
@@ -116,8 +134,6 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::ByteBufferMut;
 
-    use crate::ArrayContext;
-    use crate::IntoArray;
     use crate::arrays::MaskedArray;
     use crate::arrays::MaskedVTable;
     use crate::arrays::PrimitiveArray;
@@ -125,6 +141,8 @@ mod tests {
     use crate::serde::SerializeOptions;
     use crate::validity::Validity;
     use crate::vtable::ArrayVTableExt;
+    use crate::ArrayContext;
+    use crate::IntoArray;
 
     #[rstest]
     #[case(

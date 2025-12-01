@@ -3,15 +3,12 @@
 
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
+use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_vector::Vector;
 use vortex_vector::bool::BoolVector;
+use vortex_vector::Vector;
 
-use crate::DeserializeMetadata;
-use crate::ProstMetadata;
-use crate::SerializeMetadata;
 use crate::arrays::BoolArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
@@ -21,15 +18,15 @@ use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
+use crate::DeserializeMetadata;
+use crate::ProstMetadata;
+use crate::SerializeMetadata;
 
 mod array;
 mod canonical;
 mod operations;
-pub mod operator;
 mod validity;
 mod visitor;
-
-pub use operator::BoolMaskedValidityRule;
 
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;

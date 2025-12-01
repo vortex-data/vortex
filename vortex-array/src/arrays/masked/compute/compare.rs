@@ -3,19 +3,19 @@
 
 use vortex_error::VortexResult;
 
-use crate::Array;
-use crate::ArrayRef;
-use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
 use crate::canonical::ToCanonical;
+use crate::compute::compare;
 use crate::compute::CompareKernel;
 use crate::compute::CompareKernelAdapter;
 use crate::compute::Operator;
-use crate::compute::compare;
 use crate::register_kernel;
 use crate::vtable::ValidityHelper;
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
 
 impl CompareKernel for MaskedVTable {
     fn compare(
@@ -29,7 +29,7 @@ impl CompareKernel for MaskedVTable {
 
         // Get the boolean buffer from the comparison result
         let bool_array = compare_result.to_bool();
-        let combined_validity = bool_array.validity().clone().and(lhs.validity().clone());
+        let combined_validity = bool_array.validity().clone().and(lhs.mask().clone());
 
         // Return a plain BoolArray with the combined validity
         Ok(Some(
@@ -47,14 +47,14 @@ mod tests {
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
-    use crate::IntoArray;
-    use crate::ToCanonical;
     use crate::arrays::ConstantArray;
     use crate::arrays::MaskedArray;
     use crate::arrays::PrimitiveArray;
-    use crate::compute::Operator;
     use crate::compute::compare;
+    use crate::compute::Operator;
     use crate::validity::Validity;
+    use crate::IntoArray;
+    use crate::ToCanonical;
 
     #[test]
     fn test_compare_value() {

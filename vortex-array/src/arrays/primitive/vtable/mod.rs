@@ -4,15 +4,14 @@
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferHandle;
+use vortex_dtype::match_each_native_ptype;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
-use vortex_dtype::match_each_native_ptype;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_vector::Vector;
+use vortex_error::VortexResult;
 use vortex_vector::primitive::PVector;
+use vortex_vector::Vector;
 
-use crate::EmptyMetadata;
 use crate::arrays::PrimitiveArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
@@ -22,15 +21,13 @@ use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
+use crate::EmptyMetadata;
 
 mod array;
 mod canonical;
 mod operations;
-pub mod operator;
 mod validity;
 mod visitor;
-
-pub use operator::PrimitiveMaskedValidityRule;
 
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;

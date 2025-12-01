@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::{BitAnd, Not};
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::VortexResult;
 
-use crate::ArrayRef;
 use crate::compute::mask;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+use crate::{Array, ArrayRef};
 
 #[derive(Clone, Debug)]
 pub struct MaskedArray {
@@ -20,14 +21,6 @@ pub struct MaskedArray {
 
 impl MaskedArray {
     pub fn try_new(child: ArrayRef, validity: Validity) -> VortexResult<Self> {
-        if matches!(validity, Validity::NonNullable) {
-            vortex_bail!("MaskedArray must have nullable validity, got {validity:?}")
-        }
-
-        if !child.all_valid() {
-            vortex_bail!("MaskedArray children must not have nulls");
-        }
-
         if let Some(validity_len) = validity.maybe_len()
             && validity_len != child.len()
         {
@@ -50,9 +43,16 @@ impl MaskedArray {
         &self.child
     }
 
+    pub fn mask(&self) -> &Validity {
+        &self.validity
+    }
+
     pub(crate) fn masked_child(&self) -> VortexResult<ArrayRef> {
-        // Invert the validity mask - we want to set values to null where validity is false.
-        let inverted_mask = !self.validity.to_mask(self.len());
-        mask(&self.child, &inverted_mask)
+        let intersected_validity = self
+            .child
+            .validity_mask()
+            .bitand(&self.validity.to_mask(self.len()));
+        // Note: the compute function takes the validity inverted!!
+        mask(&self.child, &intersected_validity.not())
     }
 }
