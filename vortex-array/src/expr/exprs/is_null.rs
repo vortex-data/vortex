@@ -3,6 +3,7 @@
 
 use std::fmt::Formatter;
 use std::ops::Not;
+
 use is_null::IsNullFn;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;

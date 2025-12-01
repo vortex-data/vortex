@@ -319,7 +319,7 @@ pub fn eq(lhs: Expression, rhs: Expression) -> Expression {
 /// ## Example usage
 ///
 /// ```
-/// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
+/// # use vortex_array::arrays::{BoolArray, PrimitiveArray};
 /// # use vortex_array::{IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
