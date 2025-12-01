@@ -4,14 +4,14 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::MaskedArray;
-use crate::arrays::MaskedVTable;
-use crate::compute::filter;
-use crate::compute::FilterKernel;
-use crate::compute::FilterKernelAdapter;
-use crate::register_kernel;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::MaskedArray;
+use crate::arrays::MaskedVTable;
+use crate::compute::FilterKernel;
+use crate::compute::FilterKernelAdapter;
+use crate::compute::filter;
+use crate::register_kernel;
 
 impl FilterKernel for MaskedVTable {
     fn filter(&self, array: &MaskedArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -33,11 +33,11 @@ register_kernel!(FilterKernelAdapter(MaskedVTable).lift());
 mod tests {
     use rstest::rstest;
 
+    use crate::IntoArray;
     use crate::arrays::MaskedArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::validity::Validity;
-    use crate::IntoArray;
 
     #[rstest]
     #[case(

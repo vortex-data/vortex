@@ -10,10 +10,12 @@ use prost::Message;
 use vortex_buffer::BufferHandle;
 use vortex_compute::mask::MaskValidity;
 use vortex_dtype::DType;
-use vortex_error::vortex_bail;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_vector::Vector;
 
+use crate::ArrayBufferVisitor;
+use crate::ArrayChildVisitor;
 use crate::arrays::masked::MaskedArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
@@ -25,8 +27,6 @@ use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::VisitorVTable;
-use crate::ArrayBufferVisitor;
-use crate::ArrayChildVisitor;
 
 vtable!(Masked);
 
@@ -134,6 +134,8 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::ByteBufferMut;
 
+    use crate::ArrayContext;
+    use crate::IntoArray;
     use crate::arrays::MaskedArray;
     use crate::arrays::MaskedVTable;
     use crate::arrays::PrimitiveArray;
@@ -141,8 +143,6 @@ mod tests {
     use crate::serde::SerializeOptions;
     use crate::validity::Validity;
     use crate::vtable::ArrayVTableExt;
-    use crate::ArrayContext;
-    use crate::IntoArray;
 
     #[rstest]
     #[case(

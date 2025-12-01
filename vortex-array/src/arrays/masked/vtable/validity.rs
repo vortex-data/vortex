@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::arrays::masked::MaskedArray;
-use crate::arrays::MaskedVTable;
-use crate::vtable::ValidityVTable;
-use crate::Array;
 use std::ops::BitAnd;
+
 use vortex_mask::Mask;
+
+use crate::Array;
+use crate::arrays::MaskedVTable;
+use crate::arrays::masked::MaskedArray;
+use crate::vtable::ValidityVTable;
 
 impl ValidityVTable<MaskedVTable> for MaskedVTable {
     fn is_valid(array: &MaskedArray, index: usize) -> bool {

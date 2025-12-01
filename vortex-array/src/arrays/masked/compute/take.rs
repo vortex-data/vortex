@@ -4,16 +4,16 @@
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::arrays::MaskedArray;
-use crate::arrays::MaskedVTable;
-use crate::compute::fill_null;
-use crate::compute::take;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::register_kernel;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::MaskedArray;
+use crate::arrays::MaskedVTable;
+use crate::compute::TakeKernel;
+use crate::compute::TakeKernelAdapter;
+use crate::compute::fill_null;
+use crate::compute::take;
+use crate::register_kernel;
 
 impl TakeKernel for MaskedVTable {
     fn take(&self, array: &MaskedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -42,11 +42,11 @@ register_kernel!(TakeKernelAdapter(MaskedVTable).lift());
 mod tests {
     use rstest::rstest;
 
+    use crate::IntoArray;
     use crate::arrays::MaskedArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::validity::Validity;
-    use crate::IntoArray;
 
     #[rstest]
     #[case(

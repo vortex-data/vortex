@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::{BitAnd, Not};
-use vortex_dtype::DType;
-use vortex_error::vortex_bail;
-use vortex_error::VortexResult;
+use std::ops::BitAnd;
+use std::ops::Not;
 
+use vortex_dtype::DType;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+
+use crate::Array;
+use crate::ArrayRef;
 use crate::compute::mask;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::{Array, ArrayRef};
 
 #[derive(Clone, Debug)]
 pub struct MaskedArray {
