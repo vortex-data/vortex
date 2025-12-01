@@ -113,6 +113,11 @@ fn decompress_chunked(
     let array_len = encoded.len();
     let patches_offset = patches.offset();
 
+    // We need to drop ALPArray here in case converting encoded buffer into
+    // primitive didn't create a copy. In that case both alp_encoded and array
+    // will hold a reference to the buffer we want to mutate.
+    drop(array);
+
     Ok(match_each_alp_float_ptype!(ptype, |T| {
         let patches_values = patches_values.as_slice::<T>();
         let mut alp_buffer = encoded.into_buffer_mut();
@@ -163,6 +168,11 @@ fn decompress_unchunked(
     dtype: DType,
 ) -> VortexResult<PrimitiveArray> {
     let encoded = array.to_primitive()?;
+
+    // We need to drop ALPArray here in case converting encoded buffer into
+    // primitive didn't create a copy. In that case both alp_encoded and array
+    // will hold a reference to the buffer we want to mutate.
+    drop(array);
 
     let validity = encoded.validity().clone();
     let ptype = dtype.as_ptype();
