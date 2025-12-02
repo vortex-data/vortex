@@ -6,23 +6,23 @@ use std::fmt::Formatter;
 use prost::Message;
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
+use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_proto::expr as pb;
 
-use crate::ArrayRef;
-use crate::compute::BetweenOptions;
 use crate::compute::between as between_compute;
-use crate::expr::ChildName;
-use crate::expr::ExprId;
-use crate::expr::ExpressionView;
-use crate::expr::StatsCatalog;
-use crate::expr::VTable;
-use crate::expr::VTableExt;
+use crate::compute::BetweenOptions;
 use crate::expr::expression::Expression;
 use crate::expr::exprs::binary::Binary;
 use crate::expr::exprs::operators::Operator;
+use crate::expr::Arity;
+use crate::expr::ChildName;
+use crate::expr::ExprId;
+use crate::expr::StatsCatalog;
+use crate::expr::VTable;
+use crate::expr::VTableExt;
+use crate::ArrayRef;
 
 /// An optimized scalar expression to compute whether values fall between two bounds.
 ///
@@ -38,13 +38,13 @@ use crate::expr::exprs::operators::Operator;
 pub struct Between;
 
 impl VTable for Between {
-    type Instance = BetweenOptions;
+    type Options = BetweenOptions;
 
     fn id(&self) -> ExprId {
         ExprId::from("vortex.between")
     }
 
-    fn serialize(&self, instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::BetweenOpts {
                 lower_strict: instance.lower_strict.is_strict(),
@@ -54,7 +54,7 @@ impl VTable for Between {
         ))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Options>> {
         let opts = pb::BetweenOpts::decode(metadata)?;
         Ok(Some(BetweenOptions {
             lower_strict: if opts.lower_strict {
@@ -80,7 +80,7 @@ impl VTable for Between {
         Ok(())
     }
 
-    fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName {
+    fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
             0 => ChildName::from("array"),
             1 => ChildName::from("lower"),
@@ -146,14 +146,19 @@ impl VTable for Between {
 
     fn stat_falsification(
         &self,
-        expr: &ExpressionView<Self>,
+        _options: &Self::Options,
+        expr: &Expression,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         expr.to_binary_expr().stat_falsification(catalog)
     }
 
-    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
         false
+    }
+
+    fn arity(&self, _options: &Self::Options) -> Arity {
+        Arity::Exact(3)
     }
 }
 

@@ -4,18 +4,16 @@
 use std::fmt::Formatter;
 
 use prost::Message;
-use vortex_dtype::DType;
 use vortex_dtype::match_each_float_ptype;
-use vortex_error::VortexResult;
+use vortex_dtype::DType;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_error::VortexResult;
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 
-use crate::Array;
-use crate::ArrayRef;
-use crate::IntoArray;
 use crate::arrays::ConstantArray;
+use crate::expr::stats::Stat;
 use crate::expr::ChildName;
 use crate::expr::ExprId;
 use crate::expr::Expression;
@@ -23,19 +21,21 @@ use crate::expr::ExpressionView;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::expr::stats::Stat;
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
 
 /// Expression that represents a literal scalar value.
 pub struct Literal;
 
 impl VTable for Literal {
-    type Instance = Scalar;
+    type Options = Scalar;
 
     fn id(&self) -> ExprId {
         ExprId::new_ref("vortex.literal")
     }
 
-    fn serialize(&self, instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::LiteralOpts {
                 value: Some(instance.as_ref().into()),
@@ -44,7 +44,7 @@ impl VTable for Literal {
         ))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Options>> {
         let ops = pb::LiteralOpts::decode(metadata)?;
         Ok(Some(
             ops.value
@@ -64,7 +64,7 @@ impl VTable for Literal {
         Ok(())
     }
 
-    fn child_name(&self, _instance: &Self::Instance, _child_idx: usize) -> ChildName {
+    fn child_name(&self, _instance: &Self::Options, _child_idx: usize) -> ChildName {
         unreachable!()
     }
 
@@ -72,7 +72,7 @@ impl VTable for Literal {
         write!(f, "{}", expr.data())
     }
 
-    fn fmt_data(&self, instance: &Self::Instance, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_data(&self, instance: &Self::Options, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", instance)
     }
 
@@ -127,11 +127,11 @@ impl VTable for Literal {
         }
     }
 
-    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
         false
     }
 
-    fn is_fallible(&self, _instance: &Self::Instance) -> bool {
+    fn is_fallible(&self, _instance: &Self::Options) -> bool {
         false
     }
 }

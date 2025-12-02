@@ -5,31 +5,31 @@ use std::fmt::Formatter;
 
 use prost::Message;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::VortexResult;
 use vortex_proto::expr as pb;
 
-use crate::ArrayRef;
-use crate::compute::LikeOptions;
 use crate::compute::like as like_compute;
+use crate::compute::LikeOptions;
 use crate::expr::ChildName;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::ExpressionView;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
+use crate::ArrayRef;
 
 /// Expression that performs SQL LIKE pattern matching.
 pub struct Like;
 
 impl VTable for Like {
-    type Instance = LikeOptions;
+    type Options = LikeOptions;
 
     fn id(&self) -> ExprId {
         ExprId::from("vortex.like")
     }
 
-    fn serialize(&self, instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::LikeOpts {
                 negated: instance.negated,
@@ -39,7 +39,7 @@ impl VTable for Like {
         ))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Options>> {
         let opts = pb::LikeOpts::decode(metadata)?;
         Ok(Some(LikeOptions {
             negated: opts.negated,
@@ -57,7 +57,7 @@ impl VTable for Like {
         Ok(())
     }
 
-    fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName {
+    fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
             0 => ChildName::from("child"),
             1 => ChildName::from("pattern"),
@@ -103,7 +103,7 @@ impl VTable for Like {
         like_compute(&child, &pattern, *expr.data())
     }
 
-    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
         false
     }
 }
@@ -153,7 +153,6 @@ mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
 
-    use crate::ToCanonical;
     use crate::arrays::BoolArray;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::like::like;
@@ -161,6 +160,7 @@ mod tests {
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::not::not;
     use crate::expr::exprs::root::root;
+    use crate::ToCanonical;
 
     #[test]
     fn invert_booleans() {

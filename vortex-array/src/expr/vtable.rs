@@ -8,26 +8,24 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
-use std::ops::Deref;
 use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
+use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
+use vortex_vector::Datum;
 use vortex_vector::Vector;
 use vortex_vector::VectorOps;
 
-use crate::ArrayRef;
-use crate::expr::ExprId;
-use crate::expr::ExpressionView;
-use crate::expr::StatsCatalog;
+use crate::expr::bound::BoundExpression;
 use crate::expr::expression::Expression;
 use crate::expr::stats::Stat;
+use crate::expr::ExprId;
+use crate::expr::StatsCatalog;
+use crate::ArrayRef;
 
-///
 /// This trait defines the interface for expression vtables, including methods for
 /// serialization, deserialization, validation, child naming, return type computation,
 /// and evaluation.
@@ -40,70 +38,76 @@ use crate::expr::stats::Stat;
 /// all instances of the expression. In almost all cases, this struct will be an empty unit
 /// struct, since most expressions do not require any global state.
 pub trait VTable: 'static + Sized + Send + Sync {
-    /// Instance data for this expression.
-    type Instance: 'static + Send + Sync + Debug + PartialEq + Eq + Hash;
+    /// Options for this expression.
+    type Options: 'static + Send + Sync + Clone + Debug + Display + PartialEq + Eq + Hash;
 
     /// Returns the ID of the expr vtable.
     fn id(&self) -> ExprId;
 
-    /// Serialize the metadata for the expression.
+    /// Serialize the options for this expression.
     ///
     /// Should return `Ok(None)` if the expression is not serializable, and `Ok(vec![])` if it is
     /// serializable but has no metadata.
-    fn serialize(&self, instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
-        _ = instance;
+    fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        _ = options;
         Ok(None)
     }
 
-    /// Deserialize an instance of this expression.
-    ///
-    /// Returns `Ok(None)` if the expression is not serializable.
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
-        _ = metadata;
-        Ok(None)
+    /// Deserialize the options of this expression.
+    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Self::Options> {
+        vortex_bail!("Expression {} is not deserializable", self.id());
     }
 
-    /// Validate the metadata and children for the expression.
-    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()>;
+    /// Returns the arity of this expression.
+    fn arity(&self, options: &Self::Options) -> Arity;
 
     /// Returns the name of the nth child of the expr.
-    fn child_name(&self, instance: &Self::Instance, child_idx: usize) -> ChildName;
+    fn child_name(&self, options: &Self::Options, child_idx: usize) -> ChildName;
 
     /// Format this expression in nice human-readable SQL-style format
     ///
     /// The implementation should recursively format child expressions by calling
     /// `expr.child(i).fmt_sql(f)`.
-    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> fmt::Result;
+    fn fmt_sql(
+        &self,
+        options: &Self::Options,
+        expr: &Expression,
+        f: &mut Formatter<'_>,
+    ) -> fmt::Result;
 
-    /// Format only the instance data for this expression.
-    ///
-    /// Defaults to a debug representation of the instance data.
-    #[allow(clippy::use_debug)]
-    fn fmt_data(&self, instance: &Self::Instance, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", instance)
-    }
-
-    /// Compute the return [`DType`] of the expression if evaluated in the given scope.
-    fn return_dtype(&self, expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType>;
+    /// Compute the return [`DType`] of the expression if evaluated over the given input types.
+    fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType>;
 
     /// Evaluate the expression in the given scope.
-    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef>;
+    fn evaluate(
+        &self,
+        options: &Self::Options,
+        expr: &Expression,
+        scope: &ArrayRef,
+    ) -> VortexResult<ArrayRef>;
 
     /// Execute the expression on the given vector with the given dtype.
-    fn execute(&self, data: &Self::Instance, args: ExecutionArgs) -> VortexResult<Vector> {
-        _ = data;
-        let _args = args;
-        // TODO(ngates): remove this once we port to vector execution
-        // TODO(ngates): I think we should take/return an enum of Vector/Scalar.
-        vortex_bail!("Expression {} does not support execution", self.id());
+    fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum>;
+
+    /// Simplify the expression if possible.
+    fn simplify(
+        &self,
+        options: &Self::Options,
+        expr: &Expression,
+    ) -> VortexResult<Option<Expression>> {
+        _ = options;
+        _ = expr;
+        Ok(None)
     }
 
     /// See [`Expression::stat_falsification`].
     fn stat_falsification(
         &self,
-        expr: &ExpressionView<Self>,
+        options: &Self::Options,
+        expr: &Expression,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
+        _ = options;
         _ = expr;
         _ = catalog;
         None
@@ -112,10 +116,13 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// See [`Expression::stat_expression`].
     fn stat_expression(
         &self,
-        expr: &ExpressionView<Self>,
+        options: &Self::Options,
+        expr: &Expression,
         stat: Stat,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
+        _ = options;
+        _ = expr;
         _ = expr;
         _ = stat;
         _ = catalog;
@@ -137,8 +144,8 @@ pub trait VTable: 'static + Sized + Send + Sync {
     ///
     /// This method only checks the expression itself, not its children. To check
     /// if an expression or any of its descendants are null-sensitive.
-    fn is_null_sensitive(&self, instance: &Self::Instance) -> bool {
-        _ = instance;
+    fn is_null_sensitive(&self, options: &Self::Options) -> bool {
+        _ = options;
         true
     }
 
@@ -149,23 +156,56 @@ pub trait VTable: 'static + Sized + Send + Sync {
     ///
     /// Note: this is only applicable to expressions that pass type-checking
     /// [`VTable::return_dtype`].
-    fn is_fallible(&self, instance: &Self::Instance) -> bool {
-        _ = instance;
+    fn is_fallible(&self, options: &Self::Options) -> bool {
+        _ = options;
         true
     }
+}
 
-    /// **For internal usage**. This will return an Expression that is part of the
-    /// expression -> new_expression migration.
-    #[doc(hidden)]
-    fn expr_v2(&self, expr: &ExpressionView<Self>) -> VortexResult<Expression> {
-        Ok(expr.deref().clone())
+/// The arity (number of arguments) of a function.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Arity {
+    Exact(usize),
+    Variadic { min: usize, max: Option<usize> },
+}
+
+impl Display for Arity {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Arity::Exact(n) => write!(f, "{}", n),
+            Arity::Variadic { min, max } => match max {
+                Some(max) if min == max => write!(f, "{}", min),
+                Some(max) => write!(f, "{}..{}", min, max),
+                None => write!(f, "{}+", min),
+            },
+        }
+    }
+}
+
+impl Arity {
+    /// Whether the given argument count matches this arity.
+    pub fn matches(&self, arg_count: usize) -> bool {
+        match self {
+            Arity::Exact(m) => *m == arg_count,
+            Arity::Variadic { min, max } => {
+                if arg_count < *min {
+                    return false;
+                }
+                if let Some(max) = max
+                    && arg_count > *max
+                {
+                    return false;
+                }
+                true
+            }
+        }
     }
 }
 
 /// Arguments for expression execution.
 pub struct ExecutionArgs {
-    /// The input vectors for the expression, one per child.
-    pub vectors: Vec<Vector>,
+    /// The input datums for the expression, one per child.
+    pub datums: Vec<Datum>,
     /// The input dtypes for the expression, one per child.
     pub dtypes: Vec<DType>,
     /// The row count of the execution scope.
@@ -176,25 +216,27 @@ pub struct ExecutionArgs {
 
 /// Factory functions for static vtables.
 pub trait VTableExt: VTable {
-    fn new_expr(
-        &'static self,
-        instance: Self::Instance,
-        children: impl Into<Arc<[Expression]>>,
-    ) -> Expression {
-        Self::try_new_expr(self, instance, children)
-            .vortex_expect("Failed to create expression instance")
+    /// Bind this vtable with the given options into a [`BoundExpression`].
+    fn bind(&'static self, options: Self::Options) -> BoundExpression {
+        BoundExpression::new_static(self, options)
     }
 
+    /// Create a new expression with this vtable and the given options and children.
+    fn new_expr(
+        &'static self,
+        options: Self::Options,
+        children: impl Into<Arc<[Expression]>>,
+    ) -> Expression {
+        Self::try_new_expr(self, options, children).vortex_expect("Failed to create expression")
+    }
+
+    /// Try to create a new expression with this vtable and the given options and children.
     fn try_new_expr(
         &'static self,
-        instance: Self::Instance,
+        options: Self::Options,
         children: impl Into<Arc<[Expression]>>,
     ) -> VortexResult<Expression> {
-        Expression::try_new_erased(
-            ExprVTable::new_static(self),
-            Arc::new(instance),
-            children.into(),
-        )
+        Expression::try_new(self.bind(options), children.into())
     }
 }
 impl<V: VTable> VTableExt for V {}
@@ -211,17 +253,24 @@ pub struct NotSupported;
 /// implements [`VTable`], and lifts the associated types into dynamic trait objects.
 pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     fn as_any(&self) -> &dyn Any;
-    fn id(&self) -> ExprId;
-    fn serialize(&self, instance: &dyn Any) -> VortexResult<Option<Vec<u8>>>;
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Arc<dyn Any + Send + Sync>>>;
-    fn child_name(&self, instance: &dyn Any, child_idx: usize) -> ChildName;
-    fn validate(&self, expression: &Expression) -> VortexResult<()>;
-    fn fmt_sql(&self, expression: &Expression, f: &mut Formatter<'_>) -> fmt::Result;
-    fn fmt_data(&self, instance: &dyn Any, f: &mut Formatter<'_>) -> fmt::Result;
-    fn return_dtype(&self, expression: &Expression, scope: &DType) -> VortexResult<DType>;
-    fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef>;
-    fn execute(&self, data: &dyn Any, args: ExecutionArgs) -> VortexResult<Vector>;
 
+    fn id(&self) -> ExprId;
+    fn fmt_sql(&self, expression: &Expression, f: &mut Formatter<'_>) -> fmt::Result;
+
+    fn options_serialize(&self, options: &dyn Any) -> VortexResult<Option<Vec<u8>>>;
+    fn options_deserialize(&self, metadata: &[u8]) -> VortexResult<Box<dyn Any + Send + Sync>>;
+    fn options_clone(&self, options: &dyn Any) -> Box<dyn Any + Send + Sync>;
+    fn options_eq(&self, a: &dyn Any, b: &dyn Any) -> bool;
+    fn options_hash(&self, options: &dyn Any, hasher: &mut dyn Hasher);
+    fn options_display(&self, options: &dyn Any, fmt: &mut Formatter<'_>) -> fmt::Result;
+    fn options_debug(&self, options: &dyn Any, fmt: &mut Formatter<'_>) -> fmt::Result;
+
+    fn return_dtype(&self, options: &dyn Any, arg_types: &[DType]) -> VortexResult<DType>;
+    fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<Vector>;
+    fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef>;
+
+    fn arity(&self, options: &dyn Any) -> Arity;
+    fn child_name(&self, options: &dyn Any, child_idx: usize) -> ChildName;
     fn stat_falsification(
         &self,
         expression: &Expression,
@@ -233,14 +282,8 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
         stat: Stat,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression>;
-
-    /// See [`VTable::is_null_sensitive`].
-    fn is_null_sensitive(&self, instance: &dyn Any) -> bool;
-    /// See [`VTable::is_fallible`].
-    fn is_fallible(&self, instance: &dyn Any) -> bool;
-
-    fn dyn_eq(&self, instance: &dyn Any, other: &dyn Any) -> bool;
-    fn dyn_hash(&self, instance: &dyn Any, state: &mut dyn Hasher);
+    fn is_null_sensitive(&self, options: &dyn Any) -> bool;
+    fn is_fallible(&self, options: &dyn Any) -> bool;
 }
 
 #[repr(transparent)]
@@ -257,62 +300,58 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         V::id(&self.0)
     }
 
-    fn serialize(&self, instance: &dyn Any) -> VortexResult<Option<Vec<u8>>> {
-        let instance = instance
-            .downcast_ref::<V::Instance>()
-            .vortex_expect("Failed to downcast expression instance to expected type");
-        V::serialize(&self.0, instance)
-    }
-
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Arc<dyn Any + Send + Sync>>> {
-        Ok(V::deserialize(&self.0, metadata)?
-            .map(|data| Arc::new(data) as Arc<dyn Any + Send + Sync>))
-    }
-
-    fn child_name(&self, instance: &dyn Any, child_idx: usize) -> ChildName {
-        let instance = instance
-            .downcast_ref::<V::Instance>()
-            .vortex_expect("Failed to downcast expression instance to expected type");
-        V::child_name(&self.0, instance, child_idx)
-    }
-
-    fn validate(&self, expression: &Expression) -> VortexResult<()> {
-        let expr = ExpressionView::new(expression);
-        V::validate(&self.0, &expr)
-    }
-
     fn fmt_sql(&self, expression: &Expression, f: &mut Formatter<'_>) -> fmt::Result {
-        let expr = ExpressionView::new(expression);
-        V::fmt_sql(&self.0, &expr, f)
+        V::fmt_sql(
+            &self.0,
+            downcast::<V>(expression.options().as_any()),
+            expression,
+            f,
+        )
     }
 
-    fn fmt_data(&self, instance: &dyn Any, f: &mut Formatter<'_>) -> fmt::Result {
-        let instance = instance
-            .downcast_ref::<V::Instance>()
-            .vortex_expect("Failed to downcast expression instance to expected type");
-        V::fmt_data(&self.0, instance, f)
+    fn options_serialize(&self, options: &dyn Any) -> VortexResult<Option<Vec<u8>>> {
+        V::serialize(&self.0, downcast::<V>(options))
     }
 
-    fn return_dtype(&self, expression: &Expression, scope: &DType) -> VortexResult<DType> {
-        let expr = ExpressionView::new(expression);
-        V::return_dtype(&self.0, &expr, scope)
+    fn options_deserialize(&self, bytes: &[u8]) -> VortexResult<Box<dyn Any + Send + Sync>> {
+        Ok(Box::new(V::deserialize(&self.0, bytes)))
     }
 
-    fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        let expr = ExpressionView::new(expression);
-        V::evaluate(&self.0, &expr, scope)
+    fn options_clone(&self, options: &dyn Any) -> Box<dyn Any + Send + Sync> {
+        let options = options
+            .downcast_ref::<V::Options>()
+            .vortex_expect("Failed to downcast expression options to expected type");
+        Box::new(options.clone())
     }
 
-    fn execute(&self, data: &dyn Any, args: ExecutionArgs) -> VortexResult<Vector> {
-        let data = data
-            .downcast_ref::<V::Instance>()
-            .vortex_expect("Failed to downcast expression instance to expected type");
+    fn options_eq(&self, a: &dyn Any, b: &dyn Any) -> bool {
+        downcast::<V>(a) == downcast::<V>(b)
+    }
+
+    fn options_hash(&self, options: &dyn Any, mut hasher: &mut dyn Hasher) {
+        downcast::<V>(options).hash(&mut hasher);
+    }
+
+    fn options_display(&self, options: &dyn Any, fmt: &mut Formatter<'_>) -> fmt::Result {
+        write!(fmt, "{}", downcast::<V>(options))
+    }
+
+    fn options_debug(&self, options: &dyn Any, fmt: &mut Formatter<'_>) -> fmt::Result {
+        write!(fmt, "{:?}", downcast::<V>(options))
+    }
+
+    fn return_dtype(&self, options: &dyn Any, arg_dtypes: &[DType]) -> VortexResult<DType> {
+        V::return_dtype(&self.0, downcast::<V>(options), arg_dtypes)
+    }
+
+    fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<Vector> {
+        let options = downcast::<V>(options);
 
         let expected_row_count = args.row_count;
         #[cfg(debug_assertions)]
         let expected_dtype = args.return_dtype.clone();
 
-        let result = V::execute(&self.0, data, args)?;
+        let result = V::execute(&self.0, options, args)?;
 
         assert_eq!(
             result.len(),
@@ -337,13 +376,34 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         Ok(result)
     }
 
+    fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+        V::evaluate(
+            &self.0,
+            downcast::<V>(expression.options().as_any()),
+            expression,
+            scope,
+        )
+    }
+
+    fn arity(&self, options: &dyn Any) -> Arity {
+        V::arity(&self.0, downcast::<V>(options))
+    }
+
+    fn child_name(&self, options: &dyn Any, child_idx: usize) -> ChildName {
+        V::child_name(&self.0, downcast::<V>(options), child_idx)
+    }
+
     fn stat_falsification(
         &self,
         expression: &Expression,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
-        let expr = ExpressionView::new(expression);
-        V::stat_falsification(&self.0, &expr, catalog)
+        V::stat_falsification(
+            &self.0,
+            downcast::<V>(expression.options().as_any()),
+            expression,
+            catalog,
+        )
     }
 
     fn stat_expression(
@@ -352,40 +412,28 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         stat: Stat,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
-        let expr = ExpressionView::new(expression);
-        V::stat_expression(&self.0, &expr, stat, catalog)
+        V::stat_expression(
+            &self.0,
+            downcast::<V>(expression.options().as_any()),
+            expression,
+            stat,
+            catalog,
+        )
     }
 
-    fn is_null_sensitive(&self, instance: &dyn Any) -> bool {
-        let instance = instance
-            .downcast_ref::<V::Instance>()
-            .vortex_expect("Failed to downcast expression instance to expected type");
-        V::is_null_sensitive(&self.0, instance)
+    fn is_null_sensitive(&self, options: &dyn Any) -> bool {
+        V::is_null_sensitive(&self.0, downcast::<V>(options))
     }
 
-    fn is_fallible(&self, instance: &dyn Any) -> bool {
-        let instance = instance
-            .downcast_ref::<V::Instance>()
-            .vortex_expect("Failed to downcast expression instance to expected type");
-        V::is_fallible(&self.0, instance)
+    fn is_fallible(&self, options: &dyn Any) -> bool {
+        V::is_fallible(&self.0, downcast::<V>(options))
     }
+}
 
-    fn dyn_eq(&self, instance: &dyn Any, other: &dyn Any) -> bool {
-        let this_instance = instance
-            .downcast_ref::<V::Instance>()
-            .vortex_expect("Failed to downcast expression instance to expected type");
-        let other_instance = other
-            .downcast_ref::<V::Instance>()
-            .vortex_expect("Failed to downcast expression instance to expected type");
-        this_instance == other_instance
-    }
-
-    fn dyn_hash(&self, instance: &dyn Any, mut state: &mut dyn Hasher) {
-        let this_instance = instance
-            .downcast_ref::<V::Instance>()
-            .vortex_expect("Failed to downcast expression instance to expected type");
-        this_instance.hash(&mut state);
-    }
+fn downcast<V: VTable>(options: &dyn Any) -> &V::Options {
+    options
+        .downcast_ref::<V::Options>()
+        .vortex_expect("Invalid options type for expression")
 }
 
 mod private {
@@ -438,19 +486,14 @@ impl ExprVTable {
             .map(|adapter| &adapter.0)
     }
 
-    /// Deserialize an instance of this expression vtable from metadata.
-    pub fn deserialize(
-        &self,
-        metadata: &[u8],
-        children: Arc<[Expression]>,
-    ) -> VortexResult<Expression> {
-        let instance_data = self.as_dyn().deserialize(metadata)?.ok_or_else(|| {
-            vortex_err!(
-                "Expression vtable {} is not deserializable",
-                self.as_dyn().id()
+    /// Deserialize an options of this expression vtable from metadata.
+    pub fn deserialize(&self, metadata: &[u8]) -> VortexResult<BoundExpression> {
+        Ok(unsafe {
+            BoundExpression::new_unchecked(
+                self.clone(),
+                self.as_dyn().options_deserialize(metadata)?,
             )
-        })?;
-        Expression::try_new_erased(self.clone(), instance_data, children)
+        })
     }
 }
 
@@ -460,6 +503,12 @@ impl PartialEq for ExprVTable {
     }
 }
 impl Eq for ExprVTable {}
+
+impl Hash for ExprVTable {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.id().hash(state);
+    }
+}
 
 impl Display for ExprVTable {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -501,8 +550,8 @@ mod tests {
     use crate::expr::exprs::root::root;
     use crate::expr::exprs::select::select;
     use crate::expr::exprs::select::select_exclude;
-    use crate::expr::proto::ExprSerializeProtoExt;
     use crate::expr::proto::deserialize_expr_proto;
+    use crate::expr::proto::ExprSerializeProtoExt;
     use crate::expr::session::ExprRegistry;
     use crate::expr::session::ExprSession;
 

@@ -11,27 +11,27 @@ use itertools::Itertools;
 use prost::Message;
 use vortex_dtype::DType;
 use vortex_dtype::FieldNames;
-use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_proto::expr::select_opts::Opts;
 use vortex_proto::expr::FieldNames as ProtoFieldNames;
 use vortex_proto::expr::SelectOpts;
-use vortex_proto::expr::select_opts::Opts;
-use vortex_vector::Vector;
 use vortex_vector::struct_::StructVector;
+use vortex_vector::Vector;
 
-use crate::ArrayRef;
-use crate::IntoArray;
-use crate::ToCanonical;
+use crate::expr::expression::Expression;
+use crate::expr::field::DisplayFieldNames;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::ExpressionView;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::expr::expression::Expression;
-use crate::expr::field::DisplayFieldNames;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::ToCanonical;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FieldSelection {
@@ -42,13 +42,13 @@ pub enum FieldSelection {
 pub struct Select;
 
 impl VTable for Select {
-    type Instance = FieldSelection;
+    type Options = FieldSelection;
 
     fn id(&self) -> ExprId {
         ExprId::new_ref("vortex.select")
     }
 
-    fn serialize(&self, instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         let opts = match instance {
             FieldSelection::Include(fields) => Opts::Include(ProtoFieldNames {
                 names: fields.iter().map(|f| f.to_string()).collect(),
@@ -62,7 +62,7 @@ impl VTable for Select {
         Ok(Some(select_opts.encode_to_vec()))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Options>> {
         let prost_metadata = SelectOpts::decode(metadata)?;
 
         let select_opts = prost_metadata
@@ -91,7 +91,7 @@ impl VTable for Select {
         Ok(())
     }
 
-    fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName {
+    fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
             0 => ChildName::new_ref("child"),
             _ => unreachable!(),
@@ -110,7 +110,7 @@ impl VTable for Select {
         }
     }
 
-    fn fmt_data(&self, instance: &Self::Instance, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_data(&self, instance: &Self::Options, f: &mut Formatter<'_>) -> std::fmt::Result {
         let names = match instance {
             FieldSelection::Include(names) => {
                 write!(f, "include=")?;
@@ -202,11 +202,11 @@ impl VTable for Select {
         Ok(unsafe { StructVector::new_unchecked(Arc::new(new_fields), mask) }.into())
     }
 
-    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
         true
     }
 
-    fn is_fallible(&self, _instance: &Self::Instance) -> bool {
+    fn is_fallible(&self, _instance: &Self::Options) -> bool {
         // If this type-checks its infallible.
         false
     }
@@ -334,12 +334,12 @@ mod tests {
 
     use super::select;
     use super::select_exclude;
-    use crate::IntoArray;
-    use crate::ToCanonical;
     use crate::arrays::StructArray;
     use crate::expr::exprs::root::root;
     use crate::expr::exprs::select::Select;
     use crate::expr::test_harness;
+    use crate::IntoArray;
+    use crate::ToCanonical;
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[

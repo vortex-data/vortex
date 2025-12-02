@@ -5,12 +5,13 @@ use std::fmt::Formatter;
 
 use vortex_dtype::DType;
 use vortex_dtype::FieldPath;
+use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_vector::Vector;
 
-use crate::ArrayRef;
+use crate::expr::expression::Expression;
+use crate::expr::stats::Stat;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
@@ -18,25 +19,24 @@ use crate::expr::ExpressionView;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::expr::expression::Expression;
-use crate::expr::stats::Stat;
+use crate::ArrayRef;
 
 /// An expression that returns the full scope of the expression evaluation.
 // TODO(ngates): rename to "Scope"
 pub struct Root;
 
 impl VTable for Root {
-    type Instance = ();
+    type Options = ();
 
     fn id(&self) -> ExprId {
         ExprId::from("vortex.root")
     }
 
-    fn serialize(&self, _instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, _instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Option<Self::Options>> {
         Ok(Some(()))
     }
 
@@ -50,7 +50,7 @@ impl VTable for Root {
         Ok(())
     }
 
-    fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName {
+    fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
         unreachable!(
             "Root expression does not have children, got index {}",
             child_idx
@@ -69,7 +69,7 @@ impl VTable for Root {
         Ok(scope.clone())
     }
 
-    fn execute(&self, _data: &Self::Instance, _args: ExecutionArgs) -> VortexResult<Vector> {
+    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Vector> {
         vortex_bail!("Root expression is not executable")
     }
 
@@ -82,11 +82,11 @@ impl VTable for Root {
         catalog.stats_ref(&FieldPath::root(), stat)
     }
 
-    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
         false
     }
 
-    fn is_fallible(&self, _instance: &Self::Instance) -> bool {
+    fn is_fallible(&self, _instance: &Self::Options) -> bool {
         false
     }
 }

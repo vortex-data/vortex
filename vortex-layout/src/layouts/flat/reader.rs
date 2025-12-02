@@ -6,15 +6,15 @@ use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::FutureExt;
 use futures::future::BoxFuture;
+use futures::FutureExt;
+use vortex_array::compute::filter;
+use vortex_array::expr::is_root;
+use vortex_array::expr::Expression;
+use vortex_array::serde::ArrayParts;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
-use vortex_array::compute::filter;
-use vortex_array::expr::Expression;
-use vortex_array::expr::is_root;
-use vortex_array::serde::ArrayParts;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexExpect;
@@ -22,10 +22,10 @@ use vortex_error::VortexResult;
 use vortex_error::VortexUnwrap as _;
 use vortex_mask::Mask;
 
-use crate::LayoutReader;
-use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
+use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
+use crate::LayoutReader;
 
 /// The threshold of mask density below which we will evaluate the expression only over the
 /// selected rows, and above which we evaluate the expression over all rows and then select
@@ -139,6 +139,11 @@ impl LayoutReader for FlatReader {
                 array = array.slice(row_range.clone());
             }
 
+            if cfg!(feature = "expr-v2") {
+                expr.
+            } else {
+            }
+
             // TODO(ngates): the mask may actually be dense within a range, as is often the case when
             //  we have approximate mask results from a zone map. In which case we could look at
             //  the true_count between the mask's first and last true positions.
@@ -223,26 +228,26 @@ impl LayoutReader for FlatReader {
 mod test {
     use std::sync::Arc;
 
-    use vortex_array::ArrayContext;
-    use vortex_array::IntoArray;
-    use vortex_array::MaskFuture;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
     use vortex_array::validity::Validity;
-    use vortex_buffer::BitBuffer;
+    use vortex_array::ArrayContext;
+    use vortex_array::IntoArray;
+    use vortex_array::MaskFuture;
+    use vortex_array::ToCanonical;
     use vortex_buffer::buffer;
+    use vortex_buffer::BitBuffer;
     use vortex_io::runtime::single::block_on;
 
-    use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
     use crate::test::SESSION;
+    use crate::LayoutStrategy;
 
     #[test]
     fn flat_identity() {

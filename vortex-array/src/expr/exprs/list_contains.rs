@@ -4,11 +4,16 @@
 use std::fmt::Formatter;
 
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::VortexResult;
 
-use crate::ArrayRef;
 use crate::compute::list_contains as compute_list_contains;
+use crate::expr::exprs::binary::and;
+use crate::expr::exprs::binary::gt;
+use crate::expr::exprs::binary::lt;
+use crate::expr::exprs::binary::or;
+use crate::expr::exprs::literal::lit;
+use crate::expr::exprs::literal::Literal;
 use crate::expr::ChildName;
 use crate::expr::ExprId;
 use crate::expr::Expression;
@@ -16,27 +21,22 @@ use crate::expr::ExpressionView;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::expr::exprs::binary::and;
-use crate::expr::exprs::binary::gt;
-use crate::expr::exprs::binary::lt;
-use crate::expr::exprs::binary::or;
-use crate::expr::exprs::literal::Literal;
-use crate::expr::exprs::literal::lit;
+use crate::ArrayRef;
 
 pub struct ListContains;
 
 impl VTable for ListContains {
-    type Instance = ();
+    type Options = ();
 
     fn id(&self) -> ExprId {
         ExprId::from("vortex.list.contains")
     }
 
-    fn serialize(&self, _instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, _instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Option<Self::Options>> {
         Ok(Some(()))
     }
 
@@ -50,7 +50,7 @@ impl VTable for ListContains {
         Ok(())
     }
 
-    fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName {
+    fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
             0 => ChildName::from("list"),
             1 => ChildName::from("needle"),
@@ -129,7 +129,7 @@ impl VTable for ListContains {
     }
 
     // Nullability matters for contains([], x) where x is false.
-    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
         true
     }
 }
@@ -173,9 +173,6 @@ mod tests {
     use vortex_utils::aliases::hash_set::HashSet;
 
     use super::list_contains;
-    use crate::Array;
-    use crate::ArrayRef;
-    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;
@@ -190,6 +187,9 @@ mod tests {
     use crate::expr::pruning::checked_pruning_expr;
     use crate::expr::stats::Stat;
     use crate::validity::Validity;
+    use crate::Array;
+    use crate::ArrayRef;
+    use crate::IntoArray;
 
     fn test_array() -> ArrayRef {
         ListArray::try_new(

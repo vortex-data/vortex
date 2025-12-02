@@ -12,14 +12,10 @@ use vortex_dtype::DType;
 use vortex_dtype::FieldNames;
 use vortex_dtype::Nullability;
 use vortex_dtype::StructFields;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::Array;
-use crate::ArrayRef;
-use crate::IntoArray as _;
-use crate::ToCanonical;
 use crate::arrays::StructArray;
 use crate::expr::ChildName;
 use crate::expr::ExprId;
@@ -28,6 +24,10 @@ use crate::expr::ExpressionView;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::validity::Validity;
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray as _;
+use crate::ToCanonical;
 
 /// Merge zero or more expressions that ALL return structs.
 ///
@@ -38,20 +38,20 @@ use crate::validity::Validity;
 pub struct Merge;
 
 impl VTable for Merge {
-    type Instance = DuplicateHandling;
+    type Options = DuplicateHandling;
 
     fn id(&self) -> ExprId {
         ExprId::new_ref("vortex.merge")
     }
 
-    fn serialize(&self, instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(match instance {
             DuplicateHandling::RightMost => vec![0x00],
             DuplicateHandling::Error => vec![0x01],
         }))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Options>> {
         let instance = match metadata {
             [0x00] => DuplicateHandling::RightMost,
             [0x01] => DuplicateHandling::Error,
@@ -66,7 +66,7 @@ impl VTable for Merge {
         Ok(())
     }
 
-    fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName {
+    fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
         ChildName::from(Arc::from(format!("{}", child_idx)))
     }
 
@@ -167,11 +167,11 @@ impl VTable for Merge {
         )
     }
 
-    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
         true
     }
 
-    fn is_fallible(&self, instance: &Self::Instance) -> bool {
+    fn is_fallible(&self, instance: &Self::Options) -> bool {
         matches!(instance, DuplicateHandling::Error)
     }
 }
@@ -212,20 +212,20 @@ pub fn merge_opts(
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
+    use vortex_error::VortexResult;
 
     use super::merge;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
+    use crate::expr::exprs::get_item::get_item;
+    use crate::expr::exprs::merge::merge_opts;
+    use crate::expr::exprs::merge::DuplicateHandling;
+    use crate::expr::exprs::root::root;
+    use crate::expr::Expression;
     use crate::Array;
     use crate::IntoArray;
     use crate::ToCanonical;
-    use crate::arrays::PrimitiveArray;
-    use crate::arrays::StructArray;
-    use crate::expr::Expression;
-    use crate::expr::exprs::get_item::get_item;
-    use crate::expr::exprs::merge::DuplicateHandling;
-    use crate::expr::exprs::merge::merge_opts;
-    use crate::expr::exprs::root::root;
 
     fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();

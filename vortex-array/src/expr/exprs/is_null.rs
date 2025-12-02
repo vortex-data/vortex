@@ -7,19 +7,20 @@ use std::ops::Not;
 use is_null::IsNullFn;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
+use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_mask::Mask;
+use vortex_vector::bool::BoolVector;
 use vortex_vector::Vector;
 use vortex_vector::VectorOps;
-use vortex_vector::bool::BoolVector;
 
-use crate::Array;
-use crate::ArrayRef;
-use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
+use crate::expr::exprs::binary::eq;
+use crate::expr::exprs::literal::lit;
+use crate::expr::functions::EmptyOptions;
+use crate::expr::stats::Stat;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
@@ -29,27 +30,26 @@ use crate::expr::ScalarFnExprExt;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::expr::exprs::binary::eq;
-use crate::expr::exprs::literal::lit;
-use crate::expr::functions::EmptyOptions;
-use crate::expr::stats::Stat;
 use crate::scalar_fns::is_null;
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
 
 /// Expression that checks for null values.
 pub struct IsNull;
 
 impl VTable for IsNull {
-    type Instance = ();
+    type Options = ();
 
     fn id(&self) -> ExprId {
         ExprId::new_ref("is_null")
     }
 
-    fn serialize(&self, _instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, _instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Option<Self::Options>> {
         Ok(Some(()))
     }
 
@@ -63,7 +63,7 @@ impl VTable for IsNull {
         Ok(())
     }
 
-    fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName {
+    fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
             0 => ChildName::from("input"),
             _ => unreachable!("Invalid child index {} for IsNull expression", child_idx),
@@ -98,7 +98,7 @@ impl VTable for IsNull {
         Some(eq(null_count_expr, lit(0u64)))
     }
 
-    fn execute(&self, _data: &Self::Instance, mut args: ExecutionArgs) -> VortexResult<Vector> {
+    fn execute(&self, _data: &Self::Options, mut args: ExecutionArgs) -> VortexResult<Vector> {
         let child = args.vectors.pop().vortex_expect("Missing input child");
         Ok(BoolVector::new(
             child.validity().to_bit_buffer().not(),
@@ -107,11 +107,11 @@ impl VTable for IsNull {
         .into())
     }
 
-    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
         true
     }
 
-    fn is_fallible(&self, _instance: &Self::Instance) -> bool {
+    fn is_fallible(&self, _instance: &Self::Options) -> bool {
         false
     }
 
@@ -146,7 +146,6 @@ mod tests {
     use vortex_utils::aliases::hash_set::HashSet;
 
     use super::is_null;
-    use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::expr::exprs::binary::eq;
@@ -157,6 +156,7 @@ mod tests {
     use crate::expr::pruning::checked_pruning_expr;
     use crate::expr::stats::Stat;
     use crate::expr::test_harness;
+    use crate::IntoArray;
 
     #[test]
     fn dtype() {

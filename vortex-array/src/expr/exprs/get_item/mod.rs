@@ -11,38 +11,39 @@ use vortex_dtype::DType;
 use vortex_dtype::FieldName;
 use vortex_dtype::FieldPath;
 use vortex_dtype::Nullability;
+use vortex_error::vortex_err;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
+use vortex_vector::ScalarOps;
 use vortex_vector::VectorOps;
 
-use crate::ArrayRef;
-use crate::ToCanonical;
 use crate::compute::mask;
+use crate::expr::exprs::root::root;
+use crate::expr::stats::Stat;
+use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
-use crate::expr::ExpressionView;
+use crate::expr::Pack;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::expr::exprs::root::root;
-use crate::expr::stats::Stat;
+use crate::ArrayRef;
+use crate::ToCanonical;
 
 pub struct GetItem;
 
 impl VTable for GetItem {
-    type Instance = FieldName;
+    type Options = FieldName;
 
     fn id(&self) -> ExprId {
         ExprId::from("vortex.get_item")
     }
 
-    fn serialize(&self, instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::GetItemOpts {
                 path: instance.to_string(),
@@ -51,44 +52,39 @@ impl VTable for GetItem {
         ))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Options> {
         let opts = pb::GetItemOpts::decode(metadata)?;
-        Ok(Some(FieldName::from(opts.path)))
+        Ok(FieldName::from(opts.path))
     }
 
-    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()> {
-        if expr.children().len() != 1 {
-            vortex_bail!(
-                "GetItem expression requires exactly 1 child, got {}",
-                expr.children().len()
-            );
-        }
-        Ok(())
+    fn arity(&self, _field_name: &FieldName) -> Arity {
+        Arity::Exact(1)
     }
 
-    fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName {
+    fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
             0 => ChildName::from("input"),
             _ => unreachable!("Invalid child index {} for GetItem expression", child_idx),
         }
     }
 
-    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(
+        &self,
+        field_name: &FieldName,
+        expr: &Expression,
+        f: &mut Formatter<'_>,
+    ) -> std::fmt::Result {
         expr.children()[0].fmt_sql(f)?;
-        write!(f, ".{}", expr.data())
+        write!(f, ".{}", field_name)
     }
 
-    fn fmt_data(&self, instance: &Self::Instance, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "\"{}\"", instance)
-    }
-
-    fn return_dtype(&self, expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
-        let struct_dtype = expr.children()[0].return_dtype(scope)?;
+    fn return_dtype(&self, field_name: &FieldName, arg_dtypes: &[DType]) -> VortexResult<DType> {
+        let struct_dtype = &arg_dtypes[0];
         let field_dtype = struct_dtype
             .as_struct_fields_opt()
-            .and_then(|st| st.field(expr.data()))
+            .and_then(|st| st.field(field_name))
             .ok_or_else(|| {
-                vortex_err!("Couldn't find the {} field in the input scope", expr.data())
+                vortex_err!("Couldn't find the {} field in the input scope", field_name)
             })?;
 
         // Match here to avoid cloning the dtype if nullability doesn't need to change
@@ -102,9 +98,14 @@ impl VTable for GetItem {
         Ok(field_dtype)
     }
 
-    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(
+        &self,
+        field_name: &FieldName,
+        expr: &Expression,
+        scope: &ArrayRef,
+    ) -> VortexResult<ArrayRef> {
         let input = expr.children()[0].evaluate(scope)?.to_struct();
-        let field = input.field_by_name(expr.data()).cloned()?;
+        let field = input.field_by_name(field_name).cloned()?;
 
         match input.dtype().nullability() {
             Nullability::NonNullable => Ok(field),
@@ -112,9 +113,59 @@ impl VTable for GetItem {
         }
     }
 
+    fn execute(&self, field_name: &FieldName, mut args: ExecutionArgs) -> VortexResult<Datum> {
+        let struct_dtype = args.dtypes[0]
+            .as_struct_fields_opt()
+            .ok_or_else(|| vortex_err!("Expected struct dtype for child of GetItem expression"))?;
+        let field_idx = struct_dtype
+            .find(field_name)
+            .ok_or_else(|| vortex_err!("Field {} not found in struct dtype", field_name))?;
+
+        match args.datums.pop().vortex_expect("missing input") {
+            Datum::Scalar(s) => {
+                let mut field = s.as_struct().field(field_idx);
+                field.mask_validity(s.is_valid());
+                Ok(Datum::Scalar(field))
+            }
+            Datum::Vector(v) => {
+                let mut field = v.as_struct().fields()[field_idx].clone();
+                field.mask_validity(v.validity());
+                Ok(Datum::Vector(field))
+            }
+        }
+    }
+
+    fn simplify(
+        &self,
+        field_name: &FieldName,
+        expr: &Expression,
+    ) -> VortexResult<Option<Expression>> {
+        let child = expr.child(0);
+
+        // If the child is a Pack expression, we can directly return the corresponding child.
+        if let Some(pack) = child.as_opt::<Pack>() {
+            let idx = pack
+                .names
+                .iter()
+                .position(|name| name == field_name)
+                .ok_or_else(|| {
+                    vortex_err!(
+                        "Cannot find field {} in pack fields {:?}",
+                        field_name,
+                        pack.names
+                    )
+                })?;
+
+            return Ok(Some(child.child(idx).clone()));
+        }
+
+        Ok(None)
+    }
+
     fn stat_expression(
         &self,
-        expr: &ExpressionView<Self>,
+        field_name: &FieldName,
+        _expr: &Expression,
         stat: Stat,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
@@ -126,36 +177,15 @@ impl VTable for GetItem {
         // TODO(ngates): this is a bug whereby we may return stats for a nested field of the same
         //  name as a field in the root struct. This should be resolved with upcoming change to
         //  falsify expressions, but for now I'm preserving the existing buggy behavior.
-        catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), stat)
-    }
-
-    fn execute(&self, field_name: &FieldName, mut args: ExecutionArgs) -> VortexResult<Vector> {
-        let struct_dtype = args.dtypes[0]
-            .as_struct_fields_opt()
-            .ok_or_else(|| vortex_err!("Expected struct dtype for child of GetItem expression"))?;
-        let field_idx = struct_dtype
-            .find(field_name)
-            .ok_or_else(|| vortex_err!("Field {} not found in struct dtype", field_name))?;
-
-        let struct_vector = args
-            .vectors
-            .pop()
-            .vortex_expect("missing input")
-            .into_struct();
-
-        // We must intersect the validity with that of the parent struct
-        let mut field = struct_vector.fields()[field_idx].clone();
-        field.mask_validity(struct_vector.validity());
-
-        Ok(field)
+        catalog.stats_ref(&FieldPath::from_name(field_name.clone()), stat)
     }
 
     // This will apply struct nullability field. We could add a dtype??
-    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+    fn is_null_sensitive(&self, _field_name: &FieldName) -> bool {
         true
     }
 
-    fn is_fallible(&self, _instance: &Self::Instance) -> bool {
+    fn is_fallible(&self, _field_name: &FieldName) -> bool {
         // If this type-checks its infallible.
         false
     }
@@ -195,11 +225,11 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use super::get_item;
-    use crate::Array;
-    use crate::IntoArray;
     use crate::arrays::StructArray;
     use crate::expr::exprs::root::root;
     use crate::validity::Validity;
+    use crate::Array;
+    use crate::IntoArray;
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[

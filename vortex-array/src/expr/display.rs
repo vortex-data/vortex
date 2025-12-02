@@ -17,10 +17,10 @@ impl Display for DisplayTreeExpr<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         pub use termtree::Tree;
         fn make_tree(expr: &Expression) -> Result<Tree<String>, std::fmt::Error> {
-            let node_name = format!("{}", ExpressionDebug(expr));
+            let node_name = format!("{}", expr);
 
             // Get child names for display purposes
-            let child_names = (0..expr.children().len()).map(|i| expr.child_name(i));
+            let child_names = (0..expr.children().len()).map(|i| expr.signature().child_name(i));
             let children = expr.children();
 
             let child_trees: Result<Vec<Tree<String>>, _> = children
@@ -37,18 +37,6 @@ impl Display for DisplayTreeExpr<'_> {
         }
 
         write!(f, "{}", make_tree(self.0)?)
-    }
-}
-
-struct ExpressionDebug<'a>(&'a Expression);
-impl Display for ExpressionDebug<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        // Special-case when expression has no data to avoid trailing space.
-        if self.0.data().is::<()>() {
-            return write!(f, "{}", self.0.id().as_ref());
-        }
-        write!(f, "{} ", self.0.id().as_ref())?;
-        self.0.vtable().as_dyn().fmt_data(self.0.data().as_ref(), f)
     }
 }
 

@@ -5,12 +5,11 @@ use std::fmt::Formatter;
 
 use prost::Message;
 use vortex_dtype::DType;
+use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_proto::expr as pb;
 
-use crate::ArrayRef;
 use crate::compute;
 use crate::compute::add;
 use crate::compute::and_kleene;
@@ -19,27 +18,28 @@ use crate::compute::div;
 use crate::compute::mul;
 use crate::compute::or_kleene;
 use crate::compute::sub;
+use crate::expr::expression::Expression;
+use crate::expr::exprs::literal::lit;
+use crate::expr::exprs::operators::Operator;
+use crate::expr::stats::Stat;
 use crate::expr::ChildName;
 use crate::expr::ExprId;
 use crate::expr::ExpressionView;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::expr::expression::Expression;
-use crate::expr::exprs::literal::lit;
-use crate::expr::exprs::operators::Operator;
-use crate::expr::stats::Stat;
+use crate::ArrayRef;
 
 pub struct Binary;
 
 impl VTable for Binary {
-    type Instance = Operator;
+    type Options = Operator;
 
     fn id(&self) -> ExprId {
         ExprId::from("vortex.binary")
     }
 
-    fn serialize(&self, instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::BinaryOpts {
                 op: (*instance).into(),
@@ -48,7 +48,7 @@ impl VTable for Binary {
         ))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Options>> {
         let opts = pb::BinaryOpts::decode(metadata)?;
         Ok(Some(Operator::try_from(opts.op)?))
     }
@@ -58,7 +58,7 @@ impl VTable for Binary {
         Ok(())
     }
 
-    fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName {
+    fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
             0 => ChildName::from("lhs"),
             1 => ChildName::from("rhs"),
@@ -74,7 +74,7 @@ impl VTable for Binary {
         write!(f, ")")
     }
 
-    fn fmt_data(&self, instance: &Self::Instance, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_data(&self, instance: &Self::Options, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", *instance)
     }
 
@@ -253,11 +253,11 @@ impl VTable for Binary {
         }
     }
 
-    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
         false
     }
 
-    fn is_fallible(&self, instance: &Self::Instance) -> bool {
+    fn is_fallible(&self, instance: &Self::Options) -> bool {
         // Opt-in not out for fallibility.
         // Arithmetic operations could be better modelled here.
         let infallible = matches!(
@@ -555,10 +555,10 @@ mod tests {
     use super::lt_eq;
     use super::not_eq;
     use super::or;
-    use crate::expr::Expression;
     use crate::expr::exprs::get_item::col;
     use crate::expr::exprs::literal::lit;
     use crate::expr::test_harness;
+    use crate::expr::Expression;
 
     #[test]
     fn and_collect_left_assoc() {

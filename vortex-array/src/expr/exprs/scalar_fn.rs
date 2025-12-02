@@ -8,17 +8,20 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::VortexResult;
 use vortex_session::SessionVar;
 use vortex_vector::Datum;
 use vortex_vector::ScalarOps;
 use vortex_vector::Vector;
 use vortex_vector::VectorMutOps;
 
-use crate::ArrayRef;
-use crate::IntoArray;
 use crate::arrays::ScalarFnArray;
+use crate::expr::functions;
+use crate::expr::functions::scalar::ScalarFn;
+use crate::expr::functions::ScalarFnVTable;
+use crate::expr::stats::Stat;
+use crate::expr::transform::rules::Matcher;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
@@ -26,11 +29,8 @@ use crate::expr::Expression;
 use crate::expr::ExpressionView;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
-use crate::expr::functions;
-use crate::expr::functions::ScalarFnVTable;
-use crate::expr::functions::scalar::ScalarFn;
-use crate::expr::stats::Stat;
-use crate::expr::transform::rules::Matcher;
+use crate::ArrayRef;
+use crate::IntoArray;
 
 /// An expression that wraps arbitrary scalar functions.
 ///
@@ -43,7 +43,7 @@ pub struct ScalarFnExpr {
 }
 
 impl VTable for ScalarFnExpr {
-    type Instance = ScalarFn;
+    type Options = ScalarFn;
 
     fn id(&self) -> ExprId {
         self.vtable.id()
@@ -53,7 +53,7 @@ impl VTable for ScalarFnExpr {
         func.options().serialize()
     }
 
-    fn deserialize(&self, bytes: &[u8]) -> VortexResult<Option<Self::Instance>> {
+    fn deserialize(&self, bytes: &[u8]) -> VortexResult<Option<Self::Options>> {
         self.vtable.deserialize(bytes).map(Some)
     }
 

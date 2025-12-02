@@ -12,7 +12,6 @@
 
 use std::hash::Hash;
 use std::hash::Hasher;
-use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_dtype::FieldName;
@@ -26,26 +25,27 @@ pub mod aliases;
 pub mod analysis;
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
+mod bound;
 pub mod display;
 mod expression;
 mod exprs;
 mod field;
 pub mod forms;
 pub mod functions;
+mod options;
 pub mod proto;
 pub mod pruning;
 pub mod session;
+mod signature;
 pub mod stats;
 pub mod transform;
 pub mod traversal;
-mod view;
 mod vtable;
 
 pub use analysis::*;
 pub use expression::*;
 pub use exprs::*;
 pub use pruning::StatsCatalog;
-pub use view::*;
 pub use vtable::*;
 
 pub type ExprId = ArcRef<str>;
@@ -89,7 +89,7 @@ pub struct ExactExpr(pub Expression);
 
 impl PartialEq for ExactExpr {
     fn eq(&self, other: &Self) -> bool {
-        self.0.id() == other.0.id() && Arc::ptr_eq(self.0.data(), other.0.data())
+        self.0.id() == other.0.id() && Box::ptr_eq(self.0.options(), other.0.options())
     }
 }
 impl Eq for ExactExpr {}

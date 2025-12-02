@@ -3,23 +3,23 @@
 
 use std::fmt::Formatter;
 
-use vortex_array::ArrayRef;
 use vortex_array::expr::ChildName;
 use vortex_array::expr::ExprId;
 use vortex_array::expr::Expression;
 use vortex_array::expr::ExpressionView;
 use vortex_array::expr::VTable;
 use vortex_array::expr::VTableExt;
+use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::VortexResult;
 
 pub struct RowIdx;
 
 impl VTable for RowIdx {
-    type Instance = ();
+    type Options = ();
 
     fn id(&self) -> ExprId {
         ExprId::from("vortex.row_idx")
@@ -35,7 +35,7 @@ impl VTable for RowIdx {
         Ok(())
     }
 
-    fn child_name(&self, _instance: &Self::Instance, _child_idx: usize) -> ChildName {
+    fn child_name(&self, _instance: &Self::Options, _child_idx: usize) -> ChildName {
         unreachable!()
     }
 

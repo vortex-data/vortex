@@ -11,13 +11,11 @@ use vortex_dtype::FieldName;
 use vortex_dtype::FieldNames;
 use vortex_dtype::Nullability;
 use vortex_dtype::StructFields;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_error::VortexResult;
 use vortex_proto::expr as pb;
 
-use crate::ArrayRef;
-use crate::IntoArray;
 use crate::arrays::StructArray;
 use crate::expr::ChildName;
 use crate::expr::ExprId;
@@ -26,6 +24,8 @@ use crate::expr::ExpressionView;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::validity::Validity;
+use crate::ArrayRef;
+use crate::IntoArray;
 
 /// Pack zero or more expressions into a structure with named fields.
 pub struct Pack;
@@ -37,13 +37,13 @@ pub struct PackOptions {
 }
 
 impl VTable for Pack {
-    type Instance = PackOptions;
+    type Options = PackOptions;
 
     fn id(&self) -> ExprId {
         ExprId::new_ref("vortex.pack")
     }
 
-    fn serialize(&self, instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::PackOpts {
                 paths: instance.names.iter().map(|n| n.to_string()).collect(),
@@ -53,7 +53,7 @@ impl VTable for Pack {
         ))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Options>> {
         let opts = pb::PackOpts::decode(metadata)?;
         let names: FieldNames = opts
             .paths
@@ -78,7 +78,7 @@ impl VTable for Pack {
         Ok(())
     }
 
-    fn child_name(&self, instance: &Self::Instance, child_idx: usize) -> ChildName {
+    fn child_name(&self, instance: &Self::Options, child_idx: usize) -> ChildName {
         match instance.names.get(child_idx) {
             Some(name) => ChildName::from(name.inner().clone()),
             None => unreachable!(
@@ -142,11 +142,11 @@ impl VTable for Pack {
     }
 
     // This applies a nullability
-    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
         true
     }
 
-    fn is_fallible(&self, _instance: &Self::Instance) -> bool {
+    fn is_fallible(&self, _instance: &Self::Options) -> bool {
         false
     }
 }
@@ -198,22 +198,22 @@ pub fn pack(
 mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
-    use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
+    use vortex_error::VortexResult;
 
+    use super::pack;
     use super::Pack;
     use super::PackOptions;
-    use super::pack;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
+    use crate::expr::exprs::get_item::col;
+    use crate::expr::VTableExt;
+    use crate::validity::Validity;
+    use crate::vtable::ValidityHelper;
     use crate::Array;
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::ToCanonical;
-    use crate::arrays::PrimitiveArray;
-    use crate::arrays::StructArray;
-    use crate::expr::VTableExt;
-    use crate::expr::exprs::get_item::col;
-    use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
 
     fn test_array() -> ArrayRef {
         StructArray::from_fields(&[
