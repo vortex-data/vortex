@@ -112,7 +112,7 @@ impl VTable for Between {
         )
     }
 
-    fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
+    fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         let arr_dt = &arg_dtypes[0];
         let lower_dt = &arg_dtypes[1];
         let upper_dt = &arg_dtypes[2];
@@ -149,7 +149,7 @@ impl VTable for Between {
         between_compute(&arr, &lower, &upper, options)
     }
 
-    fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
+    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
         todo!()
     }
 

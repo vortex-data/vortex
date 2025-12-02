@@ -6,13 +6,13 @@ use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::expr::Expression;
 use crate::expr::analysis::AnnotationFn;
 use crate::expr::analysis::Annotations;
 use crate::expr::descendent_annotations;
 use crate::expr::exprs::get_item::GetItem;
 use crate::expr::exprs::root::Root;
 use crate::expr::exprs::select::Select;
+use crate::expr::Expression;
 
 pub type FieldAccesses<'a> = Annotations<'a, FieldName>;
 
@@ -24,9 +24,9 @@ pub fn annotate_scope_access(scope: &StructFields) -> impl AnnotationFn<Annotati
             "cannot analyse select, simplify the expression"
         );
 
-        if let Some(get_item) = expr.as_opt::<GetItem>() {
-            if get_item.child(0).is::<Root>() {
-                return vec![get_item.data().clone()];
+        if let Some(field_name) = expr.as_opt::<GetItem>() {
+            if expr.child(0).is::<Root>() {
+                return vec![field_name.clone()];
             }
         } else if expr.is::<Root>() {
             return scope.names().iter().cloned().collect();

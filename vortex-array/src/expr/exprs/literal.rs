@@ -78,20 +78,20 @@ impl VTable for Literal {
     fn evaluate(
         &self,
         scalar: &Scalar,
-        expr: &Expression,
+        _expr: &Expression,
         scope: &ArrayRef,
     ) -> VortexResult<ArrayRef> {
         Ok(ConstantArray::new(scalar.clone(), scope.len()).into_array())
     }
 
-    fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
+    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
         todo!()
     }
 
     fn stat_expression(
         &self,
         scalar: &Scalar,
-        expr: &Expression,
+        _expr: &Expression,
         stat: Stat,
         _catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {

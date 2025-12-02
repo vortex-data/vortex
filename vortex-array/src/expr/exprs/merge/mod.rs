@@ -11,15 +11,11 @@ use vortex_dtype::DType;
 use vortex_dtype::FieldNames;
 use vortex_dtype::Nullability;
 use vortex_dtype::StructFields;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_set::HashSet;
 use vortex_vector::Datum;
 
-use crate::Array;
-use crate::ArrayRef;
-use crate::IntoArray as _;
-use crate::ToCanonical;
 use crate::arrays::StructArray;
 use crate::expr::Arity;
 use crate::expr::ChildName;
@@ -28,8 +24,11 @@ use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::expr::get_item;
 use crate::validity::Validity;
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray as _;
+use crate::ToCanonical;
 
 /// Merge zero or more expressions that ALL return structs.
 ///
@@ -65,7 +64,7 @@ impl VTable for Merge {
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
-        Arity::Variadic
+        Arity::Variadic { min: 0, max: None }
     }
 
     fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
@@ -178,7 +177,7 @@ impl VTable for Merge {
         )
     }
 
-    fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
+    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
         todo!()
     }
 
@@ -236,20 +235,20 @@ pub fn merge_opts(
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
+    use vortex_error::VortexResult;
 
     use super::merge;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
+    use crate::expr::exprs::get_item::get_item;
+    use crate::expr::exprs::merge::merge_opts;
+    use crate::expr::exprs::merge::DuplicateHandling;
+    use crate::expr::exprs::root::root;
+    use crate::expr::Expression;
     use crate::Array;
     use crate::IntoArray;
     use crate::ToCanonical;
-    use crate::arrays::PrimitiveArray;
-    use crate::arrays::StructArray;
-    use crate::expr::Expression;
-    use crate::expr::exprs::get_item::get_item;
-    use crate::expr::exprs::merge::DuplicateHandling;
-    use crate::expr::exprs::merge::merge_opts;
-    use crate::expr::exprs::root::root;
 
     fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();

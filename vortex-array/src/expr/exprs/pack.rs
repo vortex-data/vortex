@@ -141,7 +141,7 @@ impl VTable for Pack {
         Ok(StructArray::try_new(options.names.clone(), value_arrays, len, validity)?.into_array())
     }
 
-    fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
+    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
         todo!()
     }
 

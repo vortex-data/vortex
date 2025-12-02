@@ -6,7 +6,6 @@ use std::any::Any;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExprVTable;
-use crate::expr::VTable;
 
 /// Information about the signature of an expression.
 pub struct ExpressionSignature<'a> {

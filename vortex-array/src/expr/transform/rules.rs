@@ -13,7 +13,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::expr::Expression;
-use crate::expr::ExpressionView;
 use crate::expr::VTable;
 
 /// Trait that abstracts over matching on expression types.

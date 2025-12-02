@@ -109,7 +109,7 @@ impl VTable for Like {
         like_compute(&child, &pattern, *options)
     }
 
-    fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
+    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
         todo!()
     }
 

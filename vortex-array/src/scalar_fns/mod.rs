@@ -13,12 +13,12 @@ use vortex_dtype::DType;
 use vortex_dtype::FieldName;
 use vortex_error::VortexResult;
 
+use crate::arrays::ScalarFnArrayExt;
+use crate::expr::functions::EmptyOptions;
+use crate::expr::Expression;
+use crate::expr::VTableExt;
 use crate::Array;
 use crate::ArrayRef;
-use crate::arrays::ScalarFnArrayExt;
-use crate::expr::Expression;
-use crate::expr::ScalarFnExprExt;
-use crate::expr::functions::EmptyOptions;
 
 pub mod cast;
 pub mod get_item;
