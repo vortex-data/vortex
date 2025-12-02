@@ -53,9 +53,7 @@ impl VTable for BinaryFn {
 
     fn null_handling(&self, options: &Operator) -> NullHandling {
         match options {
-            // Kleene logic for AND/OR - they have special null semantics
             Operator::And | Operator::Or => NullHandling::AbsorbsNull,
-            // All other operators propagate nulls
             _ => NullHandling::Propagate,
         }
     }
