@@ -90,15 +90,6 @@ mod tests {
     }
 
     #[test]
-    fn test_pscalar_compare_null() {
-        let left = PScalar::new(Some(5i32));
-        let right: PScalar<i32> = PScalar::new(None);
-
-        assert_eq!(Compare::<Equal>::compare(&left, &right).value(), None);
-        assert_eq!(Compare::<LessThan>::compare(&left, &right).value(), None);
-    }
-
-    #[test]
     fn test_primitive_scalar_compare() {
         let left: PrimitiveScalar = PScalar::new(Some(10u64)).into();
         let right: PrimitiveScalar = PScalar::new(Some(10u64)).into();

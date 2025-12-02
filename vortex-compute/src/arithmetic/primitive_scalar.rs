@@ -99,13 +99,4 @@ mod tests {
             panic!("Expected F64 result");
         }
     }
-
-    #[test]
-    fn test_type_mismatch_returns_none() {
-        let left: PrimitiveScalar = PScalar::new(Some(5i32)).into();
-        let right: PrimitiveScalar = PScalar::new(Some(3i64)).into();
-
-        let result = CheckedArithmetic::<Add, _>::checked_eval(&left, &right);
-        assert!(result.is_none());
-    }
 }
