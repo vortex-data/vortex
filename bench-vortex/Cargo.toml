@@ -47,6 +47,7 @@ erased-serde = { workspace = true }
 flate2 = "1"
 futures = { workspace = true }
 glob = { workspace = true }
+hex = { workspace = true }
 humansize = { workspace = true }
 indicatif = { workspace = true, features = ["futures"] }
 itertools = { workspace = true }
@@ -61,6 +62,7 @@ opentelemetry_sdk = { workspace = true }
 parking_lot = { workspace = true }
 parquet = { workspace = true, features = ["async"] }
 paste = { workspace = true }
+phf = { workspace = true }
 rand = { workspace = true }
 rayon = { workspace = true }
 regex = { workspace = true }
