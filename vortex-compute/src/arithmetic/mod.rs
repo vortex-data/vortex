@@ -7,6 +7,8 @@ use vortex_dtype::half::f16;
 
 mod buffer;
 mod buffer_checked;
+mod primitive_scalar;
+mod primitive_vector;
 mod pscalar;
 mod pvector;
 mod pvector_checked;
@@ -164,3 +166,53 @@ macro_rules! impl_float {
 impl_float!(f16);
 impl_float!(f32);
 impl_float!(f64);
+
+/// Dispatches a checked arithmetic operation based on a runtime operator value.
+///
+/// This macro allows you to call `CheckedArithmetic::<Op, _>::checked_eval(lhs, rhs)` where `Op`
+/// is determined at runtime from an operator enum variant.
+#[macro_export]
+macro_rules! checked_arithmetic_op {
+    ($op:expr, $lhs:expr, $rhs:expr, $Add:pat, $Sub:pat, $Mul:pat, $Div:pat) => {
+        match $op {
+            $Add => {
+                $crate::arithmetic::CheckedArithmetic::<$crate::arithmetic::Add, _>::checked_eval(
+                    $lhs, $rhs,
+                )
+            }
+            $Sub => {
+                $crate::arithmetic::CheckedArithmetic::<$crate::arithmetic::Sub, _>::checked_eval(
+                    $lhs, $rhs,
+                )
+            }
+            $Mul => {
+                $crate::arithmetic::CheckedArithmetic::<$crate::arithmetic::Mul, _>::checked_eval(
+                    $lhs, $rhs,
+                )
+            }
+            $Div => {
+                $crate::arithmetic::CheckedArithmetic::<$crate::arithmetic::Div, _>::checked_eval(
+                    $lhs, $rhs,
+                )
+            }
+            _ => unreachable!("Not an arithmetic operator"),
+        }
+    };
+}
+
+/// Dispatches an arithmetic operation based on a runtime operator value.
+///
+/// This macro allows you to call `Arithmetic::<Op, _>::eval(lhs, rhs)` where `Op`
+/// is determined at runtime from an operator enum variant.
+#[macro_export]
+macro_rules! arithmetic_op {
+    ($op:expr, $lhs:expr, $rhs:expr, $Add:pat, $Sub:pat, $Mul:pat, $Div:pat) => {
+        match $op {
+            $Add => $crate::arithmetic::Arithmetic::<$crate::arithmetic::Add, _>::eval($lhs, $rhs),
+            $Sub => $crate::arithmetic::Arithmetic::<$crate::arithmetic::Sub, _>::eval($lhs, $rhs),
+            $Mul => $crate::arithmetic::Arithmetic::<$crate::arithmetic::Mul, _>::eval($lhs, $rhs),
+            $Div => $crate::arithmetic::Arithmetic::<$crate::arithmetic::Div, _>::eval($lhs, $rhs),
+            _ => unreachable!("Not an arithmetic operator"),
+        }
+    };
+}

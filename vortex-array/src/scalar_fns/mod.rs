@@ -18,6 +18,7 @@ use crate::arrays::ScalarFnArrayExt;
 use crate::expr::Expression;
 use crate::expr::ScalarFnExprExt;
 
+pub mod binary;
 pub mod cast;
 pub mod is_null;
 pub mod not;
