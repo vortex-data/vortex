@@ -39,7 +39,6 @@ mod metadata;
 pub mod optimizer;
 mod partial_ord;
 pub mod patches;
-// pub mod pipeline;
 pub mod scalar_fns;
 pub mod search_sorted;
 pub mod serde;
