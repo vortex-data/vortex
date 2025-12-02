@@ -6,11 +6,12 @@ use crate::ScalarOps;
 use crate::VectorMut;
 use crate::VectorOps;
 use crate::struct_::StructVector;
+use vortex_mask::Mask;
 
 /// Represents a struct scalar value.
 ///
 /// The inner value is a StructVector with length 1.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct StructScalar(StructVector);
 
 impl StructScalar {
@@ -33,6 +34,12 @@ impl StructScalar {
 impl ScalarOps for StructScalar {
     fn is_valid(&self) -> bool {
         self.0.validity().value(0)
+    }
+
+    fn mask_validity(&mut self, mask: bool) {
+        if !mask {
+            self.0.mask_validity(&Mask::new_false(1))
+        }
     }
 
     fn repeat(&self, _n: usize) -> VectorMut {

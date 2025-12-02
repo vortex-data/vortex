@@ -17,7 +17,7 @@ use crate::primitive::PVectorMut;
 use crate::primitive::PrimitiveVectorMut;
 
 /// Represents a primitive scalar value.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum PrimitiveScalar {
     /// 8-bit signed integer scalar
     I8(PScalar<i8>),
@@ -79,6 +79,22 @@ impl ScalarOps for PrimitiveScalar {
         }
     }
 
+    fn mask_validity(&mut self, mask: bool) {
+        match self {
+            PrimitiveScalar::I8(v) => v.mask_validity(mask),
+            PrimitiveScalar::I16(v) => v.mask_validity(mask),
+            PrimitiveScalar::I32(v) => v.mask_validity(mask),
+            PrimitiveScalar::I64(v) => v.mask_validity(mask),
+            PrimitiveScalar::U8(v) => v.mask_validity(mask),
+            PrimitiveScalar::U16(v) => v.mask_validity(mask),
+            PrimitiveScalar::U32(v) => v.mask_validity(mask),
+            PrimitiveScalar::U64(v) => v.mask_validity(mask),
+            PrimitiveScalar::F16(v) => v.mask_validity(mask),
+            PrimitiveScalar::F32(v) => v.mask_validity(mask),
+            PrimitiveScalar::F64(v) => v.mask_validity(mask),
+        }
+    }
+
     fn repeat(&self, _n: usize) -> VectorMut {
         todo!()
     }
@@ -115,6 +131,12 @@ impl<T: NativePType> From<PScalar<T>> for PrimitiveScalar {
 impl<T: NativePType> ScalarOps for PScalar<T> {
     fn is_valid(&self) -> bool {
         self.0.is_some()
+    }
+
+    fn mask_validity(&mut self, mask: bool) {
+        if !mask {
+            self.0 = None;
+        }
     }
 
     fn repeat(&self, n: usize) -> VectorMut {

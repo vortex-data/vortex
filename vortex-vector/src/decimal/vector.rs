@@ -73,6 +73,10 @@ impl VectorOps for DecimalVector {
         match_each_dvector!(self, |v| { v.validity() })
     }
 
+    fn mask_validity(&mut self, mask: &Mask) {
+        match_each_dvector!(self, |v| { v.mask_validity(mask) })
+    }
+
     fn scalar_at(&self, index: usize) -> DecimalScalar {
         match_each_dvector!(self, |v| { v.scalar_at(index).into() })
     }

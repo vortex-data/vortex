@@ -26,7 +26,7 @@ mod vector;
 mod vector_mut;
 mod vector_ops;
 
-pub use datum::Datum;
+pub use datum::*;
 pub use scalar::Scalar;
 pub use scalar_ops::ScalarOps;
 pub use vector::Vector;

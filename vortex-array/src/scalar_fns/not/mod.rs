@@ -28,7 +28,7 @@ impl VTable for NotFn {
     }
 
     fn arity(&self, _: &Self::Options) -> Arity {
-        Arity::Fixed(1)
+        Arity::Exact(1)
     }
 
     fn null_handling(&self, _options: &Self::Options) -> NullHandling {

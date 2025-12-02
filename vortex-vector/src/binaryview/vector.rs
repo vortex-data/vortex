@@ -4,6 +4,7 @@
 //! Variable-length binary vector implementation.
 
 use std::fmt::Debug;
+use std::ops::BitAnd;
 use std::ops::RangeBounds;
 use std::sync::Arc;
 
@@ -207,6 +208,10 @@ impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
 
     fn validity(&self) -> &Mask {
         &self.validity
+    }
+
+    fn mask_validity(&mut self, mask: &Mask) {
+        self.validity = self.validity.bitand(mask);
     }
 
     fn scalar_at(&self, index: usize) -> BinaryViewScalar<T> {

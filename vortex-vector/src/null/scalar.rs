@@ -7,13 +7,15 @@ use crate::VectorMut;
 use crate::null::NullVectorMut;
 
 /// Represents a null scalar value.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct NullScalar;
 
 impl ScalarOps for NullScalar {
     fn is_valid(&self) -> bool {
         false
     }
+
+    fn mask_validity(&mut self, _mask: bool) {}
 
     fn repeat(&self, n: usize) -> VectorMut {
         NullVectorMut::new(n).into()
