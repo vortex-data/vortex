@@ -49,10 +49,7 @@ impl VTable for MaskFn {
             "The mask argument to 'mask' must be a non-nullable boolean array, got {}",
             arg_types[1]
         );
-
-        // Since we only intersect validity, we never introduce new null values. Therefore, the
-        // return type has the same nullability as the input array.
-        Ok(arg_types[0].clone())
+        Ok(arg_types[0].as_nullable())
     }
 
     fn execute(&self, _options: &Self::Options, args: &ExecutionArgs) -> VortexResult<Datum> {
