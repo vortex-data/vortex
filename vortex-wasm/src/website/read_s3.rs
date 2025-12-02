@@ -3,7 +3,6 @@
 
 //! Functions for reading benchmark data from S3.
 
-use aws_sdk_s3::Client;
 use vortex::array::Array;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::FixedSizeListArray;
@@ -20,48 +19,51 @@ use super::entry::BenchmarkEntry;
 use super::entry::CommitId;
 use super::entry::NameId;
 
+/// Base URL for the S3 bucket containing benchmark data.
+const S3_BASE_URL: &str = "https://vortex-benchmark-results-database.s3.amazonaws.com";
+
 /// Reads benchmark entries from an S3 object containing a Vortex file.
 ///
-/// This function downloads the Vortex file from S3, parses the columnar struct array, and converts
-/// it to a vector of row-wise [`BenchmarkEntry`] structs.
+/// This function downloads the Vortex file from S3 using HTTP (the bucket is public), parses the
+/// columnar struct array, and converts it to a vector of row-wise [`BenchmarkEntry`] structs.
 ///
 /// # Arguments
 ///
-/// * `client` - The AWS S3 client to use for operations.
 /// * `session` - The Vortex session for reading files.
-/// * `bucket` - The S3 bucket name.
-/// * `key` - The S3 object key.
+/// * `key` - The S3 object key (e.g., "test/random_access.vortex").
 ///
 /// # Errors
 ///
 /// Returns an error if:
-/// - The S3 object does not exist or cannot be downloaded.
+/// - The HTTP request fails.
 /// - The file is not a valid Vortex file.
 /// - The schema does not match the expected [`BenchmarkEntry`] schema.
 pub async fn read_benchmark_entries(
-    client: &Client,
     session: &VortexSession,
-    bucket: &str,
     key: &str,
 ) -> VortexResult<Vec<BenchmarkEntry>> {
-    // Download the file from S3.
-    let get_result = client
-        .get_object()
-        .bucket(bucket)
-        .key(key)
-        .send()
-        .await
-        .map_err(|e| vortex_err!("Failed to download S3 object: {}", e))?;
+    let url = format!("{}/{}", S3_BASE_URL, key);
 
-    let bytes = get_result
-        .body
-        .collect()
+    let response = reqwest::get(&url)
         .await
-        .map_err(|e| vortex_err!("Failed to read S3 object body: {}", e))?
-        .into_bytes();
+        .map_err(|e| vortex_err!("Failed to fetch {}: {}", url, e))?;
+
+    if !response.status().is_success() {
+        vortex_bail!(
+            "HTTP error fetching {}: {} {}",
+            url,
+            response.status().as_u16(),
+            response.status().as_str()
+        );
+    }
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| vortex_err!("Failed to read response body: {}", e))?;
 
     // Parse as Vortex file and read all data.
-    let file = session.open_options().open_buffer(bytes)?;
+    let file = session.open_options().open_buffer(bytes.to_vec())?;
     let array = file.scan()?.into_array_stream()?.read_all().await?;
 
     // Convert the array to benchmark entries.

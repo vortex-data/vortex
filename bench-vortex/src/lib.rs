@@ -42,7 +42,6 @@ pub mod statpopgen;
 pub mod tpcds;
 pub mod tpch;
 pub mod utils;
-pub mod website;
 
 pub use datasets::BenchmarkDataset;
 pub use datasets::file;

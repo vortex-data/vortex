@@ -5,14 +5,11 @@
 
 #![allow(clippy::expect_used)]
 
-use aws_config::BehaviorVersion;
-use aws_sdk_s3::Client;
-use bench_vortex::website::names::NAMES;
-use bench_vortex::website::read_s3::read_benchmark_entries;
 use vortex::VortexSessionDefault;
 use vortex::session::VortexSession;
+use vortex_wasm::website::names::NAMES;
+use vortex_wasm::website::read_s3::read_benchmark_entries;
 
-const BUCKET: &str = "vortex-benchmark-results-database";
 const KEY: &str = "test/random_access.vortex";
 
 fn main() {
@@ -23,19 +20,9 @@ fn main() {
 async fn async_main() {
     let session = VortexSession::default();
 
-    // Load AWS config with SSO profile.
-    let config = aws_config::defaults(BehaviorVersion::latest())
-        .profile_name("PowerUserAccess-375504701696")
-        .load()
-        .await;
-    let client = Client::new(&config);
+    println!("Reading benchmark entries from {}...\n", KEY);
 
-    println!(
-        "Reading benchmark entries from s3://{}/{}...\n",
-        BUCKET, KEY
-    );
-
-    let entries = read_benchmark_entries(&client, &session, BUCKET, KEY)
+    let entries = read_benchmark_entries(&session, KEY)
         .await
         .expect("Failed to read benchmark entries");
 

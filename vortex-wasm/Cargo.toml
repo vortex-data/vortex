@@ -13,10 +13,21 @@ repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 async-fs = { workspace = true }
+hex = { workspace = true }
+phf = { workspace = true }
+reqwest = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+serde-wasm-bindgen = "0.6"
 serde_json = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+vortex = { workspace = true, features = ["tokio"] }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
@@ -27,6 +38,15 @@ vortex-layout = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-session = { workspace = true }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = { workspace = true }
+
+[dependencies.web-sys]
+features = ["console", "Window", "Response"]
+version = "0.3"
+
+[dependencies.js-sys]
+version = "0.3"
 
 [[bin]]
 name = "migrate"
@@ -35,6 +55,18 @@ path = "src/bin/migrate.rs"
 [[bin]]
 name = "append"
 path = "src/bin/append.rs"
+
+[[bin]]
+name = "test_s3_read"
+path = "src/bin/test_s3_read.rs"
+
+[[bin]]
+name = "test_s3_update"
+path = "src/bin/test_s3_update.rs"
+
+[[bin]]
+name = "migrate_random_access"
+path = "src/bin/migrate_random_access.rs"
 
 [lints]
 workspace = true
