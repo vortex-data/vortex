@@ -14,6 +14,7 @@ use aws_sdk_s3::error::ProvideErrorMetadata;
 use aws_sdk_s3::error::SdkError;
 use aws_sdk_s3::primitives::ByteStream;
 use vortex::array::ArrayRef;
+use vortex::array::builders::builder_with_capacity;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
@@ -22,6 +23,8 @@ use vortex::error::vortex_err;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::session::VortexSession;
+
+use super::entry::BenchmarkEntry;
 
 const INITIAL_DELAY: Duration = Duration::from_millis(100);
 const MAX_DELAY: Duration = Duration::from_secs(60);
@@ -215,4 +218,42 @@ where
             e
         ))),
     }
+}
+
+/// Appends a single [`BenchmarkEntry`] to a Vortex file stored in S3.
+///
+/// This function uses [`update_s3_object`] with optimistic concurrency control to atomically
+/// append the entry to the existing data. If concurrent modifications are detected, the operation
+/// is automatically retried.
+///
+/// # Arguments
+///
+/// * `client` - The AWS S3 client.
+/// * `session` - The Vortex session for reading and writing files.
+/// * `bucket` - The S3 bucket name.
+/// * `key` - The S3 object key.
+/// * `entry` - The benchmark entry to append.
+pub async fn append_benchmark_entry(
+    client: &Client,
+    session: &VortexSession,
+    bucket: &str,
+    key: &str,
+    entry: &BenchmarkEntry,
+) -> VortexResult<()> {
+    let scalar = entry.into_scalar();
+
+    update_s3_object(client, session, bucket, key, |existing_array| {
+        let scalar = scalar.clone();
+        async move {
+            let existing_len = existing_array.len();
+            let dtype = existing_array.dtype().clone();
+
+            let mut builder = builder_with_capacity(&dtype, existing_len + 1);
+            builder.extend_from_array(&existing_array);
+            builder.append_scalar(&scalar)?;
+
+            Ok(builder.finish())
+        }
+    })
+    .await
 }
