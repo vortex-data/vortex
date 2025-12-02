@@ -256,3 +256,293 @@ macro_rules! match_each_unsigned_pvector_mut {
         }
     }};
 }
+
+/// Matches on pairs of [`PrimitiveVector`] with the same type and executes the provided code.
+///
+/// This macro matches two primitive vectors when they have the same underlying type.
+/// For type mismatches, the `$else` block is executed.
+///
+/// # Examples
+///
+/// ```
+/// use vortex_vector::primitive::{PrimitiveVector, PVectorMut};
+/// use vortex_vector::{VectorOps, VectorMutOps, match_each_pvector_pair};
+///
+/// fn add_lengths(left: &PrimitiveVector, right: &PrimitiveVector) -> Option<usize> {
+///     match_each_pvector_pair!(
+///         (left, right),
+///         |l, r| { Some(l.len() + r.len()) },
+///         { None }
+///     )
+/// }
+///
+/// let a: PrimitiveVector = PVectorMut::<i32>::from_iter([1, 2, 3].map(Some)).freeze().into();
+/// let b: PrimitiveVector = PVectorMut::<i32>::from_iter([4, 5].map(Some)).freeze().into();
+/// assert_eq!(add_lengths(&a, &b), Some(5));
+///
+/// let c: PrimitiveVector = PVectorMut::<f64>::from_iter([1.0].map(Some)).freeze().into();
+/// assert_eq!(add_lengths(&a, &c), None); // Type mismatch
+/// ```
+///
+/// [`PrimitiveVector`]: crate::primitive::PrimitiveVector
+#[macro_export]
+macro_rules! match_each_pvector_pair {
+    (($left:expr, $right:expr), | $l:ident, $r:ident | $body:block, $else:block) => {{
+        match ($left, $right) {
+            (
+                $crate::primitive::PrimitiveVector::U8($l),
+                $crate::primitive::PrimitiveVector::U8($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveVector::U16($l),
+                $crate::primitive::PrimitiveVector::U16($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveVector::U32($l),
+                $crate::primitive::PrimitiveVector::U32($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveVector::U64($l),
+                $crate::primitive::PrimitiveVector::U64($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveVector::I8($l),
+                $crate::primitive::PrimitiveVector::I8($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveVector::I16($l),
+                $crate::primitive::PrimitiveVector::I16($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveVector::I32($l),
+                $crate::primitive::PrimitiveVector::I32($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveVector::I64($l),
+                $crate::primitive::PrimitiveVector::I64($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveVector::F16($l),
+                $crate::primitive::PrimitiveVector::F16($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveVector::F32($l),
+                $crate::primitive::PrimitiveVector::F32($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveVector::F64($l),
+                $crate::primitive::PrimitiveVector::F64($r),
+            ) => $body,
+            _ => $else,
+        }
+    }};
+}
+
+/// Matches on pairs of integer [`PrimitiveVector`] with the same type and executes the provided
+/// code.
+///
+/// This macro matches two primitive vectors when they have the same underlying integer type.
+/// For type mismatches, the `$else` block is executed.
+///
+/// [`PrimitiveVector`]: crate::primitive::PrimitiveVector
+#[macro_export]
+macro_rules! match_each_integer_pvector_pair {
+    (($left:expr, $right:expr), | $l:ident, $r:ident | $body:block, $else:block) => {{
+        match ($left, $right) {
+            (
+                $crate::primitive::PrimitiveVector::U8($l),
+                $crate::primitive::PrimitiveVector::U8($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveVector::U16($l),
+                $crate::primitive::PrimitiveVector::U16($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveVector::U32($l),
+                $crate::primitive::PrimitiveVector::U32($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveVector::U64($l),
+                $crate::primitive::PrimitiveVector::U64($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveVector::I8($l),
+                $crate::primitive::PrimitiveVector::I8($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveVector::I16($l),
+                $crate::primitive::PrimitiveVector::I16($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveVector::I32($l),
+                $crate::primitive::PrimitiveVector::I32($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveVector::I64($l),
+                $crate::primitive::PrimitiveVector::I64($r),
+            ) => $body,
+            _ => $else,
+        }
+    }};
+}
+
+/// Matches on pairs of float [`PrimitiveVector`] with the same type and executes the provided code.
+///
+/// This macro matches two primitive vectors when they have the same underlying float type.
+/// For type mismatches, the `$else` block is executed.
+///
+/// [`PrimitiveVector`]: crate::primitive::PrimitiveVector
+#[macro_export]
+macro_rules! match_each_float_pvector_pair {
+    (($left:expr, $right:expr), | $l:ident, $r:ident | $body:block, $else:block) => {{
+        match ($left, $right) {
+            (
+                $crate::primitive::PrimitiveVector::F16($l),
+                $crate::primitive::PrimitiveVector::F16($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveVector::F32($l),
+                $crate::primitive::PrimitiveVector::F32($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveVector::F64($l),
+                $crate::primitive::PrimitiveVector::F64($r),
+            ) => $body,
+            _ => $else,
+        }
+    }};
+}
+
+/// Matches on pairs of [`PrimitiveScalar`] with the same type and executes the provided code.
+///
+/// This macro matches two primitive scalars when they have the same underlying type.
+/// For type mismatches, the `$else` block is executed.
+///
+/// [`PrimitiveScalar`]: crate::primitive::PrimitiveScalar
+#[macro_export]
+macro_rules! match_each_pscalar_pair {
+    (($left:expr, $right:expr), | $l:ident, $r:ident | $body:block, $else:block) => {{
+        match ($left, $right) {
+            (
+                $crate::primitive::PrimitiveScalar::U8($l),
+                $crate::primitive::PrimitiveScalar::U8($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveScalar::U16($l),
+                $crate::primitive::PrimitiveScalar::U16($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveScalar::U32($l),
+                $crate::primitive::PrimitiveScalar::U32($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveScalar::U64($l),
+                $crate::primitive::PrimitiveScalar::U64($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveScalar::I8($l),
+                $crate::primitive::PrimitiveScalar::I8($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveScalar::I16($l),
+                $crate::primitive::PrimitiveScalar::I16($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveScalar::I32($l),
+                $crate::primitive::PrimitiveScalar::I32($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveScalar::I64($l),
+                $crate::primitive::PrimitiveScalar::I64($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveScalar::F16($l),
+                $crate::primitive::PrimitiveScalar::F16($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveScalar::F32($l),
+                $crate::primitive::PrimitiveScalar::F32($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveScalar::F64($l),
+                $crate::primitive::PrimitiveScalar::F64($r),
+            ) => $body,
+            _ => $else,
+        }
+    }};
+}
+
+/// Matches on pairs of integer [`PrimitiveScalar`] with the same type and executes the provided
+/// code.
+///
+/// This macro matches two primitive scalars when they have the same underlying integer type.
+/// For type mismatches, the `$else` block is executed.
+///
+/// [`PrimitiveScalar`]: crate::primitive::PrimitiveScalar
+#[macro_export]
+macro_rules! match_each_integer_pscalar_pair {
+    (($left:expr, $right:expr), | $l:ident, $r:ident | $body:block, $else:block) => {{
+        match ($left, $right) {
+            (
+                $crate::primitive::PrimitiveScalar::U8($l),
+                $crate::primitive::PrimitiveScalar::U8($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveScalar::U16($l),
+                $crate::primitive::PrimitiveScalar::U16($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveScalar::U32($l),
+                $crate::primitive::PrimitiveScalar::U32($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveScalar::U64($l),
+                $crate::primitive::PrimitiveScalar::U64($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveScalar::I8($l),
+                $crate::primitive::PrimitiveScalar::I8($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveScalar::I16($l),
+                $crate::primitive::PrimitiveScalar::I16($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveScalar::I32($l),
+                $crate::primitive::PrimitiveScalar::I32($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveScalar::I64($l),
+                $crate::primitive::PrimitiveScalar::I64($r),
+            ) => $body,
+            _ => $else,
+        }
+    }};
+}
+
+/// Matches on pairs of float [`PrimitiveScalar`] with the same type and executes the provided code.
+///
+/// This macro matches two primitive scalars when they have the same underlying float type.
+/// For type mismatches, the `$else` block is executed.
+///
+/// [`PrimitiveScalar`]: crate::primitive::PrimitiveScalar
+#[macro_export]
+macro_rules! match_each_float_pscalar_pair {
+    (($left:expr, $right:expr), | $l:ident, $r:ident | $body:block, $else:block) => {{
+        match ($left, $right) {
+            (
+                $crate::primitive::PrimitiveScalar::F16($l),
+                $crate::primitive::PrimitiveScalar::F16($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveScalar::F32($l),
+                $crate::primitive::PrimitiveScalar::F32($r),
+            ) => $body,
+            (
+                $crate::primitive::PrimitiveScalar::F64($l),
+                $crate::primitive::PrimitiveScalar::F64($r),
+            ) => $body,
+            _ => $else,
+        }
+    }};
+}
