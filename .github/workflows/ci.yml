@@ -421,6 +421,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           toolchain: nightly
           components: "rust-src, rustfmt, clippy, llvm-tools-preview"
+          cache-suffix: "sanitizer"
       - name: Install build dependencies
         run: |
           sudo apt-get update
