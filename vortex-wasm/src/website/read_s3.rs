@@ -63,10 +63,18 @@ pub async fn read_benchmark_entries(
         .map_err(|e| vortex_err!("Failed to read response body: {}", e))?;
 
     // Parse as Vortex file and read all data.
-    let file = session.open_options().open_buffer(bytes.to_vec())?;
+    // Note: We use `open_read_at` directly instead of `open_buffer` because `open_buffer` uses
+    // `futures::executor::block_on` which requires `std::time` (not available in WASM).
+    let buffer: vortex::buffer::ByteBuffer = bytes.to_vec().into();
+    let file = session
+        .open_options()
+        .with_initial_read_size(0)
+        .without_segment_cache()
+        .open_read_at(buffer)
+        .await?;
+
     let array = file.scan()?.into_array_stream()?.read_all().await?;
 
-    // Convert the array to benchmark entries.
     array_to_benchmark_entries(&array)
 }
 

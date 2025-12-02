@@ -24,14 +24,7 @@ use vortex::dtype::FieldNames;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::session::VortexSession;
-
-/// Name ID constants from `bench-vortex/src/website/names.rs`.
-mod name_ids {
-    pub const RANDOM_ACCESS: u32 = 2;
-    pub const VORTEX_NVME: u32 = 3;
-    pub const PARQUET_NVME: u32 = 4;
-    pub const LANCE_NVME: u32 = 5;
-}
+use vortex_wasm::website::names;
 
 /// Represents a benchmark entry from the JSON file.
 #[derive(Debug, Deserialize)]
@@ -47,9 +40,9 @@ struct JsonEntry {
 /// Maps the JSON `name` field to a series name ID.
 fn series_name_id(name: &str) -> u32 {
     match name {
-        "random-access/vortex-tokio-local-disk" => name_ids::VORTEX_NVME,
-        "random-access/parquet-tokio-local-disk" => name_ids::PARQUET_NVME,
-        "random-access/lance-tokio-local-disk" => name_ids::LANCE_NVME,
+        "random-access/vortex-tokio-local-disk" => names::VORTEX_NVME,
+        "random-access/parquet-tokio-local-disk" => names::PARQUET_NVME,
+        "random-access/lance-tokio-local-disk" => names::LANCE_NVME,
         _ => panic!("Unknown benchmark name: {}", name),
     }
 }
@@ -93,8 +86,8 @@ async fn async_main() {
         commit_id_bytes.extend_from_slice(&bytes);
 
         // All entries have the same benchmark_group and chart_name.
-        benchmark_groups.push(name_ids::RANDOM_ACCESS);
-        chart_names.push(name_ids::RANDOM_ACCESS);
+        benchmark_groups.push(names::RANDOM_ACCESS);
+        chart_names.push(names::RANDOM_ACCESS);
 
         // Map name to series_name ID.
         series_names.push(series_name_id(&entry.name));

@@ -17,8 +17,6 @@ version = { workspace = true }
 all-features = true
 
 [dependencies]
-async-compat = { workspace = true }
-async-fs = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
@@ -26,15 +24,13 @@ cfg-if = { workspace = true }
 futures = { workspace = true, features = ["std", "executor"] }
 # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
 getrandom_v03 = { workspace = true }
+handle = "1.0.2"
 kanal = { workspace = true }
 log = { workspace = true }
 object_store = { workspace = true, optional = true, features = ["fs"] }
 oneshot = { workspace = true }
 parking_lot = { workspace = true }
 pin-project-lite = { workspace = true }
-# this is the maximum subset of fetaures that is safe for wasm32 targets
-handle = "1.0.2"
-tokio = { workspace = true, features = ["io-util", "rt", "sync"] }
 tracing = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
@@ -42,8 +38,11 @@ vortex-metrics = { workspace = true }
 vortex-session = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-# Smol is our default impl, so we don't want it to be optional, but it cannot be part of wasm
+# These deps use std::time which is not available in WASM.
+async-compat = { workspace = true }
+async-fs = { workspace = true }
 smol = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "rt", "sync"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = { workspace = true }

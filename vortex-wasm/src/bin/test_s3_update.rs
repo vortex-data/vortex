@@ -2,6 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Test binary for testing the `update_s3_object` function using the AWS CLI.
+//!
+//! Usage:
+//!   cargo run -p vortex-wasm --bin test_s3_update -- --profile <PROFILE_NAME>
+//!   cargo run -p vortex-wasm --bin test_s3_update -- --upload --profile <PROFILE_NAME>
 
 #![allow(clippy::expect_used, clippy::exit)]
 
@@ -16,6 +20,7 @@ use vortex::dtype::DType;
 use vortex::dtype::FieldNames;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::PType;
+use vortex::io::session::RuntimeSessionExt;
 use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
 use vortex_wasm::website::update_s3::update_s3_object;
@@ -24,20 +29,35 @@ const BUCKET: &str = "vortex-benchmark-results-database";
 const KEY: &str = "test/random_access.vortex";
 
 fn main() {
-    let session = VortexSession::default();
+    let session = VortexSession::default().with_tokio();
+    let args: Vec<String> = env::args().collect();
+
+    // Parse --profile argument.
+    let profile = args
+        .iter()
+        .position(|a| a == "--profile")
+        .and_then(|i| args.get(i + 1))
+        .map(String::as_str);
+
+    if profile.is_none() {
+        eprintln!("Warning: No --profile specified. AWS CLI will use default credentials.");
+        eprintln!("Usage: test_s3_update [--upload] --profile <PROFILE_NAME>");
+    }
 
     // Check for --upload flag.
-    let args: Vec<String> = env::args().collect();
     if args.iter().any(|a| a == "--upload") {
         println!("Uploading random_access.vortex to S3...");
         let local_path = "/Users/connor/spiral/vortex-data/vortex/vortex-wasm/random_access.vortex";
         let file_bytes = fs::read(local_path).expect("Failed to read local file");
         let size = file_bytes.len();
 
-        let status = Command::new("aws")
-            .args(["s3", "cp", local_path, &format!("s3://{}/{}", BUCKET, KEY)])
-            .status()
-            .expect("Failed to run aws CLI");
+        let mut cmd = Command::new("aws");
+        cmd.args(["s3", "cp", local_path, &format!("s3://{}/{}", BUCKET, KEY)]);
+        if let Some(p) = profile {
+            cmd.args(["--profile", p]);
+        }
+
+        let status = cmd.status().expect("Failed to run aws CLI");
 
         if !status.success() {
             eprintln!("Failed to upload to S3");
@@ -50,7 +70,7 @@ fn main() {
     // Single update test.
     println!("\nTesting update_s3_object...");
 
-    let result = update_s3_object(&session, BUCKET, KEY, |existing_array| {
+    let result = update_s3_object(&session, BUCKET, KEY, profile, |existing_array| {
         let existing_len = existing_array.len();
         println!("  Existing array has {} entries", existing_len);
 

@@ -11,6 +11,7 @@
 //! flags implements the core traits for several common async runtimes and backing stores.
 
 pub use io_buf::*;
+#[cfg(not(target_arch = "wasm32"))]
 pub use limit::*;
 #[cfg(feature = "object_store")]
 pub use object_store::*;
@@ -20,6 +21,7 @@ pub use write::*;
 pub mod file;
 mod io_buf;
 pub mod kanal_ext;
+#[cfg(not(target_arch = "wasm32"))]
 mod limit;
 #[cfg(feature = "object_store")]
 mod object_store;

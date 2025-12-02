@@ -16,18 +16,31 @@ version.workspace = true
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = []
+# Native feature for binaries - includes tokio runtime and file system dependencies.
+native = [
+    "dep:async-fs",
+    "dep:serde_json",
+    "dep:tempfile",
+    "dep:tokio",
+    "dep:tracing",
+    "vortex/tokio",
+]
+
 [dependencies]
-async-fs = { workspace = true }
+# Core dependencies for both WASM and native.
+console_error_panic_hook = "0.1"
 hex = { workspace = true }
 phf = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde-wasm-bindgen = "0.6"
-serde_json = { workspace = true }
-tempfile = { workspace = true }
-tokio = { workspace = true, features = ["full"] }
-tracing = { workspace = true }
-vortex = { workspace = true, features = ["tokio"] }
+vortex = { workspace = true }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = { workspace = true }
+
+# These are needed by binaries - accessed via vortex re-exports for library code.
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
@@ -38,35 +51,42 @@ vortex-layout = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-session = { workspace = true }
-wasm-bindgen = "0.2"
-wasm-bindgen-futures = { workspace = true }
+
+# Native-only dependencies (for binaries).
+async-fs = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+tempfile = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["full"], optional = true }
+tracing = { workspace = true, optional = true }
 
 [dependencies.web-sys]
-features = ["console", "Window", "Response"]
-version = "0.3"
-
-[dependencies.js-sys]
+features = ["console"]
 version = "0.3"
 
 [[bin]]
 name = "migrate"
 path = "src/bin/migrate.rs"
+required-features = ["native"]
 
 [[bin]]
 name = "append"
 path = "src/bin/append.rs"
+required-features = ["native"]
 
 [[bin]]
 name = "test_s3_read"
 path = "src/bin/test_s3_read.rs"
+required-features = ["native"]
 
 [[bin]]
 name = "test_s3_update"
 path = "src/bin/test_s3_update.rs"
+required-features = ["native"]
 
 [[bin]]
 name = "migrate_random_access"
 path = "src/bin/migrate_random_access.rs"
+required-features = ["native"]
 
 [lints]
 workspace = true

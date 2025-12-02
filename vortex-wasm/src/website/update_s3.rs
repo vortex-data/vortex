@@ -24,7 +24,7 @@ use vortex::session::VortexSession;
 
 use super::entry::BenchmarkEntry;
 
-const MAX_RETRIES: u32 = 5;
+const MAX_RETRIES: u32 = 8;
 
 /// Internal error type for retry control.
 enum UpdateError {
@@ -34,21 +34,34 @@ enum UpdateError {
     Other(String),
 }
 
+/// Builds AWS CLI arguments, optionally including a profile.
+fn aws_args(base_args: &[&str], profile: Option<&str>) -> Vec<String> {
+    let mut args: Vec<String> = base_args.iter().map(|s| s.to_string()).collect();
+    if let Some(p) = profile {
+        args.push("--profile".to_string());
+        args.push(p.to_string());
+    }
+    args
+}
+
 /// Gets the current ETag of an S3 object using the AWS CLI.
-fn get_etag(bucket: &str, key: &str) -> Result<String, UpdateError> {
+fn get_etag(bucket: &str, key: &str, profile: Option<&str>) -> Result<String, UpdateError> {
+    let base_args = [
+        "s3api",
+        "head-object",
+        "--bucket",
+        bucket,
+        "--key",
+        key,
+        "--query",
+        "ETag",
+        "--output",
+        "text",
+    ];
+    let args = aws_args(&base_args, profile);
+
     let output = Command::new("aws")
-        .args([
-            "s3api",
-            "head-object",
-            "--bucket",
-            bucket,
-            "--key",
-            key,
-            "--query",
-            "ETag",
-            "--output",
-            "text",
-        ])
+        .args(&args)
         .output()
         .map_err(|e| UpdateError::Other(format!("Failed to run aws CLI: {}", e)))?;
 
@@ -73,19 +86,23 @@ fn download_object(
     key: &str,
     etag: &str,
     dest_path: &str,
+    profile: Option<&str>,
 ) -> Result<(), UpdateError> {
+    let base_args = [
+        "s3api",
+        "get-object",
+        "--bucket",
+        bucket,
+        "--key",
+        key,
+        "--if-match",
+        etag,
+        dest_path,
+    ];
+    let args = aws_args(&base_args, profile);
+
     let output = Command::new("aws")
-        .args([
-            "s3api",
-            "get-object",
-            "--bucket",
-            bucket,
-            "--key",
-            key,
-            "--if-match",
-            etag,
-            dest_path,
-        ])
+        .args(&args)
         .output()
         .map_err(|e| UpdateError::Other(format!("Failed to run aws CLI: {}", e)))?;
 
@@ -104,20 +121,29 @@ fn download_object(
 }
 
 /// Uploads a local file to S3 using the AWS CLI with ETag matching.
-fn upload_object(bucket: &str, key: &str, etag: &str, src_path: &str) -> Result<(), UpdateError> {
+fn upload_object(
+    bucket: &str,
+    key: &str,
+    etag: &str,
+    src_path: &str,
+    profile: Option<&str>,
+) -> Result<(), UpdateError> {
+    let base_args = [
+        "s3api",
+        "put-object",
+        "--bucket",
+        bucket,
+        "--key",
+        key,
+        "--if-match",
+        etag,
+        "--body",
+        src_path,
+    ];
+    let args = aws_args(&base_args, profile);
+
     let output = Command::new("aws")
-        .args([
-            "s3api",
-            "put-object",
-            "--bucket",
-            bucket,
-            "--key",
-            key,
-            "--if-match",
-            etag,
-            "--body",
-            src_path,
-        ])
+        .args(&args)
         .output()
         .map_err(|e| UpdateError::Other(format!("Failed to run aws CLI: {}", e)))?;
 
@@ -146,6 +172,7 @@ fn upload_object(bucket: &str, key: &str, etag: &str, src_path: &str) -> Result<
 /// * `session` - The Vortex session for reading and writing files.
 /// * `bucket` - The S3 bucket name.
 /// * `key` - The S3 object key.
+/// * `profile` - Optional AWS CLI profile name (e.g., from `aws sso login`).
 /// * `update_fn` - A function that takes the file's array data and returns the updated array.
 ///   The returned array must have the same dtype as the input. This function may be called
 ///   multiple times if retries are needed.
@@ -162,6 +189,7 @@ pub fn update_s3_object<F>(
     session: &VortexSession,
     bucket: &str,
     key: &str,
+    profile: Option<&str>,
     mut update_fn: F,
 ) -> VortexResult<()>
 where
@@ -171,7 +199,7 @@ where
         .map_err(|e| vortex_err!("Failed to create tokio runtime: {}", e))?;
 
     for attempt in 0..MAX_RETRIES {
-        match try_update_s3_object(session, bucket, key, &mut update_fn, &runtime) {
+        match try_update_s3_object(session, bucket, key, profile, &mut update_fn, &runtime) {
             Ok(()) => return Ok(()),
             Err(UpdateError::EtagMismatch) => {
                 eprintln!("ETag mismatch on attempt {}. Retrying...", attempt + 1);
@@ -191,6 +219,7 @@ fn try_update_s3_object<F>(
     session: &VortexSession,
     bucket: &str,
     key: &str,
+    profile: Option<&str>,
     update_fn: &mut F,
     runtime: &tokio::runtime::Runtime,
 ) -> Result<(), UpdateError>
@@ -198,14 +227,14 @@ where
     F: FnMut(ArrayRef) -> VortexResult<ArrayRef>,
 {
     // Get current ETag.
-    let etag = get_etag(bucket, key)?;
+    let etag = get_etag(bucket, key, profile)?;
 
     // Download to temp file.
     let download_file = NamedTempFile::new()
         .map_err(|e| UpdateError::Other(format!("Failed to create temp file: {}", e)))?;
     let download_path = download_file.path().to_string_lossy().to_string();
 
-    download_object(bucket, key, &etag, &download_path)?;
+    download_object(bucket, key, &etag, &download_path, profile)?;
 
     // Read and parse.
     let existing_bytes = fs::read(&download_path)
@@ -260,7 +289,7 @@ where
     let upload_path = upload_file.path().to_string_lossy().to_string();
 
     // Upload with if-match.
-    upload_object(bucket, key, &etag, &upload_path)?;
+    upload_object(bucket, key, &etag, &upload_path, profile)?;
 
     Ok(())
 }
@@ -276,16 +305,18 @@ where
 /// * `session` - The Vortex session for reading and writing files.
 /// * `bucket` - The S3 bucket name.
 /// * `key` - The S3 object key.
+/// * `profile` - Optional AWS CLI profile name.
 /// * `entry` - The benchmark entry to append.
 pub fn append_benchmark_entry(
     session: &VortexSession,
     bucket: &str,
     key: &str,
+    profile: Option<&str>,
     entry: &BenchmarkEntry,
 ) -> VortexResult<()> {
     let scalar = entry.into_scalar();
 
-    update_s3_object(session, bucket, key, |existing_array| {
+    update_s3_object(session, bucket, key, profile, |existing_array| {
         let existing_len = existing_array.len();
         let dtype = existing_array.dtype().clone();
 

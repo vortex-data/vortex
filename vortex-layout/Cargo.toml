@@ -26,7 +26,6 @@ futures = { workspace = true, features = ["alloc", "async-await", "executor"] }
 itertools = { workspace = true }
 kanal = { workspace = true }
 log = { workspace = true }
-moka = { workspace = true, features = ["future"] }
 once_cell = { workspace = true, features = ["parking_lot"] }
 oneshot = { workspace = true }
 parking_lot = { workspace = true }
@@ -34,7 +33,6 @@ paste = { workspace = true }
 pco = { workspace = true }
 pin-project-lite = { workspace = true }
 prost = { workspace = true }
-rustc-hash = { workspace = true }
 termtree = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 uuid = { workspace = true }
@@ -54,6 +52,11 @@ vortex-sequence = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 vortex-zstd = { workspace = true, optional = true }
+
+# Moka uses std::time::Instant which is not available on WASM.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+moka = { workspace = true, features = ["future"] }
+rustc-hash = { workspace = true }
 
 [dev-dependencies]
 futures = { workspace = true, features = ["executor"] }

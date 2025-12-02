@@ -5,12 +5,17 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::FutureExt;
+#[cfg(not(target_arch = "wasm32"))]
 use moka::future::Cache;
+#[cfg(not(target_arch = "wasm32"))]
 use moka::future::CacheBuilder;
+#[cfg(not(target_arch = "wasm32"))]
 use moka::policy::EvictionPolicy;
+#[cfg(not(target_arch = "wasm32"))]
 use rustc_hash::FxBuildHasher;
 use vortex_buffer::BufferHandle;
 use vortex_buffer::ByteBuffer;
+#[cfg(not(target_arch = "wasm32"))]
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_metrics::Counter;
@@ -41,8 +46,13 @@ impl SegmentCache for NoOpSegmentCache {
 }
 
 /// A [`SegmentCache`] based around an in-memory Moka cache.
+///
+/// This cache is not available on WASM targets because moka uses `std::time::Instant` which is not
+/// supported. Use [`NoOpSegmentCache`] for WASM targets instead.
+#[cfg(not(target_arch = "wasm32"))]
 pub struct MokaSegmentCache(Cache<SegmentId, ByteBuffer, FxBuildHasher>);
 
+#[cfg(not(target_arch = "wasm32"))]
 impl MokaSegmentCache {
     pub fn new(max_capacity_bytes: u64) -> Self {
         Self(
@@ -61,6 +71,7 @@ impl MokaSegmentCache {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[async_trait]
 impl SegmentCache for MokaSegmentCache {
     async fn get(&self, id: SegmentId) -> VortexResult<Option<ByteBuffer>> {
