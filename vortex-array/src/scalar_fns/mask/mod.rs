@@ -60,7 +60,7 @@ impl VTable for MaskFn {
         let mask = args.input_datums(1).clone().into_bool();
         match (input, mask) {
             (Datum::Scalar(input), BoolDatum::Scalar(mask)) => {
-                let mut result = input.clone();
+                let mut result = input;
                 result.mask_validity(mask.value().vortex_expect("mask is non-nullable"));
                 Ok(Datum::Scalar(result))
             }
@@ -70,7 +70,7 @@ impl VTable for MaskFn {
                 Ok(Datum::Vector(result))
             }
             (Datum::Vector(input_array), BoolDatum::Scalar(mask)) => {
-                let mut result = input_array.clone();
+                let mut result = input_array;
                 result.mask_validity(&Mask::new(
                     args.row_count(),
                     mask.value().vortex_expect("mask is non-nullable"),
@@ -78,7 +78,7 @@ impl VTable for MaskFn {
                 Ok(Datum::Vector(result))
             }
             (Datum::Vector(input_array), BoolDatum::Vector(mask)) => {
-                let mut result = input_array.clone();
+                let mut result = input_array;
                 result.mask_validity(&Mask::from(mask.into_bits()));
                 Ok(Datum::Vector(result))
             }
