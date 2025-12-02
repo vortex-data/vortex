@@ -29,6 +29,11 @@ impl StructScalar {
     pub fn value(&self) -> &StructVector {
         &self.0
     }
+
+    /// Returns the nth field scalar of the struct.
+    pub fn field(&self, field_idx: usize) -> Scalar {
+        self.0.fields()[field_idx].scalar_at(0)
+    }
 }
 
 impl ScalarOps for StructScalar {
