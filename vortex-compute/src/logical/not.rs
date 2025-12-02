@@ -3,11 +3,11 @@
 
 use std::ops::Not;
 
+use vortex_vector::BoolDatum;
+use vortex_vector::VectorOps;
 use vortex_vector::bool::BoolScalar;
 use vortex_vector::bool::BoolVector;
 use vortex_vector::bool::BoolVectorMut;
-use vortex_vector::BoolDatum;
-use vortex_vector::VectorOps;
 
 use crate::logical::LogicalNot;
 

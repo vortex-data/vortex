@@ -5,11 +5,13 @@ use std::fmt::Formatter;
 
 use prost::Message;
 use vortex_dtype::DType;
-use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_proto::expr as pb;
+use vortex_vector::Datum;
 
+use crate::ArrayRef;
 use crate::compute;
 use crate::compute::add;
 use crate::compute::and_kleene;
@@ -18,17 +20,17 @@ use crate::compute::div;
 use crate::compute::mul;
 use crate::compute::or_kleene;
 use crate::compute::sub;
+use crate::expr::Arity;
+use crate::expr::ChildName;
+use crate::expr::ExecutionArgs;
+use crate::expr::ExprId;
+use crate::expr::StatsCatalog;
+use crate::expr::VTable;
+use crate::expr::VTableExt;
 use crate::expr::expression::Expression;
 use crate::expr::exprs::literal::lit;
 use crate::expr::exprs::operators::Operator;
 use crate::expr::stats::Stat;
-use crate::expr::ChildName;
-use crate::expr::ExprId;
-use crate::expr::ExpressionView;
-use crate::expr::StatsCatalog;
-use crate::expr::VTable;
-use crate::expr::VTableExt;
-use crate::ArrayRef;
 
 pub struct Binary;
 
@@ -48,14 +50,13 @@ impl VTable for Binary {
         ))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Options>> {
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Options> {
         let opts = pb::BinaryOpts::decode(metadata)?;
-        Ok(Some(Operator::try_from(opts.op)?))
+        Ok(Operator::try_from(opts.op)?)
     }
 
-    fn validate(&self, _expr: &ExpressionView<Self>) -> VortexResult<()> {
-        // TODO(ngates): check the dtypes.
-        Ok(())
+    fn arity(&self, _options: &Self::Options) -> Arity {
+        Arity::Exact(2)
     }
 
     fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
@@ -66,23 +67,24 @@ impl VTable for Binary {
         }
     }
 
-    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(
+        &self,
+        operator: &Operator,
+        expr: &Expression,
+        f: &mut Formatter<'_>,
+    ) -> std::fmt::Result {
         write!(f, "(")?;
-        expr.lhs().fmt_sql(f)?;
-        write!(f, " {} ", expr.operator())?;
-        expr.rhs().fmt_sql(f)?;
+        expr.child(0).fmt_sql(f)?;
+        write!(f, " {} ", operator)?;
+        expr.child(1).fmt_sql(f)?;
         write!(f, ")")
     }
 
-    fn fmt_data(&self, instance: &Self::Options, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", *instance)
-    }
+    fn return_dtype(&self, operator: &Operator, arg_dtypes: &[DType]) -> VortexResult<DType> {
+        let lhs = &arg_dtypes[0];
+        let rhs = &arg_dtypes[1];
 
-    fn return_dtype(&self, expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
-        let lhs = expr.lhs().return_dtype(scope)?;
-        let rhs = expr.rhs().return_dtype(scope)?;
-
-        if expr.operator().is_arithmetic() {
+        if operator.is_arithmetic() {
             if lhs.is_primitive() && lhs.eq_ignore_nullability(&rhs) {
                 return Ok(lhs.with_nullability(lhs.nullability() | rhs.nullability()));
             }
@@ -96,11 +98,16 @@ impl VTable for Binary {
         Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
     }
 
-    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        let lhs = expr.lhs().evaluate(scope)?;
-        let rhs = expr.rhs().evaluate(scope)?;
+    fn evaluate(
+        &self,
+        operator: &Operator,
+        expr: &Expression,
+        scope: &ArrayRef,
+    ) -> VortexResult<ArrayRef> {
+        let lhs = expr.child(0).evaluate(scope)?;
+        let rhs = expr.child(1).evaluate(scope)?;
 
-        match expr.operator() {
+        match operator {
             Operator::Eq => compare(&lhs, &rhs, compute::Operator::Eq),
             Operator::NotEq => compare(&lhs, &rhs, compute::Operator::NotEq),
             Operator::Lt => compare(&lhs, &rhs, compute::Operator::Lt),
@@ -116,9 +123,14 @@ impl VTable for Binary {
         }
     }
 
+    fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
+        todo!()
+    }
+
     fn stat_falsification(
         &self,
-        expr: &ExpressionView<Self>,
+        operator: &Operator,
+        expr: &Expression,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         // Wrap another predicate with an optional NaNCount check, if the stat is available.
@@ -155,13 +167,15 @@ impl VTable for Binary {
             }
         }
 
-        match expr.operator() {
+        let lhs = expr.child(0);
+        let rhs = expr.child(1);
+        match operator {
             Operator::Eq => {
-                let min_lhs = expr.lhs().stat_min(catalog);
-                let max_lhs = expr.lhs().stat_max(catalog);
+                let min_lhs = lhs.stat_min(catalog);
+                let max_lhs = lhs.stat_max(catalog);
 
-                let min_rhs = expr.rhs().stat_min(catalog);
-                let max_rhs = expr.rhs().stat_max(catalog);
+                let min_rhs = rhs.stat_min(catalog);
+                let max_rhs = rhs.stat_max(catalog);
 
                 let left = min_lhs.zip(max_rhs).map(|(a, b)| gt(a, b));
                 let right = min_rhs.zip(max_lhs).map(|(a, b)| gt(a, b));
@@ -169,99 +183,64 @@ impl VTable for Binary {
                 let min_max_check = left.into_iter().chain(right).reduce(or)?;
 
                 // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
-                Some(with_nan_predicate(
-                    expr.lhs(),
-                    expr.rhs(),
-                    min_max_check,
-                    catalog,
-                ))
+                Some(with_nan_predicate(lhs, rhs, min_max_check, catalog))
             }
             Operator::NotEq => {
-                let min_lhs = expr.lhs().stat_min(catalog)?;
-                let max_lhs = expr.lhs().stat_max(catalog)?;
+                let min_lhs = lhs.stat_min(catalog)?;
+                let max_lhs = lhs.stat_max(catalog)?;
 
-                let min_rhs = expr.rhs().stat_min(catalog)?;
-                let max_rhs = expr.rhs().stat_max(catalog)?;
+                let min_rhs = rhs.stat_min(catalog)?;
+                let max_rhs = rhs.stat_max(catalog)?;
 
                 let min_max_check = and(eq(min_lhs, max_rhs), eq(max_lhs, min_rhs));
 
-                Some(with_nan_predicate(
-                    expr.lhs(),
-                    expr.rhs(),
-                    min_max_check,
-                    catalog,
-                ))
+                Some(with_nan_predicate(lhs, rhs, min_max_check, catalog))
             }
             Operator::Gt => {
-                let min_max_check =
-                    lt_eq(expr.lhs().stat_max(catalog)?, expr.rhs().stat_min(catalog)?);
+                let min_max_check = lt_eq(lhs.stat_max(catalog)?, rhs.stat_min(catalog)?);
 
-                Some(with_nan_predicate(
-                    expr.lhs(),
-                    expr.rhs(),
-                    min_max_check,
-                    catalog,
-                ))
+                Some(with_nan_predicate(lhs, rhs, min_max_check, catalog))
             }
             Operator::Gte => {
                 // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
-                let min_max_check =
-                    lt(expr.lhs().stat_max(catalog)?, expr.rhs().stat_min(catalog)?);
+                let min_max_check = lt(lhs.stat_max(catalog)?, rhs.stat_min(catalog)?);
 
-                Some(with_nan_predicate(
-                    expr.lhs(),
-                    expr.rhs(),
-                    min_max_check,
-                    catalog,
-                ))
+                Some(with_nan_predicate(lhs, rhs, min_max_check, catalog))
             }
             Operator::Lt => {
                 // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
-                let min_max_check =
-                    gt_eq(expr.lhs().stat_min(catalog)?, expr.rhs().stat_max(catalog)?);
+                let min_max_check = gt_eq(lhs.stat_min(catalog)?, rhs.stat_max(catalog)?);
 
-                Some(with_nan_predicate(
-                    expr.lhs(),
-                    expr.rhs(),
-                    min_max_check,
-                    catalog,
-                ))
+                Some(with_nan_predicate(lhs, rhs, min_max_check, catalog))
             }
             Operator::Lte => {
                 // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
-                let min_max_check =
-                    gt(expr.lhs().stat_min(catalog)?, expr.rhs().stat_max(catalog)?);
+                let min_max_check = gt(lhs.stat_min(catalog)?, rhs.stat_max(catalog)?);
 
-                Some(with_nan_predicate(
-                    expr.lhs(),
-                    expr.rhs(),
-                    min_max_check,
-                    catalog,
-                ))
+                Some(with_nan_predicate(lhs, rhs, min_max_check, catalog))
             }
-            Operator::And => expr
-                .lhs()
+            Operator::And => lhs
                 .stat_falsification(catalog)
                 .into_iter()
-                .chain(expr.rhs().stat_falsification(catalog))
+                .chain(rhs.stat_falsification(catalog))
                 .reduce(or),
             Operator::Or => Some(and(
-                expr.lhs().stat_falsification(catalog)?,
-                expr.rhs().stat_falsification(catalog)?,
+                lhs.stat_falsification(catalog)?,
+                rhs.stat_falsification(catalog)?,
             )),
             Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => None,
         }
     }
 
-    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
+    fn is_null_sensitive(&self, _operator: &Operator) -> bool {
         false
     }
 
-    fn is_fallible(&self, instance: &Self::Options) -> bool {
+    fn is_fallible(&self, operator: &Operator) -> bool {
         // Opt-in not out for fallibility.
         // Arithmetic operations could be better modelled here.
         let infallible = matches!(
-            instance,
+            operator,
             Operator::Eq
                 | Operator::NotEq
                 | Operator::Gt
@@ -273,20 +252,6 @@ impl VTable for Binary {
         );
 
         !infallible
-    }
-}
-
-impl ExpressionView<'_, Binary> {
-    pub fn lhs(&self) -> &Expression {
-        &self.children()[0]
-    }
-
-    pub fn rhs(&self) -> &Expression {
-        &self.children()[1]
-    }
-
-    pub fn operator(&self) -> Operator {
-        *self.data()
     }
 }
 
@@ -555,10 +520,10 @@ mod tests {
     use super::lt_eq;
     use super::not_eq;
     use super::or;
+    use crate::expr::Expression;
     use crate::expr::exprs::get_item::col;
     use crate::expr::exprs::literal::lit;
     use crate::expr::test_harness;
-    use crate::expr::Expression;
 
     #[test]
     fn and_collect_left_assoc() {

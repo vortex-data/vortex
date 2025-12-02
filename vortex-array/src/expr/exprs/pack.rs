@@ -11,11 +11,13 @@ use vortex_dtype::FieldName;
 use vortex_dtype::FieldNames;
 use vortex_dtype::Nullability;
 use vortex_dtype::StructFields;
+use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_error::VortexResult;
 use vortex_proto::expr as pb;
 
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::StructArray;
 use crate::expr::ChildName;
 use crate::expr::ExprId;
@@ -24,8 +26,6 @@ use crate::expr::ExpressionView;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::validity::Validity;
-use crate::ArrayRef;
-use crate::IntoArray;
 
 /// Pack zero or more expressions into a structure with named fields.
 pub struct Pack;
@@ -198,22 +198,22 @@ pub fn pack(
 mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
-    use vortex_error::vortex_bail;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_bail;
 
-    use super::pack;
     use super::Pack;
     use super::PackOptions;
-    use crate::arrays::PrimitiveArray;
-    use crate::arrays::StructArray;
-    use crate::expr::exprs::get_item::col;
-    use crate::expr::VTableExt;
-    use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
+    use super::pack;
     use crate::Array;
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::ToCanonical;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
+    use crate::expr::VTableExt;
+    use crate::expr::exprs::get_item::col;
+    use crate::validity::Validity;
+    use crate::vtable::ValidityHelper;
 
     fn test_array() -> ArrayRef {
         StructArray::from_fields(&[

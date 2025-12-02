@@ -10,28 +10,30 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use vortex_dtype::DType;
-use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
+use vortex_vector::Datum;
 
-use crate::arrays::ConstantArray;
-use crate::compute::compare;
-use crate::compute::Operator;
-use crate::expr::traversal::NodeExt;
-use crate::expr::traversal::NodeVisitor;
-use crate::expr::traversal::TraversalOrder;
-use crate::expr::ChildName;
-use crate::expr::ExprId;
-use crate::expr::Expression;
-use crate::expr::ExpressionView;
-use crate::expr::StatsCatalog;
-use crate::expr::VTable;
-use crate::expr::VTableExt;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::ConstantArray;
+use crate::compute::Operator;
+use crate::compute::compare;
+use crate::expr::Arity;
+use crate::expr::ChildName;
+use crate::expr::ExecutionArgs;
+use crate::expr::ExprId;
+use crate::expr::Expression;
+use crate::expr::StatsCatalog;
+use crate::expr::VTable;
+use crate::expr::VTableExt;
+use crate::expr::traversal::NodeExt;
+use crate::expr::traversal::NodeVisitor;
+use crate::expr::traversal::TraversalOrder;
 
 /// A dynamic comparison expression can be used to capture a comparison to a value that can change
 /// during the execution of a query, such as when a compute engine pushes down an ORDER BY + LIMIT
@@ -45,14 +47,8 @@ impl VTable for DynamicComparison {
         ExprId::new_ref("vortex.dynamic")
     }
 
-    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()> {
-        if expr.children().len() != 1 {
-            vortex_bail!(
-                "DynamicComparison expression requires exactly one child, got {}",
-                expr.children().len()
-            );
-        }
-        Ok(())
+    fn arity(&self, _options: &Self::Options) -> Arity {
+        Arity::Exact(1)
     }
 
     fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
@@ -62,86 +58,106 @@ impl VTable for DynamicComparison {
         }
     }
 
-    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
-        expr.lhs().fmt_sql(f)?;
-        write!(f, " {} dynamic(", expr.data())?;
-        match expr.scalar() {
+    fn fmt_sql(
+        &self,
+        dynamic: &DynamicComparisonExpr,
+        expr: &Expression,
+        f: &mut Formatter<'_>,
+    ) -> std::fmt::Result {
+        expr.child(0).fmt_sql(f)?;
+        write!(f, " {} dynamic(", dynamic)?;
+        match dynamic.scalar() {
             None => write!(f, "<none>")?,
             Some(scalar) => write!(f, "{}", scalar)?,
         }
         write!(f, ")")
     }
 
-    fn return_dtype(&self, expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
-        let lhs = expr.lhs().return_dtype(scope)?;
-        if !expr.data().rhs.dtype.eq_ignore_nullability(&lhs) {
+    fn return_dtype(
+        &self,
+        dynamic: &DynamicComparisonExpr,
+        arg_dtypes: &[DType],
+    ) -> VortexResult<DType> {
+        let lhs = &arg_dtypes[0];
+        if !dynamic.rhs.dtype.eq_ignore_nullability(&lhs) {
             vortex_bail!(
                 "Incompatible dtypes for dynamic comparison: expected {} (ignore nullability) but got {}",
-                &expr.data().rhs.dtype,
+                &dynamic.rhs.dtype,
                 lhs
             );
         }
         Ok(DType::Bool(
-            lhs.nullability() | expr.data().rhs.dtype.nullability(),
+            lhs.nullability() | dynamic.rhs.dtype.nullability(),
         ))
     }
 
-    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        if let Some(value) = expr.scalar() {
-            let lhs = expr.lhs().evaluate(scope)?;
+    fn evaluate(
+        &self,
+        dynamic: &DynamicComparisonExpr,
+        expr: &Expression,
+        scope: &ArrayRef,
+    ) -> VortexResult<ArrayRef> {
+        if let Some(value) = dynamic.rhs.scalar() {
+            let lhs = expr.child(0).evaluate(scope)?;
             let rhs = ConstantArray::new(value, scope.len());
-            return compare(lhs.as_ref(), rhs.as_ref(), expr.data().operator);
+            return compare(lhs.as_ref(), rhs.as_ref(), dynamic.operator);
         }
 
         // Otherwise, we return the default value.
         let lhs = expr.return_dtype(scope.dtype())?;
         Ok(ConstantArray::new(
             Scalar::new(
-                DType::Bool(lhs.nullability() | expr.data().rhs.dtype.nullability()),
-                expr.data().default.into(),
+                DType::Bool(lhs.nullability() | dynamic.rhs.dtype.nullability()),
+                dynamic.default.into(),
             ),
             scope.len(),
         )
         .into_array())
     }
 
+    fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
+        todo!()
+    }
+
     fn stat_falsification(
         &self,
-        expr: &ExpressionView<DynamicComparison>,
+        dynamic: &DynamicComparisonExpr,
+        expr: &Expression,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
-        match expr.data().operator {
+        let lhs = expr.child(0);
+        match dynamic.operator {
             Operator::Gt => Some(DynamicComparison.new_expr(
                 DynamicComparisonExpr {
                     operator: Operator::Lte,
-                    rhs: expr.data().rhs.clone(),
-                    default: !expr.data().default,
+                    rhs: dynamic.rhs.clone(),
+                    default: !dynamic.default,
                 },
-                vec![expr.lhs().stat_max(catalog)?],
+                vec![lhs.stat_max(catalog)?],
             )),
             Operator::Gte => Some(DynamicComparison.new_expr(
                 DynamicComparisonExpr {
                     operator: Operator::Lt,
-                    rhs: expr.data().rhs.clone(),
-                    default: !expr.data().default,
+                    rhs: dynamic.rhs.clone(),
+                    default: !dynamic.default,
                 },
-                vec![expr.lhs().stat_max(catalog)?],
+                vec![lhs.stat_max(catalog)?],
             )),
             Operator::Lt => Some(DynamicComparison.new_expr(
                 DynamicComparisonExpr {
                     operator: Operator::Gte,
-                    rhs: expr.data().rhs.clone(),
-                    default: !expr.data().default,
+                    rhs: dynamic.rhs.clone(),
+                    default: !dynamic.default,
                 },
-                vec![expr.lhs().stat_min(catalog)?],
+                vec![lhs.stat_min(catalog)?],
             )),
             Operator::Lte => Some(DynamicComparison.new_expr(
                 DynamicComparisonExpr {
                     operator: Operator::Gt,
-                    rhs: expr.data().rhs.clone(),
-                    default: !expr.data().default,
+                    rhs: dynamic.rhs.clone(),
+                    default: !dynamic.default,
                 },
-                vec![expr.lhs().stat_min(catalog)?],
+                vec![lhs.stat_min(catalog)?],
             )),
             _ => None,
         }
@@ -225,22 +241,18 @@ struct Rhs {
     dtype: DType,
 }
 
+impl Rhs {
+    pub fn scalar(&self) -> Option<Scalar> {
+        (self.value)().map(|v| Scalar::new(self.dtype.clone(), v))
+    }
+}
+
 impl Debug for Rhs {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Rhs")
             .field("value", &"<dyn Fn() -> Option<ScalarValue> + Send + Sync>")
             .field("dtype", &self.dtype)
             .finish()
-    }
-}
-
-impl ExpressionView<'_, DynamicComparison> {
-    pub fn lhs(&self) -> &Expression {
-        &self.children()[0]
-    }
-
-    pub fn scalar(&self) -> Option<Scalar> {
-        (self.data().rhs.value)().map(|v| Scalar::new(self.data().rhs.dtype.clone(), v))
     }
 }
 
@@ -261,7 +273,7 @@ impl DynamicExprUpdates {
 
             fn visit_down(&mut self, node: &'_ Self::NodeTy) -> VortexResult<TraversalOrder> {
                 if let Some(dynamic) = node.as_opt::<DynamicComparison>() {
-                    self.0.push(dynamic.data().clone());
+                    self.0.push(dynamic.clone());
                 }
                 Ok(TraversalOrder::Continue)
             }

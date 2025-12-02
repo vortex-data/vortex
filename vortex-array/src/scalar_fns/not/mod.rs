@@ -3,20 +3,20 @@
 
 use vortex_compute::logical::LogicalNot;
 use vortex_dtype::DType;
-use vortex_error::vortex_bail;
 use vortex_error::VortexResult;
-use vortex_vector::bool::BoolScalar;
+use vortex_error::vortex_bail;
 use vortex_vector::Datum;
 use vortex_vector::Scalar;
 use vortex_vector::Vector;
+use vortex_vector::bool::BoolScalar;
 
+use crate::expr::ChildName;
 use crate::expr::functions::Arity;
 use crate::expr::functions::EmptyOptions;
 use crate::expr::functions::ExecutionArgs;
 use crate::expr::functions::FunctionId;
 use crate::expr::functions::NullHandling;
 use crate::expr::functions::VTable;
-use crate::expr::ChildName;
 
 pub struct NotFn;
 impl VTable for NotFn {

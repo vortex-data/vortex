@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-pub mod transform;
-
 use std::fmt::Formatter;
 use std::ops::Not;
 
@@ -11,17 +9,17 @@ use vortex_dtype::DType;
 use vortex_dtype::FieldName;
 use vortex_dtype::FieldPath;
 use vortex_dtype::Nullability;
-use vortex_error::vortex_err;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_vector::Datum;
 use vortex_vector::ScalarOps;
 use vortex_vector::VectorOps;
 
+use crate::ArrayRef;
+use crate::ToCanonical;
 use crate::compute::mask;
-use crate::expr::exprs::root::root;
-use crate::expr::stats::Stat;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -31,8 +29,8 @@ use crate::expr::Pack;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::ArrayRef;
-use crate::ToCanonical;
+use crate::expr::exprs::root::root;
+use crate::expr::stats::Stat;
 
 pub struct GetItem;
 
@@ -221,15 +219,27 @@ mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::FieldNames;
     use vortex_dtype::Nullability;
+    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::PType;
     use vortex_dtype::PType::I32;
     use vortex_scalar::Scalar;
 
+    use super::PackGetItemRule;
     use super::get_item;
-    use crate::arrays::StructArray;
-    use crate::expr::exprs::root::root;
-    use crate::validity::Validity;
     use crate::Array;
     use crate::IntoArray;
+    use crate::arrays::StructArray;
+    use crate::expr::exprs::binary::checked_add;
+    use crate::expr::exprs::get_item::GetItem;
+    use crate::expr::exprs::get_item::get_item;
+    use crate::expr::exprs::literal::lit;
+    use crate::expr::exprs::pack::pack;
+    use crate::expr::exprs::root::root;
+    use crate::expr::session::ExprSession;
+    use crate::expr::transform::ExprOptimizer;
+    use crate::expr::transform::rules::ReduceRule;
+    use crate::expr::transform::rules::RuleContext;
+    use crate::validity::Validity;
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
@@ -271,5 +281,93 @@ mod tests {
             item.scalar_at(0),
             Scalar::null(DType::Primitive(I32, Nullability::Nullable))
         );
+    }
+
+    #[test]
+    fn test_pack_get_item_rule() {
+        // Create: pack(a: lit(1), b: lit(2)).get_item("b")
+        let pack_expr = pack([("a", lit(1)), ("b", lit(2))], NonNullable);
+        let get_item_expr = get_item("b", pack_expr);
+
+        let get_item_view = get_item_expr.as_::<GetItem>();
+        let result = PackGetItemRule
+            .reduce(&get_item_view, &RuleContext)
+            .unwrap();
+
+        assert!(result.is_some());
+        assert_eq!(&result.unwrap(), &lit(2));
+    }
+
+    #[test]
+    fn test_pack_get_item_rule_no_match() {
+        // Create: get_item("x", lit(42)) - not a pack child
+        let lit_expr = lit(42);
+        let get_item_expr = get_item("x", lit_expr);
+
+        let get_item_view = get_item_expr.as_::<GetItem>();
+        let result = PackGetItemRule
+            .reduce(&get_item_view, &RuleContext)
+            .unwrap();
+
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_multi_level_pack_get_item_simplify() {
+        let inner_pack = pack([("a", lit(1)), ("b", lit(2))], NonNullable);
+        let get_a = get_item("a", inner_pack);
+
+        let outer_pack = pack([("x", get_a), ("y", lit(3)), ("z", lit(4))], NonNullable);
+        let get_z = get_item("z", outer_pack);
+
+        let dtype = DType::Primitive(PType::I32, NonNullable);
+
+        let session = ExprSession::default();
+        let optimizer = ExprOptimizer::new(&session);
+        let result = optimizer.optimize_typed(get_z, &dtype).unwrap();
+
+        assert_eq!(&result, &lit(4));
+    }
+
+    #[test]
+    fn test_deeply_nested_pack_get_item() {
+        let innermost = pack([("a", lit(42))], NonNullable);
+        let get_a = get_item("a", innermost);
+
+        let level2 = pack([("b", get_a)], NonNullable);
+        let get_b = get_item("b", level2);
+
+        let level3 = pack([("c", get_b)], NonNullable);
+        let get_c = get_item("c", level3);
+
+        let outermost = pack([("final", get_c)], NonNullable);
+        let get_final = get_item("final", outermost);
+
+        let dtype = DType::Primitive(PType::I32, NonNullable);
+
+        let session = ExprSession::default();
+        let optimizer = ExprOptimizer::new(&session);
+        let result = optimizer.optimize_typed(get_final, &dtype).unwrap();
+
+        assert_eq!(&result, &lit(42));
+    }
+
+    #[test]
+    fn test_partial_pack_get_item_simplify() {
+        let inner_pack = pack([("x", lit(1)), ("y", lit(2))], NonNullable);
+        let get_x = get_item("x", inner_pack);
+        let add_expr = checked_add(get_x, lit(10));
+
+        let outer_pack = pack([("result", add_expr)], NonNullable);
+        let get_result = get_item("result", outer_pack);
+
+        let dtype = DType::Primitive(PType::I32, NonNullable);
+
+        let session = ExprSession::default();
+        let optimizer = ExprOptimizer::new(&session);
+        let result = optimizer.optimize_typed(get_result, &dtype).unwrap();
+
+        let expected = checked_add(lit(1), lit(10));
+        assert_eq!(&result, &expected);
     }
 }

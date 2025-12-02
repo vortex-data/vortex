@@ -4,26 +4,27 @@
 use std::fmt::Formatter;
 
 use prost::Message;
-use vortex_dtype::match_each_float_ptype;
 use vortex_dtype::DType;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
+use vortex_dtype::match_each_float_ptype;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
+use vortex_vector::Datum;
 
-use crate::arrays::ConstantArray;
-use crate::expr::stats::Stat;
-use crate::expr::ChildName;
-use crate::expr::ExprId;
-use crate::expr::Expression;
-use crate::expr::ExpressionView;
-use crate::expr::StatsCatalog;
-use crate::expr::VTable;
-use crate::expr::VTableExt;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::ConstantArray;
+use crate::expr::Arity;
+use crate::expr::ChildName;
+use crate::expr::ExecutionArgs;
+use crate::expr::ExprId;
+use crate::expr::Expression;
+use crate::expr::StatsCatalog;
+use crate::expr::VTable;
+use crate::expr::VTableExt;
+use crate::expr::stats::Stat;
 
 /// Expression that represents a literal scalar value.
 pub struct Literal;
@@ -44,49 +45,53 @@ impl VTable for Literal {
         ))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Options>> {
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Options> {
         let ops = pb::LiteralOpts::decode(metadata)?;
-        Ok(Some(
-            ops.value
-                .as_ref()
-                .ok_or_else(|| vortex_err!("Literal metadata missing value"))?
-                .try_into()?,
-        ))
+        Ok(ops
+            .value
+            .as_ref()
+            .ok_or_else(|| vortex_err!("Literal metadata missing value"))?
+            .try_into()?)
     }
 
-    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()> {
-        if !expr.children().is_empty() {
-            vortex_bail!(
-                "Literal expression does not have children, got: {:?}",
-                expr.children()
-            );
-        }
-        Ok(())
+    fn arity(&self, _options: &Self::Options) -> Arity {
+        Arity::Exact(0)
     }
 
     fn child_name(&self, _instance: &Self::Options, _child_idx: usize) -> ChildName {
         unreachable!()
     }
 
-    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(
+        &self,
+        scalar: &Scalar,
+        expr: &Expression,
+        f: &mut Formatter<'_>,
+    ) -> std::fmt::Result {
         write!(f, "{}", expr.data())
     }
 
-    fn fmt_data(&self, instance: &Self::Options, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", instance)
+    fn return_dtype(&self, options: &Self::Options, _arg_dtypes: &[DType]) -> VortexResult<DType> {
+        Ok(options.dtype().clone())
     }
 
-    fn return_dtype(&self, expr: &ExpressionView<Self>, _scope: &DType) -> VortexResult<DType> {
-        Ok(expr.data().dtype().clone())
+    fn evaluate(
+        &self,
+        scalar: &Scalar,
+        expr: &Expression,
+        scope: &ArrayRef,
+    ) -> VortexResult<ArrayRef> {
+        Ok(ConstantArray::new(scalar.clone(), scope.len()).into_array())
     }
 
-    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        Ok(ConstantArray::new(expr.data().clone(), scope.len()).into_array())
+    fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
+        todo!()
     }
 
     fn stat_expression(
         &self,
-        expr: &ExpressionView<Self>,
+        scalar: &Scalar,
+        expr: &Expression,
         stat: Stat,
         _catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
@@ -96,12 +101,12 @@ impl VTable for Literal {
         //  only currently used for pruning, it doesn't change the outcome.
 
         match stat {
-            Stat::Min | Stat::Max => Some(lit(expr.data().clone())),
+            Stat::Min | Stat::Max => Some(lit(scalar.clone())),
             Stat::IsConstant => Some(lit(true)),
             Stat::NaNCount => {
                 // The NaNCount for a non-float literal is not defined.
                 // For floating point types, the NaNCount is 1 for lit(NaN), and 0 otherwise.
-                let value = expr.data().as_primitive_opt()?;
+                let value = scalar.as_primitive_opt()?;
                 if !value.ptype().is_float() {
                     return None;
                 }
@@ -115,7 +120,7 @@ impl VTable for Literal {
                 })
             }
             Stat::NullCount => {
-                if expr.data().is_null() {
+                if scalar.is_null() {
                     Some(lit(1u64))
                 } else {
                     Some(lit(0u64))
