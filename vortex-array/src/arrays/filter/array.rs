@@ -3,8 +3,8 @@
 
 use vortex_mask::Mask;
 
-use crate::stats::ArrayStats;
 use crate::ArrayRef;
+use crate::stats::ArrayStats;
 
 #[derive(Clone, Debug)]
 pub struct FilterArray {

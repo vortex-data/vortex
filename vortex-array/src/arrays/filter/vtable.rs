@@ -5,11 +5,17 @@ use std::hash::Hasher;
 
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
-use vortex_error::vortex_bail;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 use vortex_vector::Vector;
 
+use crate::Array;
+use crate::ArrayBufferVisitor;
+use crate::ArrayChildVisitor;
+use crate::ArrayEq;
+use crate::ArrayHash;
+use crate::Precision;
 use crate::arrays::filter::array::FilterArray;
 use crate::execution::ExecutionCtx;
 use crate::serde::ArrayChildren;
@@ -22,12 +28,6 @@ use crate::vtable::BaseArrayVTable;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::VisitorVTable;
-use crate::Array;
-use crate::ArrayBufferVisitor;
-use crate::ArrayChildVisitor;
-use crate::ArrayEq;
-use crate::ArrayHash;
-use crate::Precision;
 
 vtable!(Filter);
 
