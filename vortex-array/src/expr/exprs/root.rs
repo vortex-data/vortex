@@ -8,17 +8,17 @@ use vortex_dtype::FieldPath;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_vector::Vector;
 
 use crate::ArrayRef;
+use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
-use crate::expr::ExpressionView;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::expr::expression::Expression;
+use crate::expr::functions::EmptyOptions;
 use crate::expr::stats::Stat;
 
 /// An expression that returns the full scope of the expression evaluation.
@@ -26,7 +26,7 @@ use crate::expr::stats::Stat;
 pub struct Root;
 
 impl VTable for Root {
-    type Options = ();
+    type Options = EmptyOptions;
 
     fn id(&self) -> ExprId {
         ExprId::from("vortex.root")
@@ -36,18 +36,12 @@ impl VTable for Root {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Option<Self::Options>> {
-        Ok(Some(()))
+    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Self::Options> {
+        Ok(EmptyOptions)
     }
 
-    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()> {
-        if !expr.children().is_empty() {
-            vortex_bail!(
-                "Root expression does not have children, got {}",
-                expr.children().len()
-            );
-        }
-        Ok(())
+    fn arity(&self, _options: &Self::Options) -> Arity {
+        Arity::Exact(0)
     }
 
     fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
@@ -57,36 +51,47 @@ impl VTable for Root {
         )
     }
 
-    fn fmt_sql(&self, _expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(
+        &self,
+        _options: &Self::Options,
+        _expr: &Expression,
+        f: &mut Formatter<'_>,
+    ) -> std::fmt::Result {
         write!(f, "$")
     }
 
-    fn return_dtype(&self, _expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, _options: &Self::Options, _arg_dtypes: &[DType]) -> VortexResult<DType> {
+        vortex_bail!("Root expression does not support return_dtype")
+    }
+
+    fn evaluate(
+        &self,
+        _options: &Self::Options,
+        _expr: &Expression,
+        scope: &ArrayRef,
+    ) -> VortexResult<ArrayRef> {
         Ok(scope.clone())
     }
 
-    fn evaluate(&self, _expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        Ok(scope.clone())
-    }
-
-    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Vector> {
+    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
         vortex_bail!("Root expression is not executable")
     }
 
     fn stat_expression(
         &self,
-        _expr: &ExpressionView<Self>,
+        _options: &Self::Options,
+        _expr: &Expression,
         stat: Stat,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         catalog.stats_ref(&FieldPath::root(), stat)
     }
 
-    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
+    fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
         false
     }
 
-    fn is_fallible(&self, _instance: &Self::Options) -> bool {
+    fn is_fallible(&self, _options: &Self::Options) -> bool {
         false
     }
 }
@@ -96,7 +101,7 @@ impl VTable for Root {
 /// Returns the entire input array as passed to the expression evaluator.
 /// This is commonly used as the starting point for field access and other operations.
 pub fn root() -> Expression {
-    Root.try_new_expr((), vec![])
+    Root.try_new_expr(EmptyOptions, vec![])
         .vortex_expect("Failed to create Root expression")
 }
 

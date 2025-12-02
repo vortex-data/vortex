@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-pub mod transform;
-
+use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -15,18 +14,21 @@ use vortex_dtype::StructFields;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_utils::aliases::hash_set::HashSet;
+use vortex_vector::Datum;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray as _;
 use crate::ToCanonical;
 use crate::arrays::StructArray;
+use crate::expr::Arity;
 use crate::expr::ChildName;
+use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
-use crate::expr::ExpressionView;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
+use crate::expr::get_item;
 use crate::validity::Validity;
 
 /// Merge zero or more expressions that ALL return structs.
@@ -51,7 +53,7 @@ impl VTable for Merge {
         }))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Options>> {
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Options> {
         let instance = match metadata {
             [0x00] => DuplicateHandling::RightMost,
             [0x01] => DuplicateHandling::Error,
@@ -59,18 +61,23 @@ impl VTable for Merge {
                 vortex_bail!("invalid metadata for Merge expression");
             }
         };
-        Ok(Some(instance))
+        Ok(instance)
     }
 
-    fn validate(&self, _expr: &ExpressionView<Self>) -> VortexResult<()> {
-        Ok(())
+    fn arity(&self, _options: &Self::Options) -> Arity {
+        Arity::Variadic
     }
 
     fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
         ChildName::from(Arc::from(format!("{}", child_idx)))
     }
 
-    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(
+        &self,
+        _options: &Self::Options,
+        expr: &Expression,
+        f: &mut Formatter<'_>,
+    ) -> std::fmt::Result {
         write!(f, "merge(")?;
         for (i, child) in expr.children().iter().enumerate() {
             child.fmt_sql(f)?;
@@ -81,14 +88,13 @@ impl VTable for Merge {
         write!(f, ")")
     }
 
-    fn return_dtype(&self, expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         let mut field_names = Vec::new();
         let mut arrays = Vec::new();
         let mut merge_nullability = Nullability::NonNullable;
         let mut duplicate_names = HashSet::<_>::new();
 
-        for child in expr.children().iter() {
-            let dtype = child.return_dtype(scope)?;
+        for dtype in arg_dtypes {
             let Some(fields) = dtype.as_struct_fields_opt() else {
                 vortex_bail!("merge expects struct input");
             };
@@ -109,7 +115,7 @@ impl VTable for Merge {
             }
         }
 
-        if expr.data() == &DuplicateHandling::Error && !duplicate_names.is_empty() {
+        if options == &DuplicateHandling::Error && !duplicate_names.is_empty() {
             vortex_bail!(
                 "merge: duplicate fields in children: {}",
                 duplicate_names.into_iter().format(", ")
@@ -122,7 +128,12 @@ impl VTable for Merge {
         ))
     }
 
-    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(
+        &self,
+        options: &Self::Options,
+        expr: &Expression,
+        scope: &ArrayRef,
+    ) -> VortexResult<ArrayRef> {
         // Collect fields in order of appearance. Later fields overwrite earlier fields.
         let mut field_names = Vec::new();
         let mut arrays = Vec::new();
@@ -151,7 +162,7 @@ impl VTable for Merge {
             }
         }
 
-        if expr.data() == &DuplicateHandling::Error && !duplicate_names.is_empty() {
+        if options == &DuplicateHandling::Error && !duplicate_names.is_empty() {
             vortex_bail!(
                 "merge: duplicate fields in children: {}",
                 duplicate_names.into_iter().format(", ")
@@ -165,6 +176,10 @@ impl VTable for Merge {
             StructArray::try_new(FieldNames::from(field_names), arrays, len, validity)?
                 .into_array(),
         )
+    }
+
+    fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
+        todo!()
     }
 
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
@@ -184,6 +199,15 @@ pub enum DuplicateHandling {
     /// If two structs share a field name, error.
     #[default]
     Error,
+}
+
+impl Display for DuplicateHandling {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DuplicateHandling::RightMost => write!(f, "RightMost"),
+            DuplicateHandling::Error => write!(f, "Error"),
+        }
+    }
 }
 
 /// Creates an expression that merges struct expressions into a single struct.

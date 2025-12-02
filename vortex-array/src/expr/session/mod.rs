@@ -14,7 +14,6 @@ use crate::expr::exprs::between::Between;
 use crate::expr::exprs::binary::Binary;
 use crate::expr::exprs::cast::Cast;
 use crate::expr::exprs::get_item::GetItem;
-use crate::expr::exprs::get_item::transform::PackGetItemRule;
 use crate::expr::exprs::is_null::IsNull;
 use crate::expr::exprs::like::Like;
 use crate::expr::exprs::list_contains::ListContains;

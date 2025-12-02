@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexResult;
-use vortex_error::vortex_err;
+//! TODO(ngates): bring this back as an array reduce rule.
 
-use crate::expr::Expression;
-use crate::expr::ExpressionView;
+use vortex_error::vortex_err;
+use vortex_error::VortexResult;
+
 use crate::expr::exprs::get_item::get_item;
 use crate::expr::exprs::pack::pack;
 use crate::expr::exprs::select::Select;
 use crate::expr::transform::rules::ReduceRule;
 use crate::expr::transform::rules::TypedRuleContext;
+use crate::expr::Expression;
+use crate::expr::ExpressionView;
 
 /// Rule that removes Select expressions by converting them to Pack + GetItem.
 ///
@@ -65,8 +67,8 @@ mod tests {
     use super::RemoveSelectRule;
     use crate::expr::exprs::pack::Pack;
     use crate::expr::exprs::root::root;
-    use crate::expr::exprs::select::Select;
     use crate::expr::exprs::select::select;
+    use crate::expr::exprs::select::Select;
     use crate::expr::transform::rules::ReduceRule;
     use crate::expr::transform::rules::TypedRuleContext;
 

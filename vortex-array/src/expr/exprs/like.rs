@@ -8,14 +8,16 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_proto::expr as pb;
+use vortex_vector::Datum;
 
 use crate::ArrayRef;
 use crate::compute::LikeOptions;
 use crate::compute::like as like_compute;
+use crate::expr::Arity;
 use crate::expr::ChildName;
+use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
-use crate::expr::ExpressionView;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 
@@ -39,22 +41,16 @@ impl VTable for Like {
         ))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Options>> {
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Options> {
         let opts = pb::LikeOpts::decode(metadata)?;
-        Ok(Some(LikeOptions {
+        Ok(LikeOptions {
             negated: opts.negated,
             case_insensitive: opts.case_insensitive,
-        }))
+        })
     }
 
-    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()> {
-        if expr.children().len() != 2 {
-            vortex_bail!(
-                "Like expression requires exactly 2 children, got {}",
-                expr.children().len()
-            );
-        }
-        Ok(())
+    fn arity(&self, _options: &Self::Options) -> Arity {
+        Arity::Exact(2)
     }
 
     fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
@@ -65,12 +61,17 @@ impl VTable for Like {
         }
     }
 
-    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(
+        &self,
+        options: &Self::Options,
+        expr: &Expression,
+        f: &mut Formatter<'_>,
+    ) -> std::fmt::Result {
         expr.child(0).fmt_sql(f)?;
-        if expr.data().negated {
+        if options.negated {
             write!(f, " not")?;
         }
-        if expr.data().case_insensitive {
+        if options.case_insensitive {
             write!(f, " ilike ")?;
         } else {
             write!(f, " like ")?;
@@ -78,9 +79,9 @@ impl VTable for Like {
         expr.child(1).fmt_sql(f)
     }
 
-    fn return_dtype(&self, expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
-        let input = expr.children()[0].return_dtype(scope)?;
-        let pattern = expr.children()[1].return_dtype(scope)?;
+    fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
+        let input = &arg_dtypes[0];
+        let pattern = &arg_dtypes[1];
 
         if !input.is_utf8() {
             vortex_bail!("LIKE expression requires UTF8 input dtype, got {}", input);
@@ -97,10 +98,19 @@ impl VTable for Like {
         ))
     }
 
-    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(
+        &self,
+        options: &Self::Options,
+        expr: &Expression,
+        scope: &ArrayRef,
+    ) -> VortexResult<ArrayRef> {
         let child = expr.child(0).evaluate(scope)?;
         let pattern = expr.child(1).evaluate(scope)?;
-        like_compute(&child, &pattern, *expr.data())
+        like_compute(&child, &pattern, *options)
+    }
+
+    fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
+        todo!()
     }
 
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {

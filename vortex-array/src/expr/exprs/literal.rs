@@ -65,10 +65,10 @@ impl VTable for Literal {
     fn fmt_sql(
         &self,
         scalar: &Scalar,
-        expr: &Expression,
+        _expr: &Expression,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
-        write!(f, "{}", expr.data())
+        write!(f, "{}", scalar)
     }
 
     fn return_dtype(&self, options: &Self::Options, _arg_dtypes: &[DType]) -> VortexResult<DType> {

@@ -25,7 +25,6 @@ use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
-use crate::expr::ScalarFnExprExt;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
@@ -33,7 +32,6 @@ use crate::expr::exprs::binary::eq;
 use crate::expr::exprs::literal::lit;
 use crate::expr::functions::EmptyOptions;
 use crate::expr::stats::Stat;
-use crate::scalar_fns::is_null;
 
 /// Expression that checks for null values.
 pub struct IsNull;

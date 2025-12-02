@@ -1,20 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! TODO(ngates): bring this back as an ArrayReduce rule.
+
 use itertools::Itertools as _;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::expr::Expression;
-use crate::expr::ExpressionView;
-use crate::expr::exprs::get_item::get_item;
-use crate::expr::exprs::merge::DuplicateHandling;
 use crate::expr::exprs::merge::Merge;
-use crate::expr::exprs::pack::pack;
 use crate::expr::transform::rules::ReduceRule;
 use crate::expr::transform::rules::TypedRuleContext;
+use crate::expr::Expression;
 
 /// Rule that removes Merge expressions by converting them to Pack + GetItem.
 ///
@@ -28,51 +24,6 @@ impl ReduceRule<Merge, TypedRuleContext> for RemoveMergeRule {
         merge: &ExpressionView<Merge>,
         ctx: &TypedRuleContext,
     ) -> VortexResult<Option<Expression>> {
-        let merge_dtype = merge.return_dtype(ctx.dtype())?;
-        let mut names = Vec::with_capacity(merge.children().len() * 2);
-        let mut children = Vec::with_capacity(merge.children().len() * 2);
-        let mut duplicate_names = HashSet::<_>::new();
-
-        for child in merge.children().iter() {
-            let child_dtype = child.return_dtype(ctx.dtype())?;
-            if !child_dtype.is_struct() {
-                vortex_bail!(
-                    "Merge child must return a non-nullable struct dtype, got {}",
-                    child_dtype
-                )
-            }
-
-            let child_dtype = child_dtype
-                .as_struct_fields_opt()
-                .vortex_expect("expected struct");
-
-            for name in child_dtype.names().iter() {
-                if let Some(idx) = names.iter().position(|n| n == name) {
-                    duplicate_names.insert(name.clone());
-                    children[idx] = child.clone();
-                } else {
-                    names.push(name.clone());
-                    children.push(child.clone());
-                }
-            }
-
-            if merge.data() == &DuplicateHandling::Error && !duplicate_names.is_empty() {
-                vortex_bail!(
-                    "merge: duplicate fields in children: {}",
-                    duplicate_names.into_iter().format(", ")
-                )
-            }
-        }
-
-        let expr = pack(
-            names
-                .into_iter()
-                .zip(children)
-                .map(|(name, child)| (name.clone(), get_item(name, child))),
-            merge_dtype.nullability(),
-        );
-
-        Ok(Some(expr))
     }
 }
 
@@ -87,9 +38,9 @@ mod tests {
 
     use super::RemoveMergeRule;
     use crate::expr::exprs::get_item::get_item;
+    use crate::expr::exprs::merge::merge_opts;
     use crate::expr::exprs::merge::DuplicateHandling;
     use crate::expr::exprs::merge::Merge;
-    use crate::expr::exprs::merge::merge_opts;
     use crate::expr::exprs::pack::Pack;
     use crate::expr::exprs::root::root;
     use crate::expr::transform::rules::ReduceRule;

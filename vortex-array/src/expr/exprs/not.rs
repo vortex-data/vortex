@@ -17,11 +17,9 @@ use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
-use crate::expr::ScalarFnExprExt;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::expr::functions::EmptyOptions;
-use crate::scalar_fns::not;
 
 /// Expression that logically inverts boolean values.
 pub struct Not;
