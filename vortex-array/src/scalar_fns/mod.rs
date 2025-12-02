@@ -20,6 +20,7 @@ use crate::expr::ScalarFnExprExt;
 
 pub mod cast;
 pub mod is_null;
+mod mask;
 pub mod not;
 
 /// A collection of built-in scalar functions that can be applied to expressions or arrays.

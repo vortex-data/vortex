@@ -49,7 +49,7 @@ impl VTable for CastFn {
     }
 
     fn arity(&self, _options: &DType) -> Arity {
-        Arity::Fixed(1)
+        Arity::Exact(1)
     }
 
     fn null_handling(&self, _options: &DType) -> NullHandling {

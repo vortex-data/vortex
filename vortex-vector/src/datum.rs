@@ -29,7 +29,7 @@ use crate::struct_::StructScalar;
 use crate::struct_::StructVector;
 
 /// Represents either a scalar or vector value.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Datum {
     /// A scalar value.
     Scalar(Scalar),
@@ -145,8 +145,11 @@ macro_rules! datum {
     // Non-generic version
     ($Name:ident) => {
         paste::paste! {
+            #[doc = concat!("Datum enum for `", stringify!($Name), "`.")]
             pub enum [<$Name Datum>] {
+                /// Scalar variant
                 Scalar([<$Name Scalar>]),
+                /// Vector variant
                 Vector([<$Name Vector>]),
             }
 
@@ -182,8 +185,11 @@ macro_rules! datum {
     // Generic version with trait bound
     ($Name:ident < $T:ident : $Bound:path >) => {
         paste::paste! {
+            #[doc = concat!("Datum enum for `", stringify!([<$Name Datum>]<$T: $Bound>), "`.")]
             pub enum [<$Name Datum>]<$T: $Bound> {
+                /// Scalar variant
                 Scalar([<$Name Scalar>]<$T>),
+                /// Vector variant
                 Vector([<$Name Vector>]<$T>),
             }
 

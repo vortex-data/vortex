@@ -9,8 +9,6 @@
 use std::fmt::Debug;
 use std::ops::RangeBounds;
 
-use vortex_error::vortex_panic;
-
 use crate::Scalar;
 use crate::VectorMut;
 use crate::VectorOps;
@@ -24,6 +22,8 @@ use crate::match_each_vector;
 use crate::null::NullVector;
 use crate::primitive::PrimitiveVector;
 use crate::struct_::StructVector;
+use vortex_error::vortex_panic;
+use vortex_mask::Mask;
 
 /// An enum over all kinds of immutable vectors, which represent fully decompressed (canonical)
 /// array data.
@@ -74,8 +74,12 @@ impl VectorOps for Vector {
         match_each_vector!(self, |v| { v.len() })
     }
 
-    fn validity(&self) -> &vortex_mask::Mask {
+    fn validity(&self) -> &Mask {
         match_each_vector!(self, |v| { v.validity() })
+    }
+
+    fn mask_validity(&mut self, mask: &Mask) {
+        match_each_vector!(self, |v| { v.mask_validity(mask) })
     }
 
     fn scalar_at(&self, index: usize) -> Scalar {

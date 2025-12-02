@@ -17,7 +17,7 @@ use crate::primitive::PrimitiveScalar;
 use crate::struct_::StructScalar;
 
 /// Represents a scalar value of any supported type.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Scalar {
     /// Null scalars are always null.
     Null(NullScalar),
@@ -46,6 +46,10 @@ impl ScalarOps for Scalar {
 
     fn is_invalid(&self) -> bool {
         !self.is_valid()
+    }
+
+    fn mask_validity(&mut self, mask: bool) {
+        match_each_scalar!(self, |v| { v.mask_validity(mask) })
     }
 
     fn repeat(&self, n: usize) -> VectorMut {

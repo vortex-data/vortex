@@ -4,6 +4,7 @@
 //! Definition and implementation of [`PVector<T>`].
 
 use std::fmt::Debug;
+use std::ops::BitAnd;
 use std::ops::RangeBounds;
 
 use vortex_buffer::Buffer;
@@ -133,6 +134,10 @@ impl<T: NativePType> VectorOps for PVector<T> {
 
     fn validity(&self) -> &Mask {
         &self.validity
+    }
+
+    fn mask_validity(&mut self, mask: &Mask) {
+        self.validity = self.validity.bitand(mask);
     }
 
     fn scalar_at(&self, index: usize) -> PScalar<T> {
