@@ -20,8 +20,6 @@ use vortex_array::expr::Pack;
 use vortex_array::expr::annotate_scope_access;
 use vortex_array::expr::col;
 use vortex_array::expr::root;
-use vortex_array::expr::session::ExprSessionExt;
-use vortex_array::expr::transform::ExprOptimizer;
 use vortex_array::expr::transform::PartitionedExpr;
 use vortex_array::expr::transform::partition;
 use vortex_array::expr::transform::replace;
@@ -59,8 +57,6 @@ pub struct StructReader {
 
     field_lookup: Option<HashMap<FieldName, usize>>,
     partitioned_expr_cache: DashMap<ExactExpr, Partitioned>,
-
-    expr_optimizer: ExprOptimizer,
 }
 
 impl StructReader {
@@ -99,14 +95,11 @@ impl StructReader {
             dtypes,
             names,
             segment_source.clone(),
-            session.clone(),
+            session,
         );
 
         // Create an expanded root expression that contains all fields of the struct.
         let expanded_root_expr = replace_root_fields(root(), struct_dt);
-
-        // Create the expression optimizer once during construction
-        let expr_optimizer = ExprOptimizer::new(&session.expressions());
 
         // This is where we need to do some complex things with the scan in order to split it into
         // different scans for different fields.
@@ -117,7 +110,6 @@ impl StructReader {
             lazy_children,
             field_lookup,
             partitioned_expr_cache: Default::default(),
-            expr_optimizer,
         })
     }
 
@@ -164,9 +156,8 @@ impl StructReader {
                 // First, we expand the root scope into the fields of the struct to ensure
                 // that partitioning works correctly.
                 let expr = replace(expr.clone(), &root(), self.expanded_root_expr.clone());
-                let expr = self
-                    .expr_optimizer
-                    .optimize_typed(expr, self.dtype())
+                let expr = expr
+                    .simplify(self.dtype())
                     .vortex_expect("We should not fail to simplify expression over struct fields");
 
                 // Partition the expression into expressions that can be evaluated over individual fields
@@ -178,7 +169,6 @@ impl StructReader {
                             .as_struct_fields_opt()
                             .vortex_expect("We know it's a struct DType"),
                     ),
-                    &self.expr_optimizer,
                 )
                 .vortex_expect("We should not fail to partition expression over struct fields");
 

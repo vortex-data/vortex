@@ -490,9 +490,9 @@ mod tests {
         let like_expr = df_expr::LikeExpr::new(negated, case_insensitive, expr, pattern);
 
         let result = Expression::try_from_df(&like_expr).unwrap();
-        let like_expr = result.as_::<Like>();
+        let like_opts = result.as_::<Like>();
         assert_eq!(
-            like_expr.data(),
+            like_opts,
             &LikeOptions {
                 negated,
                 case_insensitive

@@ -135,7 +135,6 @@ pub fn try_from_bound_expression(value: &duckdb::Expression) -> VortexResult<Opt
                                 .ok_or_else(|| {
                                     vortex_err!("cannot have a non literal in a in_list")
                                 })?
-                                .data()
                                 .clone(),
                         ))
                     })

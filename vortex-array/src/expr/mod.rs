@@ -39,7 +39,7 @@ pub mod session;
 mod signature;
 mod simplify;
 pub mod stats;
-// pub mod transform;
+pub mod transform;
 pub mod traversal;
 mod vtable;
 

@@ -80,15 +80,28 @@ pub trait VTable: 'static + Sized + Send + Sync {
     fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType>;
 
     /// Evaluate the expression in the given scope.
+    ///
+    /// This function will be deprecated in a future release in favor of [`VTable::execute`].
     fn evaluate(
         &self,
         options: &Self::Options,
         expr: &Expression,
         scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef>;
+    ) -> VortexResult<ArrayRef> {
+        _ = options;
+        _ = expr;
+        _ = scope;
+        vortex_bail!("Expression {} does not support evaluation", self.id());
+    }
 
     /// Execute the expression on the given vector with the given dtype.
-    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum>;
+    ///
+    /// This function will become required in a future release.
+    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
+        _ = options;
+        _ = args;
+        vortex_bail!("Expression {} does not support execution", self.id());
+    }
 
     /// Simplify the expression if possible.
     fn simplify(
@@ -646,7 +659,7 @@ mod tests {
         registry: &ExprRegistry,
         #[case] expr: Expression,
     ) -> VortexResult<()> {
-        let serialized_pb = (&expr).serialize_proto()?;
+        let serialized_pb = expr.serialize_proto()?;
         let deserialized_expr = deserialize_expr_proto(&serialized_pb, registry)?;
 
         assert_eq!(&expr, &deserialized_expr);

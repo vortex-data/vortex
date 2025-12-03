@@ -12,6 +12,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::expr::Expression;
 use crate::expr::Root;
 use crate::expr::SimplifyCtx;
+use crate::expr::transform::match_between::find_between;
 
 impl Expression {
     /// Simplify the expression, returning a potentially new expression.
@@ -55,7 +56,15 @@ impl Expression {
             dtype_cache: RefCell::new(HashMap::new()),
         };
 
-        inner(self, &cache)?.map_or_else(|| Ok(self.clone()), Ok)
+        let simplified = inner(self, &cache)?.unwrap_or_else(|| self.clone());
+
+        // TODO(ngates): remove the "between" optimization, or rewrite it to not always convert
+        //  to CNF?
+        let simplified = find_between(simplified);
+
+        // TODO(ngates): perform constant folding by executing expressions with all-literal
+        //  children here
+        Ok(simplified)
     }
 }
 
