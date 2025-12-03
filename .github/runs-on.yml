@@ -1,4 +1,11 @@
 images:
-  vortex-ci:
+  vortex-ci-amd64:
+    platform: "linux"
+    arch: "x64"
+    name: "vortex-ci-*"
+    owner: "375504701696"
+  vortex-ci-arm64:
+    platform: "linux"
+    arch: "arm64"
     name: "vortex-ci-*"
     owner: "375504701696"
