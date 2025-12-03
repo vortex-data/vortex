@@ -40,10 +40,9 @@ jobs:
   python-lint:
     name: "Python (lint)"
     runs-on:
-      - runs-on=${{ github.run_id }}
+      - runs-on=${{ github.run_id }}/image=vortex-ci
       - family=m7i+m7i-flex+m7a
       - cpu=16
-      - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=python-lint
     timeout-minutes: 120
@@ -72,10 +71,9 @@ jobs:
   python-test:
     name: "Python (test)"
     runs-on:
-      - runs-on=${{ github.run_id }}
+      - runs-on=${{ github.run_id }}/image=vortex-ci
       - family=m7i+m7i-flex+m7a
       - cpu=16
-      - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=python-test
     timeout-minutes: 120
@@ -156,10 +154,9 @@ jobs:
     name: "Rust (docs)"
     timeout-minutes: 120
     runs-on:
-      - runs-on=${{ github.run_id }}
+      - runs-on=${{ github.run_id }}/image=vortex-ci
       - family=m7i+m7i-flex+m7a
       - cpu=8
-      - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=rust-docs
     steps:
@@ -167,9 +164,6 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Docs
         run: |
           RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
@@ -180,10 +174,9 @@ jobs:
     name: "Rust build (${{matrix.config.name}})"
     timeout-minutes: 120
     runs-on:
-      - runs-on=${{ github.run_id }}
+      - runs-on=${{ github.run_id }}/image=vortex-ci
       - family=m7i+m7i-flex+m7a
       - cpu=8
-      - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=${{ matrix.config.name }}
     env:
@@ -213,14 +206,9 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install wasm32 target
         if: ${{ matrix.config.target == 'wasm32-unknown-unknown' }}
         run: rustup target add wasm32-unknown-unknown
-      - name: Install cargo-hack
-        uses: taiki-e/install-action@cargo-hack
       - name: Rust Build (${{matrix.config.name}})
         run: ${{matrix.config.env.rustflags}} cargo hack ${{matrix.config.command}} --locked ${{matrix.config.args}} --ignore-private
       - name: "Make sure no files changed after build"
@@ -232,10 +220,9 @@ jobs:
     name: "Check build with minimal dependencies"
     timeout-minutes: 120
     runs-on:
-      - runs-on=${{ github.run_id }}
+      - runs-on=${{ github.run_id }}/image=vortex-ci
       - family=m7i+m7i-flex+m7a
       - cpu=8
-      - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=rust-min-deps
     steps:
@@ -243,10 +230,6 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: taiki-e/install-action@cargo-hack
       - uses: taiki-e/install-action@cargo-minimal-versions
       - run: cargo minimal-versions check --direct --workspace --ignore-private
 
@@ -254,10 +237,9 @@ jobs:
     name: "Rust (lint)"
     timeout-minutes: 120
     runs-on:
-      - runs-on=${{ github.run_id }}
+      - runs-on=${{ github.run_id }}/image=vortex-ci
       - family=m7i+m7i-flex+m7a
       - cpu=16
-      - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=rust-lint
     steps:
@@ -265,10 +247,6 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
-        with:
-          toolchain: nightly
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Rust Lint - Format
         run: cargo +nightly fmt --all --check
       - name: Rustc check
@@ -281,13 +259,12 @@ jobs:
         run: cargo clippy --locked --all-targets -- -D warnings
 
   rust-lint-no-default:
-    name: "Rust (lint, no default)"
+    name: "Rust (lint, no default)"/image=vortex-ci
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
       - cpu=16
-      - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=rust-lint-no-default
     steps:
@@ -295,11 +272,6 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Install cargo-hack
-        uses: taiki-e/install-action@cargo-hack
       - name: Rust Lint - Clippy No Default Features
         shell: bash
         run: |
@@ -355,10 +327,9 @@ jobs:
           - tpc-h
           - ffi
     runs-on:
-      - runs-on=${{ github.run_id }}
+      - runs-on=${{ github.run_id }}/image=vortex-ci
       - family=m7i+m7i-flex+m7a
       - cpu=16
-      - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=rust-coverage
       - tag=suite-${{ matrix.suite }}
@@ -372,9 +343,6 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install grcov
         uses: taiki-e/install-action@grcov
       - name: Install nextest
@@ -424,7 +392,6 @@ jobs:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
       - cpu=16
-      - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=rust-test-sanitizer
     env:
@@ -531,10 +498,9 @@ jobs:
   build-java:
     name: "Java"
     runs-on:
-      - runs-on=${{ github.run_id }}
+      - runs-on=${{ github.run_id }}/image=vortex-ci
       - family=m7i+m7i-flex+m7a
       - cpu=16
-      - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=java
     timeout-minutes: 120
@@ -568,10 +534,9 @@ jobs:
     name: "Benchmark with Codspeed (Shard #${{ matrix.shard }})"
     timeout-minutes: 120
     runs-on:
-      - runs-on=${{ github.run_id }}
+      - runs-on=${{ github.run_id }}/image=vortex-ci
       - family=c7i.8xlarge
       - extras=s3-cache
-      - image=ubuntu24-full-x64
       - tag=bench-codspeed-${{ matrix.shard }}
     steps:
       - uses: runs-on/action@v2
@@ -615,10 +580,9 @@ jobs:
     name: "C++ build"
     timeout-minutes: 120
     runs-on:
-      - runs-on=${{ github.run_id }}
+      - runs-on=${{ github.run_id }}/image=vortex-ci
       - family=m7i+m7i-flex+m7a
       - cpu=8
-      - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=cxx-build
     steps:
