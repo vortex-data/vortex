@@ -259,10 +259,10 @@ jobs:
         run: cargo clippy --locked --all-targets -- -D warnings
 
   rust-lint-no-default:
-    name: "Rust (lint, no default)"/image=vortex-ci
+    name: "Rust (lint, no default)"
     timeout-minutes: 120
     runs-on:
-      - runs-on=${{ github.run_id }}
+      - runs-on=${{ github.run_id }}/image=vortex-ci
       - family=m7i+m7i-flex+m7a
       - cpu=16
       - extras=s3-cache
