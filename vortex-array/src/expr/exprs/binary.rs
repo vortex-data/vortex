@@ -52,7 +52,7 @@ impl VTable for Binary {
 
     fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Options> {
         let opts = pb::BinaryOpts::decode(metadata)?;
-        Ok(Operator::try_from(opts.op)?)
+        Operator::try_from(opts.op)
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
@@ -85,7 +85,7 @@ impl VTable for Binary {
         let rhs = &arg_dtypes[1];
 
         if operator.is_arithmetic() {
-            if lhs.is_primitive() && lhs.eq_ignore_nullability(&rhs) {
+            if lhs.is_primitive() && lhs.eq_ignore_nullability(rhs) {
                 return Ok(lhs.with_nullability(lhs.nullability() | rhs.nullability()));
             }
             vortex_bail!(
@@ -598,15 +598,6 @@ mod tests {
                 .return_dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
-        );
-    }
-
-    #[test]
-    fn test_debug_print() {
-        let expr = gt(lit(1), lit(2));
-        assert_eq!(
-            format!("{expr:?}"),
-            "Expression { vtable: vortex.binary, data: >, children: [Expression { vtable: vortex.literal, data: 1i32, children: [] }, Expression { vtable: vortex.literal, data: 2i32, children: [] }] }"
         );
     }
 

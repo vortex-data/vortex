@@ -117,14 +117,14 @@ impl VTable for Between {
         let lower_dt = &arg_dtypes[1];
         let upper_dt = &arg_dtypes[2];
 
-        if !arr_dt.eq_ignore_nullability(&lower_dt) {
+        if !arr_dt.eq_ignore_nullability(lower_dt) {
             vortex_bail!(
                 "Array dtype {} does not match lower dtype {}",
                 arr_dt,
                 lower_dt
             );
         }
-        if !arr_dt.eq_ignore_nullability(&upper_dt) {
+        if !arr_dt.eq_ignore_nullability(upper_dt) {
             vortex_bail!(
                 "Array dtype {} does not match upper dtype {}",
                 arr_dt,

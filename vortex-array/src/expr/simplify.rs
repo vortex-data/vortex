@@ -22,7 +22,7 @@ impl Expression {
             let children: Vec<_> = expr
                 .children()
                 .iter()
-                .map(|c| inner(c, &cache))
+                .map(|c| inner(c, cache))
                 .try_collect()?;
 
             if children.iter().any(|c| c.is_some()) {
@@ -35,11 +35,18 @@ impl Expression {
 
                 let new_expr = expr.clone().with_children(new_children)?;
 
-                // Then we simplify the new expression
-                new_expr.vtable().as_dyn().simplify(&new_expr, cache)
+                // Then we simplify the new expression, and since we rewrote the expression we must
+                // always return a new expression (even if simplification returns None)
+                Ok(Some(
+                    new_expr
+                        .vtable()
+                        .as_dyn()
+                        .simplify(&new_expr, cache)?
+                        .unwrap_or(new_expr),
+                ))
             } else {
                 // Otherwise, we attempt to simplify the current expression
-                expr.vtable().as_dyn().simplify(&expr, cache)
+                expr.vtable().as_dyn().simplify(expr, cache)
             }
         }
 

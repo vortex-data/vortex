@@ -3,7 +3,9 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::ops::Deref;
 
+use crate::expr::BoundExpression;
 use crate::expr::Expression;
 
 pub enum DisplayFormat {
@@ -17,7 +19,8 @@ impl Display for DisplayTreeExpr<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         pub use termtree::Tree;
         fn make_tree(expr: &Expression) -> Result<Tree<String>, std::fmt::Error> {
-            let node_name = format!("{}", expr);
+            let bound: &BoundExpression = expr.deref();
+            let node_name = format!("{}", bound);
 
             // Get child names for display purposes
             let child_names = (0..expr.children().len()).map(|i| expr.signature().child_name(i));
@@ -96,10 +99,10 @@ mod tests {
         use insta::assert_snapshot;
 
         let root_expr = root();
-        assert_snapshot!(root_expr.display_tree().to_string(), @"vortex.root");
+        assert_snapshot!(root_expr.display_tree().to_string(), @"vortex.root()");
 
         let lit_expr = lit(42);
-        assert_snapshot!(lit_expr.display_tree().to_string(), @"vortex.literal 42i32");
+        assert_snapshot!(lit_expr.display_tree().to_string(), @"vortex.literal(42i32)");
 
         let get_item_expr = get_item("my_field", root());
         assert_snapshot!(get_item_expr.display_tree().to_string(), @r#"
@@ -123,24 +126,24 @@ mod tests {
         vortex.binary and
         ├── lhs: vortex.binary =
         │   ├── lhs: vortex.get_item "name"
-        │   │   └── input: vortex.root
+        │   │   └── input: $
         │   └── rhs: vortex.literal "alice"
         └── rhs: vortex.binary >
             ├── lhs: vortex.get_item "age"
-            │   └── input: vortex.root
+            │   └── input: $
             └── rhs: vortex.literal 18i32
         "#);
 
         let select_expr = select(["name", "age"], root());
         assert_snapshot!(select_expr.display_tree().to_string(), @r"
         vortex.select include={name, age}
-        └── child: vortex.root
+        └── child: $
         ");
 
         let select_exclude_expr = select_exclude(["internal_id", "metadata"], root());
         assert_snapshot!(select_exclude_expr.display_tree().to_string(), @r"
         vortex.select exclude={internal_id, metadata}
-        └── child: vortex.root
+        └── child: $
         ");
 
         let cast_expr = cast(
@@ -150,7 +153,7 @@ mod tests {
         assert_snapshot!(cast_expr.display_tree().to_string(), @r#"
         vortex.cast i64
         └── input: vortex.get_item "value"
-            └── input: vortex.root
+            └── input: $
         "#);
 
         let not_expr = not(eq(get_item("active", root()), lit(true)));

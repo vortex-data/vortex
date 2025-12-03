@@ -92,7 +92,7 @@ pub struct ExactExpr(pub Expression);
 impl PartialEq for ExactExpr {
     fn eq(&self, other: &Self) -> bool {
         self.0.id() == other.0.id()
-            && ptr::addr_eq(&*self.0.options().as_any(), &*other.0.options().as_any())
+            && ptr::addr_eq(self.0.options().as_any(), other.0.options().as_any())
     }
 }
 impl Eq for ExactExpr {}

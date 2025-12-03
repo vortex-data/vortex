@@ -79,7 +79,7 @@ impl VTable for DynamicComparison {
         arg_dtypes: &[DType],
     ) -> VortexResult<DType> {
         let lhs = &arg_dtypes[0];
-        if !dynamic.rhs.dtype.eq_ignore_nullability(&lhs) {
+        if !dynamic.rhs.dtype.eq_ignore_nullability(lhs) {
             vortex_bail!(
                 "Incompatible dtypes for dynamic comparison: expected {} (ignore nullability) but got {}",
                 &dynamic.rhs.dtype,

@@ -16,6 +16,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
+use crate::expr::Root;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::bound::BoundExpression;
@@ -101,6 +102,10 @@ impl Expression {
 
     /// Computes the return dtype of this expression given the input dtype.
     pub fn return_dtype(&self, scope: &DType) -> VortexResult<DType> {
+        if self.is::<Root>() {
+            return Ok(scope.clone());
+        }
+
         let dtypes: Vec<_> = self
             .children
             .iter()
@@ -110,8 +115,11 @@ impl Expression {
     }
 
     /// Evaluates the expression in the given scope, returning an array.
-    pub fn evaluate(&self, _scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        todo!("Return an ExprArray")
+    pub fn evaluate(&self, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+        if self.is::<Root>() {
+            return Ok(scope.clone());
+        }
+        self.bound.evaluate(self, scope)
     }
 
     /// An expression over zone-statistics which implies all records in the zone evaluate to false.

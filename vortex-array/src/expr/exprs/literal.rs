@@ -47,11 +47,10 @@ impl VTable for Literal {
 
     fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Options> {
         let ops = pb::LiteralOpts::decode(metadata)?;
-        Ok(ops
-            .value
+        ops.value
             .as_ref()
             .ok_or_else(|| vortex_err!("Literal metadata missing value"))?
-            .try_into()?)
+            .try_into()
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
@@ -154,8 +153,8 @@ impl VTable for Literal {
 ///
 /// let number = lit(34i32);
 ///
-/// let literal = number.as_::<Literal>();
-/// assert_eq!(literal.data(), &Scalar::primitive(34i32, Nullability::NonNullable));
+/// let scalar = number.as_::<Literal>();
+/// assert_eq!(scalar, &Scalar::primitive(34i32, Nullability::NonNullable));
 /// ```
 pub fn lit(value: impl Into<Scalar>) -> Expression {
     Literal.new_expr(value.into(), [])

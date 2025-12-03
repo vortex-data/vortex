@@ -338,7 +338,7 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
     }
 
     fn options_deserialize(&self, bytes: &[u8]) -> VortexResult<Box<dyn Any + Send + Sync>> {
-        Ok(Box::new(V::deserialize(&self.0, bytes)))
+        Ok(Box::new(V::deserialize(&self.0, bytes)?))
     }
 
     fn options_clone(&self, options: &dyn Any) -> Box<dyn Any + Send + Sync> {
@@ -357,11 +357,11 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
     }
 
     fn options_display(&self, options: &dyn Any, fmt: &mut Formatter<'_>) -> fmt::Result {
-        write!(fmt, "{}", downcast::<V>(options))
+        Display::fmt(downcast::<V>(options), fmt)
     }
 
     fn options_debug(&self, options: &dyn Any, fmt: &mut Formatter<'_>) -> fmt::Result {
-        write!(fmt, "{:?}", downcast::<V>(options))
+        Debug::fmt(downcast::<V>(options), fmt)
     }
 
     fn return_dtype(&self, options: &dyn Any, arg_dtypes: &[DType]) -> VortexResult<DType> {

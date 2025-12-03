@@ -7,15 +7,18 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::ops::Deref;
 
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_utils::debug_with::DebugWith;
 use vortex_vector::Datum;
 
+use crate::ArrayRef;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::ExprVTable;
+use crate::expr::Expression;
 use crate::expr::VTable;
 use crate::expr::options::ExpressionOptions;
 use crate::expr::signature::ExpressionSignature;
@@ -67,7 +70,7 @@ impl BoundExpression {
     pub fn options(&self) -> ExpressionOptions<'_> {
         ExpressionOptions {
             vtable: &self.vtable,
-            options: self.options.as_ref(),
+            options: self.options.deref(),
         }
     }
 
@@ -75,7 +78,7 @@ impl BoundExpression {
     pub fn signature(&self) -> ExpressionSignature<'_> {
         ExpressionSignature {
             vtable: &self.vtable,
-            options: self.options.as_ref(),
+            options: self.options.deref(),
         }
     }
 
@@ -83,12 +86,20 @@ impl BoundExpression {
     pub fn return_dtype(&self, arg_types: &[DType]) -> VortexResult<DType> {
         self.vtable
             .as_dyn()
-            .return_dtype(self.options.as_ref(), arg_types)
+            .return_dtype(self.options.deref(), arg_types)
+    }
+
+    /// Evaluate the expression, returning an ArrayRef.
+    ///
+    /// NOTE: this function will soon be deprecated as all expressions will evaluate trivially
+    ///  into an ExprArray.
+    pub fn evaluate(&self, expr: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+        self.vtable.as_dyn().evaluate(expr, scope)
     }
 
     /// Execute the expression given the input arguments.
     pub fn execute(&self, ctx: ExecutionArgs) -> VortexResult<Datum> {
-        self.vtable.as_dyn().execute(self.options.as_ref(), ctx)
+        self.vtable.as_dyn().execute(self.options.deref(), ctx)
     }
 }
 
@@ -96,7 +107,7 @@ impl Clone for BoundExpression {
     fn clone(&self) -> Self {
         BoundExpression {
             vtable: self.vtable.clone(),
-            options: self.vtable.as_dyn().options_clone(self.options.as_ref()),
+            options: self.vtable.as_dyn().options_clone(self.options.deref()),
         }
     }
 }
@@ -110,7 +121,7 @@ impl Debug for BoundExpression {
                 &DebugWith(|fmt| {
                     self.vtable
                         .as_dyn()
-                        .options_debug(self.options.as_ref(), fmt)
+                        .options_debug(self.options.deref(), fmt)
                 }),
             )
             .finish()
@@ -122,7 +133,7 @@ impl Display for BoundExpression {
         write!(f, "{}(", self.vtable.id())?;
         self.vtable
             .as_dyn()
-            .options_display(self.options.as_ref(), f)?;
+            .options_display(self.options.deref(), f)?;
         write!(f, ")")
     }
 }
@@ -133,7 +144,7 @@ impl PartialEq for BoundExpression {
             && self
                 .vtable
                 .as_dyn()
-                .options_eq(self.options.as_ref(), other.options.as_ref())
+                .options_eq(self.options.deref(), other.options.deref())
     }
 }
 impl Eq for BoundExpression {}
@@ -143,6 +154,6 @@ impl Hash for BoundExpression {
         self.vtable.hash(state);
         self.vtable
             .as_dyn()
-            .options_hash(self.options.as_ref(), state);
+            .options_hash(self.options.deref(), state);
     }
 }
