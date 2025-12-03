@@ -1,0 +1,3 @@
+[language-server.rust-analyzer.config]
+cargo = { target = "x86_64-unknown-linux-gnu", features = "all" }
+checkOnSave = { extraArgs = ["--target", "x86_64-unknown-linux-gnu"] }

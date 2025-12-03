@@ -15,8 +15,8 @@ use std::thread;
 use futures::future::BoxFuture;
 use kanal::Receiver;
 use kanal::Sender;
-use monoio::RuntimeBuilder;
 use monoio::IoUringDriver;
+use monoio::RuntimeBuilder;
 use vortex_error::vortex_panic;
 
 use crate::runtime::AbortHandle;
@@ -78,7 +78,9 @@ impl LocalExecutor for HandleSetExecutor {
     fn spawn_local(&self, f: LocalSpawn) -> AbortHandleRef {
         match self.pick().as_local_executor() {
             Some(exec) => exec.spawn_local(f),
-            None => vortex_panic!("LocalExecutor requested but not supported by any underlying executor"),
+            None => vortex_panic!(
+                "LocalExecutor requested but not supported by any underlying executor"
+            ),
         }
     }
 }
@@ -93,9 +95,7 @@ pub(crate) struct HandleSet {
 impl HandleSet {
     pub(crate) fn new(executors: Vec<Arc<dyn Executor>>) -> Self {
         let executors: Arc<[Arc<dyn Executor>]> = executors.into();
-        let dispatcher = Arc::new(HandleSetExecutor::new(
-            executors.iter().cloned().collect(),
-        ));
+        let dispatcher = Arc::new(HandleSetExecutor::new(executors.iter().cloned().collect()));
         Self {
             executors,
             dispatcher,
@@ -116,10 +116,7 @@ impl HandleSet {
 
 /// Create a [`Handle`] that dispatches work round-robin across the provided handles.
 pub fn dispatching_handle(handles: &[Handle]) -> Handle {
-    let executors = handles
-        .iter()
-        .map(|h| h.runtime())
-        .collect::<Vec<_>>();
+    let executors = handles.iter().map(|h| h.runtime()).collect::<Vec<_>>();
     let set = HandleSet::new(executors);
     set.dispatching_handle()
 }

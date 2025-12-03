@@ -27,9 +27,9 @@ use crate::file::IntoReadSource;
 use crate::file::IoRequest;
 use crate::file::ReadSource;
 use crate::file::ReadSourceRef;
-use crate::runtime::Handle;
 #[cfg(all(target_os = "linux", feature = "uring"))]
 use crate::file::uring_file::open_uring_read_source;
+use crate::runtime::Handle;
 
 /// Read exactly `buffer.len()` bytes from `file` starting at `offset`.
 /// This is a platform-specific helper that uses the most efficient method available.

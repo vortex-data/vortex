@@ -76,7 +76,11 @@ pub fn configure_runtime(choice: Option<RuntimeChoice>) {
 }
 
 fn make_session() -> VortexSession {
-    match RUNTIME_OVERRIDE.get().copied().unwrap_or(RuntimeChoice::Tokio) {
+    match RUNTIME_OVERRIDE
+        .get()
+        .copied()
+        .unwrap_or(RuntimeChoice::Tokio)
+    {
         RuntimeChoice::Tokio => VortexSession::default().with_tokio(),
         #[cfg(all(feature = "uring", target_os = "linux"))]
         RuntimeChoice::Uring => {

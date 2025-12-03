@@ -72,8 +72,13 @@ impl ReadSource for UringFileIoSource {
 
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
         let std_file = self.std_file.clone();
-        futures::future::ready(std_file.metadata().map(|m| m.len()).map_err(VortexError::from))
-            .boxed()
+        futures::future::ready(
+            std_file
+                .metadata()
+                .map(|m| m.len())
+                .map_err(VortexError::from),
+        )
+        .boxed()
     }
 
     fn drive_send(
