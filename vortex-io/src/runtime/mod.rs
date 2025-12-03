@@ -38,7 +38,7 @@ pub mod single;
 mod smol;
 #[cfg(feature = "tokio")]
 pub mod tokio;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "uring", target_os = "linux"))]
 pub mod uring;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;

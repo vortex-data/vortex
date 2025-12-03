@@ -55,6 +55,7 @@ pub trait RuntimeSessionExt: SessionExt {
 
     /// Configure the runtime session to use a dispatching handle that round-robins across the
     /// provided handles. Useful for thread-per-core runtimes.
+    #[cfg(all(not(target_arch = "wasm32"), feature = "uring", target_os = "linux"))]
     fn with_dispatching_handles(self, handles: Vec<Handle>) -> Self {
         self.get_mut::<RuntimeSession>().handle =
             Some(crate::runtime::uring::dispatching_handle(&handles));
