@@ -17,6 +17,7 @@ use kanal::Receiver;
 use kanal::Sender;
 use monoio::IoUringDriver;
 use monoio::RuntimeBuilder;
+use monoio::blocking::DefaultThreadPool;
 use vortex_error::vortex_panic;
 
 use crate::runtime::AbortHandle;
@@ -188,6 +189,7 @@ fn run_runtime(receiver: Receiver<Command>) {
     // Use the IoUring driver explicitly to avoid ambiguity with feature combinations.
     let mut rt = RuntimeBuilder::<IoUringDriver>::new()
         .enable_timer()
+        .attach_thread_pool(Box::new(DefaultThreadPool::new(8)))
         .build()
         .expect("failed to build uring runtime");
 
