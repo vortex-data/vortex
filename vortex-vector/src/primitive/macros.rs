@@ -394,7 +394,7 @@ macro_rules! match_each_integer_pvector_pair {
 /// [`PrimitiveVector`]: crate::primitive::PrimitiveVector
 #[macro_export]
 macro_rules! match_each_float_pvector_pair {
-    (($left:expr, $right:expr), | $l:ident, $r:ident | $body:block, $else:block) => {{
+    (($left:expr, $right:expr), | $l:ident, $r:ident | $body:block, | $l1:ident, $r2:ident | $else:block) => {{
         match ($left, $right) {
             (
                 $crate::primitive::PrimitiveVector::F16($l),
@@ -408,7 +408,37 @@ macro_rules! match_each_float_pvector_pair {
                 $crate::primitive::PrimitiveVector::F64($l),
                 $crate::primitive::PrimitiveVector::F64($r),
             ) => $body,
-            _ => $else,
+            ($l1, $r2) => $else,
+        }
+    }};
+}
+
+/// Matches on all primitive type variants of [`PrimitiveScalar`] and executes the same code for
+/// each variant branch.
+///
+/// This macro eliminates repetitive match statements when implementing operations that need to work
+/// uniformly across all primitive type variants (`U8`, `U16`, `U32`, `U64`, `I8`, `I16`, `I32`,
+/// `I64`, `F16`, `F32`, `F64`).
+///
+/// Works with both owned `PrimitiveScalar` and `&PrimitiveScalar` (the bound variable will be
+/// `PScalar<T>` or `&PScalar<T>` respectively due to Rust's match ergonomics).
+///
+/// [`PrimitiveScalar`]: crate::primitive::PrimitiveScalar
+#[macro_export]
+macro_rules! match_each_pscalar {
+    ($self:expr, | $scalar:ident | $body:block) => {{
+        match $self {
+            $crate::primitive::PrimitiveScalar::U8($scalar) => $body,
+            $crate::primitive::PrimitiveScalar::U16($scalar) => $body,
+            $crate::primitive::PrimitiveScalar::U32($scalar) => $body,
+            $crate::primitive::PrimitiveScalar::U64($scalar) => $body,
+            $crate::primitive::PrimitiveScalar::I8($scalar) => $body,
+            $crate::primitive::PrimitiveScalar::I16($scalar) => $body,
+            $crate::primitive::PrimitiveScalar::I32($scalar) => $body,
+            $crate::primitive::PrimitiveScalar::I64($scalar) => $body,
+            $crate::primitive::PrimitiveScalar::F16($scalar) => $body,
+            $crate::primitive::PrimitiveScalar::F32($scalar) => $body,
+            $crate::primitive::PrimitiveScalar::F64($scalar) => $body,
         }
     }};
 }

@@ -35,11 +35,11 @@ where
     }
 }
 
-impl<Op> Arithmetic<Op, &PrimitiveVector> for &PrimitiveVector
+impl<Op> Arithmetic<Op, &PrimitiveVector> for PrimitiveVector
 where
-    for<'a> &'a PVector<f16>: Arithmetic<Op, &'a PVector<f16>, Output = PVector<f16>>,
-    for<'a> &'a PVector<f32>: Arithmetic<Op, &'a PVector<f32>, Output = PVector<f32>>,
-    for<'a> &'a PVector<f64>: Arithmetic<Op, &'a PVector<f64>, Output = PVector<f64>>,
+    for<'a> PVector<f16>: Arithmetic<Op, &'a PVector<f16>, Output = PVector<f16>>,
+    for<'a> PVector<f32>: Arithmetic<Op, &'a PVector<f32>, Output = PVector<f32>>,
+    for<'a> PVector<f64>: Arithmetic<Op, &'a PVector<f64>, Output = PVector<f64>>,
 {
     type Output = PrimitiveVector;
 
@@ -47,11 +47,11 @@ where
         match_each_float_pvector_pair!(
             (self, rhs),
             |l, r| { Arithmetic::<Op, _>::eval(l, r).into() },
-            {
+            |l, r| {
                 vortex_panic!(
                     "Cannot perform arithmetic on PrimitiveVectors of different types: {:?} and {:?}",
-                    self,
-                    rhs
+                    l,
+                    r
                 )
             }
         )
@@ -95,7 +95,7 @@ mod tests {
             .freeze()
             .into();
 
-        let result = Arithmetic::<Add, _>::eval(&left, &right);
+        let result = Arithmetic::<Add, _>::eval(left, &right);
         if let PrimitiveVector::F64(v) = result {
             assert_eq!(v.scalar_at(0).value(), Some(1.5));
             assert_eq!(v.scalar_at(1).value(), Some(2.5));

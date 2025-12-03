@@ -12,14 +12,14 @@ use crate::comparison::Compare;
 use crate::comparison::ComparisonOperator;
 use crate::comparison::collection::ComparableCollectionAdapter;
 
-impl<Op, T> Compare<Op> for PVector<T>
+impl<Op, T> Compare<Op> for &PVector<T>
 where
     T: NativePType,
     Op: ComparisonOperator<T>,
 {
     type Output = BoolVector;
 
-    fn compare(self, rhs: PVector<T>) -> Self::Output {
+    fn compare(self, rhs: &PVector<T>) -> Self::Output {
         let validity = self.validity().bitand(rhs.validity());
 
         // TODO(ngates): match on density of validity mask to choose optimal implementation

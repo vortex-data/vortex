@@ -31,9 +31,8 @@ use crate::primitive::PrimitiveVector;
 use crate::struct_::StructScalar;
 use crate::struct_::StructVector;
 
-#[allow(missing_docs)]
-
 /// Represents either a scalar or vector value.
+#[allow(missing_docs)]
 #[derive(Debug, Clone)]
 pub enum Datum {
     /// A scalar value.

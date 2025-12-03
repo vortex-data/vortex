@@ -22,7 +22,7 @@ where
     fn compare(self, rhs: Self) -> Self::Output {
         match (self.into_typed(), rhs.into_typed()) {
             (TypedDatum::Bool(d1), TypedDatum::Bool(d2)) => d1.compare(d2),
-            (TypedDatum::Primitive(d1), TypedDatum::Primitive(d2)) => d1.compare(d2).into(),
+            (TypedDatum::Primitive(d1), TypedDatum::Primitive(d2)) => d1.compare(d2),
             _ => unreachable!(""),
         }
     }

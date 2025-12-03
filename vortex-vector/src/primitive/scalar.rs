@@ -13,6 +13,7 @@ use crate::Scalar;
 use crate::ScalarOps;
 use crate::VectorMut;
 use crate::VectorMutOps;
+use crate::match_each_pscalar;
 use crate::primitive::PVectorMut;
 use crate::primitive::PrimitiveVectorMut;
 
@@ -79,8 +80,8 @@ impl ScalarOps for PrimitiveScalar {
         }
     }
 
-    fn repeat(&self, _n: usize) -> VectorMut {
-        todo!()
+    fn repeat(&self, n: usize) -> VectorMut {
+        match_each_pscalar!(self, |s| { s.repeat(n) })
     }
 }
 

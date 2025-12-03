@@ -68,19 +68,19 @@ mod tests {
         let right = PScalar::new(Some(3i32));
 
         assert_eq!(
-            Compare::<Equal>::compare(&left, &right).value(),
+            Compare::<Equal>::compare(left.clone(), right.clone()).value(),
             Some(false)
         );
         assert_eq!(
-            Compare::<NotEqual>::compare(&left, &right).value(),
+            Compare::<NotEqual>::compare(left.clone(), right.clone()).value(),
             Some(true)
         );
         assert_eq!(
-            Compare::<GreaterThan>::compare(&left, &right).value(),
+            Compare::<GreaterThan>::compare(left.clone(), right.clone()).value(),
             Some(true)
         );
         assert_eq!(
-            Compare::<LessThan>::compare(&left, &right).value(),
+            Compare::<LessThan>::compare(left, right).value(),
             Some(false)
         );
     }
@@ -90,9 +90,12 @@ mod tests {
         let left: PrimitiveScalar = PScalar::new(Some(10u64)).into();
         let right: PrimitiveScalar = PScalar::new(Some(10u64)).into();
 
-        assert_eq!(Compare::<Equal>::compare(&left, &right).value(), Some(true));
         assert_eq!(
-            Compare::<NotEqual>::compare(&left, &right).value(),
+            Compare::<Equal>::compare(left.clone(), right.clone()).value(),
+            Some(true)
+        );
+        assert_eq!(
+            Compare::<NotEqual>::compare(left, right).value(),
             Some(false)
         );
     }
