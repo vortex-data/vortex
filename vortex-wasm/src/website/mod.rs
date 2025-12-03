@@ -4,6 +4,6 @@
 pub mod entry;
 pub mod read_s3;
 
-// update_s3 uses tokio and std::process::Command which are not available in WASM.
+// `update_s3` uses `tokio` and `std::process::Command`, which are not available in WASM.
 #[cfg(feature = "native")]
 pub mod update_s3;

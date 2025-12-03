@@ -17,8 +17,8 @@ version.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = []
-# Native feature for binaries - includes tokio runtime and file system dependencies.
+default = ["native"]
+# Native feature for binaries: includes tokio runtime and file system dependencies.
 native = [
     "dep:async-fs",
     "dep:serde_json",
@@ -63,16 +63,6 @@ features = ["console"]
 version = "0.3"
 
 [[bin]]
-name = "migrate"
-path = "src/bin/migrate.rs"
-required-features = ["native"]
-
-[[bin]]
-name = "append"
-path = "src/bin/append.rs"
-required-features = ["native"]
-
-[[bin]]
 name = "test_s3_read"
 path = "src/bin/test_s3_read.rs"
 required-features = ["native"]
@@ -83,8 +73,8 @@ path = "src/bin/test_s3_update.rs"
 required-features = ["native"]
 
 [[bin]]
-name = "migrate_random_access"
-path = "src/bin/migrate_random_access.rs"
+name = "migrate_all"
+path = "src/bin/migrate_all.rs"
 required-features = ["native"]
 
 [lints]

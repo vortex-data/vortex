@@ -1,17 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Binary to migrate the random-access JSON benchmark data to a Vortex file.
-//!
-//! This reads the JSON file from `organized_data/random-access/random_access.json` and converts
-//! it to a Vortex file with the [`BenchmarkEntry`] schema.
+//! Binary to migrate a JSON array of [`BenchmarkEntry`] objects to a Vortex file.
 
 #![allow(clippy::expect_used, clippy::panic)]
 
 use std::env;
 use std::fs;
 
-use serde::Deserialize;
 use vortex::VortexSessionDefault;
 use vortex::array::IntoArray;
 use vortex::array::arrays::FixedSizeListArray;
@@ -27,54 +23,29 @@ use vortex::dtype::Nullability;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::session::VortexSession;
+use vortex_wasm::website::entry::BenchmarkEntry;
 
-/// Represents a benchmark entry from the JSON file.
-#[derive(Debug, Deserialize)]
-struct JsonEntry {
-    name: String,
-    value: u64,
-    commit_id: String,
-    // Ignore other fields from JSON.
-    #[serde(flatten)]
-    _extra: serde_json::Value,
-}
-
-/// Maps the JSON `name` field to the series name string.
-fn series_name(name: &str) -> &'static str {
-    match name {
-        "random-access/vortex-tokio-local-disk" => "vortex-nvme",
-        "random-access/parquet-tokio-local-disk" => "parquet-nvme",
-        "random-access/lance-tokio-local-disk" => "lance-nvme",
-        _ => panic!("Unknown benchmark name: {}", name),
-    }
-}
-
-fn main() {
-    let runtime = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
-
-    runtime.block_on(async_main());
-}
-
-async fn async_main() {
+#[tokio::main]
+async fn main() {
     let session = VortexSession::default();
 
     let args: Vec<String> = env::args().collect();
     let input_path = args
         .get(1)
-        .expect("Usage: migrate_random_access <input_json> <output_file>");
+        .expect("Usage: migrate_all <input_json> <output_file>");
     let output_path = args
         .get(2)
         .map(String::as_str)
-        .expect("Usage: migrate_random_access <input_json> <output_file>");
+        .expect("Usage: migrate_all <input_json> <output_file>");
 
-    // Parse JSON.
     let contents = fs::read_to_string(input_path).expect("Failed to read file");
-    let entries: Vec<JsonEntry> = serde_json::from_str(&contents).expect("Failed to parse JSON");
+    let entries: Vec<BenchmarkEntry> =
+        serde_json::from_str(&contents).expect("Failed to parse JSON");
 
     let num_entries = entries.len();
-    println!("Parsing {} entries from JSON...", num_entries);
+    println!("Parsed {num_entries} entries from JSON");
 
-    // Extract fields into separate vectors.
+    // Extract fields into columnar vectors.
     let mut commit_id_bytes: Vec<u8> = Vec::with_capacity(num_entries * 20);
     let mut benchmark_groups: Vec<&str> = Vec::with_capacity(num_entries);
     let mut chart_names: Vec<&str> = Vec::with_capacity(num_entries);
@@ -82,24 +53,14 @@ async fn async_main() {
     let mut values: Vec<u64> = Vec::with_capacity(num_entries);
 
     for entry in &entries {
-        // Decode hex commit_id to 20 binary bytes.
-        let bytes = hex::decode(&entry.commit_id).expect("Invalid hex in commit_id");
-        assert_eq!(bytes.len(), 20, "commit_id must decode to 20 bytes");
-        commit_id_bytes.extend_from_slice(&bytes);
-
-        // All entries have the same benchmark_group and chart_name.
-        benchmark_groups.push("random-access");
-        chart_names.push("random-access");
-
-        // Map name to series_name string.
-        series_names.push(series_name(&entry.name));
-
+        commit_id_bytes.extend_from_slice(&entry.commit_id.0);
+        benchmark_groups.push(&entry.benchmark_group);
+        chart_names.push(&entry.chart_name);
+        series_names.push(&entry.series_name);
         values.push(entry.value);
     }
 
-    // Create arrays.
-
-    // commit_id: FixedSizeList<u8, 20>
+    // Build Vortex arrays.
     let commit_id_elements =
         PrimitiveArray::new(Buffer::from(commit_id_bytes), Validity::NonNullable);
     let commit_id_array = FixedSizeListArray::try_new(
@@ -110,28 +71,20 @@ async fn async_main() {
     )
     .expect("Failed to create commit_id array");
 
-    // benchmark_group: utf8
     let benchmark_group_array = VarBinArray::from_iter(
         benchmark_groups.iter().map(|s| Some(*s)),
         DType::Utf8(Nullability::NonNullable),
     );
-
-    // chart_name: utf8
     let chart_name_array = VarBinArray::from_iter(
         chart_names.iter().map(|s| Some(*s)),
         DType::Utf8(Nullability::NonNullable),
     );
-
-    // series_name: utf8
     let series_name_array = VarBinArray::from_iter(
         series_names.iter().map(|s| Some(*s)),
         DType::Utf8(Nullability::NonNullable),
     );
-
-    // value: u64
     let value_array = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
 
-    // Create struct array with all fields.
     let struct_array = StructArray::try_new(
         FieldNames::from([
             "commit_id",
@@ -152,7 +105,6 @@ async fn async_main() {
     )
     .expect("Failed to create struct array");
 
-    println!("Created struct array with {} entries", num_entries);
     println!("Schema: {}", struct_array.dtype());
 
     // Write to Vortex file with compression.
@@ -171,5 +123,5 @@ async fn async_main() {
         .await
         .expect("Failed to write Vortex file");
 
-    println!("Wrote {} entries to {}", num_entries, output_path);
+    println!("Wrote {num_entries} entries to {output_path}");
 }

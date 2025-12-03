@@ -307,7 +307,7 @@ where
 /// * `key` - The S3 object key.
 /// * `profile` - Optional AWS CLI profile name.
 /// * `entry` - The benchmark entry to append.
-pub fn append_benchmark_entry(
+pub fn append_benchmark_entry_s3(
     session: &VortexSession,
     bucket: &str,
     key: &str,
