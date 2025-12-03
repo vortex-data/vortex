@@ -1,0 +1,542 @@
+/* CSS Variables for consistent theming */
+:root {
+    /* Vortex Brand Colors */
+    --vortex-black: #101010;
+    --vortex-gray: #ECECEC;
+    --vortex-green: #CEE562;
+    --vortex-blue: #5971FD;
+    --vortex-pink: #EEB3E1;
+
+    /* Series Colors */
+    --series-vortex: #101010;
+    --series-parquet: #5DADE2;
+    --series-lance: #ef7f1d;
+
+    /* Theme Colors */
+    --primary-color: var(--vortex-blue);
+    --primary-hover: #4A5FE5;
+    --bg-color: #ffffff;
+    --bg-secondary: #FAFAFA;
+    --text-color: var(--vortex-black);
+    --text-secondary: #666666;
+    --border-color: var(--vortex-gray);
+
+    /* Shadows */
+    --shadow-sm: 0 1px 3px rgba(16, 16, 16, 0.08);
+    --shadow-md: 0 4px 8px rgba(16, 16, 16, 0.08);
+    --shadow-lg: 0 12px 24px rgba(16, 16, 16, 0.12);
+
+    /* Border Radius */
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+}
+
+/* Reset and base styles */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Display", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-size: 16px;
+    scroll-behavior: smooth;
+}
+
+body {
+    color: var(--text-color);
+    background: var(--bg-secondary);
+    min-height: 100vh;
+    padding: 2rem;
+    padding-bottom: 12rem;
+    line-height: 1.6;
+    letter-spacing: -0.01em;
+}
+
+/* Container */
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+/* Page Header */
+.page-header {
+    margin-bottom: 2rem;
+}
+
+.page-header h1 {
+    font-family: "Funnel Display", -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 2rem;
+    font-weight: 600;
+    color: var(--text-color);
+    margin-bottom: 0.5rem;
+    letter-spacing: -0.02em;
+}
+
+.subtitle {
+    color: var(--text-secondary);
+    font-size: 1rem;
+}
+
+/* Status */
+.status {
+    background: var(--bg-color);
+    border-radius: var(--radius-md);
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.5rem;
+    box-shadow: var(--shadow-sm);
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    border: 1px solid var(--border-color);
+}
+
+.status.loading {
+    border-left: 4px solid var(--vortex-blue);
+}
+
+.status.success {
+    border-left: 4px solid var(--series-vortex);
+}
+
+.status.error {
+    border-left: 4px solid #e74c3c;
+}
+
+.spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border-color);
+    border-top-color: var(--vortex-blue);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Benchmarks Container - full width sections */
+.benchmarks-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+/* Benchmark Set */
+.benchmark-set {
+    background: var(--bg-color);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-color);
+    overflow: visible;
+    transition: all 0.3s ease;
+    box-shadow: var(--shadow-sm);
+}
+
+.benchmark-set:hover {
+    box-shadow: var(--shadow-md);
+}
+
+/* Benchmark Header (clickable) */
+.benchmark-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.2s;
+}
+
+.benchmark-header:hover {
+    background: #F0F0F0;
+}
+
+.title-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.collapse-icon {
+    font-size: 0.875rem;
+    transition: transform 0.3s ease;
+    color: var(--text-secondary);
+}
+
+.benchmark-set.collapsed .collapse-icon {
+    transform: rotate(-90deg);
+}
+
+.benchmark-title {
+    font-family: "Funnel Display", -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-color);
+    margin: 0;
+    letter-spacing: -0.02em;
+}
+
+.benchmark-meta {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+/* Summary Section (always visible) */
+.summary-section {
+    padding: 16px 24px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+/* Scores List - 2 column layout */
+.scores-list {
+    column-count: 2;
+    column-gap: 20px;
+}
+
+/* Single column for smaller screens */
+@media (max-width: 780px) {
+    .scores-list {
+        column-count: 1;
+    }
+}
+
+/* Score Item - card style */
+.score-item {
+    display: flex;
+    align-items: center;
+    background: var(--bg-color);
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-color);
+    transition: all 0.2s ease;
+    font-size: 13px;
+    break-inside: avoid;
+}
+
+.score-item:hover {
+    border-color: var(--primary-color);
+    background: var(--bg-secondary);
+}
+
+.score-rank {
+    font-weight: 600;
+    color: var(--primary-color);
+    min-width: 30px;
+    font-size: 14px;
+}
+
+.score-series {
+    flex: 1;
+    font-weight: 500;
+    color: var(--text-color);
+    margin: 0 8px;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.score-metrics {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.score-runtime {
+    font-family: "SF Mono", "Monaco", "Inconsolata", monospace;
+    font-weight: 600;
+    color: var(--primary-color);
+    background: rgba(89, 113, 253, 0.1);
+    padding: 3px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+}
+
+.score-ratio {
+    font-family: "SF Mono", "Monaco", "Inconsolata", monospace;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+    padding: 3px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+}
+
+.scores-explanation {
+    margin-top: 12px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-style: italic;
+    text-align: center;
+}
+
+/* Benchmark Graphs (collapsible) */
+.benchmark-graphs {
+    padding: 24px;
+    background: var(--bg-color);
+}
+
+.benchmark-set.collapsed .benchmark-graphs {
+    display: none;
+}
+
+/* Chart Container */
+.chart-container {
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 20px;
+    transition: all 0.3s ease;
+}
+
+.chart-container:hover {
+    box-shadow: var(--shadow-md);
+    border-color: var(--primary-color);
+}
+
+.chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.chart-title {
+    font-family: "Funnel Display", -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--text-color);
+    margin: 0;
+    letter-spacing: -0.01em;
+}
+
+.chart-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.control-info-compact {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+}
+
+.zoom-controls {
+    display: flex;
+    gap: 4px;
+}
+
+.zoom-btn {
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-color);
+    color: var(--text-color);
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.zoom-btn:hover {
+    background: var(--bg-secondary);
+    border-color: var(--primary-color);
+}
+
+.chart-wrapper {
+    position: relative;
+    height: 400px;
+}
+
+.x-axis-label {
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.625rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 0.25rem;
+    margin-bottom: 0.25rem;
+}
+
+/* Custom Tooltip */
+.chartjs-tooltip {
+    position: absolute;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    background: rgba(16, 16, 16, 0.9);
+    color: white;
+    border-radius: var(--radius-md);
+    padding: 12px;
+    font-size: 12px;
+    z-index: 1000;
+    box-shadow: var(--shadow-lg);
+}
+
+.chartjs-tooltip.active {
+    opacity: 1;
+}
+
+.chartjs-tooltip::before {
+    content: '';
+    position: absolute;
+    top: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-bottom: 8px solid rgba(16, 16, 16, 0.9);
+}
+
+.chartjs-tooltip-body {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.chartjs-tooltip-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.chartjs-tooltip-color {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+}
+
+.chartjs-tooltip-footer {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
+    font-size: 11px;
+    opacity: 0.9;
+}
+
+/* Timeline Scrollbar */
+.timeline-scrollbar-container {
+    overflow-x: auto;
+    overflow-y: hidden;
+    height: 16px;
+    background: transparent;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    margin-top: 0.5rem;
+}
+
+.timeline-scrollbar-container::-webkit-scrollbar {
+    height: 16px;
+}
+
+.timeline-scrollbar-container::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: var(--radius-md);
+}
+
+.timeline-scrollbar-container::-webkit-scrollbar-thumb {
+    background: rgba(89, 113, 253, 0.3);
+    border-radius: var(--radius-md);
+    border: 3px solid transparent;
+    background-clip: padding-box;
+}
+
+.timeline-scrollbar-container::-webkit-scrollbar-thumb:hover {
+    background: rgba(89, 113, 253, 0.5);
+    background-clip: padding-box;
+}
+
+#timeline-scrollbar-content {
+    height: 1px;
+    pointer-events: none;
+}
+
+/* Utility Classes */
+.hidden {
+    display: none !important;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    body {
+        padding: 1rem;
+    }
+
+    .page-header h1 {
+        font-size: 1.5rem;
+    }
+
+    .benchmark-header {
+        padding: 12px 16px;
+    }
+
+    .benchmark-title {
+        font-size: 1.125rem;
+    }
+
+    .summary-section {
+        padding: 12px 16px;
+    }
+
+    .score-item {
+        padding: 8px 10px;
+        margin-bottom: 6px;
+        font-size: 12px;
+    }
+
+    .score-rank {
+        font-size: 13px;
+        min-width: 28px;
+    }
+
+    .score-series {
+        font-size: 13px;
+        margin: 0 6px;
+    }
+
+    .score-runtime,
+    .score-ratio {
+        font-size: 12px;
+        padding: 2px 8px;
+    }
+
+    .scores-explanation {
+        font-size: 10px;
+        margin-top: 8px;
+    }
+
+    .benchmark-graphs {
+        padding: 16px;
+    }
+
+    .chart-wrapper {
+        height: 300px;
+    }
+}
+
+@media (min-width: 1600px) {
+    .container {
+        max-width: 1600px;
+    }
+
+    body {
+        padding: 3rem 4rem;
+    }
+}
