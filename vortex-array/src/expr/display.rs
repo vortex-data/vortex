@@ -5,8 +5,8 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::ops::Deref;
 
-use crate::expr::BoundExpression;
 use crate::expr::Expression;
+use crate::expr::ScalarFn;
 
 pub enum DisplayFormat {
     Compact,
@@ -19,7 +19,7 @@ impl Display for DisplayTreeExpr<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         pub use termtree::Tree;
         fn make_tree(expr: &Expression) -> Result<Tree<String>, std::fmt::Error> {
-            let bound: &BoundExpression = expr.deref();
+            let bound: &ScalarFn = expr.deref();
             let node_name = format!("{}", bound);
 
             // Get child names for display purposes

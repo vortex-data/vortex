@@ -29,9 +29,9 @@ use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
 use crate::execution::ExecutionCtx;
 use crate::expr;
-use crate::expr::BoundExpression;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprVTable;
+use crate::expr::ScalarFn;
 use crate::optimizer::rules::MatchKey;
 use crate::optimizer::rules::Matcher;
 use crate::serde::ArrayChildren;
@@ -162,7 +162,7 @@ pub trait ScalarFnArrayExt: expr::VTable {
         options: Self::Options,
         children: impl Into<Vec<ArrayRef>>,
     ) -> VortexResult<ArrayRef> {
-        let bound = BoundExpression::new_static(self, options);
+        let bound = ScalarFn::new_static(self, options);
 
         let children = children.into();
         vortex_ensure!(

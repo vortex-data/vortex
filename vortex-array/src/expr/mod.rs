@@ -12,7 +12,7 @@
 
 use std::hash::Hash;
 use std::hash::Hasher;
-use std::ptr;
+use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_dtype::FieldName;
@@ -26,7 +26,6 @@ pub mod aliases;
 pub mod analysis;
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
-mod bound;
 pub mod display;
 mod expression;
 mod exprs;
@@ -35,6 +34,7 @@ pub mod forms;
 mod options;
 pub mod proto;
 pub mod pruning;
+mod scalar_fn;
 pub mod session;
 mod signature;
 mod simplify;
@@ -44,10 +44,10 @@ pub mod traversal;
 mod vtable;
 
 pub use analysis::*;
-pub use bound::*;
 pub use expression::*;
 pub use exprs::*;
 pub use pruning::StatsCatalog;
+pub use scalar_fn::*;
 pub use vtable::*;
 
 pub type ExprId = ArcRef<str>;
@@ -85,14 +85,13 @@ fn split_inner(expr: &Expression, exprs: &mut Vec<Expression>) {
     }
 }
 
-/// An expression wrapper that performs pointer equality.
+/// An expression wrapper that performs pointer equality on child expressions.
 #[derive(Clone)]
 pub struct ExactExpr(pub Expression);
-
 impl PartialEq for ExactExpr {
     fn eq(&self, other: &Self) -> bool {
-        self.0.id() == other.0.id()
-            && ptr::addr_eq(self.0.options().as_any(), other.0.options().as_any())
+        self.0.scalar_fn() == other.0.scalar_fn()
+            && Arc::ptr_eq(self.0.children(), other.0.children())
     }
 }
 impl Eq for ExactExpr {}

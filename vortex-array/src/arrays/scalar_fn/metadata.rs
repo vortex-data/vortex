@@ -3,10 +3,10 @@
 
 use vortex_dtype::DType;
 
-use crate::expr::BoundExpression;
+use crate::expr::ScalarFn;
 
 #[derive(Clone, Debug)]
 pub struct ScalarFnMetadata {
-    pub(super) bound: BoundExpression,
+    pub(super) bound: ScalarFn,
     pub(super) child_dtypes: Vec<DType>,
 }

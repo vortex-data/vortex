@@ -24,12 +24,12 @@ use crate::expr::options::ExpressionOptions;
 use crate::expr::signature::ExpressionSignature;
 
 /// An instance of an expression bound to some invocation options.
-pub struct BoundExpression {
+pub struct ScalarFn {
     vtable: ExprVTable,
     options: Box<dyn Any + Send + Sync>,
 }
 
-impl BoundExpression {
+impl ScalarFn {
     /// Create a new bound expression from raw vtable and options.
     ///
     /// # Safety
@@ -103,16 +103,16 @@ impl BoundExpression {
     }
 }
 
-impl Clone for BoundExpression {
+impl Clone for ScalarFn {
     fn clone(&self) -> Self {
-        BoundExpression {
+        ScalarFn {
             vtable: self.vtable.clone(),
             options: self.vtable.as_dyn().options_clone(self.options.deref()),
         }
     }
 }
 
-impl Debug for BoundExpression {
+impl Debug for ScalarFn {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BoundExpression")
             .field("vtable", &self.vtable)
@@ -128,7 +128,7 @@ impl Debug for BoundExpression {
     }
 }
 
-impl Display for BoundExpression {
+impl Display for ScalarFn {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}(", self.vtable.id())?;
         self.vtable
@@ -138,7 +138,7 @@ impl Display for BoundExpression {
     }
 }
 
-impl PartialEq for BoundExpression {
+impl PartialEq for ScalarFn {
     fn eq(&self, other: &Self) -> bool {
         self.vtable == other.vtable
             && self
@@ -147,9 +147,9 @@ impl PartialEq for BoundExpression {
                 .options_eq(self.options.deref(), other.options.deref())
     }
 }
-impl Eq for BoundExpression {}
+impl Eq for ScalarFn {}
 
-impl Hash for BoundExpression {
+impl Hash for ScalarFn {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.vtable.hash(state);
         self.vtable

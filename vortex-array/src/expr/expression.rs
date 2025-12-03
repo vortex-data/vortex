@@ -17,9 +17,9 @@ use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::expr::Root;
+use crate::expr::ScalarFn;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
-use crate::expr::bound::BoundExpression;
 use crate::expr::display::DisplayTreeExpr;
 use crate::expr::stats::Stat;
 
@@ -29,36 +29,39 @@ use crate::expr::stats::Stat;
 /// expression consists of an encoding (vtable), heap-allocated metadata, and child expressions.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Expression {
-    /// The bound expression for this node.
-    bound: BoundExpression,
+    /// The scalar fn for this node.
+    scalar_fn: ScalarFn,
     /// Any children of this expression.
     children: Arc<[Expression]>,
 }
 
 impl Deref for Expression {
-    type Target = BoundExpression;
+    type Target = ScalarFn;
 
     fn deref(&self) -> &Self::Target {
-        &self.bound
+        &self.scalar_fn
     }
 }
 
 impl Expression {
-    /// Create a new expression node from a bound expression and its children.
+    /// Create a new expression node from a scalar_fn expression and its children.
     pub fn try_new(
-        bound: BoundExpression,
+        scalar_fn: ScalarFn,
         children: impl Into<Arc<[Expression]>>,
     ) -> VortexResult<Self> {
         let children: Arc<[Expression]> = children.into();
 
         vortex_ensure!(
-            bound.signature().arity().matches(children.len()),
+            scalar_fn.signature().arity().matches(children.len()),
             "Expression arity mismatch: expected {} children but got {}",
-            bound.signature().arity(),
+            scalar_fn.signature().arity(),
             children.len()
         );
 
-        Ok(Self { bound, children })
+        Ok(Self {
+            scalar_fn,
+            children,
+        })
     }
 
     /// Returns true if this expression is of the given vtable type.
@@ -75,6 +78,11 @@ impl Expression {
     pub fn as_<V: VTable>(&self) -> &V::Options {
         self.as_opt::<V>()
             .vortex_expect("Expression options type mismatch")
+    }
+
+    /// Returns the scalar fn vtable for this expression.
+    pub fn scalar_fn(&self) -> &ScalarFn {
+        &self.scalar_fn
     }
 
     /// Returns the children of this expression.
@@ -111,7 +119,7 @@ impl Expression {
             .iter()
             .map(|c| c.return_dtype(scope))
             .try_collect()?;
-        self.bound.return_dtype(&dtypes)
+        self.scalar_fn.return_dtype(&dtypes)
     }
 
     /// Evaluates the expression in the given scope, returning an array.
@@ -119,7 +127,7 @@ impl Expression {
         if self.is::<Root>() {
             return Ok(scope.clone());
         }
-        self.bound.evaluate(self, scope)
+        self.scalar_fn.evaluate(self, scope)
     }
 
     /// An expression over zone-statistics which implies all records in the zone evaluate to false.

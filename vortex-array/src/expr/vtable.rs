@@ -22,8 +22,8 @@ use vortex_vector::VectorOps;
 use crate::ArrayRef;
 use crate::expr::ExprId;
 use crate::expr::StatsCatalog;
-use crate::expr::bound::BoundExpression;
 use crate::expr::expression::Expression;
+use crate::expr::scalar_fn::ScalarFn;
 use crate::expr::stats::Stat;
 
 /// This trait defines the interface for expression vtables, including methods for
@@ -247,9 +247,9 @@ impl Display for EmptyOptions {
 
 /// Factory functions for static vtables.
 pub trait VTableExt: VTable {
-    /// Bind this vtable with the given options into a [`BoundExpression`].
-    fn bind(&'static self, options: Self::Options) -> BoundExpression {
-        BoundExpression::new_static(self, options)
+    /// Bind this vtable with the given options into a [`ScalarFn`].
+    fn bind(&'static self, options: Self::Options) -> ScalarFn {
+        ScalarFn::new_static(self, options)
     }
 
     /// Create a new expression with this vtable and the given options and children.
@@ -535,12 +535,9 @@ impl ExprVTable {
     }
 
     /// Deserialize an options of this expression vtable from metadata.
-    pub fn deserialize(&self, metadata: &[u8]) -> VortexResult<BoundExpression> {
+    pub fn deserialize(&self, metadata: &[u8]) -> VortexResult<ScalarFn> {
         Ok(unsafe {
-            BoundExpression::new_unchecked(
-                self.clone(),
-                self.as_dyn().options_deserialize(metadata)?,
-            )
+            ScalarFn::new_unchecked(self.clone(), self.as_dyn().options_deserialize(metadata)?)
         })
     }
 }
