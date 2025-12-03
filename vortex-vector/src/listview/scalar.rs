@@ -10,7 +10,7 @@ use crate::listview::ListViewVector;
 /// A scalar value for list view types.
 ///
 /// The inner value is a ListViewVector with length 1.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ListViewScalar(ListViewVector);
 
 impl ListViewScalar {

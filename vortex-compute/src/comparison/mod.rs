@@ -7,6 +7,7 @@ use vortex_dtype::half::f16;
 
 mod bool;
 mod collection;
+mod datum;
 mod primitive_scalar;
 mod primitive_vector;
 mod pvector;

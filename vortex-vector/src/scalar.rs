@@ -17,7 +17,7 @@ use crate::primitive::PrimitiveScalar;
 use crate::struct_::StructScalar;
 
 /// Represents a scalar value of any supported type.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Scalar {
     /// Null scalars are always null.
     Null(NullScalar),
@@ -64,6 +64,14 @@ impl Scalar {
 
     /// Converts the `Scalar` into a `BoolScalar`.
     pub fn into_bool(self) -> BoolScalar {
+        if let Scalar::Bool(scalar) = self {
+            return scalar;
+        }
+        vortex_panic!("Cannot convert non-bool Scalar into BoolScalar");
+    }
+
+    /// Converts the `Scalar` into a `BoolScalar`.
+    pub fn to_bool(&self) -> &BoolScalar {
         if let Scalar::Bool(scalar) = self {
             return scalar;
         }

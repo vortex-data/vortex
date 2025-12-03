@@ -5,22 +5,19 @@ use prost::Message;
 use vortex_compute::arithmetic_op;
 use vortex_compute::checked_arithmetic_op;
 use vortex_compute::compare_op;
-use vortex_compute::logical::LogicalAndKleene;
-use vortex_compute::logical::LogicalOrKleene;
+use vortex_compute::logical::KleeneAnd;
+use vortex_compute::logical::KleeneOr;
+use vortex_compute::logical::LogicalOp;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
+use vortex_vector::BoolDatum;
 use vortex_vector::Datum;
-use vortex_vector::ScalarOps;
-use vortex_vector::Vector;
-use vortex_vector::VectorMutOps;
-use vortex_vector::VectorOps;
-use vortex_vector::bool::BoolScalar;
-use vortex_vector::primitive::PrimitiveScalar;
-use vortex_vector::primitive::PrimitiveVector;
+use vortex_vector::PrimitiveDatum;
 
+use crate::compute;
 use crate::expr::ChildName;
 use crate::expr::Operator;
 use crate::expr::functions::ArgName;
@@ -85,86 +82,37 @@ impl VTable for BinaryFn {
     }
 
     fn execute(&self, op: &Operator, args: &ExecutionArgs) -> VortexResult<Datum> {
-        let lhs = args.input_datums(0);
-        let rhs = args.input_datums(1);
+        let lhs: Datum = args.input_datums(0).clone();
+        let rhs: Datum = args.input_datums(1).clone();
 
-        match (lhs, rhs) {
-            (Datum::Vector(lhs_vec), Datum::Vector(rhs_vec)) => {
-                execute_vector_vector(lhs_vec, rhs_vec, *op)
-            }
-            (Datum::Scalar(lhs_sc), Datum::Scalar(rhs_sc)) => {
-                execute_scalar_scalar(lhs_sc, rhs_sc, *op)
-            }
-            // TODO: remove repeat
-            (Datum::Scalar(lhs_sc), Datum::Vector(rhs_vec)) => {
-                execute_vector_vector(&lhs_sc.repeat(rhs_vec.len()).freeze(), rhs_vec, *op)
-            }
-            (Datum::Vector(lhs_vec), Datum::Scalar(rhs_sc)) => {
-                execute_vector_vector(lhs_vec, &rhs_sc.repeat(lhs_vec.len()).freeze(), *op)
-            }
-        }
-    }
-}
-
-fn execute_vector_vector(lhs: &Vector, rhs: &Vector, op: Operator) -> VortexResult<Datum> {
-    match (lhs, rhs, op) {
-        // Logical operations (AND/OR) - only for Bool vectors
-        (Vector::Bool(l), Vector::Bool(r), Operator::And) => {
-            Ok(Datum::Vector(l.and_kleene(r).into()))
-        }
-        (Vector::Bool(l), Vector::Bool(r), Operator::Or) => {
-            Ok(Datum::Vector(l.or_kleene(r).into()))
-        }
-
-        // Comparison operations - Bool vectors
-        (Vector::Bool(l), Vector::Bool(r), op) if op.maybe_cmp_operator().is_some() => {
+        if op.is_arithmetic() {
+            execute_arithmetic_primitive(&lhs.into_primitive(), &rhs.into_primitive(), *op)
+        } else if let Some(comp) = op.maybe_cmp_operator() {
             let result = compare_op!(
-                op,
-                l,
-                r,
-                Operator::Eq,
-                Operator::NotEq,
-                Operator::Lt,
-                Operator::Lte,
-                Operator::Gt,
-                Operator::Gte
+                comp,
+                lhs,
+                rhs,
+                compute::Operator::Eq,
+                compute::Operator::NotEq,
+                compute::Operator::Lt,
+                compute::Operator::Lte,
+                compute::Operator::Gt,
+                compute::Operator::Gte
             );
-            Ok(Datum::Vector(result.into()))
+            Ok(result.into())
+        } else if matches!(op, Operator::And) {
+            Ok(<BoolDatum as LogicalOp<KleeneAnd>>::op(lhs.into_bool(), rhs.into_bool()).into())
+        } else if matches!(op, Operator::Or) {
+            Ok(<BoolDatum as LogicalOp<KleeneOr>>::op(lhs.into_bool(), rhs.into_bool()).into())
+        } else {
+            unreachable!("unknown operator type")
         }
-
-        // Comparison operations - Primitive vectors
-        (Vector::Primitive(l), Vector::Primitive(r), op) if op.maybe_cmp_operator().is_some() => {
-            let result = compare_op!(
-                op,
-                l,
-                r,
-                Operator::Eq,
-                Operator::NotEq,
-                Operator::Lt,
-                Operator::Lte,
-                Operator::Gt,
-                Operator::Gte
-            );
-            Ok(Datum::Vector(result.into()))
-        }
-
-        // Arithmetic operations - Primitive vectors
-        (Vector::Primitive(l), Vector::Primitive(r), op) if op.is_arithmetic() => {
-            execute_arithmetic_primitive(l, r, op)
-        }
-
-        _ => vortex_bail!(
-            "Binary operation {:?} not supported for vector types {:?} and {:?}",
-            op,
-            lhs,
-            rhs
-        ),
     }
 }
 
 fn execute_arithmetic_primitive(
-    lhs: &PrimitiveVector,
-    rhs: &PrimitiveVector,
+    lhs: &PrimitiveDatum,
+    rhs: &PrimitiveDatum,
     op: Operator,
 ) -> VortexResult<Datum> {
     // Float arithmetic - no overflow checking needed
@@ -178,11 +126,11 @@ fn execute_arithmetic_primitive(
             Operator::Mul,
             Operator::Div
         );
-        return Ok(Datum::Vector(result.into()));
+        return Ok(result.into());
     }
 
     // Integer arithmetic - use checked operations
-    let result: Option<PrimitiveVector> = checked_arithmetic_op!(
+    checked_arithmetic_op!(
         op,
         lhs,
         rhs,
@@ -190,126 +138,200 @@ fn execute_arithmetic_primitive(
         Operator::Sub,
         Operator::Mul,
         Operator::Div
-    );
-
-    match result {
-        Some(v) => Ok(Datum::Vector(v.into())),
-        None => Err(vortex_err!(
-            "Arithmetic overflow/underflow or type mismatch"
-        )),
-    }
+    )
+    .map(|d| d.into())
+    .ok_or_else(|| vortex_err!("Arithmetic overflow/underflow or type mismatch"))
 }
 
-fn execute_scalar_scalar(
-    lhs: &vortex_vector::Scalar,
-    rhs: &vortex_vector::Scalar,
-    op: Operator,
-) -> VortexResult<Datum> {
+// fn execute_scalar_scalar(
+//     lhs: &vortex_vector::Scalar,
+//     rhs: &vortex_vector::Scalar,
+//     op: Operator,
+// ) -> VortexResult<Datum> {
+//     use vortex_vector::Scalar;
+//     use vortex_vector::ScalarOps;
+//
+//     // Handle null propagation for non-kleene operators
+//     if !matches!(op, Operator::And | Operator::Or) && (!lhs.is_valid() || !rhs.is_valid()) {
+//         return match op {
+//             Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => {
+//                 // Return null primitive - we'd need to know the type
+//                 // For now, bail
+//                 vortex_bail!("Null scalar arithmetic not yet supported")
+//             }
+//             _ => Ok(Datum::Scalar(BoolScalar::new(None).into())),
+//         };
+//     }
+//
+//     match (lhs, rhs) {
+//         (Scalar::Bool(l), Scalar::Bool(r)) => {
+//             let result: BoolScalar = match op {
+//                 op if op.maybe_cmp_operator().is_some() => compare_op!(
+//                     op,
+//                     l,
+//                     r,
+//                     Operator::Eq,
+//                     Operator::NotEq,
+//                     Operator::Lt,
+//                     Operator::Lte,
+//                     Operator::Gt,
+//                     Operator::Gte
+//                 ),
+//                 _ => vortex_bail!("Arithmetic not supported for bool scalars"),
+//             };
+//             Ok(Datum::Scalar(result.into()))
+//         }
+//         (Scalar::Primitive(l), Scalar::Primitive(r)) => execute_scalar_scalar_primitive(l, r, op),
+//         _ => vortex_bail!(
+//             "Binary operation not supported for scalar types {:?} and {:?}",
+//             lhs,
+//             rhs
+//         ),
+//     }
+// }
+
+// fn execute_scalar_scalar_primitive(
+//     lhs: &PrimitiveScalar,
+//     rhs: &PrimitiveScalar,
+//     op: Operator,
+// ) -> VortexResult<Datum> {
+//     if op.maybe_cmp_operator().is_some() {
+//         let result = compare_op!(
+//             op,
+//             lhs,
+//             rhs,
+//             Operator::Eq,
+//             Operator::NotEq,
+//             Operator::Lt,
+//             Operator::Lte,
+//             Operator::Gt,
+//             Operator::Gte
+//         );
+//         return Ok(Datum::Scalar(result.into()));
+//     }
+//
+//     if op.is_arithmetic() {
+//         return execute_scalar_arithmetic_primitive(lhs, rhs, op);
+//     }
+//
+//     vortex_bail!("Operation {:?} not supported for primitive scalars", op)
+// }
+
+// fn execute_scalar_arithmetic_primitive(
+//     lhs: &PrimitiveScalar,
+//     rhs: &PrimitiveScalar,
+//     op: Operator,
+// ) -> VortexResult<Datum> {
+//     // Float arithmetic - no overflow checking needed
+//     if lhs.ptype().is_float() && lhs.ptype() == rhs.ptype() {
+//         let result = arithmetic_op!(
+//             op,
+//             lhs,
+//             rhs,
+//             Operator::Add,
+//             Operator::Sub,
+//             Operator::Mul,
+//             Operator::Div
+//         );
+//         return Ok(Datum::Scalar(result.into()));
+//     }
+//
+//     // Integer arithmetic - use checked operations
+//     let result: Option<PrimitiveScalar> = checked_arithmetic_op!(
+//         op,
+//         lhs,
+//         rhs,
+//         Operator::Add,
+//         Operator::Sub,
+//         Operator::Mul,
+//         Operator::Div
+//     );
+//
+//     match result {
+//         Some(v) => Ok(Datum::Scalar(v.into())),
+//         None => Err(vortex_err!(
+//             "Arithmetic overflow/underflow or type mismatch"
+//         )),
+//     }
+// }
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::buffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::PType::I32;
+    use vortex_error::VortexExpect;
+    use vortex_mask::Mask;
+    use vortex_vector::Datum;
     use vortex_vector::Scalar;
-    use vortex_vector::ScalarOps;
+    use vortex_vector::Vector;
+    use vortex_vector::primitive::PScalar;
+    use vortex_vector::primitive::PVector;
+    use vortex_vector::primitive::PrimitiveScalar;
+    use vortex_vector::primitive::PrimitiveVector;
 
-    // Handle null propagation for non-kleene operators
-    if !matches!(op, Operator::And | Operator::Or) && (!lhs.is_valid() || !rhs.is_valid()) {
-        return match op {
-            Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => {
-                // Return null primitive - we'd need to know the type
-                // For now, bail
-                vortex_bail!("Null scalar arithmetic not yet supported")
-            }
-            _ => Ok(Datum::Scalar(BoolScalar::new(None).into())),
-        };
-    }
+    use crate::expr::Operator;
+    use crate::expr::functions::ExecutionArgs;
+    use crate::expr::functions::VTable;
+    use crate::scalar_fns::binary::BinaryFn;
 
-    match (lhs, rhs) {
-        (Scalar::Bool(l), Scalar::Bool(r)) => {
-            let result: BoolScalar = match op {
-                Operator::And => l.and_kleene(r),
-                Operator::Or => l.or_kleene(r),
-                op if op.maybe_cmp_operator().is_some() => compare_op!(
-                    op,
-                    l,
-                    r,
-                    Operator::Eq,
-                    Operator::NotEq,
-                    Operator::Lt,
-                    Operator::Lte,
-                    Operator::Gt,
-                    Operator::Gte
-                ),
-                _ => vortex_bail!("Arithmetic not supported for bool scalars"),
-            };
-            Ok(Datum::Scalar(result.into()))
-        }
-        (Scalar::Primitive(l), Scalar::Primitive(r)) => execute_scalar_scalar_primitive(l, r, op),
-        _ => vortex_bail!(
-            "Binary operation not supported for scalar types {:?} and {:?}",
-            lhs,
-            rhs
-        ),
-    }
-}
-
-fn execute_scalar_scalar_primitive(
-    lhs: &PrimitiveScalar,
-    rhs: &PrimitiveScalar,
-    op: Operator,
-) -> VortexResult<Datum> {
-    if op.maybe_cmp_operator().is_some() {
-        let result = compare_op!(
-            op,
-            lhs,
-            rhs,
-            Operator::Eq,
-            Operator::NotEq,
-            Operator::Lt,
-            Operator::Lte,
-            Operator::Gt,
-            Operator::Gte
+    #[test]
+    fn test_binary() {
+        let exec = ExecutionArgs::new(
+            100,
+            DType::Bool(NonNullable),
+            vec![I32.into(), I32.into()],
+            vec![
+                Datum::Scalar(Scalar::Primitive(PrimitiveScalar::I32(PScalar::new(Some(
+                    2i32,
+                ))))),
+                Datum::Scalar(Scalar::Primitive(PrimitiveScalar::I32(PScalar::new(Some(
+                    3i32,
+                ))))),
+            ],
         );
-        return Ok(Datum::Scalar(result.into()));
-    }
 
-    if op.is_arithmetic() {
-        return execute_scalar_arithmetic_primitive(lhs, rhs, op);
-    }
-
-    vortex_bail!("Operation {:?} not supported for primitive scalars", op)
-}
-
-fn execute_scalar_arithmetic_primitive(
-    lhs: &PrimitiveScalar,
-    rhs: &PrimitiveScalar,
-    op: Operator,
-) -> VortexResult<Datum> {
-    // Float arithmetic - no overflow checking needed
-    if lhs.ptype().is_float() && lhs.ptype() == rhs.ptype() {
-        let result = arithmetic_op!(
-            op,
-            lhs,
-            rhs,
-            Operator::Add,
-            Operator::Sub,
-            Operator::Mul,
-            Operator::Div
+        let x = BinaryFn
+            .execute(&Operator::Gte, &exec)
+            .vortex_expect("shouldnt fail");
+        assert!(
+            !x.into_scalar()
+                .vortex_expect("")
+                .into_bool()
+                .value()
+                .vortex_expect("not null")
         );
-        return Ok(Datum::Scalar(result.into()));
+        let x = BinaryFn
+            .execute(&Operator::Lt, &exec)
+            .vortex_expect("shouldnt fail");
+        assert!(
+            x.into_scalar()
+                .vortex_expect("")
+                .into_bool()
+                .value()
+                .vortex_expect("not null")
+        );
     }
 
-    // Integer arithmetic - use checked operations
-    let result: Option<PrimitiveScalar> = checked_arithmetic_op!(
-        op,
-        lhs,
-        rhs,
-        Operator::Add,
-        Operator::Sub,
-        Operator::Mul,
-        Operator::Div
-    );
+    #[test]
+    fn test_add() {
+        let exec = ExecutionArgs::new(
+            3,
+            DType::Bool(NonNullable),
+            vec![I32.into(), I32.into()],
+            vec![
+                Datum::Scalar(Scalar::Primitive(PrimitiveScalar::I32(PScalar::new(Some(
+                    2i32,
+                ))))),
+                Datum::Vector(Vector::Primitive(PrimitiveVector::I32(PVector::new(
+                    buffer![1, 2, 3],
+                    Mask::AllTrue(3),
+                )))),
+            ],
+        );
 
-    match result {
-        Some(v) => Ok(Datum::Scalar(v.into())),
-        None => Err(vortex_err!(
-            "Arithmetic overflow/underflow or type mismatch"
-        )),
+        let x = BinaryFn.execute(&Operator::Add, &exec);
+        println!("x {:?}", x)
     }
 }

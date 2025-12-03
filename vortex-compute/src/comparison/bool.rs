@@ -17,7 +17,7 @@ use crate::comparison::LessThan;
 use crate::comparison::LessThanOrEqual;
 use crate::comparison::NotEqual;
 
-impl Compare<Equal> for &BoolScalar {
+impl Compare<Equal> for BoolScalar {
     type Output = BoolScalar;
 
     fn compare(self, rhs: Self) -> Self::Output {
@@ -25,7 +25,7 @@ impl Compare<Equal> for &BoolScalar {
     }
 }
 
-impl Compare<NotEqual> for &BoolScalar {
+impl Compare<NotEqual> for BoolScalar {
     type Output = BoolScalar;
 
     fn compare(self, rhs: Self) -> Self::Output {
@@ -33,7 +33,7 @@ impl Compare<NotEqual> for &BoolScalar {
     }
 }
 
-impl Compare<LessThan> for &BoolScalar {
+impl Compare<LessThan> for BoolScalar {
     type Output = BoolScalar;
 
     fn compare(self, rhs: Self) -> Self::Output {
@@ -41,7 +41,7 @@ impl Compare<LessThan> for &BoolScalar {
     }
 }
 
-impl Compare<LessThanOrEqual> for &BoolScalar {
+impl Compare<LessThanOrEqual> for BoolScalar {
     type Output = BoolScalar;
 
     fn compare(self, rhs: Self) -> Self::Output {
@@ -49,7 +49,7 @@ impl Compare<LessThanOrEqual> for &BoolScalar {
     }
 }
 
-impl Compare<GreaterThan> for &BoolScalar {
+impl Compare<GreaterThan> for BoolScalar {
     type Output = BoolScalar;
 
     fn compare(self, rhs: Self) -> Self::Output {
@@ -57,7 +57,7 @@ impl Compare<GreaterThan> for &BoolScalar {
     }
 }
 
-impl Compare<GreaterThanOrEqual> for &BoolScalar {
+impl Compare<GreaterThanOrEqual> for BoolScalar {
     type Output = BoolScalar;
 
     fn compare(self, rhs: Self) -> Self::Output {
@@ -65,7 +65,7 @@ impl Compare<GreaterThanOrEqual> for &BoolScalar {
     }
 }
 
-impl<Op> Compare<Op> for &BoolVector
+impl<Op> Compare<Op> for BoolVector
 where
     Op: BitComparisonOperator,
 {

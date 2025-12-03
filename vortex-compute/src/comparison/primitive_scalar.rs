@@ -14,7 +14,7 @@ use vortex_vector::primitive::PrimitiveScalar;
 use crate::comparison::Compare;
 use crate::comparison::ComparisonOperator;
 
-impl<Op, T> Compare<Op> for &PScalar<T>
+impl<Op, T> Compare<Op> for PScalar<T>
 where
     T: NativePType,
     Op: ComparisonOperator<T>,
@@ -29,29 +29,25 @@ where
     }
 }
 
-impl<Op> Compare<Op> for &PrimitiveScalar
+impl<Op> Compare<Op> for PrimitiveScalar
 where
-    for<'a> &'a PScalar<i8>: Compare<Op, Output = BoolScalar>,
-    for<'a> &'a PScalar<i16>: Compare<Op, Output = BoolScalar>,
-    for<'a> &'a PScalar<i32>: Compare<Op, Output = BoolScalar>,
-    for<'a> &'a PScalar<i64>: Compare<Op, Output = BoolScalar>,
-    for<'a> &'a PScalar<u8>: Compare<Op, Output = BoolScalar>,
-    for<'a> &'a PScalar<u16>: Compare<Op, Output = BoolScalar>,
-    for<'a> &'a PScalar<u32>: Compare<Op, Output = BoolScalar>,
-    for<'a> &'a PScalar<u64>: Compare<Op, Output = BoolScalar>,
-    for<'a> &'a PScalar<f16>: Compare<Op, Output = BoolScalar>,
-    for<'a> &'a PScalar<f32>: Compare<Op, Output = BoolScalar>,
-    for<'a> &'a PScalar<f64>: Compare<Op, Output = BoolScalar>,
+    PScalar<i8>: Compare<Op, Output = BoolScalar>,
+    PScalar<i16>: Compare<Op, Output = BoolScalar>,
+    PScalar<i32>: Compare<Op, Output = BoolScalar>,
+    PScalar<i64>: Compare<Op, Output = BoolScalar>,
+    PScalar<u8>: Compare<Op, Output = BoolScalar>,
+    PScalar<u16>: Compare<Op, Output = BoolScalar>,
+    PScalar<u32>: Compare<Op, Output = BoolScalar>,
+    PScalar<u64>: Compare<Op, Output = BoolScalar>,
+    PScalar<f16>: Compare<Op, Output = BoolScalar>,
+    PScalar<f32>: Compare<Op, Output = BoolScalar>,
+    PScalar<f64>: Compare<Op, Output = BoolScalar>,
 {
     type Output = BoolScalar;
 
     fn compare(self, rhs: Self) -> Self::Output {
         match_each_pscalar_pair!((self, rhs), |l, r| { Compare::<Op>::compare(l, r) }, {
-            vortex_panic!(
-                "Cannot compare PrimitiveScalars of different types: {:?} and {:?}",
-                self,
-                rhs
-            )
+            vortex_panic!("Cannot compare PrimitiveScalars of different types",)
         })
     }
 }

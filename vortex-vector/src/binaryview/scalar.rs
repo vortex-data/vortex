@@ -11,7 +11,7 @@ use crate::binaryview::BinaryViewVectorMut;
 use crate::binaryview::StringType;
 
 /// A scalar value for types that implement [`BinaryViewType`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BinaryViewScalar<T: BinaryViewType>(Option<T::Scalar>);
 
 impl<T: BinaryViewType> BinaryViewScalar<T> {

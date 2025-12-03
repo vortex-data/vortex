@@ -11,12 +11,14 @@ use vortex_vector::VectorOps;
 use vortex_vector::bool::BoolScalar;
 use vortex_vector::bool::BoolVector;
 
+use crate::logical::KleeneOr;
+use crate::logical::LogicalOp;
 use crate::logical::LogicalOrKleene;
 
-impl LogicalOrKleene for &BoolScalar {
+impl LogicalOp<KleeneOr> for &BoolScalar {
     type Output = BoolScalar;
 
-    fn or_kleene(self, rhs: &BoolScalar) -> BoolScalar {
+    fn op(self, rhs: &BoolScalar) -> BoolScalar {
         let result = match (self.value(), rhs.value()) {
             (Some(true), _) | (_, Some(true)) => Some(true),
             (Some(false), Some(false)) => Some(false),
@@ -30,14 +32,14 @@ impl LogicalOrKleene<&BoolScalar> for BoolScalar {
     type Output = BoolScalar;
 
     fn or_kleene(self, rhs: &BoolScalar) -> BoolScalar {
-        (&self).or_kleene(rhs)
+        <&Self as LogicalOp<KleeneOr>>::op(&self, rhs)
     }
 }
 
-impl LogicalOrKleene for &BoolVector {
+impl LogicalOp<KleeneOr> for &BoolVector {
     type Output = BoolVector;
 
-    fn or_kleene(self, rhs: &BoolVector) -> BoolVector {
+    fn op(self, rhs: &BoolVector) -> BoolVector {
         match (self.validity(), rhs.validity()) {
             (Mask::AllTrue(_), Mask::AllTrue(_)) => {
                 BoolVector::new(self.bits().bitor(rhs.bits()), Mask::new_true(self.len()))
@@ -123,7 +125,7 @@ impl LogicalOrKleene<&BoolVector> for BoolVector {
     type Output = BoolVector;
 
     fn or_kleene(self, rhs: &BoolVector) -> BoolVector {
-        (&self).or_kleene(rhs)
+        <&Self as LogicalOp<KleeneOr>>::op(&self, rhs)
     }
 }
 

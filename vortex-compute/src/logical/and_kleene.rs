@@ -11,13 +11,15 @@ use vortex_vector::VectorOps;
 use vortex_vector::bool::BoolScalar;
 use vortex_vector::bool::BoolVector;
 
+use crate::logical::KleeneAnd;
 use crate::logical::LogicalAndKleene;
+use crate::logical::LogicalOp;
 
-impl LogicalAndKleene for &BoolScalar {
+impl LogicalOp<KleeneAnd> for &BoolScalar {
     type Output = BoolScalar;
 
-    fn and_kleene(self, rhs: &BoolScalar) -> BoolScalar {
-        let result = match (self.value(), rhs.value()) {
+    fn op(self, other: Self) -> Self::Output {
+        let result = match (self.value(), other.value()) {
             (Some(false), _) | (_, Some(false)) => Some(false),
             (Some(true), Some(true)) => Some(true),
             _ => None,
@@ -30,14 +32,14 @@ impl LogicalAndKleene<&BoolScalar> for BoolScalar {
     type Output = BoolScalar;
 
     fn and_kleene(self, rhs: &BoolScalar) -> BoolScalar {
-        (&self).and_kleene(rhs)
+        <&Self as LogicalOp<KleeneAnd>>::op(&self, rhs)
     }
 }
 
-impl LogicalAndKleene for &BoolVector {
+impl LogicalOp<KleeneAnd> for &BoolVector {
     type Output = BoolVector;
 
-    fn and_kleene(self, rhs: Self) -> Self::Output {
+    fn op(self, rhs: Self) -> Self::Output {
         match (self.validity(), rhs.validity()) {
             (Mask::AllTrue(_), Mask::AllTrue(_)) => {
                 BoolVector::new(self.bits().bitand(rhs.bits()), Mask::new_true(self.len()))
@@ -123,7 +125,7 @@ impl LogicalAndKleene<&BoolVector> for BoolVector {
     type Output = BoolVector;
 
     fn and_kleene(self, rhs: &BoolVector) -> Self::Output {
-        (&self).and_kleene(rhs)
+        <&Self as LogicalOp<KleeneAnd>>::op(&self, rhs)
     }
 }
 

@@ -12,29 +12,25 @@ use vortex_vector::primitive::PrimitiveVector;
 
 use crate::comparison::Compare;
 
-impl<Op> Compare<Op> for &PrimitiveVector
+impl<Op> Compare<Op> for PrimitiveVector
 where
-    for<'a> &'a PVector<i8>: Compare<Op, Output = BoolVector>,
-    for<'a> &'a PVector<i16>: Compare<Op, Output = BoolVector>,
-    for<'a> &'a PVector<i32>: Compare<Op, Output = BoolVector>,
-    for<'a> &'a PVector<i64>: Compare<Op, Output = BoolVector>,
-    for<'a> &'a PVector<u8>: Compare<Op, Output = BoolVector>,
-    for<'a> &'a PVector<u16>: Compare<Op, Output = BoolVector>,
-    for<'a> &'a PVector<u32>: Compare<Op, Output = BoolVector>,
-    for<'a> &'a PVector<u64>: Compare<Op, Output = BoolVector>,
-    for<'a> &'a PVector<f16>: Compare<Op, Output = BoolVector>,
-    for<'a> &'a PVector<f32>: Compare<Op, Output = BoolVector>,
-    for<'a> &'a PVector<f64>: Compare<Op, Output = BoolVector>,
+    PVector<i8>: Compare<Op, Output = BoolVector>,
+    PVector<i16>: Compare<Op, Output = BoolVector>,
+    PVector<i32>: Compare<Op, Output = BoolVector>,
+    PVector<i64>: Compare<Op, Output = BoolVector>,
+    PVector<u8>: Compare<Op, Output = BoolVector>,
+    PVector<u16>: Compare<Op, Output = BoolVector>,
+    PVector<u32>: Compare<Op, Output = BoolVector>,
+    PVector<u64>: Compare<Op, Output = BoolVector>,
+    PVector<f16>: Compare<Op, Output = BoolVector>,
+    PVector<f32>: Compare<Op, Output = BoolVector>,
+    PVector<f64>: Compare<Op, Output = BoolVector>,
 {
     type Output = BoolVector;
 
     fn compare(self, rhs: Self) -> Self::Output {
         match_each_pvector_pair!((self, rhs), |l, r| { Compare::<Op>::compare(l, r) }, {
-            vortex_panic!(
-                "Cannot compare PrimitiveVectors of different types: {:?} and {:?}",
-                self,
-                rhs
-            )
+            vortex_panic!("Cannot compare PrimitiveVectors of different types",)
         })
     }
 }

@@ -10,7 +10,7 @@ use crate::struct_::StructVector;
 /// Represents a struct scalar value.
 ///
 /// The inner value is a StructVector with length 1.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StructScalar(StructVector);
 
 impl StructScalar {
