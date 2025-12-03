@@ -17,7 +17,6 @@ mod wasm_bindings {
     use vortex::session::VortexSession;
     use wasm_bindgen::prelude::*;
 
-    use crate::website::names::NAMES;
     use crate::website::read_s3::read_benchmark_entries;
 
     const KEY: &str = "test/random_access.vortex";
@@ -33,7 +32,7 @@ mod wasm_bindings {
     #[derive(Serialize)]
     pub struct JsEntry {
         pub commit_id: String,
-        pub series_name: &'static str,
+        pub series_name: String,
         pub value_ms: f64,
     }
 
@@ -66,7 +65,7 @@ mod wasm_bindings {
             .iter()
             .map(|e| JsEntry {
                 commit_id: e.commit_id.to_string(),
-                series_name: NAMES.get(&e.series_name.0).copied().unwrap_or("unknown"),
+                series_name: e.series_name.clone(),
                 value_ms: e.value as f64 / 1_000_000.0,
             })
             .collect();

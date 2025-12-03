@@ -9645,7 +9645,6 @@ dependencies = [
  "async-fs",
  "console_error_panic_hook",
  "hex",
- "phf 0.13.1",
  "reqwest",
  "serde",
  "serde-wasm-bindgen",

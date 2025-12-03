@@ -7,7 +7,6 @@
 
 use vortex::VortexSessionDefault;
 use vortex::session::VortexSession;
-use vortex_wasm::website::names::NAMES;
 use vortex_wasm::website::read_s3::read_benchmark_entries;
 
 const KEY: &str = "test/random_access.vortex";
@@ -41,13 +40,13 @@ async fn async_main() {
 
     for (i, entry) in entries.iter().enumerate() {
         if i < show_first || i >= entries.len() - show_last {
-            let benchmark_group = NAMES.get(&entry.benchmark_group.0).unwrap_or(&"unknown");
-            let chart_name = NAMES.get(&entry.chart_name.0).unwrap_or(&"unknown");
-            let series_name = NAMES.get(&entry.series_name.0).unwrap_or(&"unknown");
-
             println!(
                 "{} {:>15} {:>15} {:>15} {:>12}",
-                entry.commit_id, benchmark_group, chart_name, series_name, entry.value
+                entry.commit_id,
+                entry.benchmark_group,
+                entry.chart_name,
+                entry.series_name,
+                entry.value
             );
         } else if i == show_first {
             println!(

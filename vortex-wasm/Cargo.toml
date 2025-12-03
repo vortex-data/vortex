@@ -32,7 +32,6 @@ native = [
 # Core dependencies for both WASM and native.
 console_error_panic_hook = "0.1"
 hex = { workspace = true }
-phf = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde-wasm-bindgen = "0.6"

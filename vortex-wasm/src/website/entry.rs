@@ -24,18 +24,18 @@ use vortex_error::vortex_bail;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BenchmarkEntry {
     pub commit_id: CommitId,
-    pub benchmark_group: NameId,
-    pub chart_name: NameId,
-    pub series_name: NameId,
+    pub benchmark_group: String,
+    pub chart_name: String,
+    pub series_name: String,
     pub value: u64,
 }
 
 impl BenchmarkEntry {
     pub fn new(
         commit_id: CommitId,
-        benchmark_group: NameId,
-        chart_name: NameId,
-        series_name: NameId,
+        benchmark_group: String,
+        chart_name: String,
+        series_name: String,
         value: u64,
     ) -> Self {
         Self {
@@ -51,9 +51,9 @@ impl BenchmarkEntry {
     ///
     /// The schema is:
     /// - `commit_id`: `FixedSizeList<u8, 20>` (20-byte binary SHA-1)
-    /// - `benchmark_group`: `u32`
-    /// - `chart_name`: `u32`
-    /// - `series_name`: `u32`
+    /// - `benchmark_group`: `Utf8`
+    /// - `chart_name`: `Utf8`
+    /// - `series_name`: `Utf8`
     /// - `value`: `u64`
     pub fn dtype() -> DType {
         DType::Struct(
@@ -71,9 +71,9 @@ impl BenchmarkEntry {
                         20,
                         NonNullable,
                     ),
-                    DType::Primitive(PType::U32, NonNullable),
-                    DType::Primitive(PType::U32, NonNullable),
-                    DType::Primitive(PType::U32, NonNullable),
+                    DType::Utf8(NonNullable),
+                    DType::Utf8(NonNullable),
+                    DType::Utf8(NonNullable),
                     DType::Primitive(PType::U64, NonNullable),
                 ],
             ),
@@ -98,9 +98,9 @@ impl BenchmarkEntry {
             BenchmarkEntry::dtype(),
             vec![
                 commit_id_scalar,
-                Scalar::primitive(self.benchmark_group.0, NonNullable),
-                Scalar::primitive(self.chart_name.0, NonNullable),
-                Scalar::primitive(self.series_name.0, NonNullable),
+                Scalar::utf8(self.benchmark_group.as_str(), NonNullable),
+                Scalar::utf8(self.chart_name.as_str(), NonNullable),
+                Scalar::utf8(self.series_name.as_str(), NonNullable),
                 Scalar::primitive(self.value, NonNullable),
             ],
         )
@@ -110,9 +110,9 @@ impl BenchmarkEntry {
     ///
     /// The array must have the following schema:
     /// - `commit_id`: FixedSizeList<u8, 20>
-    /// - `benchmark_group`: u32
-    /// - `chart_name`: u32
-    /// - `series_name`: u32
+    /// - `benchmark_group`: Utf8
+    /// - `chart_name`: Utf8
+    /// - `series_name`: Utf8
     /// - `value`: u64
     pub fn vec_from_array(array: &dyn Array) -> VortexResult<Vec<Self>> {
         // Convert to canonical struct array.
@@ -141,16 +141,12 @@ impl BenchmarkEntry {
         let commit_id_elements: PrimitiveArray = commit_id_fsl.elements().to_primitive();
         let commit_id_bytes: &[u8] = commit_id_elements.as_slice();
 
-        // Convert primitive fields.
-        let benchmark_group_prim: PrimitiveArray = benchmark_group_field.to_primitive();
-        let benchmark_groups: &[u32] = benchmark_group_prim.as_slice();
+        // Convert string fields to canonical varbinview arrays.
+        let benchmark_group_vbv = benchmark_group_field.to_varbinview();
+        let chart_name_vbv = chart_name_field.to_varbinview();
+        let series_name_vbv = series_name_field.to_varbinview();
 
-        let chart_name_prim: PrimitiveArray = chart_name_field.to_primitive();
-        let chart_names: &[u32] = chart_name_prim.as_slice();
-
-        let series_name_prim: PrimitiveArray = series_name_field.to_primitive();
-        let series_names: &[u32] = series_name_prim.as_slice();
-
+        // Convert value field to primitive array.
         let value_prim: PrimitiveArray = value_field.to_primitive();
         let values: &[u64] = value_prim.as_slice();
 
@@ -162,11 +158,22 @@ impl BenchmarkEntry {
             let mut commit_id_arr = [0u8; 20];
             commit_id_arr.copy_from_slice(&commit_id_bytes[start..end]);
 
+            // Read strings using bytes_at() and convert to String.
+            let benchmark_group = std::str::from_utf8(benchmark_group_vbv.bytes_at(i).as_ref())
+                .map_err(|e| vortex_error::vortex_err!("Invalid UTF-8 in benchmark_group: {}", e))?
+                .to_string();
+            let chart_name = std::str::from_utf8(chart_name_vbv.bytes_at(i).as_ref())
+                .map_err(|e| vortex_error::vortex_err!("Invalid UTF-8 in chart_name: {}", e))?
+                .to_string();
+            let series_name = std::str::from_utf8(series_name_vbv.bytes_at(i).as_ref())
+                .map_err(|e| vortex_error::vortex_err!("Invalid UTF-8 in series_name: {}", e))?
+                .to_string();
+
             entries.push(BenchmarkEntry {
                 commit_id: CommitId(commit_id_arr),
-                benchmark_group: NameId(benchmark_groups[i]),
-                chart_name: NameId(chart_names[i]),
-                series_name: NameId(series_names[i]),
+                benchmark_group,
+                chart_name,
+                series_name,
                 value: values[i],
             });
         }
@@ -174,10 +181,6 @@ impl BenchmarkEntry {
         Ok(entries)
     }
 }
-
-/// String ID lookup so that we don't have to store the string every time.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NameId(pub u32);
 
 /// The 20-byte binary SHA-1 Git commit ID.
 #[derive(Clone, PartialEq, Eq)]

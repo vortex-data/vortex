@@ -17,14 +17,16 @@ use vortex::array::IntoArray;
 use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
+use vortex::array::arrays::VarBinArray;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::compressor::CompactCompressor;
+use vortex::dtype::DType;
 use vortex::dtype::FieldNames;
+use vortex::dtype::Nullability;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::session::VortexSession;
-use vortex_wasm::website::names;
 
 /// Represents a benchmark entry from the JSON file.
 #[derive(Debug, Deserialize)]
@@ -37,12 +39,12 @@ struct JsonEntry {
     _extra: serde_json::Value,
 }
 
-/// Maps the JSON `name` field to a series name ID.
-fn series_name_id(name: &str) -> u32 {
+/// Maps the JSON `name` field to the series name string.
+fn series_name(name: &str) -> &'static str {
     match name {
-        "random-access/vortex-tokio-local-disk" => names::VORTEX_NVME,
-        "random-access/parquet-tokio-local-disk" => names::PARQUET_NVME,
-        "random-access/lance-tokio-local-disk" => names::LANCE_NVME,
+        "random-access/vortex-tokio-local-disk" => "vortex-nvme",
+        "random-access/parquet-tokio-local-disk" => "parquet-nvme",
+        "random-access/lance-tokio-local-disk" => "lance-nvme",
         _ => panic!("Unknown benchmark name: {}", name),
     }
 }
@@ -74,9 +76,9 @@ async fn async_main() {
 
     // Extract fields into separate vectors.
     let mut commit_id_bytes: Vec<u8> = Vec::with_capacity(num_entries * 20);
-    let mut benchmark_groups: Vec<u32> = Vec::with_capacity(num_entries);
-    let mut chart_names: Vec<u32> = Vec::with_capacity(num_entries);
-    let mut series_names: Vec<u32> = Vec::with_capacity(num_entries);
+    let mut benchmark_groups: Vec<&str> = Vec::with_capacity(num_entries);
+    let mut chart_names: Vec<&str> = Vec::with_capacity(num_entries);
+    let mut series_names: Vec<&str> = Vec::with_capacity(num_entries);
     let mut values: Vec<u64> = Vec::with_capacity(num_entries);
 
     for entry in &entries {
@@ -86,11 +88,11 @@ async fn async_main() {
         commit_id_bytes.extend_from_slice(&bytes);
 
         // All entries have the same benchmark_group and chart_name.
-        benchmark_groups.push(names::RANDOM_ACCESS);
-        chart_names.push(names::RANDOM_ACCESS);
+        benchmark_groups.push("random-access");
+        chart_names.push("random-access");
 
-        // Map name to series_name ID.
-        series_names.push(series_name_id(&entry.name));
+        // Map name to series_name string.
+        series_names.push(series_name(&entry.name));
 
         values.push(entry.value);
     }
@@ -108,15 +110,23 @@ async fn async_main() {
     )
     .expect("Failed to create commit_id array");
 
-    // benchmark_group: u32
-    let benchmark_group_array =
-        PrimitiveArray::new(Buffer::from(benchmark_groups), Validity::NonNullable);
+    // benchmark_group: utf8
+    let benchmark_group_array = VarBinArray::from_iter(
+        benchmark_groups.iter().map(|s| Some(*s)),
+        DType::Utf8(Nullability::NonNullable),
+    );
 
-    // chart_name: u32
-    let chart_name_array = PrimitiveArray::new(Buffer::from(chart_names), Validity::NonNullable);
+    // chart_name: utf8
+    let chart_name_array = VarBinArray::from_iter(
+        chart_names.iter().map(|s| Some(*s)),
+        DType::Utf8(Nullability::NonNullable),
+    );
 
-    // series_name: u32
-    let series_name_array = PrimitiveArray::new(Buffer::from(series_names), Validity::NonNullable);
+    // series_name: utf8
+    let series_name_array = VarBinArray::from_iter(
+        series_names.iter().map(|s| Some(*s)),
+        DType::Utf8(Nullability::NonNullable),
+    );
 
     // value: u64
     let value_array = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
