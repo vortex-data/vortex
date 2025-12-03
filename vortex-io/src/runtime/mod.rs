@@ -47,7 +47,7 @@ pub mod wasm;
 mod tests;
 
 /// Trait used to abstract over different async runtimes.
-pub(crate) trait Executor: Send + Sync {
+pub trait Executor: Send + Sync {
     /// Spawns a future to be executed on the runtime.
     ///
     /// The future should continue to be polled in the background by the runtime.
@@ -84,7 +84,7 @@ pub(crate) trait Executor: Send + Sync {
 ///
 /// The factory is `Send` so it may be sent to the runtime's thread; the produced future can be
 /// `!Send` because it never leaves that thread after creation.
-pub(crate) trait LocalExecutor: Executor {
+pub trait LocalExecutor: Executor {
     fn spawn_local(&self, f: LocalSpawn) -> AbortHandleRef;
 }
 
@@ -98,11 +98,11 @@ pub(crate) type LocalSpawn = Box<dyn FnOnce() -> LocalBoxFuture<'static, ()> + S
 ///
 /// If dropped, the task should continue to completion.
 /// If explicitly aborted, the task should be cancelled if it has not yet started executing.
-pub(crate) trait AbortHandle: Send + Sync {
+pub trait AbortHandle: Send + Sync {
     fn abort(self: Box<Self>);
 }
 
-pub(crate) type AbortHandleRef = Box<dyn AbortHandle>;
+pub type AbortHandleRef = Box<dyn AbortHandle>;
 
 /// A task for driving I/O requests against a source.
 ///
@@ -112,7 +112,7 @@ pub(crate) type AbortHandleRef = Box<dyn AbortHandle>;
 ///
 // NOTE(ngates): We could in theory make IoSource support as_any if we wanted each runtime to implement the
 // actual read logic themselves? Not sure yet...
-pub(crate) struct IoTask {
+pub struct IoTask {
     pub(crate) source: ReadSourceRef,
     pub(crate) stream: BoxStream<'static, IoRequest>,
 }

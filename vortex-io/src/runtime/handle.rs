@@ -40,7 +40,7 @@ impl Handle {
         Self { runtime }
     }
 
-    fn runtime(&self) -> Arc<dyn Executor> {
+    pub(crate) fn runtime(&self) -> Arc<dyn Executor> {
         self.runtime.upgrade().unwrap_or_else(|| {
             vortex_panic!("Attempted to use a Handle after its runtime was dropped")
         })
