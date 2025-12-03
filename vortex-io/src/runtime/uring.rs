@@ -1,30 +1,36 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Per-core runtime helpers and dispatching executor.
+//! Per-core runtime helpers and dispatching executor for io_uring-based runtimes.
+//!
+//! This module is only compiled on Linux with the `uring` feature enabled.
+
+#![cfg(all(target_os = "linux", feature = "uring"))]
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
+use std::thread;
 
 use futures::future::BoxFuture;
+use kanal::Receiver;
+use kanal::Sender;
+use monoio::RuntimeBuilder;
+use monoio::IoUringDriver;
 use vortex_error::vortex_panic;
 
-use crate::runtime::blocking::BlockingRuntime;
+use crate::runtime::AbortHandle;
 use crate::runtime::AbortHandleRef;
-use crate::runtime::current::CurrentThreadRuntime;
-use crate::runtime::current::CurrentThreadWorkerPool;
 use crate::runtime::Executor;
 use crate::runtime::Handle;
 use crate::runtime::IoTask;
 use crate::runtime::LocalExecutor;
 use crate::runtime::LocalSpawn;
 
-#[allow(dead_code)]
 /// An executor that dispatches work across a fixed set of underlying executors.
 ///
-/// Tasks are assigned round-robin; there is no work stealing. This is intended to pair with
-/// per-core runtimes where each executor owns a single thread/reactor.
+/// Tasks are assigned round-robin; there is no work stealing. This pairs with per-core runtimes
+/// where each executor owns a single thread/reactor.
 pub(crate) struct HandleSetExecutor {
     executors: Arc<[Arc<dyn Executor>]>,
     picker: AtomicUsize,
@@ -42,108 +48,7 @@ impl HandleSetExecutor {
 
     fn pick(&self) -> &Arc<dyn Executor> {
         let idx = self.picker.fetch_add(1, Ordering::Relaxed);
-        // Relaxed is sufficient: we only need uniqueness, not ordering guarantees.
         &self.executors[idx % self.executors.len()]
-    }
-}
-
-#[allow(dead_code)]
-/// A thin wrapper around a set of executors that produces a dispatching [`Handle`].
-///
-/// This is intended to be backed by per-core runtimes (e.g., io_uring reactors), but it can be
-/// constructed from any set of executors for now.
-pub(crate) struct HandleSet {
-    executors: Arc<[Arc<dyn Executor>]>,
-    dispatcher: Arc<HandleSetExecutor>,
-}
-
-#[allow(dead_code)]
-impl HandleSet {
-    pub(crate) fn new(executors: Vec<Arc<dyn Executor>>) -> Self {
-        let executors: Arc<[Arc<dyn Executor>]> = executors.into();
-        let dispatcher = Arc::new(HandleSetExecutor::new(
-            executors.iter().cloned().collect(),
-        ));
-        Self {
-            executors,
-            dispatcher,
-        }
-    }
-
-    /// Returns a handle that round-robins spawned work across the underlying executors.
-    pub(crate) fn dispatching_handle(&self) -> Handle {
-        let exec: Arc<dyn Executor> = self.dispatcher.clone();
-        Handle::new(Arc::downgrade(&exec))
-    }
-
-    /// Access to the underlying executors, useful for building per-core pools later.
-    pub(crate) fn executors(&self) -> &[Arc<dyn Executor>] {
-        &self.executors
-    }
-}
-
-/// Create a [`Handle`] that dispatches work round-robin across the provided handles.
-///
-/// This is useful for thread-per-core runtimes where each handle is tied to a single reactor.
-pub fn dispatching_handle(handles: &[Handle]) -> Handle {
-    let executors = handles
-        .iter()
-        .map(|h| h.runtime())
-        .collect::<Vec<_>>();
-    let set = HandleSet::new(executors);
-    set.dispatching_handle()
-}
-
-/// A lightweight per-core pool using current-thread runtimes and background workers.
-///
-/// This is a stopgap until a true io_uring-backed runtime is wired in. Each core owns its own
-/// executor driven by a single worker thread, and the exposed handle dispatches round-robin
-/// across them.
-#[allow(dead_code)]
-pub struct PerCoreRuntimePool {
-    cores: Vec<CurrentThreadCore>,
-    handle: Handle,
-}
-
-#[allow(dead_code)]
-impl PerCoreRuntimePool {
-    /// Build a pool with `cores` runtimes (defaults to available_parallelism if None).
-    pub fn new(cores: Option<usize>) -> Self {
-        let core_count = cores
-            .or_else(|| std::thread::available_parallelism().ok().map(|n| n.get()))
-            .unwrap_or(1);
-
-        let cores: Vec<_> = (0..core_count).map(|_| CurrentThreadCore::new()).collect();
-        let handles: Vec<_> = cores.iter().map(|c| c.handle()).collect();
-        let handle = dispatching_handle(&handles);
-
-        Self { cores, handle }
-    }
-
-    /// A handle that spreads work across the per-core runtimes.
-    pub fn handle(&self) -> Handle {
-        self.handle.clone()
-    }
-}
-
-struct CurrentThreadCore {
-    runtime: CurrentThreadRuntime,
-    _pool: CurrentThreadWorkerPool,
-}
-
-impl CurrentThreadCore {
-    fn new() -> Self {
-        let runtime = CurrentThreadRuntime::new();
-        let pool = runtime.new_pool();
-        pool.set_workers(1);
-        Self {
-            runtime,
-            _pool: pool,
-        }
-    }
-
-    fn handle(&self) -> Handle {
-        self.runtime.handle()
     }
 }
 
@@ -175,5 +80,184 @@ impl LocalExecutor for HandleSetExecutor {
             Some(exec) => exec.spawn_local(f),
             None => vortex_panic!("LocalExecutor requested but not supported by any underlying executor"),
         }
+    }
+}
+
+/// A thin wrapper around a set of executors that produces a dispatching [`Handle`].
+pub(crate) struct HandleSet {
+    executors: Arc<[Arc<dyn Executor>]>,
+    dispatcher: Arc<HandleSetExecutor>,
+}
+
+#[allow(dead_code)]
+impl HandleSet {
+    pub(crate) fn new(executors: Vec<Arc<dyn Executor>>) -> Self {
+        let executors: Arc<[Arc<dyn Executor>]> = executors.into();
+        let dispatcher = Arc::new(HandleSetExecutor::new(
+            executors.iter().cloned().collect(),
+        ));
+        Self {
+            executors,
+            dispatcher,
+        }
+    }
+
+    /// Returns a handle that round-robins spawned work across the underlying executors.
+    pub(crate) fn dispatching_handle(&self) -> Handle {
+        let exec: Arc<dyn Executor> = self.dispatcher.clone();
+        Handle::new(Arc::downgrade(&exec))
+    }
+
+    /// Access to the underlying executors, useful for building per-core pools later.
+    pub(crate) fn executors(&self) -> &[Arc<dyn Executor>] {
+        &self.executors
+    }
+}
+
+/// Create a [`Handle`] that dispatches work round-robin across the provided handles.
+pub fn dispatching_handle(handles: &[Handle]) -> Handle {
+    let executors = handles
+        .iter()
+        .map(|h| h.runtime())
+        .collect::<Vec<_>>();
+    let set = HandleSet::new(executors);
+    set.dispatching_handle()
+}
+
+/// Messages sent to a per-core runtime thread.
+enum Command {
+    Spawn(BoxFuture<'static, ()>),
+    SpawnLocal(LocalSpawn),
+    SpawnCpu(Box<dyn FnOnce() + Send + 'static>),
+    SpawnBlocking(Box<dyn FnOnce() + Send + 'static>),
+    SpawnIo(IoTask),
+}
+
+/// A single-threaded io_uring runtime driven by a background thread.
+#[derive(Clone)]
+pub struct UringRuntime {
+    sender: Sender<Command>,
+}
+
+impl UringRuntime {
+    pub fn new() -> Self {
+        let (sender, receiver) = kanal::unbounded::<Command>();
+
+        thread::Builder::new()
+            .name("vortex-uring-runtime".to_string())
+            .spawn(move || run_runtime(receiver))
+            .expect("failed to spawn uring runtime thread");
+
+        Self { sender }
+    }
+}
+
+impl Executor for UringRuntime {
+    fn spawn(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef {
+        let _ = self.sender.send(Command::Spawn(fut));
+        Box::new(NoopAbortHandle)
+    }
+
+    fn spawn_cpu(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
+        let _ = self.sender.send(Command::SpawnCpu(task));
+        Box::new(NoopAbortHandle)
+    }
+
+    fn spawn_blocking(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
+        let _ = self.sender.send(Command::SpawnBlocking(task));
+        Box::new(NoopAbortHandle)
+    }
+
+    fn spawn_io(&self, task: IoTask) {
+        let _ = self.sender.send(Command::SpawnIo(task));
+    }
+
+    fn as_local_executor(&self) -> Option<Arc<dyn LocalExecutor>> {
+        Some(Arc::new(self.clone()))
+    }
+}
+
+impl LocalExecutor for UringRuntime {
+    fn spawn_local(&self, f: LocalSpawn) -> AbortHandleRef {
+        let _ = self.sender.send(Command::SpawnLocal(f));
+        Box::new(NoopAbortHandle)
+    }
+}
+
+fn run_runtime(receiver: Receiver<Command>) {
+    // Use the IoUring driver explicitly to avoid ambiguity with feature combinations.
+    let mut rt = RuntimeBuilder::<IoUringDriver>::new()
+        .enable_timer()
+        .build()
+        .expect("failed to build uring runtime");
+
+    rt.block_on(async move {
+        let recv = receiver.as_async();
+        futures::pin_mut!(recv);
+
+        while let Ok(cmd) = recv.recv().await {
+            match cmd {
+                Command::Spawn(fut) => {
+                    monoio::spawn(async move {
+                        fut.await;
+                    });
+                }
+                Command::SpawnLocal(f) => {
+                    monoio::spawn(async move {
+                        (f)().await;
+                    });
+                }
+                Command::SpawnCpu(task) | Command::SpawnBlocking(task) => {
+                    monoio::spawn_blocking(task);
+                }
+                Command::SpawnIo(task) => {
+                    monoio::spawn(task.source.drive_send(task.stream));
+                }
+            }
+        }
+    });
+}
+
+struct NoopAbortHandle;
+
+impl AbortHandle for NoopAbortHandle {
+    fn abort(self: Box<Self>) {}
+}
+
+/// A per-core pool of uring runtimes with a dispatching handle.
+#[allow(dead_code)]
+pub struct PerCoreUringPool {
+    _runtimes: Vec<Arc<UringRuntime>>,
+    handle: Handle,
+}
+
+#[allow(dead_code)]
+impl PerCoreUringPool {
+    pub fn new(cores: Option<usize>) -> Self {
+        let core_count = cores
+            .or_else(|| thread::available_parallelism().ok().map(|n| n.get()))
+            .unwrap_or(1);
+
+        let runtimes: Vec<_> = (0..core_count)
+            .map(|_| Arc::new(UringRuntime::new()))
+            .collect();
+        let handles: Vec<_> = runtimes
+            .iter()
+            .map(|rt| {
+                let exec: Arc<dyn Executor> = rt.clone();
+                Handle::new(Arc::downgrade(&exec))
+            })
+            .collect();
+
+        let handle = dispatching_handle(&handles);
+
+        Self {
+            _runtimes: runtimes,
+            handle,
+        }
+    }
+
+    pub fn handle(&self) -> Handle {
+        self.handle.clone()
     }
 }

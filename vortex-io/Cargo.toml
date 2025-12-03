@@ -59,7 +59,10 @@ tracing-subscriber = { workspace = true }
 [features]
 object_store = ["dep:object_store", "vortex-error/object_store"]
 tokio = ["tokio/fs", "tokio/rt-multi-thread"]
-uring = []
+uring = ["dep:monoio"]
+
+[target.'cfg(all(target_os = "linux"))'.dependencies]
+monoio = { version = "0.2", optional = true, features = ["sync"] }
 
 [lints]
 workspace = true
