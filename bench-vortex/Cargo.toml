@@ -18,6 +18,7 @@ workspace = true
 
 [features]
 lance = ["dep:lance", "dep:lance-encoding"]
+uring = ["vortex/uring"]
 
 [dependencies]
 lance = { version = "0.39.0", optional = true }

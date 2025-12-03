@@ -8,6 +8,7 @@ use std::clone::Clone;
 use std::fmt::Display;
 use std::str::FromStr;
 use std::sync::LazyLock;
+use std::sync::OnceLock;
 
 use clap::ValueEnum;
 use itertools::Itertools;
@@ -55,8 +56,37 @@ use vortex::session::VortexSession;
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-pub static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_tokio());
+pub static SESSION: LazyLock<VortexSession> = LazyLock::new(make_session);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeChoice {
+    Tokio,
+    #[cfg(all(feature = "uring", target_os = "linux"))]
+    Uring,
+}
+
+static RUNTIME_OVERRIDE: OnceLock<RuntimeChoice> = OnceLock::new();
+
+/// Configure the runtime used by benchmarks. Must be called before `SESSION` is first accessed.
+pub fn configure_runtime(choice: Option<RuntimeChoice>) {
+    if let Some(choice) = choice {
+        let _ = RUNTIME_OVERRIDE.set(choice);
+    }
+}
+
+fn make_session() -> VortexSession {
+    match RUNTIME_OVERRIDE.get().copied().unwrap_or(RuntimeChoice::Tokio) {
+        RuntimeChoice::Tokio => VortexSession::default().with_tokio(),
+        #[cfg(all(feature = "uring", target_os = "linux"))]
+        RuntimeChoice::Uring => {
+            use vortex::io::runtime::uring::PerCoreUringPool;
+            static URING_POOL: OnceLock<PerCoreUringPool> = OnceLock::new();
+            let pool = URING_POOL.get_or_init(|| PerCoreUringPool::new(None));
+            VortexSession::default().with_handle(pool.handle())
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize)]
 pub struct Target {

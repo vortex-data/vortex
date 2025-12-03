@@ -4,6 +4,7 @@
 use std::path::PathBuf;
 
 use bench_vortex::IdempotentPath as _;
+use bench_vortex::RuntimeChoice;
 use bench_vortex::Target;
 use bench_vortex::benchmark_driver::DriverConfig;
 use bench_vortex::benchmark_driver::run_benchmark;
@@ -61,6 +62,10 @@ struct CommonArgs {
 
     #[arg(short, long)]
     threads: Option<usize>,
+
+    /// Runtime to use for Vortex operations.
+    #[arg(long, value_enum)]
+    runtime: Option<RuntimeChoice>,
 
     #[arg(short, long)]
     verbose: bool,
@@ -283,6 +288,7 @@ fn validate_scale_factor(val: &str) -> Result<String, String> {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    bench_vortex::configure_runtime(args.command.common().runtime);
     match args.command {
         Commands::ClickBench(clickbench_args) => run_clickbench(clickbench_args),
         Commands::TpcH(tpch_args) => run_tpch(tpch_args),
@@ -290,6 +296,23 @@ fn main() -> anyhow::Result<()> {
         Commands::StatPopGen(stat_pop_gen_args) => run_statpopgen(stat_pop_gen_args),
         Commands::Fineweb(fineweb_args) => run_fineweb(fineweb_args),
         Commands::GhArchive(gh_archive_args) => run_gharchive(gh_archive_args),
+    }
+}
+
+trait CommandRuntime {
+    fn common(&self) -> &CommonArgs;
+}
+
+impl CommandRuntime for Commands {
+    fn common(&self) -> &CommonArgs {
+        match self {
+            Commands::ClickBench(args) => &args.common,
+            Commands::TpcH(args) => &args.common,
+            Commands::TpcDS(args) => &args.common,
+            Commands::StatPopGen(args) => &args.common,
+            Commands::Fineweb(args) => &args.common,
+            Commands::GhArchive(args) => &args.common,
+        }
     }
 }
 
