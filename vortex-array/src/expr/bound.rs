@@ -11,7 +11,9 @@ use std::hash::Hasher;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_utils::debug_with::DebugWith;
+use vortex_vector::Datum;
 
+use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::ExprVTable;
 use crate::expr::VTable;
@@ -82,6 +84,11 @@ impl BoundExpression {
         self.vtable
             .as_dyn()
             .return_dtype(self.options.as_ref(), arg_types)
+    }
+
+    /// Execute the expression given the input arguments.
+    pub fn execute(&self, ctx: ExecutionArgs) -> VortexResult<Datum> {
+        self.vtable.as_dyn().execute(self.options.as_ref(), ctx)
     }
 }
 

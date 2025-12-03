@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::DType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -67,6 +68,12 @@ impl Expression {
     /// Returns the typed options for this expression if it matches the given vtable type.
     pub fn as_opt<V: VTable>(&self) -> Option<&V::Options> {
         self.options().as_any().downcast_ref::<V::Options>()
+    }
+
+    /// Returns the typed options for this expression if it matches the given vtable type.
+    pub fn as_<V: VTable>(&self) -> &V::Options {
+        self.as_opt::<V>()
+            .vortex_expect("Expression options type mismatch")
     }
 
     /// Returns the children of this expression.

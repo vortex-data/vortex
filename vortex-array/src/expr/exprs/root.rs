@@ -5,22 +5,22 @@ use std::fmt::Formatter;
 
 use vortex_dtype::DType;
 use vortex_dtype::FieldPath;
-use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_vector::Datum;
 
-use crate::expr::expression::Expression;
-use crate::expr::functions::EmptyOptions;
-use crate::expr::stats::Stat;
+use crate::ArrayRef;
 use crate::expr::Arity;
 use crate::expr::ChildName;
+use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::ArrayRef;
+use crate::expr::expression::Expression;
+use crate::expr::stats::Stat;
 
 /// An expression that returns the full scope of the expression evaluation.
 // TODO(ngates): rename to "Scope"

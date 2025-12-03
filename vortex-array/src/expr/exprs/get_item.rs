@@ -26,6 +26,7 @@ use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::Pack;
+use crate::expr::SimplifyCtx;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
@@ -137,6 +138,7 @@ impl VTable for GetItem {
         &self,
         field_name: &FieldName,
         expr: &Expression,
+        _ctx: &dyn SimplifyCtx,
     ) -> VortexResult<Option<Expression>> {
         let child = expr.child(0);
 
@@ -221,24 +223,17 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType;
-    use vortex_dtype::PType::I32;
+    use vortex_dtype::StructFields;
     use vortex_scalar::Scalar;
 
-    use super::PackGetItemRule;
-    use super::get_item;
     use crate::Array;
     use crate::IntoArray;
     use crate::arrays::StructArray;
     use crate::expr::exprs::binary::checked_add;
-    use crate::expr::exprs::get_item::GetItem;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::pack::pack;
     use crate::expr::exprs::root::root;
-    use crate::expr::session::ExprSession;
-    use crate::expr::transform::ExprOptimizer;
-    use crate::expr::transform::rules::ReduceRule;
-    use crate::expr::transform::rules::RuleContext;
     use crate::validity::Validity;
 
     fn test_array() -> StructArray {
@@ -254,7 +249,7 @@ mod tests {
         let st = test_array();
         let get_item = get_item("a", root());
         let item = get_item.evaluate(&st.to_array()).unwrap();
-        assert_eq!(item.dtype(), &DType::from(I32))
+        assert_eq!(item.dtype(), &DType::from(PType::I32))
     }
 
     #[test]
@@ -279,7 +274,7 @@ mod tests {
         let item = get_item.evaluate(&st).unwrap();
         assert_eq!(
             item.scalar_at(0),
-            Scalar::null(DType::Primitive(I32, Nullability::Nullable))
+            Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
         );
     }
 
@@ -289,27 +284,11 @@ mod tests {
         let pack_expr = pack([("a", lit(1)), ("b", lit(2))], NonNullable);
         let get_item_expr = get_item("b", pack_expr);
 
-        let get_item_view = get_item_expr.as_::<GetItem>();
-        let result = PackGetItemRule
-            .reduce(&get_item_view, &RuleContext)
+        let result = get_item_expr
+            .simplify(&DType::Struct(StructFields::empty(), NonNullable))
             .unwrap();
 
-        assert!(result.is_some());
-        assert_eq!(&result.unwrap(), &lit(2));
-    }
-
-    #[test]
-    fn test_pack_get_item_rule_no_match() {
-        // Create: get_item("x", lit(42)) - not a pack child
-        let lit_expr = lit(42);
-        let get_item_expr = get_item("x", lit_expr);
-
-        let get_item_view = get_item_expr.as_::<GetItem>();
-        let result = PackGetItemRule
-            .reduce(&get_item_view, &RuleContext)
-            .unwrap();
-
-        assert!(result.is_none());
+        assert_eq!(result, lit(2));
     }
 
     #[test]
@@ -322,11 +301,8 @@ mod tests {
 
         let dtype = DType::Primitive(PType::I32, NonNullable);
 
-        let session = ExprSession::default();
-        let optimizer = ExprOptimizer::new(&session);
-        let result = optimizer.optimize_typed(get_z, &dtype).unwrap();
-
-        assert_eq!(&result, &lit(4));
+        let result = get_z.simplify(&dtype).unwrap();
+        assert_eq!(result, lit(4));
     }
 
     #[test]
@@ -345,11 +321,8 @@ mod tests {
 
         let dtype = DType::Primitive(PType::I32, NonNullable);
 
-        let session = ExprSession::default();
-        let optimizer = ExprOptimizer::new(&session);
-        let result = optimizer.optimize_typed(get_final, &dtype).unwrap();
-
-        assert_eq!(&result, &lit(42));
+        let result = get_final.simplify(&dtype).unwrap();
+        assert_eq!(result, lit(42));
     }
 
     #[test]
@@ -363,10 +336,7 @@ mod tests {
 
         let dtype = DType::Primitive(PType::I32, NonNullable);
 
-        let session = ExprSession::default();
-        let optimizer = ExprOptimizer::new(&session);
-        let result = optimizer.optimize_typed(get_result, &dtype).unwrap();
-
+        let result = get_result.simplify(&dtype).unwrap();
         let expected = checked_add(lit(1), lit(10));
         assert_eq!(&result, &expected);
     }

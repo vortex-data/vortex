@@ -12,6 +12,7 @@
 
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::ptr;
 
 use arcref::ArcRef;
 use vortex_dtype::FieldName;
@@ -31,18 +32,19 @@ mod expression;
 mod exprs;
 mod field;
 pub mod forms;
-pub mod functions;
 mod options;
 pub mod proto;
 pub mod pruning;
 pub mod session;
 mod signature;
+mod simplify;
 pub mod stats;
-pub mod transform;
+// pub mod transform;
 pub mod traversal;
 mod vtable;
 
 pub use analysis::*;
+pub use bound::*;
 pub use expression::*;
 pub use exprs::*;
 pub use pruning::StatsCatalog;
@@ -73,9 +75,9 @@ pub fn split_conjunction(expr: &Expression) -> Vec<Expression> {
 
 fn split_inner(expr: &Expression, exprs: &mut Vec<Expression>) {
     match expr.as_opt::<Binary>() {
-        Some(bexp) if bexp.operator() == Operator::And => {
-            split_inner(bexp.lhs(), exprs);
-            split_inner(bexp.rhs(), exprs);
+        Some(operator) if *operator == Operator::And => {
+            split_inner(expr.child(0), exprs);
+            split_inner(expr.child(1), exprs);
         }
         Some(_) | None => {
             exprs.push(expr.clone());
@@ -89,7 +91,8 @@ pub struct ExactExpr(pub Expression);
 
 impl PartialEq for ExactExpr {
     fn eq(&self, other: &Self) -> bool {
-        self.0.id() == other.0.id() && Box::ptr_eq(self.0.options(), other.0.options())
+        self.0.id() == other.0.id()
+            && ptr::addr_eq(&*self.0.options().as_any(), &*other.0.options().as_any())
     }
 }
 impl Eq for ExactExpr {}

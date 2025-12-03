@@ -28,10 +28,13 @@ use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
+use crate::expr::SimplifyCtx;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::expr::expression::Expression;
 use crate::expr::field::DisplayFieldNames;
+use crate::expr::get_item;
+use crate::expr::pack;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FieldSelection {
@@ -131,6 +134,41 @@ impl VTable for Select {
         };
 
         Ok(DType::Struct(projected, child_dtype.nullability()))
+    }
+
+    fn simplify(
+        &self,
+        options: &Self::Options,
+        expr: &Expression,
+        ctx: &dyn SimplifyCtx,
+    ) -> VortexResult<Option<Expression>> {
+        let child = expr.child(0);
+        let child_dtype = ctx.return_dtype(child)?;
+        let child_nullability = child_dtype.nullability();
+
+        let child_dtype = child_dtype.as_struct_fields_opt().ok_or_else(|| {
+            vortex_err!(
+                "Select child must return a struct dtype, however it was a {}",
+                child_dtype
+            )
+        })?;
+
+        let expr = pack(
+            options
+                .as_include_names(child_dtype.names())
+                .map_err(|e| {
+                    e.with_context(format!(
+                        "Select fields {:?} must be a subset of child fields {:?}",
+                        options,
+                        child_dtype.names()
+                    ))
+                })?
+                .iter()
+                .map(|name| (name.clone(), get_item(name.clone(), child.clone()))),
+            child_nullability,
+        );
+
+        Ok(Some(expr))
     }
 
     fn evaluate(
@@ -312,12 +350,16 @@ mod tests {
     use vortex_dtype::FieldName;
     use vortex_dtype::FieldNames;
     use vortex_dtype::Nullability;
+    use vortex_dtype::Nullability::Nullable;
+    use vortex_dtype::PType::I32;
+    use vortex_dtype::StructFields;
 
     use super::select;
     use super::select_exclude;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::StructArray;
+    use crate::expr::exprs::pack::Pack;
     use crate::expr::exprs::root::root;
     use crate::expr::exprs::select::Select;
     use crate::expr::test_harness;
@@ -402,14 +444,50 @@ mod tests {
         assert_eq!(
             &include
                 .as_::<Select>()
-                .data()
                 .as_include_names(&field_names)
                 .unwrap(),
             &exclude
                 .as_::<Select>()
-                .data()
                 .as_include_names(&field_names)
                 .unwrap()
         );
+    }
+
+    #[test]
+    fn test_remove_select_rule() {
+        let dtype = DType::Struct(
+            StructFields::new(["a", "b"].into(), vec![I32.into(), I32.into()]),
+            Nullable,
+        );
+        let e = select(["a", "b"], root());
+
+        let result = e.simplify(&dtype).unwrap();
+
+        assert!(result.is::<Pack>());
+        assert!(result.return_dtype(&dtype).unwrap().is_nullable());
+    }
+
+    #[test]
+    fn test_remove_select_rule_exclude_fields() {
+        use crate::expr::exprs::select::select_exclude;
+
+        let dtype = DType::Struct(
+            StructFields::new(
+                ["a", "b", "c"].into(),
+                vec![I32.into(), I32.into(), I32.into()],
+            ),
+            Nullable,
+        );
+        let e = select_exclude(["c"], root());
+
+        let result = e.simplify(&dtype).unwrap();
+
+        assert!(result.is::<Pack>());
+
+        // Should exclude "c" and include "a" and "b"
+        let result_dtype = result.return_dtype(&dtype).unwrap();
+        assert!(result_dtype.is_nullable());
+        let fields = result_dtype.as_struct_fields_opt().unwrap();
+        assert_eq!(fields.names().as_ref(), &["a", "b"]);
     }
 }

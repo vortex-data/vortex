@@ -22,6 +22,7 @@ use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::expr::Arity;
 use crate::expr::ChildName;
+use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
@@ -30,7 +31,6 @@ use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::expr::exprs::binary::eq;
 use crate::expr::exprs::literal::lit;
-use crate::expr::functions::EmptyOptions;
 use crate::expr::stats::Stat;
 
 /// Expression that checks for null values.
@@ -279,6 +279,6 @@ mod tests {
     #[test]
     fn test_is_null_sensitive() {
         // is_null itself is null-sensitive
-        assert!(is_null(col("a")).is_null_sensitive());
+        assert!(is_null(col("a")).signature().is_null_sensitive());
     }
 }

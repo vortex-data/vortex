@@ -25,13 +25,13 @@ impl ExpressionSignature<'_> {
     }
 
     /// Returns whether this expression itself is null-sensitive.
-    /// See [`VTable::is_null_sensitive`].
+    /// See [`crate::expr::VTable::is_null_sensitive`].
     pub fn is_null_sensitive(&self) -> bool {
         self.vtable.as_dyn().is_null_sensitive(self.options)
     }
 
     /// Returns whether this expression itself is fallible.
-    /// See [`VTable::is_fallible`].
+    /// See [`crate::expr::VTable::is_fallible`].
     pub fn is_fallible(&self) -> bool {
         self.vtable.as_dyn().is_fallible(self.options)
     }

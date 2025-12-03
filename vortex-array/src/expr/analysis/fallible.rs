@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::expr::Expression;
 use crate::expr::analysis::BooleanLabels;
 use crate::expr::label_tree;
-use crate::expr::Expression;
 
 pub fn label_is_fallible(expr: &Expression) -> BooleanLabels<'_> {
     label_tree(
@@ -21,8 +21,8 @@ mod tests {
     use crate::expr::exprs::get_item::col;
     use crate::expr::exprs::is_null::is_null;
     use crate::expr::exprs::literal::lit;
-    use crate::expr::exprs::merge::merge_opts;
     use crate::expr::exprs::merge::DuplicateHandling;
+    use crate::expr::exprs::merge::merge_opts;
     use crate::expr::exprs::not::not;
 
     #[test]

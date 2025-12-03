@@ -8,6 +8,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::ops::Deref;
 use std::sync::Arc;
 
 use arcref::ArcRef;
@@ -15,8 +16,8 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_vector::Datum;
-use vortex_vector::Vector;
 use vortex_vector::VectorOps;
 
 use crate::ArrayRef;
@@ -87,16 +88,18 @@ pub trait VTable: 'static + Sized + Send + Sync {
     ) -> VortexResult<ArrayRef>;
 
     /// Execute the expression on the given vector with the given dtype.
-    fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum>;
+    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum>;
 
     /// Simplify the expression if possible.
     fn simplify(
         &self,
         options: &Self::Options,
         expr: &Expression,
+        ctx: &dyn SimplifyCtx,
     ) -> VortexResult<Option<Expression>> {
         _ = options;
         _ = expr;
+        _ = ctx;
         Ok(None)
     }
 
@@ -202,6 +205,14 @@ impl Arity {
     }
 }
 
+/// Context for simplification.
+///
+/// Used to lazily compute input data types where simplification requires them.
+pub trait SimplifyCtx {
+    /// Get the data type of the given expression.
+    fn return_dtype(&self, expr: &Expression) -> VortexResult<DType>;
+}
+
 /// Arguments for expression execution.
 pub struct ExecutionArgs {
     /// The input datums for the expression, one per child.
@@ -212,6 +223,14 @@ pub struct ExecutionArgs {
     pub row_count: usize,
     /// The expected return dtype of the expression, as computed by [`Expression::return_dtype`].
     pub return_dtype: DType,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct EmptyOptions;
+impl Display for EmptyOptions {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "")
+    }
 }
 
 /// Factory functions for static vtables.
@@ -266,7 +285,12 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     fn options_debug(&self, options: &dyn Any, fmt: &mut Formatter<'_>) -> fmt::Result;
 
     fn return_dtype(&self, options: &dyn Any, arg_types: &[DType]) -> VortexResult<DType>;
-    fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<Vector>;
+    fn simplify(
+        &self,
+        expression: &Expression,
+        ctx: &dyn SimplifyCtx,
+    ) -> VortexResult<Option<Expression>>;
+    fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<Datum>;
     fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef>;
 
     fn arity(&self, options: &dyn Any) -> Arity;
@@ -344,7 +368,20 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         V::return_dtype(&self.0, downcast::<V>(options), arg_dtypes)
     }
 
-    fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<Vector> {
+    fn simplify(
+        &self,
+        expression: &Expression,
+        ctx: &dyn SimplifyCtx,
+    ) -> VortexResult<Option<Expression>> {
+        V::simplify(
+            &self.0,
+            downcast::<V>(expression.options().as_any()),
+            expression,
+            ctx,
+        )
+    }
+
+    fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<Datum> {
         let options = downcast::<V>(options);
 
         let expected_row_count = args.row_count;
@@ -353,21 +390,23 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
 
         let result = V::execute(&self.0, options, args)?;
 
-        assert_eq!(
-            result.len(),
-            expected_row_count,
-            "Expression execution returned vector of length {}, but expected {}",
-            result.len(),
-            expected_row_count,
-        );
+        if let Datum::Vector(v) = &result {
+            assert_eq!(
+                v.len(),
+                expected_row_count,
+                "Expression execution returned vector of length {}, but expected {}",
+                v.len(),
+                expected_row_count,
+            );
+        }
 
         // In debug mode, validate that the output dtype matches the expected return dtype.
         #[cfg(debug_assertions)]
         {
             use vortex_error::vortex_ensure;
-            use vortex_vector::vector_matches_dtype;
+            use vortex_vector::datum_matches_dtype;
             vortex_ensure!(
-                vector_matches_dtype(&result, &expected_dtype),
+                datum_matches_dtype(&result, &expected_dtype),
                 "Expression execution invalid for dtype {}",
                 expected_dtype
             );
@@ -455,6 +494,11 @@ impl ExprVTable {
         self.0.as_ref()
     }
 
+    /// Return the vtable as an Any reference.
+    pub fn as_any(&self) -> &dyn Any {
+        self.0.deref().as_any()
+    }
+
     /// Creates a new [`ExprVTable`] from a vtable.
     pub fn new<V: VTable>(vtable: V) -> Self {
         Self(ArcRef::new_arc(Arc::new(VTableAdapter(vtable))))
@@ -476,14 +520,6 @@ impl ExprVTable {
     /// Returns whether this vtable is of a given type.
     pub fn is<V: VTable>(&self) -> bool {
         self.0.as_any().is::<VTableAdapter<V>>()
-    }
-
-    /// Returns the typed VTable for this expression.
-    pub fn as_opt<V: VTable>(&self) -> Option<&V> {
-        self.0
-            .as_any()
-            .downcast_ref::<VTableAdapter<V>>()
-            .map(|adapter| &adapter.0)
     }
 
     /// Deserialize an options of this expression vtable from metadata.

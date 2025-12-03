@@ -13,6 +13,7 @@ use crate::ArrayRef;
 use crate::compute::list_contains as compute_list_contains;
 use crate::expr::Arity;
 use crate::expr::ChildName;
+use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
@@ -25,7 +26,6 @@ use crate::expr::exprs::binary::lt;
 use crate::expr::exprs::binary::or;
 use crate::expr::exprs::literal::Literal;
 use crate::expr::exprs::literal::lit;
-use crate::expr::functions::EmptyOptions;
 
 pub struct ListContains;
 

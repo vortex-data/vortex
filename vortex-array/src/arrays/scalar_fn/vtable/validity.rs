@@ -8,7 +8,6 @@ use crate::Array;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::SCALAR_FN_SESSION;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
-use crate::expr::functions::NullHandling;
 use crate::vtable::ValidityVTable;
 
 impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
@@ -17,27 +16,31 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
     }
 
     fn all_valid(array: &ScalarFnArray) -> bool {
-        match array.scalar_fn.signature().null_handling() {
-            NullHandling::Propagate | NullHandling::AbsorbsNull => {
-                // Requires all children to guarantee all_valid
-                array.children().iter().all(|child| child.all_valid())
-            }
-            NullHandling::Custom => {
-                // We cannot guarantee that the array is all valid without evaluating the function
+        match array.bound.signature().is_null_sensitive() {
+            true => {
+                // If the function is null sensitive, we cannot guarantee all valid without evaluating
+                // the function
                 false
+            }
+            false => {
+                // If the function is not null sensitive, we can guarantee all valid if all children
+                // are all valid
+                array.children().iter().all(|child| child.all_valid())
             }
         }
     }
 
     fn all_invalid(array: &ScalarFnArray) -> bool {
-        match array.scalar_fn.signature().null_handling() {
-            NullHandling::Propagate => {
-                // All null if any child is all null
-                array.children().iter().any(|child| child.all_invalid())
-            }
-            NullHandling::AbsorbsNull | NullHandling::Custom => {
-                // We cannot guarantee that the array is all valid without evaluating the function
+        match array.bound.signature().is_null_sensitive() {
+            true => {
+                // If the function is null sensitive, we cannot guarantee all invalid without evaluating
+                // the function
                 false
+            }
+            false => {
+                // If the function is not null sensitive, we can guarantee all invalid if any child
+                // is all invalid
+                array.children().iter().any(|child| child.all_invalid())
             }
         }
     }

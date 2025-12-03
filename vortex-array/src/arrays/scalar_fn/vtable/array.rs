@@ -30,7 +30,7 @@ impl BaseArrayVTable<ScalarFnVTable> for ScalarFnVTable {
     fn array_hash<H: Hasher>(array: &ScalarFnArray, state: &mut H, precision: Precision) {
         array.len.hash(state);
         array.dtype.hash(state);
-        array.scalar_fn.hash(state);
+        array.bound.hash(state);
         for child in &array.children {
             child.array_hash(state, precision);
         }
@@ -43,7 +43,7 @@ impl BaseArrayVTable<ScalarFnVTable> for ScalarFnVTable {
         if array.dtype != other.dtype {
             return false;
         }
-        if array.scalar_fn != other.scalar_fn {
+        if array.bound != other.bound {
             return false;
         }
         for (child, other_child) in array.children.iter().zip(other.children.iter()) {

@@ -10,7 +10,7 @@ use crate::Canonical;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::SCALAR_FN_SESSION;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
-use crate::expr::functions::ExecutionArgs;
+use crate::expr::ExecutionArgs;
 use crate::vectors::VectorIntoArray;
 use crate::vtable::CanonicalVTable;
 
@@ -28,11 +28,16 @@ impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
                 "Failed to execute child array during canonicalization of ScalarFnArray",
             );
 
-        let ctx = ExecutionArgs::new(array.len, array.dtype.clone(), child_dtypes, child_datums);
+        let ctx = ExecutionArgs {
+            datums: child_datums,
+            dtypes: child_dtypes,
+            row_count: array.len,
+            return_dtype: array.dtype.clone(),
+        };
 
         let result_vector = array
-            .scalar_fn
-            .execute(&ctx)
+            .bound
+            .execute(ctx)
             .vortex_expect("Canonicalize should be fallible")
             .into_vector()
             .vortex_expect("Canonicalize should return a vector");

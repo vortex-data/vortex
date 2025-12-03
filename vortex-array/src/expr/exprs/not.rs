@@ -14,12 +14,12 @@ use crate::ArrayRef;
 use crate::compute::invert;
 use crate::expr::Arity;
 use crate::expr::ChildName;
+use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::expr::functions::EmptyOptions;
 
 /// Expression that logically inverts boolean values.
 pub struct Not;
