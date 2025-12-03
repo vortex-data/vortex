@@ -1,0 +1,88 @@
+name: WASM Fuzz
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: "0 2 * * *"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  wasm-fuzz:
+    name: "Build & Fuzz WASM"
+    runs-on: ubuntu-latest
+    timeout-minutes: 270
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          toolchain: nightly
+          targets: "wasm32-wasip1"
+          components: "rust-src"
+
+      - name: Build WASM fuzz target
+        run: |
+          cargo +nightly build \
+            --manifest-path fuzz/Cargo.toml \
+            --target wasm32-wasip1 \
+            --no-default-features \
+            --features wasmfuzz \
+            --release \
+            --bin array_ops_wasm
+
+      - name: Install wabt tools
+        run: sudo apt-get update && sudo apt-get install -y wabt
+
+      - name: Verify WASM exports
+        run: |
+          echo "Checking for required wasmfuzz exports..."
+          wasm-objdump -x target/wasm32-wasip1/release/array_ops_wasm.wasm | grep -E "(LLVMFuzzerTestOneInput|wasmfuzz_malloc|wasmfuzz_free)"
+
+      - name: Install wasmfuzz
+        run: cargo install --git https://github.com/CISPA-SysSec/wasmfuzz --locked
+
+      - name: Run wasmfuzz
+        id: fuzz
+        run: |
+          mkdir -p corpus-wasm
+          # Capture exit code - wasmfuzz exits with error on crash
+          set +e
+          wasmfuzz fuzz \
+            --timeout=4h \
+            --cores 2 \
+            --dir corpus-wasm/ \
+            target/wasm32-wasip1/release/array_ops_wasm.wasm
+          FUZZ_EXIT=$?
+          set -e
+          echo "exit_code=$FUZZ_EXIT" >> $GITHUB_OUTPUT
+          if [ $FUZZ_EXIT -ne 0 ]; then
+            echo "crash_found=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Replay crash inputs
+        if: steps.fuzz.outputs.crash_found == 'true'
+        run: |
+          echo "::error::Crash found during fuzzing! Replaying inputs for debug output..."
+          for input in corpus-wasm/*; do
+            echo "=== Replaying: $input ==="
+            wasmfuzz run --trace target/wasm32-wasip1/release/array_ops_wasm.wasm "$input" || true
+          done
+
+      - name: Upload corpus
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-wasm
+          path: corpus-wasm/
+          retention-days: 30
+
+      - name: Fail if crash found
+        if: steps.fuzz.outputs.crash_found == 'true'
+        run: exit 1

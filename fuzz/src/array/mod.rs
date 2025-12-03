@@ -17,14 +17,14 @@ mod take;
 use std::iter;
 use std::ops::Range;
 
+use arbitrary::Arbitrary;
+use arbitrary::Error::EmptyChoose;
+use arbitrary::Unstructured;
 pub(crate) use cast::*;
 pub(crate) use compare::*;
 pub(crate) use fill_null::*;
 pub(crate) use filter::*;
 use itertools::Itertools;
-use libfuzzer_sys::arbitrary::Arbitrary;
-use libfuzzer_sys::arbitrary::Error::EmptyChoose;
-use libfuzzer_sys::arbitrary::Unstructured;
 pub(crate) use mask::*;
 pub(crate) use min_max::*;
 pub(crate) use scalar_at::*;
@@ -66,15 +66,24 @@ pub struct FuzzArrayAction {
 #[derive(Debug, Clone, Copy)]
 pub enum CompressorStrategy {
     Default,
+    #[cfg(feature = "zstd")]
     Compact,
 }
 
 impl<'a> Arbitrary<'a> for CompressorStrategy {
-    fn arbitrary(u: &mut Unstructured<'a>) -> libfuzzer_sys::arbitrary::Result<Self> {
-        if u.arbitrary()? {
+    fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
+        #[cfg(feature = "zstd")]
+        {
+            if u.arbitrary()? {
+                Ok(CompressorStrategy::Default)
+            } else {
+                Ok(CompressorStrategy::Compact)
+            }
+        }
+        #[cfg(not(feature = "zstd"))]
+        {
+            let _ = u;
             Ok(CompressorStrategy::Default)
-        } else {
-            Ok(CompressorStrategy::Compact)
         }
     }
 }
@@ -145,7 +154,7 @@ impl ExpectedValue {
 }
 
 impl<'a> Arbitrary<'a> for FuzzArrayAction {
-    fn arbitrary(u: &mut Unstructured<'a>) -> libfuzzer_sys::arbitrary::Result<Self> {
+    fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
         let array = ArbitraryArray::arbitrary(u)?.0;
         let mut current_array = array.to_array();
 
@@ -249,7 +258,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                 ActionType::Filter => {
                     let mask = (0..current_array.len())
                         .map(|_| bool::arbitrary(u))
-                        .collect::<libfuzzer_sys::arbitrary::Result<Vec<_>>>()?;
+                        .collect::<arbitrary::Result<Vec<_>>>()?;
                     current_array = filter_canonical_array(&current_array, &mask).vortex_unwrap();
                     (
                         Action::Filter(Mask::from_iter(mask)),
@@ -338,7 +347,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     // Mask - returns an array, updates current_array
                     let mask = (0..current_array.len())
                         .map(|_| bool::arbitrary(u))
-                        .collect::<libfuzzer_sys::arbitrary::Result<Vec<_>>>()?;
+                        .collect::<arbitrary::Result<Vec<_>>>()?;
 
                     // Compute expected result on canonical form
                     let expected_result = mask_canonical_array(
@@ -456,7 +465,7 @@ fn random_vec_in_range(
     u: &mut Unstructured<'_>,
     min: usize,
     max: usize,
-) -> libfuzzer_sys::arbitrary::Result<Vec<Option<usize>>> {
+) -> arbitrary::Result<Vec<Option<usize>>> {
     iter::from_fn(|| {
         u.arbitrary().unwrap_or(false).then(|| {
             if u.arbitrary()? {
@@ -466,12 +475,256 @@ fn random_vec_in_range(
             }
         })
     })
-    .collect::<libfuzzer_sys::arbitrary::Result<Vec<_>>>()
+    .collect::<arbitrary::Result<Vec<_>>>()
 }
 
 fn random_action_from_list(
     u: &mut Unstructured<'_>,
     actions: &[ActionType],
-) -> libfuzzer_sys::arbitrary::Result<ActionType> {
+) -> arbitrary::Result<ActionType> {
     u.choose_iter(actions).copied()
+}
+
+/// Compress an array using the given strategy.
+#[cfg(feature = "zstd")]
+pub fn compress_array(array: &dyn Array, strategy: CompressorStrategy) -> ArrayRef {
+    use vortex_layout::layouts::compact::CompactCompressor;
+
+    match strategy {
+        CompressorStrategy::Default => BtrBlocksCompressor::default()
+            .compress(array)
+            .vortex_unwrap(),
+        CompressorStrategy::Compact => CompactCompressor::default().compress(array).vortex_unwrap(),
+    }
+}
+
+/// Compress an array using the given strategy (only Default).
+#[cfg(not(feature = "zstd"))]
+pub fn compress_array(array: &dyn Array, _strategy: CompressorStrategy) -> ArrayRef {
+    BtrBlocksCompressor::default()
+        .compress(array)
+        .vortex_unwrap()
+}
+
+/// Run a fuzz action and return whether to keep it in the corpus.
+///
+/// Returns:
+/// - `Ok(true)` - keep in corpus
+/// - `Ok(false)` - reject from corpus
+/// - `Err(_)` - a bug was found
+#[allow(clippy::result_large_err)]
+pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzzResult<bool> {
+    use vortex_array::arrays::ConstantArray;
+    use vortex_array::compute::cast;
+    use vortex_array::compute::compare;
+    use vortex_array::compute::fill_null;
+    use vortex_array::compute::filter;
+    use vortex_array::compute::mask;
+    use vortex_array::compute::min_max;
+    use vortex_array::compute::sum;
+    use vortex_array::compute::take;
+
+    let FuzzArrayAction { array, actions } = fuzz_action;
+    let mut current_array = array.to_array();
+
+    for (i, (action, expected)) in actions.into_iter().enumerate() {
+        match action {
+            Action::Compress(strategy) => {
+                let canonical = current_array.to_canonical();
+                current_array = compress_array(canonical.as_ref(), strategy);
+                assert_array_eq(&expected.array(), &current_array, i)?;
+            }
+            Action::Slice(range) => {
+                current_array = current_array.slice(range);
+                assert_array_eq(&expected.array(), &current_array, i)?;
+            }
+            Action::Take(indices) => {
+                if indices.is_empty() {
+                    return Ok(false); // Reject
+                }
+                current_array = take(&current_array, &indices).vortex_unwrap();
+                assert_array_eq(&expected.array(), &current_array, i)?;
+            }
+            Action::SearchSorted(s, side) => {
+                let mut sorted = sort_canonical_array(&current_array).vortex_unwrap();
+
+                if !current_array.is_canonical() {
+                    sorted = compress_array(&sorted, CompressorStrategy::Default);
+                }
+                assert_search_sorted(sorted, s, side, expected.search(), i)?;
+            }
+            Action::Filter(mask_val) => {
+                current_array = filter(&current_array, &mask_val).vortex_unwrap();
+                assert_array_eq(&expected.array(), &current_array, i)?;
+            }
+            Action::Compare(v, op) => {
+                let compare_result = compare(
+                    &current_array,
+                    &ConstantArray::new(v.clone(), current_array.len()).into_array(),
+                    op,
+                )
+                .vortex_unwrap();
+                if let Err(e) = assert_array_eq(&expected.array(), &compare_result, i) {
+                    vortex_panic!(
+                        "Failed to compare {}with {op} {v}\nError: {e}",
+                        current_array.display_tree()
+                    )
+                }
+                current_array = compare_result;
+            }
+            Action::Cast(to) => {
+                let cast_result = cast(&current_array, &to).vortex_unwrap();
+                if let Err(e) = assert_array_eq(&expected.array(), &cast_result, i) {
+                    vortex_panic!(
+                        "Failed to cast {} to dtype {to}\nError: {e}",
+                        current_array.display_tree()
+                    )
+                }
+                current_array = cast_result;
+            }
+            Action::Sum => {
+                let sum_result = sum(&current_array).vortex_unwrap();
+                assert_scalar_eq(&expected.scalar(), &sum_result, i)?;
+            }
+            Action::MinMax => {
+                let min_max_result = min_max(&current_array).vortex_unwrap();
+                assert_min_max_eq(&expected.min_max(), &min_max_result, i)?;
+            }
+            Action::FillNull(fill_value) => {
+                current_array = fill_null(&current_array, &fill_value).vortex_unwrap();
+                assert_array_eq(&expected.array(), &current_array, i)?;
+            }
+            Action::Mask(mask_val) => {
+                current_array = mask(&current_array, &mask_val).vortex_unwrap();
+                assert_array_eq(&expected.array(), &current_array, i)?;
+            }
+            Action::ScalarAt(indices) => {
+                let expected_scalars = expected.scalar_vec();
+                for (j, &idx) in indices.iter().enumerate() {
+                    let scalar = current_array.scalar_at(idx);
+                    assert_scalar_eq(&expected_scalars[j], &scalar, i)?;
+                }
+            }
+        }
+    }
+    Ok(true) // Keep in corpus
+}
+
+#[allow(clippy::result_large_err)]
+fn assert_search_sorted(
+    array: ArrayRef,
+    s: Scalar,
+    side: SearchSortedSide,
+    expected: SearchResult,
+    step: usize,
+) -> crate::error::VortexFuzzResult<()> {
+    use vortex_array::search_sorted::SearchSorted;
+
+    use crate::error::Backtrace;
+    use crate::error::VortexFuzzError;
+
+    let search_result = array.search_sorted(&s, side);
+    if search_result != expected {
+        Err(VortexFuzzError::SearchSortedError(
+            s,
+            expected,
+            array.to_array(),
+            side,
+            search_result,
+            step,
+            Backtrace::capture(),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+/// Assert two arrays are equal.
+#[allow(clippy::result_large_err)]
+pub fn assert_array_eq(
+    lhs: &ArrayRef,
+    rhs: &ArrayRef,
+    step: usize,
+) -> crate::error::VortexFuzzResult<()> {
+    use crate::error::Backtrace;
+    use crate::error::VortexFuzzError;
+
+    if lhs.dtype() != rhs.dtype() {
+        return Err(VortexFuzzError::DTypeMismatch(
+            lhs.clone(),
+            rhs.clone(),
+            step,
+            Backtrace::capture(),
+        ));
+    }
+
+    if lhs.len() != rhs.len() {
+        return Err(VortexFuzzError::LengthMismatch(
+            lhs.len(),
+            rhs.len(),
+            lhs.to_array(),
+            rhs.to_array(),
+            step,
+            Backtrace::capture(),
+        ));
+    }
+    for idx in 0..lhs.len() {
+        let l = lhs.scalar_at(idx);
+        let r = rhs.scalar_at(idx);
+
+        if l != r {
+            return Err(VortexFuzzError::ArrayNotEqual(
+                l,
+                r,
+                idx,
+                lhs.clone(),
+                rhs.clone(),
+                step,
+                Backtrace::capture(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Assert two scalars are equal.
+#[allow(clippy::result_large_err)]
+pub fn assert_scalar_eq(
+    lhs: &Scalar,
+    rhs: &Scalar,
+    step: usize,
+) -> crate::error::VortexFuzzResult<()> {
+    use crate::error::Backtrace;
+    use crate::error::VortexFuzzError;
+
+    if lhs != rhs {
+        return Err(VortexFuzzError::ScalarMismatch(
+            lhs.clone(),
+            rhs.clone(),
+            step,
+            Backtrace::capture(),
+        ));
+    }
+    Ok(())
+}
+
+/// Assert two min/max results are equal.
+#[allow(clippy::result_large_err)]
+pub fn assert_min_max_eq(
+    lhs: &Option<MinMaxResult>,
+    rhs: &Option<MinMaxResult>,
+    step: usize,
+) -> crate::error::VortexFuzzResult<()> {
+    use crate::error::Backtrace;
+    use crate::error::VortexFuzzError;
+
+    if lhs != rhs {
+        return Err(VortexFuzzError::MinMaxMismatch(
+            lhs.clone(),
+            rhs.clone(),
+            step,
+            Backtrace::capture(),
+        ));
+    }
+    Ok(())
 }

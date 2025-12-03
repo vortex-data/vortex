@@ -7,7 +7,6 @@ use std::fmt::Formatter;
 use std::ops::Not;
 
 use prost::Message;
-use vortex_compute::mask::MaskValidity;
 use vortex_dtype::DType;
 use vortex_dtype::FieldName;
 use vortex_dtype::FieldPath;
@@ -145,8 +144,8 @@ impl VTable for GetItem {
             .into_struct();
 
         // We must intersect the validity with that of the parent struct
-        let field = struct_vector.fields()[field_idx].clone();
-        let field = MaskValidity::mask_validity(field, struct_vector.validity());
+        let mut field = struct_vector.fields()[field_idx].clone();
+        field.mask_validity(struct_vector.validity());
 
         Ok(field)
     }

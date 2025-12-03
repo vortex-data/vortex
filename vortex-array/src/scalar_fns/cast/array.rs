@@ -41,7 +41,7 @@ mod test {
     use crate::arrays::ConstantArray;
     use crate::arrays::ConstantVTable;
     use crate::optimizer::ArrayOptimizer;
-    use crate::scalar_fns::BuiltinScalarFns;
+    use crate::scalar_fns::ArrayBuiltins;
 
     #[test]
     fn test_same_dtype() -> VortexResult<()> {

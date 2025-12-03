@@ -4,6 +4,7 @@
 use std::fmt::Formatter;
 use std::ops::Not;
 
+use is_null::IsNullFn;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
@@ -24,12 +25,15 @@ use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::ExpressionView;
+use crate::expr::ScalarFnExprExt;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::expr::exprs::binary::eq;
 use crate::expr::exprs::literal::lit;
+use crate::expr::functions::EmptyOptions;
 use crate::expr::stats::Stat;
+use crate::scalar_fns::is_null;
 
 /// Expression that checks for null values.
 pub struct IsNull;
@@ -109,6 +113,10 @@ impl VTable for IsNull {
 
     fn is_fallible(&self, _instance: &Self::Instance) -> bool {
         false
+    }
+
+    fn expr_v2(&self, view: &ExpressionView<Self>) -> VortexResult<Expression> {
+        ScalarFnExprExt::try_new_expr(&IsNullFn, EmptyOptions, view.children().clone())
     }
 }
 

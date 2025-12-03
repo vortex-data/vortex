@@ -17,8 +17,11 @@ use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::ExpressionView;
+use crate::expr::ScalarFnExprExt;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
+use crate::expr::functions::EmptyOptions;
+use crate::scalar_fns::not;
 
 /// Expression that logically inverts boolean values.
 pub struct Not;
@@ -88,6 +91,10 @@ impl VTable for Not {
 
     fn is_fallible(&self, _instance: &Self::Instance) -> bool {
         false
+    }
+
+    fn expr_v2(&self, view: &ExpressionView<Self>) -> VortexResult<Expression> {
+        ScalarFnExprExt::try_new_expr(&not::NotFn, EmptyOptions, view.children().clone())
     }
 }
 

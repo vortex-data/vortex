@@ -17,23 +17,35 @@ version = { workspace = true }
 [package.metadata]
 cargo-fuzz = true
 
+[features]
+default = ["native"]
+native = ["libfuzzer-sys", "zstd", "vortex-file"]
+wasmfuzz = []
+zstd = ["vortex-layout/zstd"]
+
 [dependencies]
+# Always needed - arbitrary is used for input generation
+arbitrary = { workspace = true }
 itertools = { workspace = true }
-libfuzzer-sys = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
-vortex = { workspace = true }
+
+# Vortex core - no default features for WASM compatibility (files feature pulls in tokio)
+vortex = { path = "../vortex", default-features = false }
 vortex-array = { workspace = true, features = ["arbitrary", "test-harness"] }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true, features = ["arbitrary"] }
 vortex-error = { workspace = true }
-vortex-file = { workspace = true, features = ["tokio", "zstd"] }
 vortex-io = { workspace = true }
-vortex-layout = { workspace = true, features = ["zstd"] }
+vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true, features = ["arbitrary"] }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
+
+# Native-only: libfuzzer harness and file IO (won't compile to WASM)
+libfuzzer-sys = { workspace = true, optional = true }
+vortex-file = { workspace = true, optional = true }
 
 [lints]
 workspace = true
@@ -44,6 +56,7 @@ doc = false
 name = "array_ops"
 path = "fuzz_targets/array_ops.rs"
 test = false
+required-features = ["native"]
 
 [[bin]]
 bench = false
@@ -51,3 +64,12 @@ doc = false
 name = "file_io"
 path = "fuzz_targets/file_io.rs"
 test = false
+required-features = ["native"]
+
+[[bin]]
+bench = false
+doc = false
+name = "array_ops_wasm"
+path = "fuzz_targets/array_ops_wasm.rs"
+test = false
+required-features = ["wasmfuzz"]

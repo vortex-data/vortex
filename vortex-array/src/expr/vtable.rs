@@ -8,6 +8,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::ops::Deref;
 use std::sync::Arc;
 
 use arcref::ArcRef;
@@ -151,6 +152,13 @@ pub trait VTable: 'static + Sized + Send + Sync {
     fn is_fallible(&self, instance: &Self::Instance) -> bool {
         _ = instance;
         true
+    }
+
+    /// **For internal usage**. This will return an Expression that is part of the
+    /// expression -> new_expression migration.
+    #[doc(hidden)]
+    fn expr_v2(&self, expr: &ExpressionView<Self>) -> VortexResult<Expression> {
+        Ok(expr.deref().clone())
     }
 }
 
