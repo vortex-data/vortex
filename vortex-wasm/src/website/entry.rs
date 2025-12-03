@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt;
 use std::sync::Arc;
 
 use serde::Deserialize;
@@ -12,6 +11,7 @@ use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::PType;
 use vortex::dtype::StructFields;
 use vortex::scalar::Scalar;
+use vortex::utils::aliases::hash_map::HashMap;
 use vortex_array::Array;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::FixedSizeListArray;
@@ -19,6 +19,23 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+
+use crate::website::commit_id::CommitId;
+use crate::website::commit_id::PassthroughBuildHasher;
+
+// TODO(connor): Replace with a better `HashMap` to serialize to JavaScript.
+
+/// Maps [`CommitId`] to benchmark value.
+pub type CommitValueMap<'a> = HashMap<&'a CommitId, u64, PassthroughBuildHasher>;
+
+/// Maps series name to commit values.
+pub type SeriesMap<'a> = HashMap<&'a str, CommitValueMap<'a>>;
+
+/// Maps chart name to series.
+pub type ChartMap<'a> = HashMap<&'a str, SeriesMap<'a>>;
+
+/// Maps benchmark group to charts.
+pub type GroupedEntries<'a> = HashMap<&'a str, ChartMap<'a>>;
 
 /// A benchmark entry, grouped by benchmark group, then chart name, then series name.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -180,67 +197,20 @@ impl BenchmarkEntry {
 
         Ok(entries)
     }
-}
 
-/// The 20-byte binary SHA-1 Git commit ID.
-#[derive(Clone, PartialEq, Eq)]
-pub struct CommitId(pub [u8; 20]);
-
-impl fmt::Display for CommitId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", hex::encode(self.0))
-    }
-}
-
-impl fmt::Debug for CommitId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "CommitId(\"{}\")", hex::encode(self.0))
-    }
-}
-
-impl Serialize for CommitId {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(&hex::encode(self.0))
-    }
-}
-
-impl<'de> Deserialize<'de> for CommitId {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct CommitIdVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for CommitIdVisitor {
-            type Value = CommitId;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a 40-character hexadecimal string")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                if value.len() != 40 {
-                    return Err(E::custom(format!(
-                        "expected 40 hex characters, got {}",
-                        value.len()
-                    )));
-                }
-
-                let bytes = hex::decode(value)
-                    .map_err(|e| E::custom(format!("invalid hexadecimal: {}", e)))?;
-
-                let mut arr = [0u8; 20];
-                arr.copy_from_slice(&bytes);
-                Ok(CommitId(arr))
-            }
+    /// Groups benchmark entries by benchmark group, chart name, series name, and commit ID.
+    pub fn group(entries: &[BenchmarkEntry]) -> GroupedEntries<'_> {
+        let mut result: GroupedEntries<'_> = HashMap::new();
+        for entry in entries {
+            result
+                .entry(entry.benchmark_group.as_str())
+                .or_default()
+                .entry(entry.chart_name.as_str())
+                .or_default()
+                .entry(entry.series_name.as_str())
+                .or_insert_with(|| HashMap::with_hasher(PassthroughBuildHasher))
+                .insert(&entry.commit_id, entry.value);
         }
-
-        deserializer.deserialize_str(CommitIdVisitor)
+        result
     }
 }
