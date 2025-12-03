@@ -21,6 +21,7 @@ use crate::file::IoRequestStream;
 use crate::runtime::AbortHandleRef;
 use crate::runtime::Executor;
 use crate::runtime::IoTask;
+use crate::runtime::LocalExecutor;
 
 /// A handle to an active Vortex runtime.
 ///
@@ -43,6 +44,11 @@ impl Handle {
         self.runtime.upgrade().unwrap_or_else(|| {
             vortex_panic!("Attempted to use a Handle after its runtime was dropped")
         })
+    }
+
+    /// Returns a [`LocalExecutor`] if the underlying runtime supports spawning `!Send` futures.
+    pub fn as_local_executor(&self) -> Option<Arc<dyn LocalExecutor>> {
+        self.runtime().as_local_executor()
     }
 
     /// Returns a handle to the current runtime, if such a reasonable choice exists.

@@ -13,6 +13,10 @@
 //! * Tokio: work is driven on a Tokio runtime provided by the caller.
 //!
 
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 
@@ -34,6 +38,8 @@ pub mod single;
 mod smol;
 #[cfg(feature = "tokio")]
 pub mod tokio;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod uring;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
 
@@ -65,7 +71,28 @@ pub(crate) trait Executor: Send + Sync {
     ///
     /// Cancellation is implied by termination of the request stream.
     fn spawn_io(&self, task: IoTask);
+
+    /// Returns a [`LocalExecutor`] view if the runtime supports spawning `!Send` futures.
+    ///
+    /// Default implementation returns `None` for runtimes that only support `Send` futures.
+    fn as_local_executor(&self) -> Option<Arc<dyn LocalExecutor>> {
+        None
+    }
 }
+
+/// Extension trait for runtimes that can build and drive `!Send` futures on a single thread.
+///
+/// The factory is `Send` so it may be sent to the runtime's thread; the produced future can be
+/// `!Send` because it never leaves that thread after creation.
+pub(crate) trait LocalExecutor: Executor {
+    fn spawn_local(&self, f: LocalSpawn) -> AbortHandleRef;
+}
+
+/// A boxed future that may be `!Send`.
+pub(crate) type LocalBoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
+
+/// A boxed factory for building a local future on the target runtime thread.
+pub(crate) type LocalSpawn = Box<dyn FnOnce() -> LocalBoxFuture<'static, ()> + Send + 'static>;
 
 /// A handle that may be used to optimistically abort a spawned task.
 ///
