@@ -99,7 +99,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// This function will become required in a future release.
     fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
         _ = options;
-        _ = args;
+        drop(args);
         vortex_bail!("Expression {} does not support execution", self.id());
     }
 
