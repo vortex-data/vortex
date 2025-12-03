@@ -103,7 +103,7 @@ impl HandleSet {
     }
 
     /// Returns a handle that round-robins spawned work across the underlying executors.
-    pub(crate) fn dispatching_handle(&self) -> Handle {
+    pub(crate) fn handle(&self) -> Handle {
         let exec: Arc<dyn Executor> = self.dispatcher.clone();
         Handle::new(Arc::downgrade(&exec))
     }
@@ -115,10 +115,13 @@ impl HandleSet {
 }
 
 /// Create a [`Handle`] that dispatches work round-robin across the provided handles.
+///
+/// The underlying dispatcher is leaked to satisfy the `Handle` lifetime; use [`HandleSet`] directly
+/// when you need ownership.
 pub fn dispatching_handle(handles: &[Handle]) -> Handle {
     let executors = handles.iter().map(|h| h.runtime()).collect::<Vec<_>>();
-    let set = HandleSet::new(executors);
-    set.dispatching_handle()
+    let set = Box::leak(Box::new(HandleSet::new(executors)));
+    set.handle()
 }
 
 /// Messages sent to a per-core runtime thread.
@@ -225,7 +228,7 @@ impl AbortHandle for NoopAbortHandle {
 #[allow(dead_code)]
 pub struct PerCoreUringPool {
     _runtimes: Vec<Arc<UringRuntime>>,
-    handle: Handle,
+    handle_set: HandleSet,
 }
 
 #[allow(dead_code)]
@@ -238,23 +241,20 @@ impl PerCoreUringPool {
         let runtimes: Vec<_> = (0..core_count)
             .map(|_| Arc::new(UringRuntime::new()))
             .collect();
-        let handles: Vec<_> = runtimes
+        let executors: Vec<Arc<dyn Executor>> = runtimes
             .iter()
-            .map(|rt| {
-                let exec: Arc<dyn Executor> = rt.clone();
-                Handle::new(Arc::downgrade(&exec))
-            })
+            .cloned()
+            .map(|rt| rt as Arc<dyn Executor>)
             .collect();
-
-        let handle = dispatching_handle(&handles);
+        let handle_set = HandleSet::new(executors);
 
         Self {
             _runtimes: runtimes,
-            handle,
+            handle_set,
         }
     }
 
     pub fn handle(&self) -> Handle {
-        self.handle.clone()
+        self.handle_set.handle()
     }
 }
