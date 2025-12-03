@@ -28,6 +28,8 @@ use crate::file::IoRequest;
 use crate::file::ReadSource;
 use crate::file::ReadSourceRef;
 use crate::runtime::Handle;
+#[cfg(all(target_os = "linux", feature = "uring"))]
+use crate::file::uring_file::open_uring_read_source;
 
 /// Read exactly `buffer.len()` bytes from `file` starting at `offset`.
 /// This is a platform-specific helper that uses the most efficient method available.
@@ -61,6 +63,11 @@ impl IntoReadSource for PathBuf {
 
 impl IntoReadSource for &Path {
     fn into_read_source(self, handle: Handle) -> VortexResult<ReadSourceRef> {
+        #[cfg(all(target_os = "linux", feature = "uring"))]
+        if let Some(src) = open_uring_read_source(self, handle.clone())? {
+            return Ok(src);
+        }
+
         let uri = self.to_string_lossy().to_string().into();
         let file = Arc::new(File::open(self)?);
         Ok(Arc::new(FileIoSource { uri, file, handle }))

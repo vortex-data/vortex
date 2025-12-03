@@ -8,6 +8,8 @@ pub mod object_store;
 mod read;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod std_file;
+#[cfg(all(target_os = "linux", feature = "uring"))]
+pub(crate) mod uring_file;
 
 pub(crate) use driver::*;
 pub use read::*;
