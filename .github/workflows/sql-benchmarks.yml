@@ -145,7 +145,7 @@ jobs:
         env:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
-          cargo build --bin query_bench --package bench-vortex --profile release_debug ${{ matrix.build_args }}
+          cargo build --bin query_bench --package bench-vortex --profile release_debug ${{ matrix.build_args }} --features "uring"
 
       - name: Generate data
         shell: bash
@@ -157,6 +157,7 @@ jobs:
             ${{ matrix.subcommand }} \
             --targets ${{ matrix.targets }} \
             -i1 \
+            --runtime uring \
             -d gh-json ${{ matrix.scale_factor }}
 
       - name: Setup AWS CLI
@@ -199,6 +200,7 @@ jobs:
             -d gh-json \
             --targets ${{ matrix.targets }} \
             ${{ matrix.scale_factor }} \
+            --runtime uring \
             --delete-duckdb-database \
             -o results.json
 
@@ -218,6 +220,7 @@ jobs:
               --targets ${{ matrix.targets }} \
               ${{ matrix.scale_factor }} \
               -d gh-json \
+              --runtime uring \
               --delete-duckdb-database \
               -o results.json
 

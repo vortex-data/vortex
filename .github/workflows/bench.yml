@@ -48,6 +48,8 @@ jobs:
             name: Random Access
           - id: compress
             name: Compression
+    env:
+      BENCH_RUNTIME: ${{ vars.BENCH_RUNTIME }}
     steps:
       - uses: runs-on/action@v2
         with:
@@ -69,7 +71,7 @@ jobs:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         # The main difference between this and `bench-pr.yml` is that we add the `lance` feature.
         run: |
-          cargo build --bin ${{ matrix.benchmark.id }} --package bench-vortex --profile release_debug --features lance
+          cargo build --bin ${{ matrix.benchmark.id }} --package bench-vortex --profile release_debug --features "lance uring"
 
       - name: Setup Polar Signals
         uses: polarsignals/gh-actions-ps-profiling@v0.6.0
@@ -85,7 +87,7 @@ jobs:
         env:
           RUST_BACKTRACE: full
         run: |
-          target/release_debug/${{ matrix.benchmark.id }} -d gh-json -o ${{ matrix.benchmark.id }}.json --formats parquet,lance,vortex
+          target/release_debug/${{ matrix.benchmark.id }} --runtime uring -d gh-json -o ${{ matrix.benchmark.id }}.json --formats parquet,lance,vortex
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v5
