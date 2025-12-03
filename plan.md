@@ -34,7 +34,6 @@ _Approximately in order of priority:_
 - Migrate the JavaScript code to use the Rust bindings
 - Test
 
-
 ### Ideas
 
 ```rust
@@ -67,15 +66,26 @@ fn main() {
 - We can simply read the entire file of all benchmarking data into memory, decompress in memory, add
   a new entry, compress, and then write back to S3
 
+### 1 file vs many files
+
+With 1 file, we have to stuff every different kind of benchmark into the same place, which isnt great
+for compression and it means we have to do more work on read time to group data correctly (by benchmark group, chart, then series).
+
+The seemingly obvious alternative here is to have a different file per "same" data. But what exactly would these be grouped by? We definitely do not want to group by series as that makes it pretty
+difficult to add a new series to a chart (maybe it's not terrible with some more engineering). It
+also would mean that we would start to approach 1000+ files.
+
+We could also do a file per chart, as that maps much closer to how we generate these chart. One
+program is generating all the data for one chart, but that program might also generate data for
+multiple charts. This is definitely something we should look into later, but for now having a single
+file that has all the data (all with the same schema) is the most flexible.
 
 ### Things to update
 
 Start with just the random access benchmark
 
-
 generate a bunch of fake data and upload it to S3
 
 - Add bindings to read and write `BenchmarkEntry` vortex arrays to and from S3
-USE IPC FORMAT INSTEAD
 - `query_bench` to post directly to S3
 - `random_access` and `compress` to also post directly to S3
