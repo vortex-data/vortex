@@ -49,6 +49,9 @@ pub use datasets::file;
 pub use engines::df;
 use vortex::VortexSessionDefault;
 pub use vortex::error::vortex_panic;
+use vortex::io::runtime::Handle;
+#[cfg(all(feature = "uring", target_os = "linux"))]
+use vortex::io::runtime::uring::PerCoreUringPool;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 
@@ -67,6 +70,7 @@ pub enum RuntimeChoice {
 }
 
 static RUNTIME_OVERRIDE: OnceLock<RuntimeChoice> = OnceLock::new();
+static RUNTIME_HANDLE: OnceLock<Handle> = OnceLock::new();
 
 /// Configure the runtime used by benchmarks. Must be called before `SESSION` is first accessed.
 pub fn configure_runtime(choice: Option<RuntimeChoice>) {
@@ -75,19 +79,37 @@ pub fn configure_runtime(choice: Option<RuntimeChoice>) {
     }
 }
 
+/// Returns the runtime handle configured for benchmarks, if initialized.
+pub fn runtime_handle() -> Option<Handle> {
+    RUNTIME_HANDLE.get().cloned()
+}
+
 fn make_session() -> VortexSession {
     match RUNTIME_OVERRIDE
         .get()
         .copied()
         .unwrap_or(RuntimeChoice::Tokio)
     {
-        RuntimeChoice::Tokio => VortexSession::default().with_tokio(),
+        RuntimeChoice::Tokio => {
+            #[cfg(feature = "tokio")]
+            {
+                let handle = vortex::io::runtime::tokio::TokioRuntime::current();
+                let _ = RUNTIME_HANDLE.set(handle.clone());
+                VortexSession::default().with_handle(handle)
+            }
+            #[cfg(not(feature = "tokio"))]
+            {
+                VortexSession::default()
+            }
+        }
         #[cfg(all(feature = "uring", target_os = "linux"))]
         RuntimeChoice::Uring => {
             use vortex::io::runtime::uring::PerCoreUringPool;
             static URING_POOL: OnceLock<PerCoreUringPool> = OnceLock::new();
             let pool = URING_POOL.get_or_init(|| PerCoreUringPool::new(None));
-            VortexSession::default().with_handle(pool.handle())
+            let handle = pool.handle();
+            let _ = RUNTIME_HANDLE.set(handle.clone());
+            VortexSession::default().with_handle(handle)
         }
     }
 }
