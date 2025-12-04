@@ -11,6 +11,21 @@ use crate::website::commit::CommitInfo;
 use crate::website::entry::BenchmarkEntry;
 use crate::website::entry::CommitValueMap;
 
+/// Log to the browser console (WASM) or stderr (native).
+#[cfg(target_arch = "wasm32")]
+macro_rules! log {
+    ($($t:tt)*) => {
+        web_sys::console::log_1(&format!($($t)*).into());
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! log {
+    ($($t:tt)*) => {
+        eprintln!($($t)*);
+    }
+}
+
 /// A map of group names to their benchmark data.
 pub type Benchmarks<'a> = HashMap<&'a str, BenchmarkGroupData<'a>>;
 
@@ -43,17 +58,24 @@ pub struct ChartData<'a> {
 
 /// Processes benchmark entries into a structured format aligned with commits.
 ///
+/// Series, charts, and groups with no data are automatically pruned from the result.
+///
 /// # Errors
 ///
 /// Returns an error if:
 /// - Commits are not sorted by timestamp.
 /// - Any group, chart, or series name is empty.
-/// - Any series has no data points (all nulls).
-/// - Series lengths don't match the number of commits.
+/// - Series lengths don't match the number of commits (internal error).
 pub fn process_benchmarks<'a>(
     entries: &'a [BenchmarkEntry],
     sorted_commits: &[CommitInfo],
 ) -> VortexResult<Benchmarks<'a>> {
+    log!(
+        "[process_benchmarks] Starting with {} entries, {} commits",
+        entries.len(),
+        sorted_commits.len()
+    );
+
     if !sorted_commits.is_sorted() {
         vortex_bail!("Commits must be sorted by timestamp");
     }
@@ -61,11 +83,23 @@ pub fn process_benchmarks<'a>(
     let num_commits = sorted_commits.len();
     let grouped_entries = BenchmarkEntry::group(entries);
 
+    log!(
+        "[process_benchmarks] Grouped into {} groups: {:?}",
+        grouped_entries.len(),
+        grouped_entries.keys().collect::<Vec<_>>()
+    );
+
     let mut benchmarks = HashMap::with_capacity(grouped_entries.keys().len());
     for (group_name, group_data) in grouped_entries {
         if group_name.is_empty() {
             vortex_bail!("Group name cannot be empty");
         }
+
+        log!(
+            "[process_benchmarks] Group '{}' has {} charts",
+            group_name,
+            group_data.len()
+        );
 
         let mut charts = HashMap::with_capacity(group_data.keys().len());
         for (chart_name, chart_data) in group_data {
@@ -97,26 +131,61 @@ pub fn process_benchmarks<'a>(
                     );
                 }
 
-                // Validate series has at least one non-null value.
-                if !aligned_series_data.iter().any(|v| v.is_some()) {
-                    vortex_bail!(
-                        "Series '{}' in group '{}', chart '{}' has no data points (all nulls)",
-                        series_name,
-                        group_name,
-                        chart_name
+                // Skip series with no data points (all nulls).
+                let data_points = aligned_series_data.iter().filter(|v| v.is_some()).count();
+                if data_points == 0 {
+                    log!(
+                        "[process_benchmarks]   Pruning series '{}' (no data points)",
+                        series_name
                     );
+                    continue;
                 }
 
                 aligned_series.insert(series_name, aligned_series_data);
             }
 
+            // Skip charts with no series.
+            if aligned_series.is_empty() {
+                log!(
+                    "[process_benchmarks]   Pruning chart '{}' (no series with data)",
+                    chart_name
+                );
+                continue;
+            }
+
+            log!(
+                "[process_benchmarks]   Chart '{}' has {} series with data",
+                chart_name,
+                aligned_series.len()
+            );
+
             let chart_data = ChartData { aligned_series };
             charts.insert(chart_name, chart_data);
         }
 
+        // Skip groups with no charts.
+        if charts.is_empty() {
+            log!(
+                "[process_benchmarks] Pruning group '{}' (no charts with data)",
+                group_name
+            );
+            continue;
+        }
+
+        log!(
+            "[process_benchmarks] Group '{}' retained {} charts",
+            group_name,
+            charts.len()
+        );
+
         let benchmark_group_data = BenchmarkGroupData { charts };
         benchmarks.insert(group_name, benchmark_group_data);
     }
+
+    log!(
+        "[process_benchmarks] Done. Final groups: {:?}",
+        benchmarks.keys().collect::<Vec<_>>()
+    );
 
     Ok(benchmarks)
 }

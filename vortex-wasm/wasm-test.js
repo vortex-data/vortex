@@ -13,16 +13,16 @@ const CHART_CONFIG = {
     // GitHub repository for constructing commit URLs.
     githubRepo: "https://github.com/spiraldb/vortex",
 
-    // Which group and chart to display (for now, hardcoded to random-access).
+    // Which group and chart to display.
     targetGroup: "random-access",
-    targetChart: "random-access",
+    targetChart: "latency",
 
     // Series configuration.
-    seriesNames: ["vortex-nvme", "parquet-nvme", "lance-nvme"],
+    seriesNames: ["vortex", "parquet", "lance"],
     seriesColors: {
-        "vortex-nvme": "#101010",
-        "parquet-nvme": "#5DADE2",
-        "lance-nvme": "#ef7f1d",
+        "vortex": "#101010",
+        "parquet": "#5DADE2",
+        "lance": "#ef7f1d",
     },
 
     // Chart display settings.
@@ -114,18 +114,21 @@ async function loadBenchmarkData(wasm) {
 function processChartData(data) {
     const { benchmarks, commits } = data;
 
-    // Get the target group and chart.
-    const group = benchmarks[CHART_CONFIG.targetGroup];
+    // Get the target group and chart (using Map.get() since HashMap serializes to Map).
+    const group = benchmarks.get(CHART_CONFIG.targetGroup);
     if (!group) {
-        throw new Error(`Group '${CHART_CONFIG.targetGroup}' not found in benchmark data`);
+        throw new Error(`Group '${CHART_CONFIG.targetGroup}' not found. Available: ${[...benchmarks.keys()].join(', ')}`);
     }
 
-    const chart = group.charts[CHART_CONFIG.targetChart];
+    const chart = group.charts.get(CHART_CONFIG.targetChart);
     if (!chart) {
-        throw new Error(`Chart '${CHART_CONFIG.targetChart}' not found in group '${CHART_CONFIG.targetGroup}'`);
+        throw new Error(`Chart '${CHART_CONFIG.targetChart}' not found in group '${CHART_CONFIG.targetGroup}'. Available: ${[...group.charts.keys()].join(', ')}`);
     }
 
     const alignedSeries = chart.aligned_series;
+
+    // Log available series names.
+    console.log("Available series:", [...alignedSeries.keys()]);
 
     // Convert commits to chart-friendly format with URLs and short IDs.
     const processedCommits = commits.map((commit, index) => ({
@@ -141,10 +144,11 @@ function processChartData(data) {
     // Convert series data from nanoseconds to milliseconds.
     const seriesData = new Map();
     for (const name of CHART_CONFIG.seriesNames) {
-        const rawData = alignedSeries[name];
+        const rawData = alignedSeries.get(name);
         if (rawData) {
             // Convert nanoseconds to milliseconds, preserving nulls.
-            const msData = rawData.map(v => v !== null ? { value: v / 1_000_000 } : null);
+            // Note: u64 from Rust may be BigInt in JS, so convert to Number first.
+            const msData = rawData.map(v => v !== null ? { value: Number(v) / 1_000_000 } : null);
             seriesData.set(name, msData);
         } else {
             // Series not found, fill with nulls.
@@ -154,7 +158,7 @@ function processChartData(data) {
 
     // Find the range of data (first and last non-null indices).
     let firstDataIndex = commits.length;
-    let lastDataIndex = 0;
+    let lastDataIndex = -1;
     for (const data of seriesData.values()) {
         for (let i = 0; i < data.length; i++) {
             if (data[i] !== null) {
@@ -162,6 +166,13 @@ function processChartData(data) {
                 lastDataIndex = Math.max(lastDataIndex, i);
             }
         }
+    }
+
+    // Handle case where no data was found.
+    if (lastDataIndex < 0) {
+        console.warn("No data points found in any series!");
+        firstDataIndex = 0;
+        lastDataIndex = commits.length - 1;
     }
 
     // Slice to show only the range with data.

@@ -17,6 +17,21 @@ use crate::website::charts::BenchmarkResponse;
 use crate::website::charts::process_benchmarks;
 use crate::website::commit::CommitInfo;
 
+/// Log to the browser console (WASM) or stderr (native).
+#[cfg(target_arch = "wasm32")]
+macro_rules! log {
+    ($($t:tt)*) => {
+        web_sys::console::log_1(&format!($($t)*).into());
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! log {
+    ($($t:tt)*) => {
+        eprintln!($($t)*);
+    }
+}
+
 /// Base URL for the S3 bucket containing benchmark data.
 const S3_BASE_URL: &str = "https://vortex-benchmark-results-database-test.s3.amazonaws.com";
 
@@ -37,6 +52,7 @@ const S3_BASE_URL: &str = "https://vortex-benchmark-results-database-test.s3.ama
 /// - The file is not a valid Vortex file.
 pub async fn read_s3_array(session: &VortexSession, key: &str) -> VortexResult<ArrayRef> {
     let url = format!("{}/{}", S3_BASE_URL, key);
+    log!("[read_s3_array] Fetching {}...", url);
 
     let response = reqwest::get(&url)
         .await
@@ -56,6 +72,11 @@ pub async fn read_s3_array(session: &VortexSession, key: &str) -> VortexResult<A
         .await
         .map_err(|e| vortex_err!("Failed to read response body: {}", e))?;
 
+    log!(
+        "[read_s3_array] Downloaded {} bytes, parsing Vortex file...",
+        bytes.len()
+    );
+
     // Parse as Vortex file and read all data.
     // Note: We use `open_read_at` directly instead of `open_buffer` because `open_buffer` uses
     // `futures::executor::block_on` which requires `std::time` (not available in WASM).
@@ -67,7 +88,10 @@ pub async fn read_s3_array(session: &VortexSession, key: &str) -> VortexResult<A
         .open_read_at(buffer)
         .await?;
 
-    file.scan()?.into_array_stream()?.read_all().await
+    let array = file.scan()?.into_array_stream()?.read_all().await?;
+    log!("[read_s3_array] Parsed array with {} rows", array.len());
+
+    Ok(array)
 }
 
 /// Reads benchmark entries from an S3 object containing a Vortex file.
@@ -122,15 +146,29 @@ pub async fn get_benchmark_data(
     commits_key: &str,
     data_key: &str,
 ) -> VortexResult<JsValue> {
+    log!("[get_benchmark_data] Fetching data and commits in parallel...");
+
     let (data_array, commits_array) = futures::try_join!(
         read_s3_array(session, data_key),
         read_s3_array(session, commits_key)
     )?;
 
+    log!("[get_benchmark_data] Parsing benchmark entries...");
     let data = BenchmarkEntry::vec_from_array(&data_array)?;
+    log!(
+        "[get_benchmark_data] Parsed {} benchmark entries",
+        data.len()
+    );
+
+    log!("[get_benchmark_data] Parsing commit info...");
     let mut commits = CommitInfo::vec_from_array(&commits_array)?;
+    log!(
+        "[get_benchmark_data] Parsed {} commits, sorting...",
+        commits.len()
+    );
     commits.sort_unstable();
 
+    log!("[get_benchmark_data] Processing benchmarks...");
     let benchmarks = process_benchmarks(&data, &commits)?;
 
     let response = BenchmarkResponse {
@@ -138,8 +176,10 @@ pub async fn get_benchmark_data(
         commits,
     };
 
+    log!("[get_benchmark_data] Serializing response to JS...");
     let js_value = serde_wasm_bindgen::to_value(&response)
         .map_err(|e| vortex_err!("Failed to serialize benchmark response: {e}"))?;
 
+    log!("[get_benchmark_data] Done!");
     Ok(js_value)
 }
