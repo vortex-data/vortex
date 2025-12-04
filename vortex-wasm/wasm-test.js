@@ -103,14 +103,36 @@ function makeId(groupId, chartName, suffix) {
 // ============================================================================
 
 /**
- * Loads and initializes the WASM module.
+ * Loads and initializes the WASM module with timeout.
  */
 async function loadWasmModule() {
     setStatus("Loading WASM module...");
-    const wasm = await import(CONFIG.wasmModulePath);
-    await wasm.default();
-    console.log("WASM loaded:", wasm.get_version());
-    return wasm;
+    console.log("[loadWasmModule] Starting import...");
+
+    const timeout = (ms) => new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`Timeout after ${ms}ms`)), ms)
+    );
+
+    try {
+        // Race import against timeout.
+        const wasm = await Promise.race([
+            import(CONFIG.wasmModulePath),
+            timeout(10000)
+        ]);
+        console.log("[loadWasmModule] Import complete, initializing...");
+
+        // Race init against timeout.
+        await Promise.race([
+            wasm.default(),
+            timeout(10000)
+        ]);
+        console.log("[loadWasmModule] Initialized:", wasm.get_version());
+
+        return wasm;
+    } catch (error) {
+        console.error("[loadWasmModule] Failed:", error);
+        throw error;
+    }
 }
 
 /**
@@ -216,6 +238,124 @@ function calculateSummary(seriesData) {
 }
 
 // ============================================================================
+// Group Summary Data Storage
+// ============================================================================
+
+/**
+ * Storage for per-chart latest values. Used for calculating group summaries.
+ * Structure: groupId -> chartName -> Map<seriesName, latestValueMs>
+ */
+const groupChartData = new Map();
+
+/**
+ * Stores the latest value for each series in a chart.
+ */
+function storeChartData(groupId, chartName, seriesData) {
+    if (!groupChartData.has(groupId)) {
+        groupChartData.set(groupId, new Map());
+    }
+    const groupData = groupChartData.get(groupId);
+
+    const latestValues = new Map();
+    for (const [seriesName, data] of seriesData.entries()) {
+        for (let i = data.length - 1; i >= 0; i--) {
+            if (data[i] !== null) {
+                latestValues.set(seriesName, data[i].value);
+                break;
+            }
+        }
+    }
+    groupData.set(chartName, latestValues);
+}
+
+/**
+ * Calculates group-level summary for multi-chart groups (like clickbench).
+ *
+ * For clickbench scoring:
+ * - Score: Geometric mean of (query_time + 10ms) / (fastest_time + 10ms) across all queries
+ * - Total: Sum of all query times
+ */
+function calculateGroupSummary(groupId, groupConfig) {
+    const groupData = groupChartData.get(groupId);
+    if (!groupData || groupData.size === 0) {
+        return { results: [], isMultiChart: false };
+    }
+
+    const isMultiChart = groupConfig.charts.length > 1;
+
+    if (!isMultiChart) {
+        // Single chart group: use simple summary (latest values).
+        const chartData = groupData.values().next().value;
+        if (!chartData || chartData.size === 0) {
+            return { results: [], isMultiChart: false };
+        }
+
+        const fastestTime = Math.min(...chartData.values());
+        const sortedResults = Array.from(chartData.entries())
+            .sort((a, b) => a[1] - b[1])
+            .map(([name, time]) => ({
+                name,
+                time,
+                ratio: time / fastestTime,
+            }));
+
+        return { results: sortedResults, isMultiChart: false };
+    }
+
+    // Multi-chart group: calculate geometric mean score and total time.
+    const SHIFT_MS = 10; // Constant shift to avoid division issues with small values.
+    const seriesStats = new Map(); // seriesName -> { ratios: [], total: 0 }
+
+    // Initialize stats for all series.
+    for (const seriesName of groupConfig.seriesNames) {
+        seriesStats.set(seriesName, { ratios: [], total: 0 });
+    }
+
+    // Process each chart (query).
+    for (const [chartName, chartValues] of groupData.entries()) {
+        // Find fastest time for this query.
+        let fastestTime = Infinity;
+        for (const time of chartValues.values()) {
+            if (time < fastestTime) fastestTime = time;
+        }
+
+        // Calculate ratio for each series.
+        for (const seriesName of groupConfig.seriesNames) {
+            const stats = seriesStats.get(seriesName);
+            const time = chartValues.get(seriesName);
+
+            if (time !== undefined) {
+                const ratio = (time + SHIFT_MS) / (fastestTime + SHIFT_MS);
+                stats.ratios.push(ratio);
+                stats.total += time;
+            }
+        }
+    }
+
+    // Calculate geometric mean and build results.
+    const results = [];
+    for (const [seriesName, stats] of seriesStats.entries()) {
+        if (stats.ratios.length === 0) continue;
+
+        // Geometric mean = exp(mean(log(ratios))).
+        const logSum = stats.ratios.reduce((sum, r) => sum + Math.log(r), 0);
+        const geometricMean = Math.exp(logSum / stats.ratios.length);
+
+        results.push({
+            name: seriesName,
+            score: geometricMean,
+            total: stats.total,
+            queryCount: stats.ratios.length,
+        });
+    }
+
+    // Sort by score (lower is better).
+    results.sort((a, b) => a.score - b.score);
+
+    return { results, isMultiChart: true };
+}
+
+// ============================================================================
 // HTML Generation Functions
 // ============================================================================
 
@@ -231,8 +371,12 @@ function createGroupHTML(groupId, groupConfig) {
                     <h2 class="benchmark-title">${groupConfig.title}</h2>
                 </div>
                 <div class="benchmark-meta">
-                    <span>${groupConfig.charts.length} charts</span>
+                    <span id="${groupId}-status">0/${groupConfig.charts.length} charts loaded</span>
                 </div>
+            </div>
+            <div class="summary-section">
+                <div id="${groupId}-summary" class="scores-list"></div>
+                <p class="scores-explanation" id="${groupId}-summary-explanation"></p>
             </div>
             <div class="benchmark-graphs" id="${groupId}-charts">
                 <!-- Charts will be rendered here -->
@@ -248,12 +392,6 @@ function createChartHTML(groupId, chartName) {
     const prefix = makeId(groupId, chartName, '');
     return `
         <div class="chart-section" id="${prefix}section">
-            <div class="summary-section">
-                <div id="${prefix}summary" class="scores-list"></div>
-                <p class="scores-explanation">
-                    Query time | Ratio to fastest (lower is better)
-                </p>
-            </div>
             <div class="chart-container">
                 <div class="chart-header">
                     <h3 class="chart-title">${chartName}</h3>
@@ -285,33 +423,76 @@ function createChartHTML(groupId, chartName) {
 // ============================================================================
 
 /**
- * Renders the summary table showing latest benchmark results.
+ * Renders the group-level summary.
  */
-function renderSummary(summaryElementId, summary, groupConfig) {
-    const summaryList = document.getElementById(summaryElementId);
+function renderGroupSummary(groupId, groupConfig) {
+    const summaryList = document.getElementById(`${groupId}-summary`);
+    const explanationEl = document.getElementById(`${groupId}-summary-explanation`);
     if (!summaryList) return;
+
+    const summary = calculateGroupSummary(groupId, groupConfig);
 
     summaryList.innerHTML = "";
 
     if (summary.results.length === 0) {
         summaryList.innerHTML = '<div class="score-item">No data available</div>';
+        if (explanationEl) explanationEl.textContent = "";
         return;
     }
 
-    summary.results.forEach(([name, time], index) => {
-        const ratio = time / summary.fastestTime;
-        const item = document.createElement("div");
-        item.className = "score-item";
-        item.innerHTML = `
-            <span class="score-rank">#${index + 1}</span>
-            <span class="score-series" style="color: ${groupConfig.seriesColors[name]}">${name}</span>
-            <div class="score-metrics">
-                <span class="score-runtime">${formatTime(time)}</span>
-                <span class="score-ratio">${ratio.toFixed(2)}x</span>
-            </div>
-        `;
-        summaryList.appendChild(item);
-    });
+    if (summary.isMultiChart) {
+        // Multi-chart group (clickbench): show score and total.
+        summary.results.forEach((result, index) => {
+            const item = document.createElement("div");
+            item.className = "score-item";
+            item.innerHTML = `
+                <span class="score-rank">#${index + 1}</span>
+                <span class="score-series" style="color: ${groupConfig.seriesColors[result.name]}">${result.name}</span>
+                <div class="score-metrics">
+                    <span class="score-runtime">${result.score.toFixed(2)}x</span>
+                    <span class="score-ratio">${formatTime(result.total)}</span>
+                </div>
+            `;
+            summaryList.appendChild(item);
+        });
+
+        if (explanationEl) {
+            explanationEl.textContent = "Score: geometric mean of query time ratio to fastest with 10ms constant shift | Total: sum of all query times (lower is better)";
+        }
+    } else {
+        // Single-chart group: show time and ratio.
+        summary.results.forEach((result, index) => {
+            const item = document.createElement("div");
+            item.className = "score-item";
+            item.innerHTML = `
+                <span class="score-rank">#${index + 1}</span>
+                <span class="score-series" style="color: ${groupConfig.seriesColors[result.name]}">${result.name}</span>
+                <div class="score-metrics">
+                    <span class="score-runtime">${formatTime(result.time)}</span>
+                    <span class="score-ratio">${result.ratio.toFixed(2)}x</span>
+                </div>
+            `;
+            summaryList.appendChild(item);
+        });
+
+        if (explanationEl) {
+            explanationEl.textContent = "Query time | Ratio to fastest (lower is better)";
+        }
+    }
+}
+
+/**
+ * Resizes all charts in a group sequentially, yielding to the browser between each.
+ * This ensures the first chart appears immediately rather than waiting for all 43.
+ */
+async function resizeGroupChartsSequentially(groupId) {
+    for (const [prefix, chart] of chartInstances.entries()) {
+        if (prefix.startsWith(groupId + '-')) {
+            chart.resize();
+            // Yield to browser to paint before next resize.
+            await new Promise(r => requestAnimationFrame(r));
+        }
+    }
 }
 
 /**
@@ -319,9 +500,16 @@ function renderSummary(summaryElementId, summary, groupConfig) {
  */
 function setupCollapsibleBenchmarks() {
     document.querySelectorAll('.benchmark-header').forEach(header => {
-        header.addEventListener('click', () => {
+        header.addEventListener('click', async () => {
             const benchmarkSet = header.closest('.benchmark-set');
+            const wasCollapsed = benchmarkSet.classList.contains('collapsed');
             benchmarkSet.classList.toggle('collapsed');
+
+            // If we just expanded, resize charts sequentially so first appears immediately.
+            if (wasCollapsed) {
+                const groupId = benchmarkSet.id.replace('-group', '');
+                await resizeGroupChartsSequentially(groupId);
+            }
         });
     });
 }
@@ -344,6 +532,23 @@ function createDatasets(seriesData, groupConfig) {
             spanGaps: true,
         };
     });
+}
+
+/**
+ * Creates empty Chart.js datasets (structure only, no data).
+ */
+function createEmptyDatasets(groupConfig) {
+    return groupConfig.seriesNames.map(name => ({
+        label: name,
+        data: [],
+        borderColor: groupConfig.seriesColors[name],
+        backgroundColor: groupConfig.seriesColors[name],
+        borderWidth: 1.5,
+        borderJoinStyle: 'round',
+        pointRadius: 2,
+        tension: 0,
+        spanGaps: true,
+    }));
 }
 
 // ============================================================================
@@ -480,7 +685,16 @@ function positionTooltip(tooltipEl, context, tooltipModel) {
 /**
  * Creates chart options configuration.
  */
-function createChartOptions(chartCommits, tooltipElementId) {
+function createChartOptions(chartCommits, tooltipElementId, groupId, groupConfig) {
+    const legendConfig = {
+        position: "top",
+    };
+
+    // Add group-linked legend click handler if groupId and groupConfig are provided.
+    if (groupId && groupConfig) {
+        legendConfig.onClick = createGroupLegendClickHandler(groupId, groupConfig);
+    }
+
     return {
         responsive: true,
         maintainAspectRatio: false,
@@ -511,7 +725,7 @@ function createChartOptions(chartCommits, tooltipElementId) {
         },
         plugins: {
             verticalLine: {},
-            legend: { position: "top" },
+            legend: legendConfig,
             tooltip: createTooltipConfig(chartCommits, tooltipElementId),
         },
         onClick: (event, elements) => handleChartClick(elements, chartCommits),
@@ -534,7 +748,7 @@ function handleChartClick(elements, chartCommits) {
 /**
  * Creates a Chart.js instance.
  */
-function createChartInstance(canvasId, chartCommits, seriesData, groupConfig, tooltipElementId) {
+function createChartInstance(canvasId, chartCommits, seriesData, groupId, groupConfig, tooltipElementId) {
     const canvas = document.getElementById(canvasId);
     if (!canvas) return null;
 
@@ -547,7 +761,7 @@ function createChartInstance(canvasId, chartCommits, seriesData, groupConfig, to
             labels: chartCommits.map(c => c.id.slice(0, 7)),
             datasets: datasets,
         },
-        options: createChartOptions(chartCommits, tooltipElementId),
+        options: createChartOptions(chartCommits, tooltipElementId, groupId, groupConfig),
     });
 }
 
@@ -708,11 +922,94 @@ function initializeTimelineControls(chartInstance, chartCommits, prefix) {
 }
 
 // ============================================================================
+// Chart Instance Storage
+// ============================================================================
+
+/**
+ * Global storage for chart instances. Key is the chart prefix (groupId-chartName-).
+ */
+const chartInstances = new Map();
+
+/**
+ * Tracks hidden series per group. When a legend item is clicked, all charts in the group update.
+ * Structure: groupId -> Set<seriesName>
+ */
+const hiddenSeries = new Map();
+
+/**
+ * Creates a legend click handler that syncs visibility across all charts in a group.
+ */
+function createGroupLegendClickHandler(groupId, groupConfig) {
+    return function(e, legendItem, legend) {
+        const seriesName = legendItem.text;
+        const hidden = hiddenSeries.get(groupId) || new Set();
+
+        // Toggle visibility.
+        if (hidden.has(seriesName)) {
+            hidden.delete(seriesName);
+        } else {
+            hidden.add(seriesName);
+        }
+        hiddenSeries.set(groupId, hidden);
+
+        // Update all charts in this group (no animation for performance with many charts).
+        for (const [prefix, chart] of chartInstances.entries()) {
+            if (prefix.startsWith(groupId + '-')) {
+                const datasetIndex = groupConfig.seriesNames.indexOf(seriesName);
+                if (datasetIndex >= 0) {
+                    chart.setDatasetVisibility(datasetIndex, !hidden.has(seriesName));
+                    chart.update('none');
+                }
+            }
+        }
+    };
+}
+
+// ============================================================================
 // Main Rendering Functions
 // ============================================================================
 
 /**
- * Renders a single chart within a group.
+ * Creates an empty Chart.js instance (structure only, no data).
+ * This allows the chart to be visible immediately while data loads.
+ */
+function createEmptyChart(groupId, chartName, groupConfig) {
+    const prefix = makeId(groupId, chartName, '');
+    const canvas = document.getElementById(`${prefix}canvas`);
+    if (!canvas) return null;
+
+    const ctx = canvas.getContext("2d");
+    const datasets = createEmptyDatasets(groupConfig);
+
+    const chart = new Chart(ctx, {
+        type: "line",
+        data: {
+            labels: [],
+            datasets: datasets,
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: { display: true },
+                y: {
+                    display: true,
+                    title: { display: true, text: CONFIG.yAxisLabel },
+                    beginAtZero: true,
+                },
+            },
+            plugins: {
+                legend: { position: "top" },
+            },
+        },
+    });
+
+    chartInstances.set(prefix, chart);
+    return chart;
+}
+
+/**
+ * Updates an existing chart with data.
  */
 async function renderChart(wasm, groupId, chartName, groupConfig, commits) {
     const prefix = makeId(groupId, chartName, '');
@@ -720,17 +1017,36 @@ async function renderChart(wasm, groupId, chartName, groupConfig, commits) {
     try {
         const chartData = await loadChartData(wasm, groupId, chartName);
         const { seriesData, chartCommits } = processChartData(chartData, commits, groupConfig);
-        const summaryStats = calculateSummary(seriesData);
 
-        renderSummary(`${prefix}summary`, summaryStats, groupConfig);
+        // Store chart data for group summary calculation.
+        storeChartData(groupId, chartName, seriesData);
 
-        const chartInstance = createChartInstance(
-            `${prefix}canvas`,
-            chartCommits,
-            seriesData,
-            groupConfig,
-            `${prefix}tooltip`
-        );
+        // Get the existing chart instance.
+        let chartInstance = chartInstances.get(prefix);
+
+        if (chartInstance) {
+            // Update existing chart with new data.
+            chartInstance.data.labels = chartCommits.map(c => c.id.slice(0, 7));
+            chartInstance.data.datasets = createDatasets(seriesData, groupConfig);
+
+            // Update options for tooltips, click handling, and linked legend.
+            chartInstance.options = createChartOptions(chartCommits, `${prefix}tooltip`, groupId, groupConfig);
+
+            chartInstance.update('none');
+        } else {
+            // Fallback: create new chart if empty one wasn't created.
+            chartInstance = createChartInstance(
+                `${prefix}canvas`,
+                chartCommits,
+                seriesData,
+                groupId,
+                groupConfig,
+                `${prefix}tooltip`
+            );
+            if (chartInstance) {
+                chartInstances.set(prefix, chartInstance);
+            }
+        }
 
         if (chartInstance) {
             initializeTimelineControls(chartInstance, chartCommits, prefix);
@@ -758,23 +1074,23 @@ function createChartPlaceholders(groupId, groupConfig) {
 }
 
 /**
- * Loads all charts in a group in the background.
- * Returns a promise that resolves when all charts are loaded.
+ * Creates empty Chart.js instances for all charts in a group.
+ * This makes charts visible immediately (with legend but no data).
  */
-async function loadGroupCharts(wasm, groupId, groupConfig, commits) {
-    let successCount = 0;
-
-    // Load charts sequentially to avoid overwhelming the server.
+function createEmptyCharts(groupId, groupConfig) {
     for (const chartName of groupConfig.charts) {
-        const success = await renderChart(wasm, groupId, chartName, groupConfig, commits);
-        if (success) successCount++;
-
-        // Yield to browser to paint after each chart.
-        await new Promise(resolve => setTimeout(resolve, 0));
+        createEmptyChart(groupId, chartName, groupConfig);
     }
+}
 
-    console.log(`Rendered ${successCount}/${groupConfig.charts.length} charts in ${groupId}`);
-    return successCount;
+/**
+ * Waits one frame (16ms) for the browser to paint.
+ *
+ * This is used to yield control back to the browser between chart renders, so each chart appears
+ * progressively rather than all at once.
+ */
+function waitForPaint() {
+    return new Promise(resolve => setTimeout(resolve, 16));
 }
 
 // ============================================================================
@@ -789,62 +1105,87 @@ async function main() {
         // Register the vertical line plugin once.
         Chart.register(createVerticalLinePlugin());
 
-        // Load WASM module.
-        const wasm = await loadWasmModule();
+        // Step 1: Create all group containers immediately from JS config.
+        // This happens BEFORE loading any data so users see the UI instantly.
+        const container = document.getElementById("benchmarks-container");
+        if (!container) {
+            throw new Error("Benchmarks container not found");
+        }
 
-        // Load summary (fast - metadata only).
+        let groupsHTML = '';
+        const allGroups = Object.entries(BENCHMARK_GROUPS);
+        for (const [groupId, groupConfig] of allGroups) {
+            groupsHTML += createGroupHTML(groupId, groupConfig);
+        }
+        container.innerHTML = groupsHTML;
+
+        // Step 2: Create all chart placeholders (HTML structure).
+        for (const [groupId, groupConfig] of allGroups) {
+            createChartPlaceholders(groupId, groupConfig);
+        }
+
+        // Step 3: Create empty Chart.js instances (visible charts with no data).
+        for (const [groupId, groupConfig] of allGroups) {
+            createEmptyCharts(groupId, groupConfig);
+        }
+
+        // Step 4: Set up collapsible behavior.
+        setupCollapsibleBenchmarks();
+
+        // Step 5: Show status - UI is ready, data loading in background.
+        const totalCharts = allGroups.reduce((n, [_, c]) => n + c.charts.length, 0);
+        setStatus(`Loading ${totalCharts} charts...`, "loading");
+
+        // Step 6: Yield to browser to paint the UI before loading data.
+        await waitForPaint();
+
+        // Step 7: NOW load WASM and data (charts already visible).
+        const wasm = await loadWasmModule();
         const summary = await loadBenchmarkSummary(wasm);
 
         console.log("Available groups from server:", Object.keys(summary.groups));
         console.log("Configured groups:", Object.keys(BENCHMARK_GROUPS));
 
-        // Get the container for all groups.
-        const container = document.getElementById("benchmarks-container");
-        if (!container) {
-            throw new Error("Benchmarks container not found");
-        }
-        console.log("Found container:", container);
-
-        // Step 1: Create all group containers immediately.
-        let groupsHTML = '';
-        const activeGroups = [];
-        for (const [groupId, groupConfig] of Object.entries(BENCHMARK_GROUPS)) {
-            console.log(`Checking group '${groupId}':`, summary.groups[groupId] ? "found" : "NOT FOUND");
-            if (summary.groups[groupId]) {
-                groupsHTML += createGroupHTML(groupId, groupConfig);
-                activeGroups.push([groupId, groupConfig]);
-            } else {
+        // Step 8: Filter to groups that exist on server.
+        const activeGroups = allGroups.filter(([groupId]) => {
+            const exists = !!summary.groups[groupId];
+            if (!exists) {
                 console.warn(`Group '${groupId}' not found in server data, skipping`);
             }
-        }
-        console.log("Active groups:", activeGroups.map(g => g[0]));
-        console.log("Groups HTML length:", groupsHTML.length);
-        container.innerHTML = groupsHTML;
+            return exists;
+        });
 
-        // Step 2: Create all chart placeholders immediately.
+        // Step 9: Update charts with data one by one (strictly sequential).
+        // Charts are already visible (empty), now we fill in the data.
+        let loadedCharts = 0;
         for (const [groupId, groupConfig] of activeGroups) {
-            createChartPlaceholders(groupId, groupConfig);
+            const statusEl = document.getElementById(`${groupId}-status`);
+            const groupTotal = groupConfig.charts.length;
+            let groupLoaded = 0;
+
+            for (const chartName of groupConfig.charts) {
+                const success = await renderChart(wasm, groupId, chartName, groupConfig, summary.commits);
+                if (success) {
+                    groupLoaded++;
+                    loadedCharts++;
+                }
+
+                // Update group status.
+                if (statusEl) {
+                    statusEl.textContent = `${groupLoaded}/${groupTotal} charts`;
+                }
+
+                // Wait for browser to paint before rendering next chart.
+                await waitForPaint();
+            }
+
+            // Render group summary after all charts are loaded.
+            renderGroupSummary(groupId, groupConfig);
+
+            console.log(`Rendered ${groupLoaded}/${groupTotal} charts in ${groupId}`);
         }
 
-        // Step 3: Set up collapsible behavior.
-        setupCollapsibleBenchmarks();
-
-        // Step 4: Show status - UI is ready, data loading in background.
-        setStatus(`Loading ${activeGroups.reduce((n, [_, c]) => n + c.charts.length, 0)} charts...`, "loading");
-
-        // Step 5: Yield to browser to paint the UI before loading data.
-        await new Promise(resolve => setTimeout(resolve, 0));
-
-        // Step 6: Load chart data in background.
-        // Load groups in parallel, charts within each group sequentially.
-        const loadPromises = activeGroups.map(([groupId, groupConfig]) =>
-            loadGroupCharts(wasm, groupId, groupConfig, summary.commits)
-        );
-
-        // Wait for all to complete and update status.
-        const results = await Promise.all(loadPromises);
-        const totalCharts = results.reduce((a, b) => a + b, 0);
-        setStatus(`Loaded ${totalCharts} charts across ${activeGroups.length} groups`, "success");
+        setStatus(`Loaded ${loadedCharts} charts across ${activeGroups.length} groups`, "success");
 
     } catch (error) {
         console.error("Error:", error);
