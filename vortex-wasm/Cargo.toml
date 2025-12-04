@@ -21,7 +21,6 @@ default = ["native"]
 # Native feature for binaries: includes tokio runtime and file system dependencies.
 native = [
     "dep:async-fs",
-    "dep:serde_json",
     "dep:tempfile",
     "dep:tokio",
     "dep:tracing",
@@ -35,6 +34,7 @@ futures = { workspace = true }
 hex = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 serde-wasm-bindgen = "0.6"
 vortex = { workspace = true }
 wasm-bindgen = "0.2"
@@ -55,7 +55,6 @@ vortex-session = { workspace = true }
 
 # Native-only dependencies (for binaries).
 async-fs = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["full"], optional = true }
 tracing = { workspace = true, optional = true }

@@ -18,6 +18,8 @@ mod wasm_bindings {
     use wasm_bindgen::prelude::*;
 
     use crate::website::read_s3::get_benchmark_data;
+    use crate::website::read_s3::get_benchmark_summary;
+    use crate::website::read_s3::get_chart_data;
     use crate::website::read_s3::read_benchmark_entries;
 
     const DATA_KEY: &str = "data.vortex";
@@ -81,7 +83,7 @@ mod wasm_bindings {
             .map_err(|e| JsValue::from_str(&format!("Failed to serialize: {}", e)))
     }
 
-    /// Load all benchmark data from S3.
+    /// Load all benchmark data from S3 (legacy, slow - use load_benchmark_summary instead).
     ///
     /// This function fetches the commits and benchmark data Vortex files from S3, parses them,
     /// aligns the data to commits, and returns a structured response.
@@ -107,6 +109,66 @@ mod wasm_bindings {
         log!("Benchmark data loaded successfully");
 
         Ok(result)
+    }
+
+    /// Load benchmark summary (metadata only, fast).
+    ///
+    /// This function fetches data from S3 (cached after first call), processes it, and returns
+    /// a summary containing:
+    /// - `commits`: Array of commit objects
+    /// - `groups`: Object mapping group names to chart metadata (no values)
+    ///
+    /// Use this for fast initial load, then call `load_chart_data` for specific charts.
+    ///
+    /// # Returns
+    ///
+    /// A JSON string that must be parsed with `JSON.parse()` in JavaScript.
+    #[wasm_bindgen]
+    pub async fn load_benchmark_summary() -> Result<String, JsValue> {
+        log!("Loading benchmark summary...");
+
+        let session = VortexSession::default().with_handle(WasmRuntime::handle());
+
+        let json = get_benchmark_summary(&session, COMMITS_KEY, DATA_KEY)
+            .await
+            .map_err(|e| JsValue::from_str(&format!("Failed to load benchmark summary: {}", e)))?;
+
+        log!("Benchmark summary loaded successfully");
+
+        Ok(json)
+    }
+
+    /// Load chart data for a specific group and chart.
+    ///
+    /// This function returns the aligned series data for a single chart. Data is cached after
+    /// the first call to any load function, so subsequent calls are fast.
+    ///
+    /// # Arguments
+    ///
+    /// * `group` - The group name (e.g., "random-access", "tpch")
+    /// * `chart` - The chart name within the group (e.g., "latency", "q1-sf1000-nvme")
+    ///
+    /// # Returns
+    ///
+    /// A JSON string containing `{ aligned_series: { series_name: [values...] } }`.
+    /// Values are in nanoseconds (u64). Parse with `JSON.parse()` in JavaScript.
+    #[wasm_bindgen]
+    pub async fn load_chart_data(group: &str, chart: &str) -> Result<String, JsValue> {
+        log!(
+            "Loading chart data for group='{}', chart='{}'...",
+            group,
+            chart
+        );
+
+        let session = VortexSession::default().with_handle(WasmRuntime::handle());
+
+        let json = get_chart_data(&session, COMMITS_KEY, DATA_KEY, group, chart)
+            .await
+            .map_err(|e| JsValue::from_str(&format!("Failed to load chart data: {}", e)))?;
+
+        log!("Chart data loaded successfully");
+
+        Ok(json)
     }
 
     /// Initialize the WASM module.

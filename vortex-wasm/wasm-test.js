@@ -14,8 +14,8 @@ const CHART_CONFIG = {
     githubRepo: "https://github.com/spiraldb/vortex",
 
     // Which group and chart to display.
-    targetGroup: "random-access",
-    targetChart: "latency",
+    targetGroup: "clickbench",
+    targetChart: "q1",
 
     // Series configuration.
     seriesNames: ["vortex", "parquet", "lance"],
@@ -89,16 +89,35 @@ async function loadWasmModule() {
 }
 
 /**
- * Loads all benchmark data from WASM (benchmarks + commits).
+ * Loads benchmark summary from WASM (commits + group/chart metadata, no values).
+ * This is fast because it doesn't include the large series data.
  *
  * @param {Object} wasm - The WASM module.
- * @returns {Promise<Object>} Object with benchmarks and commits.
+ * @returns {Promise<Object>} Object with commits and groups metadata.
  */
-async function loadBenchmarkData(wasm) {
-    setStatus("Loading benchmark data from Vortex files via WASM...");
-    const data = await wasm.load_benchmark_data();
-    console.log(`Loaded benchmark data with ${data.commits.length} commits`);
-    return data;
+async function loadBenchmarkSummary(wasm) {
+    setStatus("Loading benchmark summary...");
+    const json = await wasm.load_benchmark_summary();
+    const summary = JSON.parse(json);
+    console.log(`Loaded summary with ${summary.commits.length} commits, ${Object.keys(summary.groups).length} groups`);
+    return summary;
+}
+
+/**
+ * Loads chart data for a specific group and chart.
+ * This is called lazily when a chart needs to be displayed.
+ *
+ * @param {Object} wasm - The WASM module.
+ * @param {string} group - The group name.
+ * @param {string} chart - The chart name.
+ * @returns {Promise<Object>} Object with aligned_series data.
+ */
+async function loadChartData(wasm, group, chart) {
+    setStatus(`Loading chart data for ${group}/${chart}...`);
+    const json = await wasm.load_chart_data(group, chart);
+    const chartData = JSON.parse(json);
+    console.log(`Loaded chart data for ${group}/${chart}`);
+    return chartData;
 }
 
 // ============================================================================
@@ -106,29 +125,17 @@ async function loadBenchmarkData(wasm) {
 // ============================================================================
 
 /**
- * Processes benchmark data into chart-ready format.
+ * Processes chart data into chart-ready format.
  *
- * @param {Object} data - The data object from WASM with benchmarks and commits.
+ * @param {Object} chartData - The chart data from load_chart_data (has aligned_series).
+ * @param {Array} commits - The commits array from the summary.
  * @returns {Object} Object containing seriesData and chartCommits.
  */
-function processChartData(data) {
-    const { benchmarks, commits } = data;
+function processChartData(chartData, commits) {
+    const alignedSeries = chartData.aligned_series;
 
-    // Get the target group and chart (using Map.get() since HashMap serializes to Map).
-    const group = benchmarks.get(CHART_CONFIG.targetGroup);
-    if (!group) {
-        throw new Error(`Group '${CHART_CONFIG.targetGroup}' not found. Available: ${[...benchmarks.keys()].join(', ')}`);
-    }
-
-    const chart = group.charts.get(CHART_CONFIG.targetChart);
-    if (!chart) {
-        throw new Error(`Chart '${CHART_CONFIG.targetChart}' not found in group '${CHART_CONFIG.targetGroup}'. Available: ${[...group.charts.keys()].join(', ')}`);
-    }
-
-    const alignedSeries = chart.aligned_series;
-
-    // Log available series names.
-    console.log("Available series:", [...alignedSeries.keys()]);
+    // Log available series names (now a plain object, not a Map).
+    console.log("Available series:", Object.keys(alignedSeries));
 
     // Convert commits to chart-friendly format with URLs and short IDs.
     const processedCommits = commits.map((commit, index) => ({
@@ -144,10 +151,10 @@ function processChartData(data) {
     // Convert series data from nanoseconds to milliseconds.
     const seriesData = new Map();
     for (const name of CHART_CONFIG.seriesNames) {
-        const rawData = alignedSeries.get(name);
+        const rawData = alignedSeries[name];
         if (rawData) {
             // Convert nanoseconds to milliseconds, preserving nulls.
-            // Note: u64 from Rust may be BigInt in JS, so convert to Number first.
+            // Note: u64 from Rust may be BigInt in JS via JSON, so convert to Number first.
             const msData = rawData.map(v => v !== null ? { value: Number(v) / 1_000_000 } : null);
             seriesData.set(name, msData);
         } else {
@@ -724,23 +731,35 @@ function initializeTimelineControls(chartInstance, chartCommits) {
  */
 async function main() {
     try {
-        // Load data from WASM (benchmarks + commits in one call).
+        // Step 1: Load WASM module.
         const wasm = await loadWasmModule();
-        const data = await loadBenchmarkData(wasm);
 
-        // Process data for the target group/chart.
-        const { seriesData, chartCommits } = processChartData(data);
-        const summary = calculateSummary(seriesData);
+        // Step 2: Load summary (fast - metadata only, no series values).
+        const summary = await loadBenchmarkSummary(wasm);
+
+        // Log available groups and charts.
+        console.log("Available groups:", Object.keys(summary.groups));
+        const targetGroupInfo = summary.groups[CHART_CONFIG.targetGroup];
+        if (targetGroupInfo) {
+            console.log(`Charts in '${CHART_CONFIG.targetGroup}':`, Object.keys(targetGroupInfo.charts));
+        }
+
+        // Step 3: Load chart data for the target group/chart (lazy).
+        const chartData = await loadChartData(wasm, CHART_CONFIG.targetGroup, CHART_CONFIG.targetChart);
+
+        // Step 4: Process and render.
+        const { seriesData, chartCommits } = processChartData(chartData, summary.commits);
+        const summaryStats = calculateSummary(seriesData);
 
         // Render UI.
-        renderSummary(summary);
+        renderSummary(summaryStats);
         const chartInstance = createChart(chartCommits, seriesData);
         initializeTimelineControls(chartInstance, chartCommits);
 
         // Set up collapsible behavior.
         setupCollapsibleBenchmarks();
 
-        setStatus(`Loaded ${data.commits.length} commits, showing ${chartCommits.length} with data`, "success");
+        setStatus(`Loaded ${summary.commits.length} commits, showing ${chartCommits.length} with data`, "success");
 
     } catch (error) {
         console.error("Error:", error);
