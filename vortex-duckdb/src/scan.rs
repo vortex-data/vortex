@@ -43,8 +43,9 @@ use vortex::file::VortexOpenOptions;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::ThreadSafeIterator;
 
-use crate::RUNTIME;
 use crate::SESSION;
+use crate::blocking_runtime;
+use crate::runtime_handle;
 use crate::convert::try_from_bound_expression;
 use crate::convert::try_from_table_filter;
 use crate::duckdb;
@@ -274,9 +275,8 @@ impl TableFunction for VortexTableFunction {
 
         log::trace!("running scan with max_threads {max_threads}");
 
-        let (file_urls, _metadata) = RUNTIME.block_on(Compat::new(expand_glob(
-            file_glob_string.as_ref().as_string(),
-        )))?;
+        let (file_urls, _metadata) = blocking_runtime()
+            .block_on(Compat::new(expand_glob(file_glob_string.as_ref().as_string())))?;
 
         // The first file is skipped in `create_file_paths_queue`.
         let Some(first_file_url) = file_urls.first() else {
@@ -285,7 +285,7 @@ impl TableFunction for VortexTableFunction {
 
         let footer_cache = FooterCache::new(ctx.object_cache());
         let entry = footer_cache.entry(first_file_url.as_ref());
-        let first_file = RUNTIME.block_on(async move {
+        let first_file = blocking_runtime().block_on(async move {
             let options = entry.apply_to_file(SESSION.open_options());
             let file = open_file(first_file_url.clone(), options).await?;
             entry.put_if_absent(|| file.footer().clone());
@@ -373,7 +373,8 @@ impl TableFunction for VortexTableFunction {
         let client_context = init_input.client_context()?;
         let object_cache = client_context.object_cache();
 
-        let handle = RUNTIME.handle();
+        let scan_handle = runtime_handle();
+        let handle = scan_handle.clone();
         let first_file = bind_data.first_file.clone();
         let scan_streams = stream::iter(bind_data.file_urls.clone())
             .enumerate()
@@ -423,7 +424,7 @@ impl TableFunction for VortexTableFunction {
             .filter_map(|result| async move { result.transpose() });
 
         Ok(VortexGlobalData {
-            iterator: RUNTIME.block_on_stream_thread_safe(move |_| MultiScan {
+            iterator: blocking_runtime().block_on_stream_thread_safe(move |_| MultiScan {
                 streams: scan_streams.boxed(),
                 streams_finished: false,
                 select_all: Default::default(),

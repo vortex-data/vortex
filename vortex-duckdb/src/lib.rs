@@ -6,12 +6,15 @@
 use std::ffi::CStr;
 use std::ffi::c_char;
 use std::sync::LazyLock;
+use std::sync::OnceLock;
 
 use vortex::VortexSessionDefault;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::io::runtime::BlockingRuntime;
+use vortex::io::runtime::Handle;
 use vortex::io::runtime::current::CurrentThreadRuntime;
+pub use vortex::io::runtime::current::CurrentThreadRuntime as DuckdbDefaultRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 
@@ -40,9 +43,35 @@ mod copy;
 mod e2e_test;
 
 // A global runtime for Vortex operations within DuckDB.
-static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_handle(RUNTIME.handle()));
+static DEFAULT_RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
+static RUNTIME_OVERRIDE: OnceLock<Handle> = OnceLock::new();
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let handle = RUNTIME_OVERRIDE
+        .get()
+        .cloned()
+        .unwrap_or_else(|| DEFAULT_RUNTIME.handle());
+    VortexSession::default().with_handle(handle)
+});
+
+/// Configure the runtime handle used by the DuckDB extension.
+///
+/// Must be called before the session is first accessed (e.g., before registering table functions).
+pub fn configure_runtime(handle: Handle) {
+    drop(RUNTIME_OVERRIDE.set(handle));
+}
+
+/// Returns the effective runtime handle used by the DuckDB extension.
+pub fn runtime_handle() -> Handle {
+    RUNTIME_OVERRIDE
+        .get()
+        .cloned()
+        .unwrap_or_else(|| DEFAULT_RUNTIME.handle())
+}
+
+/// Returns the blocking runtime used for synchronous work.
+pub fn blocking_runtime() -> &'static CurrentThreadRuntime {
+    &DEFAULT_RUNTIME
+}
 
 /// Register Vortex extension configuration options with DuckDB.
 /// This must be called before `register_table_functions` to take effect.

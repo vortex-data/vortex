@@ -25,7 +25,6 @@ use vortex::io::runtime::Task;
 use vortex::io::runtime::current::CurrentThreadWorkerPool;
 use vortex::io::session::RuntimeSessionExt;
 
-use crate::RUNTIME;
 use crate::SESSION;
 use crate::convert::data_chunk_to_vortex;
 use crate::convert::from_duckdb_table;
@@ -53,7 +52,7 @@ pub struct GlobalState {
     // Note that this is optional and without it, we would only drive the task when DuckDB calls
     // into us, and we call `RUNTIME.block_on`.
     #[allow(dead_code)]
-    worker_pool: CurrentThreadWorkerPool,
+    worker_pool: Option<CurrentThreadWorkerPool>,
 }
 
 impl CopyFunction for VortexCopyFunction {
@@ -86,7 +85,7 @@ impl CopyFunction for VortexCopyFunction {
         chunk: &mut DataChunk,
     ) -> VortexResult<()> {
         let chunk = data_chunk_to_vortex(bind_data.fields.names(), chunk);
-        RUNTIME.block_on(async {
+        crate::blocking_runtime().block_on(async {
             init_global
                 .sink
                 .as_mut()
@@ -103,7 +102,7 @@ impl CopyFunction for VortexCopyFunction {
         _bind_data: &Self::BindData,
         init_global: &mut Self::GlobalState,
     ) -> VortexResult<()> {
-        RUNTIME.block_on(async {
+        crate::blocking_runtime().block_on(async {
             if let Some(sink) = init_global.sink.take() {
                 drop(sink)
             }
@@ -131,11 +130,8 @@ impl CopyFunction for VortexCopyFunction {
             SESSION.write_options().write(&mut file, array_stream).await
         });
 
-        let worker_pool = RUNTIME.new_pool();
-        worker_pool.set_workers_to_available_parallelism();
-
         Ok(GlobalState {
-            worker_pool,
+            worker_pool: None,
             write_task: Mutex::new(Some(writer)),
             sink: Some(sink),
         })
