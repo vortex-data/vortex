@@ -14,6 +14,65 @@ const CONFIG = {
 };
 
 /**
+ * Centralized series colors. Each series name maps to its display color.
+ */
+const SERIES_COLORS = {
+  // Simple series names (random-access).
+  vortex: "#101010",
+  parquet: "#5DADE2",
+  lance: "#ef7f1d",
+  // DuckDB series.
+  "duckdb:vortex-compact": "#101010",
+  "duckdb:vortex-file-compressed": "#6b7280",
+  "duckdb:parquet": "#5DADE2",
+  "duckdb:duckdb": "#f59e0b",
+  // DataFusion series.
+  "datafusion:vortex-compact": "#059669",
+  "datafusion:vortex-file-compressed": "#10b981",
+  "datafusion:parquet": "#8b5cf6",
+  "datafusion:lance": "#ef7f1d",
+};
+
+/**
+ * Generates an array of chart names following a pattern.
+ *
+ * @param {string} prefix - Prefix before the number (e.g., "q").
+ * @param {string} suffix - Suffix after the number (e.g., "-sf1-nvme").
+ * @param {number} start - Starting number (inclusive).
+ * @param {number} end - Ending number (inclusive).
+ * @param {number} [pad=2] - Number of digits to pad to.
+ * @returns {string[]} Array of chart names.
+ */
+function generateCharts(prefix, suffix, start, end, pad = 2) {
+  return Array.from(
+    { length: end - start + 1 },
+    (_, i) => `${prefix}${String(start + i).padStart(pad, "0")}${suffix}`,
+  );
+}
+
+// Common series name sets for reuse.
+const SERIES_DUCKDB_ONLY = [
+  "duckdb:parquet",
+  "duckdb:vortex-compact",
+  "duckdb:vortex-file-compressed",
+];
+
+const SERIES_DUCKDB_DATAFUSION = [
+  "duckdb:vortex-compact",
+  "duckdb:vortex-file-compressed",
+  "duckdb:parquet",
+  "duckdb:duckdb",
+  "datafusion:vortex-compact",
+  "datafusion:vortex-file-compressed",
+  "datafusion:parquet",
+];
+
+const SERIES_DUCKDB_DATAFUSION_LANCE = [
+  ...SERIES_DUCKDB_DATAFUSION,
+  "datafusion:lance",
+];
+
+/**
  * Benchmark group configurations. Each group contains multiple charts.
  */
 const BENCHMARK_GROUPS = {
@@ -21,227 +80,21 @@ const BENCHMARK_GROUPS = {
     title: "Random Access",
     charts: ["latency"],
     seriesNames: ["vortex", "parquet", "lance"],
-    seriesColors: {
-      vortex: "#101010",
-      parquet: "#5DADE2",
-      lance: "#ef7f1d",
-    },
   },
   clickbench: {
     title: "ClickBench",
-    charts: [
-      "q00-nvme",
-      "q01-nvme",
-      "q02-nvme",
-      "q03-nvme",
-      "q04-nvme",
-      "q05-nvme",
-      "q06-nvme",
-      "q07-nvme",
-      "q08-nvme",
-      "q09-nvme",
-      "q10-nvme",
-      "q11-nvme",
-      "q12-nvme",
-      "q13-nvme",
-      "q14-nvme",
-      "q15-nvme",
-      "q16-nvme",
-      "q17-nvme",
-      "q18-nvme",
-      "q19-nvme",
-      "q20-nvme",
-      "q21-nvme",
-      "q22-nvme",
-      "q23-nvme",
-      "q24-nvme",
-      "q25-nvme",
-      "q26-nvme",
-      "q27-nvme",
-      "q28-nvme",
-      "q29-nvme",
-      "q30-nvme",
-      "q31-nvme",
-      "q32-nvme",
-      "q33-nvme",
-      "q34-nvme",
-      "q35-nvme",
-      "q36-nvme",
-      "q37-nvme",
-      "q38-nvme",
-      "q39-nvme",
-      "q40-nvme",
-      "q41-nvme",
-      "q42-nvme",
-    ],
-    seriesNames: [
-      "duckdb:vortex-compact",
-      "duckdb:vortex-file-compressed",
-      "duckdb:parquet",
-      "duckdb:duckdb",
-      "datafusion:vortex-compact",
-      "datafusion:vortex-file-compressed",
-      "datafusion:parquet",
-      "datafusion:lance",
-    ],
-    seriesColors: {
-      "duckdb:vortex-compact": "#101010",
-      "duckdb:vortex-file-compressed": "#6b7280",
-      "duckdb:parquet": "#5DADE2",
-      "duckdb:duckdb": "#f59e0b",
-      "datafusion:vortex-compact": "#059669",
-      "datafusion:vortex-file-compressed": "#10b981",
-      "datafusion:parquet": "#8b5cf6",
-      "datafusion:lance": "#ef7f1d",
-    },
+    charts: generateCharts("q", "-nvme", 0, 42),
+    seriesNames: SERIES_DUCKDB_DATAFUSION_LANCE,
   },
   statpopgen: {
     title: "Statistical and Population Genetics",
-    charts: [
-      "q00-rows100000-nvme",
-      "q01-rows100000-nvme",
-      "q02-rows100000-nvme",
-      "q03-rows100000-nvme",
-      "q04-rows100000-nvme",
-      "q05-rows100000-nvme",
-      "q06-rows100000-nvme",
-      "q07-rows100000-nvme",
-      "q08-rows100000-nvme",
-      "q09-rows100000-nvme",
-      "q10-rows100000-nvme",
-    ],
-    seriesNames: [
-      "duckdb:parquet",
-      "duckdb:vortex-compact",
-      "duckdb:vortex-file-compressed",
-    ],
-    seriesColors: {
-      "duckdb:parquet": "#5DADE2",
-      "duckdb:vortex-compact": "#101010",
-      "duckdb:vortex-file-compressed": "#6b7280",
-    },
+    charts: generateCharts("q", "-rows100000-nvme", 0, 10),
+    seriesNames: SERIES_DUCKDB_ONLY,
   },
   tpcds: {
     title: "TPC-DS",
-    charts: [
-      "q01-sf1-nvme",
-      "q02-sf1-nvme",
-      "q03-sf1-nvme",
-      "q04-sf1-nvme",
-      "q05-sf1-nvme",
-      "q06-sf1-nvme",
-      "q07-sf1-nvme",
-      "q08-sf1-nvme",
-      "q09-sf1-nvme",
-      "q10-sf1-nvme",
-      "q11-sf1-nvme",
-      "q12-sf1-nvme",
-      "q13-sf1-nvme",
-      "q14-sf1-nvme",
-      "q15-sf1-nvme",
-      "q16-sf1-nvme",
-      "q17-sf1-nvme",
-      "q18-sf1-nvme",
-      "q19-sf1-nvme",
-      "q20-sf1-nvme",
-      "q21-sf1-nvme",
-      "q22-sf1-nvme",
-      "q23-sf1-nvme",
-      "q24-sf1-nvme",
-      "q25-sf1-nvme",
-      "q26-sf1-nvme",
-      "q27-sf1-nvme",
-      "q28-sf1-nvme",
-      "q29-sf1-nvme",
-      "q30-sf1-nvme",
-      "q31-sf1-nvme",
-      "q32-sf1-nvme",
-      "q33-sf1-nvme",
-      "q34-sf1-nvme",
-      "q35-sf1-nvme",
-      "q36-sf1-nvme",
-      "q37-sf1-nvme",
-      "q38-sf1-nvme",
-      "q39-sf1-nvme",
-      "q40-sf1-nvme",
-      "q41-sf1-nvme",
-      "q42-sf1-nvme",
-      "q43-sf1-nvme",
-      "q44-sf1-nvme",
-      "q45-sf1-nvme",
-      "q46-sf1-nvme",
-      "q47-sf1-nvme",
-      "q48-sf1-nvme",
-      "q49-sf1-nvme",
-      "q50-sf1-nvme",
-      "q51-sf1-nvme",
-      "q52-sf1-nvme",
-      "q53-sf1-nvme",
-      "q54-sf1-nvme",
-      "q55-sf1-nvme",
-      "q56-sf1-nvme",
-      "q57-sf1-nvme",
-      "q58-sf1-nvme",
-      "q59-sf1-nvme",
-      "q60-sf1-nvme",
-      "q61-sf1-nvme",
-      "q62-sf1-nvme",
-      "q63-sf1-nvme",
-      "q64-sf1-nvme",
-      "q65-sf1-nvme",
-      "q66-sf1-nvme",
-      "q67-sf1-nvme",
-      "q68-sf1-nvme",
-      "q69-sf1-nvme",
-      "q70-sf1-nvme",
-      "q71-sf1-nvme",
-      "q72-sf1-nvme",
-      "q73-sf1-nvme",
-      "q74-sf1-nvme",
-      "q75-sf1-nvme",
-      "q76-sf1-nvme",
-      "q77-sf1-nvme",
-      "q78-sf1-nvme",
-      "q79-sf1-nvme",
-      "q80-sf1-nvme",
-      "q81-sf1-nvme",
-      "q82-sf1-nvme",
-      "q83-sf1-nvme",
-      "q84-sf1-nvme",
-      "q85-sf1-nvme",
-      "q86-sf1-nvme",
-      "q87-sf1-nvme",
-      "q88-sf1-nvme",
-      "q89-sf1-nvme",
-      "q90-sf1-nvme",
-      "q91-sf1-nvme",
-      "q92-sf1-nvme",
-      "q93-sf1-nvme",
-      "q94-sf1-nvme",
-      "q95-sf1-nvme",
-      "q96-sf1-nvme",
-      "q97-sf1-nvme",
-      "q98-sf1-nvme",
-      "q99-sf1-nvme",
-    ],
-    seriesNames: [
-      "datafusion:parquet",
-      "datafusion:vortex-compact",
-      "datafusion:vortex-file-compressed",
-      "duckdb:duckdb",
-      "duckdb:parquet",
-      "duckdb:vortex-compact",
-      "duckdb:vortex-file-compressed",
-    ],
-    seriesColors: {
-      "datafusion:parquet": "#8b5cf6",
-      "datafusion:vortex-compact": "#059669",
-      "datafusion:vortex-file-compressed": "#10b981",
-      "duckdb:duckdb": "#f59e0b",
-      "duckdb:parquet": "#5DADE2",
-      "duckdb:vortex-compact": "#101010",
-      "duckdb:vortex-file-compressed": "#6b7280",
-    },
+    charts: generateCharts("q", "-sf1-nvme", 1, 99),
+    seriesNames: SERIES_DUCKDB_DATAFUSION,
   },
 };
 
@@ -634,7 +487,7 @@ function renderGroupSummary(groupId, groupConfig) {
       item.className = "score-item";
       item.innerHTML = `
                 <span class="score-rank">#${index + 1}</span>
-                <span class="score-series" style="color: ${groupConfig.seriesColors[result.name]}">${result.name}</span>
+                <span class="score-series" style="color: ${SERIES_COLORS[result.name]}">${result.name}</span>
                 <div class="score-metrics">
                     <span class="score-runtime">${result.score.toFixed(2)}x</span>
                     <span class="score-ratio">${formatTime(result.total)}</span>
@@ -654,7 +507,7 @@ function renderGroupSummary(groupId, groupConfig) {
       item.className = "score-item";
       item.innerHTML = `
                 <span class="score-rank">#${index + 1}</span>
-                <span class="score-series" style="color: ${groupConfig.seriesColors[result.name]}">${result.name}</span>
+                <span class="score-series" style="color: ${SERIES_COLORS[result.name]}">${result.name}</span>
                 <div class="score-metrics">
                     <span class="score-runtime">${formatTime(result.time)}</span>
                     <span class="score-ratio">${result.ratio.toFixed(2)}x</span>
@@ -705,15 +558,18 @@ function setupCollapsibleBenchmarks() {
 
 /**
  * Creates Chart.js datasets from series data.
+ *
+ * @param {Map<string, Array>|null} seriesData - Series data map, or null for empty datasets.
+ * @param {Object} groupConfig - Group configuration with seriesNames.
  */
 function createDatasets(seriesData, groupConfig) {
   return groupConfig.seriesNames.map((name) => {
-    const data = seriesData.get(name);
+    const rawData = seriesData?.get(name);
     return {
       label: name,
-      data: data ? data.map((d) => d?.value ?? null) : [],
-      borderColor: groupConfig.seriesColors[name],
-      backgroundColor: groupConfig.seriesColors[name],
+      data: rawData ? rawData.map((d) => d?.value ?? null) : [],
+      borderColor: SERIES_COLORS[name],
+      backgroundColor: SERIES_COLORS[name],
       borderWidth: 1.5,
       borderJoinStyle: "round",
       pointRadius: 2,
@@ -721,23 +577,6 @@ function createDatasets(seriesData, groupConfig) {
       spanGaps: true,
     };
   });
-}
-
-/**
- * Creates empty Chart.js datasets (structure only, no data).
- */
-function createEmptyDatasets(groupConfig) {
-  return groupConfig.seriesNames.map((name) => ({
-    label: name,
-    data: [],
-    borderColor: groupConfig.seriesColors[name],
-    backgroundColor: groupConfig.seriesColors[name],
-    borderWidth: 1.5,
-    borderJoinStyle: "round",
-    pointRadius: 2,
-    tension: 0,
-    spanGaps: true,
-  }));
 }
 
 // ============================================================================
@@ -1214,7 +1053,7 @@ function createEmptyChart(groupId, chartName, groupConfig) {
   if (!canvas) return null;
 
   const ctx = canvas.getContext("2d");
-  const datasets = createEmptyDatasets(groupConfig);
+  const datasets = createDatasets(null, groupConfig);
 
   const chart = new Chart(ctx, {
     type: "line",
@@ -1342,55 +1181,102 @@ function waitForPaint() {
 // ============================================================================
 
 /**
- * Main function that orchestrates the entire benchmark page initialization.
+ * Initializes the UI with group containers and empty charts.
+ *
+ * This happens before loading any data so users see the UI instantly.
+ *
+ * @returns {Array<[string, Object]>} Array of [groupId, groupConfig] entries.
+ */
+function initializeUI() {
+  Chart.register(createVerticalLinePlugin());
+
+  const container = document.getElementById("benchmarks-container");
+  if (!container) {
+    throw new Error("Benchmarks container not found");
+  }
+
+  const allGroups = Object.entries(BENCHMARK_GROUPS);
+
+  // Create group containers.
+  container.innerHTML = allGroups
+    .map(([groupId, groupConfig]) => createGroupHTML(groupId, groupConfig))
+    .join("");
+
+  // Create chart placeholders and empty Chart.js instances.
+  for (const [groupId, groupConfig] of allGroups) {
+    createChartPlaceholders(groupId, groupConfig);
+    createEmptyCharts(groupId, groupConfig);
+  }
+
+  setupCollapsibleBenchmarks();
+
+  return allGroups;
+}
+
+/**
+ * Renders all charts with data from the server.
+ *
+ * @param {Object} wasm - WASM module.
+ * @param {Array<[string, Object]>} activeGroups - Groups to render.
+ * @param {Object} summary - Benchmark summary with commits.
+ * @returns {Promise<number>} Number of successfully loaded charts.
+ */
+async function renderAllCharts(wasm, activeGroups, summary) {
+  let loadedCharts = 0;
+
+  for (const [groupId, groupConfig] of activeGroups) {
+    const statusEl = document.getElementById(`${groupId}-status`);
+    const groupTotal = groupConfig.charts.length;
+    let groupLoaded = 0;
+
+    for (const chartName of groupConfig.charts) {
+      const success = await renderChart(
+        wasm,
+        groupId,
+        chartName,
+        groupConfig,
+        summary.commits,
+      );
+      if (success) {
+        groupLoaded++;
+        loadedCharts++;
+      }
+
+      if (statusEl) {
+        statusEl.textContent = `${groupLoaded}/${groupTotal} charts`;
+      }
+
+      await waitForPaint();
+    }
+
+    renderGroupSummary(groupId, groupConfig);
+    console.log(`Rendered ${groupLoaded}/${groupTotal} charts in ${groupId}`);
+  }
+
+  return loadedCharts;
+}
+
+/**
+ * Main function that orchestrates the benchmark page initialization.
  */
 async function main() {
   try {
-    // Register the vertical line plugin once.
-    Chart.register(createVerticalLinePlugin());
+    // Initialize UI (instant, no data loading).
+    const allGroups = initializeUI();
 
-    // Step 1: Create all group containers immediately from JS config.
-    // This happens BEFORE loading any data so users see the UI instantly.
-    const container = document.getElementById("benchmarks-container");
-    if (!container) {
-      throw new Error("Benchmarks container not found");
-    }
-
-    let groupsHTML = "";
-    const allGroups = Object.entries(BENCHMARK_GROUPS);
-    for (const [groupId, groupConfig] of allGroups) {
-      groupsHTML += createGroupHTML(groupId, groupConfig);
-    }
-    container.innerHTML = groupsHTML;
-
-    // Step 2: Create all chart placeholders (HTML structure).
-    for (const [groupId, groupConfig] of allGroups) {
-      createChartPlaceholders(groupId, groupConfig);
-    }
-
-    // Step 3: Create empty Chart.js instances (visible charts with no data).
-    for (const [groupId, groupConfig] of allGroups) {
-      createEmptyCharts(groupId, groupConfig);
-    }
-
-    // Step 4: Set up collapsible behavior.
-    setupCollapsibleBenchmarks();
-
-    // Step 5: Show status - UI is ready, data loading in background.
     const totalCharts = allGroups.reduce((n, [_, c]) => n + c.charts.length, 0);
     setStatus(`Loading ${totalCharts} charts...`, "loading");
 
-    // Step 6: Yield to browser to paint the UI before loading data.
     await waitForPaint();
 
-    // Step 7: NOW load WASM and data (charts already visible).
+    // Load data from server.
     const wasm = await loadWasmModule();
     const summary = await loadBenchmarkSummary(wasm);
 
     console.log("Available groups from server:", Object.keys(summary.groups));
     console.log("Configured groups:", Object.keys(BENCHMARK_GROUPS));
 
-    // Step 8: Filter to groups that exist on server.
+    // Filter to groups that exist on server.
     const activeGroups = allGroups.filter(([groupId]) => {
       const exists = !!summary.groups[groupId];
       if (!exists) {
@@ -1399,41 +1285,8 @@ async function main() {
       return exists;
     });
 
-    // Step 9: Update charts with data one by one (strictly sequential).
-    // Charts are already visible (empty), now we fill in the data.
-    let loadedCharts = 0;
-    for (const [groupId, groupConfig] of activeGroups) {
-      const statusEl = document.getElementById(`${groupId}-status`);
-      const groupTotal = groupConfig.charts.length;
-      let groupLoaded = 0;
-
-      for (const chartName of groupConfig.charts) {
-        const success = await renderChart(
-          wasm,
-          groupId,
-          chartName,
-          groupConfig,
-          summary.commits,
-        );
-        if (success) {
-          groupLoaded++;
-          loadedCharts++;
-        }
-
-        // Update group status.
-        if (statusEl) {
-          statusEl.textContent = `${groupLoaded}/${groupTotal} charts`;
-        }
-
-        // Wait for browser to paint before rendering next chart.
-        await waitForPaint();
-      }
-
-      // Render group summary after all charts are loaded.
-      renderGroupSummary(groupId, groupConfig);
-
-      console.log(`Rendered ${groupLoaded}/${groupTotal} charts in ${groupId}`);
-    }
+    // Render charts with data.
+    const loadedCharts = await renderAllCharts(wasm, activeGroups, summary);
 
     setStatus(
       `Loaded ${loadedCharts} charts across ${activeGroups.length} groups`,
