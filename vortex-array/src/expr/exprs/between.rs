@@ -163,16 +163,16 @@ impl VTable for Between {
         let lower_bound = Binary
             .bind(options.lower_strict.to_operator().into())
             .execute(ExecutionArgs {
-                datums: vec![lower.clone(), arr.clone()],
-                dtypes: vec![lower_dt.clone(), arr_dt.clone()],
+                datums: vec![lower, arr.clone()],
+                dtypes: vec![lower_dt, arr_dt.clone()],
                 row_count: args.row_count,
                 return_dtype: args.return_dtype.clone(),
             })?;
         let upper_bound = Binary
             .bind(options.upper_strict.to_operator().into())
             .execute(ExecutionArgs {
-                datums: vec![arr.clone(), upper.clone()],
-                dtypes: vec![arr_dt.clone(), upper_dt.clone()],
+                datums: vec![arr, upper],
+                dtypes: vec![arr_dt, upper_dt],
                 row_count: args.row_count,
                 return_dtype: args.return_dtype.clone(),
             })?;
@@ -181,7 +181,7 @@ impl VTable for Between {
             datums: vec![lower_bound, upper_bound],
             dtypes: vec![args.return_dtype.clone(), args.return_dtype.clone()],
             row_count: args.row_count,
-            return_dtype: args.return_dtype.clone(),
+            return_dtype: args.return_dtype,
         })
     }
 
