@@ -8,18 +8,18 @@ use std::sync::Arc;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
+use vortex_error::vortex_ensure;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_mask::MaskMut;
 
-use crate::VectorMutOps;
-use crate::VectorOps;
+use crate::binaryview::vector::BinaryViewVector;
+use crate::binaryview::view::validate_views;
+use crate::binaryview::view::BinaryView;
 use crate::binaryview::BinaryViewScalar;
 use crate::binaryview::BinaryViewType;
-use crate::binaryview::vector::BinaryViewVector;
-use crate::binaryview::view::BinaryView;
-use crate::binaryview::view::validate_views;
+use crate::VectorMutOps;
+use crate::VectorOps;
 
 // Default capacity for new string data buffers of 2MiB.
 const BUFFER_CAPACITY: usize = 2 * 1024 * 1024;
@@ -194,9 +194,8 @@ impl<T: BinaryViewType> BinaryViewVectorMut<T> {
         } else {
             self.flush_open_buffer();
 
-            let buffer_index = u32::try_from(self.buffers.len())
-                .vortex_expect("buffer count exceeds u32::MAX")
-                + 1;
+            let buffer_index =
+                u32::try_from(self.buffers.len()).vortex_expect("buffer count exceeds u32::MAX");
             self.views
                 .push_n(BinaryView::make_view(buffer.as_ref(), buffer_index, 0), n);
             self.buffers.push(buffer);
@@ -317,17 +316,17 @@ mod tests {
     use std::ops::Deref;
     use std::sync::Arc;
 
-    use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
     use vortex_buffer::buffer_mut;
+    use vortex_buffer::ByteBuffer;
     use vortex_mask::Mask;
     use vortex_mask::MaskMut;
 
-    use crate::VectorMutOps;
-    use crate::VectorOps;
+    use crate::binaryview::view::BinaryView;
     use crate::binaryview::StringVector;
     use crate::binaryview::StringVectorMut;
-    use crate::binaryview::view::BinaryView;
+    use crate::VectorMutOps;
+    use crate::VectorOps;
 
     #[test]
     fn test_basic() {

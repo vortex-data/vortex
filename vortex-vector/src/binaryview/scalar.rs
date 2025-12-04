@@ -8,6 +8,7 @@ use crate::binaryview::BinaryViewVectorMut;
 use crate::binaryview::StringType;
 use crate::Scalar;
 use crate::ScalarOps;
+use crate::VectorMut;
 use crate::VectorMutOps;
 
 /// A scalar value for types that implement [`BinaryViewType`].
@@ -39,14 +40,11 @@ impl<T: BinaryViewType> ScalarOps for BinaryViewScalar<T> {
         }
     }
 
-    fn repeat(&self, n: usize) -> crate::VectorMut {
+    fn repeat(&self, n: usize) -> VectorMut {
         let mut vec = BinaryViewVectorMut::<T>::with_capacity(n);
         match self.value() {
             None => vec.append_nulls(n),
-            Some(buf) => {
-                println!("REPEATING BINARY VIEW SCALAR: {:?}", buf);
-                vec.append_owned_values(buf.clone(), n)
-            }
+            Some(buf) => vec.append_owned_values(buf.clone(), n),
         }
         vec.into()
     }

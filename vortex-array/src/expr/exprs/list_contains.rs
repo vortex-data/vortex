@@ -5,12 +5,17 @@ use std::fmt::Formatter;
 use std::ops::BitOr;
 
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::VortexResult;
 use vortex_vector::Datum;
 
-use crate::ArrayRef;
 use crate::compute::list_contains as compute_list_contains;
+use crate::expr::exprs::binary::and;
+use crate::expr::exprs::binary::gt;
+use crate::expr::exprs::binary::lt;
+use crate::expr::exprs::binary::or;
+use crate::expr::exprs::literal::lit;
+use crate::expr::exprs::literal::Literal;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
@@ -20,12 +25,7 @@ use crate::expr::Expression;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::expr::exprs::binary::and;
-use crate::expr::exprs::binary::gt;
-use crate::expr::exprs::binary::lt;
-use crate::expr::exprs::binary::or;
-use crate::expr::exprs::literal::Literal;
-use crate::expr::exprs::literal::lit;
+use crate::ArrayRef;
 
 pub struct ListContains;
 
@@ -100,8 +100,8 @@ impl VTable for ListContains {
         compute_list_contains(list_array.as_ref(), value_array.as_ref())
     }
 
-    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
-        todo!()
+    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
+        arrow_select::todo!()
     }
 
     fn stat_falsification(
@@ -179,9 +179,6 @@ mod tests {
     use vortex_utils::aliases::hash_set::HashSet;
 
     use super::list_contains;
-    use crate::Array;
-    use crate::ArrayRef;
-    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;
@@ -196,6 +193,9 @@ mod tests {
     use crate::expr::pruning::checked_pruning_expr;
     use crate::expr::stats::Stat;
     use crate::validity::Validity;
+    use crate::Array;
+    use crate::ArrayRef;
+    use crate::IntoArray;
 
     fn test_array() -> ArrayRef {
         ListArray::try_new(

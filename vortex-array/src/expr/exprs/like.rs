@@ -3,7 +3,6 @@
 
 use std::fmt::Formatter;
 
-use arrow_array::cast::AsArray;
 use prost::Message;
 use vortex_dtype::DType;
 use vortex_error::vortex_bail;
@@ -120,10 +119,6 @@ impl VTable for Like {
 
         let child: Box<dyn arrow_array::Datum> = child.try_into()?;
         let pattern: Box<dyn arrow_array::Datum> = pattern.try_into()?;
-
-        let array = pattern.get().0;
-        let sv = array.as_string_view();
-        println!("STRING VIEW PATTERN: {:?}", sv);
 
         let array = match (options.negated, options.case_insensitive) {
             (false, false) => arrow_string::like::like(child.as_ref(), pattern.as_ref()),

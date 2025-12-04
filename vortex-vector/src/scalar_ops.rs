@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::private;
 use crate::Scalar;
 use crate::VectorMut;
-use crate::private;
 
 /// Trait for scalar operations.
 pub trait ScalarOps: private::Sealed + Sized + Into<Scalar> {
