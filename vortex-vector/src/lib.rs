@@ -8,6 +8,7 @@
 #![deny(clippy::missing_errors_doc)]
 #![deny(clippy::missing_panics_doc)]
 #![deny(clippy::missing_safety_doc)]
+#![deny(missing_docs)]
 
 pub mod binaryview;
 pub mod bool;
