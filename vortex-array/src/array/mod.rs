@@ -15,26 +15,22 @@ pub use visitor::*;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 use vortex_vector::Vector;
 use vortex_vector::VectorOps;
 
-use crate::ArrayEq;
-use crate::ArrayHash;
-use crate::Canonical;
-use crate::DynArrayEq;
-use crate::DynArrayHash;
 use crate::arrays::BoolVTable;
 use crate::arrays::ConstantVTable;
 use crate::arrays::DecimalVTable;
 use crate::arrays::ExtensionVTable;
+use crate::arrays::FilterArray;
 use crate::arrays::FixedSizeListVTable;
 use crate::arrays::ListViewVTable;
 use crate::arrays::NullVTable;
@@ -43,12 +39,12 @@ use crate::arrays::StructVTable;
 use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewVTable;
 use crate::builders::ArrayBuilder;
+use crate::compute::is_constant_opts;
 use crate::compute::ComputeFn;
 use crate::compute::Cost;
 use crate::compute::InvocationArgs;
 use crate::compute::IsConstantOpts;
 use crate::compute::Output;
-use crate::compute::is_constant_opts;
 use crate::execution::ExecutionCtx;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
@@ -65,6 +61,11 @@ use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 use crate::vtable::VisitorVTable;
+use crate::ArrayEq;
+use crate::ArrayHash;
+use crate::Canonical;
+use crate::DynArrayEq;
+use crate::DynArrayHash;
 
 /// The public API trait for all Vortex arrays.
 pub trait Array:
@@ -95,6 +96,9 @@ pub trait Array:
 
     /// Performs a constant-time slice of the array.
     fn slice(&self, range: Range<usize>) -> ArrayRef;
+
+    /// Performs a constant-time filter of the array.
+    fn filter(&self, mask: &Mask) -> VortexResult<ArrayRef>;
 
     /// Fetch the scalar at the given index.
     ///
@@ -227,6 +231,10 @@ impl Array for Arc<dyn Array> {
     #[inline]
     fn slice(&self, range: Range<usize>) -> ArrayRef {
         self.as_ref().slice(range)
+    }
+
+    fn filter(&self, mask: &Mask) -> VortexResult<ArrayRef> {
+        self.as_ref().filter(mask)
     }
 
     #[inline]
@@ -504,6 +512,12 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         }
 
         sliced
+    }
+
+    fn filter(&self, mask: &Mask) -> VortexResult<ArrayRef> {
+        vortex_ensure!(self.len() == mask.len(), "Filter mask length mismatch");
+        Ok(V::filter(&self.0, mask)?
+            .unwrap_or_else(|| FilterArray::new(self.to_array(), mask.clone()).into_array()))
     }
 
     fn scalar_at(&self, index: usize) -> Scalar {
