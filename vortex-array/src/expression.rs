@@ -27,9 +27,6 @@ impl dyn Array + '_ {
             .try_collect()?;
 
         // And wrap the scalar function up in an array.
-        Ok(
-            ScalarFnArray::try_new(expr.scalar_fn().clone(), children.into(), self.len())?
-                .into_array(),
-        )
+        Ok(ScalarFnArray::try_new(expr.scalar_fn().clone(), children, self.len())?.into_array())
     }
 }

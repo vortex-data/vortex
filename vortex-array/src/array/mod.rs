@@ -376,12 +376,23 @@ impl dyn Array + '_ {
     /// This entry-point function will choose an appropriate CPU-based execution strategy.
     pub fn execute(&self, session: &VortexSession) -> VortexResult<Vector> {
         let mut ctx = ExecutionCtx::new(session.clone());
+
         let result = self.batch_execute(&mut ctx)?;
         vortex_ensure!(
             result.len() == self.len(),
             "Result length mismatch for {}",
             self.encoding_id()
         );
+
+        #[cfg(debug_assertions)]
+        {
+            vortex_ensure!(
+                vortex_vector::vector_matches_dtype(&result, self.dtype()),
+                "Executed vector dtype mismatch for {}",
+                self.encoding_id(),
+            );
+        }
+
         Ok(result)
     }
 }

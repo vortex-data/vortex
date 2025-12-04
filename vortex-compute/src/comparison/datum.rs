@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_vector::bool::BoolScalar;
-use vortex_vector::bool::BoolVector;
-use vortex_vector::primitive::PrimitiveScalar;
-use vortex_vector::primitive::PrimitiveVector;
 use vortex_vector::BoolDatum;
 use vortex_vector::Datum;
 use vortex_vector::PrimitiveDatum;
 use vortex_vector::TypedDatum;
+use vortex_vector::bool::BoolScalar;
+use vortex_vector::bool::BoolVector;
+use vortex_vector::primitive::PrimitiveScalar;
+use vortex_vector::primitive::PrimitiveVector;
 
 use crate::comparison::Compare;
 

@@ -8,6 +8,7 @@ use vortex_dtype::DType;
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::PrecisionScale;
 use vortex_dtype::match_each_decimal_value_type;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -124,15 +125,31 @@ impl VTable for DecimalVTable {
     }
 
     fn batch_execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        use vortex_dtype::BigCast;
+
         match_each_decimal_value_type!(array.values_type(), |D| {
-            Ok(unsafe {
-                DVector::<D>::new_unchecked(
-                    PrecisionScale::new_unchecked(array.precision(), array.scale()),
-                    array.buffer::<D>(),
-                    array.validity_mask(),
-                )
-            }
-            .into())
+            // TODO(ngates): we probably shouldn't convert here... Do we allow larger P/S for a
+            //  given physical type, because we know that our values actually fit?
+            let min_value_type = DecimalType::smallest_decimal_value_type(&array.decimal_dtype());
+            match_each_decimal_value_type!(min_value_type, |E| {
+                // Copy from D to E, possibly widening, possibly narrowing
+                let values = Buffer::<E>::from_trusted_len_iter(
+                    array
+                        .buffer::<D>()
+                        .iter()
+                        .map(|d| <E as BigCast>::from(*d).vortex_expect("Decimal cast failed")),
+                );
+
+                Ok(unsafe {
+                    DVector::<E>::new_unchecked(
+                        // TODO(ngates): this is too small?
+                        PrecisionScale::new_unchecked(array.precision(), array.scale()),
+                        values,
+                        array.validity_mask(),
+                    )
+                }
+                .into())
+            })
         })
     }
 }

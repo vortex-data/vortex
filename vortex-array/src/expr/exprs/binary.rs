@@ -13,15 +13,16 @@ use vortex_compute::arithmetic::Div;
 use vortex_compute::arithmetic::Mul;
 use vortex_compute::arithmetic::Sub;
 use vortex_dtype::DType;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_vector::Datum;
 use vortex_vector::PrimitiveDatum;
 use vortex_vector::Vector;
 
+use crate::ArrayRef;
 use crate::compute;
 use crate::compute::add;
 use crate::compute::and_kleene;
@@ -30,10 +31,6 @@ use crate::compute::div;
 use crate::compute::mul;
 use crate::compute::or_kleene;
 use crate::compute::sub;
-use crate::expr::expression::Expression;
-use crate::expr::exprs::literal::lit;
-use crate::expr::exprs::operators::Operator;
-use crate::expr::stats::Stat;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -41,7 +38,10 @@ use crate::expr::ExprId;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::ArrayRef;
+use crate::expr::expression::Expression;
+use crate::expr::exprs::literal::lit;
+use crate::expr::exprs::operators::Operator;
+use crate::expr::stats::Stat;
 
 pub struct Binary;
 
@@ -134,9 +134,11 @@ impl VTable for Binary {
         }
     }
 
-    fn execute(&self, op: &Operator, mut args: ExecutionArgs) -> VortexResult<Datum> {
-        let lhs: Datum = args.datums.pop().vortex_expect("missing lhs");
-        let rhs: Datum = args.datums.pop().vortex_expect("missing rhs");
+    fn execute(&self, op: &Operator, args: ExecutionArgs) -> VortexResult<Datum> {
+        let [lhs, rhs]: [Datum; _] = args
+            .datums
+            .try_into()
+            .map_err(|_| vortex_err!("Wrong arg count"))?;
 
         let lhs: Box<dyn arrow_array::Datum> = lhs.try_into()?;
         let rhs: Box<dyn arrow_array::Datum> = rhs.try_into()?;
@@ -595,10 +597,10 @@ mod tests {
     use super::lt_eq;
     use super::not_eq;
     use super::or;
+    use crate::expr::Expression;
     use crate::expr::exprs::get_item::col;
     use crate::expr::exprs::literal::lit;
     use crate::expr::test_harness;
-    use crate::expr::Expression;
 
     #[test]
     fn and_collect_left_assoc() {

@@ -6,17 +6,14 @@ use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::future::BoxFuture;
 use futures::FutureExt;
-use vortex_array::assert_arrays_eq;
-use vortex_array::compute::filter;
-use vortex_array::expr::is_root;
-use vortex_array::expr::Expression;
-use vortex_array::serde::ArrayParts;
-use vortex_array::session::ArraySessionExt;
+use futures::future::BoxFuture;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
+use vortex_array::expr::Expression;
+use vortex_array::serde::ArrayParts;
+use vortex_array::session::ArraySessionExt;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexExpect;
@@ -25,17 +22,10 @@ use vortex_error::VortexUnwrap as _;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
-use crate::layouts::flat::FlatLayout;
-use crate::layouts::SharedArrayFuture;
-use crate::segments::SegmentSource;
 use crate::LayoutReader;
-
-/// The threshold of mask density below which we will evaluate the expression only over the
-/// selected rows, and above which we evaluate the expression over all rows and then select
-/// after.
-// TODO(ngates): more experimentation is needed, and this should probably be dynamic based on the
-//  actual expression? Perhaps all expressions are given a selection mask to decide for themselves?
-const EXPR_EVAL_THRESHOLD: f64 = 0.2;
+use crate::layouts::SharedArrayFuture;
+use crate::layouts::flat::FlatLayout;
+use crate::segments::SegmentSource;
 
 pub struct FlatReader {
     layout: FlatLayout,
@@ -151,45 +141,12 @@ impl LayoutReader for FlatReader {
             let array = array.apply(&expr)?;
 
             log::info!("Filter Array:\n{}", array.display_tree());
-            let mut array = optimizer.optimize_array(array)?;
+            let array = optimizer.optimize_array(array)?;
             log::info!("Optimized Filter Array:\n{}", array.display_tree());
 
             // Evaluate the array into a mask.
             let array_mask = array.execute_mask(&session)?;
-            // FIXME(ngates): bitand the given mask
-
-            {
-                // OLD WORLD
-
-                // TODO(ngates): the mask may actually be dense within a range, as is often the case when
-                //  we have approximate mask results from a zone map. In which case we could look at
-                //  the true_count between the mask's first and last true positions.
-                // TODO(ngates): we could also track runtime statistics about whether it's worth selecting
-                //   or not.
-                let old_array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
-                    // Evaluate only the selected rows of the mask.
-                    array = filter(&array, &mask)?;
-                    // TODO(joe): fixme casting null to false is *VERY* unsound, if the expression in the filter
-                    // can inspect nulls (e.g. `is_null`).
-                    // you will need to call the array evaluation instead of the mask evaluation.
-                    let array_mask = expr
-                        .evaluate(&array)
-                        .map_err(|err| {
-                            err.with_context(format!("While evaluating filter {}", expr))
-                        })?
-                        .try_to_mask_fill_null_false()?;
-                    mask.intersect_by_rank(&array_mask)
-                } else {
-                    // Evaluate all rows, avoiding the more expensive rank intersection.
-                    array = expr.evaluate(&array).map_err(|err| {
-                        err.with_context(format!("While evaluating filter {}", expr))
-                    })?;
-                    let array_mask = array.try_to_mask_fill_null_false()?;
-                    mask.bitand(&array_mask)
-                };
-
-                assert_eq!(array_mask, old_array_mask);
-            }
+            let array_mask = mask.bitand(&array_mask);
 
             log::debug!(
                 "Flat mask evaluation {} - {} (mask = {}) => {}",
@@ -251,26 +208,26 @@ impl LayoutReader for FlatReader {
 mod test {
     use std::sync::Arc;
 
+    use vortex_array::ArrayContext;
+    use vortex_array::IntoArray;
+    use vortex_array::MaskFuture;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
     use vortex_array::validity::Validity;
-    use vortex_array::ArrayContext;
-    use vortex_array::IntoArray;
-    use vortex_array::MaskFuture;
-    use vortex_array::ToCanonical;
-    use vortex_buffer::buffer;
     use vortex_buffer::BitBuffer;
+    use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
 
+    use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
     use crate::test::SESSION;
-    use crate::LayoutStrategy;
 
     #[test]
     fn flat_identity() {
