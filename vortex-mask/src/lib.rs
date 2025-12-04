@@ -140,6 +140,15 @@ pub struct MaskValues {
 }
 
 impl Mask {
+    /// Create a new Mask with the given length.
+    pub fn new(length: usize, value: bool) -> Self {
+        if value {
+            Self::AllTrue(length)
+        } else {
+            Self::AllFalse(length)
+        }
+    }
+
     /// Create a new Mask where all values are set.
     #[inline]
     pub fn new_true(length: usize) -> Self {

@@ -30,7 +30,7 @@ impl VTable for IsNullFn {
     }
 
     fn arity(&self, _: &Self::Options) -> Arity {
-        Arity::Fixed(1)
+        Arity::Exact(1)
     }
 
     fn arg_name(&self, _: &Self::Options, arg_idx: usize) -> ArgName {

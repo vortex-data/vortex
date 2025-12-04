@@ -9,12 +9,16 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_session::SessionVar;
+use vortex_vector::Datum;
+use vortex_vector::ScalarOps;
 use vortex_vector::Vector;
+use vortex_vector::VectorMutOps;
 
 use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ScalarFnArray;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
@@ -92,12 +96,27 @@ impl VTable for ScalarFnExpr {
         expr.data().return_dtype(&arg_dtypes)
     }
 
-    fn evaluate(&self, _expr: &ExpressionView<Self>, _scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        vortex_bail!("Scalar function evaluation not yet implemented")
+    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+        let children: Vec<_> = expr
+            .children()
+            .iter()
+            .map(|child| child.evaluate(scope))
+            .try_collect()?;
+        Ok(ScalarFnArray::try_new(expr.data().clone(), children, scope.len())?.into_array())
     }
 
-    fn execute(&self, _data: &Self::Instance, _args: ExecutionArgs) -> VortexResult<Vector> {
-        vortex_bail!("Scalar function execution not yet implemented")
+    fn execute(&self, func: &ScalarFn, args: ExecutionArgs) -> VortexResult<Vector> {
+        let expr_args = functions::ExecutionArgs::new(
+            args.row_count,
+            args.return_dtype,
+            args.dtypes,
+            args.vectors.into_iter().map(Datum::Vector).collect(),
+        );
+        let result = func.execute(&expr_args)?;
+        Ok(match result {
+            Datum::Scalar(s) => s.repeat(args.row_count).freeze(),
+            Datum::Vector(v) => v,
+        })
     }
 
     fn stat_falsification(

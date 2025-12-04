@@ -4,6 +4,7 @@
 //! Definition and implementation of [`DVector<D>`].
 
 use std::fmt::Debug;
+use std::ops::BitAnd;
 use std::ops::RangeBounds;
 
 use vortex_buffer::Buffer;
@@ -171,6 +172,10 @@ impl<D: NativeDecimalType> VectorOps for DVector<D> {
 
     fn validity(&self) -> &Mask {
         &self.validity
+    }
+
+    fn mask_validity(&mut self, mask: &Mask) {
+        self.validity = self.validity.bitand(mask);
     }
 
     fn scalar_at(&self, index: usize) -> DScalar<D> {

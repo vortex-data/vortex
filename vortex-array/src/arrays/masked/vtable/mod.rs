@@ -7,11 +7,11 @@ mod operations;
 mod validity;
 
 use vortex_buffer::BufferHandle;
-use vortex_compute::mask::MaskValidity;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_vector::Vector;
+use vortex_vector::VectorOps;
 
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
@@ -106,8 +106,9 @@ impl VTable for MaskedVTable {
     }
 
     fn batch_execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        let vector = array.child().batch_execute(ctx)?;
-        Ok(MaskValidity::mask_validity(vector, &array.validity_mask()))
+        let mut vector = array.child().batch_execute(ctx)?;
+        vector.mask_validity(&array.validity_mask());
+        Ok(vector)
     }
 }
 

@@ -18,7 +18,7 @@ use crate::primitive::PVectorMut;
 use crate::primitive::PrimitiveVectorMut;
 
 /// Represents a primitive scalar value.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum PrimitiveScalar {
     /// 8-bit signed integer scalar
     I8(PScalar<i8>),
@@ -80,6 +80,10 @@ impl ScalarOps for PrimitiveScalar {
         }
     }
 
+    fn mask_validity(&mut self, mask: bool) {
+        match_each_pscalar!(self, |s| { s.mask_validity(mask) })
+    }
+
     fn repeat(&self, n: usize) -> VectorMut {
         match_each_pscalar!(self, |s| { s.repeat(n) })
     }
@@ -116,6 +120,12 @@ impl<T: NativePType> From<PScalar<T>> for PrimitiveScalar {
 impl<T: NativePType> ScalarOps for PScalar<T> {
     fn is_valid(&self) -> bool {
         self.0.is_some()
+    }
+
+    fn mask_validity(&mut self, mask: bool) {
+        if !mask {
+            self.0 = None;
+        }
     }
 
     fn repeat(&self, n: usize) -> VectorMut {

@@ -14,7 +14,7 @@ use crate::VectorMutOps;
 use crate::decimal::DVectorMut;
 
 /// Represents a decimal scalar value.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum DecimalScalar {
     /// 8-bit decimal scalar.
     D8(DScalar<i8>),
@@ -65,6 +65,17 @@ impl ScalarOps for DecimalScalar {
             DecimalScalar::D64(v) => v.is_valid(),
             DecimalScalar::D128(v) => v.is_valid(),
             DecimalScalar::D256(v) => v.is_valid(),
+        }
+    }
+
+    fn mask_validity(&mut self, mask: bool) {
+        match self {
+            DecimalScalar::D8(v) => v.mask_validity(mask),
+            DecimalScalar::D16(v) => v.mask_validity(mask),
+            DecimalScalar::D32(v) => v.mask_validity(mask),
+            DecimalScalar::D64(v) => v.mask_validity(mask),
+            DecimalScalar::D128(v) => v.mask_validity(mask),
+            DecimalScalar::D256(v) => v.mask_validity(mask),
         }
     }
 
@@ -127,6 +138,12 @@ impl<D: NativeDecimalType> DScalar<D> {
 impl<D: NativeDecimalType> ScalarOps for DScalar<D> {
     fn is_valid(&self) -> bool {
         self.value.is_some()
+    }
+
+    fn mask_validity(&mut self, mask: bool) {
+        if !mask {
+            self.value = None;
+        }
     }
 
     fn repeat(&self, n: usize) -> VectorMut {

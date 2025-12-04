@@ -11,7 +11,7 @@ use crate::binaryview::BinaryViewVectorMut;
 use crate::binaryview::StringType;
 
 /// A scalar value for types that implement [`BinaryViewType`].
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct BinaryViewScalar<T: BinaryViewType>(Option<T::Scalar>);
 
 impl<T: BinaryViewType> BinaryViewScalar<T> {
@@ -31,6 +31,12 @@ impl<T: BinaryViewType> BinaryViewScalar<T> {
 impl<T: BinaryViewType> ScalarOps for BinaryViewScalar<T> {
     fn is_valid(&self) -> bool {
         self.0.is_some()
+    }
+
+    fn mask_validity(&mut self, mask: bool) {
+        if !mask {
+            self.0 = None;
+        }
     }
 
     fn repeat(&self, n: usize) -> crate::VectorMut {

@@ -6,13 +6,14 @@ use crate::ScalarOps;
 use crate::VectorMut;
 use crate::VectorOps;
 use crate::fixed_size_list::FixedSizeListVector;
+use vortex_mask::Mask;
 
 /// A scalar value for fixed-size list types.
 ///
 /// The inner value is a length-1 fsl vector.
 // NOTE(ngates): the reason we don't hold Option<Vector> representing the elements is that we
 //  wouldn't be able to go back to a vector using "repeat".
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct FixedSizeListScalar(FixedSizeListVector);
 
 impl FixedSizeListScalar {
@@ -35,6 +36,12 @@ impl FixedSizeListScalar {
 impl ScalarOps for FixedSizeListScalar {
     fn is_valid(&self) -> bool {
         self.0.validity().value(0)
+    }
+
+    fn mask_validity(&mut self, mask: bool) {
+        if !mask {
+            self.0.mask_validity(&Mask::new_false(1))
+        }
     }
 
     fn repeat(&self, _n: usize) -> VectorMut {

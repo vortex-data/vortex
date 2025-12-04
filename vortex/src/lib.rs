@@ -4,7 +4,6 @@
 // https://github.com/rust-lang/cargo/pull/11645#issuecomment-1536905941
 #![doc = include_str!(concat!("../", env!("CARGO_PKG_README")))]
 
-pub use vortex_array as array;
 // vortex::compute is deprecated and will be ported over to expressions.
 pub use vortex_array::compute;
 // vortex::expr is in the process of having its dependencies inverted, and will eventually be
@@ -12,26 +11,76 @@ pub use vortex_array::compute;
 pub use vortex_array::expr;
 use vortex_array::expr::session::ExprSession;
 use vortex_array::session::ArraySession;
-pub use vortex_buffer as buffer;
-pub use vortex_dtype as dtype;
-pub use vortex_error as error;
-#[cfg(feature = "files")]
-pub use vortex_file as file;
-pub use vortex_flatbuffers as flatbuffers;
-pub use vortex_io as io;
 use vortex_io::session::RuntimeSession;
-pub use vortex_ipc as ipc;
-pub use vortex_layout as layout;
 use vortex_layout::session::LayoutSession;
-pub use vortex_mask as mask;
-pub use vortex_metrics as metrics;
 use vortex_metrics::VortexMetrics;
-pub use vortex_proto as proto;
-pub use vortex_scalar as scalar;
-pub use vortex_scan as scan;
-pub use vortex_session as session;
 use vortex_session::VortexSession;
-pub use vortex_utils as utils;
+
+// We re-export like so in order to allow users to search inside subcrates when using the Rust docs.
+
+pub mod array {
+    pub use vortex_array::*;
+}
+
+pub mod buffer {
+    pub use vortex_buffer::*;
+}
+
+pub mod dtype {
+    pub use vortex_dtype::*;
+}
+pub mod error {
+    pub use vortex_error::*;
+}
+
+#[cfg(feature = "files")]
+pub mod file {
+    pub use vortex_file::*;
+}
+
+pub mod flatbuffers {
+    pub use vortex_flatbuffers::*;
+}
+
+pub mod io {
+    pub use vortex_io::*;
+}
+
+pub mod ipc {
+    pub use vortex_ipc::*;
+}
+
+pub mod layout {
+    pub use vortex_layout::*;
+}
+
+pub mod mask {
+    pub use vortex_mask::*;
+}
+
+pub mod metrics {
+    pub use vortex_metrics::*;
+}
+
+pub mod proto {
+    pub use vortex_proto::*;
+}
+
+pub mod scalar {
+    pub use vortex_scalar::*;
+}
+
+pub mod scan {
+    pub use vortex_scan::*;
+}
+
+pub mod session {
+    pub use vortex_session::*;
+}
+
+pub mod utils {
+    pub use vortex_utils::*;
+}
 
 pub mod compressor {
     pub use vortex_btrblocks::BtrBlocksCompressor;
@@ -40,19 +89,54 @@ pub mod compressor {
 }
 
 pub mod encodings {
-    pub use vortex_alp as alp;
-    pub use vortex_bytebool as bytebool;
-    pub use vortex_datetime_parts as datetime_parts;
-    pub use vortex_decimal_byte_parts as decimal_byte_parts;
-    pub use vortex_fastlanes as fastlanes;
-    pub use vortex_fsst as fsst;
-    pub use vortex_pco as pco;
-    pub use vortex_runend as runend;
-    pub use vortex_sequence as sequence;
-    pub use vortex_sparse as sparse;
-    pub use vortex_zigzag as zigzag;
+    pub mod alp {
+        pub use vortex_alp::*;
+    }
+
+    pub mod bytebool {
+        pub use vortex_bytebool::*;
+    }
+
+    pub mod datetime_parts {
+        pub use vortex_datetime_parts::*;
+    }
+
+    pub mod decimal_byte_parts {
+        pub use vortex_decimal_byte_parts::*;
+    }
+
+    pub mod fastlanes {
+        pub use vortex_fastlanes::*;
+    }
+
+    pub mod fsst {
+        pub use vortex_fsst::*;
+    }
+
+    pub mod pco {
+        pub use vortex_pco::*;
+    }
+
+    pub mod runend {
+        pub use vortex_runend::*;
+    }
+
+    pub mod sequence {
+        pub use vortex_sequence::*;
+    }
+
+    pub mod sparse {
+        pub use vortex_sparse::*;
+    }
+
+    pub mod zigzag {
+        pub use vortex_zigzag::*;
+    }
+
     #[cfg(feature = "zstd")]
-    pub use vortex_zstd as zstd;
+    pub mod zstd {
+        pub use vortex_zstd::*;
+    }
 }
 
 /// Extension trait to create a default Vortex session.

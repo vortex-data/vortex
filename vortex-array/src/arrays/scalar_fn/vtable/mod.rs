@@ -53,6 +53,12 @@ pub struct ScalarFnVTable {
     vtable: functions::ScalarFnVTable,
 }
 
+impl ScalarFnVTable {
+    pub fn new(vtable: functions::ScalarFnVTable) -> Self {
+        Self { vtable }
+    }
+}
+
 impl VTable for ScalarFnVTable {
     type Array = ScalarFnArray;
     type Metadata = ScalarFnMetadata;

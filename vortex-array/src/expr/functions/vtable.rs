@@ -110,7 +110,7 @@ pub trait VTable: 'static + Send + Sync + Sized {
 /// The arity (number of arguments) of a function.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Arity {
-    Fixed(usize),
+    Exact(usize),
     Variadic { min: usize, max: Option<usize> },
 }
 
@@ -118,7 +118,7 @@ impl Arity {
     /// Whether the given argument count matches this arity.
     pub fn matches(&self, arg_count: usize) -> bool {
         match self {
-            Arity::Fixed(m) => *m == arg_count,
+            Arity::Exact(m) => *m == arg_count,
             Arity::Variadic { min, max } => {
                 if arg_count < *min {
                     return false;
