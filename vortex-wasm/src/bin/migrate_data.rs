@@ -2,6 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Binary to migrate a JSON array of [`BenchmarkEntry`] objects to a Vortex file.
+//!
+//! # Usage
+//!
+//! ```bash
+//! cargo run -p vortex-wasm --bin migrate_data -- <input.json> <output.vortex>
+//! ```
 
 #![allow(clippy::expect_used, clippy::panic)]
 

@@ -73,8 +73,13 @@ path = "src/bin/test_s3_update.rs"
 required-features = ["native"]
 
 [[bin]]
-name = "migrate_all"
-path = "src/bin/migrate_all.rs"
+name = "migrate_data"
+path = "src/bin/migrate_data.rs"
+required-features = ["native"]
+
+[[bin]]
+name = "migrate_commits"
+path = "src/bin/migrate_commits.rs"
 required-features = ["native"]
 
 [lints]

@@ -12,7 +12,10 @@ use serde::Deserialize;
 use serde::Serialize;
 
 /// The 20-byte binary SHA-1 Git commit ID.
-#[derive(Clone, PartialEq, Eq)]
+///
+/// Note that the ordering of commit IDs does not really mean anything, we just have it implemented
+/// for convenience.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CommitId(pub [u8; 20]);
 
 impl fmt::Display for CommitId {
