@@ -143,6 +143,7 @@ impl Datum {
         }
     }
 
+    /// Converts the `Datum` into a `TypedDatum`.
     pub fn into_typed(self) -> TypedDatum {
         match self {
             Datum::Scalar(sc) => match sc {
@@ -269,7 +270,7 @@ datum!(FixedSizeList);
 datum!(Struct);
 
 impl PrimitiveDatum {
-    // ptype from datum
+    /// ptype from datum
     pub fn ptype(&self) -> PType {
         match self {
             PrimitiveDatum::Scalar(sc) => sc.ptype(),
