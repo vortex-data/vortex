@@ -22,48 +22,8 @@
             <span id="status-text">Initializing WASM module...</span>
         </div>
 
-        <div class="benchmarks-grid">
-            <div id="random-access-benchmark" class="benchmark-set hidden collapsed">
-                <div class="benchmark-header">
-                    <div class="title-wrapper">
-                        <span class="collapse-icon">▼</span>
-                        <h2 class="benchmark-title">Random Access</h2>
-                    </div>
-                    <div class="benchmark-meta">
-                        <span id="benchmark-meta-text">Latest Results</span>
-                    </div>
-                </div>
-                <div class="summary-section">
-                    <div id="summary-list" class="scores-list"></div>
-                    <p class="scores-explanation">
-                        Random access time | Ratio to fastest (lower is better)
-                    </p>
-                </div>
-                <div class="benchmark-graphs">
-                    <div class="chart-container">
-                        <div class="chart-header">
-                            <h3 class="chart-title">Random Access Time (ms)</h3>
-                            <div class="chart-controls">
-                                <span id="control-info-text" class="control-info-compact">Showing commits 1-50 of 100</span>
-                                <div class="zoom-controls">
-                                    <button id="zoom-out-large" class="zoom-btn">−−</button>
-                                    <button id="zoom-out-small" class="zoom-btn">−</button>
-                                    <button id="zoom-in-small" class="zoom-btn">+</button>
-                                    <button id="zoom-in-large" class="zoom-btn">++</button>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="chart-wrapper">
-                            <canvas id="chart"></canvas>
-                        </div>
-                        <div id="chartjs-tooltip" class="chartjs-tooltip"></div>
-                        <div class="x-axis-label">Commit</div>
-                        <div class="timeline-scrollbar-container">
-                            <div id="timeline-scrollbar-content"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+        <div id="benchmarks-container" class="benchmarks-grid">
+            <!-- Groups rendered dynamically by JS -->
         </div>
     </div>
 

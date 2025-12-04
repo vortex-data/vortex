@@ -463,9 +463,31 @@ body {
     background-clip: padding-box;
 }
 
-#timeline-scrollbar-content {
+/* Dynamic scrollbar content elements */
+[id$="scrollbar-content"] {
     height: 1px;
     pointer-events: none;
+}
+
+/* Chart Section - container for each chart within a group */
+.chart-section {
+    margin-bottom: 32px;
+    padding-bottom: 32px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.chart-section:last-child {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+}
+
+/* Summary section within a chart section (not at group level) */
+.chart-section .summary-section {
+    padding: 0;
+    background: transparent;
+    border-bottom: none;
+    margin-bottom: 16px;
 }
 
 /* Utility Classes */
