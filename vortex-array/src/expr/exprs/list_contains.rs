@@ -7,15 +7,22 @@ use std::ops::Deref;
 
 use arrow_buffer::bit_iterator::BitIndexIterator;
 use vortex_buffer::BitBuffer;
+use vortex_compute::comparison::Compare;
+use vortex_compute::comparison::Equal;
+use vortex_compute::logical::LogicalOr;
 use vortex_dtype::DType;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PTypeDowncastExt;
 use vortex_dtype::match_each_integer_ptype;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
+use vortex_vector::BoolDatum;
 use vortex_vector::Datum;
+use vortex_vector::Vector;
 use vortex_vector::VectorOps;
 use vortex_vector::bool::BoolVector;
 use vortex_vector::listview::ListViewScalar;
@@ -121,15 +128,26 @@ impl VTable for ListContains {
             .try_into()
             .map_err(|_| vortex_err!("Wrong number of arguments for ListContains expression"))?;
 
-        let rhs = rhs
-            .into_scalar()
-            .ok_or_else(|| vortex_err!("Only supports constant RHS"))?;
+        let matches = match (lhs.as_scalar().is_some(), rhs.as_scalar().is_some()) {
+            (true, true) => {
+                todo!("Implement ListContains for two scalars")
+            }
+            (true, false) => constant_list_scalar_contains(
+                lhs.into_scalar().vortex_expect("scalar").into_list(),
+                rhs.into_vector().vortex_expect("vector"),
+            ),
+            (false, true) => list_contains_scalar(
+                lhs.ensure_vector(args.row_count).into_list(),
+                rhs.into_scalar().vortex_expect("scalar").into_list(),
+            ),
+            (false, false) => {
+                vortex_bail!(
+                    "ListContains currently only supports constant needle (RHS) or constant list (LHS)"
+                )
+            }
+        }?;
 
-        let result = list_contains_scalar(
-            lhs.ensure_vector(args.row_count).into_list(),
-            rhs.into_list(),
-        )?;
-        Ok(Datum::Vector(result.into()))
+        Ok(Datum::Vector(matches.into()))
     }
 
     fn stat_falsification(
@@ -190,7 +208,8 @@ pub fn list_contains(list: Expression, value: Expression) -> Expression {
     ListContains.new_expr(EmptyOptions, [list, value])
 }
 
-/// Returns a [`BoolArray`] where each bit represents if a list contains the scalar.
+/// Returns a [`BoolVector`] where each bit represents if a list contains the scalar.
+// FIXME(ngates): test implementation and move to vortex-compute
 fn list_contains_scalar(list: ListViewVector, value: ListViewScalar) -> VortexResult<BoolVector> {
     // If the list array is constant, we perform a single comparison.
     // if list.len() > 1 && list.is_constant() {
@@ -267,6 +286,30 @@ fn list_contains_scalar(list: ListViewVector, value: ListViewScalar) -> VortexRe
     });
 
     Ok(BoolVector::new(list_matches, list.validity().clone()))
+}
+
+// Then there is a constant list scalar (haystack) being compared to an array of needles.
+// FIXME(ngates): test implementation and move to vortex-compute
+fn constant_list_scalar_contains(list: ListViewScalar, values: Vector) -> VortexResult<BoolVector> {
+    let elements = list.value().elements();
+
+    // For each element in the list, we perform a full comparison over the values and OR
+    // the results together.
+    let mut result: BoolVector = BoolVector::new(
+        BitBuffer::new_unset(values.len()),
+        Mask::new(values.len(), false),
+    );
+    for i in 0..elements.len() {
+        let element = Datum::Scalar(elements.scalar_at(i));
+        let compared: BoolDatum = Compare::<Equal>::compare(Datum::Vector(values.clone()), element);
+        let compared = Datum::from(compared)
+            .ensure_vector(values.len())
+            .into_bool();
+
+        result = LogicalOr::or(result, &compared);
+    }
+
+    Ok(result)
 }
 
 /// Returns a [`BitBuffer`] where each bit represents if a list contains the scalar, derived from a
