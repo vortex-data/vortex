@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! This was a one-off file to test out to see if building a pre-trained dictionary on WKB helped
+//! us compress more. The answer seems to be no, probably because our files are large enough that it
+//! doesn't end up mattering.
+
 use datafusion::arrow::array::AsArray;
 use datafusion::arrow::datatypes::BinaryType;
 use datafusion::parquet::arrow::ProjectionMask;
@@ -9,17 +13,13 @@ use futures::StreamExt;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 
-//! This was a one-off file to test out to see if building a pre-trained dictionary on WKB helped
-//! us compress more. The answer seems to be no, probably because our files are large enough that it
-//! doesn't end up mattering.
-
 #[tokio::main]
 pub async fn main() {
     let f = File::open(
         "/Users/aduffy/Downloads/BuildingsParquet/custom_download_20251204_095222.parquet",
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     let mut reader = ArrowReaderBuilder::new(f).await.unwrap();
 
@@ -42,7 +42,7 @@ pub async fn main() {
             format!("/Users/aduffy/Downloads/wkb/{index}.bin"),
             buffer.as_slice(),
         )
-            .unwrap();
+        .unwrap();
         packed.write_all(&buffer).await.unwrap();
         index += 1;
     }

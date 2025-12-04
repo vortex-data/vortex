@@ -19,6 +19,7 @@ use vortex_array::arrays::builder::VarBinBuilder;
 use vortex_array::validity::Validity;
 use vortex_dtype::DType;
 use vortex_dtype::FieldNames;
+use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 
@@ -39,6 +40,16 @@ pub struct RTreeStrategy {
     data_child: Arc<dyn LayoutStrategy>,
     rtree_child: Arc<dyn LayoutStrategy>,
 }
+
+impl RTreeStrategy {
+    pub fn new(data_child: Arc<dyn LayoutStrategy>, rtree_child: Arc<dyn LayoutStrategy>) -> Self {
+        Self {
+            data_child,
+            rtree_child,
+        }
+    }
+}
+
 #[async_trait]
 impl LayoutStrategy for RTreeStrategy {
     async fn write_stream(
@@ -133,7 +144,7 @@ impl RTreeAccumulator {
         // Slice and contain only these chunks.
         let mut inner = self.inner.lock().expect("poisoned");
         let builder = std::mem::take(&mut *inner);
-        let column = builder.finish(DType::BYTES);
+        let column = builder.finish(DType::Binary(Nullability::Nullable));
         let len = column.len();
 
         // Build the output array

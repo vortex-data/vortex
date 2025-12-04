@@ -11,7 +11,6 @@ use geo_types::Geometry;
 use geozero::GeozeroGeometry;
 use geozero::geo_types::GeoWriter;
 use geozero::wkb;
-pub use reader::*;
 use rstar::AABB;
 use rstar::RTreeObject;
 use vortex_array::ArrayContext;
@@ -216,7 +215,7 @@ pub(crate) fn make_geom(wkb: &[u8]) -> Option<GeometryObject> {
 /// Expected type of the rtree array
 pub(crate) fn expected_rtree_dtype() -> DType {
     DType::Struct(
-        StructFields::from_iter([("rtree", DType::BYTES)]),
+        StructFields::from_iter([("rtree", DType::Binary(Nullability::Nullable))]),
         Nullability::NonNullable,
     )
 }
