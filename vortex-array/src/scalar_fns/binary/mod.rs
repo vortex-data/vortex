@@ -152,11 +152,13 @@ mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
+    use vortex_dtype::PTypeDowncast;
     use vortex_error::VortexExpect;
     use vortex_mask::Mask;
     use vortex_vector::Datum;
     use vortex_vector::Scalar;
     use vortex_vector::Vector;
+    use vortex_vector::VectorOps;
     use vortex_vector::primitive::PScalar;
     use vortex_vector::primitive::PVector;
     use vortex_vector::primitive::PrimitiveScalar;
@@ -209,7 +211,7 @@ mod tests {
     fn test_add() {
         let exec = ExecutionArgs::new(
             3,
-            DType::Bool(NonNullable),
+            DType::Primitive(I32, NonNullable),
             vec![I32.into(), I32.into()],
             vec![
                 Datum::Scalar(Scalar::Primitive(PrimitiveScalar::I32(PScalar::new(Some(
@@ -222,7 +224,16 @@ mod tests {
             ],
         );
 
-        let x = BinaryFn.execute(&Operator::Add, &exec);
-        println!("x {:?}", x)
+        let result = BinaryFn
+            .execute(&Operator::Add, &exec)
+            .vortex_expect("add should succeed");
+
+        let result_vec = result
+            .into_vector()
+            .vortex_expect("expected vector result")
+            .into_primitive();
+        let result_i32: PVector<i32> = result_vec.into_i32();
+        assert_eq!(result_i32.elements(), &buffer![3, 4, 5]);
+        assert_eq!(result_i32.validity(), &Mask::AllTrue(3));
     }
 }
