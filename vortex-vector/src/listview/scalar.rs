@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::listview::ListViewVector;
-use crate::listview::ListViewVectorMut;
 use crate::Scalar;
 use crate::ScalarOps;
 use crate::VectorMut;
 use crate::VectorOps;
+use crate::listview::ListViewVector;
+use crate::listview::ListViewVectorMut;
 use std::sync::Arc;
 use vortex_mask::Mask;
 use vortex_mask::MaskMut;

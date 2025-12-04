@@ -9,8 +9,8 @@ use arrow_array::Array;
 use arrow_array::ArrayRef;
 use arrow_array::BooleanArray;
 use vortex_buffer::BitBuffer;
-use vortex_error::vortex_err;
 use vortex_error::VortexError;
+use vortex_error::vortex_err;
 
 impl TryFrom<BoolVector> for ArrayRef {
     type Error = VortexError;

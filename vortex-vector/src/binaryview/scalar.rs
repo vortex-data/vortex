@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::Scalar;
+use crate::ScalarOps;
+use crate::VectorMut;
+use crate::VectorMutOps;
 use crate::binaryview::BinaryType;
 use crate::binaryview::BinaryViewType;
 use crate::binaryview::BinaryViewTypeUpcast;
 use crate::binaryview::BinaryViewVectorMut;
 use crate::binaryview::StringType;
-use crate::Scalar;
-use crate::ScalarOps;
-use crate::VectorMut;
-use crate::VectorMutOps;
 
 /// A scalar value for types that implement [`BinaryViewType`].
 #[derive(Clone, Debug)]

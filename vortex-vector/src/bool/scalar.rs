@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::bool::BoolVectorMut;
 use crate::Scalar;
 use crate::ScalarOps;
 use crate::VectorMut;
 use crate::VectorMutOps;
+use crate::bool::BoolVectorMut;
 
 /// A scalar value for boolean types.
 #[derive(Clone, Debug)]

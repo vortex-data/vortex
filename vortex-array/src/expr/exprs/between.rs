@@ -6,18 +6,16 @@ use std::fmt::Formatter;
 use prost::Message;
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_vector::Datum;
 
-use crate::compute::between as between_compute;
+use crate::ArrayRef;
 use crate::compute::BetweenOptions;
-use crate::expr::expression::Expression;
-use crate::expr::exprs::binary::Binary;
-use crate::expr::exprs::operators::Operator;
+use crate::compute::between as between_compute;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -25,7 +23,9 @@ use crate::expr::ExprId;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::ArrayRef;
+use crate::expr::expression::Expression;
+use crate::expr::exprs::binary::Binary;
+use crate::expr::exprs::operators::Operator;
 
 /// An optimized scalar expression to compute whether values fall between two bounds.
 ///

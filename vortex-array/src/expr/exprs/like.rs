@@ -5,15 +5,16 @@ use std::fmt::Formatter;
 
 use prost::Message;
 use vortex_dtype::DType;
+use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_error::VortexResult;
 use vortex_proto::expr as pb;
-use vortex_vector::bool::BoolVector;
 use vortex_vector::Datum;
+use vortex_vector::bool::BoolVector;
 
-use crate::compute::like as like_compute;
+use crate::ArrayRef;
 use crate::compute::LikeOptions;
+use crate::compute::like as like_compute;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -21,7 +22,6 @@ use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::ArrayRef;
 
 /// Expression that performs SQL LIKE pattern matching.
 pub struct Like;
@@ -180,6 +180,7 @@ mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
 
+    use crate::ToCanonical;
     use crate::arrays::BoolArray;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::like::like;
@@ -187,7 +188,6 @@ mod tests {
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::not::not;
     use crate::expr::exprs::root::root;
-    use crate::ToCanonical;
 
     #[test]
     fn invert_booleans() {
