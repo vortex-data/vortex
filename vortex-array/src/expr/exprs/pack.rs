@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 
@@ -12,17 +13,17 @@ use vortex_dtype::FieldNames;
 use vortex_dtype::Nullability;
 use vortex_dtype::StructFields;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
+use vortex_vector::Datum;
 
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::StructArray;
+use crate::expr::Arity;
 use crate::expr::ChildName;
+use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
-use crate::expr::ExpressionView;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::validity::Validity;
@@ -36,14 +37,25 @@ pub struct PackOptions {
     pub nullability: Nullability,
 }
 
+impl Display for PackOptions {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "names: [{}], nullability: {}",
+            self.names.iter().join(", "),
+            self.nullability
+        )
+    }
+}
+
 impl VTable for Pack {
-    type Instance = PackOptions;
+    type Options = PackOptions;
 
     fn id(&self) -> ExprId {
         ExprId::new_ref("vortex.pack")
     }
 
-    fn serialize(&self, instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::PackOpts {
                 paths: instance.names.iter().map(|n| n.to_string()).collect(),
@@ -53,32 +65,24 @@ impl VTable for Pack {
         ))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Options> {
         let opts = pb::PackOpts::decode(metadata)?;
         let names: FieldNames = opts
             .paths
             .iter()
             .map(|name| FieldName::from(name.as_str()))
             .collect();
-        Ok(Some(PackOptions {
+        Ok(PackOptions {
             names,
             nullability: opts.nullable.into(),
-        }))
+        })
     }
 
-    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()> {
-        let instance = expr.data();
-        if expr.children().len() != instance.names.len() {
-            vortex_bail!(
-                "Pack expression expects {} children, got {}",
-                instance.names.len(),
-                expr.children().len()
-            );
-        }
-        Ok(())
+    fn arity(&self, options: &Self::Options) -> Arity {
+        Arity::Exact(options.names.len())
     }
 
-    fn child_name(&self, instance: &Self::Instance, child_idx: usize) -> ChildName {
+    fn child_name(&self, instance: &Self::Options, child_idx: usize) -> ChildName {
         match instance.names.get(child_idx) {
             Some(name) => ChildName::from(name.inner().clone()),
             None => unreachable!(
@@ -89,84 +93,65 @@ impl VTable for Pack {
         }
     }
 
-    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(
+        &self,
+        options: &Self::Options,
+        expr: &Expression,
+        f: &mut Formatter<'_>,
+    ) -> std::fmt::Result {
         write!(f, "pack(")?;
-        for (i, (name, child)) in expr
-            .data()
-            .names
-            .iter()
-            .zip(expr.children().iter())
-            .enumerate()
-        {
+        for (i, (name, child)) in options.names.iter().zip(expr.children().iter()).enumerate() {
             write!(f, "{}: ", name)?;
             child.fmt_sql(f)?;
-            if i + 1 < expr.data().names.len() {
+            if i + 1 < options.names.len() {
                 write!(f, ", ")?;
             }
         }
-        write!(f, "){}", expr.data().nullability)
+        write!(f, "){}", options.nullability)
     }
 
-    fn return_dtype(&self, expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
-        let value_dtypes = expr
-            .children()
-            .iter()
-            .map(|child| child.return_dtype(scope))
-            .collect::<VortexResult<Vec<_>>>()?;
+    fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         Ok(DType::Struct(
-            StructFields::new(expr.data().names.clone(), value_dtypes),
-            expr.data().nullability,
+            StructFields::new(options.names.clone(), arg_dtypes.to_vec()),
+            options.nullability,
         ))
     }
 
-    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(
+        &self,
+        options: &Self::Options,
+        expr: &Expression,
+        scope: &ArrayRef,
+    ) -> VortexResult<ArrayRef> {
         let len = scope.len();
         let value_arrays = expr
             .children()
             .iter()
-            .zip_eq(expr.data().names.iter())
+            .zip_eq(options.names.iter())
             .map(|(child_expr, name)| {
                 child_expr
                     .evaluate(scope)
                     .map_err(|e| e.with_context(format!("Can't evaluate '{name}'")))
             })
             .process_results(|it| it.collect::<Vec<_>>())?;
-        let validity = match expr.data().nullability {
+        let validity = match options.nullability {
             Nullability::NonNullable => Validity::NonNullable,
             Nullability::Nullable => Validity::AllValid,
         };
-        Ok(
-            StructArray::try_new(expr.data().names.clone(), value_arrays, len, validity)?
-                .into_array(),
-        )
+        Ok(StructArray::try_new(options.names.clone(), value_arrays, len, validity)?.into_array())
+    }
+
+    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
+        todo!()
     }
 
     // This applies a nullability
-    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
         true
     }
 
-    fn is_fallible(&self, _instance: &Self::Instance) -> bool {
+    fn is_fallible(&self, _instance: &Self::Options) -> bool {
         false
-    }
-}
-
-impl ExpressionView<'_, Pack> {
-    pub fn field(&self, field_name: &FieldName) -> VortexResult<Expression> {
-        let idx = self
-            .data()
-            .names
-            .iter()
-            .position(|name| name == field_name)
-            .ok_or_else(|| {
-                vortex_err!(
-                    "Cannot find field {} in pack fields {:?}",
-                    field_name,
-                    self.data().names
-                )
-            })?;
-
-        Ok(self.child(idx).clone())
     }
 }
 

@@ -22,8 +22,6 @@ use vortex_array::expr::ExactExpr;
 use vortex_array::expr::Expression;
 use vortex_array::expr::is_root;
 use vortex_array::expr::root;
-use vortex_array::expr::session::ExprSessionExt;
-use vortex_array::expr::transform::ExprOptimizer;
 use vortex_array::expr::transform::PartitionedExpr;
 use vortex_array::expr::transform::partition;
 use vortex_array::expr::transform::replace;
@@ -37,7 +35,6 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_sequence::SequenceArray;
-use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::ArrayFuture;
@@ -49,18 +46,15 @@ pub struct RowIdxLayoutReader {
     row_offset: u64,
     child: Arc<dyn LayoutReader>,
     partition_cache: DashMap<ExactExpr, Partitioning>,
-    expr_optimizer: ExprOptimizer,
 }
 
 impl RowIdxLayoutReader {
-    pub fn new(row_offset: u64, child: Arc<dyn LayoutReader>, session: &VortexSession) -> Self {
-        let expr_optimizer = ExprOptimizer::new(&session.expressions());
+    pub fn new(row_offset: u64, child: Arc<dyn LayoutReader>) -> Self {
         Self {
             name: child.name().clone(),
             row_offset,
             child,
             partition_cache: DashMap::with_hasher(Default::default()),
-            expr_optimizer,
         }
     }
 
@@ -69,20 +63,15 @@ impl RowIdxLayoutReader {
             .entry(ExactExpr(expr.clone()))
             .or_insert_with(|| {
                 // Partition the expression into row idx and child expressions.
-                let mut partitioned = partition(
-                    expr.clone(),
-                    self.dtype(),
-                    |expr| {
-                        if expr.is::<RowIdx>() {
-                            vec![Partition::RowIdx]
-                        } else if is_root(expr) {
-                            vec![Partition::Child]
-                        } else {
-                            vec![]
-                        }
-                    },
-                    &self.expr_optimizer,
-                )
+                let mut partitioned = partition(expr.clone(), self.dtype(), |expr| {
+                    if expr.is::<RowIdx>() {
+                        vec![Partition::RowIdx]
+                    } else if is_root(expr) {
+                        vec![Partition::Child]
+                    } else {
+                        vec![]
+                    }
+                })
                 .vortex_expect("We should not fail to partition expression over struct fields");
 
                 // If there's only a single partition, we can directly return the expression.
@@ -329,7 +318,6 @@ mod tests {
             let result = RowIdxLayoutReader::new(
                 0,
                 layout.new_reader("".into(), segments, &SESSION).unwrap(),
-                &SESSION,
             )
             .projection_evaluation(
                 &(0..layout.row_count()),
@@ -370,7 +358,6 @@ mod tests {
             let result = RowIdxLayoutReader::new(
                 0,
                 layout.new_reader("".into(), segments, &SESSION).unwrap(),
-                &SESSION,
             )
             .projection_evaluation(
                 &(0..layout.row_count()),
@@ -415,7 +402,6 @@ mod tests {
             let result = RowIdxLayoutReader::new(
                 0,
                 layout.new_reader("".into(), segments, &SESSION).unwrap(),
-                &SESSION,
             )
             .projection_evaluation(
                 &(0..layout.row_count()),

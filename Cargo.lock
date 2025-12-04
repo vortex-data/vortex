@@ -8930,6 +8930,7 @@ dependencies = [
  "vortex-sequence",
  "vortex-session",
  "vortex-utils",
+ "vortex-vector",
  "vortex-zstd",
 ]
 

@@ -446,10 +446,10 @@ mod tests {
         let col_expr = df_expr::Column::new("test_column", 0);
         let result = Expression::try_from_df(&col_expr).unwrap();
 
-        assert_snapshot!(result.display_tree().to_string(), @r#"
-        vortex.get_item "test_column"
-        └── input: vortex.root
-        "#);
+        assert_snapshot!(result.display_tree().to_string(), @r"
+        vortex.get_item(test_column)
+        └── input: vortex.root()
+        ");
     }
 
     #[test]
@@ -457,7 +457,7 @@ mod tests {
         let literal_expr = df_expr::Literal::new(ScalarValue::Int32(Some(42)));
         let result = Expression::try_from_df(&literal_expr).unwrap();
 
-        assert_snapshot!(result.display_tree().to_string(), @"vortex.literal 42i32");
+        assert_snapshot!(result.display_tree().to_string(), @"vortex.literal(42i32)");
     }
 
     #[test]
@@ -469,12 +469,12 @@ mod tests {
 
         let result = Expression::try_from_df(&binary_expr).unwrap();
 
-        assert_snapshot!(result.display_tree().to_string(), @r#"
-        vortex.binary =
-        ├── lhs: vortex.get_item "left"
-        │   └── input: vortex.root
-        └── rhs: vortex.literal 42i32
-        "#);
+        assert_snapshot!(result.display_tree().to_string(), @r"
+        vortex.binary(=)
+        ├── lhs: vortex.get_item(left)
+        │   └── input: vortex.root()
+        └── rhs: vortex.literal(42i32)
+        ");
     }
 
     #[rstest]
@@ -490,9 +490,9 @@ mod tests {
         let like_expr = df_expr::LikeExpr::new(negated, case_insensitive, expr, pattern);
 
         let result = Expression::try_from_df(&like_expr).unwrap();
-        let like_expr = result.as_::<Like>();
+        let like_opts = result.as_::<Like>();
         assert_eq!(
-            like_expr.data(),
+            like_opts,
             &LikeOptions {
                 negated,
                 case_insensitive
@@ -667,11 +667,11 @@ mod tests {
             Arc::new(ConfigOptions::new()),
         );
         let result = Expression::try_from_df(&get_field_expr).unwrap();
-        assert_snapshot!(result.display_tree().to_string(), @r#"
-        vortex.get_item "field1"
-        └── input: vortex.get_item "my_struct"
-            └── input: vortex.root
-        "#);
+        assert_snapshot!(result.display_tree().to_string(), @r"
+        vortex.get_item(field1)
+        └── input: vortex.get_item(my_struct)
+            └── input: vortex.root()
+        ");
     }
 
     #[rstest]

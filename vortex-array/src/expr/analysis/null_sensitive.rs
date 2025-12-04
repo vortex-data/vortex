@@ -15,7 +15,7 @@ pub type BooleanLabels<'a> = HashMap<&'a Expression, bool>;
 pub fn label_null_sensitive(expr: &Expression) -> BooleanLabels<'_> {
     label_tree(
         expr,
-        |expr| expr.is_null_sensitive(),
+        |expr| expr.signature().is_null_sensitive(),
         |acc, &child| acc | child,
     )
 }

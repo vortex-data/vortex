@@ -3,8 +3,10 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::ops::Deref;
 
 use crate::expr::Expression;
+use crate::expr::ScalarFn;
 
 pub enum DisplayFormat {
     Compact,
@@ -17,10 +19,11 @@ impl Display for DisplayTreeExpr<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         pub use termtree::Tree;
         fn make_tree(expr: &Expression) -> Result<Tree<String>, std::fmt::Error> {
-            let node_name = format!("{}", ExpressionDebug(expr));
+            let bound: &ScalarFn = expr.deref();
+            let node_name = format!("{}", bound);
 
             // Get child names for display purposes
-            let child_names = (0..expr.children().len()).map(|i| expr.child_name(i));
+            let child_names = (0..expr.children().len()).map(|i| expr.signature().child_name(i));
             let children = expr.children();
 
             let child_trees: Result<Vec<Tree<String>>, _> = children
@@ -37,18 +40,6 @@ impl Display for DisplayTreeExpr<'_> {
         }
 
         write!(f, "{}", make_tree(self.0)?)
-    }
-}
-
-struct ExpressionDebug<'a>(&'a Expression);
-impl Display for ExpressionDebug<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        // Special-case when expression has no data to avoid trailing space.
-        if self.0.data().is::<()>() {
-            return write!(f, "{}", self.0.id().as_ref());
-        }
-        write!(f, "{} ", self.0.id().as_ref())?;
-        self.0.vtable().as_dyn().fmt_data(self.0.data().as_ref(), f)
     }
 }
 
@@ -104,76 +95,111 @@ mod tests {
     }
 
     #[test]
-    fn test_display_tree() {
+    fn test_display_tree_root() {
         use insta::assert_snapshot;
-
         let root_expr = root();
-        assert_snapshot!(root_expr.display_tree().to_string(), @"vortex.root");
+        assert_snapshot!(root_expr.display_tree().to_string(), @"vortex.root()");
+    }
 
+    #[test]
+    fn test_display_tree_literal() {
+        use insta::assert_snapshot;
         let lit_expr = lit(42);
-        assert_snapshot!(lit_expr.display_tree().to_string(), @"vortex.literal 42i32");
+        assert_snapshot!(lit_expr.display_tree().to_string(), @"vortex.literal(42i32)");
+    }
 
+    #[test]
+    fn test_display_tree_get_item() {
+        use insta::assert_snapshot;
         let get_item_expr = get_item("my_field", root());
-        assert_snapshot!(get_item_expr.display_tree().to_string(), @r#"
-        vortex.get_item "my_field"
-        └── input: vortex.root
-        "#);
+        assert_snapshot!(get_item_expr.display_tree().to_string(), @r"
+        vortex.get_item(my_field)
+        └── input: vortex.root()
+        ");
+    }
 
+    #[test]
+    fn test_display_tree_binary() {
+        use insta::assert_snapshot;
         let binary_expr = gt(get_item("x", root()), lit(10));
-        assert_snapshot!(binary_expr.display_tree().to_string(), @r#"
-        vortex.binary >
-        ├── lhs: vortex.get_item "x"
-        │   └── input: vortex.root
-        └── rhs: vortex.literal 10i32
-        "#);
+        assert_snapshot!(binary_expr.display_tree().to_string(), @r"
+        vortex.binary(>)
+        ├── lhs: vortex.get_item(x)
+        │   └── input: vortex.root()
+        └── rhs: vortex.literal(10i32)
+        ");
+    }
 
+    #[test]
+    fn test_display_tree_complex_binary() {
+        use insta::assert_snapshot;
         let complex_binary = and(
             eq(get_item("name", root()), lit("alice")),
             gt(get_item("age", root()), lit(18)),
         );
         assert_snapshot!(complex_binary.display_tree().to_string(), @r#"
-        vortex.binary and
-        ├── lhs: vortex.binary =
-        │   ├── lhs: vortex.get_item "name"
-        │   │   └── input: vortex.root
-        │   └── rhs: vortex.literal "alice"
-        └── rhs: vortex.binary >
-            ├── lhs: vortex.get_item "age"
-            │   └── input: vortex.root
-            └── rhs: vortex.literal 18i32
+        vortex.binary(and)
+        ├── lhs: vortex.binary(=)
+        │   ├── lhs: vortex.get_item(name)
+        │   │   └── input: vortex.root()
+        │   └── rhs: vortex.literal("alice")
+        └── rhs: vortex.binary(>)
+            ├── lhs: vortex.get_item(age)
+            │   └── input: vortex.root()
+            └── rhs: vortex.literal(18i32)
         "#);
+    }
 
+    #[test]
+    fn test_display_tree_select() {
+        use insta::assert_snapshot;
         let select_expr = select(["name", "age"], root());
         assert_snapshot!(select_expr.display_tree().to_string(), @r"
-        vortex.select include={name, age}
-        └── child: vortex.root
+        vortex.select({name, age})
+        └── child: vortex.root()
         ");
+    }
 
+    #[test]
+    fn test_display_tree_select_exclude() {
+        use insta::assert_snapshot;
         let select_exclude_expr = select_exclude(["internal_id", "metadata"], root());
         assert_snapshot!(select_exclude_expr.display_tree().to_string(), @r"
-        vortex.select exclude={internal_id, metadata}
-        └── child: vortex.root
+        vortex.select(~{internal_id, metadata})
+        └── child: vortex.root()
         ");
+    }
 
+    #[test]
+    fn test_display_tree_cast() {
+        use insta::assert_snapshot;
         let cast_expr = cast(
             get_item("value", root()),
             DType::Primitive(PType::I64, Nullability::NonNullable),
         );
-        assert_snapshot!(cast_expr.display_tree().to_string(), @r#"
-        vortex.cast i64
-        └── input: vortex.get_item "value"
-            └── input: vortex.root
-        "#);
+        assert_snapshot!(cast_expr.display_tree().to_string(), @r"
+        vortex.cast(i64)
+        └── input: vortex.get_item(value)
+            └── input: vortex.root()
+        ");
+    }
 
+    #[test]
+    fn test_display_tree_not() {
+        use insta::assert_snapshot;
         let not_expr = not(eq(get_item("active", root()), lit(true)));
-        assert_snapshot!(not_expr.display_tree().to_string(), @r#"
-        vortex.not
-        └── input: vortex.binary =
-            ├── lhs: vortex.get_item "active"
-            │   └── input: vortex.root
-            └── rhs: vortex.literal true
-        "#);
+        assert_snapshot!(not_expr.display_tree().to_string(), @r"
+        vortex.not()
+        └── input: vortex.binary(=)
+            ├── lhs: vortex.get_item(active)
+            │   └── input: vortex.root()
+            └── rhs: vortex.literal(true)
+        ");
+    }
 
+    #[test]
+    fn test_display_tree_between() {
+        use insta::assert_snapshot;
         let between_expr = between(
             get_item("score", root()),
             lit(0),
@@ -183,15 +209,18 @@ mod tests {
                 upper_strict: StrictComparison::NonStrict,
             },
         );
-        assert_snapshot!(between_expr.display_tree().to_string(), @r#"
-        vortex.between BetweenOptions { lower_strict: NonStrict, upper_strict: NonStrict }
-        ├── array: vortex.get_item "score"
-        │   └── input: vortex.root
-        ├── lower: vortex.literal 0i32
-        └── upper: vortex.literal 100i32
-        "#);
+        assert_snapshot!(between_expr.display_tree().to_string(), @r"
+        vortex.between(lower_strict: <=, upper_strict: <=)
+        ├── array: vortex.get_item(score)
+        │   └── input: vortex.root()
+        ├── lower: vortex.literal(0i32)
+        └── upper: vortex.literal(100i32)
+        ");
+    }
 
-        // Test nested expression
+    #[test]
+    fn test_display_tree_nested() {
+        use insta::assert_snapshot;
         let nested_expr = select(
             ["result"],
             cast(
@@ -207,16 +236,20 @@ mod tests {
                 DType::Bool(Nullability::NonNullable),
             ),
         );
-        assert_snapshot!(nested_expr.display_tree().to_string(), @r#"
-        vortex.select include={result}
-        └── child: vortex.cast bool
-            └── input: vortex.between BetweenOptions { lower_strict: Strict, upper_strict: NonStrict }
-                ├── array: vortex.get_item "score"
-                │   └── input: vortex.root
-                ├── lower: vortex.literal 50i32
-                └── upper: vortex.literal 100i32
-        "#);
+        assert_snapshot!(nested_expr.display_tree().to_string(), @r"
+        vortex.select({result})
+        └── child: vortex.cast(bool)
+            └── input: vortex.between(lower_strict: <, upper_strict: <=)
+                ├── array: vortex.get_item(score)
+                │   └── input: vortex.root()
+                ├── lower: vortex.literal(50i32)
+                └── upper: vortex.literal(100i32)
+        ");
+    }
 
+    #[test]
+    fn test_display_tree_pack() {
+        use insta::assert_snapshot;
         let select_from_pack_expr = select(
             ["fizz", "buzz"],
             pack(
@@ -228,15 +261,15 @@ mod tests {
                 Nullability::Nullable,
             ),
         );
-        assert_snapshot!(select_from_pack_expr.display_tree().to_string(), @r#"
-        vortex.select include={fizz, buzz}
-        └── child: vortex.pack PackOptions { names: FieldNames([FieldName("fizz"), FieldName("bar"), FieldName("buzz")]), nullability: Nullable }
-            ├── fizz: vortex.root
-            ├── bar: vortex.literal 5i32
-            └── buzz: vortex.binary =
-                ├── lhs: vortex.literal 42i32
-                └── rhs: vortex.get_item "answer"
-                    └── input: vortex.root
-        "#);
+        assert_snapshot!(select_from_pack_expr.display_tree().to_string(), @r"
+        vortex.select({fizz, buzz})
+        └── child: vortex.pack(names: [fizz, bar, buzz], nullability: ?)
+            ├── fizz: vortex.root()
+            ├── bar: vortex.literal(5i32)
+            └── buzz: vortex.binary(=)
+                ├── lhs: vortex.literal(42i32)
+                └── rhs: vortex.get_item(answer)
+                    └── input: vortex.root()
+        ");
     }
 }

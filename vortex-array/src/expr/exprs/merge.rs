@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-pub mod transform;
-
+use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -12,21 +11,27 @@ use vortex_dtype::DType;
 use vortex_dtype::FieldNames;
 use vortex_dtype::Nullability;
 use vortex_dtype::StructFields;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_utils::aliases::hash_set::HashSet;
+use vortex_vector::Datum;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray as _;
 use crate::ToCanonical;
 use crate::arrays::StructArray;
+use crate::expr::Arity;
 use crate::expr::ChildName;
+use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
-use crate::expr::ExpressionView;
+use crate::expr::SimplifyCtx;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
+use crate::expr::get_item;
+use crate::expr::pack;
 use crate::validity::Validity;
 
 /// Merge zero or more expressions that ALL return structs.
@@ -38,20 +43,20 @@ use crate::validity::Validity;
 pub struct Merge;
 
 impl VTable for Merge {
-    type Instance = DuplicateHandling;
+    type Options = DuplicateHandling;
 
     fn id(&self) -> ExprId {
         ExprId::new_ref("vortex.merge")
     }
 
-    fn serialize(&self, instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(match instance {
             DuplicateHandling::RightMost => vec![0x00],
             DuplicateHandling::Error => vec![0x01],
         }))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Options> {
         let instance = match metadata {
             [0x00] => DuplicateHandling::RightMost,
             [0x01] => DuplicateHandling::Error,
@@ -59,18 +64,23 @@ impl VTable for Merge {
                 vortex_bail!("invalid metadata for Merge expression");
             }
         };
-        Ok(Some(instance))
+        Ok(instance)
     }
 
-    fn validate(&self, _expr: &ExpressionView<Self>) -> VortexResult<()> {
-        Ok(())
+    fn arity(&self, _options: &Self::Options) -> Arity {
+        Arity::Variadic { min: 0, max: None }
     }
 
-    fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName {
+    fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
         ChildName::from(Arc::from(format!("{}", child_idx)))
     }
 
-    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(
+        &self,
+        _options: &Self::Options,
+        expr: &Expression,
+        f: &mut Formatter<'_>,
+    ) -> std::fmt::Result {
         write!(f, "merge(")?;
         for (i, child) in expr.children().iter().enumerate() {
             child.fmt_sql(f)?;
@@ -81,14 +91,13 @@ impl VTable for Merge {
         write!(f, ")")
     }
 
-    fn return_dtype(&self, expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         let mut field_names = Vec::new();
         let mut arrays = Vec::new();
         let mut merge_nullability = Nullability::NonNullable;
         let mut duplicate_names = HashSet::<_>::new();
 
-        for child in expr.children().iter() {
-            let dtype = child.return_dtype(scope)?;
+        for dtype in arg_dtypes {
             let Some(fields) = dtype.as_struct_fields_opt() else {
                 vortex_bail!("merge expects struct input");
             };
@@ -109,7 +118,7 @@ impl VTable for Merge {
             }
         }
 
-        if expr.data() == &DuplicateHandling::Error && !duplicate_names.is_empty() {
+        if options == &DuplicateHandling::Error && !duplicate_names.is_empty() {
             vortex_bail!(
                 "merge: duplicate fields in children: {}",
                 duplicate_names.into_iter().format(", ")
@@ -122,7 +131,12 @@ impl VTable for Merge {
         ))
     }
 
-    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(
+        &self,
+        options: &Self::Options,
+        expr: &Expression,
+        scope: &ArrayRef,
+    ) -> VortexResult<ArrayRef> {
         // Collect fields in order of appearance. Later fields overwrite earlier fields.
         let mut field_names = Vec::new();
         let mut arrays = Vec::new();
@@ -151,7 +165,7 @@ impl VTable for Merge {
             }
         }
 
-        if expr.data() == &DuplicateHandling::Error && !duplicate_names.is_empty() {
+        if options == &DuplicateHandling::Error && !duplicate_names.is_empty() {
             vortex_bail!(
                 "merge: duplicate fields in children: {}",
                 duplicate_names.into_iter().format(", ")
@@ -167,11 +181,68 @@ impl VTable for Merge {
         )
     }
 
-    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
+        todo!()
+    }
+
+    fn simplify(
+        &self,
+        options: &Self::Options,
+        expr: &Expression,
+        ctx: &dyn SimplifyCtx,
+    ) -> VortexResult<Option<Expression>> {
+        let merge_dtype = ctx.return_dtype(expr)?;
+        let mut names = Vec::with_capacity(expr.children().len() * 2);
+        let mut children = Vec::with_capacity(expr.children().len() * 2);
+        let mut duplicate_names = HashSet::<_>::new();
+
+        for child in expr.children().iter() {
+            let child_dtype = ctx.return_dtype(child)?;
+            if !child_dtype.is_struct() {
+                vortex_bail!(
+                    "Merge child must return a non-nullable struct dtype, got {}",
+                    child_dtype
+                )
+            }
+
+            let child_dtype = child_dtype
+                .as_struct_fields_opt()
+                .vortex_expect("expected struct");
+
+            for name in child_dtype.names().iter() {
+                if let Some(idx) = names.iter().position(|n| n == name) {
+                    duplicate_names.insert(name.clone());
+                    children[idx] = child.clone();
+                } else {
+                    names.push(name.clone());
+                    children.push(child.clone());
+                }
+            }
+
+            if options == &DuplicateHandling::Error && !duplicate_names.is_empty() {
+                vortex_bail!(
+                    "merge: duplicate fields in children: {}",
+                    duplicate_names.into_iter().format(", ")
+                )
+            }
+        }
+
+        let expr = pack(
+            names
+                .into_iter()
+                .zip(children)
+                .map(|(name, child)| (name.clone(), get_item(name, child))),
+            merge_dtype.nullability(),
+        );
+
+        Ok(Some(expr))
+    }
+
+    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
         true
     }
 
-    fn is_fallible(&self, instance: &Self::Instance) -> bool {
+    fn is_fallible(&self, instance: &Self::Options) -> bool {
         matches!(instance, DuplicateHandling::Error)
     }
 }
@@ -184,6 +255,15 @@ pub enum DuplicateHandling {
     /// If two structs share a field name, error.
     #[default]
     Error,
+}
+
+impl Display for DuplicateHandling {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DuplicateHandling::RightMost => write!(f, "RightMost"),
+            DuplicateHandling::Error => write!(f, "Error"),
+        }
+    }
 }
 
 /// Creates an expression that merges struct expressions into a single struct.
@@ -212,6 +292,12 @@ pub fn merge_opts(
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::PType::I32;
+    use vortex_dtype::PType::I64;
+    use vortex_dtype::PType::U32;
+    use vortex_dtype::PType::U64;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
 
@@ -222,6 +308,7 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::expr::Expression;
+    use crate::expr::Pack;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::merge::DuplicateHandling;
     use crate::expr::exprs::merge::merge_opts;
@@ -471,5 +558,29 @@ mod tests {
 
         let expr2 = merge(vec![get_item("a", root())]);
         assert_eq!(expr2.to_string(), "merge($.a)");
+    }
+
+    #[test]
+    fn test_remove_merge() {
+        let dtype = DType::struct_(
+            [
+                ("0", DType::struct_([("a", I32), ("b", I64)], NonNullable)),
+                ("1", DType::struct_([("b", U32), ("c", U64)], NonNullable)),
+            ],
+            NonNullable,
+        );
+
+        let e = merge_opts(
+            [get_item("0", root()), get_item("1", root())],
+            DuplicateHandling::RightMost,
+        );
+
+        let result = e.simplify(&dtype).unwrap();
+
+        assert!(result.is::<Pack>());
+        assert_eq!(
+            result.return_dtype(&dtype).unwrap(),
+            DType::struct_([("a", I32), ("b", U32), ("c", U64)], NonNullable)
+        );
     }
 }

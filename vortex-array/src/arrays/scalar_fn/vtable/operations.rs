@@ -11,7 +11,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
-use crate::expr::functions::ExecutionArgs;
+use crate::expr::ExecutionArgs;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
@@ -24,7 +24,7 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
 
         ScalarFnArray {
             vtable: array.vtable.clone(),
-            scalar_fn: array.scalar_fn.clone(),
+            bound: array.bound.clone(),
             dtype: array.dtype.clone(),
             len: range.len(),
             children,
@@ -42,16 +42,16 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
             .map(|scalar| Datum::from(scalar.to_vector_scalar()))
             .collect();
 
-        let ctx = ExecutionArgs::new(
-            1,
-            array.dtype.clone(),
-            array.children().iter().map(|s| s.dtype().clone()).collect(),
-            input_datums,
-        );
+        let ctx = ExecutionArgs {
+            datums: input_datums,
+            dtypes: array.children().iter().map(|c| c.dtype().clone()).collect(),
+            row_count: 1,
+            return_dtype: array.dtype.clone(),
+        };
 
         let _result = array
-            .scalar_fn
-            .execute(&ctx)
+            .bound
+            .execute(ctx)
             .vortex_expect("Scalar function execution should be fallible")
             .into_scalar()
             .vortex_expect("Scalar function execution should return scalar");

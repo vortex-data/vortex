@@ -6,7 +6,11 @@ use crate::expr::analysis::BooleanLabels;
 use crate::expr::label_tree;
 
 pub fn label_is_fallible(expr: &Expression) -> BooleanLabels<'_> {
-    label_tree(expr, |expr| expr.is_fallible(), |acc, &child| acc | child)
+    label_tree(
+        expr,
+        |expr| expr.signature().is_fallible(),
+        |acc, &child| acc | child,
+    )
 }
 
 #[cfg(test)]

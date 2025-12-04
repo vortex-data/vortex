@@ -16,7 +16,7 @@ pub trait ExprSerializeProtoExt {
     fn serialize_proto(&self) -> VortexResult<pb::Expr>;
 }
 
-impl ExprSerializeProtoExt for &Expression {
+impl ExprSerializeProtoExt for Expression {
     fn serialize_proto(&self) -> VortexResult<pb::Expr> {
         let children = self
             .children()
@@ -24,7 +24,7 @@ impl ExprSerializeProtoExt for &Expression {
             .map(|child| child.serialize_proto())
             .try_collect()?;
 
-        let metadata = self.serialize_metadata()?.ok_or_else(|| {
+        let metadata = self.options().serialize()?.ok_or_else(|| {
             vortex_err!("Expression '{}' is not serializable: {}", self.id(), self)
         })?;
 
@@ -52,7 +52,7 @@ pub fn deserialize_expr_proto(
         .map(|e| deserialize_expr_proto(e, registry))
         .collect::<VortexResult<Arc<_>>>()?;
 
-    vtable.deserialize(expr.metadata(), children)
+    Expression::try_new(vtable.deserialize(expr.metadata())?, children)
 }
 
 #[cfg(test)]
@@ -93,7 +93,7 @@ mod tests {
             eq(lit(1), root()),
         );
 
-        let s_expr = (&expr).serialize_proto().unwrap();
+        let s_expr = expr.serialize_proto().unwrap();
         let buf = s_expr.encode_to_vec();
         let s_expr = pb::Expr::decode(buf.as_slice()).unwrap();
         let deser_expr = deserialize_expr_proto(&s_expr, &registry).unwrap();

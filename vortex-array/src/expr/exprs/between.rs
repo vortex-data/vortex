@@ -10,13 +10,15 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_proto::expr as pb;
+use vortex_vector::Datum;
 
 use crate::ArrayRef;
 use crate::compute::BetweenOptions;
 use crate::compute::between as between_compute;
+use crate::expr::Arity;
 use crate::expr::ChildName;
+use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
-use crate::expr::ExpressionView;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
@@ -38,13 +40,13 @@ use crate::expr::exprs::operators::Operator;
 pub struct Between;
 
 impl VTable for Between {
-    type Instance = BetweenOptions;
+    type Options = BetweenOptions;
 
     fn id(&self) -> ExprId {
         ExprId::from("vortex.between")
     }
 
-    fn serialize(&self, instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::BetweenOpts {
                 lower_strict: instance.lower_strict.is_strict(),
@@ -54,9 +56,9 @@ impl VTable for Between {
         ))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Options> {
         let opts = pb::BetweenOpts::decode(metadata)?;
-        Ok(Some(BetweenOptions {
+        Ok(BetweenOptions {
             lower_strict: if opts.lower_strict {
                 crate::compute::StrictComparison::Strict
             } else {
@@ -67,20 +69,14 @@ impl VTable for Between {
             } else {
                 crate::compute::StrictComparison::NonStrict
             },
-        }))
+        })
     }
 
-    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()> {
-        if expr.children().len() != 3 {
-            vortex_bail!(
-                "Between expression requires exactly 3 children, got {}",
-                expr.children().len()
-            );
-        }
-        Ok(())
+    fn arity(&self, _options: &Self::Options) -> Arity {
+        Arity::Exact(3)
     }
 
-    fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName {
+    fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
             0 => ChildName::from("array"),
             1 => ChildName::from("lower"),
@@ -89,8 +85,12 @@ impl VTable for Between {
         }
     }
 
-    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let options = expr.data();
+    fn fmt_sql(
+        &self,
+        options: &Self::Options,
+        expr: &Expression,
+        f: &mut Formatter<'_>,
+    ) -> std::fmt::Result {
         let lower_op = if options.lower_strict.is_strict() {
             "<"
         } else {
@@ -104,27 +104,27 @@ impl VTable for Between {
         write!(
             f,
             "({} {} {} {} {})",
-            expr.lower(),
+            expr.child(1),
             lower_op,
-            expr.child(),
+            expr.child(0),
             upper_op,
-            expr.upper()
+            expr.child(2)
         )
     }
 
-    fn return_dtype(&self, expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
-        let arr_dt = expr.child().return_dtype(scope)?;
-        let lower_dt = expr.lower().return_dtype(scope)?;
-        let upper_dt = expr.upper().return_dtype(scope)?;
+    fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
+        let arr_dt = &arg_dtypes[0];
+        let lower_dt = &arg_dtypes[1];
+        let upper_dt = &arg_dtypes[2];
 
-        if !arr_dt.eq_ignore_nullability(&lower_dt) {
+        if !arr_dt.eq_ignore_nullability(lower_dt) {
             vortex_bail!(
                 "Array dtype {} does not match lower dtype {}",
                 arr_dt,
                 lower_dt
             );
         }
-        if !arr_dt.eq_ignore_nullability(&upper_dt) {
+        if !arr_dt.eq_ignore_nullability(upper_dt) {
             vortex_bail!(
                 "Array dtype {} does not match upper dtype {}",
                 arr_dt,
@@ -137,51 +137,45 @@ impl VTable for Between {
         ))
     }
 
-    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        let arr = expr.child().evaluate(scope)?;
-        let lower = expr.lower().evaluate(scope)?;
-        let upper = expr.upper().evaluate(scope)?;
-        between_compute(&arr, &lower, &upper, expr.data())
+    fn evaluate(
+        &self,
+        options: &Self::Options,
+        expr: &Expression,
+        scope: &ArrayRef,
+    ) -> VortexResult<ArrayRef> {
+        let arr = expr.child(0).evaluate(scope)?;
+        let lower = expr.child(1).evaluate(scope)?;
+        let upper = expr.child(2).evaluate(scope)?;
+        between_compute(&arr, &lower, &upper, options)
+    }
+
+    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
+        todo!()
     }
 
     fn stat_falsification(
         &self,
-        expr: &ExpressionView<Self>,
+        options: &Self::Options,
+        expr: &Expression,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
-        expr.to_binary_expr().stat_falsification(catalog)
-    }
-
-    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
-        false
-    }
-}
-
-impl ExpressionView<'_, Between> {
-    pub fn child(&self) -> &Expression {
-        &self.children()[0]
-    }
-
-    pub fn lower(&self) -> &Expression {
-        &self.children()[1]
-    }
-
-    pub fn upper(&self) -> &Expression {
-        &self.children()[2]
-    }
-
-    pub fn to_binary_expr(&self) -> Expression {
-        let options = self.data();
-        let arr = self.children()[0].clone();
-        let lower = self.children()[1].clone();
-        let upper = self.children()[2].clone();
+        let arr = expr.child(0).clone();
+        let lower = expr.child(1).clone();
+        let upper = expr.child(2).clone();
 
         let lhs = Binary.new_expr(
             options.lower_strict.to_operator().into(),
             [lower, arr.clone()],
         );
         let rhs = Binary.new_expr(options.upper_strict.to_operator().into(), [arr, upper]);
-        Binary.new_expr(Operator::And, [lhs, rhs])
+
+        Binary
+            .new_expr(Operator::And, [lhs, rhs])
+            .stat_falsification(catalog)
+    }
+
+    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
+        false
     }
 }
 

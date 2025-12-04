@@ -8,17 +8,16 @@ use prost::Message;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 
 use crate::ArrayRef;
 use crate::compute::cast as compute_cast;
+use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
-use crate::expr::ExpressionView;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
@@ -29,66 +28,59 @@ use crate::expr::stats::Stat;
 pub struct Cast;
 
 impl VTable for Cast {
-    type Instance = DType;
+    type Options = DType;
 
     fn id(&self) -> ExprId {
         ExprId::from("vortex.cast")
     }
 
-    fn serialize(&self, instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, dtype: &DType) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::CastOpts {
-                target: Some(instance.into()),
+                target: Some(dtype.into()),
             }
             .encode_to_vec(),
         ))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
-        Ok(Some(
-            pb::CastOpts::decode(metadata)?
-                .target
-                .as_ref()
-                .ok_or_else(|| vortex_err!("Missing target dtype in Cast expression"))?
-                .try_into()?,
-        ))
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<DType> {
+        pb::CastOpts::decode(metadata)?
+            .target
+            .as_ref()
+            .ok_or_else(|| vortex_err!("Missing target dtype in Cast expression"))?
+            .try_into()
     }
 
-    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()> {
-        if expr.children().len() != 1 {
-            vortex_bail!(
-                "Cast expression requires exactly 1 child, got {}",
-                expr.children().len()
-            );
-        }
-        Ok(())
+    fn arity(&self, _options: &DType) -> Arity {
+        Arity::Exact(1)
     }
 
-    fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName {
+    fn child_name(&self, _instance: &DType, child_idx: usize) -> ChildName {
         match child_idx {
             0 => ChildName::from("input"),
             _ => unreachable!("Invalid child index {} for Cast expression", child_idx),
         }
     }
 
-    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, dtype: &DType, expr: &Expression, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "cast(")?;
         expr.children()[0].fmt_sql(f)?;
-        write!(f, " as {}", expr.data())?;
+        write!(f, " as {}", dtype)?;
         write!(f, ")")
     }
 
-    fn fmt_data(&self, instance: &Self::Instance, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", instance)
+    fn return_dtype(&self, dtype: &DType, _arg_dtypes: &[DType]) -> VortexResult<DType> {
+        Ok(dtype.clone())
     }
 
-    fn return_dtype(&self, expr: &ExpressionView<Self>, _scope: &DType) -> VortexResult<DType> {
-        Ok(expr.data().clone())
-    }
-
-    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(
+        &self,
+        dtype: &DType,
+        expr: &Expression,
+        scope: &ArrayRef,
+    ) -> VortexResult<ArrayRef> {
         let array = expr.children()[0].evaluate(scope)?;
-        compute_cast(&array, expr.data()).map_err(|e| {
+        compute_cast(&array, dtype).map_err(|e| {
             e.with_context(format!(
                 "Failed to cast array of dtype {} to {}",
                 array.dtype(),
@@ -97,9 +89,18 @@ impl VTable for Cast {
         })
     }
 
+    fn execute(&self, target_dtype: &DType, mut args: ExecutionArgs) -> VortexResult<Datum> {
+        let input = args
+            .datums
+            .pop()
+            .vortex_expect("missing input for Cast expression");
+        vortex_compute::cast::Cast::cast(&input, target_dtype)
+    }
+
     fn stat_expression(
         &self,
-        expr: &ExpressionView<Self>,
+        dtype: &DType,
+        expr: &Expression,
         stat: Stat,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
@@ -114,7 +115,7 @@ impl VTable for Cast {
                 // We cast min/max to the new type
                 expr.child(0)
                     .stat_expression(stat, catalog)
-                    .map(|x| cast(x, expr.data().clone()))
+                    .map(|x| cast(x, dtype.clone()))
             }
             Stat::NullCount => {
                 // if !expr.data().is_nullable() {
@@ -129,16 +130,8 @@ impl VTable for Cast {
         }
     }
 
-    fn execute(&self, target_dtype: &DType, mut args: ExecutionArgs) -> VortexResult<Vector> {
-        let input = args
-            .vectors
-            .pop()
-            .vortex_expect("missing input for Cast expression");
-        vortex_compute::cast::Cast::cast(&input, target_dtype)
-    }
-
     // This might apply a nullability
-    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+    fn is_null_sensitive(&self, _instance: &DType) -> bool {
         true
     }
 }

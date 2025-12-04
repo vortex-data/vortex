@@ -2,17 +2,21 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Formatter;
+use std::ops::BitOr;
 
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_vector::Datum;
 
 use crate::ArrayRef;
 use crate::compute::list_contains as compute_list_contains;
+use crate::expr::Arity;
 use crate::expr::ChildName;
+use crate::expr::EmptyOptions;
+use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
-use crate::expr::ExpressionView;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
@@ -26,31 +30,25 @@ use crate::expr::exprs::literal::lit;
 pub struct ListContains;
 
 impl VTable for ListContains {
-    type Instance = ();
+    type Options = EmptyOptions;
 
     fn id(&self) -> ExprId {
         ExprId::from("vortex.list.contains")
     }
 
-    fn serialize(&self, _instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, _instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
-        Ok(Some(()))
+    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Self::Options> {
+        Ok(EmptyOptions)
     }
 
-    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()> {
-        if expr.children().len() != 2 {
-            vortex_bail!(
-                "ListContains expression requires exactly 2 children, got {}",
-                expr.children().len()
-            );
-        }
-        Ok(())
+    fn arity(&self, _options: &Self::Options) -> Arity {
+        Arity::Exact(2)
     }
 
-    fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName {
+    fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
             0 => ChildName::from("list"),
             1 => ChildName::from("needle"),
@@ -60,8 +58,12 @@ impl VTable for ListContains {
             ),
         }
     }
-
-    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(
+        &self,
+        _options: &Self::Options,
+        expr: &Expression,
+        f: &mut Formatter<'_>,
+    ) -> std::fmt::Result {
         write!(f, "contains(")?;
         expr.child(0).fmt_sql(f)?;
         write!(f, ", ")?;
@@ -69,9 +71,9 @@ impl VTable for ListContains {
         write!(f, ")")
     }
 
-    fn return_dtype(&self, expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
-        let list_dtype = expr.child(0).return_dtype(scope)?;
-        let value_dtype = expr.child(1).return_dtype(scope)?;
+    fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
+        let list_dtype = &arg_dtypes[0];
+        let needle_dtype = &arg_dtypes[0];
 
         let nullability = match list_dtype {
             DType::List(_, list_nullability) => list_nullability,
@@ -81,38 +83,52 @@ impl VTable for ListContains {
                     list_dtype
                 );
             }
-        } | value_dtype.nullability();
+        }
+        .bitor(needle_dtype.nullability());
 
         Ok(DType::Bool(nullability))
     }
 
-    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(
+        &self,
+        _options: &Self::Options,
+        expr: &Expression,
+        scope: &ArrayRef,
+    ) -> VortexResult<ArrayRef> {
         let list_array = expr.child(0).evaluate(scope)?;
         let value_array = expr.child(1).evaluate(scope)?;
         compute_list_contains(list_array.as_ref(), value_array.as_ref())
     }
 
+    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
+        todo!()
+    }
+
     fn stat_falsification(
         &self,
-        expr: &ExpressionView<Self>,
+        _options: &Self::Options,
+        expr: &Expression,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
+        let list = expr.child(0);
+        let needle = expr.child(1);
+
         // falsification(contains([1,2,5], x)) =>
         //   falsification(x != 1) and falsification(x != 2) and falsification(x != 5)
-        let min = expr.list().stat_min(catalog)?;
-        let max = expr.list().stat_max(catalog)?;
+        let min = list.stat_min(catalog)?;
+        let max = list.stat_max(catalog)?;
         // If the list is constant when we can compare each element to the value
         if min == max {
             let list_ = min
                 .as_opt::<Literal>()
-                .and_then(|l| l.data().as_list_opt())
+                .and_then(|l| l.as_list_opt())
                 .and_then(|l| l.elements())?;
             if list_.is_empty() {
                 // contains([], x) is always false.
                 return Some(lit(true));
             }
-            let value_max = expr.needle().stat_max(catalog)?;
-            let value_min = expr.needle().stat_min(catalog)?;
+            let value_max = needle.stat_max(catalog)?;
+            let value_min = needle.stat_min(catalog)?;
 
             return list_
                 .iter()
@@ -129,7 +145,7 @@ impl VTable for ListContains {
     }
 
     // Nullability matters for contains([], x) where x is false.
-    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
         true
     }
 }
@@ -143,17 +159,7 @@ impl VTable for ListContains {
 /// let expr = list_contains(root(), lit(42));
 /// ```
 pub fn list_contains(list: Expression, value: Expression) -> Expression {
-    ListContains.new_expr((), [list, value])
-}
-
-impl ExpressionView<'_, ListContains> {
-    pub fn list(&self) -> &Expression {
-        &self.children()[0]
-    }
-
-    pub fn needle(&self) -> &Expression {
-        &self.children()[1]
-    }
+    ListContains.new_expr(EmptyOptions, [list, value])
 }
 
 #[cfg(test)]

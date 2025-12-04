@@ -3,11 +3,24 @@
 
 use std::ops::Not;
 
+use vortex_vector::BoolDatum;
 use vortex_vector::VectorOps;
+use vortex_vector::bool::BoolScalar;
 use vortex_vector::bool::BoolVector;
 use vortex_vector::bool::BoolVectorMut;
 
 use crate::logical::LogicalNot;
+
+impl LogicalNot for &BoolDatum {
+    type Output = BoolDatum;
+
+    fn not(self) -> Self::Output {
+        match self {
+            BoolDatum::Scalar(s) => BoolDatum::Scalar(BoolScalar::new(s.value().map(|b| !b))),
+            BoolDatum::Vector(v) => BoolDatum::Vector(v.not()),
+        }
+    }
+}
 
 impl LogicalNot for &BoolVector {
     type Output = BoolVector;
