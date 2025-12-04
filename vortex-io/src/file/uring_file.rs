@@ -14,8 +14,10 @@ use futures::FutureExt;
 use futures::StreamExt;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
+use futures::channel::oneshot;
 use monoio::fs::File;
-use oneshot::channel;
+use vortex_buffer::ByteBuffer;
+use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 
@@ -93,49 +95,60 @@ impl ReadSource for UringFileIoSource {
             .boxed();
         };
 
-        requests
-            .ready_chunks(1)
-            .map(move |reqs| {
-                let std_file = self.std_file.clone();
-                let (tx, rx) = channel();
-                local.spawn_local(Box::new(move || {
-                    Box::pin(async move {
-                        // Open a monoio file per chunk to avoid sharing non-Send handles across threads.
-                        let monoio_file = match std_file.try_clone().and_then(File::from_std) {
-                            Ok(f) => Arc::new(f),
-                            Err(e) => {
-                                let kind = e.kind();
-                                let msg = e.to_string();
-                                for req in reqs {
-                                    let io_err = std::io::Error::new(kind, msg.clone());
-                                    req.resolve(Err(VortexError::from(io_err)));
-                                }
-                                drop(tx.send(()));
-                                return;
-                            }
-                        };
+        // Move the work onto the runtime thread; the returned future only waits on completion and is Send.
+        let (done_tx, done_rx) = oneshot::channel();
+        let std_file = self.std_file.clone();
+        local.spawn_local(Box::new(move || {
+            Box::pin(async move {
+                let monoio_file = match std_file.try_clone().and_then(File::from_std) {
+                    Ok(f) => Arc::new(f),
+                    Err(e) => {
+                        let kind = e.kind();
+                        let msg = e.to_string();
+                        requests
+                            .for_each(|req| {
+                                let io_err = std::io::Error::new(kind, msg.clone());
+                                req.resolve(Err(VortexError::from(io_err)));
+                                futures::future::ready(())
+                            })
+                            .await;
+                        let _ = done_tx.send(());
+                        return;
+                    }
+                };
 
-                        for req in reqs {
+                requests
+                    .map(|req| {
+                        let monoio_file = monoio_file.clone();
+                        async move {
                             let len = req.len();
                             let offset = req.offset();
-                            let buffer = vec![0u8; len];
+                            let alignment = req.alignment();
 
-                            let (res, mut buffer) = monoio_file.read_at(buffer, offset).await;
+                            // Pre-allocate an aligned buffer so we don't have to copy on resolve.
+                            let buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
+                            let mut bytes_mut = buffer.into_bytes_mut();
+                            bytes_mut.resize(len, 0);
+
+                            let (res, mut bytes_mut) = monoio_file.read_at(bytes_mut, offset).await;
                             match res {
                                 Ok(n) => {
-                                    buffer.truncate(n);
-                                    req.resolve(Ok(buffer.into()))
+                                    bytes_mut.truncate(n);
+                                    let bytes = bytes_mut.freeze();
+                                    req.resolve(Ok(ByteBuffer::from(bytes)));
                                 }
                                 Err(e) => req.resolve(Err(VortexError::from(e))),
                             }
                         }
-                        drop(tx.send(()));
                     })
-                }));
-                rx.map(|_| ())
+                    .buffer_unordered(CONCURRENCY)
+                    .collect::<()>()
+                    .await;
+
+                let _ = done_tx.send(());
             })
-            .buffer_unordered(CONCURRENCY)
-            .collect::<()>()
-            .boxed()
+        }));
+
+        done_rx.map(|res| res.unwrap_or(())).boxed()
     }
 }

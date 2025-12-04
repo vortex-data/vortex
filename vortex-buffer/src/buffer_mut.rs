@@ -746,6 +746,13 @@ impl Write for ByteBufferMut {
     }
 }
 
+impl ByteBufferMut {
+    /// Consume the buffer and return the underlying `BytesMut`, preserving alignment.
+    pub fn into_bytes_mut(self) -> BytesMut {
+        self.bytes
+    }
+}
+
 #[cfg(test)]
 mod test {
     use bytes::Buf;
