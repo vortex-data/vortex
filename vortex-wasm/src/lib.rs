@@ -17,9 +17,14 @@ mod wasm_bindings {
     use vortex::session::VortexSession;
     use wasm_bindgen::prelude::*;
 
+    use crate::website::read_s3::get_benchmark_data;
     use crate::website::read_s3::read_benchmark_entries;
 
-    const KEY: &str = "test/random_access.vortex";
+    const DATA_KEY: &str = "data.vortex";
+    const COMMITS_KEY: &str = "commits.vortex";
+
+    // Legacy key for old random_access data format.
+    const LEGACY_KEY: &str = "random_access.vortex";
 
     /// Helper macro for logging to browser console.
     macro_rules! log {
@@ -54,7 +59,7 @@ mod wasm_bindings {
         // Create a session configured with the WASM runtime.
         let session = VortexSession::default().with_handle(WasmRuntime::handle());
 
-        let entries = read_benchmark_entries(&session, KEY)
+        let entries = read_benchmark_entries(&session, LEGACY_KEY)
             .await
             .map_err(|e| JsValue::from_str(&format!("Failed to read benchmark entries: {}", e)))?;
 
@@ -74,6 +79,34 @@ mod wasm_bindings {
 
         serde_wasm_bindgen::to_value(&js_entries)
             .map_err(|e| JsValue::from_str(&format!("Failed to serialize: {}", e)))
+    }
+
+    /// Load all benchmark data from S3.
+    ///
+    /// This function fetches the commits and benchmark data Vortex files from S3, parses them,
+    /// aligns the data to commits, and returns a structured response.
+    ///
+    /// # Returns
+    ///
+    /// A JavaScript object with:
+    /// - `benchmarks`: Nested object with group_name → charts → chart_name → aligned_series → series_name → values
+    /// - `commits`: Array of commit objects with timestamp, author, message, and commit_id
+    ///
+    /// Values are in nanoseconds (u64). Convert to milliseconds in JavaScript by dividing by
+    /// 1_000_000.
+    #[wasm_bindgen]
+    pub async fn load_benchmark_data() -> Result<JsValue, JsValue> {
+        log!("Loading benchmark data...");
+
+        let session = VortexSession::default().with_handle(WasmRuntime::handle());
+
+        let result = get_benchmark_data(&session, COMMITS_KEY, DATA_KEY)
+            .await
+            .map_err(|e| JsValue::from_str(&format!("Failed to load benchmark data: {}", e)))?;
+
+        log!("Benchmark data loaded successfully");
+
+        Ok(result)
     }
 
     /// Initialize the WASM module.

@@ -13,11 +13,12 @@ use vortex_array::ArrayRef;
 use wasm_bindgen::JsValue;
 
 use super::entry::BenchmarkEntry;
+use crate::website::charts::BenchmarkResponse;
 use crate::website::charts::process_benchmarks;
 use crate::website::commit::CommitInfo;
 
 /// Base URL for the S3 bucket containing benchmark data.
-const S3_BASE_URL: &str = "https://vortex-benchmark-results-database.s3.amazonaws.com";
+const S3_BASE_URL: &str = "https://vortex-benchmark-results-database-test.s3.amazonaws.com";
 
 /// Reads a Vortex array from an S3 object.
 ///
@@ -93,6 +94,29 @@ pub async fn read_benchmark_entries(
     BenchmarkEntry::vec_from_array(&array)
 }
 
+/// Fetches benchmark data and commit metadata from S3 and returns them as a JavaScript object.
+///
+/// The returned object has the structure:
+/// ```javascript
+/// {
+///   benchmarks: { [group_name]: { charts: { [chart_name]: { aligned_series: { [series_name]: [...] } } } } },
+///   commits: [{ timestamp, author: { name, email }, message, commit_id }, ...]
+/// }
+/// ```
+///
+/// # Arguments
+///
+/// * `session` - The Vortex session for reading files.
+/// * `commits_key` - S3 key for the commits Vortex file.
+/// * `data_key` - S3 key for the benchmark data Vortex file.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - Either S3 fetch fails.
+/// - The files are not valid Vortex files.
+/// - The schemas don't match expected formats.
+/// - Validation fails (empty names, no data points, mismatched lengths).
 pub async fn get_benchmark_data(
     session: &VortexSession,
     commits_key: &str,
@@ -107,10 +131,15 @@ pub async fn get_benchmark_data(
     let mut commits = CommitInfo::vec_from_array(&commits_array)?;
     commits.sort_unstable();
 
-    let benchmarks = process_benchmarks(&data, &commits);
+    let benchmarks = process_benchmarks(&data, &commits)?;
 
-    let js_value = serde_wasm_bindgen::to_value(&benchmarks)
-        .map_err(|e| vortex_err!("Something happened during serialization: {e}"))?;
+    let response = BenchmarkResponse {
+        benchmarks,
+        commits,
+    };
+
+    let js_value = serde_wasm_bindgen::to_value(&response)
+        .map_err(|e| vortex_err!("Failed to serialize benchmark response: {e}"))?;
 
     Ok(js_value)
 }

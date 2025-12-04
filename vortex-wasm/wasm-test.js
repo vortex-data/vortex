@@ -9,7 +9,13 @@
 const CHART_CONFIG = {
     // Data sources.
     wasmModulePath: "./pkg/vortex_wasm.js",
-    commitsUrl: "https://vortex-benchmark-results-database.s3.amazonaws.com/commits.json",
+
+    // GitHub repository for constructing commit URLs.
+    githubRepo: "https://github.com/spiraldb/vortex",
+
+    // Which group and chart to display (for now, hardcoded to random-access).
+    targetGroup: "random-access",
+    targetChart: "random-access",
 
     // Series configuration.
     seriesNames: ["vortex-nvme", "parquet-nvme", "lance-nvme"],
@@ -83,49 +89,16 @@ async function loadWasmModule() {
 }
 
 /**
- * Loads commit metadata from S3 and processes it into a sorted array.
- *
- * @returns {Promise<Array>} Array of commit objects sorted by timestamp.
- */
-async function loadCommitData() {
-    setStatus("Loading commit metadata from S3...");
-    const response = await fetch(CHART_CONFIG.commitsUrl);
-    const text = await response.text();
-
-    // Parse JSONL format (one JSON object per line).
-    const commitsData = {};
-    for (const line of text.split("\n")) {
-        const trimmed = line.trim();
-        if (trimmed.length > 0) {
-            try {
-                const commit = JSON.parse(trimmed);
-                commitsData[commit.id] = commit;
-            } catch (e) {
-                console.warn("Failed to parse commit line:", e);
-            }
-        }
-    }
-
-    // Sort by timestamp and add sorted indices.
-    const commits = Object.values(commitsData)
-        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
-        .map((commit, index) => ({ ...commit, sortedIndex: index }));
-
-    console.log(`Loaded ${commits.length} commits`);
-    return commits;
-}
-
-/**
- * Loads benchmark data from WASM.
+ * Loads all benchmark data from WASM (benchmarks + commits).
  *
  * @param {Object} wasm - The WASM module.
- * @returns {Promise<Array>} Array of benchmark entries.
+ * @returns {Promise<Object>} Object with benchmarks and commits.
  */
 async function loadBenchmarkData(wasm) {
-    setStatus("Loading benchmark data from Vortex file via WASM...");
-    const entries = await wasm.load_random_access_data();
-    console.log(`Loaded ${entries.length} benchmark entries`);
-    return entries;
+    setStatus("Loading benchmark data from Vortex files via WASM...");
+    const data = await wasm.load_benchmark_data();
+    console.log(`Loaded benchmark data with ${data.commits.length} commits`);
+    return data;
 }
 
 // ============================================================================
@@ -133,35 +106,51 @@ async function loadBenchmarkData(wasm) {
 // ============================================================================
 
 /**
- * Processes benchmark entries into chart-ready format.
+ * Processes benchmark data into chart-ready format.
  *
- * @param {Array} entries - Benchmark entries.
- * @param {Array} commits - Commit metadata.
+ * @param {Object} data - The data object from WASM with benchmarks and commits.
  * @returns {Object} Object containing seriesData and chartCommits.
  */
-function processChartData(entries, commits) {
-    const commitIndexMap = new Map(commits.map(c => [c.id, c.sortedIndex]));
-    const seriesData = new Map();
+function processChartData(data) {
+    const { benchmarks, commits } = data;
 
-    // Initialize empty arrays for each series.
-    for (const name of CHART_CONFIG.seriesNames) {
-        seriesData.set(name, new Array(commits.length).fill(null));
+    // Get the target group and chart.
+    const group = benchmarks[CHART_CONFIG.targetGroup];
+    if (!group) {
+        throw new Error(`Group '${CHART_CONFIG.targetGroup}' not found in benchmark data`);
     }
 
-    // Populate with data.
-    let entriesAligned = 0;
-    for (const entry of entries) {
-        const commitIndex = commitIndexMap.get(entry.commit_id);
-        if (commitIndex !== undefined) {
-            const series = seriesData.get(entry.series_name);
-            if (series) {
-                series[commitIndex] = { value: entry.value_ms };
-                entriesAligned++;
-            }
+    const chart = group.charts[CHART_CONFIG.targetChart];
+    if (!chart) {
+        throw new Error(`Chart '${CHART_CONFIG.targetChart}' not found in group '${CHART_CONFIG.targetGroup}'`);
+    }
+
+    const alignedSeries = chart.aligned_series;
+
+    // Convert commits to chart-friendly format with URLs and short IDs.
+    const processedCommits = commits.map((commit, index) => ({
+        ...commit,
+        // Use commit_id for display (first 7 chars).
+        id: commit.commit_id,
+        // Construct GitHub URL.
+        url: `${CHART_CONFIG.githubRepo}/commit/${commit.commit_id}`,
+        // Keep original index for reference.
+        sortedIndex: index,
+    }));
+
+    // Convert series data from nanoseconds to milliseconds.
+    const seriesData = new Map();
+    for (const name of CHART_CONFIG.seriesNames) {
+        const rawData = alignedSeries[name];
+        if (rawData) {
+            // Convert nanoseconds to milliseconds, preserving nulls.
+            const msData = rawData.map(v => v !== null ? { value: v / 1_000_000 } : null);
+            seriesData.set(name, msData);
+        } else {
+            // Series not found, fill with nulls.
+            seriesData.set(name, new Array(commits.length).fill(null));
         }
     }
-
-    console.log(`Aligned ${entriesAligned}/${entries.length} entries to commits`);
 
     // Find the range of data (first and last non-null indices).
     let firstDataIndex = commits.length;
@@ -178,14 +167,16 @@ function processChartData(entries, commits) {
     // Slice to show only the range with data.
     const startIndex = Math.max(0, firstDataIndex);
     const endIndex = lastDataIndex + 1;
-    const chartCommits = commits.slice(startIndex, endIndex);
+    const chartCommits = processedCommits.slice(startIndex, endIndex);
     const slicedSeriesData = new Map();
 
     for (const [name, data] of seriesData.entries()) {
         slicedSeriesData.set(name, data.slice(startIndex, endIndex));
     }
 
-    return { seriesData: slicedSeriesData, chartCommits, entriesAligned };
+    console.log(`Processed ${commits.length} commits, showing range ${startIndex}-${endIndex}`);
+
+    return { seriesData: slicedSeriesData, chartCommits };
 }
 
 /**
@@ -357,9 +348,13 @@ function getTooltipFooter(tooltipItems, chartCommits) {
     if (tooltipItems.length === 0) return [];
     const commit = chartCommits[tooltipItems[0].dataIndex];
     if (!commit) return [];
+
+    // Handle timestamp - it's Unix seconds from Rust.
+    const date = new Date(commit.timestamp * 1000).toLocaleDateString();
+
     return [
         commit.message.split("\n")[0].slice(0, 60),
-        `${commit.author.name} - ${new Date(commit.timestamp).toLocaleDateString()}`
+        `${commit.author.name} - ${date}`
     ];
 }
 
@@ -718,13 +713,12 @@ function initializeTimelineControls(chartInstance, chartCommits) {
  */
 async function main() {
     try {
-        // Load data.
+        // Load data from WASM (benchmarks + commits in one call).
         const wasm = await loadWasmModule();
-        const commits = await loadCommitData();
-        const entries = await loadBenchmarkData(wasm);
+        const data = await loadBenchmarkData(wasm);
 
-        // Process data.
-        const { seriesData, chartCommits, entriesAligned } = processChartData(entries, commits);
+        // Process data for the target group/chart.
+        const { seriesData, chartCommits } = processChartData(data);
         const summary = calculateSummary(seriesData);
 
         // Render UI.
@@ -735,7 +729,7 @@ async function main() {
         // Set up collapsible behavior.
         setupCollapsibleBenchmarks();
 
-        setStatus(`Loaded ${entries.length} entries, aligned ${entriesAligned} to ${commits.length} commits`, "success");
+        setStatus(`Loaded ${data.commits.length} commits, showing ${chartCommits.length} with data`, "success");
 
     } catch (error) {
         console.error("Error:", error);

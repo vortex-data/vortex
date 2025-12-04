@@ -17,5 +17,5 @@ migrate-all: migrate-data migrate-commits
 browse file:
     cargo run -p vortex-tui -- browse {{file}}
 
-build-wasm:
-    cargo build -p vortex-wasm --no-default-features --lib --target wasm32-unknown-unknown --release
+build-wasm-website:
+    wasm-pack build vortex-wasm --target web --no-default-features
