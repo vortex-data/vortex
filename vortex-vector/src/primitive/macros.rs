@@ -258,33 +258,6 @@ macro_rules! match_each_unsigned_pvector_mut {
 }
 
 /// Matches on pairs of [`PrimitiveVector`] with the same type and executes the provided code.
-///
-/// This macro matches two primitive vectors when they have the same underlying type.
-/// For type mismatches, the `$else` block is executed.
-///
-/// # Examples
-///
-/// ```
-/// use vortex_vector::primitive::{PrimitiveVector, PVectorMut};
-/// use vortex_vector::{VectorOps, VectorMutOps, match_each_pvector_pair};
-///
-/// fn add_lengths(left: &PrimitiveVector, right: &PrimitiveVector) -> Option<usize> {
-///     match_each_pvector_pair!(
-///         (left, right),
-///         |l, r| { Some(l.len() + r.len()) },
-///         { None }
-///     )
-/// }
-///
-/// let a: PrimitiveVector = PVectorMut::<i32>::from_iter([1, 2, 3].map(Some)).freeze().into();
-/// let b: PrimitiveVector = PVectorMut::<i32>::from_iter([4, 5].map(Some)).freeze().into();
-/// assert_eq!(add_lengths(&a, &b), Some(5));
-///
-/// let c: PrimitiveVector = PVectorMut::<f64>::from_iter([1.0].map(Some)).freeze().into();
-/// assert_eq!(add_lengths(&a, &c), None); // Type mismatch
-/// ```
-///
-/// [`PrimitiveVector`]: crate::primitive::PrimitiveVector
 #[macro_export]
 macro_rules! match_each_pvector_pair {
     (($left:expr, $right:expr), | $l:ident, $r:ident | $body:block, $else:block) => {{

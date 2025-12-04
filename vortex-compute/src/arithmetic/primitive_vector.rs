@@ -15,22 +15,22 @@ use vortex_vector::primitive::PrimitiveVector;
 use crate::arithmetic::Arithmetic;
 use crate::arithmetic::CheckedArithmetic;
 
-impl<Op> CheckedArithmetic<Op, &PrimitiveVector> for &PrimitiveVector
+impl<Op> CheckedArithmetic<Op, &PrimitiveVector> for PrimitiveVector
 where
-    for<'a> &'a PVector<i8>: CheckedArithmetic<Op, &'a PVector<i8>, Output = PVector<i8>>,
-    for<'a> &'a PVector<i16>: CheckedArithmetic<Op, &'a PVector<i16>, Output = PVector<i16>>,
-    for<'a> &'a PVector<i32>: CheckedArithmetic<Op, &'a PVector<i32>, Output = PVector<i32>>,
-    for<'a> &'a PVector<i64>: CheckedArithmetic<Op, &'a PVector<i64>, Output = PVector<i64>>,
-    for<'a> &'a PVector<u8>: CheckedArithmetic<Op, &'a PVector<u8>, Output = PVector<u8>>,
-    for<'a> &'a PVector<u16>: CheckedArithmetic<Op, &'a PVector<u16>, Output = PVector<u16>>,
-    for<'a> &'a PVector<u32>: CheckedArithmetic<Op, &'a PVector<u32>, Output = PVector<u32>>,
-    for<'a> &'a PVector<u64>: CheckedArithmetic<Op, &'a PVector<u64>, Output = PVector<u64>>,
+    for<'a> PVector<i8>: CheckedArithmetic<Op, &'a PVector<i8>, Output = PVector<i8>>,
+    for<'a> PVector<i16>: CheckedArithmetic<Op, &'a PVector<i16>, Output = PVector<i16>>,
+    for<'a> PVector<i32>: CheckedArithmetic<Op, &'a PVector<i32>, Output = PVector<i32>>,
+    for<'a> PVector<i64>: CheckedArithmetic<Op, &'a PVector<i64>, Output = PVector<i64>>,
+    for<'a> PVector<u8>: CheckedArithmetic<Op, &'a PVector<u8>, Output = PVector<u8>>,
+    for<'a> PVector<u16>: CheckedArithmetic<Op, &'a PVector<u16>, Output = PVector<u16>>,
+    for<'a> PVector<u32>: CheckedArithmetic<Op, &'a PVector<u32>, Output = PVector<u32>>,
+    for<'a> PVector<u64>: CheckedArithmetic<Op, &'a PVector<u64>, Output = PVector<u64>>,
 {
     type Output = PrimitiveVector;
 
     fn checked_eval(self, rhs: &PrimitiveVector) -> Option<Self::Output> {
         match_each_integer_pvector_pair!(
-            (self, rhs),
+            (self, &rhs),
             |l, r| { CheckedArithmetic::<Op, _>::checked_eval(l, r).map(Into::into) },
             { vortex_panic!("dont use checked arithmetic for floats") }
         )
@@ -117,7 +117,7 @@ mod tests {
             .freeze()
             .into();
 
-        let result = CheckedArithmetic::<Add, _>::checked_eval(&left, &right).unwrap();
+        let result = CheckedArithmetic::<Add, _>::checked_eval(left, &right).unwrap();
         if let PrimitiveVector::I32(v) = result {
             assert_eq!(v.scalar_at(0).value(), Some(11));
             assert_eq!(v.scalar_at(1).value(), Some(22));

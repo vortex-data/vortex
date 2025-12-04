@@ -150,15 +150,26 @@ impl Datum {
                 Scalar::Bool(s) => TypedDatum::Bool(BoolDatum::Scalar(s)),
                 Scalar::Decimal(s) => TypedDatum::Decimal(DecimalDatum::Scalar(s)),
                 Scalar::Primitive(s) => TypedDatum::Primitive(PrimitiveDatum::Scalar(s)),
-                _ => unreachable!(""),
-                // Scalar::Struct(_) => {}
+                Scalar::String(s) => TypedDatum::String(BinaryViewDatum::Scalar(s)),
+                Scalar::Binary(s) => TypedDatum::Binary(BinaryViewDatum::Scalar(s)),
+                Scalar::List(s) => TypedDatum::List(ListViewDatum::Scalar(s)),
+                Scalar::FixedSizeList(s) => {
+                    TypedDatum::FixedSizeList(FixedSizeListDatum::Scalar(s))
+                }
+                Scalar::Struct(s) => TypedDatum::Struct(StructDatum::Scalar(s)),
             },
             Datum::Vector(vec) => match vec {
                 Vector::Null(v) => TypedDatum::Null(NullDatum::Vector(v)),
                 Vector::Bool(v) => TypedDatum::Bool(BoolDatum::Vector(v)),
                 Vector::Decimal(v) => TypedDatum::Decimal(DecimalDatum::Vector(v)),
                 Vector::Primitive(v) => TypedDatum::Primitive(PrimitiveDatum::Vector(v)),
-                _ => todo!(),
+                Vector::String(v) => TypedDatum::String(BinaryViewDatum::Vector(v)),
+                Vector::Binary(v) => TypedDatum::Binary(BinaryViewDatum::Vector(v)),
+                Vector::List(v) => TypedDatum::List(ListViewDatum::Vector(v)),
+                Vector::FixedSizeList(v) => {
+                    TypedDatum::FixedSizeList(FixedSizeListDatum::Vector(v))
+                }
+                Vector::Struct(v) => TypedDatum::Struct(StructDatum::Vector(v)),
             },
         }
     }
@@ -267,6 +278,7 @@ impl PrimitiveDatum {
     }
 }
 
+/// A variant of [`Datum`] that is typed.
 pub enum TypedDatum {
     /// Null datum.
     Null(NullDatum),

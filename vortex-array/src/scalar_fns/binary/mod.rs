@@ -2,9 +2,19 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use prost::Message;
-use vortex_compute::arithmetic_op;
-use vortex_compute::checked_arithmetic_op;
-use vortex_compute::compare_op;
+use vortex_compute::arithmetic::Add;
+use vortex_compute::arithmetic::Arithmetic;
+use vortex_compute::arithmetic::CheckedArithmetic;
+use vortex_compute::arithmetic::Div;
+use vortex_compute::arithmetic::Mul;
+use vortex_compute::arithmetic::Sub;
+use vortex_compute::comparison::Compare;
+use vortex_compute::comparison::Equal;
+use vortex_compute::comparison::GreaterThan;
+use vortex_compute::comparison::GreaterThanOrEqual;
+use vortex_compute::comparison::LessThan;
+use vortex_compute::comparison::LessThanOrEqual;
+use vortex_compute::comparison::NotEqual;
 use vortex_compute::logical::KleeneAnd;
 use vortex_compute::logical::KleeneOr;
 use vortex_compute::logical::LogicalOp;
@@ -17,7 +27,6 @@ use vortex_vector::BoolDatum;
 use vortex_vector::Datum;
 use vortex_vector::PrimitiveDatum;
 
-use crate::compute;
 use crate::expr::ChildName;
 use crate::expr::Operator;
 use crate::expr::functions::ArgName;
@@ -45,7 +54,7 @@ impl VTable for BinaryFn {
     }
 
     fn arity(&self, _options: &Operator) -> Arity {
-        Arity::Fixed(2)
+        Arity::Exact(2)
     }
 
     fn null_handling(&self, options: &Operator) -> NullHandling {
@@ -85,62 +94,56 @@ impl VTable for BinaryFn {
         let lhs: Datum = args.input_datums(0).clone();
         let rhs: Datum = args.input_datums(1).clone();
 
-        if op.is_arithmetic() {
-            execute_arithmetic_primitive(&lhs.into_primitive(), &rhs.into_primitive(), *op)
-        } else if let Some(comp) = op.maybe_cmp_operator() {
-            let result = compare_op!(
-                comp,
-                lhs,
-                rhs,
-                compute::Operator::Eq,
-                compute::Operator::NotEq,
-                compute::Operator::Lt,
-                compute::Operator::Lte,
-                compute::Operator::Gt,
-                compute::Operator::Gte
-            );
-            Ok(result.into())
-        } else if matches!(op, Operator::And) {
-            Ok(<BoolDatum as LogicalOp<KleeneAnd>>::op(lhs.into_bool(), rhs.into_bool()).into())
-        } else if matches!(op, Operator::Or) {
-            Ok(<BoolDatum as LogicalOp<KleeneOr>>::op(lhs.into_bool(), rhs.into_bool()).into())
-        } else {
-            unreachable!("unknown operator type")
+        match op {
+            Operator::Eq => Ok(Compare::<Equal>::compare(lhs, rhs).into()),
+            Operator::NotEq => Ok(Compare::<NotEqual>::compare(lhs, rhs).into()),
+            Operator::Lt => Ok(Compare::<LessThan>::compare(lhs, rhs).into()),
+            Operator::Lte => Ok(Compare::<LessThanOrEqual>::compare(lhs, rhs).into()),
+            Operator::Gt => Ok(Compare::<GreaterThan>::compare(lhs, rhs).into()),
+            Operator::Gte => Ok(Compare::<GreaterThanOrEqual>::compare(lhs, rhs).into()),
+            Operator::And => Ok(<BoolDatum as LogicalOp<KleeneAnd>>::op(
+                lhs.into_bool(),
+                rhs.into_bool(),
+            )
+            .into()),
+            Operator::Or => {
+                Ok(<BoolDatum as LogicalOp<KleeneOr>>::op(lhs.into_bool(), rhs.into_bool()).into())
+            }
+            Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => {
+                execute_arithmetic_primitive(lhs.into_primitive(), rhs.into_primitive(), *op)
+            }
         }
     }
 }
 
 fn execute_arithmetic_primitive(
-    lhs: &PrimitiveDatum,
-    rhs: &PrimitiveDatum,
+    lhs: PrimitiveDatum,
+    rhs: PrimitiveDatum,
     op: Operator,
 ) -> VortexResult<Datum> {
     // Float arithmetic - no overflow checking needed
     if lhs.ptype().is_float() && lhs.ptype() == rhs.ptype() {
-        let result = arithmetic_op!(
-            op,
-            lhs,
-            rhs,
-            Operator::Add,
-            Operator::Sub,
-            Operator::Mul,
-            Operator::Div
-        );
+        let result: PrimitiveDatum = match op {
+            Operator::Add => Arithmetic::<Add>::eval(lhs, rhs),
+            Operator::Sub => Arithmetic::<Sub>::eval(lhs, rhs),
+            Operator::Mul => Arithmetic::<Mul>::eval(lhs, rhs),
+            Operator::Div => Arithmetic::<Div>::eval(lhs, rhs),
+            _ => unreachable!("Not an arithmetic operator"),
+        };
         return Ok(result.into());
     }
 
     // Integer arithmetic - use checked operations
-    checked_arithmetic_op!(
-        op,
-        lhs,
-        rhs,
-        Operator::Add,
-        Operator::Sub,
-        Operator::Mul,
-        Operator::Div
-    )
-    .map(|d| d.into())
-    .ok_or_else(|| vortex_err!("Arithmetic overflow/underflow or type mismatch"))
+    let result: Option<PrimitiveDatum> = match op {
+        Operator::Add => CheckedArithmetic::<Add>::checked_eval(lhs, rhs),
+        Operator::Sub => CheckedArithmetic::<Sub>::checked_eval(lhs, rhs),
+        Operator::Mul => CheckedArithmetic::<Mul>::checked_eval(lhs, rhs),
+        Operator::Div => CheckedArithmetic::<Div>::checked_eval(lhs, rhs),
+        _ => unreachable!("Not an arithmetic operator"),
+    };
+    result
+        .map(|d| d.into())
+        .ok_or_else(|| vortex_err!("Arithmetic overflow/underflow or type mismatch"))
 }
 
 #[cfg(test)]

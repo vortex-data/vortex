@@ -13,22 +13,22 @@ use crate::arithmetic::CheckedArithmetic;
 
 impl<Op> CheckedArithmetic<Op> for PrimitiveDatum
 where
-    PrimitiveScalar: CheckedArithmetic<Op, Output = PrimitiveScalar>,
-    PrimitiveVector: CheckedArithmetic<Op, Output = PrimitiveVector>,
+    for<'a> &'a PrimitiveScalar: CheckedArithmetic<Op, Output = PrimitiveScalar>,
+    for<'a> PrimitiveVector: CheckedArithmetic<Op, &'a PrimitiveVector, Output = PrimitiveVector>,
 {
     type Output = PrimitiveDatum;
 
     fn checked_eval(self, rhs: PrimitiveDatum) -> Option<Self::Output> {
         match (self, rhs) {
             (PrimitiveDatum::Scalar(sc1), PrimitiveDatum::Scalar(sc2)) => {
-                sc1.checked_eval(sc2).map(PrimitiveDatum::Scalar)
+                (&sc1).checked_eval(&sc2).map(PrimitiveDatum::Scalar)
             }
             (PrimitiveDatum::Vector(vec1), PrimitiveDatum::Vector(vec2)) => {
-                vec1.checked_eval(vec2).map(PrimitiveDatum::Vector)
+                vec1.checked_eval(&vec2).map(PrimitiveDatum::Vector)
             }
             (PrimitiveDatum::Vector(vec1), PrimitiveDatum::Scalar(sc2)) => {
                 let len = vec1.len();
-                vec1.checked_eval(sc2.repeat(len).freeze().into_primitive())
+                vec1.checked_eval(&sc2.repeat(len).freeze().into_primitive())
                     .map(PrimitiveDatum::Vector)
             }
             (PrimitiveDatum::Scalar(sc1), PrimitiveDatum::Vector(vec2)) => {
@@ -36,7 +36,7 @@ where
                 sc1.repeat(len)
                     .freeze()
                     .into_primitive()
-                    .checked_eval(vec2)
+                    .checked_eval(&vec2)
                     .map(PrimitiveDatum::Vector)
             }
         }

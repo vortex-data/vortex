@@ -16,7 +16,7 @@ use vortex_vector::primitive::PrimitiveVector;
 use crate::arithmetic::Arithmetic;
 use crate::arithmetic::CheckedArithmetic;
 
-impl<Op> CheckedArithmetic<Op, &PrimitiveScalar> for &PrimitiveScalar
+impl<Op> CheckedArithmetic<Op> for &PrimitiveScalar
 where
     for<'a> &'a PScalar<i8>: CheckedArithmetic<Op, &'a PScalar<i8>, Output = PScalar<i8>>,
     for<'a> &'a PScalar<i16>: CheckedArithmetic<Op, &'a PScalar<i16>, Output = PScalar<i16>>,
@@ -31,9 +31,9 @@ where
 
     fn checked_eval(self, rhs: &PrimitiveScalar) -> Option<Self::Output> {
         match_each_integer_pscalar_pair!(
-            (self, rhs),
+            (&self, &rhs),
             |l, r| { CheckedArithmetic::<Op, _>::checked_eval(l, r).map(Into::into) },
-            { vortex_panic!("cannot compare primitive scalar of different types") } // Type mismatch or float types
+            { vortex_panic!("cannot compare primitive scalar of different types") }
         )
     }
 }

@@ -39,6 +39,17 @@ where
     }
 }
 
+impl<Op> Compare<Op> for PrimitiveVector
+where
+    for<'a> &'a PrimitiveVector: Compare<Op, Output = BoolVector>,
+{
+    type Output = BoolVector;
+
+    fn compare(self, rhs: Self) -> Self::Output {
+        Compare::<Op>::compare(&self, &rhs)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use vortex_mask::Mask;
