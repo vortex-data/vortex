@@ -13,6 +13,7 @@ use vortex_array::ArrayRef;
 use wasm_bindgen::JsValue;
 
 use super::entry::BenchmarkEntry;
+use crate::website::charts::process_benchmarks;
 use crate::website::commit::CommitInfo;
 
 /// Base URL for the S3 bucket containing benchmark data.
@@ -97,14 +98,19 @@ pub async fn get_benchmark_data(
     commits_key: &str,
     data_key: &str,
 ) -> VortexResult<JsValue> {
-    // let (data_array, commits_array) = futures::try_join!(
-    //     read_s3_array(session, data_key),
-    //     read_s3_array(session, commits_key)
-    // )?;
+    let (data_array, commits_array) = futures::try_join!(
+        read_s3_array(session, data_key),
+        read_s3_array(session, commits_key)
+    )?;
 
-    // let data = BenchmarkEntry::vec_from_array(&data_array)?;
-    // let mut commits = CommitInfo::vec_from_array(&commits_array)?;
-    // commits.sort();
+    let data = BenchmarkEntry::vec_from_array(&data_array)?;
+    let mut commits = CommitInfo::vec_from_array(&commits_array)?;
+    commits.sort_unstable();
 
-    todo!()
+    let benchmarks = process_benchmarks(&data, &commits);
+
+    let js_value = serde_wasm_bindgen::to_value(&benchmarks)
+        .map_err(|e| vortex_err!("Something happened during serialization: {e}"))?;
+
+    Ok(js_value)
 }
