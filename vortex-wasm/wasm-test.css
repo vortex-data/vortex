@@ -2,21 +2,21 @@
 :root {
     /* Vortex Brand Colors */
     --vortex-black: #101010;
-    --vortex-gray: #ECECEC;
-    --vortex-green: #CEE562;
-    --vortex-blue: #5971FD;
-    --vortex-pink: #EEB3E1;
+    --vortex-gray: #ececec;
+    --vortex-green: #cee562;
+    --vortex-blue: #5971fd;
+    --vortex-pink: #eeb3e1;
 
     /* Series Colors */
     --series-vortex: #101010;
-    --series-parquet: #5DADE2;
+    --series-parquet: #5dade2;
     --series-lance: #ef7f1d;
 
     /* Theme Colors */
     --primary-color: var(--vortex-blue);
-    --primary-hover: #4A5FE5;
+    --primary-hover: #4a5fe5;
     --bg-color: #ffffff;
-    --bg-secondary: #FAFAFA;
+    --bg-secondary: #fafafa;
     --text-color: var(--vortex-black);
     --text-secondary: #666666;
     --border-color: var(--vortex-gray);
@@ -40,7 +40,9 @@
 }
 
 html {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Display", Roboto, sans-serif;
+    font-family:
+        -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Display", Roboto,
+        sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     font-size: 16px;
@@ -69,7 +71,11 @@ body {
 }
 
 .page-header h1 {
-    font-family: "Funnel Display", -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family:
+        "Funnel Display",
+        -apple-system,
+        BlinkMacSystemFont,
+        sans-serif;
     font-size: 2rem;
     font-weight: 600;
     color: var(--text-color);
@@ -118,7 +124,9 @@ body {
 }
 
 @keyframes spin {
-    to { transform: rotate(360deg); }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 /* Benchmarks Container - full width sections */
@@ -156,7 +164,7 @@ body {
 }
 
 .benchmark-header:hover {
-    background: #F0F0F0;
+    background: #f0f0f0;
 }
 
 .title-wrapper {
@@ -176,7 +184,11 @@ body {
 }
 
 .benchmark-title {
-    font-family: "Funnel Display", -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family:
+        "Funnel Display",
+        -apple-system,
+        BlinkMacSystemFont,
+        sans-serif;
     font-size: 1.25rem;
     font-weight: 600;
     color: var(--text-color);
@@ -315,7 +327,11 @@ body {
 }
 
 .chart-title {
-    font-family: "Funnel Display", -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family:
+        "Funnel Display",
+        -apple-system,
+        BlinkMacSystemFont,
+        sans-serif;
     font-size: 1rem;
     font-weight: 500;
     color: var(--text-color);
@@ -395,7 +411,7 @@ body {
 }
 
 .chartjs-tooltip::before {
-    content: '';
+    content: "";
     position: absolute;
     top: -8px;
     left: 50%;

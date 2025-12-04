@@ -1,32 +1,38 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vortex WASM Benchmarks</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Funnel+Display:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="wasm-test.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-</head>
-<body>
-    <div class="container">
-        <header class="page-header">
-            <h1>Vortex WASM Benchmarks</h1>
-            <p class="subtitle">Loading benchmark data directly from Vortex files using WebAssembly</p>
-        </header>
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Vortex WASM Benchmarks</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Funnel+Display:wght@400;500;600;700&display=swap"
+            rel="stylesheet"
+        />
+        <link rel="stylesheet" href="wasm-test.css" />
+        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    </head>
+    <body>
+        <div class="container">
+            <header class="page-header">
+                <h1>Vortex WASM Benchmarks</h1>
+                <p class="subtitle">
+                    Loading benchmark data directly from Vortex files using
+                    WebAssembly
+                </p>
+            </header>
 
-        <div id="status" class="status loading">
-            <span class="spinner"></span>
-            <span id="status-text">Initializing WASM module...</span>
+            <div id="status" class="status loading">
+                <span class="spinner"></span>
+                <span id="status-text">Initializing WASM module...</span>
+            </div>
+
+            <div id="benchmarks-container" class="benchmarks-grid">
+                <!-- Groups rendered dynamically by JS -->
+            </div>
         </div>
 
-        <div id="benchmarks-container" class="benchmarks-grid">
-            <!-- Groups rendered dynamically by JS -->
-        </div>
-    </div>
-
-    <script type="module" src="wasm-test.js"></script>
-</body>
+        <script type="module" src="wasm-test.js"></script>
+    </body>
 </html>
