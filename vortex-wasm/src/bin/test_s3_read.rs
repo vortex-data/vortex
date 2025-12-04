@@ -30,7 +30,7 @@ async fn async_main() {
     // Print header.
     println!(
         "{:<44} {:>15} {:>15} {:>15} {:>12}",
-        "commit_id", "benchmark_group", "chart_name", "series_name", "value"
+        "commit_id", "group_name", "chart_name", "series_name", "value"
     );
     println!("{}", "-".repeat(105));
 
@@ -42,11 +42,7 @@ async fn async_main() {
         if i < show_first || i >= entries.len() - show_last {
             println!(
                 "{} {:>15} {:>15} {:>15} {:>12}",
-                entry.commit_id,
-                entry.benchmark_group,
-                entry.chart_name,
-                entry.series_name,
-                entry.value
+                entry.commit_id, entry.group_name, entry.chart_name, entry.series_name, entry.value
             );
         } else if i == show_first {
             println!(

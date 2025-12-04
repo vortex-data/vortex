@@ -31,6 +31,7 @@ native = [
 [dependencies]
 # Core dependencies for both WASM and native.
 console_error_panic_hook = "0.1"
+futures = { workspace = true }
 hex = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -38,6 +39,7 @@ serde-wasm-bindgen = "0.6"
 vortex = { workspace = true }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = { workspace = true }
+hashbrown = { workspace = true, features = ["serde"] }
 
 # These are needed by binaries - accessed via vortex re-exports for library code.
 vortex-array = { workspace = true }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+pub mod charts;
 pub mod commit;
 pub mod commit_id;
 pub mod entry;

@@ -106,12 +106,12 @@ fn create_test_entry() -> Scalar {
     let u8_dtype = DType::Primitive(PType::U8, NonNullable);
 
     // Build the dtype to match the schema:
-    // {commit_id=fixed_size_list(u8)[20], benchmark_group=u32, chart_name=u32, series_name=u32, value=u64}
+    // {commit_id=fixed_size_list(u8)[20], group_name=u32, chart_name=u32, series_name=u32, value=u64}
     let dtype = DType::Struct(
         vortex::dtype::StructFields::new(
             FieldNames::from([
                 "commit_id",
-                "benchmark_group",
+                "group_name",
                 "chart_name",
                 "series_name",
                 "value",
@@ -138,7 +138,7 @@ fn create_test_entry() -> Scalar {
         dtype,
         vec![
             commit_id_scalar,
-            Scalar::primitive(2u32, NonNullable), // benchmark_group: random-access
+            Scalar::primitive(2u32, NonNullable), // group_name: random-access
             Scalar::primitive(2u32, NonNullable), // chart_name: random-access
             Scalar::primitive(3u32, NonNullable), // series_name: vortex-nvme
             Scalar::primitive(999999u64, NonNullable), // value: test value

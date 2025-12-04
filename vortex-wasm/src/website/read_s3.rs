@@ -10,8 +10,10 @@ use vortex::error::vortex_err;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::session::VortexSession;
 use vortex_array::ArrayRef;
+use wasm_bindgen::JsValue;
 
 use super::entry::BenchmarkEntry;
+use crate::website::commit::CommitInfo;
 
 /// Base URL for the S3 bucket containing benchmark data.
 const S3_BASE_URL: &str = "https://vortex-benchmark-results-database.s3.amazonaws.com";
@@ -88,4 +90,21 @@ pub async fn read_benchmark_entries(
 ) -> VortexResult<Vec<BenchmarkEntry>> {
     let array = read_s3_array(session, key).await?;
     BenchmarkEntry::vec_from_array(&array)
+}
+
+pub async fn get_benchmark_data(
+    session: &VortexSession,
+    commits_key: &str,
+    data_key: &str,
+) -> VortexResult<JsValue> {
+    // let (data_array, commits_array) = futures::try_join!(
+    //     read_s3_array(session, data_key),
+    //     read_s3_array(session, commits_key)
+    // )?;
+
+    // let data = BenchmarkEntry::vec_from_array(&data_array)?;
+    // let mut commits = CommitInfo::vec_from_array(&commits_array)?;
+    // commits.sort();
+
+    todo!()
 }

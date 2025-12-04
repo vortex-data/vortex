@@ -23,8 +23,6 @@ use vortex_error::vortex_bail;
 use crate::website::commit_id::CommitId;
 use crate::website::commit_id::PassthroughBuildHasher;
 
-// TODO(connor): Replace with a better `HashMap` to serialize to JavaScript.
-
 /// Maps [`CommitId`] to benchmark value.
 pub type CommitValueMap<'a> = HashMap<&'a CommitId, u64, PassthroughBuildHasher>;
 
@@ -41,7 +39,7 @@ pub type GroupedEntries<'a> = HashMap<&'a str, ChartMap<'a>>;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BenchmarkEntry {
     pub commit_id: CommitId,
-    pub benchmark_group: String,
+    pub group_name: String,
     pub chart_name: String,
     pub series_name: String,
     pub value: u64,
@@ -50,14 +48,14 @@ pub struct BenchmarkEntry {
 impl BenchmarkEntry {
     pub fn new(
         commit_id: CommitId,
-        benchmark_group: String,
+        group_name: String,
         chart_name: String,
         series_name: String,
         value: u64,
     ) -> Self {
         Self {
             commit_id,
-            benchmark_group,
+            group_name,
             chart_name,
             series_name,
             value,
@@ -68,7 +66,7 @@ impl BenchmarkEntry {
     ///
     /// The schema is:
     /// - `commit_id`: `FixedSizeList<u8, 20>` (20-byte binary SHA-1)
-    /// - `benchmark_group`: `Utf8`
+    /// - `group_name`: `Utf8`
     /// - `chart_name`: `Utf8`
     /// - `series_name`: `Utf8`
     /// - `value`: `u64`
@@ -77,7 +75,7 @@ impl BenchmarkEntry {
             StructFields::new(
                 FieldNames::from([
                     "commit_id",
-                    "benchmark_group",
+                    "group_name",
                     "chart_name",
                     "series_name",
                     "value",
@@ -115,7 +113,7 @@ impl BenchmarkEntry {
             BenchmarkEntry::dtype(),
             vec![
                 commit_id_scalar,
-                Scalar::utf8(self.benchmark_group.as_str(), NonNullable),
+                Scalar::utf8(self.group_name.as_str(), NonNullable),
                 Scalar::utf8(self.chart_name.as_str(), NonNullable),
                 Scalar::utf8(self.series_name.as_str(), NonNullable),
                 Scalar::primitive(self.value, NonNullable),
@@ -127,7 +125,7 @@ impl BenchmarkEntry {
     ///
     /// The array must have the following schema:
     /// - `commit_id`: FixedSizeList<u8, 20>
-    /// - `benchmark_group`: Utf8
+    /// - `group_name`: Utf8
     /// - `chart_name`: Utf8
     /// - `series_name`: Utf8
     /// - `value`: u64
@@ -140,7 +138,7 @@ impl BenchmarkEntry {
 
         // Extract each field.
         let commit_id_field = struct_array.field_by_name("commit_id")?;
-        let benchmark_group_field = struct_array.field_by_name("benchmark_group")?;
+        let group_name_field = struct_array.field_by_name("group_name")?;
         let chart_name_field = struct_array.field_by_name("chart_name")?;
         let series_name_field = struct_array.field_by_name("series_name")?;
         let value_field = struct_array.field_by_name("value")?;
@@ -159,7 +157,7 @@ impl BenchmarkEntry {
         let commit_id_bytes: &[u8] = commit_id_elements.as_slice();
 
         // Convert string fields to canonical varbinview arrays.
-        let benchmark_group_vbv = benchmark_group_field.to_varbinview();
+        let group_name_vbv = group_name_field.to_varbinview();
         let chart_name_vbv = chart_name_field.to_varbinview();
         let series_name_vbv = series_name_field.to_varbinview();
 
@@ -176,8 +174,8 @@ impl BenchmarkEntry {
             commit_id_arr.copy_from_slice(&commit_id_bytes[start..end]);
 
             // Read strings using bytes_at() and convert to String.
-            let benchmark_group = std::str::from_utf8(benchmark_group_vbv.bytes_at(i).as_ref())
-                .map_err(|e| vortex_error::vortex_err!("Invalid UTF-8 in benchmark_group: {}", e))?
+            let group_name = std::str::from_utf8(group_name_vbv.bytes_at(i).as_ref())
+                .map_err(|e| vortex_error::vortex_err!("Invalid UTF-8 in group_name: {}", e))?
                 .to_string();
             let chart_name = std::str::from_utf8(chart_name_vbv.bytes_at(i).as_ref())
                 .map_err(|e| vortex_error::vortex_err!("Invalid UTF-8 in chart_name: {}", e))?
@@ -188,7 +186,7 @@ impl BenchmarkEntry {
 
             entries.push(BenchmarkEntry {
                 commit_id: CommitId(commit_id_arr),
-                benchmark_group,
+                group_name,
                 chart_name,
                 series_name,
                 value: values[i],
@@ -203,7 +201,7 @@ impl BenchmarkEntry {
         let mut result: GroupedEntries<'_> = HashMap::new();
         for entry in entries {
             result
-                .entry(entry.benchmark_group.as_str())
+                .entry(entry.group_name.as_str())
                 .or_default()
                 .entry(entry.chart_name.as_str())
                 .or_default()

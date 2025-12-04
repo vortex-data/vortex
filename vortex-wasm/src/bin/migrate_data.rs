@@ -53,14 +53,14 @@ async fn main() {
 
     // Extract fields into columnar vectors.
     let mut commit_id_bytes: Vec<u8> = Vec::with_capacity(num_entries * 20);
-    let mut benchmark_groups: Vec<&str> = Vec::with_capacity(num_entries);
+    let mut group_names: Vec<&str> = Vec::with_capacity(num_entries);
     let mut chart_names: Vec<&str> = Vec::with_capacity(num_entries);
     let mut series_names: Vec<&str> = Vec::with_capacity(num_entries);
     let mut values: Vec<u64> = Vec::with_capacity(num_entries);
 
     for entry in &entries {
         commit_id_bytes.extend_from_slice(&entry.commit_id.0);
-        benchmark_groups.push(&entry.benchmark_group);
+        group_names.push(&entry.group_name);
         chart_names.push(&entry.chart_name);
         series_names.push(&entry.series_name);
         values.push(entry.value);
@@ -77,8 +77,8 @@ async fn main() {
     )
     .expect("Failed to create commit_id array");
 
-    let benchmark_group_array = VarBinArray::from_iter(
-        benchmark_groups.iter().map(|s| Some(*s)),
+    let group_name_array = VarBinArray::from_iter(
+        group_names.iter().map(|s| Some(*s)),
         DType::Utf8(Nullability::NonNullable),
     );
     let chart_name_array = VarBinArray::from_iter(
@@ -94,14 +94,14 @@ async fn main() {
     let struct_array = StructArray::try_new(
         FieldNames::from([
             "commit_id",
-            "benchmark_group",
+            "group_name",
             "chart_name",
             "series_name",
             "value",
         ]),
         vec![
             commit_id_array.into_array(),
-            benchmark_group_array.into_array(),
+            group_name_array.into_array(),
             chart_name_array.into_array(),
             series_name_array.into_array(),
             value_array.into_array(),

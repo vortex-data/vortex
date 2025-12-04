@@ -3701,6 +3701,8 @@ dependencies = [
  "allocator-api2",
  "equivalent",
  "foldhash 0.2.0",
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -9644,6 +9646,8 @@ version = "0.1.0"
 dependencies = [
  "async-fs",
  "console_error_panic_hook",
+ "futures",
+ "hashbrown 0.16.1",
  "hex",
  "reqwest",
  "serde",
