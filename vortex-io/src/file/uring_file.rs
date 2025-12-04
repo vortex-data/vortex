@@ -13,6 +13,7 @@ use std::sync::Arc;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::future::BoxFuture;
+use futures::future::LocalBoxFuture;
 use futures::stream::BoxStream;
 use futures::channel::oneshot;
 use monoio::fs::File;
@@ -100,55 +101,73 @@ impl ReadSource for UringFileIoSource {
         let std_file = self.std_file.clone();
         local.spawn_local(Box::new(move || {
             Box::pin(async move {
-                let monoio_file = match std_file.try_clone().and_then(File::from_std) {
-                    Ok(f) => Arc::new(f),
-                    Err(e) => {
-                        let kind = e.kind();
-                        let msg = e.to_string();
-                        requests
-                            .for_each(|req| {
-                                let io_err = std::io::Error::new(kind, msg.clone());
-                                req.resolve(Err(VortexError::from(io_err)));
-                                futures::future::ready(())
-                            })
-                            .await;
-                        let _ = done_tx.send(());
-                        return;
-                    }
-                };
-
-                requests
-                    .map(|req| {
-                        let monoio_file = monoio_file.clone();
-                        async move {
-                            let len = req.len();
-                            let offset = req.offset();
-                            let alignment = req.alignment();
-
-                            // Pre-allocate an aligned buffer so we don't have to copy on resolve.
-                            let buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
-                            let mut bytes_mut = buffer.into_bytes_mut();
-                            bytes_mut.resize(len, 0);
-
-                            let (res, mut bytes_mut) = monoio_file.read_at(bytes_mut, offset).await;
-                            match res {
-                                Ok(n) => {
-                                    bytes_mut.truncate(n);
-                                    let bytes = bytes_mut.freeze();
-                                    req.resolve(Ok(ByteBuffer::from(bytes)));
-                                }
-                                Err(e) => req.resolve(Err(VortexError::from(e))),
-                            }
-                        }
-                    })
-                    .buffer_unordered(CONCURRENCY)
-                    .collect::<()>()
-                    .await;
-
+                self.drive_local_impl(std_file, requests).await;
                 let _ = done_tx.send(());
             })
         }));
 
         done_rx.map(|res| res.unwrap_or(())).boxed()
+    }
+
+    fn drive_local(
+        self: Arc<Self>,
+        requests: BoxStream<'static, IoRequest>,
+    ) -> LocalBoxFuture<'static, ()> {
+        self.clone()
+            .drive_local_impl(self.std_file.clone(), requests)
+    }
+}
+
+impl UringFileIoSource {
+    fn drive_local_impl(
+        self: Arc<Self>,
+        std_file: Arc<std::fs::File>,
+        requests: BoxStream<'static, IoRequest>,
+    ) -> LocalBoxFuture<'static, ()> {
+        Box::pin(async move {
+            let monoio_file = match std_file.try_clone().and_then(File::from_std) {
+                Ok(f) => Arc::new(f),
+                Err(e) => {
+                    let kind = e.kind();
+                    let msg = e.to_string();
+                    requests
+                        .for_each(|req| {
+                            let io_err = std::io::Error::new(kind, msg.clone());
+                            req.resolve(Err(VortexError::from(io_err)));
+                            futures::future::ready(())
+                        })
+                        .await;
+                    return;
+                }
+            };
+
+            requests
+                .map(|req| {
+                    let monoio_file = monoio_file.clone();
+                    async move {
+                        let len = req.len();
+                        let offset = req.offset();
+                        let alignment = req.alignment();
+
+                        // Pre-allocate an aligned buffer so we don't have to copy on resolve.
+                        let buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
+                        let mut bytes_mut = buffer.into_bytes_mut();
+                        bytes_mut.resize(len, 0);
+
+                        let (res, mut bytes_mut) = monoio_file.read_at(bytes_mut, offset).await;
+                        match res {
+                            Ok(n) => {
+                                bytes_mut.truncate(n);
+                                let bytes = bytes_mut.freeze();
+                                req.resolve(Ok(ByteBuffer::from(bytes)));
+                            }
+                            Err(e) => req.resolve(Err(VortexError::from(e))),
+                        }
+                    }
+                })
+                .buffer_unordered(CONCURRENCY)
+                .collect::<()>()
+                .await;
+        })
     }
 }

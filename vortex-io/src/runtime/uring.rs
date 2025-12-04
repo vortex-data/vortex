@@ -170,7 +170,10 @@ impl Executor for UringRuntime {
     }
 
     fn spawn_io(&self, task: IoTask) {
-        let _ = self.sender.send(Command::SpawnIo(task));
+        // Drive I/O on the runtime thread using the local future to allow !Send implementations.
+        let _ = self.sender.send(Command::SpawnLocal(Box::new(move || {
+            Box::pin(async move { task.source.drive_local(task.stream).await })
+        })));
     }
 
     fn as_local_executor(&self) -> Option<Arc<dyn LocalExecutor>> {
@@ -187,9 +190,13 @@ impl LocalExecutor for UringRuntime {
 
 fn run_runtime(receiver: Receiver<Command>) {
     // Use the IoUring driver explicitly to avoid ambiguity with feature combinations.
+    let pool_size = thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(8);
+
     let mut rt = RuntimeBuilder::<IoUringDriver>::new()
         .enable_timer()
-        .attach_thread_pool(Box::new(DefaultThreadPool::new(8)))
+        .attach_thread_pool(Box::new(DefaultThreadPool::new(pool_size)))
         .build()
         .expect("failed to build uring runtime");
 
