@@ -40,7 +40,7 @@ jobs:
   python-lint:
     name: "Python (lint)"
     runs-on:
-      - runs-on=${{ github.run_id }}/image=vortex-ci
+      - runs-on=${{ github.run_id }}/image=vortex-ci-amd64
       - family=m7i+m7i-flex+m7a
       - cpu=16
       - extras=s3-cache
@@ -71,7 +71,7 @@ jobs:
   python-test:
     name: "Python (test)"
     runs-on:
-      - runs-on=${{ github.run_id }}/image=vortex-ci
+      - runs-on=${{ github.run_id }}/image=vortex-ci-amd64
       - family=m7i+m7i-flex+m7a
       - cpu=16
       - extras=s3-cache
@@ -154,7 +154,7 @@ jobs:
     name: "Rust (docs)"
     timeout-minutes: 120
     runs-on:
-      - runs-on=${{ github.run_id }}/image=vortex-ci
+      - runs-on=${{ github.run_id }}/image=vortex-ci-amd64
       - family=m7i+m7i-flex+m7a
       - cpu=8
       - extras=s3-cache
@@ -174,7 +174,7 @@ jobs:
     name: "Rust build (${{matrix.config.name}})"
     timeout-minutes: 120
     runs-on:
-      - runs-on=${{ github.run_id }}/image=vortex-ci
+      - runs-on=${{ github.run_id }}/image=vortex-ci-amd64
       - family=m7i+m7i-flex+m7a
       - cpu=8
       - extras=s3-cache
@@ -220,7 +220,7 @@ jobs:
     name: "Check build with minimal dependencies"
     timeout-minutes: 120
     runs-on:
-      - runs-on=${{ github.run_id }}/image=vortex-ci
+      - runs-on=${{ github.run_id }}/image=vortex-ci-amd64
       - family=m7i+m7i-flex+m7a
       - cpu=8
       - extras=s3-cache
@@ -237,7 +237,7 @@ jobs:
     name: "Rust (lint)"
     timeout-minutes: 120
     runs-on:
-      - runs-on=${{ github.run_id }}/image=vortex-ci
+      - runs-on=${{ github.run_id }}/image=vortex-ci-amd64
       - family=m7i+m7i-flex+m7a
       - cpu=16
       - extras=s3-cache
@@ -262,7 +262,7 @@ jobs:
     name: "Rust (lint, no default)"
     timeout-minutes: 120
     runs-on:
-      - runs-on=${{ github.run_id }}/image=vortex-ci
+      - runs-on=${{ github.run_id }}/image=vortex-ci-amd64
       - family=m7i+m7i-flex+m7a
       - cpu=16
       - extras=s3-cache
@@ -327,7 +327,7 @@ jobs:
           - tpc-h
           - ffi
     runs-on:
-      - runs-on=${{ github.run_id }}/image=vortex-ci
+      - runs-on=${{ github.run_id }}/image=vortex-ci-amd64
       - family=m7i+m7i-flex+m7a
       - cpu=16
       - extras=s3-cache
@@ -389,7 +389,7 @@ jobs:
     name: "Rust tests (sanitizer)"
     timeout-minutes: 120
     runs-on:
-      - runs-on=${{ github.run_id }}/image=vortex-ci
+      - runs-on=${{ github.run_id }}/image=vortex-ci-amd64
       - family=m7i+m7i-flex+m7a
       - cpu=16
       - extras=s3-cache
@@ -498,7 +498,7 @@ jobs:
   build-java:
     name: "Java"
     runs-on:
-      - runs-on=${{ github.run_id }}/image=vortex-ci
+      - runs-on=${{ github.run_id }}/image=vortex-ci-amd64
       - family=m7i+m7i-flex+m7a
       - cpu=16
       - extras=s3-cache
@@ -534,7 +534,7 @@ jobs:
     name: "Benchmark with Codspeed (Shard #${{ matrix.shard }})"
     timeout-minutes: 120
     runs-on:
-      - runs-on=${{ github.run_id }}/image=vortex-ci
+      - runs-on=${{ github.run_id }}/image=vortex-ci-amd64
       - family=c7i.8xlarge
       - extras=s3-cache
       - tag=bench-codspeed-${{ matrix.shard }}
@@ -580,7 +580,7 @@ jobs:
     name: "C++ build"
     timeout-minutes: 120
     runs-on:
-      - runs-on=${{ github.run_id }}/image=vortex-ci
+      - runs-on=${{ github.run_id }}/image=vortex-ci-amd64
       - family=m7i+m7i-flex+m7a
       - cpu=8
       - extras=s3-cache
