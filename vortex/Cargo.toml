@@ -56,6 +56,9 @@ vortex-zstd = { workspace = true, optional = true }
 anyhow = { workspace = true }
 arrow-array = { workspace = true }
 divan = { workspace = true }
+futures = { workspace = true }
+geo-types = { workspace = true }
+geozero = { workspace = true, features = ["with-wkb"] }
 itertools = { workspace = true }
 mimalloc = { workspace = true }
 parquet = { workspace = true }

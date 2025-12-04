@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! An implementation of an ST_Contains expression type.
+//! An implementation of an ST_Contains expression type as a ScalarFn.
+//!
+//! The Vectors don't seem to be complete enough to use ScalarFn for non-trivial things
+//! so for now this is unused.
 
 use crate::expr::functions::{ArgName, Arity, EmptyOptions, ExecutionArgs, FunctionId, VTable};
 use geo::Contains;

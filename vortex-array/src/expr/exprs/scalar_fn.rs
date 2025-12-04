@@ -119,15 +119,15 @@ impl VTable for ScalarFnExpr {
         })
     }
 
-    fn stat_falsification(
-        &self,
-        _expr: &ExpressionView<Self>,
-        _catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        // TODO(ngates): ideally this is implemented as optimizer rules over a `falsify` and
-        //  `verify` expressions.
-        todo!()
-    }
+    // fn stat_falsification(
+    //     &self,
+    //     _expr: &ExpressionView<Self>,
+    //     _catalog: &dyn StatsCatalog,
+    // ) -> Option<Expression> {
+    //     // TODO(ngates): ideally this is implemented as optimizer rules over a `falsify` and
+    //     //  `verify` expressions.
+    //     todo!()
+    // }
 
     fn stat_expression(
         &self,
