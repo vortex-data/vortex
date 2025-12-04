@@ -74,6 +74,14 @@ impl Scalar {
         vortex_panic!("Cannot convert non-bool Scalar into BoolScalar");
     }
 
+    /// Converts the `Scalar` into a `BoolScalar`.
+    pub fn to_bool(&self) -> &BoolScalar {
+        if let Scalar::Bool(scalar) = self {
+            return scalar;
+        }
+        vortex_panic!("Cannot convert non-bool Scalar into BoolScalar");
+    }
+
     /// Converts the `Scalar` into a `DecimalScalar`.
     pub fn into_decimal(self) -> DecimalScalar {
         if let Scalar::Decimal(scalar) = self {

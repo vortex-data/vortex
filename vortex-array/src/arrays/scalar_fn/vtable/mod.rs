@@ -9,18 +9,17 @@ mod visitor;
 
 use std::marker::PhantomData;
 use std::ops::Deref;
-use std::sync::LazyLock;
 
 use itertools::Itertools;
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_session::VortexSession;
 use vortex_vector::Datum;
+use vortex_vector::ScalarOps;
 use vortex_vector::Vector;
+use vortex_vector::VectorMutOps;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -35,19 +34,12 @@ use crate::expr::ScalarFn;
 use crate::optimizer::rules::MatchKey;
 use crate::optimizer::rules::Matcher;
 use crate::serde::ArrayChildren;
-use crate::session::ArraySession;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
-
-// TODO(ngates): canonicalize doesn't currently take a session, therefore we cannot dispatch
-//  to registered scalar function kernels. We therefore hold our own non-pluggable session here
-//  that contains all the built-in kernels while we migrate over to "execute" instead of canonicalize.
-static SCALAR_FN_SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 vtable!(ScalarFn);
 
@@ -146,11 +138,13 @@ impl VTable for ScalarFnVTable {
             row_count: array.len,
             return_dtype: array.dtype.clone(),
         };
-        Ok(array
-            .bound
-            .execute(ctx)?
-            .into_vector()
-            .vortex_expect("Vector inputs should return vector outputs"))
+
+        let datum = array.bound.execute(ctx)?;
+        let vector = match datum {
+            Datum::Scalar(s) => s.repeat(array.len).freeze(),
+            Datum::Vector(v) => v,
+        };
+        Ok(vector)
     }
 }
 

@@ -4,12 +4,12 @@
 use itertools::Itertools;
 use vortex_error::VortexResult;
 
-use crate::arrays::ScalarFnArray;
-use crate::expr::Expression;
-use crate::expr::Root;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::ScalarFnArray;
+use crate::expr::Expression;
+use crate::expr::Root;
 
 impl dyn Array + '_ {
     /// Apply the expression to this array, producing a new array in constant time.

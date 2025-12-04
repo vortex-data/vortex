@@ -4,9 +4,9 @@
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
-use crate::stats::ArrayStats;
 use crate::Array;
 use crate::ArrayRef;
+use crate::stats::ArrayStats;
 
 #[derive(Clone, Debug)]
 pub struct FilterArray {

@@ -3,12 +3,17 @@
 
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::NativePType;
+use vortex_dtype::PType;
 
 use crate::Scalar;
+use crate::ScalarOps;
 use crate::Vector;
+use crate::VectorMutOps;
+use crate::binaryview::BinaryType;
 use crate::binaryview::BinaryViewScalar;
 use crate::binaryview::BinaryViewType;
 use crate::binaryview::BinaryViewVector;
+use crate::binaryview::StringType;
 use crate::bool::BoolScalar;
 use crate::bool::BoolVector;
 use crate::decimal::DScalar;
@@ -50,6 +55,14 @@ impl From<Vector> for Datum {
 }
 
 impl Datum {
+    /// Ensure the datum is a vector by repeating the scalar value if necessary.
+    pub fn ensure_vector(self, len: usize) -> Vector {
+        match self {
+            Datum::Scalar(scalar) => scalar.repeat(len).freeze(),
+            Datum::Vector(vector) => vector,
+        }
+    }
+
     /// Returns the scalar value if this `Datum` is a `Scalar`, otherwise returns `None`.
     pub fn into_scalar(self) -> Option<Scalar> {
         match self {
@@ -139,12 +152,45 @@ impl Datum {
             Datum::Vector(vector) => StructDatum::Vector(vector.into_struct()),
         }
     }
+
+    /// Convert this datum into a typed datum.
+    pub fn into_typed(self) -> TypedDatum {
+        match self {
+            Datum::Scalar(sc) => match sc {
+                Scalar::Null(s) => TypedDatum::Null(NullDatum::Scalar(s)),
+                Scalar::Bool(s) => TypedDatum::Bool(BoolDatum::Scalar(s)),
+                Scalar::Decimal(s) => TypedDatum::Decimal(DecimalDatum::Scalar(s)),
+                Scalar::Primitive(s) => TypedDatum::Primitive(PrimitiveDatum::Scalar(s)),
+                Scalar::String(s) => TypedDatum::String(BinaryViewDatum::Scalar(s)),
+                Scalar::Binary(s) => TypedDatum::Binary(BinaryViewDatum::Scalar(s)),
+                Scalar::List(s) => TypedDatum::List(ListViewDatum::Scalar(s)),
+                Scalar::FixedSizeList(s) => {
+                    TypedDatum::FixedSizeList(FixedSizeListDatum::Scalar(s))
+                }
+                Scalar::Struct(s) => TypedDatum::Struct(StructDatum::Scalar(s)),
+            },
+            Datum::Vector(vec) => match vec {
+                Vector::Null(v) => TypedDatum::Null(NullDatum::Vector(v)),
+                Vector::Bool(v) => TypedDatum::Bool(BoolDatum::Vector(v)),
+                Vector::Decimal(v) => TypedDatum::Decimal(DecimalDatum::Vector(v)),
+                Vector::Primitive(v) => TypedDatum::Primitive(PrimitiveDatum::Vector(v)),
+                Vector::String(v) => TypedDatum::String(BinaryViewDatum::Vector(v)),
+                Vector::Binary(v) => TypedDatum::Binary(BinaryViewDatum::Vector(v)),
+                Vector::List(v) => TypedDatum::List(ListViewDatum::Vector(v)),
+                Vector::FixedSizeList(v) => {
+                    TypedDatum::FixedSizeList(FixedSizeListDatum::Vector(v))
+                }
+                Vector::Struct(v) => TypedDatum::Struct(StructDatum::Vector(v)),
+            },
+        }
+    }
 }
 
 macro_rules! datum {
     // Non-generic version
     ($Name:ident) => {
         paste::paste! {
+            #[derive(Clone, Debug)]
             #[doc = concat!("Datum enum for `", stringify!($Name), "`.")]
             pub enum [<$Name Datum>] {
                 /// Scalar variant
@@ -185,6 +231,7 @@ macro_rules! datum {
     // Generic version with trait bound
     ($Name:ident < $T:ident : $Bound:path >) => {
         paste::paste! {
+            #[derive(Clone, Debug)]
             #[doc = concat!("Datum enum for `", stringify!([<$Name Datum>]<$T: $Bound>), "`.")]
             pub enum [<$Name Datum>]<$T: $Bound> {
                 /// Scalar variant
@@ -233,3 +280,36 @@ datum!(BinaryView<T: BinaryViewType>);
 datum!(ListView);
 datum!(FixedSizeList);
 datum!(Struct);
+
+impl PrimitiveDatum {
+    /// Returns the primitive type of this datum.
+    pub fn ptype(&self) -> PType {
+        match self {
+            PrimitiveDatum::Scalar(sc) => sc.ptype(),
+            PrimitiveDatum::Vector(sc) => sc.ptype(),
+        }
+    }
+}
+
+/// A variant of [`Datum`] that is typed.
+#[derive(Debug)]
+pub enum TypedDatum {
+    /// Null datum.
+    Null(NullDatum),
+    /// Boolean datum.
+    Bool(BoolDatum),
+    /// Decimal datum.
+    Decimal(DecimalDatum),
+    /// Primitive datum.
+    Primitive(PrimitiveDatum),
+    /// String datum
+    String(BinaryViewDatum<StringType>),
+    /// Binary datum
+    Binary(BinaryViewDatum<BinaryType>),
+    /// List datum.
+    List(ListViewDatum),
+    /// fsl datum.
+    FixedSizeList(FixedSizeListDatum),
+    /// struct datum.
+    Struct(StructDatum),
+}

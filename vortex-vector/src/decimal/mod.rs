@@ -16,8 +16,8 @@
 //!
 //! ```
 //! use vortex_dtype::{PrecisionScale};
-//! use vortex_vector::decimal::{DVectorMut};
-//! use vortex_vector::VectorMutOps;
+//! use crate::decimal::{DVectorMut};
+//! use crate::VectorMutOps;
 //!
 //! // Create a decimal vector with precision=9, scale=2 (e.g., up to 9999999.99).
 //! let ps = PrecisionScale::<i32>::new(9, 2);
@@ -50,8 +50,8 @@
 //! use vortex_buffer::BufferMut;
 //! use vortex_dtype::{PrecisionScale};
 //! use vortex_mask::MaskMut;
-//! use vortex_vector::decimal::DVectorMut;
-//! use vortex_vector::VectorMutOps;
+//! use crate::decimal::DVectorMut;
+//! use crate::VectorMutOps;
 //!
 //! // Create a decimal vector with nulls.
 //! let ps = PrecisionScale::<i32>::new(5, 2); // Up to 999.99.
@@ -79,8 +79,8 @@
 //!
 //! ```
 //! use vortex_dtype::{PrecisionScale};
-//! use vortex_vector::decimal::DVectorMut;
-//! use vortex_vector::VectorMutOps;
+//! use crate::decimal::DVectorMut;
+//! use crate::VectorMutOps;
 //!
 //! // Create two decimal vectors with scale=3 (3 decimal places).
 //! let ps = PrecisionScale::<i64>::new(10, 3);
@@ -115,8 +115,8 @@
 //!
 //! ```
 //! use vortex_dtype::{PrecisionScale};
-//! use vortex_vector::decimal::DVectorMut;
-//! use vortex_vector::{VectorMutOps, VectorOps};
+//! use crate::decimal::DVectorMut;
+//! use crate::{VectorMutOps, VectorOps};
 //!
 //! // Create a mutable decimal vector.
 //! let ps = PrecisionScale::<i128>::new(18, 6);  // High precision with 6 decimal places.

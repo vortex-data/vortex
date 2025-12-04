@@ -10,6 +10,9 @@
 #![deny(clippy::missing_panics_doc)]
 #![deny(clippy::missing_safety_doc)]
 
+#[cfg(feature = "arrow")]
+mod arrow;
+
 pub mod binaryview;
 pub mod bool;
 pub mod decimal;

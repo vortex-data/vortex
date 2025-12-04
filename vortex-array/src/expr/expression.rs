@@ -11,17 +11,17 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::vortex_ensure;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
-use crate::expr::display::DisplayTreeExpr;
-use crate::expr::stats::Stat;
+use crate::ArrayRef;
 use crate::expr::Root;
 use crate::expr::ScalarFn;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
-use crate::ArrayRef;
+use crate::expr::display::DisplayTreeExpr;
+use crate::expr::stats::Stat;
 
 /// A node in a Vortex expression tree.
 ///

@@ -16,8 +16,8 @@
 //! ## Creating and building a vector
 //!
 //! ```
-//! use vortex_vector::primitive::PVectorMut;
-//! use vortex_vector::VectorMutOps;
+//! use crate::primitive::PVectorMut;
+//! use crate::VectorMutOps;
 //!
 //! // Create with initial capacity for i32 values.
 //! let mut vec = PVectorMut::<i32>::with_capacity(10);
@@ -36,8 +36,8 @@
 //! ## Extending and appending
 //!
 //! ```
-//! use vortex_vector::primitive::PVectorMut;
-//! use vortex_vector::VectorMutOps;
+//! use crate::primitive::PVectorMut;
+//! use crate::VectorMutOps;
 //!
 //! let mut vec1 = PVectorMut::<i32>::from_iter([1, 2].map(Some));
 //! let vec2 = PVectorMut::<i32>::from_iter([3, 4].map(Some)).freeze();
@@ -54,8 +54,8 @@
 //! ## Splitting and unsplitting
 //!
 //! ```
-//! use vortex_vector::primitive::PVectorMut;
-//! use vortex_vector::VectorMutOps;
+//! use crate::primitive::PVectorMut;
+//! use crate::VectorMutOps;
 //!
 //! let mut vec = PVectorMut::<i64>::from_iter([10, 20, 30, 40, 50].map(Some));
 //!
@@ -72,8 +72,8 @@
 //! ## Working with nulls
 //!
 //! ```
-//! use vortex_vector::primitive::PVectorMut;
-//! use vortex_vector::VectorMutOps;
+//! use crate::primitive::PVectorMut;
+//! use crate::VectorMutOps;
 //!
 //! // Create a vector with some null values.
 //! let mut vec = PVectorMut::<u32>::from_iter([Some(100), None, Some(200), None]);
@@ -87,8 +87,8 @@
 //! ## Converting to immutable
 //!
 //! ```
-//! use vortex_vector::primitive::PVectorMut;
-//! use vortex_vector::{VectorMutOps, VectorOps};
+//! use crate::primitive::PVectorMut;
+//! use crate::{VectorMutOps, VectorOps};
 //!
 //! let mut vec = PVectorMut::<f32>::from_iter([1.0, 2.0, 3.0].map(Some));
 //!

@@ -6,9 +6,9 @@ use std::ops::Range;
 use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
 
+use crate::ArrayRef;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
-use crate::ArrayRef;
 
 pub trait OperationsVTable<V: VTable> {
     /// Perform a constant-time slice of the array.

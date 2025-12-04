@@ -29,11 +29,11 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_vector::Vector;
 
-use crate::execution::ExecutionCtx;
-use crate::serde::ArrayChildren;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::execution::ExecutionCtx;
+use crate::serde::ArrayChildren;
 
 /// The array [`VTable`] encapsulates logic for an Array type within Vortex.
 ///

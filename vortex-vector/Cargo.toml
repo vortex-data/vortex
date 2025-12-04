@@ -20,6 +20,10 @@ all-features = true
 workspace = true
 
 [dependencies]
+arrow-array = { workspace = true, optional = true }
+arrow-buffer = { workspace = true, optional = true }
+arrow-schema = { workspace = true, optional = true }
+
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
@@ -27,3 +31,6 @@ vortex-mask = { workspace = true }
 
 paste = { workspace = true }
 static_assertions = { workspace = true }
+
+[features]
+arrow = ["dep:arrow-array", "dep:arrow-buffer", "dep:arrow-schema"]

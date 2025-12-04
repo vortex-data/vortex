@@ -5,8 +5,8 @@ use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 
 use crate::Array;
+use crate::arrays::LEGACY_SESSION;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
-use crate::arrays::scalar_fn::vtable::SCALAR_FN_SESSION;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::vtable::ValidityVTable;
 
@@ -47,7 +47,7 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
 
     fn validity_mask(array: &ScalarFnArray) -> Mask {
         let vector = array
-            .execute(&SCALAR_FN_SESSION)
+            .execute(&LEGACY_SESSION)
             .vortex_expect("Validity mask computation should be fallible");
         Mask::from_buffer(vector.into_bool().into_bits())
     }

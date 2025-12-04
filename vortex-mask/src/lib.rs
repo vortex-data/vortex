@@ -421,6 +421,21 @@ impl Mask {
         }
     }
 
+    /// Returns the position in the mask of the nth true value.
+    pub fn rank(&self, n: usize) -> usize {
+        if n >= self.true_count() {
+            vortex_panic!(
+                "Rank {n} out of bounds for mask with true count {}",
+                self.true_count()
+            );
+        }
+        match &self {
+            Self::AllTrue(_) => n,
+            Self::AllFalse(_) => unreachable!("no true values in all-false mask"),
+            Self::Values(values) => values.indices()[n],
+        }
+    }
+
     /// Slice the mask.
     pub fn slice(&self, range: impl RangeBounds<usize>) -> Self {
         let start = match range.start_bound() {

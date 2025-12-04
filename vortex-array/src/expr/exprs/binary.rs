@@ -3,15 +3,26 @@
 
 use std::fmt::Formatter;
 
+use arrow_ord::cmp;
 use prost::Message;
+use vortex_compute::arithmetic::Add;
+use vortex_compute::arithmetic::Arithmetic;
+use vortex_compute::arithmetic::CheckedArithmetic;
+use vortex_compute::arithmetic::Div;
+use vortex_compute::arithmetic::Mul;
+use vortex_compute::arithmetic::Sub;
+use vortex_compute::arrow::IntoArrow;
+use vortex_compute::comparison::Compare;
+use vortex_compute::logical::LogicalOp;
 use vortex_dtype::DType;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_proto::expr as pb;
 use vortex_vector::Datum;
+use vortex_vector::PrimitiveDatum;
 
-use crate::ArrayRef;
 use crate::compute;
 use crate::compute::add;
 use crate::compute::and_kleene;
@@ -20,6 +31,10 @@ use crate::compute::div;
 use crate::compute::mul;
 use crate::compute::or_kleene;
 use crate::compute::sub;
+use crate::expr::expression::Expression;
+use crate::expr::exprs::literal::lit;
+use crate::expr::exprs::operators::Operator;
+use crate::expr::stats::Stat;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -27,10 +42,7 @@ use crate::expr::ExprId;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::expr::expression::Expression;
-use crate::expr::exprs::literal::lit;
-use crate::expr::exprs::operators::Operator;
-use crate::expr::stats::Stat;
+use crate::ArrayRef;
 
 pub struct Binary;
 
@@ -123,8 +135,30 @@ impl VTable for Binary {
         }
     }
 
-    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
-        todo!()
+    fn execute(&self, op: &Operator, mut args: ExecutionArgs) -> VortexResult<Datum> {
+        let lhs: Datum = args.datums.pop().vortex_expect("missing lhs");
+        let rhs: Datum = args.datums.pop().vortex_expect("missing rhs");
+
+        let lhs: Box<dyn arrow_array::Datum> = lhs.try_into()?;
+        let rhs: Box<dyn arrow_array::Datum> = rhs.try_into()?;
+
+        let vector = match op {
+            Operator::Eq => cmp::eq(&lhs, &rhs)?.try_into()?,
+            Operator::NotEq => cmp::neq(&lhs, &rhs)?.try_into()?,
+            Operator::Gt => cmp::gt(&lhs, &rhs)?.try_into()?,
+            Operator::Gte => cmp::gt_eq(&lhs, &rhs)?.try_into()?,
+            Operator::Lt => cmp::lt(&lhs, &rhs)?.try_into()?,
+            Operator::Lte => cmp::lt_eq(&lhs, &rhs)?.try_into()?,
+
+            Operator::And => arrow_arith::boolean::and_kleene(&lhs, &rhs)?.try_into()?,
+            Operator::Or => arrow_arith::boolean::or_kleene(&lhs, &rhs)?.try_into()?,
+            Operator::Add => arrow_arith::numeric::add(&lhs, &rhs)?.try_into()?,
+            Operator::Sub => arrow_arith::numeric::sub(&lhs, &rhs)?.try_into()?,
+            Operator::Mul => arrow_arith::numeric::mul(&lhs, &rhs)?.try_into()?,
+            Operator::Div => arrow_arith::numeric::div(&lhs, &rhs)?.try_into()?,
+        };
+
+        Ok(Datum::Vector(vector))
     }
 
     fn stat_falsification(
@@ -253,6 +287,35 @@ impl VTable for Binary {
 
         !infallible
     }
+}
+
+fn execute_arithmetic_primitive(
+    lhs: PrimitiveDatum,
+    rhs: PrimitiveDatum,
+    op: Operator,
+) -> VortexResult<Datum> {
+    // Float arithmetic - no overflow checking needed
+    if lhs.ptype().is_float() && lhs.ptype() == rhs.ptype() {
+        let result: PrimitiveDatum = match op {
+            Operator::Add => Arithmetic::<Add>::eval(lhs, rhs),
+            Operator::Sub => Arithmetic::<Sub>::eval(lhs, rhs),
+            Operator::Mul => Arithmetic::<Mul>::eval(lhs, rhs),
+            Operator::Div => Arithmetic::<Div>::eval(lhs, rhs),
+            _ => unreachable!("Not an arithmetic operator"),
+        };
+        return Ok(result.into());
+    }
+    // Integer arithmetic - use checked operations
+    let result: Option<PrimitiveDatum> = match op {
+        Operator::Add => CheckedArithmetic::<Add>::checked_eval(lhs, rhs),
+        Operator::Sub => CheckedArithmetic::<Sub>::checked_eval(lhs, rhs),
+        Operator::Mul => CheckedArithmetic::<Mul>::checked_eval(lhs, rhs),
+        Operator::Div => CheckedArithmetic::<Div>::checked_eval(lhs, rhs),
+        _ => unreachable!("Not an arithmetic operator"),
+    };
+    result
+        .map(|d| d.into())
+        .ok_or_else(|| vortex_err!("Arithmetic overflow/underflow or type mismatch"))
 }
 
 /// Create a new [`Binary`] using the [`Eq`](crate::expr::exprs::operators::Operator::Eq) operator.
@@ -520,10 +583,10 @@ mod tests {
     use super::lt_eq;
     use super::not_eq;
     use super::or;
-    use crate::expr::Expression;
     use crate::expr::exprs::get_item::col;
     use crate::expr::exprs::literal::lit;
     use crate::expr::test_harness;
+    use crate::expr::Expression;
 
     #[test]
     fn and_collect_left_assoc() {

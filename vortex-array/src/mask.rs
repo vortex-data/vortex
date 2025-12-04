@@ -4,14 +4,14 @@
 use std::ops::BitAnd;
 
 use vortex_dtype::DType;
-use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
-use crate::arrays::ConstantVTable;
 use crate::Array;
+use crate::arrays::ConstantVTable;
 
 impl dyn Array + '_ {
     /// Execute the array to produce a mask.

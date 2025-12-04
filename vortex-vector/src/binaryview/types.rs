@@ -30,7 +30,7 @@ pub trait BinaryViewType: Debug + Sized + Send + Sync + 'static + private::Seale
     /// The slice type for this variable binary type.
     type Slice: ?Sized + AsRef<[u8]>;
     /// The scalar type for this variable binary type.
-    type Scalar: Sized + Clone + AsRef<Self::Slice> + Into<ByteBuffer>;
+    type Scalar: Sized + Debug + Clone + AsRef<Self::Slice> + Into<ByteBuffer>;
 
     /// Validate if a set of bytes conforms to the logical type constraints of the native `Slice`.
     fn validate(bytes: &[u8]) -> bool;

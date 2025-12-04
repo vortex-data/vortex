@@ -11,9 +11,9 @@
 //! be null.
 //!
 //! ```
-//! use vortex_vector::fixed_size_list::FixedSizeListVectorMut;
-//! use vortex_vector::primitive::PVectorMut;
-//! use vortex_vector::{VectorMut, VectorMutOps};
+//! use crate::fixed_size_list::FixedSizeListVectorMut;
+//! use crate::primitive::PVectorMut;
+//! use crate::{VectorMut, VectorMutOps};
 //! use vortex_mask::{Mask, MaskMut};
 //!
 //! // Create elements with some null values.
@@ -48,9 +48,9 @@
 //! [`unsplit()`]: crate::VectorMutOps::unsplit
 //!
 //! ```
-//! use vortex_vector::fixed_size_list::FixedSizeListVectorMut;
-//! use vortex_vector::primitive::PVectorMut;
-//! use vortex_vector::{VectorMut, VectorMutOps};
+//! use crate::fixed_size_list::FixedSizeListVectorMut;
+//! use crate::primitive::PVectorMut;
+//! use crate::{VectorMut, VectorMutOps};
 //! use vortex_mask::MaskMut;
 //!
 //! // Create a vector with 6 lists, each containing 2 integers.
