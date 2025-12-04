@@ -2,14 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::collections::BTreeSet;
-use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use futures::FutureExt;
-use vortex_array::compute::filter;
-use vortex_array::expr::is_root;
 use vortex_array::expr::Expression;
 use vortex_array::serde::ArrayParts;
 use vortex_array::session::ArraySessionExt;
@@ -28,13 +25,6 @@ use crate::layouts::flat::FlatLayout;
 use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
 use crate::LayoutReader;
-
-/// The threshold of mask density below which we will evaluate the expression only over the
-/// selected rows, and above which we evaluate the expression over all rows and then select
-/// after.
-// TODO(ngates): more experimentation is needed, and this should probably be dynamic based on the
-//  actual expression? Perhaps all expressions are given a selection mask to decide for themselves?
-const EXPR_EVAL_THRESHOLD: f64 = 0.2;
 
 pub struct FlatReader {
     layout: FlatLayout,
@@ -131,6 +121,8 @@ impl LayoutReader for FlatReader {
         let name = self.name.clone();
         let array = self.array_future();
         let expr = expr.clone();
+        let session = self.session.clone();
+        let optimizer = self.session.arrays().optimizer().clone();
 
         Ok(MaskFuture::new(mask.len(), async move {
             // TODO(ngates): if the mask density is low enough, or if the mask is dense within a range
@@ -147,12 +139,12 @@ impl LayoutReader for FlatReader {
             // Apply the expression to the array.
             let array = array.apply(&expr)?;
 
-            log::warn!("Filter Array: {}", array.display_tree());
-            let array = self.session.arrays().optimizer().optimize_array(array)?;
-            log::warn!("Optimized Filter Array: {}", array.display_tree());
+            log::info!("Filter Array:\n{}", array.display_tree());
+            let array = optimizer.optimize_array(array)?;
+            log::info!("Optimized Filter Array:\n{}", array.display_tree());
 
             // Evaluate the array into a mask.
-            let array_mask = array.execute_mask(&self.session)?;
+            let array_mask = array.execute_mask(&session)?;
 
             log::debug!(
                 "Flat mask evaluation {} - {} (mask = {}) => {}",
@@ -179,6 +171,7 @@ impl LayoutReader for FlatReader {
         let name = self.name.clone();
         let array = self.array_future();
         let expr = expr.clone();
+        let optimizer = self.session.arrays().optimizer().clone();
 
         Ok(async move {
             log::debug!("Flat array evaluation {} - {}", name, expr);
@@ -199,9 +192,9 @@ impl LayoutReader for FlatReader {
                 array = array.filter(&mask)?;
             }
 
-            log::warn!("Project Array: {}", array.display_tree());
-            let array = self.session.arrays().optimizer().optimize_array(array)?;
-            log::warn!("Optimized Project Array: {}", array.display_tree());
+            log::info!("Project Array:\n{}", array.display_tree());
+            let array = optimizer.optimize_array(array)?;
+            log::info!("Optimized Project Array:\n{}", array.display_tree());
 
             Ok(array)
         }

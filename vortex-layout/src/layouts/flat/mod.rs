@@ -13,22 +13,22 @@ use vortex_array::DeserializeMetadata;
 use vortex_array::ProstMetadata;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
+use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
+use crate::children::LayoutChildren;
+use crate::layouts::flat::reader::FlatReader;
+use crate::segments::SegmentId;
+use crate::segments::SegmentSource;
+use crate::vtable;
 use crate::LayoutChildType;
 use crate::LayoutEncodingRef;
 use crate::LayoutId;
 use crate::LayoutReaderRef;
 use crate::LayoutRef;
 use crate::VTable;
-use crate::children::LayoutChildren;
-use crate::layouts::flat::reader::FlatReader;
-use crate::segments::SegmentId;
-use crate::segments::SegmentSource;
-use crate::vtable;
 
 static FLAT_LAYOUT_INLINE_ARRAY_NODE: LazyLock<bool> =
     LazyLock::new(|| env::var("FLAT_LAYOUT_INLINE_ARRAY_NODE").is_ok());
@@ -82,12 +82,13 @@ impl VTable for FlatVTable {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(FlatReader::new(
             layout.clone(),
             name,
             segment_source,
+            session.clone(),
         )))
     }
 

@@ -25,7 +25,6 @@ pub use validity::*;
 pub use visitor::*;
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
-use vortex_error::vortex_bail;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_vector::Vector;
@@ -142,11 +141,10 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     ///
     /// Implementations should recursively call [`Array::batch_execute`] on child
     /// arrays as needed.
-    fn batch_execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        vortex_bail!(
-            "Array {} does not support vector execution",
-            Self::encoding(array).id()
-        )
+    fn batch_execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        // TODO(ngates): convert arrays to canonicalize over vectors.
+        let canonical = Self::CanonicalVTable::canonicalize(array);
+        canonical.into_array().batch_execute(ctx)
     }
 
     /// Return an array filtered using the given mask.
