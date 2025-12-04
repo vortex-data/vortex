@@ -120,7 +120,7 @@ impl VTable for STContains {
                             Some(wkb_r) => {
                                 let geom_r = parse_wkb(wkb_r);
                                 // Get centroid of the geometry
-                                let _centroid = geom_r.centroid();
+                                let _centroid =  geom_r.centroid();
                                 geom_l.contains(&geom_r)
                             }
                         })

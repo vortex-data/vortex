@@ -29,12 +29,12 @@ pub async fn main() {
     // This should only yield 1 final building.
     let target = Geometry::Rect(Rect::new(
         Coord {
-            x: 20.13,
-            y: -96.95,
+            x: -96.9582104,
+            y: 20.1394955,
         },
         Coord {
-            x: 20.15,
-            y: -96.96,
+            x: -96.9573294,
+            y: 20.1400545,
         },
     ));
     target.process_geom(&mut writer).unwrap();
@@ -46,7 +46,7 @@ pub async fn main() {
 
     println!("executing scan with row filter {st_contains_filter}");
 
-    // Create the scan
+    // Create the scan.
     let vxf = session.open_options()
         .open("/Users/aduffy/Downloads/BuildingsParquet/custom_download_20251204_095222.compact.vortex")
         .await.expect("open file");
