@@ -42,7 +42,7 @@ vortex-utils = { workspace = true, features = ["dashmap"] }
 
 [dev-dependencies]
 anyhow = { workspace = true }
-datafusion = { workspace = true }
+datafusion = { workspace = true, features = ["parquet"] }
 insta = { workspace = true }
 rstest = { workspace = true }
 tempfile = { workspace = true }

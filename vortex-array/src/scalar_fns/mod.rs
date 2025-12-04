@@ -25,6 +25,8 @@ pub mod get_item;
 pub mod is_null;
 pub mod mask;
 pub mod not;
+// HACKHACK(aduffy): should put this in a separate crate
+pub mod geospatial;
 
 /// A collection of built-in scalar functions that can be applied to expressions or arrays.
 pub trait ExprBuiltins: Sized {

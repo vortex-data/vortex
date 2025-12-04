@@ -34,6 +34,7 @@ paste = { workspace = true }
 pco = { workspace = true }
 pin-project-lite = { workspace = true }
 prost = { workspace = true }
+rstar = { workspace = true, features = ["serde"] }
 rustc-hash = { workspace = true }
 termtree = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }

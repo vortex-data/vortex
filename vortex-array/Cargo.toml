@@ -37,6 +37,9 @@ enum-iterator = { workspace = true }
 enum-map = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "std"] }
+geo = { workspace = true }
+geo-types = { workspace = true }
+geozero = { workspace = true, features = ["with-wkb"] }
 getrandom_v03 = { workspace = true }
 goldenfile = { workspace = true, optional = true }
 humansize = { workspace = true }

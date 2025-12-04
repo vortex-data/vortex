@@ -306,6 +306,8 @@ impl ZstdArray {
             (Some(ByteBuffer::from(dict)), compressor)
         };
 
+        // TODO(aduffy): dictionary training
+
         let mut frame_metas = vec![];
         let mut frames = vec![];
         for i in 0..n_frames {
