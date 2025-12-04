@@ -1,0 +1,28 @@
+[package]
+name = "vortex-mojo"
+description = "Vortex Mojo GPU kernel integration"
+categories = ["gpu", "compression", "algorithms"]
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+
+[build-dependencies]
+anyhow = { workspace = true }
+
+[dev-dependencies]
+divan = { workspace = true }
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "gpu_benchmark"
+harness = false

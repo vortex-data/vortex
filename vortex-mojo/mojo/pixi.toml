@@ -1,0 +1,11 @@
+[workspace]
+authors = ["Alexander Droste <alexander.droste@protonmail.com>"]
+channels = ["https://conda.modular.com/max-nightly", "conda-forge"]
+name = "mojo"
+platforms = ["osx-arm64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+mojo = ">=0.26.1.0.dev2025120323,<0.27"

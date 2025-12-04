@@ -16,12 +16,15 @@ members = [
     "vortex-ffi",
     "vortex-file",
     "vortex-flatbuffers",
+    "vortex-gpu",
+    "vortex-gpu-kernels",
     "vortex-io",
     "vortex-ipc",
     "vortex-jni",
     "vortex-layout",
     "vortex-mask",
     "vortex-metrics",
+    "vortex-mojo",
     "vortex-proto",
     "vortex-python",
     "vortex-scan",
@@ -235,6 +238,7 @@ vortex-ipc = { version = "0.1.0", path = "./vortex-ipc", default-features = fals
 vortex-layout = { version = "0.1.0", path = "./vortex-layout", default-features = false }
 vortex-mask = { version = "0.1.0", path = "./vortex-mask", default-features = false }
 vortex-metrics = { version = "0.1.0", path = "./vortex-metrics", default-features = false }
+vortex-mojo = { version = "0.1.0", path = "./vortex-mojo", default-features = false }
 vortex-pco = { version = "0.1.0", path = "./encodings/pco", default-features = false }
 vortex-proto = { version = "0.1.0", path = "./vortex-proto", default-features = false }
 vortex-runend = { version = "0.1.0", path = "./encodings/runend", default-features = false }
@@ -254,6 +258,7 @@ vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features =
 vortex-cxx = { path = "./vortex-cxx", default-features = false }
 vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
 vortex-ffi = { path = "./vortex-ffi", default-features = false }
+vortex-gpu-kernels = { path = "./vortex-gpu-kernels", default-features = false }
 xshell = "0.2.6"
 zigzag = "0.1.0"
 zstd = { version = "0.13.3", default-features = false, features = [
