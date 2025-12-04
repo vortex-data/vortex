@@ -6,15 +6,18 @@ use std::fmt::Formatter;
 use prost::Message;
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_proto::expr as pb;
 use vortex_vector::Datum;
 
-use crate::ArrayRef;
-use crate::compute::BetweenOptions;
 use crate::compute::between as between_compute;
+use crate::compute::BetweenOptions;
+use crate::expr::expression::Expression;
+use crate::expr::exprs::binary::Binary;
+use crate::expr::exprs::operators::Operator;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -22,9 +25,7 @@ use crate::expr::ExprId;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::expr::expression::Expression;
-use crate::expr::exprs::binary::Binary;
-use crate::expr::exprs::operators::Operator;
+use crate::ArrayRef;
 
 /// An optimized scalar expression to compute whether values fall between two bounds.
 ///
@@ -149,8 +150,39 @@ impl VTable for Between {
         between_compute(&arr, &lower, &upper, options)
     }
 
-    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
-        todo!()
+    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
+        let [arr, lower, upper]: [Datum; _] = args
+            .datums
+            .try_into()
+            .map_err(|_| vortex_err!("Expected 3 arguments for Between expression",))?;
+        let [arr_dt, lower_dt, upper_dt]: [DType; _] = args
+            .dtypes
+            .try_into()
+            .map_err(|_| vortex_err!("Expected 3 dtypes for Between expression",))?;
+
+        let lower_bound = Binary
+            .bind(options.lower_strict.to_operator().into())
+            .execute(ExecutionArgs {
+                datums: vec![lower.clone(), arr.clone()],
+                dtypes: vec![lower_dt.clone(), arr_dt.clone()],
+                row_count: args.row_count,
+                return_dtype: args.return_dtype.clone(),
+            })?;
+        let upper_bound = Binary
+            .bind(options.upper_strict.to_operator().into())
+            .execute(ExecutionArgs {
+                datums: vec![arr.clone(), upper.clone()],
+                dtypes: vec![arr_dt.clone(), upper_dt.clone()],
+                row_count: args.row_count,
+                return_dtype: args.return_dtype.clone(),
+            })?;
+
+        Binary.bind(Operator::And).execute(ExecutionArgs {
+            datums: vec![lower_bound, upper_bound],
+            dtypes: vec![args.return_dtype.clone(), args.return_dtype.clone()],
+            row_count: args.row_count,
+            return_dtype: args.return_dtype.clone(),
+        })
     }
 
     fn stat_falsification(

@@ -9,8 +9,8 @@ use arrow_array::Array;
 use arrow_array::ArrayRef;
 use arrow_array::BooleanArray;
 use vortex_buffer::BitBuffer;
-use vortex_error::VortexError;
 use vortex_error::vortex_err;
+use vortex_error::VortexError;
 
 impl TryFrom<BoolVector> for ArrayRef {
     type Error = VortexError;
@@ -18,6 +18,13 @@ impl TryFrom<BoolVector> for ArrayRef {
     fn try_from(value: BoolVector) -> Result<Self, Self::Error> {
         let (bits, validity) = value.into_parts();
         Ok(Arc::new(BooleanArray::new(bits.into(), validity.into())))
+    }
+}
+
+impl From<BoolVector> for BooleanArray {
+    fn from(value: BoolVector) -> Self {
+        let (bits, validity) = value.into_parts();
+        BooleanArray::new(bits.into(), validity.into())
     }
 }
 
