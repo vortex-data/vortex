@@ -91,16 +91,9 @@ fn make_session() -> VortexSession {
         .unwrap_or(RuntimeChoice::Tokio)
     {
         RuntimeChoice::Tokio => {
-            #[cfg(feature = "tokio")]
-            {
-                let handle = vortex::io::runtime::tokio::TokioRuntime::current();
-                let _ = RUNTIME_HANDLE.set(handle.clone());
-                VortexSession::default().with_handle(handle)
-            }
-            #[cfg(not(feature = "tokio"))]
-            {
-                VortexSession::default()
-            }
+            let handle = vortex::io::runtime::tokio::TokioRuntime::current();
+            drop(RUNTIME_HANDLE.set(handle.clone()));
+            VortexSession::default().with_handle(handle)
         }
         #[cfg(all(feature = "uring", target_os = "linux"))]
         RuntimeChoice::Uring => {
@@ -108,7 +101,7 @@ fn make_session() -> VortexSession {
             static URING_POOL: OnceLock<PerCoreUringPool> = OnceLock::new();
             let pool = URING_POOL.get_or_init(|| PerCoreUringPool::new(None));
             let handle = pool.handle();
-            let _ = RUNTIME_HANDLE.set(handle.clone());
+            drop(RUNTIME_HANDLE.set(handle.clone()));
             VortexSession::default().with_handle(handle)
         }
     }
