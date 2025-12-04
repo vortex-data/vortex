@@ -5,9 +5,11 @@
 
 use vortex_dtype::half::f16;
 use vortex_error::vortex_panic;
+use vortex_vector::PrimitiveDatum;
 use vortex_vector::match_each_float_pvector_pair;
 use vortex_vector::match_each_integer_pvector_pair;
 use vortex_vector::primitive::PVector;
+use vortex_vector::primitive::PrimitiveScalar;
 use vortex_vector::primitive::PrimitiveVector;
 
 use crate::arithmetic::Arithmetic;
@@ -55,6 +57,45 @@ where
                 )
             }
         )
+    }
+}
+
+/// Vector on LHS, Scalar on RHS - modifies vector in place.
+/// Returns a scalar if the input scalar is null.
+impl<Op> Arithmetic<Op, &PrimitiveScalar> for PrimitiveVector
+where
+    for<'a> PVector<f16>: Arithmetic<Op, &'a f16, Output = PVector<f16>>,
+    for<'a> PVector<f32>: Arithmetic<Op, &'a f32, Output = PVector<f32>>,
+    for<'a> PVector<f64>: Arithmetic<Op, &'a f64, Output = PVector<f64>>,
+{
+    type Output = PrimitiveDatum;
+
+    fn eval(self, rhs: &PrimitiveScalar) -> Self::Output {
+        match (self, rhs) {
+            (PrimitiveVector::F16(v), PrimitiveScalar::F16(s)) => match s.value() {
+                Some(scalar_val) => {
+                    PrimitiveDatum::Vector(Arithmetic::<Op, _>::eval(v, &scalar_val).into())
+                }
+                None => PrimitiveDatum::Scalar(s.clone().into()),
+            },
+            (PrimitiveVector::F32(v), PrimitiveScalar::F32(s)) => match s.value() {
+                Some(scalar_val) => {
+                    PrimitiveDatum::Vector(Arithmetic::<Op, _>::eval(v, &scalar_val).into())
+                }
+                None => PrimitiveDatum::Scalar(s.clone().into()),
+            },
+            (PrimitiveVector::F64(v), PrimitiveScalar::F64(s)) => match s.value() {
+                Some(scalar_val) => {
+                    PrimitiveDatum::Vector(Arithmetic::<Op, _>::eval(v, &scalar_val).into())
+                }
+                None => PrimitiveDatum::Scalar(s.clone().into()),
+            },
+            (v, s) => vortex_panic!(
+                "Cannot perform arithmetic between vector {:?} and scalar {:?}",
+                v,
+                s
+            ),
+        }
     }
 }
 

@@ -46,7 +46,9 @@ where
 impl<Op> Arithmetic<Op> for PrimitiveDatum
 where
     for<'a> &'a PrimitiveScalar: Arithmetic<Op, &'a PrimitiveScalar, Output = PrimitiveScalar>,
+    for<'a> &'a PrimitiveScalar: Arithmetic<Op, PrimitiveVector, Output = PrimitiveDatum>,
     for<'a> PrimitiveVector: Arithmetic<Op, &'a PrimitiveVector, Output = PrimitiveVector>,
+    for<'a> PrimitiveVector: Arithmetic<Op, &'a PrimitiveScalar, Output = PrimitiveDatum>,
 {
     type Output = PrimitiveDatum;
 
@@ -58,7 +60,8 @@ where
             (PrimitiveDatum::Vector(vec1), PrimitiveDatum::Vector(vec2)) => {
                 PrimitiveDatum::Vector(vec1.eval(&vec2))
             }
-            _ => unreachable!(""),
+            (PrimitiveDatum::Vector(vec1), PrimitiveDatum::Scalar(sc2)) => vec1.eval(&sc2),
+            (PrimitiveDatum::Scalar(sc1), PrimitiveDatum::Vector(vec2)) => (&sc1).eval(vec2),
         }
     }
 }
@@ -78,21 +81,16 @@ mod tests {
 
     #[test]
     fn test_datum_arithmetic_in_place() {
-        // Create two vectors with owned buffers
         let left = PVector::new(buffer![1f32, 2.0, 3.0, 4.0], Mask::new_true(4));
         let right = PVector::new(buffer![10f32, 20.0, 30.0, 40.0], Mask::new_true(4));
-
-        // Get the pointer to the left buffer before the operation
         let left_ptr = left.elements().as_ptr();
 
         let left_datum = Datum::Vector(Vector::from(left));
         let right_datum = Datum::Vector(Vector::from(right));
 
-        // Perform the arithmetic operation
         let result =
             Arithmetic::<Add, _>::eval(left_datum.into_primitive(), right_datum.into_primitive());
 
-        // Extract the result vector and check the pointer
         let result_vec = match result {
             PrimitiveDatum::Vector(v) => v,
             _ => panic!("Expected primitive vector result"),
@@ -101,36 +99,27 @@ mod tests {
         let result_pvec: &PVector<f32> = PTypeDowncast::into_f32(&result_vec);
         let result_ptr = result_pvec.elements().as_ptr();
 
-        // The buffer should have been modified in place since left had a unique reference
         assert_eq!(
             left_ptr, result_ptr,
             "Buffer should be modified in place when input has unique ownership"
         );
-
-        // Verify the result is correct
         assert_eq!(result_pvec.elements(), &buffer![11f32, 22.0, 33.0, 44.0]);
     }
 
     #[test]
     #[should_panic(expected = "Buffer should be modified in place")]
     fn test_datum_arithmetic_in_place_fail() {
-        // Create two vectors with owned buffers
         let left = PVector::new(buffer![1f32, 2.0, 3.0, 4.0], Mask::new_true(4));
         let right = PVector::new(buffer![10f32, 20.0, 30.0, 40.0], Mask::new_true(4));
-
-        // Get the pointer to the left buffer before the operation
         let left_ptr = left.elements().as_ptr();
 
         let left_datum = Datum::Vector(Vector::from(left));
-        // Clone to create shared ownership - this prevents in-place modification
         let _left_datum2 = left_datum.clone();
         let right_datum = Datum::Vector(Vector::from(right));
 
-        // Perform the arithmetic operation
         let result =
             Arithmetic::<Add, _>::eval(left_datum.into_primitive(), right_datum.into_primitive());
 
-        // Extract the result vector and check the pointer
         let result_vec = match result {
             PrimitiveDatum::Vector(v) => v,
             _ => panic!("Expected primitive vector result"),
@@ -139,10 +128,61 @@ mod tests {
         let result_pvec: &PVector<f32> = PTypeDowncast::into_f32(&result_vec);
         let result_ptr = result_pvec.elements().as_ptr();
 
-        // This assertion will fail because the buffer was cloned (shared ownership)
         assert_eq!(
             left_ptr, result_ptr,
             "Buffer should be modified in place when input has unique ownership"
         );
+    }
+
+    #[test]
+    fn test_datum_vector_scalar_in_place() {
+        let left = PVector::new(buffer![1f32, 2.0, 3.0, 4.0], Mask::new_true(4));
+        let left_ptr = left.elements().as_ptr();
+
+        let left_datum = PrimitiveDatum::Vector(left.into());
+        let right_datum =
+            PrimitiveDatum::Scalar(vortex_vector::primitive::PScalar::new(Some(10f32)).into());
+
+        let result = Arithmetic::<Add, _>::eval(left_datum, right_datum);
+
+        let result_vec = match result {
+            PrimitiveDatum::Vector(v) => v,
+            _ => panic!("Expected primitive vector result"),
+        };
+
+        let result_pvec: &PVector<f32> = PTypeDowncast::into_f32(&result_vec);
+        let result_ptr = result_pvec.elements().as_ptr();
+
+        assert_eq!(
+            left_ptr, result_ptr,
+            "Buffer should be modified in place for vector-scalar arithmetic"
+        );
+        assert_eq!(result_pvec.elements(), &buffer![11f32, 12.0, 13.0, 14.0]);
+    }
+
+    #[test]
+    fn test_datum_scalar_vector_in_place() {
+        let right = PVector::new(buffer![1f32, 2.0, 3.0, 4.0], Mask::new_true(4));
+        let right_ptr = right.elements().as_ptr();
+
+        let left_datum =
+            PrimitiveDatum::Scalar(vortex_vector::primitive::PScalar::new(Some(10f32)).into());
+        let right_datum = PrimitiveDatum::Vector(right.into());
+
+        let result = Arithmetic::<Add, _>::eval(left_datum, right_datum);
+
+        let result_vec = match result {
+            PrimitiveDatum::Vector(v) => v,
+            _ => panic!("Expected primitive vector result"),
+        };
+
+        let result_pvec = result_vec.into_f32();
+        let result_ptr = result_pvec.elements().as_ptr();
+
+        assert_eq!(
+            right_ptr, result_ptr,
+            "Buffer should be modified in place for scalar-vector arithmetic"
+        );
+        assert_eq!(result_pvec.elements(), &buffer![11f32, 12.0, 13.0, 14.0]);
     }
 }

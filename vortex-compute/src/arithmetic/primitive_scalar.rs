@@ -5,10 +5,13 @@
 
 use vortex_dtype::half::f16;
 use vortex_error::vortex_panic;
+use vortex_vector::PrimitiveDatum;
 use vortex_vector::match_each_float_pscalar_pair;
 use vortex_vector::match_each_integer_pscalar_pair;
 use vortex_vector::primitive::PScalar;
+use vortex_vector::primitive::PVector;
 use vortex_vector::primitive::PrimitiveScalar;
+use vortex_vector::primitive::PrimitiveVector;
 
 use crate::arithmetic::Arithmetic;
 use crate::arithmetic::CheckedArithmetic;
@@ -55,6 +58,45 @@ where
                 )
             }
         )
+    }
+}
+
+/// Scalar on LHS, owned Vector on RHS - modifies vector in place.
+/// Returns a scalar if the input scalar is null.
+impl<Op> Arithmetic<Op, PrimitiveVector> for &PrimitiveScalar
+where
+    for<'a> &'a f16: Arithmetic<Op, PVector<f16>, Output = PVector<f16>>,
+    for<'a> &'a f32: Arithmetic<Op, PVector<f32>, Output = PVector<f32>>,
+    for<'a> &'a f64: Arithmetic<Op, PVector<f64>, Output = PVector<f64>>,
+{
+    type Output = PrimitiveDatum;
+
+    fn eval(self, rhs: PrimitiveVector) -> Self::Output {
+        match (self, rhs) {
+            (PrimitiveScalar::F16(s), PrimitiveVector::F16(v)) => match s.value() {
+                Some(scalar_val) => {
+                    PrimitiveDatum::Vector(Arithmetic::<Op, _>::eval(&scalar_val, v).into())
+                }
+                None => PrimitiveDatum::Scalar(s.clone().into()),
+            },
+            (PrimitiveScalar::F32(s), PrimitiveVector::F32(v)) => match s.value() {
+                Some(scalar_val) => {
+                    PrimitiveDatum::Vector(Arithmetic::<Op, _>::eval(&scalar_val, v).into())
+                }
+                None => PrimitiveDatum::Scalar(s.clone().into()),
+            },
+            (PrimitiveScalar::F64(s), PrimitiveVector::F64(v)) => match s.value() {
+                Some(scalar_val) => {
+                    PrimitiveDatum::Vector(Arithmetic::<Op, _>::eval(&scalar_val, v).into())
+                }
+                None => PrimitiveDatum::Scalar(s.clone().into()),
+            },
+            (s, v) => vortex_panic!(
+                "Cannot perform arithmetic between scalar {:?} and vector {:?}",
+                s,
+                v
+            ),
+        }
     }
 }
 
