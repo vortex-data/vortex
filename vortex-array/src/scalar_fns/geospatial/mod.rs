@@ -6,18 +6,31 @@
 //! The Vectors don't seem to be complete enough to use ScalarFn for non-trivial things
 //! so for now this is unused.
 
-use crate::expr::functions::{ArgName, Arity, EmptyOptions, ExecutionArgs, FunctionId, VTable};
+use std::ops::BitAnd;
+
 use geo::Contains;
 use geo_types::Geometry;
 use geozero::geo_types::GeoWriter;
-use geozero::{GeozeroGeometry, wkb};
-use std::ops::BitAnd;
+use geozero::wkb;
+use geozero::GeozeroGeometry;
 use vortex_buffer::BitBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_ensure, vortex_err};
-use vortex_vector::bool::{BoolScalar, BoolVector};
-use vortex_vector::{Datum, VectorOps};
-use vortex_vector::{Scalar, Vector};
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
+use vortex_error::VortexResult;
+use vortex_vector::bool::BoolScalar;
+use vortex_vector::bool::BoolVector;
+use vortex_vector::Datum;
+use vortex_vector::Scalar;
+use vortex_vector::Vector;
+use vortex_vector::VectorOps;
+
+use crate::expr::functions::ArgName;
+use crate::expr::functions::Arity;
+use crate::expr::functions::EmptyOptions;
+use crate::expr::functions::ExecutionArgs;
+use crate::expr::functions::FunctionId;
+use crate::expr::functions::VTable;
 
 pub struct STContains;
 
@@ -40,7 +53,7 @@ impl VTable for STContains {
         }
     }
 
-    fn return_dtype(&self, options: &Self::Options, arg_types: &[DType]) -> VortexResult<DType> {
+    fn return_dtype(&self, _options: &Self::Options, arg_types: &[DType]) -> VortexResult<DType> {
         // The result is a Bool column with the nullability of its arguments
         let result_nullability = arg_types[0].nullability() | arg_types[1].nullability();
         Ok(DType::Bool(result_nullability))
@@ -65,7 +78,7 @@ impl VTable for STContains {
                     .value()
                     .ok_or_else(|| vortex_err!("literal argument to ST_Contains cannot be NULL"))?;
 
-                let geomb = geoma_scalar
+                let geomb = geomb_scalar
                     .as_binary()
                     .value()
                     .ok_or_else(|| vortex_err!("literal argument to ST_Contains cannot be NULL"))?;
