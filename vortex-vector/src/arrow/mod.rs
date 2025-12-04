@@ -37,7 +37,7 @@ impl TryFrom<Datum> for Box<dyn arrow_array::Datum> {
 
     fn try_from(value: Datum) -> Result<Self, Self::Error> {
         match value {
-            Datum::Scalar(s) => Ok(Box::new(arrow_array::Scalar(ArrayRef::try_from(
+            Datum::Scalar(s) => Ok(Box::new(arrow_array::Scalar::new(ArrayRef::try_from(
                 s.repeat(1).freeze(),
             )?))),
             Datum::Vector(v) => Ok(Box::new(ArrayRef::try_from(v)?)),
@@ -45,10 +45,10 @@ impl TryFrom<Datum> for Box<dyn arrow_array::Datum> {
     }
 }
 
-impl TryFrom<ArrayRef> for Vector {
+impl TryFrom<&dyn Array> for Vector {
     type Error = VortexError;
 
-    fn try_from(value: ArrayRef) -> Result<Self, Self::Error> {
+    fn try_from(value: &dyn Array) -> Result<Self, Self::Error> {
         match value.data_type() {
             DataType::Null => NullVector::try_from(value).map(Vector::from),
             DataType::Boolean => BoolVector::try_from(value).map(Vector::from),

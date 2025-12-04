@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexExpect;
 use vortex_vector::bool::BoolScalar;
 use vortex_vector::bool::BoolVector;
 use vortex_vector::primitive::PrimitiveScalar;
@@ -24,7 +23,7 @@ where
         match (self.into_typed(), rhs.into_typed()) {
             (TypedDatum::Bool(d1), TypedDatum::Bool(d2)) => d1.compare(d2),
             (TypedDatum::Primitive(d1), TypedDatum::Primitive(d2)) => d1.compare(d2),
-            (lhs, rhs) => unreachable!(),
+            _ => unreachable!(""),
         }
     }
 }

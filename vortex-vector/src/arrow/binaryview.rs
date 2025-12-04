@@ -5,10 +5,9 @@ use std::sync::Arc;
 
 use crate::arrow::nulls_to_mask;
 use crate::binaryview::BinaryType;
-use crate::binaryview::BinaryViewType;
+use crate::binaryview::BinaryView;
 use crate::binaryview::BinaryViewVector;
 use crate::binaryview::StringType;
-use crate::binaryview::view::BinaryView;
 use arrow_array::Array;
 use arrow_array::ArrayRef;
 use arrow_array::GenericByteViewArray;
@@ -48,10 +47,10 @@ impl_binaryview_to_arrow!(StringType, arrow_array::types::StringViewType);
 
 macro_rules! impl_binaryview_from_arrow {
     ($T:ty, $A:ty) => {
-        impl TryFrom<ArrayRef> for BinaryViewVector<$T> {
+        impl TryFrom<&dyn Array> for BinaryViewVector<$T> {
             type Error = VortexError;
 
-            fn try_from(value: ArrayRef) -> Result<Self, Self::Error> {
+            fn try_from(value: &dyn Array) -> Result<Self, Self::Error> {
                 let array = value
                     .as_any()
                     .downcast_ref::<GenericByteViewArray<$A>>()

@@ -33,4 +33,4 @@ paste = { workspace = true }
 static_assertions = { workspace = true }
 
 [features]
-arrow = ["dep:arrow-array", "dep:arrow-buffer", "dep:arrow-schema"]
+arrow = ["dep:arrow-array", "dep:arrow-buffer", "dep:arrow-schema", "vortex-mask/arrow"]

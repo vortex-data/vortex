@@ -10,6 +10,6 @@ impl TryFrom<Vector> for ArrayRef {
     type Error = VortexError;
 
     fn try_from(value: Vector) -> Result<Self, Self::Error> {
-        match_each_vector!(value, |v| ArrayRef::try_from(v))
+        match_each_vector!(value, |v| { ArrayRef::try_from(v) })
     }
 }

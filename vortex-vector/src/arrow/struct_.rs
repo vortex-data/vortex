@@ -49,10 +49,10 @@ impl TryFrom<StructVector> for ArrayRef {
     }
 }
 
-impl TryFrom<ArrayRef> for StructVector {
+impl TryFrom<&dyn Array> for StructVector {
     type Error = VortexError;
 
-    fn try_from(value: ArrayRef) -> Result<Self, Self::Error> {
+    fn try_from(value: &dyn Array) -> Result<Self, Self::Error> {
         let array = value
             .as_any()
             .downcast_ref::<StructArray>()
@@ -61,7 +61,7 @@ impl TryFrom<ArrayRef> for StructVector {
         let fields: Box<[Vector]> = array
             .columns()
             .iter()
-            .map(|col| Vector::try_from(col.clone()))
+            .map(|col| Vector::try_from(col.as_ref()))
             .collect::<Result<_, _>>()?;
 
         let validity = nulls_to_mask(array.nulls(), array.len());

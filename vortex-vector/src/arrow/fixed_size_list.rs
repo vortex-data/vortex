@@ -35,10 +35,10 @@ impl TryFrom<FixedSizeListVector> for ArrayRef {
     }
 }
 
-impl TryFrom<ArrayRef> for FixedSizeListVector {
+impl TryFrom<&dyn Array> for FixedSizeListVector {
     type Error = VortexError;
 
-    fn try_from(value: ArrayRef) -> Result<Self, Self::Error> {
+    fn try_from(value: &dyn Array) -> Result<Self, Self::Error> {
         let array = value
             .as_any()
             .downcast_ref::<FixedSizeListArray>()
@@ -49,7 +49,7 @@ impl TryFrom<ArrayRef> for FixedSizeListVector {
             dt => return Err(vortex_err!("expected FixedSizeList data type, got {}", dt)),
         };
 
-        let elements = Vector::try_from(array.values().clone())?;
+        let elements = Vector::try_from(array.values().as_ref())?;
         let validity = nulls_to_mask(array.nulls(), array.len());
 
         Ok(FixedSizeListVector::new(

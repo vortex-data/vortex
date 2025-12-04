@@ -3,6 +3,7 @@
 
 use std::fmt::Formatter;
 
+use arrow_array::Array;
 use arrow_ord::cmp;
 use prost::Message;
 use vortex_compute::arithmetic::Add;
@@ -11,9 +12,6 @@ use vortex_compute::arithmetic::CheckedArithmetic;
 use vortex_compute::arithmetic::Div;
 use vortex_compute::arithmetic::Mul;
 use vortex_compute::arithmetic::Sub;
-use vortex_compute::arrow::IntoArrow;
-use vortex_compute::comparison::Compare;
-use vortex_compute::logical::LogicalOp;
 use vortex_dtype::DType;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -22,6 +20,7 @@ use vortex_error::VortexResult;
 use vortex_proto::expr as pb;
 use vortex_vector::Datum;
 use vortex_vector::PrimitiveDatum;
+use vortex_vector::Vector;
 
 use crate::compute;
 use crate::compute::add;
@@ -143,19 +142,32 @@ impl VTable for Binary {
         let rhs: Box<dyn arrow_array::Datum> = rhs.try_into()?;
 
         let vector = match op {
-            Operator::Eq => cmp::eq(&lhs, &rhs)?.try_into()?,
-            Operator::NotEq => cmp::neq(&lhs, &rhs)?.try_into()?,
-            Operator::Gt => cmp::gt(&lhs, &rhs)?.try_into()?,
-            Operator::Gte => cmp::gt_eq(&lhs, &rhs)?.try_into()?,
-            Operator::Lt => cmp::lt(&lhs, &rhs)?.try_into()?,
-            Operator::Lte => cmp::lt_eq(&lhs, &rhs)?.try_into()?,
+            Operator::Eq => Vector::try_from(&cmp::eq(lhs.as_ref(), rhs.as_ref())? as &dyn Array)?,
+            Operator::NotEq => {
+                Vector::try_from(&cmp::neq(lhs.as_ref(), rhs.as_ref())? as &dyn Array)?
+            }
+            Operator::Gt => Vector::try_from(&cmp::gt(lhs.as_ref(), rhs.as_ref())? as &dyn Array)?,
+            Operator::Gte => {
+                Vector::try_from(&cmp::gt_eq(lhs.as_ref(), rhs.as_ref())? as &dyn Array)?
+            }
+            Operator::Lt => Vector::try_from(&cmp::lt(lhs.as_ref(), rhs.as_ref())? as &dyn Array)?,
+            Operator::Lte => {
+                Vector::try_from(&cmp::lt_eq(lhs.as_ref(), rhs.as_ref())? as &dyn Array)?
+            }
 
-            Operator::And => arrow_arith::boolean::and_kleene(&lhs, &rhs)?.try_into()?,
-            Operator::Or => arrow_arith::boolean::or_kleene(&lhs, &rhs)?.try_into()?,
-            Operator::Add => arrow_arith::numeric::add(&lhs, &rhs)?.try_into()?,
-            Operator::Sub => arrow_arith::numeric::sub(&lhs, &rhs)?.try_into()?,
-            Operator::Mul => arrow_arith::numeric::mul(&lhs, &rhs)?.try_into()?,
-            Operator::Div => arrow_arith::numeric::div(&lhs, &rhs)?.try_into()?,
+            Operator::Add => {
+                Vector::try_from(arrow_arith::numeric::add(lhs.as_ref(), rhs.as_ref())?.as_ref())?
+            }
+            Operator::Sub => {
+                Vector::try_from(arrow_arith::numeric::sub(lhs.as_ref(), rhs.as_ref())?.as_ref())?
+            }
+            Operator::Mul => {
+                Vector::try_from(arrow_arith::numeric::mul(lhs.as_ref(), rhs.as_ref())?.as_ref())?
+            }
+            Operator::Div => {
+                Vector::try_from(arrow_arith::numeric::div(lhs.as_ref(), rhs.as_ref())?.as_ref())?
+            }
+            _ => vortex_bail!("Unsupported operator in execute: {}", op),
         };
 
         Ok(Datum::Vector(vector))

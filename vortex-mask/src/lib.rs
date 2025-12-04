@@ -10,6 +10,8 @@ mod intersect_by_rank;
 mod iter_bools;
 mod mask_mut;
 
+#[cfg(feature = "arrow")]
+mod arrow;
 #[cfg(test)]
 mod tests;
 

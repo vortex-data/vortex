@@ -63,10 +63,10 @@ impl_primitive_to_arrow!(f16, Float16Type);
 impl_primitive_to_arrow!(f32, Float32Type);
 impl_primitive_to_arrow!(f64, Float64Type);
 
-impl TryFrom<ArrayRef> for PrimitiveVector {
+impl TryFrom<&dyn Array> for PrimitiveVector {
     type Error = VortexError;
 
-    fn try_from(value: ArrayRef) -> Result<Self, Self::Error> {
+    fn try_from(value: &dyn Array) -> Result<Self, Self::Error> {
         match value.data_type() {
             DataType::UInt8 => PVector::<u8>::try_from(value).map(PrimitiveVector::from),
             DataType::UInt16 => PVector::<u16>::try_from(value).map(PrimitiveVector::from),
@@ -86,10 +86,18 @@ impl TryFrom<ArrayRef> for PrimitiveVector {
 
 macro_rules! impl_primitive_from_arrow {
     ($T:ty, $A:ty) => {
-        impl TryFrom<ArrayRef> for PVector<$T> {
+        impl From<&PrimitiveArray<$A>> for PVector<$T> {
+            fn from(array: &PrimitiveArray<$A>) -> Self {
+                let elements = Buffer::<$T>::from_arrow_scalar_buffer(array.values().clone());
+                let validity = nulls_to_mask(array.nulls(), array.len());
+                PVector::new(elements, validity)
+            }
+        }
+
+        impl TryFrom<&dyn Array> for PVector<$T> {
             type Error = VortexError;
 
-            fn try_from(value: ArrayRef) -> Result<Self, Self::Error> {
+            fn try_from(value: &dyn Array) -> Result<Self, Self::Error> {
                 let array = value
                     .as_any()
                     .downcast_ref::<PrimitiveArray<$A>>()
@@ -100,11 +108,7 @@ macro_rules! impl_primitive_from_arrow {
                             value.data_type()
                         )
                     })?;
-
-                let elements = Buffer::<$T>::from_arrow_scalar_buffer(array.values().clone());
-                let validity = nulls_to_mask(array.nulls(), array.len());
-
-                Ok(PVector::new(elements, validity))
+                Ok(PVector::from(array))
             }
         }
     };

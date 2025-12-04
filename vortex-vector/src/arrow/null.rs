@@ -19,14 +19,20 @@ impl TryFrom<NullVector> for ArrayRef {
     }
 }
 
-impl TryFrom<ArrayRef> for NullVector {
+impl From<&NullArray> for NullVector {
+    fn from(value: &NullArray) -> Self {
+        NullVector::new(value.len())
+    }
+}
+
+impl TryFrom<&dyn Array> for NullVector {
     type Error = VortexError;
 
-    fn try_from(value: ArrayRef) -> Result<Self, Self::Error> {
+    fn try_from(value: &dyn Array) -> Result<Self, Self::Error> {
         let array = value
             .as_any()
             .downcast_ref::<NullArray>()
             .ok_or_else(|| vortex_err!("expected NullArray, got {}", value.data_type()))?;
-        Ok(NullVector::new(array.len()))
+        Ok(NullVector::from(array))
     }
 }

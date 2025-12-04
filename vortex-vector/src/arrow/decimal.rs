@@ -96,10 +96,10 @@ impl TryFrom<DVector<i256>> for ArrayRef {
     }
 }
 
-impl TryFrom<ArrayRef> for DecimalVector {
+impl TryFrom<&dyn Array> for DecimalVector {
     type Error = VortexError;
 
-    fn try_from(value: ArrayRef) -> Result<Self, Self::Error> {
+    fn try_from(value: &dyn Array) -> Result<Self, Self::Error> {
         match value.data_type() {
             DataType::Decimal32(precision, scale) => {
                 let array = value

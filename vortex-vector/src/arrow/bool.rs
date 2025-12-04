@@ -21,18 +21,22 @@ impl TryFrom<BoolVector> for ArrayRef {
     }
 }
 
-impl TryFrom<ArrayRef> for BoolVector {
+impl From<&BooleanArray> for BoolVector {
+    fn from(value: &BooleanArray) -> Self {
+        let bits = BitBuffer::from(value.values().clone());
+        let validity = nulls_to_mask(value.nulls(), value.len());
+        BoolVector::new(bits, validity)
+    }
+}
+
+impl TryFrom<&dyn Array> for BoolVector {
     type Error = VortexError;
 
-    fn try_from(value: ArrayRef) -> Result<Self, Self::Error> {
+    fn try_from(value: &dyn Array) -> Result<Self, Self::Error> {
         let array = value
             .as_any()
             .downcast_ref::<BooleanArray>()
             .ok_or_else(|| vortex_err!("expected BooleanArray, got {}", value.data_type()))?;
-
-        let bits = BitBuffer::from(array.values().clone());
-        let validity = nulls_to_mask(array.nulls(), array.len());
-
-        Ok(BoolVector::new(bits, validity))
+        Ok(BoolVector::from(array))
     }
 }
