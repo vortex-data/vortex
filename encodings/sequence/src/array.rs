@@ -16,6 +16,8 @@ use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::execution::ExecutionCtx;
+use vortex_array::kernel::KernelRef;
+use vortex_array::kernel::kernel;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
@@ -48,7 +50,6 @@ use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
-use vortex_vector::Vector;
 use vortex_vector::primitive::PVector;
 
 vtable!(Sequence);
@@ -268,23 +269,28 @@ impl VTable for SequenceVTable {
         ))
     }
 
-    fn bind_kernel(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+    fn bind_kernel(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<KernelRef> {
+        let array = array.clone();
+
         Ok(match_each_native_ptype!(array.ptype(), |P| {
             let base = array.base().cast::<P>();
             let multiplier = array.multiplier().cast::<P>();
 
-            let values = if multiplier == <P>::one() {
-                BufferMut::from_iter(
-                    (0..array.len()).map(|i| base + <P>::from_usize(i).vortex_expect("must fit")),
-                )
-            } else {
-                BufferMut::from_iter(
-                    (0..array.len())
-                        .map(|i| base + <P>::from_usize(i).vortex_expect("must fit") * multiplier),
-                )
-            };
+            kernel(move || {
+                let values =
+                    if multiplier == <P>::one() {
+                        BufferMut::from_iter(
+                            (0..array.len())
+                                .map(|i| base + <P>::from_usize(i).vortex_expect("must fit")),
+                        )
+                    } else {
+                        BufferMut::from_iter((0..array.len()).map(|i| {
+                            base + <P>::from_usize(i).vortex_expect("must fit") * multiplier
+                        }))
+                    };
 
-            PVector::<P>::new(values.freeze(), Mask::new_true(array.len())).into()
+                Ok(PVector::<P>::new(values.freeze(), Mask::new_true(array.len())).into())
+            })
         }))
     }
 }

@@ -16,6 +16,8 @@ use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::execution::ExecutionCtx;
+use vortex_array::kernel::KernelRef;
+use vortex_array::kernel::kernel;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
@@ -41,7 +43,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_vector::Vector;
 
 use crate::ALPFloat;
 use crate::alp::Exponents;
@@ -140,10 +141,9 @@ impl VTable for ALPVTable {
         )
     }
 
-    fn bind_kernel(array: &ALPArray, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        let encoded_vector = array.encoded().bind_kernel(ctx)?;
-
-        let patches_vectors = if let Some(patches) = array.patches() {
+    fn bind_kernel(array: &ALPArray, ctx: &mut ExecutionCtx) -> VortexResult<KernelRef> {
+        let encoded = array.encoded().bind_kernel(ctx)?;
+        let patches_kernels = if let Some(patches) = array.patches() {
             Some((
                 patches.indices().bind_kernel(ctx)?,
                 patches.values().bind_kernel(ctx)?,
@@ -161,7 +161,24 @@ impl VTable for ALPVTable {
         let exponents = array.exponents();
 
         match_each_alp_float_ptype!(array.dtype().as_ptype(), |T| {
-            decompress_into_vector::<T>(encoded_vector, exponents, patches_vectors, patches_offset)
+            Ok(kernel(move || {
+                let encoded_vector = encoded.execute()?;
+                let patches_vectors = match patches_kernels {
+                    Some((idx_kernel, val_kernel, co_kernel)) => Some((
+                        idx_kernel.execute()?,
+                        val_kernel.execute()?,
+                        co_kernel.map(|k| k.execute()).transpose()?,
+                    )),
+                    None => None,
+                };
+
+                decompress_into_vector::<T>(
+                    encoded_vector,
+                    exponents,
+                    patches_vectors,
+                    patches_offset,
+                )
+            }))
         })
     }
 }
