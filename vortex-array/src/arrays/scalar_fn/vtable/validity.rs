@@ -16,7 +16,7 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
     }
 
     fn all_valid(array: &ScalarFnArray) -> bool {
-        match array.bound.signature().is_null_sensitive() {
+        match array.scalar_fn.signature().is_null_sensitive() {
             true => {
                 // If the function is null sensitive, we cannot guarantee all valid without evaluating
                 // the function
@@ -31,7 +31,7 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
     }
 
     fn all_invalid(array: &ScalarFnArray) -> bool {
-        match array.bound.signature().is_null_sensitive() {
+        match array.scalar_fn.signature().is_null_sensitive() {
             true => {
                 // If the function is null sensitive, we cannot guarantee all invalid without evaluating
                 // the function

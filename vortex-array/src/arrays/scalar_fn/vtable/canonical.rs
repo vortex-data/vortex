@@ -36,7 +36,7 @@ impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
         };
 
         let result_vector = array
-            .bound
+            .scalar_fn
             .execute(ctx)
             .vortex_expect("Canonicalize should be fallible")
             .into_vector()

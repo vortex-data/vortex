@@ -6,7 +6,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_vector::Vector;
 use vortex_vector::bool::BoolVector;
 
 use crate::DeserializeMetadata;
@@ -31,6 +30,8 @@ mod visitor;
 
 pub use operator::BoolMaskedValidityRule;
 
+use crate::kernel::KernelRef;
+use crate::kernel::ready;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
 
@@ -106,8 +107,10 @@ impl VTable for BoolVTable {
         BoolArray::try_new(buffer, metadata.offset as usize, len, validity)
     }
 
-    fn batch_execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        Ok(BoolVector::new(array.bit_buffer().clone(), array.validity_mask()).into())
+    fn bind_kernel(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<KernelRef> {
+        Ok(ready(
+            BoolVector::new(array.bit_buffer().clone(), array.validity_mask()).into(),
+        ))
     }
 }
 

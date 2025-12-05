@@ -13,7 +13,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_scalar::DecimalType;
-use vortex_vector::Vector;
 use vortex_vector::decimal::DVector;
 
 use crate::DeserializeMetadata;
@@ -38,6 +37,8 @@ mod visitor;
 
 pub use operator::DecimalMaskedValidityRule;
 
+use crate::kernel::KernelRef;
+use crate::kernel::kernel;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
 
@@ -124,7 +125,7 @@ impl VTable for DecimalVTable {
         })
     }
 
-    fn batch_execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+    fn bind_kernel(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<KernelRef> {
         use vortex_dtype::BigCast;
 
         match_each_decimal_value_type!(array.values_type(), |D| {
@@ -132,23 +133,30 @@ impl VTable for DecimalVTable {
             //  given physical type, because we know that our values actually fit?
             let min_value_type = DecimalType::smallest_decimal_value_type(&array.decimal_dtype());
             match_each_decimal_value_type!(min_value_type, |E| {
-                // Copy from D to E, possibly widening, possibly narrowing
-                let values = Buffer::<E>::from_trusted_len_iter(
-                    array
-                        .buffer::<D>()
-                        .iter()
-                        .map(|d| <E as BigCast>::from(*d).vortex_expect("Decimal cast failed")),
-                );
+                let decimal_dtype = array.decimal_dtype();
+                let buffer = array.buffer::<D>();
+                let validity_mask = array.validity_mask();
 
-                Ok(unsafe {
-                    DVector::<E>::new_unchecked(
-                        // TODO(ngates): this is too small?
-                        PrecisionScale::new_unchecked(array.precision(), array.scale()),
-                        values,
-                        array.validity_mask(),
-                    )
-                }
-                .into())
+                Ok(kernel(move || {
+                    // Copy from D to E, possibly widening, possibly narrowing
+                    let values =
+                        Buffer::<E>::from_trusted_len_iter(buffer.iter().map(|d| {
+                            <E as BigCast>::from(*d).vortex_expect("Decimal cast failed")
+                        }));
+
+                    Ok(unsafe {
+                        DVector::<E>::new_unchecked(
+                            // TODO(ngates): this is too small?
+                            PrecisionScale::new_unchecked(
+                                decimal_dtype.precision(),
+                                decimal_dtype.scale(),
+                            ),
+                            values,
+                            validity_mask,
+                        )
+                    }
+                    .into())
+                }))
             })
         })
     }

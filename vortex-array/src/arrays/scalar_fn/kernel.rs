@@ -17,20 +17,20 @@ use crate::kernel::KernelRef;
 #[derive(Debug)]
 pub struct ScalarFnKernel {
     /// The scalar function to apply.
-    scalar_fn: ScalarFn,
+    pub(super) scalar_fn: ScalarFn,
 
     /// Inputs to the kernel, either constants or other kernels.
-    inputs: Vec<KernelInput>,
+    pub(super) inputs: Vec<KernelInput>,
     /// The input data types
-    input_dtypes: Vec<DType>,
+    pub(super) input_dtypes: Vec<DType>,
     /// The row count for vector inputs
-    row_count: usize,
+    pub(super) row_count: usize,
     /// The return data type
-    return_dtype: DType,
+    pub(super) return_dtype: DType,
 }
 
 #[derive(Debug)]
-enum KernelInput {
+pub(super) enum KernelInput {
     Scalar(Scalar),
     Vector(KernelRef),
 }
@@ -40,11 +40,9 @@ impl Kernel for ScalarFnKernel {
         let datums: Vec<_> = self
             .inputs
             .into_iter()
-            .map(|input| {
-                Ok(match input {
-                    KernelInput::Scalar(s) => Datum::Scalar(s),
-                    KernelInput::Vector(k) => Datum::Vector(k.execute()?),
-                })
+            .map(|input| match input {
+                KernelInput::Scalar(s) => Ok(Datum::Scalar(s)),
+                KernelInput::Vector(k) => k.execute().map(Datum::Vector),
             })
             .try_collect()?;
 
@@ -56,15 +54,5 @@ impl Kernel for ScalarFnKernel {
         };
 
         Ok(self.scalar_fn.execute(args)?.ensure_vector(self.row_count))
-    }
-
-    fn children(&self) -> Vec<&KernelRef> {
-        self.inputs
-            .iter()
-            .filter_map(|input| match input {
-                KernelInput::Vector(k) => Some(k),
-                KernelInput::Scalar(_) => None,
-            })
-            .collect()
     }
 }

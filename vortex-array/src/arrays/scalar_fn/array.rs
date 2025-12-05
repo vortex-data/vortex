@@ -17,7 +17,7 @@ use crate::vtable::ArrayVTableExt;
 pub struct ScalarFnArray {
     // NOTE(ngates): we should fix vtables so we don't have to hold this
     pub(super) vtable: ArrayVTable,
-    pub(super) bound: ScalarFn,
+    pub(super) scalar_fn: ScalarFn,
     pub(super) dtype: DType,
     pub(super) len: usize,
     pub(super) children: Vec<ArrayRef>,
@@ -37,7 +37,7 @@ impl ScalarFnArray {
 
         Ok(Self {
             vtable: ScalarFnVTable::new(bound.vtable().clone()).into_vtable(),
-            bound,
+            scalar_fn: bound,
             dtype,
             len,
             children,

@@ -10,7 +10,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_vector::Vector;
 use vortex_vector::binaryview::BinaryVector;
 use vortex_vector::binaryview::BinaryView;
 use vortex_vector::binaryview::StringVector;
@@ -18,6 +17,8 @@ use vortex_vector::binaryview::StringVector;
 use crate::EmptyMetadata;
 use crate::arrays::varbinview::VarBinViewArray;
 use crate::execution::ExecutionCtx;
+use crate::kernel::KernelRef;
+use crate::kernel::ready;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -35,6 +36,9 @@ mod validity;
 mod visitor;
 
 vtable!(VarBinView);
+
+#[derive(Debug)]
+pub struct VarBinViewVTable;
 
 impl VTable for VarBinViewVTable {
     type Array = VarBinViewArray;
@@ -104,28 +108,26 @@ impl VTable for VarBinViewVTable {
         VarBinViewArray::try_new(views, Arc::from(buffers), dtype.clone(), validity)
     }
 
-    fn batch_execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+    fn bind_kernel(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<KernelRef> {
         Ok(match array.dtype() {
-            DType::Utf8(_) => unsafe {
+            DType::Utf8(_) => ready(unsafe {
                 StringVector::new_unchecked(
                     array.views().clone(),
                     Arc::new(array.buffers().to_vec().into_boxed_slice()),
                     array.validity_mask(),
                 )
-            }
+                .into()
+            })
             .into(),
-            DType::Binary(_) => unsafe {
+            DType::Binary(_) => ready(unsafe {
                 BinaryVector::new_unchecked(
                     array.views().clone(),
                     Arc::new(array.buffers().to_vec().into_boxed_slice()),
                     array.validity_mask(),
                 )
-            }
-            .into(),
+                .into()
+            }),
             _ => unreachable!("VarBinViewArray must have Binary or Utf8 dtype"),
         })
     }
 }
-
-#[derive(Debug)]
-pub struct VarBinViewVTable;

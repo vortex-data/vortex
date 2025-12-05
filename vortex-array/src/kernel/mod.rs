@@ -3,9 +3,15 @@
 
 //! Kernels represent the CPU physical plan for array execution.
 
-use std::fmt::Debug;
-use std::fmt::Display;
+mod closure;
+mod ready;
+mod validate;
 
+use std::fmt::Debug;
+
+pub use closure::*;
+pub use ready::*;
+pub use validate::*;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_vector::Vector;
@@ -17,9 +23,6 @@ pub type KernelRef = Box<dyn Kernel>;
 pub trait Kernel: 'static + Send + Debug {
     /// Execute the kernel and produce a vector result.
     fn execute(self: Box<Self>) -> VortexResult<Vector>;
-
-    /// Return the child kernels of this kernel.
-    fn children(&self) -> Vec<&KernelRef>;
 
     /// Report an estimated cost for computing this kernel over the given filter mask.
     ///

@@ -10,13 +10,13 @@ use crate::expr::ScalarFn;
 
 #[derive(Clone)]
 pub struct ScalarFnMetadata {
-    pub(super) bound: ScalarFn,
+    pub(super) scalar_fn: ScalarFn,
     pub(super) child_dtypes: Vec<DType>,
 }
 
 // Array tree display wrongly uses debug...
 impl Debug for ScalarFnMetadata {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.bound)
+        write!(f, "{}", self.scalar_fn)
     }
 }

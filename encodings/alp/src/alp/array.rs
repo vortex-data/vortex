@@ -140,17 +140,17 @@ impl VTable for ALPVTable {
         )
     }
 
-    fn batch_execute(array: &ALPArray, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        let encoded_vector = array.encoded().batch_execute(ctx)?;
+    fn bind_kernel(array: &ALPArray, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        let encoded_vector = array.encoded().bind_kernel(ctx)?;
 
         let patches_vectors = if let Some(patches) = array.patches() {
             Some((
-                patches.indices().batch_execute(ctx)?,
-                patches.values().batch_execute(ctx)?,
+                patches.indices().bind_kernel(ctx)?,
+                patches.values().bind_kernel(ctx)?,
                 patches
                     .chunk_offsets()
                     .as_ref()
-                    .map(|co| co.batch_execute(ctx))
+                    .map(|co| co.bind_kernel(ctx))
                     .transpose()?,
             ))
         } else {
