@@ -265,21 +265,12 @@ impl GeoFilter {
 
     /// Probe the GeoFilter to see if the given zone *may* contain a geometry that is covered
     /// by the given geometry.
-    pub fn filter_contains(&self, zone_id: usize, geom: &Geometry) -> bool {
+    pub fn filter_contains(&self, zone_id: usize, cell_ids: &[u64]) -> bool {
         let filter = &self.inner[zone_id];
-        // Generate the cell IDs for the geometry.
-        // TODO(aduffy): store this config centrally so the read/write paths don't drift.
-        let mut tiler = TilerBuilder::new(Resolution::Eight)
-            .containment_mode(ContainmentMode::Covers)
-            .build();
-        tiler
-            .add(geom.convex_hull())
-            .unwrap_or_else(|e| vortex_panic!("failed to add polygon to tiler: {e}"));
 
         // If some cells of the geometry are contained by this zone, then it's possible that there
         // may be some geometry in this zone that would pass a query `ST_CONTAINS(geom, zone_geometry)`.
-        for cell_id in tiler.into_coverage() {
-            let cell_id = u64::from(cell_id);
+        for &cell_id in cell_ids {
             if filter.contains_hash(cell_id) {
                 return true;
             }

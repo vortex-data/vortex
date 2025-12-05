@@ -35,11 +35,8 @@
     <div id="map"></div>
     <div id="info">
         <h3>Information Panel</h3>
-        <button id="searchBtn" style="padding: 10px 20px; margin: 10px 0; cursor: pointer; background-color: #4CAF50; color: white; border: none; border-radius: 4px; font-size: 14px;">
-            Search Current View
-        </button>
         <div id="results">
-            <p>Click "Search Current View" to load pins in the current map viewport.</p>
+            <p>Move the map to see building counts...</p>
         </div>
     </div>
 
@@ -58,10 +55,27 @@
         // Store reference to current GeoJSON layer
         let currentLayer = null;
 
-        // Function to fetch and display pins
-        async function fetchPins() {
+        // Function to update viewport data
+        async function updateViewport() {
             const bounds = map.getBounds();
             const zoom = map.getZoom();
+
+            const resultsDiv = document.getElementById('results');
+
+            // Check if zoom level is sufficient
+            if (zoom < 12) {
+                // Remove previous layer if it exists
+                if (currentLayer) {
+                    map.removeLayer(currentLayer);
+                    currentLayer = null;
+                }
+
+                resultsDiv.innerHTML = `
+                    <p>Zoom in to level 12 or higher to see building data</p>
+                    <p>Current zoom level: ${zoom}</p>
+                `;
+                return;
+            }
 
             const params = new URLSearchParams({
                 south: bounds.getSouth(),
@@ -72,54 +86,70 @@
             });
 
             try {
-                const response = await fetch(`/api/pins?${params}`);
-                const geojson = await response.json();
+                // First, fetch the count
+                const countResponse = await fetch(`/api/counts?${params}`);
+                const countData = await countResponse.json();
+                const buildingCount = countData.count;
+
+                // Update results panel
+                let html = `<p><strong>There are ${buildingCount.toLocaleString()} Buildings in the viewport</strong></p>`;
 
                 // Remove previous layer if it exists
                 if (currentLayer) {
                     map.removeLayer(currentLayer);
+                    currentLayer = null;
                 }
 
-                // Add new GeoJSON layer
-                currentLayer = L.geoJSON(geojson, {
-                    pointToLayer: function(feature, latlng) {
-                        return L.circleMarker(latlng, {
-                            radius: 8,
-                            fillColor: "#ff7800",
-                            color: "#000",
-                            weight: 1,
-                            opacity: 1,
-                            fillOpacity: 0.8
-                        });
-                    },
-                    onEachFeature: function(feature, layer) {
-                        if (feature.properties) {
-                            const popupContent = `
-                                <strong>${feature.properties.name}</strong><br>
-                                ${feature.properties.description}
-                            `;
-                            layer.bindPopup(popupContent);
-                        }
-                    }
-                }).addTo(map);
+                // Only fetch and display pins if count <= 3,000
+                if (buildingCount <= 3000 && buildingCount > 0) {
+                    const pinsResponse = await fetch(`/api/pins?${params}`);
+                    const geojson = await pinsResponse.json();
 
-                // Update results panel
-                const resultsDiv = document.getElementById('results');
-                resultsDiv.innerHTML = `
-                    <p><strong>Found ${geojson.features.length} pins</strong></p>
+                    currentLayer = L.geoJSON(geojson, {
+                        pointToLayer: function(feature, latlng) {
+                            return L.circleMarker(latlng, {
+                                radius: 8,
+                                fillColor: "#ff7800",
+                                color: "#000",
+                                weight: 1,
+                                opacity: 1,
+                                fillOpacity: 0.8
+                            });
+                        },
+                        onEachFeature: function(feature, layer) {
+                            if (feature.properties) {
+                                const popupContent = `
+                                    <strong>${feature.properties.name}</strong><br>
+                                    ${feature.properties.description}
+                                `;
+                                layer.bindPopup(popupContent);
+                            }
+                        }
+                    }).addTo(map);
+
+                    html += `<p style="color: #4CAF50;">Displaying ${geojson.features.length.toLocaleString()} pins</p>`;
+                } else if (buildingCount > 3000) {
+                    html += `<p style="color: #ff7800;">Too many buildings to display (zoom in for details)</p>`;
+                }
+
+                html += `
                     <p>Zoom level: ${zoom}</p>
                     <p>Bounds: ${bounds.getSouth().toFixed(4)}, ${bounds.getWest().toFixed(4)} to ${bounds.getNorth().toFixed(4)}, ${bounds.getEast().toFixed(4)}</p>
                 `;
+                resultsDiv.innerHTML = html;
             } catch (error) {
-                console.error('Error fetching pins:', error);
+                console.error('Error updating viewport:', error);
                 document.getElementById('results').innerHTML = `
-                    <p style="color: red;">Error fetching pins: ${error.message}</p>
+                    <p style="color: red;">Error updating viewport: ${error.message}</p>
                 `;
             }
         }
 
-        // Add click handler to search button
-        document.getElementById('searchBtn').addEventListener('click', fetchPins);
+        // Update on map move end (after pan/zoom)
+        map.on('moveend', updateViewport);
+
+        // Initial update
+        updateViewport();
     </script>
 </body>
 </html>

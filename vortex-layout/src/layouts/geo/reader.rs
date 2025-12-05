@@ -9,10 +9,14 @@ use std::sync::OnceLock;
 
 use futures::FutureExt;
 use futures::TryFutureExt;
+use geo::ConvexHull;
 use geo_types::Geometry;
 use geozero::GeozeroGeometry;
 use geozero::geo_types::GeoWriter;
 use geozero::wkb;
+use h3o::Resolution;
+use h3o::geom::ContainmentMode;
+use h3o::geom::TilerBuilder;
 use itertools::Itertools;
 use vortex_array::Array;
 use vortex_array::MaskFuture;
@@ -26,6 +30,7 @@ use vortex_dtype::FieldMask;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::ArrayFuture;
@@ -176,9 +181,19 @@ impl LayoutReader for GeoReader {
                 return Ok(MaskFuture::new(len, async move {
                     let geo_filter = geo_filter.await?;
                     let mut builder = BitBufferMut::with_capacity(mask.len());
+                    // Generate the cell IDs for the geometry.
+                    // TODO(aduffy): store this config centrally so the read/write paths don't drift.
+                    let mut tiler = TilerBuilder::new(Resolution::Eight)
+                        .containment_mode(ContainmentMode::Covers)
+                        .build();
+                    tiler
+                        .add(geometry.convex_hull())
+                        .unwrap_or_else(|e| vortex_panic!("failed to add polygon to tiler: {e}"));
+                    let cell_ids = tiler.into_coverage().map(u64::from).collect_vec();
+
                     for (zone_idx, &zone_length) in zone_range.clone().zip_eq(&zone_lengths) {
                         builder.append_n(
-                            geo_filter.filter_contains(usize::try_from(zone_idx)?, &geometry),
+                            geo_filter.filter_contains(usize::try_from(zone_idx)?, &cell_ids),
                             zone_length,
                         );
                     }
