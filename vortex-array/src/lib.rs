@@ -35,6 +35,7 @@ pub mod expr;
 mod expression;
 mod hash;
 pub mod iter;
+mod kernel;
 mod mask;
 mod mask_future;
 mod metadata;
