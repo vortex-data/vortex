@@ -58,11 +58,13 @@ arrow-array = { workspace = true }
 axum = { version = "0.8.7" }
 divan = { workspace = true }
 futures = { workspace = true }
+geo = { workspace = true }
 geo-types = { workspace = true }
 geozero = { workspace = true, features = ["with-wkb"] }
 itertools = { workspace = true }
 mimalloc = { workspace = true }
 parquet = { workspace = true, features = ["async", "tokio"] }
+serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }

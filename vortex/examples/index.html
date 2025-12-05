@@ -35,7 +35,12 @@
     <div id="map"></div>
     <div id="info">
         <h3>Information Panel</h3>
-        <p>Placeholder text for additional information. This area will display details about selected pins or other relevant data.</p>
+        <button id="searchBtn" style="padding: 10px 20px; margin: 10px 0; cursor: pointer; background-color: #4CAF50; color: white; border: none; border-radius: 4px; font-size: 14px;">
+            Search Current View
+        </button>
+        <div id="results">
+            <p>Click "Search Current View" to load pins in the current map viewport.</p>
+        </div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -49,6 +54,72 @@
             subdomains: 'abcd',
             maxZoom: 20
         }).addTo(map);
+
+        // Store reference to current GeoJSON layer
+        let currentLayer = null;
+
+        // Function to fetch and display pins
+        async function fetchPins() {
+            const bounds = map.getBounds();
+            const zoom = map.getZoom();
+
+            const params = new URLSearchParams({
+                south: bounds.getSouth(),
+                west: bounds.getWest(),
+                north: bounds.getNorth(),
+                east: bounds.getEast(),
+                zoom: zoom
+            });
+
+            try {
+                const response = await fetch(`/api/pins?${params}`);
+                const geojson = await response.json();
+
+                // Remove previous layer if it exists
+                if (currentLayer) {
+                    map.removeLayer(currentLayer);
+                }
+
+                // Add new GeoJSON layer
+                currentLayer = L.geoJSON(geojson, {
+                    pointToLayer: function(feature, latlng) {
+                        return L.circleMarker(latlng, {
+                            radius: 8,
+                            fillColor: "#ff7800",
+                            color: "#000",
+                            weight: 1,
+                            opacity: 1,
+                            fillOpacity: 0.8
+                        });
+                    },
+                    onEachFeature: function(feature, layer) {
+                        if (feature.properties) {
+                            const popupContent = `
+                                <strong>${feature.properties.name}</strong><br>
+                                ${feature.properties.description}
+                            `;
+                            layer.bindPopup(popupContent);
+                        }
+                    }
+                }).addTo(map);
+
+                // Update results panel
+                const resultsDiv = document.getElementById('results');
+                resultsDiv.innerHTML = `
+                    <p><strong>Found ${geojson.features.length} pins</strong></p>
+                    <p>Zoom level: ${zoom}</p>
+                    <p>Bounds: ${bounds.getSouth().toFixed(4)}, ${bounds.getWest().toFixed(4)} to ${bounds.getNorth().toFixed(4)}, ${bounds.getEast().toFixed(4)}</p>
+                `;
+            } catch (error) {
+                console.error('Error fetching pins:', error);
+                document.getElementById('results').innerHTML = `
+                    <p style="color: red;">Error fetching pins: ${error.message}</p>
+                `;
+            }
+        }
+
+        // Add click handler to search button
+        document.getElementById('searchBtn').addEventListener('click', fetchPins);
     </script>
 </body>
 </html>
