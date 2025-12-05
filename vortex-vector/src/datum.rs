@@ -3,12 +3,15 @@
 
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::NativePType;
+use vortex_dtype::PType;
 
 use crate::Scalar;
 use crate::Vector;
+use crate::binaryview::BinaryType;
 use crate::binaryview::BinaryViewScalar;
 use crate::binaryview::BinaryViewType;
 use crate::binaryview::BinaryViewVector;
+use crate::binaryview::StringType;
 use crate::bool::BoolScalar;
 use crate::bool::BoolVector;
 use crate::decimal::DScalar;
@@ -139,6 +142,38 @@ impl Datum {
             Datum::Vector(vector) => StructDatum::Vector(vector.into_struct()),
         }
     }
+
+    /// Converts the `Datum` into a `TypedDatum`.
+    pub fn into_typed(self) -> TypedDatum {
+        match self {
+            Datum::Scalar(sc) => match sc {
+                Scalar::Null(s) => TypedDatum::Null(NullDatum::Scalar(s)),
+                Scalar::Bool(s) => TypedDatum::Bool(BoolDatum::Scalar(s)),
+                Scalar::Decimal(s) => TypedDatum::Decimal(DecimalDatum::Scalar(s)),
+                Scalar::Primitive(s) => TypedDatum::Primitive(PrimitiveDatum::Scalar(s)),
+                Scalar::String(s) => TypedDatum::String(BinaryViewDatum::Scalar(s)),
+                Scalar::Binary(s) => TypedDatum::Binary(BinaryViewDatum::Scalar(s)),
+                Scalar::List(s) => TypedDatum::List(ListViewDatum::Scalar(s)),
+                Scalar::FixedSizeList(s) => {
+                    TypedDatum::FixedSizeList(FixedSizeListDatum::Scalar(s))
+                }
+                Scalar::Struct(s) => TypedDatum::Struct(StructDatum::Scalar(s)),
+            },
+            Datum::Vector(vec) => match vec {
+                Vector::Null(v) => TypedDatum::Null(NullDatum::Vector(v)),
+                Vector::Bool(v) => TypedDatum::Bool(BoolDatum::Vector(v)),
+                Vector::Decimal(v) => TypedDatum::Decimal(DecimalDatum::Vector(v)),
+                Vector::Primitive(v) => TypedDatum::Primitive(PrimitiveDatum::Vector(v)),
+                Vector::String(v) => TypedDatum::String(BinaryViewDatum::Vector(v)),
+                Vector::Binary(v) => TypedDatum::Binary(BinaryViewDatum::Vector(v)),
+                Vector::List(v) => TypedDatum::List(ListViewDatum::Vector(v)),
+                Vector::FixedSizeList(v) => {
+                    TypedDatum::FixedSizeList(FixedSizeListDatum::Vector(v))
+                }
+                Vector::Struct(v) => TypedDatum::Struct(StructDatum::Vector(v)),
+            },
+        }
+    }
 }
 
 macro_rules! datum {
@@ -233,3 +268,35 @@ datum!(BinaryView<T: BinaryViewType>);
 datum!(ListView);
 datum!(FixedSizeList);
 datum!(Struct);
+
+impl PrimitiveDatum {
+    /// ptype from datum
+    pub fn ptype(&self) -> PType {
+        match self {
+            PrimitiveDatum::Scalar(sc) => sc.ptype(),
+            PrimitiveDatum::Vector(sc) => sc.ptype(),
+        }
+    }
+}
+
+/// A variant of [`Datum`] that is typed.
+pub enum TypedDatum {
+    /// Null datum.
+    Null(NullDatum),
+    /// Boolean datum.
+    Bool(BoolDatum),
+    /// Decimal datum.
+    Decimal(DecimalDatum),
+    /// Primitive datum.
+    Primitive(PrimitiveDatum),
+    /// String datum
+    String(BinaryViewDatum<StringType>),
+    /// Binary datum
+    Binary(BinaryViewDatum<BinaryType>),
+    /// List datum.
+    List(ListViewDatum),
+    /// fsl datum.
+    FixedSizeList(FixedSizeListDatum),
+    /// struct datum.
+    Struct(StructDatum),
+}

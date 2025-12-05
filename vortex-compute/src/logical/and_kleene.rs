@@ -8,14 +8,38 @@ use std::ops::Not;
 use vortex_buffer::BitBuffer;
 use vortex_mask::Mask;
 use vortex_vector::VectorOps;
+use vortex_vector::bool::BoolScalar;
 use vortex_vector::bool::BoolVector;
 
+use crate::logical::KleeneAnd;
 use crate::logical::LogicalAndKleene;
+use crate::logical::LogicalOp;
 
-impl LogicalAndKleene for &BoolVector {
+impl LogicalOp<KleeneAnd> for &BoolScalar {
+    type Output = BoolScalar;
+
+    fn op(self, other: Self) -> Self::Output {
+        let result = match (self.value(), other.value()) {
+            (Some(false), _) | (_, Some(false)) => Some(false),
+            (Some(true), Some(true)) => Some(true),
+            _ => None,
+        };
+        BoolScalar::new(result)
+    }
+}
+
+impl LogicalAndKleene<&BoolScalar> for BoolScalar {
+    type Output = BoolScalar;
+
+    fn and_kleene(self, rhs: &BoolScalar) -> BoolScalar {
+        <&Self as LogicalOp<KleeneAnd>>::op(&self, rhs)
+    }
+}
+
+impl LogicalOp<KleeneAnd> for &BoolVector {
     type Output = BoolVector;
 
-    fn and_kleene(self, rhs: Self) -> Self::Output {
+    fn op(self, rhs: Self) -> Self::Output {
         match (self.validity(), rhs.validity()) {
             (Mask::AllTrue(_), Mask::AllTrue(_)) => {
                 BoolVector::new(self.bits().bitand(rhs.bits()), Mask::new_true(self.len()))
@@ -101,7 +125,7 @@ impl LogicalAndKleene<&BoolVector> for BoolVector {
     type Output = BoolVector;
 
     fn and_kleene(self, rhs: &BoolVector) -> Self::Output {
-        (&self).and_kleene(rhs)
+        <&Self as LogicalOp<KleeneAnd>>::op(&self, rhs)
     }
 }
 
@@ -109,6 +133,7 @@ impl LogicalAndKleene<&BoolVector> for BoolVector {
 mod tests {
     use vortex_buffer::bitbuffer;
     use vortex_mask::Mask;
+    use vortex_vector::bool::BoolScalar;
     use vortex_vector::bool::BoolVector;
 
     use super::*;
@@ -144,5 +169,50 @@ mod tests {
         assert_eq!(result.bits(), &bitbuffer![0]);
         // Result should be valid because false AND anything is false
         assert_eq!(result.validity(), &Mask::new_true(1));
+    }
+
+    #[test]
+    fn test_scalar_and_kleene_true_true() {
+        let left = BoolScalar::new(Some(true));
+        let right = BoolScalar::new(Some(true));
+        assert_eq!(left.and_kleene(&right).value(), Some(true));
+    }
+
+    #[test]
+    fn test_scalar_and_kleene_true_false() {
+        let left = BoolScalar::new(Some(true));
+        let right = BoolScalar::new(Some(false));
+        assert_eq!(left.and_kleene(&right).value(), Some(false));
+    }
+
+    #[test]
+    fn test_scalar_and_kleene_false_null() {
+        // false AND null = false (Kleene logic)
+        let left = BoolScalar::new(Some(false));
+        let right = BoolScalar::new(None);
+        assert_eq!(left.and_kleene(&right).value(), Some(false));
+    }
+
+    #[test]
+    fn test_scalar_and_kleene_null_false() {
+        // null AND false = false (Kleene logic)
+        let left = BoolScalar::new(None);
+        let right = BoolScalar::new(Some(false));
+        assert_eq!(left.and_kleene(&right).value(), Some(false));
+    }
+
+    #[test]
+    fn test_scalar_and_kleene_true_null() {
+        // true AND null = null
+        let left = BoolScalar::new(Some(true));
+        let right = BoolScalar::new(None);
+        assert_eq!(left.and_kleene(&right).value(), None);
+    }
+
+    #[test]
+    fn test_scalar_and_kleene_null_null() {
+        let left = BoolScalar::new(None);
+        let right = BoolScalar::new(None);
+        assert_eq!(left.and_kleene(&right).value(), None);
     }
 }

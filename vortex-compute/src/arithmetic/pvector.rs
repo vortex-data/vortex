@@ -126,6 +126,37 @@ where
     }
 }
 
+/// Scalar LHS with owned vector RHS - modifies vector in-place.
+impl<Op, T> Arithmetic<Op, PVector<T>> for &T
+where
+    T: NativePType,
+    Op: Operator<T>,
+    BufferMut<T>: for<'a> Arithmetic<Op, &'a T, Output = Buffer<T>>,
+    for<'a> &'a Buffer<T>: Arithmetic<Op, &'a T, Output = Buffer<T>>,
+{
+    type Output = PVector<T>;
+
+    fn eval(self, rhs: PVector<T>) -> Self::Output {
+        match rhs.try_into_mut() {
+            Ok(rhs_mut) => {
+                let (rhs_buffer, rhs_validity) = rhs_mut.into_parts();
+                // Apply scalar op to each element in-place
+                let elements = rhs_buffer
+                    .map_each_in_place(|v| Op::apply(self, &v))
+                    .freeze();
+                PVector::new(elements, rhs_validity.freeze())
+            }
+            Err(rhs) => {
+                // Can't modify in place, allocate new buffer
+                let buffer = Buffer::<T>::from_trusted_len_iter(
+                    rhs.as_ref().iter().map(|v| Op::apply(self, v)),
+                );
+                PVector::new(buffer, rhs.validity().clone())
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;

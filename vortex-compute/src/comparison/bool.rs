@@ -6,6 +6,7 @@ use std::ops::BitAnd;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
 use vortex_vector::VectorOps;
+use vortex_vector::bool::BoolScalar;
 use vortex_vector::bool::BoolVector;
 
 use crate::comparison::Compare;
@@ -16,7 +17,55 @@ use crate::comparison::LessThan;
 use crate::comparison::LessThanOrEqual;
 use crate::comparison::NotEqual;
 
-impl<Op> Compare<Op> for &BoolVector
+impl Compare<Equal> for BoolScalar {
+    type Output = BoolScalar;
+
+    fn compare(self, rhs: Self) -> Self::Output {
+        BoolScalar::new(self.value().zip(rhs.value()).map(|(l, r)| l == r))
+    }
+}
+
+impl Compare<NotEqual> for BoolScalar {
+    type Output = BoolScalar;
+
+    fn compare(self, rhs: Self) -> Self::Output {
+        BoolScalar::new(self.value().zip(rhs.value()).map(|(l, r)| l != r))
+    }
+}
+
+impl Compare<LessThan> for BoolScalar {
+    type Output = BoolScalar;
+
+    fn compare(self, rhs: Self) -> Self::Output {
+        BoolScalar::new(self.value().zip(rhs.value()).map(|(l, r)| !l && r))
+    }
+}
+
+impl Compare<LessThanOrEqual> for BoolScalar {
+    type Output = BoolScalar;
+
+    fn compare(self, rhs: Self) -> Self::Output {
+        BoolScalar::new(self.value().zip(rhs.value()).map(|(l, r)| !l || r))
+    }
+}
+
+impl Compare<GreaterThan> for BoolScalar {
+    type Output = BoolScalar;
+
+    fn compare(self, rhs: Self) -> Self::Output {
+        BoolScalar::new(self.value().zip(rhs.value()).map(|(l, r)| l && !r))
+    }
+}
+
+impl Compare<GreaterThanOrEqual> for BoolScalar {
+    type Output = BoolScalar;
+
+    fn compare(self, rhs: Self) -> Self::Output {
+        BoolScalar::new(self.value().zip(rhs.value()).map(|(l, r)| l || !r))
+    }
+}
+
+impl<Op> Compare<Op> for BoolVector
 where
     Op: BitComparisonOperator,
 {
