@@ -531,7 +531,7 @@ const CHARTS_PER_BATCH = 4;
 /**
  * Resizes all charts in a group in batches, yielding to the browser between batches.
  * This processes multiple charts per frame for faster expansion of large groups.
- * Uses setTimeout instead of requestAnimationFrame so it continues when tab is hidden.
+ * Skips yields when tab is hidden to avoid browser throttling.
  */
 async function resizeGroupChartsBatched(groupId) {
   const groupCharts = [];
@@ -546,8 +546,10 @@ async function resizeGroupChartsBatched(groupId) {
     for (const chart of batch) {
       chart.resize();
     }
-    // Use setTimeout(0) to yield without pausing when tab is hidden.
-    await new Promise((r) => setTimeout(r, 0));
+    // Skip delay if page is hidden to avoid browser throttling.
+    if (!document.hidden) {
+      await new Promise((r) => setTimeout(r, 0));
+    }
   }
 }
 
@@ -1191,9 +1193,13 @@ function createEmptyCharts(groupId, groupConfig) {
  * Waits one frame (16ms) for the browser to paint.
  *
  * This is used to yield control back to the browser between chart renders, so each chart appears
- * progressively rather than all at once.
+ * progressively rather than all at once. Skips the delay when the tab is hidden to avoid browser
+ * throttling (browsers throttle setTimeout to 1s minimum in background tabs).
  */
 function waitForPaint() {
+  if (document.hidden) {
+    return Promise.resolve();
+  }
   return new Promise((resolve) => setTimeout(resolve, 16));
 }
 
