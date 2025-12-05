@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
-use arrow_array::ArrayRef;
 use arrow_array::ListViewArray;
 use arrow_buffer::ScalarBuffer;
 use arrow_schema::Field;
@@ -16,7 +13,7 @@ use vortex_vector::match_each_integer_pvector;
 use crate::arrow::IntoArrow;
 
 impl IntoArrow for ListViewVector {
-    type Output = ArrayRef;
+    type Output = ListViewArray;
 
     #[allow(clippy::unnecessary_fallible_conversions)]
     #[allow(clippy::useless_conversion)]
@@ -40,12 +37,12 @@ impl IntoArrow for ListViewVector {
             )
         });
 
-        Ok(Arc::new(ListViewArray::new(
+        Ok(ListViewArray::new(
             FieldRef::new(Field::new("elements", elements.data_type().clone(), true)),
             offsets,
             sizes,
             elements,
             validity.into(),
-        )))
+        ))
     }
 }

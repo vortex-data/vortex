@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use arrow_array::Array;
-use arrow_array::ArrayRef;
 use arrow_array::NullArray;
 use vortex_error::VortexResult;
 use vortex_vector::VectorOps;
@@ -14,10 +11,10 @@ use crate::arrow::IntoArrow;
 use crate::arrow::IntoVector;
 
 impl IntoArrow for NullVector {
-    type Output = ArrayRef;
+    type Output = NullArray;
 
     fn into_arrow(self) -> VortexResult<Self::Output> {
-        Ok(Arc::new(NullArray::new(self.len())))
+        Ok(NullArray::new(self.len()))
     }
 }
 

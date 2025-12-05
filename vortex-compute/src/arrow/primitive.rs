@@ -32,21 +32,21 @@ impl IntoArrow for PrimitiveVector {
     type Output = ArrayRef;
 
     fn into_arrow(self) -> VortexResult<Self::Output> {
-        match_each_pvector!(self, |v| { v.into_arrow() })
+        match_each_pvector!(self, |v| { Ok(Arc::new(v.into_arrow()?)) })
     }
 }
 
 macro_rules! impl_primitive_to_arrow {
     ($T:ty, $A:ty) => {
         impl IntoArrow for PVector<$T> {
-            type Output = ArrayRef;
+            type Output = PrimitiveArray<$A>;
 
             fn into_arrow(self) -> VortexResult<Self::Output> {
                 let (elements, validity) = self.into_parts();
-                Ok(Arc::new(PrimitiveArray::<$A>::new(
+                Ok(PrimitiveArray::<$A>::new(
                     elements.into_arrow_scalar_buffer(),
                     validity.into(),
-                )))
+                ))
             }
         }
     };

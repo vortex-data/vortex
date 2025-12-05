@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use arrow_array::Array;
-use arrow_array::ArrayRef;
 use arrow_array::BooleanArray;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
@@ -15,11 +12,11 @@ use crate::arrow::IntoVector;
 use crate::arrow::nulls_to_mask;
 
 impl IntoArrow for BoolVector {
-    type Output = ArrayRef;
+    type Output = BooleanArray;
 
     fn into_arrow(self) -> VortexResult<Self::Output> {
         let (bits, validity) = self.into_parts();
-        Ok(Arc::new(BooleanArray::new(bits.into(), validity.into())))
+        Ok(BooleanArray::new(bits.into(), validity.into()))
     }
 }
 

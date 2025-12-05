@@ -26,12 +26,12 @@ impl IntoArrow for DecimalVector {
 
     fn into_arrow(self) -> VortexResult<Self::Output> {
         match self {
-            DecimalVector::D8(v) => v.into_arrow(),
-            DecimalVector::D16(v) => v.into_arrow(),
-            DecimalVector::D32(v) => v.into_arrow(),
-            DecimalVector::D64(v) => v.into_arrow(),
-            DecimalVector::D128(v) => v.into_arrow(),
-            DecimalVector::D256(v) => v.into_arrow(),
+            DecimalVector::D8(v) => Ok(Arc::new(v.into_arrow()?)),
+            DecimalVector::D16(v) => Ok(Arc::new(v.into_arrow()?)),
+            DecimalVector::D32(v) => Ok(Arc::new(v.into_arrow()?)),
+            DecimalVector::D64(v) => Ok(Arc::new(v.into_arrow()?)),
+            DecimalVector::D128(v) => Ok(Arc::new(v.into_arrow()?)),
+            DecimalVector::D256(v) => Ok(Arc::new(v.into_arrow()?)),
         }
     }
 }
@@ -39,17 +39,17 @@ impl IntoArrow for DecimalVector {
 macro_rules! impl_decimal_upcast_i32 {
     ($T:ty) => {
         impl IntoArrow for DVector<$T> {
-            type Output = ArrayRef;
+            type Output = PrimitiveArray<Decimal32Type>;
 
             fn into_arrow(self) -> VortexResult<Self::Output> {
                 let (_, elements, validity) = self.into_parts();
                 // Upcast the DVector to Arrow's smallest decimal type (Decimal32)
                 let elements =
                     Buffer::<i32>::from_trusted_len_iter(elements.iter().map(|i| *i as i32));
-                Ok(Arc::new(PrimitiveArray::<Decimal32Type>::new(
+                Ok(PrimitiveArray::<Decimal32Type>::new(
                     elements.into_arrow_scalar_buffer(),
                     validity.into(),
-                )))
+                ))
             }
         }
     };
@@ -62,14 +62,14 @@ impl_decimal_upcast_i32!(i16);
 macro_rules! impl_decimal_to_arrow {
     ($T:ty, $A:ty) => {
         impl IntoArrow for DVector<$T> {
-            type Output = ArrayRef;
+            type Output = PrimitiveArray<$A>;
 
             fn into_arrow(self) -> VortexResult<Self::Output> {
                 let (_, elements, validity) = self.into_parts();
-                Ok(Arc::new(PrimitiveArray::<$A>::new(
+                Ok(PrimitiveArray::<$A>::new(
                     elements.into_arrow_scalar_buffer(),
                     validity.into(),
-                )))
+                ))
             }
         }
     };
@@ -80,7 +80,7 @@ impl_decimal_to_arrow!(i64, Decimal64Type);
 impl_decimal_to_arrow!(i128, Decimal128Type);
 
 impl IntoArrow for DVector<i256> {
-    type Output = ArrayRef;
+    type Output = PrimitiveArray<Decimal256Type>;
 
     fn into_arrow(self) -> VortexResult<Self::Output> {
         let (_, elements, validity) = self.into_parts();
@@ -90,10 +90,10 @@ impl IntoArrow for DVector<i256> {
         let elements =
             unsafe { std::mem::transmute::<Buffer<i256>, Buffer<arrow_buffer::i256>>(elements) };
 
-        Ok(Arc::new(PrimitiveArray::<Decimal256Type>::new(
+        Ok(PrimitiveArray::<Decimal256Type>::new(
             elements.into_arrow_scalar_buffer(),
             validity.into(),
-        )))
+        ))
     }
 }
 

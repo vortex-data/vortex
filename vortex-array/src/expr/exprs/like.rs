@@ -4,13 +4,14 @@
 use std::fmt::Formatter;
 
 use prost::Message;
+use vortex_compute::arrow::IntoArrow;
+use vortex_compute::arrow::IntoVector;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_vector::Datum;
-use vortex_vector::bool::BoolVector;
 
 use crate::ArrayRef;
 use crate::compute::LikeOptions;
@@ -117,8 +118,8 @@ impl VTable for Like {
             .try_into()
             .map_err(|_| vortex_err!("Wrong argument count"))?;
 
-        let child: Box<dyn arrow_array::Datum> = child.try_into()?;
-        let pattern: Box<dyn arrow_array::Datum> = pattern.try_into()?;
+        let child = child.into_arrow()?;
+        let pattern = pattern.into_arrow()?;
 
         let array = match (options.negated, options.case_insensitive) {
             (false, false) => arrow_string::like::like(child.as_ref(), pattern.as_ref()),
@@ -127,7 +128,7 @@ impl VTable for Like {
             (true, true) => arrow_string::like::nilike(child.as_ref(), pattern.as_ref()),
         }?;
 
-        Ok(Datum::Vector(BoolVector::from(&array).into()))
+        Ok(Datum::Vector(array.into_vector()?.into()).into())
     }
 
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {

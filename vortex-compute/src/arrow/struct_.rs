@@ -18,7 +18,7 @@ use crate::arrow::IntoVector;
 use crate::arrow::nulls_to_mask;
 
 impl IntoArrow for StructVector {
-    type Output = ArrayRef;
+    type Output = StructArray;
 
     fn into_arrow(self) -> VortexResult<Self::Output> {
         let len = self.len();
@@ -45,9 +45,9 @@ impl IntoArrow for StructVector {
         // SAFETY: Since all of these components came from a valid `StructVector`, we know that all
         // of the lengths of the vectors are correct. Additionally, all extra metadata is directly
         // derived from the existing components so all invariants are upheld.
-        Ok(Arc::new(unsafe {
+        Ok(unsafe {
             StructArray::new_unchecked_with_length(fields, arrow_fields, validity.into(), len)
-        }))
+        })
     }
 }
 

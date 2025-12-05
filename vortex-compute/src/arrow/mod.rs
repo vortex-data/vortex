@@ -47,15 +47,19 @@ mod vector;
 
 /// Trait for converting Vortex vector objects into Arrow.
 pub trait IntoArrow {
+    /// The output Arrow type.
     type Output;
 
+    /// Convert the Vortex vector object into an Arrow object.
     fn into_arrow(self) -> VortexResult<Self::Output>;
 }
 
 /// Trait for converting Arrow objects into Vortex vector objects.
 pub trait IntoVector {
+    /// The output Vortex vector type.
     type Output;
 
+    /// Convert the Arrow object into a Vortex vector object.
     fn into_vector(self) -> VortexResult<Self::Output>;
 }
 

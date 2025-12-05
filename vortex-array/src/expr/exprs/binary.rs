@@ -3,15 +3,10 @@
 
 use std::fmt::Formatter;
 
-use arrow_array::Array;
 use arrow_ord::cmp;
 use prost::Message;
-use vortex_compute::arithmetic::Add;
-use vortex_compute::arithmetic::Arithmetic;
-use vortex_compute::arithmetic::CheckedArithmetic;
-use vortex_compute::arithmetic::Div;
-use vortex_compute::arithmetic::Mul;
-use vortex_compute::arithmetic::Sub;
+use vortex_compute::arrow::IntoArrow;
+use vortex_compute::arrow::IntoVector;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -19,8 +14,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_vector::Datum;
-use vortex_vector::PrimitiveDatum;
-use vortex_vector::Vector;
 
 use crate::ArrayRef;
 use crate::compute;
@@ -142,50 +135,52 @@ impl VTable for Binary {
 
         match op {
             Operator::And => {
-                let lhs = lhs.ensure_vector(args.row_count).into_bool().into();
-                let rhs = rhs.ensure_vector(args.row_count).into_bool().into();
-                return Ok(Datum::Vector(Vector::try_from(
-                    &arrow_arith::boolean::and_kleene(&lhs, &rhs)? as &dyn Array,
-                )?));
+                let lhs = lhs.ensure_vector(args.row_count).into_bool().into_arrow()?;
+                let rhs = rhs.ensure_vector(args.row_count).into_bool().into_arrow()?;
+                return Ok(Datum::Vector(
+                    arrow_arith::boolean::and_kleene(&lhs, &rhs)?
+                        .into_vector()?
+                        .into(),
+                ));
             }
             Operator::Or => {
-                let lhs = lhs.ensure_vector(args.row_count).into_bool().into();
-                let rhs = rhs.ensure_vector(args.row_count).into_bool().into();
-                return Ok(Datum::Vector(Vector::try_from(
-                    &arrow_arith::boolean::or_kleene(&lhs, &rhs)? as &dyn Array,
-                )?));
+                let lhs = lhs.ensure_vector(args.row_count).into_bool().into_arrow()?;
+                let rhs = rhs.ensure_vector(args.row_count).into_bool().into_arrow()?;
+                return Ok(Datum::Vector(
+                    arrow_arith::boolean::or_kleene(&lhs, &rhs)?
+                        .into_vector()?
+                        .into(),
+                ));
             }
             _ => {}
         }
 
-        let lhs: Box<dyn arrow_array::Datum> = lhs.try_into()?;
-        let rhs: Box<dyn arrow_array::Datum> = rhs.try_into()?;
+        let lhs = lhs.into_arrow()?;
+        let rhs = rhs.into_arrow()?;
 
         let vector = match op {
-            Operator::Eq => Vector::try_from(&cmp::eq(lhs.as_ref(), rhs.as_ref())? as &dyn Array)?,
-            Operator::NotEq => {
-                Vector::try_from(&cmp::neq(lhs.as_ref(), rhs.as_ref())? as &dyn Array)?
-            }
-            Operator::Gt => Vector::try_from(&cmp::gt(lhs.as_ref(), rhs.as_ref())? as &dyn Array)?,
-            Operator::Gte => {
-                Vector::try_from(&cmp::gt_eq(lhs.as_ref(), rhs.as_ref())? as &dyn Array)?
-            }
-            Operator::Lt => Vector::try_from(&cmp::lt(lhs.as_ref(), rhs.as_ref())? as &dyn Array)?,
-            Operator::Lte => {
-                Vector::try_from(&cmp::lt_eq(lhs.as_ref(), rhs.as_ref())? as &dyn Array)?
-            }
+            Operator::Eq => cmp::eq(lhs.as_ref(), rhs.as_ref())?.into_vector()?.into(),
+            Operator::NotEq => cmp::neq(lhs.as_ref(), rhs.as_ref())?.into_vector()?.into(),
+            Operator::Gt => cmp::gt(lhs.as_ref(), rhs.as_ref())?.into_vector()?.into(),
+            Operator::Gte => cmp::gt_eq(lhs.as_ref(), rhs.as_ref())?
+                .into_vector()?
+                .into(),
+            Operator::Lt => cmp::lt(lhs.as_ref(), rhs.as_ref())?.into_vector()?.into(),
+            Operator::Lte => cmp::lt_eq(lhs.as_ref(), rhs.as_ref())?
+                .into_vector()?
+                .into(),
 
             Operator::Add => {
-                Vector::try_from(arrow_arith::numeric::add(lhs.as_ref(), rhs.as_ref())?.as_ref())?
+                arrow_arith::numeric::add(lhs.as_ref(), rhs.as_ref())?.into_vector()?
             }
             Operator::Sub => {
-                Vector::try_from(arrow_arith::numeric::sub(lhs.as_ref(), rhs.as_ref())?.as_ref())?
+                arrow_arith::numeric::sub(lhs.as_ref(), rhs.as_ref())?.into_vector()?
             }
             Operator::Mul => {
-                Vector::try_from(arrow_arith::numeric::mul(lhs.as_ref(), rhs.as_ref())?.as_ref())?
+                arrow_arith::numeric::mul(lhs.as_ref(), rhs.as_ref())?.into_vector()?
             }
             Operator::Div => {
-                Vector::try_from(arrow_arith::numeric::div(lhs.as_ref(), rhs.as_ref())?.as_ref())?
+                arrow_arith::numeric::div(lhs.as_ref(), rhs.as_ref())?.into_vector()?
             }
             Operator::And | Operator::Or => {
                 unreachable!("Already dealt with above")
@@ -321,35 +316,6 @@ impl VTable for Binary {
 
         !infallible
     }
-}
-
-fn execute_arithmetic_primitive(
-    lhs: PrimitiveDatum,
-    rhs: PrimitiveDatum,
-    op: Operator,
-) -> VortexResult<Datum> {
-    // Float arithmetic - no overflow checking needed
-    if lhs.ptype().is_float() && lhs.ptype() == rhs.ptype() {
-        let result: PrimitiveDatum = match op {
-            Operator::Add => Arithmetic::<Add>::eval(lhs, rhs),
-            Operator::Sub => Arithmetic::<Sub>::eval(lhs, rhs),
-            Operator::Mul => Arithmetic::<Mul>::eval(lhs, rhs),
-            Operator::Div => Arithmetic::<Div>::eval(lhs, rhs),
-            _ => unreachable!("Not an arithmetic operator"),
-        };
-        return Ok(result.into());
-    }
-    // Integer arithmetic - use checked operations
-    let result: Option<PrimitiveDatum> = match op {
-        Operator::Add => CheckedArithmetic::<Add>::checked_eval(lhs, rhs),
-        Operator::Sub => CheckedArithmetic::<Sub>::checked_eval(lhs, rhs),
-        Operator::Mul => CheckedArithmetic::<Mul>::checked_eval(lhs, rhs),
-        Operator::Div => CheckedArithmetic::<Div>::checked_eval(lhs, rhs),
-        _ => unreachable!("Not an arithmetic operator"),
-    };
-    result
-        .map(|d| d.into())
-        .ok_or_else(|| vortex_err!("Arithmetic overflow/underflow or type mismatch"))
 }
 
 /// Create a new [`Binary`] using the [`Eq`](crate::expr::exprs::operators::Operator::Eq) operator.

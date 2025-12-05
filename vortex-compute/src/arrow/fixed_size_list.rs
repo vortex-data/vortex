@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use arrow_array::Array;
-use arrow_array::ArrayRef;
 use arrow_array::FixedSizeListArray;
 use arrow_schema::DataType;
 use arrow_schema::Field;
@@ -18,7 +17,7 @@ use crate::arrow::IntoVector;
 use crate::arrow::nulls_to_mask;
 
 impl IntoArrow for FixedSizeListVector {
-    type Output = ArrayRef;
+    type Output = FixedSizeListArray;
 
     fn into_arrow(self) -> VortexResult<Self::Output> {
         let (elements, list_size, validity) = self.into_parts();
@@ -29,12 +28,12 @@ impl IntoArrow for FixedSizeListVector {
             true, // Vectors are always nullable.
         ));
 
-        Ok(Arc::new(FixedSizeListArray::try_new(
+        Ok(FixedSizeListArray::try_new(
             field,
             list_size as i32,
             converted_elements,
             validity.into(),
-        )?))
+        )?)
     }
 }
 

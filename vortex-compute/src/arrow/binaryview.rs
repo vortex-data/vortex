@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use arrow_array::Array;
-use arrow_array::ArrayRef;
 use arrow_array::GenericByteViewArray;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
@@ -21,7 +20,7 @@ use crate::arrow::nulls_to_mask;
 macro_rules! impl_binaryview_to_arrow {
     ($T:ty, $A:ty) => {
         impl IntoArrow for BinaryViewVector<$T> {
-            type Output = ArrayRef;
+            type Output = GenericByteViewArray<$A>;
 
             fn into_arrow(self) -> VortexResult<Self::Output> {
                 let (views, buffers, validity) = self.into_parts();
@@ -35,10 +34,9 @@ macro_rules! impl_binaryview_to_arrow {
                     .collect();
 
                 // SAFETY: our own guarantees are the same as Arrow's guarantees for BinaryViewArray
-                let array = unsafe {
+                Ok(unsafe {
                     GenericByteViewArray::<$A>::new_unchecked(views, buffers, validity.into())
-                };
-                Ok(Arc::new(array))
+                })
             }
         }
     };
