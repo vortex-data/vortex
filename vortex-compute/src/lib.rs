@@ -8,6 +8,7 @@
 #![deny(clippy::missing_safety_doc)]
 
 pub mod arithmetic;
+pub mod arrow;
 pub mod cast;
 pub mod comparison;
 pub mod expand;

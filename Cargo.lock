@@ -8497,7 +8497,9 @@ name = "vortex-compute"
 version = "0.1.0"
 dependencies = [
  "arrow-array",
+ "arrow-buffer",
  "arrow-ord",
+ "arrow-schema",
  "codspeed-divan-compat",
  "log",
  "multiversion",
@@ -9153,9 +9155,6 @@ dependencies = [
 name = "vortex-vector"
 version = "0.1.0"
 dependencies = [
- "arrow-array",
- "arrow-buffer",
- "arrow-schema",
  "paste",
  "static_assertions",
  "vortex-buffer",

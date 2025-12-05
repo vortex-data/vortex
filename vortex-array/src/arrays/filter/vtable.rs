@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hasher;
+use std::ops::Range;
 
 use vortex_buffer::BufferHandle;
 use vortex_compute::filter::Filter;
@@ -10,6 +11,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
+use vortex_scalar::Scalar;
 use vortex_vector::Vector;
 
 use crate::Array;
@@ -17,7 +19,9 @@ use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
 use crate::ArrayEq;
 use crate::ArrayHash;
+use crate::ArrayRef;
 use crate::Canonical;
+use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::LEGACY_SESSION;
 use crate::arrays::filter::array::FilterArray;
@@ -32,6 +36,7 @@ use crate::vtable::ArrayVTableExt;
 use crate::vtable::BaseArrayVTable;
 use crate::vtable::CanonicalVTable;
 use crate::vtable::NotSupported;
+use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 use crate::vtable::VisitorVTable;
@@ -46,7 +51,7 @@ impl VTable for FilterVTable {
     type Metadata = Mask;
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
-    type OperationsVTable = NotSupported;
+    type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -123,6 +128,17 @@ impl CanonicalVTable<FilterVTable> for FilterVTable {
             FilterVTable::batch_execute(array, &mut ExecutionCtx::new(LEGACY_SESSION.clone()))
                 .vortex_expect("Canonicalize should be fallible");
         vector.into_array(array.dtype()).to_canonical()
+    }
+}
+
+impl OperationsVTable<FilterVTable> for FilterVTable {
+    fn slice(array: &FilterArray, range: Range<usize>) -> ArrayRef {
+        FilterArray::new(array.child.slice(range.clone()), array.mask.slice(range)).into_array()
+    }
+
+    fn scalar_at(array: &FilterArray, index: usize) -> Scalar {
+        let rank_idx = array.mask.rank(index);
+        array.child.scalar_at(rank_idx)
     }
 }
 

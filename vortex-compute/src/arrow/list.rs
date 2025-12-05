@@ -1,27 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::listview::ListViewVector;
-use crate::match_each_integer_pvector;
-use arrow_array::Array;
+use std::sync::Arc;
+
 use arrow_array::ArrayRef;
 use arrow_array::ListViewArray;
 use arrow_buffer::ScalarBuffer;
 use arrow_schema::Field;
 use arrow_schema::FieldRef;
-use std::sync::Arc;
-use vortex_error::VortexError;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_vector::listview::ListViewVector;
+use vortex_vector::match_each_integer_pvector;
 
-impl TryFrom<ListViewVector> for ArrayRef {
-    type Error = VortexError;
+use crate::arrow::IntoArrow;
+
+impl IntoArrow for ListViewVector {
+    type Output = ArrayRef;
 
     #[allow(clippy::unnecessary_fallible_conversions)]
     #[allow(clippy::useless_conversion)]
-    fn try_from(value: ListViewVector) -> Result<Self, Self::Error> {
-        let (elements, offsets, sizes, validity) = value.into_parts();
+    fn into_arrow(self) -> VortexResult<Self::Output> {
+        let (elements, offsets, sizes, validity) = self.into_parts();
 
-        let elements = ArrayRef::try_from(elements.as_ref().clone())?;
+        let elements = elements.as_ref().clone().into_arrow()?;
 
         let offsets = match_each_integer_pvector!(offsets, |p| {
             ScalarBuffer::<i32>::from_iter(

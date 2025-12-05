@@ -3,27 +3,29 @@
 
 use std::sync::Arc;
 
-use crate::Vector;
-use crate::VectorOps;
-use crate::arrow::nulls_to_mask;
-use crate::struct_::StructVector;
 use arrow_array::Array;
 use arrow_array::ArrayRef;
 use arrow_array::StructArray;
 use arrow_schema::Field;
 use arrow_schema::Fields;
-use vortex_error::VortexError;
-use vortex_error::vortex_err;
+use vortex_error::VortexResult;
+use vortex_vector::Vector;
+use vortex_vector::VectorOps;
+use vortex_vector::struct_::StructVector;
 
-impl TryFrom<StructVector> for ArrayRef {
-    type Error = VortexError;
+use crate::arrow::IntoArrow;
+use crate::arrow::IntoVector;
+use crate::arrow::nulls_to_mask;
 
-    fn try_from(value: StructVector) -> Result<Self, Self::Error> {
-        let len = value.len();
-        let (fields, validity) = value.into_parts();
+impl IntoArrow for StructVector {
+    type Output = ArrayRef;
+
+    fn into_arrow(self) -> VortexResult<Self::Output> {
+        let len = self.len();
+        let (fields, validity) = self.into_parts();
         let arrow_fields = fields
             .iter()
-            .map(|field| ArrayRef::try_from(field.clone()))
+            .map(|field| field.clone().into_arrow())
             .collect::<Result<Vec<ArrayRef>, _>>()?;
 
         // We need to make up the field names since vectors are unnamed, so we just use the field
@@ -49,22 +51,17 @@ impl TryFrom<StructVector> for ArrayRef {
     }
 }
 
-impl TryFrom<&dyn Array> for StructVector {
-    type Error = VortexError;
+impl IntoVector for &StructArray {
+    type Output = StructVector;
 
-    fn try_from(value: &dyn Array) -> Result<Self, Self::Error> {
-        let array = value
-            .as_any()
-            .downcast_ref::<StructArray>()
-            .ok_or_else(|| vortex_err!("expected StructArray, got {}", value.data_type()))?;
-
-        let fields: Box<[Vector]> = array
+    fn into_vector(self) -> VortexResult<Self::Output> {
+        let fields: Box<[Vector]> = self
             .columns()
             .iter()
-            .map(|col| Vector::try_from(col.as_ref()))
+            .map(|col| col.as_ref().into_vector())
             .collect::<Result<_, _>>()?;
 
-        let validity = nulls_to_mask(array.nulls(), array.len());
+        let validity = nulls_to_mask(self.nulls(), self.len());
 
         Ok(StructVector::new(Arc::new(fields), validity))
     }
