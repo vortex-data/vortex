@@ -61,9 +61,11 @@ pub async fn main() {
     println!("executing scan with row filter {st_contains_filter}");
 
     // Create the scan.
-    let vxf = session.open_options()
+    let vxf = session
+        .open_options()
         .open("buildings_rtree.vortex")
-        .await.expect("open file");
+        .await
+        .expect("open file");
 
     let stream = vxf
         .scan()

@@ -7,21 +7,35 @@
 //! An implementation of an ST_Contains expression type.
 
 // use crate::expr::functions::{ArgName, Arity, EmptyOptions, ExecutionArgs, FunctionId, VTable};
-use crate::accessor::ArrayAccessor;
-use crate::arrays::{BoolArray, ConstantArray};
-use crate::expr::traversal::Node;
-use crate::expr::{ChildName, ExprId, ExpressionView, Literal, VTable};
-use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
-use geo::{Centroid, Contains};
-use geo_types::Geometry;
-use geozero::geo_types::GeoWriter;
-use geozero::{GeozeroGeometry, wkb};
 use std::fmt::Formatter;
+
+use geo::Centroid;
+use geo::Contains;
+use geo_types::Geometry;
+use geozero::GeozeroGeometry;
+use geozero::geo_types::GeoWriter;
+use geozero::wkb;
 use vortex_buffer::BitBuffer;
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexResult, vortex_ensure};
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_scalar::Scalar;
+
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::ToCanonical;
+use crate::accessor::ArrayAccessor;
+use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
+use crate::expr::ChildName;
+use crate::expr::ExprId;
+use crate::expr::ExpressionView;
+use crate::expr::Literal;
+use crate::expr::VTable;
+use crate::expr::traversal::Node;
+use crate::vtable::ValidityHelper;
 
 pub struct STContains;
 
@@ -120,7 +134,7 @@ impl VTable for STContains {
                             Some(wkb_r) => {
                                 let geom_r = parse_wkb(wkb_r);
                                 // Get centroid of the geometry
-                                let _centroid =  geom_r.centroid();
+                                let _centroid = geom_r.centroid();
                                 geom_l.contains(&geom_r)
                             }
                         })

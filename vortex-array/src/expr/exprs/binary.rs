@@ -100,7 +100,7 @@ impl VTable for Binary {
         let lhs = expr.lhs().evaluate(scope)?;
         let rhs = expr.rhs().evaluate(scope)?;
 
-        match expr.operator() { 
+        match expr.operator() {
             Operator::Eq => compare(&lhs, &rhs, compute::Operator::Eq),
             Operator::NotEq => compare(&lhs, &rhs, compute::Operator::NotEq),
             Operator::Lt => compare(&lhs, &rhs, compute::Operator::Lt),

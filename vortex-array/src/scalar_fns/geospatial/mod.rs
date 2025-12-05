@@ -10,20 +10,20 @@ use std::ops::BitAnd;
 
 use geo::Contains;
 use geo_types::Geometry;
+use geozero::GeozeroGeometry;
 use geozero::geo_types::GeoWriter;
 use geozero::wkb;
-use geozero::GeozeroGeometry;
 use vortex_buffer::BitBuffer;
 use vortex_dtype::DType;
+use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_error::VortexResult;
-use vortex_vector::bool::BoolScalar;
-use vortex_vector::bool::BoolVector;
 use vortex_vector::Datum;
 use vortex_vector::Scalar;
 use vortex_vector::Vector;
 use vortex_vector::VectorOps;
+use vortex_vector::bool::BoolScalar;
+use vortex_vector::bool::BoolVector;
 
 use crate::expr::functions::ArgName;
 use crate::expr::functions::Arity;

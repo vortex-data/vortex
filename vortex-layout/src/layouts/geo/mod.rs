@@ -4,46 +4,42 @@
 mod reader;
 mod writer;
 
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
+use std::sync::OnceLock;
 
 use fastbloom::BloomFilter;
 use futures::future::BoxFuture;
 use futures::future::Shared;
 use geo::ConvexHull;
 use geo_types::Geometry;
+use geozero::GeozeroGeometry;
 use geozero::geo_types::GeoWriter;
 use geozero::wkb;
-use geozero::GeozeroGeometry;
+use h3o::Resolution;
 use h3o::geom::ContainmentMode;
 use h3o::geom::TilerBuilder;
-use h3o::Resolution;
 use itertools::Itertools;
-use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::VarBinVTable;
 use vortex_array::Array;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
 use vortex_array::SerializeMetadata;
+use vortex_array::accessor::ArrayAccessor;
+use vortex_array::arrays::VarBinVTable;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::StructFields;
 use vortex_dtype::TryFromBytes;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 pub use writer::*;
 
-use crate::children::OwnedLayoutChildren;
-use crate::layouts::geo::reader::GeoReader;
-use crate::segments::SegmentId;
-use crate::segments::SegmentSource;
-use crate::vtable;
 use crate::LayoutChildType;
 use crate::LayoutChildren;
 use crate::LayoutEncodingRef;
@@ -52,6 +48,11 @@ use crate::LayoutReaderRef;
 use crate::LayoutRef;
 use crate::LazyReaderChildren;
 use crate::VTable;
+use crate::children::OwnedLayoutChildren;
+use crate::layouts::geo::reader::GeoReader;
+use crate::segments::SegmentId;
+use crate::segments::SegmentSource;
+use crate::vtable;
 
 /// A layout that stores a bloom filter of H3 tile IDs.
 #[derive(Clone, Debug)]
@@ -64,18 +65,18 @@ pub struct GeoLayout {
 
 impl GeoLayout {
     #[allow(clippy::panic)]
-    pub fn new(data: LayoutRef, tree: LayoutRef, zone_len: usize) -> Self {
+    pub fn new(data: LayoutRef, filter: LayoutRef, zone_len: usize) -> Self {
         assert!(zone_len > 0);
         assert_eq!(
-            tree.dtype(),
-            &expected_rtree_dtype(),
+            filter.dtype(),
+            &GeoFilter::dtype(),
             "Invalid DType for filters child"
         );
 
         // TODO(aduffy): check the DType for the r-tree table
         Self {
             dtype: data.dtype().clone(),
-            children: OwnedLayoutChildren::layout_children(vec![data, tree]),
+            children: OwnedLayoutChildren::layout_children(vec![data, filter]),
             zone_len,
         }
     }
@@ -153,7 +154,7 @@ impl VTable for GeoVTable {
     fn child(layout: &Self::Layout, idx: usize) -> VortexResult<LayoutRef> {
         match idx {
             0 => layout.children.child(0, layout.dtype()),
-            1 => layout.children.child(1, &expected_rtree_dtype()),
+            1 => layout.children.child(1, &GeoFilter::dtype()),
             _ => vortex_bail!("Invalid child index for RTreeLayout {idx}"),
         }
     }
@@ -175,7 +176,7 @@ impl VTable for GeoVTable {
         let names = vec![Arc::from(format!("{name}.data")), Arc::from("{name}.rtree")];
         let children = LazyReaderChildren::new(
             layout.children.clone(),
-            vec![layout.dtype.clone(), expected_rtree_dtype()],
+            vec![layout.dtype.clone(), GeoFilter::dtype()],
             names,
             segment_source,
             session.clone(),
@@ -213,14 +214,6 @@ pub(crate) fn make_geom(wkb: &[u8]) -> Option<Geometry> {
     geo.take_geometry()
 }
 
-/// Expected type of the rtree array
-pub(crate) fn expected_rtree_dtype() -> DType {
-    DType::Struct(
-        StructFields::from_iter([("rtree", DType::Binary(Nullability::Nullable))]),
-        Nullability::NonNullable,
-    )
-}
-
 /// A filter over geospatial data that allows for efficient pruning of intersection and containment
 /// queries.
 ///
@@ -234,6 +227,13 @@ pub(crate) struct GeoFilter {
 }
 
 impl GeoFilter {
+    pub fn dtype() -> DType {
+        DType::Struct(
+            StructFields::from_iter([("filter", DType::Binary(Nullability::Nullable))]),
+            Nullability::NonNullable,
+        )
+    }
+
     pub fn try_load(array: ArrayRef) -> VortexResult<Self> {
         // What is the purpose of this large set of files?
         let Canonical::Struct(struct_array) = array.to_canonical() else {

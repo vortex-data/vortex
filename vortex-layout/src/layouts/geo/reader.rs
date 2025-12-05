@@ -10,16 +10,16 @@ use std::sync::OnceLock;
 use futures::FutureExt;
 use futures::TryFutureExt;
 use geo_types::Geometry;
+use geozero::GeozeroGeometry;
 use geozero::geo_types::GeoWriter;
 use geozero::wkb;
-use geozero::GeozeroGeometry;
 use itertools::Itertools;
-use vortex_array::expr::root;
-use vortex_array::expr::st_contains::STContains;
-use vortex_array::expr::Expression;
-use vortex_array::expr::Literal;
 use vortex_array::Array;
 use vortex_array::MaskFuture;
+use vortex_array::expr::Expression;
+use vortex_array::expr::Literal;
+use vortex_array::expr::root;
+use vortex_array::expr::st_contains::STContains;
 use vortex_buffer::BitBufferMut;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
@@ -28,13 +28,13 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::layouts::geo::GeoFilter;
-use crate::layouts::geo::GeoLayout;
-use crate::layouts::geo::SharedGeoFilter;
 use crate::ArrayFuture;
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
+use crate::layouts::geo::GeoFilter;
+use crate::layouts::geo::GeoLayout;
+use crate::layouts::geo::SharedGeoFilter;
 
 pub struct GeoReader {
     pub(crate) name: Arc<str>,
@@ -42,7 +42,6 @@ pub struct GeoReader {
     pub(crate) children: LazyReaderChildren,
     pub(crate) geo_filter: OnceLock<SharedGeoFilter>,
     // TODO(aduffy): cache the pruning result
-    // pub(crate) pruning_result: LazyLock<DashMap<Expression, Option>>,
 }
 
 impl GeoReader {
@@ -179,7 +178,7 @@ impl LayoutReader for GeoReader {
                     let mut builder = BitBufferMut::with_capacity(mask.len());
                     for (zone_idx, &zone_length) in zone_range.clone().zip_eq(&zone_lengths) {
                         builder.append_n(
-                            !geo_filter.filter_contains(usize::try_from(zone_idx)?, &geometry),
+                            geo_filter.filter_contains(usize::try_from(zone_idx)?, &geometry),
                             zone_length,
                         );
                     }

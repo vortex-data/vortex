@@ -17,12 +17,12 @@ pub mod compressed;
 pub mod dict;
 pub mod file_stats;
 pub mod flat;
+pub mod geo;
 pub(crate) mod partitioned;
+pub mod path;
 pub mod repartition;
 pub mod row_idx;
 pub mod struct_;
 pub mod zoned;
-pub mod geo;
-pub mod path;
 
 pub type SharedArrayFuture = Shared<BoxFuture<'static, SharedVortexResult<ArrayRef>>>;

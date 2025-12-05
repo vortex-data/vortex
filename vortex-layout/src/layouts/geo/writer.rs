@@ -49,15 +49,19 @@ use crate::sequence::SequentialStreamExt;
 #[derive(Clone)]
 pub struct GeoStrategy {
     data_child: Arc<dyn LayoutStrategy>,
-    rtree_child: Arc<dyn LayoutStrategy>,
+    geo_filter_child: Arc<dyn LayoutStrategy>,
     zone_len: usize,
 }
 
 impl GeoStrategy {
-    pub fn new(data_child: Arc<dyn LayoutStrategy>, rtree_child: Arc<dyn LayoutStrategy>, zone_len: usize) -> Self {
+    pub fn new(
+        data_child: Arc<dyn LayoutStrategy>,
+        geo_filter_child: Arc<dyn LayoutStrategy>,
+        zone_len: usize,
+    ) -> Self {
         Self {
             data_child,
-            rtree_child,
+            geo_filter_child,
             zone_len,
         }
     }
@@ -102,22 +106,20 @@ impl LayoutStrategy for GeoStrategy {
             .await?;
 
         // After child write completes, get back the inner type.
-        let rtree = accum.finish();
-
-        let n_trees = rtree.len();
+        let geo_filter = accum.finish();
 
         // Write the rtree to a separate node
-        let rtree_stream = rtree
+        let geo_filter_stream = geo_filter
             .to_array_stream()
             .sequenced(eof.split_off())
             .sendable();
 
-        let rtree_layout = self
-            .rtree_child
-            .write_stream(ctx, segment_sink, rtree_stream, eof, handle)
+        let geo_filter_layout = self
+            .geo_filter_child
+            .write_stream(ctx, segment_sink, geo_filter_stream, eof, handle)
             .await?;
 
-        Ok(GeoLayout::new(data_layout, rtree_layout, n_trees).into_layout())
+        Ok(GeoLayout::new(data_layout, geo_filter_layout, self.zone_len).into_layout())
     }
 
     fn buffered_bytes(&self) -> u64 {
@@ -181,7 +183,7 @@ impl H3BloomAccumulator {
 
         // Build the output array
         StructArray::new(
-            FieldNames::from(vec!["rtree"]),
+            FieldNames::from(vec!["filter"]),
             vec![column.into_array()],
             len,
             Validity::NonNullable,
