@@ -13,10 +13,8 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::session::VortexSession;
 use vortex_array::ArrayRef;
 use vortex_error::VortexExpect;
-use wasm_bindgen::JsValue;
 
 use super::entry::BenchmarkEntry;
-use crate::website::charts::BenchmarkResponse;
 use crate::website::charts::Benchmarks;
 use crate::website::charts::extract_summary;
 use crate::website::charts::process_benchmarks;
@@ -169,75 +167,4 @@ pub async fn read_s3_array(session: &VortexSession, key: &str) -> VortexResult<A
         .await?;
 
     file.scan()?.into_array_stream()?.read_all().await
-}
-
-/// Reads benchmark entries from an S3 object containing a Vortex file.
-///
-/// This function downloads the Vortex file from S3 using HTTP (the bucket is public), parses the
-/// columnar struct array, and converts it to a vector of row-wise [`BenchmarkEntry`] structs.
-///
-/// # Arguments
-///
-/// * `session` - The Vortex session for reading files.
-/// * `key` - The S3 object key (e.g., "test/random_access.vortex").
-///
-/// # Errors
-///
-/// Returns an error if:
-/// - The HTTP request fails.
-/// - The file is not a valid Vortex file.
-/// - The schema does not match the expected [`BenchmarkEntry`] schema.
-pub async fn read_benchmark_entries(
-    session: &VortexSession,
-    key: &str,
-) -> VortexResult<Vec<BenchmarkEntry>> {
-    let array = read_s3_array(session, key).await?;
-    BenchmarkEntry::vec_from_array(&array)
-}
-
-/// Fetches benchmark data and commit metadata from S3 and returns them as a JavaScript object.
-///
-/// The returned object has the structure:
-/// ```javascript
-/// {
-///   benchmarks: { [group_name]: { charts: { [chart_name]: { aligned_series: { [series_name]: [...] } } } } },
-///   commits: [{ timestamp, author: { name, email }, message, commit_id }, ...]
-/// }
-/// ```
-///
-/// # Arguments
-///
-/// * `session` - The Vortex session for reading files.
-/// * `commits_key` - S3 key for the commits Vortex file.
-/// * `data_key` - S3 key for the benchmark data Vortex file.
-///
-/// # Errors
-///
-/// Returns an error if:
-/// - Either S3 fetch fails.
-/// - The files are not valid Vortex files.
-/// - The schemas don't match expected formats.
-/// - Validation fails (empty names, no data points, mismatched lengths).
-pub async fn get_benchmark_data(
-    session: &VortexSession,
-    commits_key: &str,
-    data_key: &str,
-) -> VortexResult<JsValue> {
-    let (data_array, commits_array) = futures::try_join!(
-        read_s3_array(session, data_key),
-        read_s3_array(session, commits_key)
-    )?;
-
-    let data = BenchmarkEntry::vec_from_array(&data_array)?;
-    let mut commits = CommitInfo::vec_from_array(&commits_array)?;
-    commits.sort_unstable();
-
-    let benchmarks = process_benchmarks(&data, &commits)?;
-    let response = BenchmarkResponse {
-        benchmarks,
-        commits,
-    };
-
-    serde_wasm_bindgen::to_value(&response)
-        .map_err(|e| vortex_err!("Failed to serialize benchmark response: {e}"))
 }

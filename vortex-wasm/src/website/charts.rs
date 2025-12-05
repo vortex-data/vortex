@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::num::NonZeroU64;
+
 use serde::Serialize;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_error::VortexResult;
@@ -29,13 +31,11 @@ pub struct BenchmarkGroupData {
     pub charts: HashMap<String, ChartData>,
 }
 
-// TODO(connor): We should be able to use an `Option<NonZeroU64>` since our benchmarks should
-// basically never hit 0, but that is an optimization for another day.
 /// Chart data.
 #[derive(Debug, Clone, Serialize)]
 pub struct ChartData {
     /// The name of a series and its associated data.
-    pub aligned_series: HashMap<String, Vec<Option<u64>>>,
+    pub aligned_series: HashMap<String, Vec<Option<NonZeroU64>>>,
 }
 
 // ============================================================================
@@ -145,10 +145,19 @@ pub fn process_benchmarks(
 fn create_aligned_series_data(
     commits_and_values: CommitValueMap<'_>,
     sorted_commits: &[CommitInfo],
-) -> Vec<Option<u64>> {
+) -> Vec<Option<NonZeroU64>> {
     sorted_commits
         .iter()
-        .map(|commit_info| commits_and_values.get(commit_info.commit_id()).copied())
+        .map(|commit_info| {
+            commits_and_values
+                .get(commit_info.commit_id())
+                .map(|&value| {
+                    NonZeroU64::new(value).unwrap_or_else(|| {
+                        eprintln!("Warning: benchmark value of 0 encountered, converting to 1");
+                        NonZeroU64::MIN
+                    })
+                })
+        })
         .collect()
 }
 
