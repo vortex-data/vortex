@@ -3,179 +3,19 @@
 
 //! WASM bindings for the Vortex benchmark website.
 //!
-//! This module provides a `load_random_access_data()` function that fetches benchmark data from S3,
-//! parses it, and returns it in a format ready for JavaScript to render.
+//! This crate provides functions for fetching and processing benchmark data from S3, returning it
+//! in a format ready for JavaScript to render.
 
 pub mod website;
 
 #[cfg(target_arch = "wasm32")]
-mod wasm_bindings {
-    use serde::Serialize;
-    use vortex::VortexSessionDefault;
-    use vortex::io::runtime::wasm::WasmRuntime;
-    use vortex::io::session::RuntimeSessionExt;
-    use vortex::session::VortexSession;
+mod wasm_init {
     use wasm_bindgen::prelude::*;
-
-    use crate::website::read_s3::get_benchmark_data;
-    use crate::website::read_s3::get_benchmark_summary;
-    use crate::website::read_s3::get_chart_data;
-    use crate::website::read_s3::read_benchmark_entries;
-
-    const DATA_KEY: &str = "data.vortex";
-    const COMMITS_KEY: &str = "commits.vortex";
-
-    // Legacy key for old random_access data format.
-    const LEGACY_KEY: &str = "random_access.vortex";
-
-    /// Helper macro for logging to browser console.
-    macro_rules! log {
-        ($($t:tt)*) => {
-            web_sys::console::log_1(&format!($($t)*).into());
-        }
-    }
-
-    /// A single random-access benchmark entry for JavaScript.
-    #[derive(Serialize)]
-    pub struct JsEntry {
-        pub commit_id: String,
-        pub series_name: String,
-        pub value_ms: f64,
-    }
-
-    /// Load random-access benchmark data from S3.
-    ///
-    /// This function fetches the Vortex file from S3, parses it, and returns an array of benchmark
-    /// entries ready for rendering.
-    ///
-    /// # Returns
-    ///
-    /// A JavaScript array of objects with:
-    /// - `commit_id`: 40-character hex string (SHA-1 hash)
-    /// - `series_name`: One of "vortex-nvme", "parquet-nvme", "lance-nvme"
-    /// - `value_ms`: Value in milliseconds
-    #[wasm_bindgen]
-    pub async fn load_random_access_data() -> Result<JsValue, JsValue> {
-        log!("Loading random-access benchmark data...");
-
-        // Create a session configured with the WASM runtime.
-        let session = VortexSession::default().with_handle(WasmRuntime::handle());
-
-        let entries = read_benchmark_entries(&session, LEGACY_KEY)
-            .await
-            .map_err(|e| JsValue::from_str(&format!("Failed to read benchmark entries: {}", e)))?;
-
-        log!("Loaded {} entries", entries.len());
-
-        // Convert to JS-friendly format.
-        let js_entries: Vec<JsEntry> = entries
-            .iter()
-            .map(|e| JsEntry {
-                commit_id: e.commit_id.to_string(),
-                series_name: e.series_name.clone(),
-                value_ms: e.value as f64 / 1_000_000.0,
-            })
-            .collect();
-
-        log!("Returning {} JS entries", js_entries.len());
-
-        serde_wasm_bindgen::to_value(&js_entries)
-            .map_err(|e| JsValue::from_str(&format!("Failed to serialize: {}", e)))
-    }
-
-    /// Load all benchmark data from S3 (legacy, slow - use load_benchmark_summary instead).
-    ///
-    /// This function fetches the commits and benchmark data Vortex files from S3, parses them,
-    /// aligns the data to commits, and returns a structured response.
-    ///
-    /// # Returns
-    ///
-    /// A JavaScript object with:
-    /// - `benchmarks`: Nested object with group_name → charts → chart_name → aligned_series → series_name → values
-    /// - `commits`: Array of commit objects with timestamp, author, message, and commit_id
-    ///
-    /// Values are in nanoseconds (u64). Convert to milliseconds in JavaScript by dividing by
-    /// 1_000_000.
-    #[wasm_bindgen]
-    pub async fn load_benchmark_data() -> Result<JsValue, JsValue> {
-        log!("Loading benchmark data...");
-
-        let session = VortexSession::default().with_handle(WasmRuntime::handle());
-
-        let result = get_benchmark_data(&session, COMMITS_KEY, DATA_KEY)
-            .await
-            .map_err(|e| JsValue::from_str(&format!("Failed to load benchmark data: {}", e)))?;
-
-        log!("Benchmark data loaded successfully");
-
-        Ok(result)
-    }
-
-    /// Load benchmark summary (metadata only, fast).
-    ///
-    /// This function fetches data from S3 (cached after first call), processes it, and returns
-    /// a summary containing:
-    /// - `commits`: Array of commit objects
-    /// - `groups`: Object mapping group names to chart metadata (no values)
-    ///
-    /// Use this for fast initial load, then call `load_chart_data` for specific charts.
-    ///
-    /// # Returns
-    ///
-    /// A JSON string that must be parsed with `JSON.parse()` in JavaScript.
-    #[wasm_bindgen]
-    pub async fn load_benchmark_summary() -> Result<String, JsValue> {
-        log!("Loading benchmark summary...");
-
-        let session = VortexSession::default().with_handle(WasmRuntime::handle());
-
-        let json = get_benchmark_summary(&session, COMMITS_KEY, DATA_KEY)
-            .await
-            .map_err(|e| JsValue::from_str(&format!("Failed to load benchmark summary: {}", e)))?;
-
-        log!("Benchmark summary loaded successfully");
-
-        Ok(json)
-    }
-
-    /// Load chart data for a specific group and chart.
-    ///
-    /// This function returns the aligned series data for a single chart. Data is cached after
-    /// the first call to any load function, so subsequent calls are fast.
-    ///
-    /// # Arguments
-    ///
-    /// * `group` - The group name (e.g., "random-access", "tpch")
-    /// * `chart` - The chart name within the group (e.g., "latency", "q1-sf1000-nvme")
-    ///
-    /// # Returns
-    ///
-    /// A JSON string containing `{ aligned_series: { series_name: [values...] } }`.
-    /// Values are in nanoseconds (u64). Parse with `JSON.parse()` in JavaScript.
-    #[wasm_bindgen]
-    pub async fn load_chart_data(group: &str, chart: &str) -> Result<String, JsValue> {
-        log!(
-            "Loading chart data for group='{}', chart='{}'...",
-            group,
-            chart
-        );
-
-        let session = VortexSession::default().with_handle(WasmRuntime::handle());
-
-        let json = get_chart_data(&session, COMMITS_KEY, DATA_KEY, group, chart)
-            .await
-            .map_err(|e| JsValue::from_str(&format!("Failed to load chart data: {}", e)))?;
-
-        log!("Chart data loaded successfully");
-
-        Ok(json)
-    }
 
     /// Initialize the WASM module.
     #[wasm_bindgen(start)]
     pub fn init() {
         console_error_panic_hook::set_once();
-        log!("vortex-wasm initialized");
     }
 
     /// Get version information.

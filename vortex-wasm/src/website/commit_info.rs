@@ -24,55 +24,6 @@ use vortex_error::vortex_bail;
 
 use crate::website::commit_id::CommitId;
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct Author {
-    name: String,
-    email: String,
-}
-
-impl Author {
-    /// Creates a new [`Author`].
-    pub fn new(name: String, email: String) -> Self {
-        Self { name, email }
-    }
-
-    /// Returns the author's name.
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    /// Returns the author's email.
-    pub fn email(&self) -> &str {
-        &self.email
-    }
-
-    /// Returns the [`DType`] for an [`Author`].
-    ///
-    /// The schema is:
-    /// - `name`: `Utf8`
-    /// - `email`: `Utf8`
-    pub fn dtype() -> DType {
-        DType::Struct(
-            StructFields::new(
-                FieldNames::from(["name", "email"]),
-                vec![DType::Utf8(NonNullable), DType::Utf8(NonNullable)],
-            ),
-            NonNullable,
-        )
-    }
-
-    /// Converts an [`Author`] to a [`Scalar`].
-    pub fn into_scalar(&self) -> Scalar {
-        Scalar::struct_(
-            Self::dtype(),
-            vec![
-                Scalar::utf8(self.name.as_str(), NonNullable),
-                Scalar::utf8(self.email.as_str(), NonNullable),
-            ],
-        )
-    }
-}
-
 /// Commit information including author, message, timestamp, and commit ID.
 ///
 /// The field order determines the derived [`Ord`] implementation: timestamp first, then author,
@@ -240,5 +191,54 @@ impl CommitInfo {
         }
 
         Ok(entries)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Author {
+    name: String,
+    email: String,
+}
+
+impl Author {
+    /// Creates a new [`Author`].
+    pub fn new(name: String, email: String) -> Self {
+        Self { name, email }
+    }
+
+    /// Returns the author's name.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Returns the author's email.
+    pub fn email(&self) -> &str {
+        &self.email
+    }
+
+    /// Returns the [`DType`] for an [`Author`].
+    ///
+    /// The schema is:
+    /// - `name`: `Utf8`
+    /// - `email`: `Utf8`
+    pub fn dtype() -> DType {
+        DType::Struct(
+            StructFields::new(
+                FieldNames::from(["name", "email"]),
+                vec![DType::Utf8(NonNullable), DType::Utf8(NonNullable)],
+            ),
+            NonNullable,
+        )
+    }
+
+    /// Converts an [`Author`] to a [`Scalar`].
+    pub fn into_scalar(&self) -> Scalar {
+        Scalar::struct_(
+            Self::dtype(),
+            vec![
+                Scalar::utf8(self.name.as_str(), NonNullable),
+                Scalar::utf8(self.email.as_str(), NonNullable),
+            ],
+        )
     }
 }

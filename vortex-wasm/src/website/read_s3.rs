@@ -12,30 +12,15 @@ use vortex::error::vortex_err;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::session::VortexSession;
 use vortex_array::ArrayRef;
+use vortex_error::VortexExpect;
 use wasm_bindgen::JsValue;
 
 use super::entry::BenchmarkEntry;
 use crate::website::charts::BenchmarkResponse;
-use crate::website::charts::OwnedBenchmarks;
+use crate::website::charts::Benchmarks;
 use crate::website::charts::extract_summary;
 use crate::website::charts::process_benchmarks;
-use crate::website::charts::process_benchmarks_owned;
-use crate::website::commit::CommitInfo;
-
-/// Log to the browser console (WASM) or stderr (native).
-#[cfg(target_arch = "wasm32")]
-macro_rules! log {
-    ($($t:tt)*) => {
-        web_sys::console::log_1(&format!($($t)*).into());
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-macro_rules! log {
-    ($($t:tt)*) => {
-        eprintln!($($t)*);
-    }
-}
+use crate::website::commit_info::CommitInfo;
 
 /// Base URL for the S3 bucket containing benchmark data.
 const S3_BASE_URL: &str = "https://vortex-benchmark-results-database-test.s3.amazonaws.com";
@@ -48,8 +33,8 @@ const S3_BASE_URL: &str = "https://vortex-benchmark-results-database-test.s3.ama
 pub struct ProcessedData {
     /// Sorted commits.
     pub commits: Vec<CommitInfo>,
-    /// All benchmarks with owned strings.
-    pub benchmarks: OwnedBenchmarks,
+    /// All benchmarks.
+    pub benchmarks: Benchmarks,
 }
 
 /// Global cache for processed data.
@@ -59,38 +44,32 @@ static PROCESSED_DATA: OnceLock<ProcessedData> = OnceLock::new();
 ///
 /// This function fetches data from S3 and processes it on the first call, then returns the
 /// cached result on subsequent calls.
+///
+/// # Implementation Note
+///
+/// We use a manual `get()` check followed by `set()` instead of `OnceLock::get_or_init` because
+/// `get_or_init` requires a synchronous closure, but our initialization is async (fetching from
+/// S3). There is no async-compatible `get_or_init` in the standard library.
 pub async fn ensure_data_loaded(
     session: &VortexSession,
     commits_key: &str,
     data_key: &str,
 ) -> VortexResult<&'static ProcessedData> {
-    // If already cached, return immediately.
     if let Some(data) = PROCESSED_DATA.get() {
-        log!("[ensure_data_loaded] Returning cached data");
         return Ok(data);
     }
 
-    log!("[ensure_data_loaded] Fetching and processing data...");
-
-    // Fetch from S3.
     let (data_array, commits_array) = futures::try_join!(
         read_s3_array(session, data_key),
         read_s3_array(session, commits_key)
     )?;
 
-    // Parse arrays.
     let entries = BenchmarkEntry::vec_from_array(&data_array)?;
     let mut commits = CommitInfo::vec_from_array(&commits_array)?;
     commits.sort_unstable();
 
-    log!(
-        "[ensure_data_loaded] Parsed {} entries, {} commits",
-        entries.len(),
-        commits.len()
-    );
-
-    // Process into owned structures.
-    let benchmarks = process_benchmarks_owned(&entries, &commits)?;
+    // Process benchmarks.
+    let benchmarks = process_benchmarks(&entries, &commits)?;
 
     let processed = ProcessedData {
         commits,
@@ -100,7 +79,7 @@ pub async fn ensure_data_loaded(
     // Store in cache (ignore error if another thread beat us to it).
     drop(PROCESSED_DATA.set(processed));
 
-    Ok(PROCESSED_DATA.get().expect("just set"))
+    Ok(PROCESSED_DATA.get().vortex_expect("just set"))
 }
 
 /// Returns the benchmark summary (metadata only, fast serialization).
@@ -110,19 +89,8 @@ pub async fn get_benchmark_summary(
     data_key: &str,
 ) -> VortexResult<String> {
     let data = ensure_data_loaded(session, commits_key, data_key).await?;
-
-    log!("[get_benchmark_summary] Building summary...");
     let summary = extract_summary(&data.benchmarks, data.commits.clone());
-
-    log!("[get_benchmark_summary] Serializing with serde_json...");
-    let json = serde_json::to_string(&summary)
-        .map_err(|e| vortex_err!("Failed to serialize summary: {}", e))?;
-
-    log!(
-        "[get_benchmark_summary] Done, JSON size: {} bytes",
-        json.len()
-    );
-    Ok(json)
+    serde_json::to_string(&summary).map_err(|e| vortex_err!("Failed to serialize summary: {}", e))
 }
 
 /// Returns chart data for a specific group and chart.
@@ -135,12 +103,6 @@ pub async fn get_chart_data(
 ) -> VortexResult<String> {
     let data = ensure_data_loaded(session, commits_key, data_key).await?;
 
-    log!(
-        "[get_chart_data] Looking up group='{}', chart='{}'",
-        group,
-        chart
-    );
-
     let group_data = data
         .benchmarks
         .get(group)
@@ -151,12 +113,8 @@ pub async fn get_chart_data(
         .get(chart)
         .ok_or_else(|| vortex_err!("Chart '{}' not found in group '{}'", chart, group))?;
 
-    log!("[get_chart_data] Serializing chart data...");
-    let json = serde_json::to_string(chart_data)
-        .map_err(|e| vortex_err!("Failed to serialize chart data: {}", e))?;
-
-    log!("[get_chart_data] Done, JSON size: {} bytes", json.len());
-    Ok(json)
+    serde_json::to_string(chart_data)
+        .map_err(|e| vortex_err!("Failed to serialize chart data: {}", e))
 }
 
 // ============================================================================
@@ -180,7 +138,6 @@ pub async fn get_chart_data(
 /// - The file is not a valid Vortex file.
 pub async fn read_s3_array(session: &VortexSession, key: &str) -> VortexResult<ArrayRef> {
     let url = format!("{}/{}", S3_BASE_URL, key);
-    log!("[read_s3_array] Fetching {}...", url);
 
     let response = reqwest::get(&url)
         .await
@@ -200,11 +157,6 @@ pub async fn read_s3_array(session: &VortexSession, key: &str) -> VortexResult<A
         .await
         .map_err(|e| vortex_err!("Failed to read response body: {}", e))?;
 
-    log!(
-        "[read_s3_array] Downloaded {} bytes, parsing Vortex file...",
-        bytes.len()
-    );
-
     // Parse as Vortex file and read all data.
     // Note: We use `open_read_at` directly instead of `open_buffer` because `open_buffer` uses
     // `futures::executor::block_on` which requires `std::time` (not available in WASM).
@@ -216,10 +168,7 @@ pub async fn read_s3_array(session: &VortexSession, key: &str) -> VortexResult<A
         .open_read_at(buffer)
         .await?;
 
-    let array = file.scan()?.into_array_stream()?.read_all().await?;
-    log!("[read_s3_array] Parsed array with {} rows", array.len());
-
-    Ok(array)
+    file.scan()?.into_array_stream()?.read_all().await
 }
 
 /// Reads benchmark entries from an S3 object containing a Vortex file.
@@ -274,40 +223,21 @@ pub async fn get_benchmark_data(
     commits_key: &str,
     data_key: &str,
 ) -> VortexResult<JsValue> {
-    log!("[get_benchmark_data] Fetching data and commits in parallel...");
-
     let (data_array, commits_array) = futures::try_join!(
         read_s3_array(session, data_key),
         read_s3_array(session, commits_key)
     )?;
 
-    log!("[get_benchmark_data] Parsing benchmark entries...");
     let data = BenchmarkEntry::vec_from_array(&data_array)?;
-    log!(
-        "[get_benchmark_data] Parsed {} benchmark entries",
-        data.len()
-    );
-
-    log!("[get_benchmark_data] Parsing commit info...");
     let mut commits = CommitInfo::vec_from_array(&commits_array)?;
-    log!(
-        "[get_benchmark_data] Parsed {} commits, sorting...",
-        commits.len()
-    );
     commits.sort_unstable();
 
-    log!("[get_benchmark_data] Processing benchmarks...");
     let benchmarks = process_benchmarks(&data, &commits)?;
-
     let response = BenchmarkResponse {
         benchmarks,
         commits,
     };
 
-    log!("[get_benchmark_data] Serializing response to JS...");
-    let js_value = serde_wasm_bindgen::to_value(&response)
-        .map_err(|e| vortex_err!("Failed to serialize benchmark response: {e}"))?;
-
-    log!("[get_benchmark_data] Done!");
-    Ok(js_value)
+    serde_wasm_bindgen::to_value(&response)
+        .map_err(|e| vortex_err!("Failed to serialize benchmark response: {e}"))
 }

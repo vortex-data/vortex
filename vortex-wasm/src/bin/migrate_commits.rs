@@ -32,7 +32,7 @@ use vortex::dtype::Nullability;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::session::VortexSession;
-use vortex_wasm::website::commit::CommitInfo;
+use vortex_wasm::website::commit_info::CommitInfo;
 
 #[tokio::main]
 async fn main() {

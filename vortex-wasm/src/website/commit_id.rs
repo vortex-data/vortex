@@ -18,18 +18,6 @@ use serde::Serialize;
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CommitId(pub [u8; 20]);
 
-impl fmt::Display for CommitId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", hex::encode(self.0))
-    }
-}
-
-impl fmt::Debug for CommitId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "CommitId(\"{}\")", hex::encode(self.0))
-    }
-}
-
 impl Serialize for CommitId {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -80,6 +68,18 @@ impl<'de> Deserialize<'de> for CommitId {
 impl Hash for CommitId {
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write(&self.0);
+    }
+}
+
+impl fmt::Display for CommitId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", hex::encode(self.0))
+    }
+}
+
+impl fmt::Debug for CommitId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "CommitId(\"{}\")", hex::encode(self.0))
     }
 }
 
