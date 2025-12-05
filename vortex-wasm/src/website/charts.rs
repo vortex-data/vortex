@@ -26,9 +26,6 @@ macro_rules! log {
     }
 }
 
-/// A map of group names to their benchmark data.
-pub type Benchmarks<'a> = HashMap<&'a str, BenchmarkGroupData<'a>>;
-
 /// The complete response containing benchmarks and commit metadata.
 #[derive(Debug, Clone, Serialize)]
 pub struct BenchmarkResponse<'a> {
@@ -38,9 +35,8 @@ pub struct BenchmarkResponse<'a> {
     pub commits: Vec<CommitInfo>,
 }
 
-// TODO(connor): We should be able to use an `Option<NonZeroU64>` since our benchmarks should
-// basically never hit 0, but that is an optimization for another day.
-type AlignedSeries<'a> = HashMap<&'a str, Vec<Option<u64>>>;
+/// A map of group names to their benchmark data.
+pub type Benchmarks<'a> = HashMap<&'a str, BenchmarkGroupData<'a>>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BenchmarkGroupData<'a> {
@@ -49,11 +45,13 @@ pub struct BenchmarkGroupData<'a> {
     charts: HashMap<&'a str, ChartData<'a>>,
 }
 
+// TODO(connor): We should be able to use an `Option<NonZeroU64>` since our benchmarks should
+// basically never hit 0, but that is an optimization for another day.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChartData<'a> {
     /// The name of a series and its associated data.
     #[serde(borrow)]
-    aligned_series: AlignedSeries<'a>,
+    aligned_series: HashMap<&'a str, Vec<Option<u64>>>,
 }
 
 // ============================================================================

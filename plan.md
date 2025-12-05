@@ -56,11 +56,26 @@ fn main() {
     println!("{}", size_of::<BenchmarkEntry>()); // 64
     println!("{}", align_of::<BenchmarkEntry>()); // 8
 }
+
+/// Maps [`CommitId`] to benchmark value.
+pub type CommitValueMap<'a> = HashMap<&'a CommitId, u64, PassthroughBuildHasher>;
+
+/// Maps series name to commit values.
+pub type SeriesMap<'a> = HashMap<&'a str, CommitValueMap<'a>>;
+
+/// Series in a chart mapped to their data.
+pub type ChartMap<'a> = HashMap<&'a str, SeriesMap<'a>>;
+
+/// Chart names in a group mapped to their data.
+pub type GroupedEntries<'a> = HashMap<&'a str, ChartMap<'a>>;
 ```
+
+A benchmark group should be defined by 1 or more charts and 1 or more series (that always appear on
+every chart in the group).
 
 ### Findings
 
-- There is an insane amount of wasted space in `data.json`
+- There is an insane amount of wasted space in `data.json`&
 - The amount of actual benchmarking data is actually very small, and it can easily fit in memory of
   the CI runners
 - We can simply read the entire file of all benchmarking data into memory, decompress in memory, add

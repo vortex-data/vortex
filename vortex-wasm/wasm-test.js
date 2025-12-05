@@ -31,6 +31,7 @@ const SERIES_COLORS = {
   "datafusion:vortex-file-compressed": "#10b981",
   "datafusion:parquet": "#8b5cf6",
   "datafusion:lance": "#ef7f1d",
+  "datafusion:arrow": "#dc2626",
 };
 
 /**
@@ -50,28 +51,6 @@ function generateCharts(prefix, suffix, start, end, pad = 2) {
   );
 }
 
-// Common series name sets for reuse.
-const SERIES_DUCKDB_ONLY = [
-  "duckdb:parquet",
-  "duckdb:vortex-compact",
-  "duckdb:vortex-file-compressed",
-];
-
-const SERIES_DUCKDB_DATAFUSION = [
-  "duckdb:vortex-compact",
-  "duckdb:vortex-file-compressed",
-  "duckdb:parquet",
-  "duckdb:duckdb",
-  "datafusion:vortex-compact",
-  "datafusion:vortex-file-compressed",
-  "datafusion:parquet",
-];
-
-const SERIES_DUCKDB_DATAFUSION_LANCE = [
-  ...SERIES_DUCKDB_DATAFUSION,
-  "datafusion:lance",
-];
-
 /**
  * Benchmark group configurations. Each group contains multiple charts.
  */
@@ -83,18 +62,113 @@ const BENCHMARK_GROUPS = {
   },
   clickbench: {
     title: "ClickBench",
-    charts: generateCharts("q", "-nvme", 0, 42),
-    seriesNames: SERIES_DUCKDB_DATAFUSION_LANCE,
+    charts: generateCharts("q", "", 0, 42),
+    seriesNames: [
+      "datafusion:lance",
+      "datafusion:parquet",
+      "datafusion:vortex-compact",
+      "datafusion:vortex-file-compressed",
+      "duckdb:duckdb",
+      "duckdb:parquet",
+      "duckdb:vortex-compact",
+      "duckdb:vortex-file-compressed",
+    ],
   },
-  statpopgen: {
-    title: "Statistical and Population Genetics",
-    charts: generateCharts("q", "-rows100000-nvme", 0, 10),
-    seriesNames: SERIES_DUCKDB_ONLY,
+  "tpch-sf1-nvme": {
+    title: "TPC-H NVMe (Scale Factor 1)",
+    charts: generateCharts("q", "", 1, 22),
+    seriesNames: [
+      "datafusion:arrow",
+      "datafusion:lance",
+      "datafusion:parquet",
+      "datafusion:vortex-compact",
+      "datafusion:vortex-file-compressed",
+      "duckdb:duckdb",
+      "duckdb:parquet",
+      "duckdb:vortex-compact",
+      "duckdb:vortex-file-compressed",
+    ],
+  },
+  "tpch-sf1-s3": {
+    title: "TPC-H S3 (Scale Factor 1)",
+    charts: generateCharts("q", "", 1, 22),
+    seriesNames: [
+      "datafusion:lance",
+      "datafusion:parquet",
+      "datafusion:vortex-compact",
+      "datafusion:vortex-file-compressed",
+      "duckdb:parquet",
+      "duckdb:vortex-compact",
+      "duckdb:vortex-file-compressed",
+    ],
+  },
+  "tpch-sf10-nvme": {
+    title: "TPC-H NVMe (Scale Factor 10)",
+    charts: generateCharts("q", "", 1, 22),
+    seriesNames: [
+      "datafusion:arrow",
+      "datafusion:lance",
+      "datafusion:parquet",
+      "datafusion:vortex-compact",
+      "datafusion:vortex-file-compressed",
+      "duckdb:duckdb",
+      "duckdb:parquet",
+      "duckdb:vortex-compact",
+      "duckdb:vortex-file-compressed",
+    ],
+  },
+  "tpch-sf10-s3": {
+    title: "TPC-H S3 (Scale Factor 10)",
+    charts: generateCharts("q", "", 1, 22),
+    seriesNames: [
+      "datafusion:lance",
+      "datafusion:parquet",
+      "datafusion:vortex-compact",
+      "datafusion:vortex-file-compressed",
+      "duckdb:parquet",
+      "duckdb:vortex-compact",
+      "duckdb:vortex-file-compressed",
+    ],
+  },
+  "tpch-sf100-nvme": {
+    title: "TPC-H NVMe (Scale Factor 100)",
+    charts: generateCharts("q", "", 1, 22),
+    seriesNames: [
+      "datafusion:parquet",
+      "duckdb:parquet",
+      "duckdb:vortex-file-compressed",
+    ],
+  },
+  "tpch-sf100-s3": {
+    title: "TPC-H S3 (Scale Factor 100)",
+    charts: generateCharts("q", "", 1, 22),
+    seriesNames: [
+      "datafusion:parquet",
+      "duckdb:parquet",
+      "duckdb:vortex-file-compressed",
+    ],
   },
   tpcds: {
     title: "TPC-DS",
-    charts: generateCharts("q", "-sf1-nvme", 1, 99),
-    seriesNames: SERIES_DUCKDB_DATAFUSION,
+    charts: generateCharts("q", "-sf1", 1, 99),
+    seriesNames: [
+      "datafusion:parquet",
+      "datafusion:vortex-compact",
+      "datafusion:vortex-file-compressed",
+      "duckdb:duckdb",
+      "duckdb:parquet",
+      "duckdb:vortex-compact",
+      "duckdb:vortex-file-compressed",
+    ],
+  },
+  statpopgen: {
+    title: "Statistical and Population Genetics",
+    charts: generateCharts("q", "", 0, 10),
+    seriesNames: [
+      "duckdb:parquet",
+      "duckdb:vortex-compact",
+      "duckdb:vortex-file-compressed",
+    ],
   },
 };
 
