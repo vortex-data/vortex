@@ -7,8 +7,6 @@ use std::ops::Deref;
 
 use arrow_buffer::bit_iterator::BitIndexIterator;
 use vortex_buffer::BitBuffer;
-use vortex_compute::comparison::Compare;
-use vortex_compute::comparison::Equal;
 use vortex_compute::logical::LogicalOr;
 use vortex_dtype::DType;
 use vortex_dtype::IntegerPType;
@@ -301,7 +299,17 @@ fn constant_list_scalar_contains(list: ListViewScalar, values: Vector) -> Vortex
     );
     for i in 0..elements.len() {
         let element = Datum::Scalar(elements.scalar_at(i));
-        let compared: BoolDatum = Compare::<Equal>::compare(Datum::Vector(values.clone()), element);
+        let compared: BoolDatum = Binary
+            .bind(operators::Operator::Eq)
+            .execute(ExecutionArgs {
+                datums: vec![Datum::Vector(values.clone()), element],
+                dtypes: vec![
+                    // FIXME(ngates): call compute function directly!
+                ],
+                row_count: values.len(),
+                return_dtype: DType::Bool(Nullability::Nullable),
+            })?
+            .into_bool();
         let compared = Datum::from(compared)
             .ensure_vector(values.len())
             .into_bool();
