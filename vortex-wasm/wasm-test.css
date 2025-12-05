@@ -319,6 +319,11 @@ body {
     border-color: var(--primary-color);
 }
 
+/* Disable transitions during group expand to avoid jank with many charts. */
+.benchmark-set.expanding .chart-container {
+    transition: none !important;
+}
+
 .chart-header {
     display: flex;
     justify-content: space-between;

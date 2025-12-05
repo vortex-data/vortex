@@ -524,16 +524,30 @@ function renderGroupSummary(groupId, groupConfig) {
 }
 
 /**
- * Resizes all charts in a group sequentially, yielding to the browser between each.
- * This ensures the first chart appears immediately rather than waiting for all 43.
+ * Number of charts to resize per animation frame when expanding a group.
  */
-async function resizeGroupChartsSequentially(groupId) {
+const CHARTS_PER_BATCH = 4;
+
+/**
+ * Resizes all charts in a group in batches, yielding to the browser between batches.
+ * This processes multiple charts per frame for faster expansion of large groups.
+ * Uses setTimeout instead of requestAnimationFrame so it continues when tab is hidden.
+ */
+async function resizeGroupChartsBatched(groupId) {
+  const groupCharts = [];
   for (const [prefix, chart] of chartInstances.entries()) {
     if (prefix.startsWith(groupId + "-")) {
-      chart.resize();
-      // Yield to browser to paint before next resize.
-      await new Promise((r) => requestAnimationFrame(r));
+      groupCharts.push(chart);
     }
+  }
+
+  for (let i = 0; i < groupCharts.length; i += CHARTS_PER_BATCH) {
+    const batch = groupCharts.slice(i, i + CHARTS_PER_BATCH);
+    for (const chart of batch) {
+      chart.resize();
+    }
+    // Use setTimeout(0) to yield without pausing when tab is hidden.
+    await new Promise((r) => setTimeout(r, 0));
   }
 }
 
@@ -545,12 +559,19 @@ function setupCollapsibleBenchmarks() {
     header.addEventListener("click", async () => {
       const benchmarkSet = header.closest(".benchmark-set");
       const wasCollapsed = benchmarkSet.classList.contains("collapsed");
+
+      // Disable transitions during expand to avoid jank with many charts.
+      if (wasCollapsed) {
+        benchmarkSet.classList.add("expanding");
+      }
+
       benchmarkSet.classList.toggle("collapsed");
 
-      // If we just expanded, resize charts sequentially so first appears immediately.
+      // If we just expanded, resize charts in batches.
       if (wasCollapsed) {
         const groupId = benchmarkSet.id.replace("-group", "");
-        await resizeGroupChartsSequentially(groupId);
+        await resizeGroupChartsBatched(groupId);
+        benchmarkSet.classList.remove("expanding");
       }
     });
   });
@@ -926,10 +947,10 @@ function setupZoomButtons(elements, chartContext, chartInstance) {
     updateChartView(elements, chartContext, chartInstance, true);
   };
 
-  elements.zoomInSmallBtn?.addEventListener("click", () => zoom(25, -1));
-  elements.zoomInLargeBtn?.addEventListener("click", () => zoom(250, -1));
-  elements.zoomOutSmallBtn?.addEventListener("click", () => zoom(25, 1));
-  elements.zoomOutLargeBtn?.addEventListener("click", () => zoom(250, 1));
+  elements.zoomInSmallBtn?.addEventListener("click", () => zoom(50, -1));
+  elements.zoomInLargeBtn?.addEventListener("click", () => zoom(500, -1));
+  elements.zoomOutSmallBtn?.addEventListener("click", () => zoom(50, 1));
+  elements.zoomOutLargeBtn?.addEventListener("click", () => zoom(500, 1));
 }
 
 /**
