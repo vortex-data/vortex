@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vortex Geo Web</title>
+</head>
+<body>
+    <h1>Vortex Geo Web</h1>
+    <p>Welcome to the Vortex geospatial web example.</p>
+
+    <button id="testApi">Test API</button>
+    <div id="result"></div>
+
+    <script>
+        document.getElementById('testApi').addEventListener('click', async () => {
+            try {
+                const response = await fetch('/api/hello');
+                const data = await response.text();
+                document.getElementById('result').textContent = `API Response: ${data}`;
+            } catch (error) {
+                document.getElementById('result').textContent = `Error: ${error.message}`;
+            }
+        });
+    </script>
+</body>
+</html>

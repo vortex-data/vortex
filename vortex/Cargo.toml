@@ -55,6 +55,7 @@ vortex-zstd = { workspace = true, optional = true }
 [dev-dependencies]
 anyhow = { workspace = true }
 arrow-array = { workspace = true }
+axum = { version = "0.8.7" }
 divan = { workspace = true }
 futures = { workspace = true }
 geo-types = { workspace = true }
