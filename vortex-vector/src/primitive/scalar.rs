@@ -13,6 +13,7 @@ use crate::Scalar;
 use crate::ScalarOps;
 use crate::VectorMut;
 use crate::VectorMutOps;
+use crate::match_each_pscalar;
 use crate::primitive::PVectorMut;
 use crate::primitive::PrimitiveVectorMut;
 
@@ -80,23 +81,11 @@ impl ScalarOps for PrimitiveScalar {
     }
 
     fn mask_validity(&mut self, mask: bool) {
-        match self {
-            PrimitiveScalar::I8(v) => v.mask_validity(mask),
-            PrimitiveScalar::I16(v) => v.mask_validity(mask),
-            PrimitiveScalar::I32(v) => v.mask_validity(mask),
-            PrimitiveScalar::I64(v) => v.mask_validity(mask),
-            PrimitiveScalar::U8(v) => v.mask_validity(mask),
-            PrimitiveScalar::U16(v) => v.mask_validity(mask),
-            PrimitiveScalar::U32(v) => v.mask_validity(mask),
-            PrimitiveScalar::U64(v) => v.mask_validity(mask),
-            PrimitiveScalar::F16(v) => v.mask_validity(mask),
-            PrimitiveScalar::F32(v) => v.mask_validity(mask),
-            PrimitiveScalar::F64(v) => v.mask_validity(mask),
-        }
+        match_each_pscalar!(self, |s| { s.mask_validity(mask) })
     }
 
-    fn repeat(&self, _n: usize) -> VectorMut {
-        todo!()
+    fn repeat(&self, n: usize) -> VectorMut {
+        match_each_pscalar!(self, |s| { s.repeat(n) })
     }
 }
 
