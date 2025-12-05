@@ -8,6 +8,7 @@ use futures::StreamExt;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::ProjectionMask;
 use parquet::arrow::arrow_reader::ArrowReaderBuilder;
+use parquet::arrow::async_reader::ParquetRecordBatchStream;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use vortex::VortexSessionDefault;
@@ -39,14 +40,8 @@ use vortex_utils::aliases::hash_map::HashMap;
 pub static COMPACT_RTREE_STRATEGY: LazyLock<Arc<dyn LayoutStrategy>> =
     LazyLock::new(|| make_rtree_strategy());
 
-#[tokio::main]
-pub async fn main() {
-    // Load data from the Parquet dataset into our special format with the RTree indices.
-    let f = File::open(
-        "/Users/aduffy/Downloads/BuildingsParquet/custom_download_20251204_095222.parquet",
-    )
-    .await
-    .unwrap();
+async fn make_reader(path: &str) -> ParquetRecordBatchStream<File> {
+    let f = File::open(path).await.unwrap();
 
     let mut reader = ParquetRecordBatchStreamBuilder::new(f).await.unwrap();
 
@@ -56,7 +51,23 @@ pub async fn main() {
     let projection_mask = ProjectionMask::roots(&schema, [0, 1, 2, 3, 4, 5, 6, 7, 9]);
 
     reader = reader.with_projection(projection_mask);
-    let mut reader = reader.build().unwrap();
+    reader.build().unwrap()
+}
+
+#[tokio::main]
+pub async fn main() {
+    // Load data from the Parquet dataset into our special format with the RTree indices.
+    // let f = File::open(
+    //     "/Users/aduffy/Downloads/BuildingsParquet/custom_download_20251204_095222.parquet",
+    // )
+    // .await
+    // .unwrap();
+    // let reader1 = make_reader(
+    //     "/Users/aduffy/Downloads/BuildingsParquet/custom_download_20251204_095222.parquet",
+    // )
+    // .await;
+
+    let reader = make_reader("/Users/aduffy/Downloads/building.120213.parquet").await;
 
     let dtype = DType::from_arrow(reader.schema().as_ref());
 
@@ -69,7 +80,7 @@ pub async fn main() {
         .boxed();
 
     // Setup the Vortex write to stream the records out.
-    let mut file = File::create("buildings_rtree.vortex").await.unwrap();
+    let mut file = File::create("buildings_large_2.vortex").await.unwrap();
 
     let session = VortexSession::default();
     let summary = session

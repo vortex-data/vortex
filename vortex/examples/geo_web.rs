@@ -108,7 +108,7 @@ pub async fn main() {
     // Open up the Vortex file.
     let vxf = SESSION
         .open_options()
-        .open("buildings_rtree.vortex")
+        .open("buildings_large_2.vortex")
         .await
         .expect("Opening file failed");
 
