@@ -12,7 +12,7 @@ use vortex_session::VortexSession;
 
 pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     VortexSession::empty()
-        .with::<VortexMetrics>()
+        .with::<VortexMetrics>() #
         .with::<ArraySession>()
         .with::<LayoutSession>()
         .with::<ExprSession>()
