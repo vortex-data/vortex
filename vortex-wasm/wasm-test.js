@@ -598,57 +598,14 @@ function renderGroupSummary(groupId, groupConfig) {
 }
 
 /**
- * Number of charts to resize per animation frame when expanding a group.
- */
-const CHARTS_PER_BATCH = 4;
-
-/**
- * Resizes all charts in a group in batches, yielding to the browser between batches.
- * This processes multiple charts per frame for faster expansion of large groups.
- * Skips yields when tab is hidden to avoid browser throttling.
- */
-async function resizeGroupChartsBatched(groupId) {
-  const groupCharts = [];
-  for (const [prefix, chart] of chartInstances.entries()) {
-    if (prefix.startsWith(groupId + "-")) {
-      groupCharts.push(chart);
-    }
-  }
-
-  for (let i = 0; i < groupCharts.length; i += CHARTS_PER_BATCH) {
-    const batch = groupCharts.slice(i, i + CHARTS_PER_BATCH);
-    for (const chart of batch) {
-      chart.resize();
-    }
-    // Skip delay if page is hidden to avoid browser throttling.
-    if (!document.hidden) {
-      await new Promise((r) => setTimeout(r, 0));
-    }
-  }
-}
-
-/**
  * Sets up collapsible benchmark sections.
+ *
+ * Chart.js automatically detects visibility changes and resizes when charts become visible.
  */
 function setupCollapsibleBenchmarks() {
   document.querySelectorAll(".benchmark-header").forEach((header) => {
-    header.addEventListener("click", async () => {
-      const benchmarkSet = header.closest(".benchmark-set");
-      const wasCollapsed = benchmarkSet.classList.contains("collapsed");
-
-      // Disable transitions during expand to avoid jank with many charts.
-      if (wasCollapsed) {
-        benchmarkSet.classList.add("expanding");
-      }
-
-      benchmarkSet.classList.toggle("collapsed");
-
-      // If we just expanded, resize charts in batches.
-      if (wasCollapsed) {
-        const groupId = benchmarkSet.id.replace("-group", "");
-        await resizeGroupChartsBatched(groupId);
-        benchmarkSet.classList.remove("expanding");
-      }
+    header.addEventListener("click", () => {
+      header.closest(".benchmark-set").classList.toggle("collapsed");
     });
   });
 }
@@ -831,6 +788,7 @@ function createChartOptions(
   return {
     responsive: true,
     maintainAspectRatio: false,
+    animation: false,
     layout: {
       padding: { left: 0, right: 0, top: 0, bottom: 0 },
     },
@@ -1161,6 +1119,7 @@ function createEmptyChart(groupId, chartName, groupConfig) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      animation: false,
       scales: {
         x: { display: true },
         y: {
