@@ -22,11 +22,13 @@ arrow-buffer = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 bincode = { workspace = true, features = ["serde"] }
+fastbloom = { workspace = true, features = ["serde"] }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "executor"] }
 geo = { workspace = true }
 geo-types = { workspace = true, features = ["serde"] }
 geozero = { workspace = true, features = ["with-wkb"] }
+h3o = { workspace = true, features = ["geo", "serde"] }
 itertools = { workspace = true }
 kanal = { workspace = true }
 log = { workspace = true }
@@ -38,7 +40,6 @@ paste = { workspace = true }
 pco = { workspace = true }
 pin-project-lite = { workspace = true }
 prost = { workspace = true }
-rstar = { workspace = true, features = ["serde"] }
 rustc-hash = { workspace = true }
 serde = { workspace = true }
 termtree = { workspace = true }

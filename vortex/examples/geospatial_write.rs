@@ -30,7 +30,7 @@ use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::path::PathStrategy;
 use vortex_layout::layouts::repartition::RepartitionStrategy;
 use vortex_layout::layouts::repartition::RepartitionWriterOptions;
-use vortex_layout::layouts::rtree::RTreeStrategy;
+use vortex_layout::layouts::geo::GeoStrategy;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -124,7 +124,7 @@ fn geometry_writer() -> Arc<dyn LayoutStrategy> {
     );
 
     // 2. calculate rtree for each block
-    let stats = RTreeStrategy::new(Arc::new(coalescing), Arc::new(compress_then_flat));
+    let stats = GeoStrategy::new(Arc::new(coalescing), Arc::new(compress_then_flat), 8_192);
 
     // 1. repartition each column to fixed row counts
     let repartition = RepartitionStrategy::new(

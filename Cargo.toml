@@ -117,6 +117,7 @@ dyn-hash = "1.0.0"
 enum-iterator = "2.0.0"
 enum-map = "2.7.3"
 erased-serde = "0.4"
+fastbloom = "0.14.0"
 fastlanes = "0.5"
 flatbuffers = "25.2.10"
 fsst-rs = "0.5.5"
@@ -127,6 +128,7 @@ geo-types = "0.7.18"
 geozero = "0.14.0"
 glob = "0.3.2"
 goldenfile = "1"
+h3o = "0.9.3"
 half = { version = "2.6", features = ["std", "num-traits"] }
 hashbrown = "0.16.0"
 humansize = "2.1.3"
@@ -179,7 +181,6 @@ reqwest = { version = "0.12.4", features = [
     "rustls-tls",
 ], default-features = false }
 roaring = "0.11.0"
-rstar = "0.12.2"
 rstest = "0.26"
 rstest_reuse = "0.7.0"
 rustc-hash = "2.1"

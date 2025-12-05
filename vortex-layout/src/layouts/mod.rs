@@ -22,7 +22,7 @@ pub mod repartition;
 pub mod row_idx;
 pub mod struct_;
 pub mod zoned;
-pub mod rtree;
+pub mod geo;
 pub mod path;
 
 pub type SharedArrayFuture = Shared<BoxFuture<'static, SharedVortexResult<ArrayRef>>>;

@@ -1,17 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use futures::{StreamExt, pin_mut};
-use geo_types::{Coord, Geometry, Rect};
+use futures::StreamExt;
+use futures::pin_mut;
+use geo_types::Coord;
+use geo_types::Geometry;
+use geo_types::Rect;
+use geozero::GeozeroGeometry;
+use geozero::wkb;
 use geozero::wkb::WkbDialect;
-use geozero::{GeozeroGeometry, wkb};
 use vortex::VortexSessionDefault;
 use vortex_array::Array;
+use vortex_array::expr::ExprVTable;
+use vortex_array::expr::VTableExt;
+use vortex_array::expr::col;
+use vortex_array::expr::lit;
 use vortex_array::expr::session::ExprSessionExt;
 use vortex_array::expr::st_contains::STContains;
-use vortex_array::expr::{ExprVTable, VTableExt, col, lit};
 use vortex_buffer::ByteBuffer;
 use vortex_file::OpenOptionsSessionExt;
+use vortex_layout::LayoutEncodingRef;
+use vortex_layout::layouts::geo::GeoLayoutEncoding;
+use vortex_layout::session::LayoutSessionExt;
 use vortex_session::VortexSession;
 
 #[tokio::main]
@@ -22,6 +32,10 @@ pub async fn main() {
     session
         .expressions()
         .register(ExprVTable::new_static(&STContains));
+
+    session
+        .layouts()
+        .register(LayoutEncodingRef::new_ref(GeoLayoutEncoding.as_ref()));
 
     let mut target_wkb: Vec<u8> = vec![];
     let mut writer = wkb::WkbWriter::new(&mut target_wkb, WkbDialect::Wkb);
@@ -48,7 +62,7 @@ pub async fn main() {
 
     // Create the scan.
     let vxf = session.open_options()
-        .open("/Users/aduffy/Downloads/BuildingsParquet/custom_download_20251204_095222.compact.vortex")
+        .open("buildings_rtree.vortex")
         .await.expect("open file");
 
     let stream = vxf
