@@ -15,6 +15,9 @@ feature-depth = 1
 ignore = [
     # Paste is no longer maintained because its essentially "finished".
     "RUSTSEC-2024-0436",
+    # rustls-pemfile is a hard requirement from object_store crate.
+    # need to wait for them to release, see https://github.com/apache/arrow-rs-object-store/pull/565
+    "RUSTSEC-2025-0134",
 ]
 
 [licenses]
