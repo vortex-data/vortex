@@ -51,7 +51,7 @@ log = { workspace = true, features = ["max_level_debug"] }
 mimalloc = { workspace = true }
 noodles-bgzf = { workspace = true, features = ["async"] }
 noodles-vcf = { workspace = true, features = ["async"] }
-object_store = { workspace = true, features = ["aws", "gcp"] }
+object_store = { workspace = true, features = ["aws"] }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true, features = ["trace"] }
 opentelemetry_sdk = { workspace = true }
