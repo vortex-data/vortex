@@ -12,6 +12,7 @@ use vortex_array::expr::Expression;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProvider;
+use vortex_array::session::ArraySessionExt;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;
 use vortex_dtype::DType;
@@ -22,6 +23,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
 use crate::layouts::zoned::builder::MAX_IS_TRUNCATED;
 use crate::layouts::zoned::builder::MIN_IS_TRUNCATED;
@@ -147,10 +149,10 @@ impl ZoneMap {
     /// expression that can be evaluated on a zone map.
     ///
     /// All zones where the predicate evaluates to `true` can be skipped entirely.
-    pub fn prune(&self, predicate: &Expression) -> VortexResult<Mask> {
-        predicate
-            .evaluate(&self.array.to_array())?
-            .try_to_mask_fill_null_false()
+    pub fn prune(&self, predicate: &Expression, session: &VortexSession) -> VortexResult<Mask> {
+        let array = self.array.to_array().apply(predicate)?;
+        let array = session.arrays().optimizer().optimize_array(array)?;
+        array.execute_mask(session)
     }
 }
 
@@ -284,6 +286,7 @@ mod tests {
     use crate::layouts::zoned::MIN_IS_TRUNCATED;
     use crate::layouts::zoned::zone_map::StatsAccumulator;
     use crate::layouts::zoned::zone_map::ZoneMap;
+    use crate::test::SESSION;
 
     #[rstest]
     #[case(DType::Utf8(Nullability::NonNullable))]
@@ -393,7 +396,7 @@ mod tests {
         // => A.max < 6
         let expr = gt_eq(root(), lit(6i32));
         let (pruning_expr, _) = checked_pruning_expr(&expr, &stats).unwrap();
-        let mask = zone_map.prune(&pruning_expr).unwrap();
+        let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_eq!(
             mask.to_bit_buffer().into_iter().collect_vec(),
             vec![true, false, false]
@@ -403,7 +406,7 @@ mod tests {
         // => A.max <= 5
         let expr = gt(root(), lit(5i32));
         let (pruning_expr, _) = checked_pruning_expr(&expr, &stats).unwrap();
-        let mask = zone_map.prune(&pruning_expr).unwrap();
+        let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_eq!(
             mask.to_bit_buffer().into_iter().collect_vec(),
             vec![true, false, false]
@@ -413,7 +416,7 @@ mod tests {
         // => A.min >= 2
         let expr = lt(root(), lit(2i32));
         let (pruning_expr, _) = checked_pruning_expr(&expr, &stats).unwrap();
-        let mask = zone_map.prune(&pruning_expr).unwrap();
+        let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_eq!(
             mask.to_bit_buffer().into_iter().collect_vec(),
             vec![false, true, true]

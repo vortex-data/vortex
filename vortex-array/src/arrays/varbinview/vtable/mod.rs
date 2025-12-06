@@ -117,8 +117,7 @@ impl VTable for VarBinViewVTable {
                     array.validity_mask(),
                 )
                 .into()
-            })
-            .into(),
+            }),
             DType::Binary(_) => ready(unsafe {
                 BinaryVector::new_unchecked(
                     array.views().clone(),

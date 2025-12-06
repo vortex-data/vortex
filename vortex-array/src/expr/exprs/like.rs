@@ -128,7 +128,7 @@ impl VTable for Like {
             (true, true) => arrow_string::like::nilike(child.as_ref(), pattern.as_ref()),
         }?;
 
-        Ok(Datum::Vector(array.into_vector()?.into()).into())
+        Ok(Datum::Vector(array.into_vector()?.into()))
     }
 
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
