@@ -13,7 +13,7 @@ use vortex_vector::primitive::PVector;
 
 use crate::EmptyMetadata;
 use crate::arrays::PrimitiveArray;
-use crate::execution::ExecutionCtx;
+use crate::kernel::BindCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -117,7 +117,7 @@ impl VTable for PrimitiveVTable {
         })
     }
 
-    fn bind_kernel(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<KernelRef> {
+    fn bind_kernel(array: &Self::Array, _ctx: &mut BindCtx) -> VortexResult<KernelRef> {
         Ok(ready(match_each_native_ptype!(array.ptype(), |T| {
             PVector::new(array.buffer::<T>(), array.validity_mask()).into()
         })))

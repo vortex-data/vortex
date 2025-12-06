@@ -31,7 +31,7 @@ use vortex_mask::Mask;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::execution::ExecutionCtx;
+use crate::kernel::BindCtx;
 use crate::kernel::KernelRef;
 use crate::serde::ArrayChildren;
 
@@ -141,7 +141,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     ///
     /// Implementations should recursively call [`Array::bind_kernel`] on child
     /// arrays as needed.
-    fn bind_kernel(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<KernelRef> {
+    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
         // TODO(ngates): convert arrays to canonicalize over vectors.
         let canonical = Self::CanonicalVTable::canonicalize(array);
         canonical.into_array().bind_kernel(ctx)

@@ -12,7 +12,7 @@ use crate::DeserializeMetadata;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::BoolArray;
-use crate::execution::ExecutionCtx;
+use crate::kernel::BindCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -107,7 +107,7 @@ impl VTable for BoolVTable {
         BoolArray::try_new(buffer, metadata.offset as usize, len, validity)
     }
 
-    fn bind_kernel(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<KernelRef> {
+    fn bind_kernel(array: &Self::Array, _ctx: &mut BindCtx) -> VortexResult<KernelRef> {
         Ok(ready(
             BoolVector::new(array.bit_buffer().clone(), array.validity_mask()).into(),
         ))

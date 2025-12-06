@@ -18,7 +18,7 @@ use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::Precision;
-use crate::execution::ExecutionCtx;
+use crate::kernel::BindCtx;
 use crate::kernel::KernelRef;
 use crate::kernel::ready;
 use crate::serde::ArrayChildren;
@@ -84,7 +84,7 @@ impl VTable for NullVTable {
         Ok(NullArray::new(len))
     }
 
-    fn bind_kernel(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<KernelRef> {
+    fn bind_kernel(array: &Self::Array, _ctx: &mut BindCtx) -> VortexResult<KernelRef> {
         Ok(ready(NullVector::new(array.len()).into()))
     }
 }

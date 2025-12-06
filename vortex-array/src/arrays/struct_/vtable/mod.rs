@@ -13,7 +13,7 @@ use vortex_vector::struct_::StructVector;
 
 use crate::EmptyMetadata;
 use crate::arrays::struct_::StructArray;
-use crate::execution::ExecutionCtx;
+use crate::kernel::BindCtx;
 use crate::kernel::KernelRef;
 use crate::kernel::kernel;
 use crate::serde::ArrayChildren;
@@ -107,7 +107,7 @@ impl VTable for StructVTable {
         StructArray::try_new_with_dtype(children, struct_dtype.clone(), len, validity)
     }
 
-    fn bind_kernel(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<KernelRef> {
+    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
         let fields: Box<[_]> = array
             .fields()
             .iter()

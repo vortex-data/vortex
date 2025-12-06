@@ -16,7 +16,7 @@ use vortex_vector::binaryview::StringVector;
 
 use crate::EmptyMetadata;
 use crate::arrays::varbinview::VarBinViewArray;
-use crate::execution::ExecutionCtx;
+use crate::kernel::BindCtx;
 use crate::kernel::KernelRef;
 use crate::kernel::ready;
 use crate::serde::ArrayChildren;
@@ -108,7 +108,7 @@ impl VTable for VarBinViewVTable {
         VarBinViewArray::try_new(views, Arc::from(buffers), dtype.clone(), validity)
     }
 
-    fn bind_kernel(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<KernelRef> {
+    fn bind_kernel(array: &Self::Array, _ctx: &mut BindCtx) -> VortexResult<KernelRef> {
         Ok(match array.dtype() {
             DType::Utf8(_) => ready(unsafe {
                 StringVector::new_unchecked(

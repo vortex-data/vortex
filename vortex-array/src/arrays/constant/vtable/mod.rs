@@ -12,7 +12,7 @@ use vortex_vector::VectorMutOps;
 
 use crate::EmptyMetadata;
 use crate::arrays::ConstantArray;
-use crate::execution::ExecutionCtx;
+use crate::kernel::BindCtx;
 use crate::kernel::KernelRef;
 use crate::kernel::kernel;
 use crate::serde::ArrayChildren;
@@ -86,7 +86,7 @@ impl VTable for ConstantVTable {
         Ok(ConstantArray::new(scalar, len))
     }
 
-    fn bind_kernel(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<KernelRef> {
+    fn bind_kernel(array: &Self::Array, _ctx: &mut BindCtx) -> VortexResult<KernelRef> {
         let scalar = array.scalar().to_vector_scalar();
         let len = array.len();
         Ok(kernel(move || Ok(scalar.clone().repeat(len).freeze())))

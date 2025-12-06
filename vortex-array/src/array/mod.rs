@@ -50,11 +50,11 @@ use crate::compute::InvocationArgs;
 use crate::compute::IsConstantOpts;
 use crate::compute::Output;
 use crate::compute::is_constant_opts;
-use crate::execution::ExecutionCtx;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
 use crate::hash;
+use crate::kernel::BindCtx;
 use crate::kernel::KernelRef;
 use crate::kernel::ValidateKernel;
 use crate::serde::ArrayChildren;
@@ -196,7 +196,7 @@ pub trait Array:
     -> VortexResult<Option<Output>>;
 
     /// Invoke the batch execution function for the array to produce a canonical vector.
-    fn bind_kernel(&self, ctx: &mut ExecutionCtx) -> VortexResult<KernelRef>;
+    fn bind_kernel(&self, ctx: &mut BindCtx) -> VortexResult<KernelRef>;
 }
 
 impl Array for Arc<dyn Array> {
@@ -304,7 +304,7 @@ impl Array for Arc<dyn Array> {
         self.as_ref().invoke(compute_fn, args)
     }
 
-    fn bind_kernel(&self, ctx: &mut ExecutionCtx) -> VortexResult<KernelRef> {
+    fn bind_kernel(&self, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
         self.as_ref().bind_kernel(ctx)
     }
 }
@@ -377,7 +377,7 @@ impl dyn Array + '_ {
     ///
     /// This entry-point function will choose an appropriate CPU-based execution strategy.
     pub fn execute(&self, session: &VortexSession) -> VortexResult<Vector> {
-        let mut ctx = ExecutionCtx::new(session.clone());
+        let mut ctx = BindCtx::new(session.clone());
 
         // NOTE(ngates): in the future we can choose a different mode of execution, or run
         // optimization here, etc.
@@ -704,7 +704,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         <V::ComputeVTable as ComputeVTable<V>>::invoke(&self.0, compute_fn, args)
     }
 
-    fn bind_kernel(&self, ctx: &mut ExecutionCtx) -> VortexResult<KernelRef> {
+    fn bind_kernel(&self, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
         let kernel = V::bind_kernel(&self.0, ctx)?;
         if cfg!(debug_assertions) {
             Ok(Box::new(ValidateKernel::new(

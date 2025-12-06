@@ -14,6 +14,7 @@ pub use ready::*;
 pub use validate::*;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 use vortex_vector::Vector;
 
 /// A boxed reference to a kernel.
@@ -42,5 +43,22 @@ pub trait Kernel: 'static + Send + Debug {
     fn push_down_filter(&self, selection: &Mask) -> VortexResult<Option<KernelRef>> {
         _ = selection;
         Ok(None)
+    }
+}
+
+/// Bind context for batch array compute.
+pub struct BindCtx {
+    session: VortexSession,
+}
+
+impl BindCtx {
+    /// Create a new execution context with the given session.
+    pub(crate) fn new(session: VortexSession) -> Self {
+        Self { session }
+    }
+
+    /// Get the session associated with this execution context.
+    pub fn session(&self) -> &VortexSession {
+        &self.session
     }
 }

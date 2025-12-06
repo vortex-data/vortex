@@ -25,10 +25,10 @@ use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::kernel::KernelInput;
 use crate::arrays::scalar_fn::kernel::ScalarFnKernel;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
-use crate::execution::ExecutionCtx;
 use crate::expr;
 use crate::expr::ExprVTable;
 use crate::expr::ScalarFn;
+use crate::kernel::BindCtx;
 use crate::kernel::KernelRef;
 use crate::optimizer::rules::MatchKey;
 use crate::optimizer::rules::Matcher;
@@ -124,7 +124,7 @@ impl VTable for ScalarFnVTable {
         })
     }
 
-    fn bind_kernel(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<KernelRef> {
+    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
         let inputs: Vec<_> = array
             .children()
             .iter()

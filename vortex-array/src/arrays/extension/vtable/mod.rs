@@ -14,7 +14,7 @@ use vortex_error::vortex_bail;
 
 use crate::EmptyMetadata;
 use crate::arrays::extension::ExtensionArray;
-use crate::execution::ExecutionCtx;
+use crate::kernel::BindCtx;
 use crate::kernel::KernelRef;
 use crate::serde::ArrayChildren;
 use crate::vtable;
@@ -78,7 +78,7 @@ impl VTable for ExtensionVTable {
         Ok(ExtensionArray::new(ext_dtype.clone(), storage))
     }
 
-    fn bind_kernel(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<KernelRef> {
+    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
         array.storage().bind_kernel(ctx)
     }
 }

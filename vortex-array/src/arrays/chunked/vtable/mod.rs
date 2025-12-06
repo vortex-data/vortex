@@ -17,7 +17,7 @@ use crate::EmptyMetadata;
 use crate::ToCanonical;
 use crate::arrays::ChunkedArray;
 use crate::arrays::PrimitiveArray;
-use crate::execution::ExecutionCtx;
+use crate::kernel::BindCtx;
 use crate::kernel::Kernel;
 use crate::kernel::KernelRef;
 use crate::serde::ArrayChildren;
@@ -130,7 +130,7 @@ impl VTable for ChunkedVTable {
         })
     }
 
-    fn bind_kernel(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<KernelRef> {
+    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
         Ok(Box::new(ChunkedKernel {
             chunks: array
                 .chunks

@@ -30,7 +30,6 @@ mod canonical;
 pub mod compute;
 mod context;
 pub mod display;
-pub mod execution;
 pub mod expr;
 mod expression;
 mod hash;

@@ -13,7 +13,7 @@ use vortex_vector::fixed_size_list::FixedSizeListVector;
 use crate::Array;
 use crate::EmptyMetadata;
 use crate::arrays::FixedSizeListArray;
-use crate::execution::ExecutionCtx;
+use crate::kernel::BindCtx;
 use crate::kernel::KernelRef;
 use crate::kernel::kernel;
 use crate::serde::ArrayChildren;
@@ -110,7 +110,7 @@ impl VTable for FixedSizeListVTable {
         FixedSizeListArray::try_new(elements, *list_size, validity, len)
     }
 
-    fn bind_kernel(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<KernelRef> {
+    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
         let elements_kernel = array.elements().bind_kernel(ctx)?;
         let list_size = array.list_size();
         let validity_mask = array.validity_mask();

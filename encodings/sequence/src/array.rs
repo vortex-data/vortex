@@ -15,7 +15,7 @@ use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::execution::ExecutionCtx;
+use vortex_array::kernel::BindCtx;
 use vortex_array::kernel::KernelRef;
 use vortex_array::kernel::kernel;
 use vortex_array::serde::ArrayChildren;
@@ -269,7 +269,7 @@ impl VTable for SequenceVTable {
         ))
     }
 
-    fn bind_kernel(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<KernelRef> {
+    fn bind_kernel(array: &Self::Array, _ctx: &mut BindCtx) -> VortexResult<KernelRef> {
         let array = array.clone();
 
         Ok(match_each_native_ptype!(array.ptype(), |P| {

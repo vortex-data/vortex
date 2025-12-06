@@ -16,7 +16,7 @@ use crate::DeserializeMetadata;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::ListViewArray;
-use crate::execution::ExecutionCtx;
+use crate::kernel::BindCtx;
 use crate::kernel::KernelRef;
 use crate::kernel::kernel;
 use crate::serde::ArrayChildren;
@@ -141,7 +141,7 @@ impl VTable for ListViewVTable {
         ListViewArray::try_new(elements, offsets, sizes, validity)
     }
 
-    fn bind_kernel(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<KernelRef> {
+    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
         let elements_kernel = array.elements().bind_kernel(ctx)?;
         let offsets_kernel = array.offsets().bind_kernel(ctx)?;
         let sizes_kernel = array.sizes().bind_kernel(ctx)?;

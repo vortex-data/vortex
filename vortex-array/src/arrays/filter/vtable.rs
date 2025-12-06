@@ -24,7 +24,7 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::LEGACY_SESSION;
 use crate::arrays::filter::array::FilterArray;
-use crate::execution::ExecutionCtx;
+use crate::kernel::BindCtx;
 use crate::kernel::KernelRef;
 use crate::kernel::kernel;
 use crate::serde::ArrayChildren;
@@ -94,7 +94,7 @@ impl VTable for FilterVTable {
         })
     }
 
-    fn bind_kernel(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<KernelRef> {
+    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
         let child = array.child.bind_kernel(ctx)?;
         let mask = array.mask.clone();
         Ok(kernel(move || Ok(Filter::filter(&child.execute()?, &mask))))
@@ -126,11 +126,10 @@ impl BaseArrayVTable<FilterVTable> for FilterVTable {
 
 impl CanonicalVTable<FilterVTable> for FilterVTable {
     fn canonicalize(array: &FilterArray) -> Canonical {
-        let vector =
-            FilterVTable::bind_kernel(array, &mut ExecutionCtx::new(LEGACY_SESSION.clone()))
-                .vortex_expect("Canonicalize should be fallible")
-                .execute()
-                .vortex_expect("Canonicalize should be fallible");
+        let vector = FilterVTable::bind_kernel(array, &mut BindCtx::new(LEGACY_SESSION.clone()))
+            .vortex_expect("Canonicalize should be fallible")
+            .execute()
+            .vortex_expect("Canonicalize should be fallible");
         vector.into_array(array.dtype()).to_canonical()
     }
 }

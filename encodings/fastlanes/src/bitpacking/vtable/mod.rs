@@ -4,7 +4,7 @@
 use vortex_array::DeserializeMetadata;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::execution::ExecutionCtx;
+use vortex_array::kernel::BindCtx;
 use vortex_array::kernel::KernelRef;
 use vortex_array::kernel::kernel;
 use vortex_array::patches::Patches;
@@ -173,7 +173,7 @@ impl VTable for BitPackedVTable {
         )
     }
 
-    fn bind_kernel(array: &BitPackedArray, _ctx: &mut ExecutionCtx) -> VortexResult<KernelRef> {
+    fn bind_kernel(array: &BitPackedArray, _ctx: &mut BindCtx) -> VortexResult<KernelRef> {
         let array = array.clone();
         Ok(kernel(move || {
             Ok(unpack_to_primitive_vector(&array).freeze().into())

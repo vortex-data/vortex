@@ -19,7 +19,7 @@ use crate::DeserializeMetadata;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::DecimalArray;
-use crate::execution::ExecutionCtx;
+use crate::kernel::BindCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -125,7 +125,7 @@ impl VTable for DecimalVTable {
         })
     }
 
-    fn bind_kernel(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<KernelRef> {
+    fn bind_kernel(array: &Self::Array, _ctx: &mut BindCtx) -> VortexResult<KernelRef> {
         use vortex_dtype::BigCast;
 
         match_each_decimal_value_type!(array.values_type(), |D| {

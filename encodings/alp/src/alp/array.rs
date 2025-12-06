@@ -15,7 +15,7 @@ use vortex_array::DeserializeMetadata;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::execution::ExecutionCtx;
+use vortex_array::kernel::BindCtx;
 use vortex_array::kernel::KernelRef;
 use vortex_array::kernel::kernel;
 use vortex_array::patches::Patches;
@@ -141,7 +141,7 @@ impl VTable for ALPVTable {
         )
     }
 
-    fn bind_kernel(array: &ALPArray, ctx: &mut ExecutionCtx) -> VortexResult<KernelRef> {
+    fn bind_kernel(array: &ALPArray, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
         let encoded = array.encoded().bind_kernel(ctx)?;
         let patches_kernels = if let Some(patches) = array.patches() {
             Some((

@@ -16,7 +16,7 @@ use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
 use crate::EmptyMetadata;
 use crate::arrays::masked::MaskedArray;
-use crate::execution::ExecutionCtx;
+use crate::kernel::BindCtx;
 use crate::kernel::KernelRef;
 use crate::kernel::kernel;
 use crate::serde::ArrayChildren;
@@ -106,7 +106,7 @@ impl VTable for MaskedVTable {
         MaskedArray::try_new(child, validity)
     }
 
-    fn bind_kernel(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<KernelRef> {
+    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
         let child_kernel = array.child().bind_kernel(ctx)?;
         let validity_mask = array.validity_mask();
 
