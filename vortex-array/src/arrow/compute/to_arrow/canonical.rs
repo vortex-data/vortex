@@ -530,6 +530,8 @@ fn to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
     element_field: Option<&FieldRef>,
 ) -> VortexResult<ArrowArrayRef> {
     // Convert listview -> list, via the fast path when possible.
+    // TODO(aduffy): extend list_from_list_view to support target offsets/size PTypes
+    //   to avoid the copy below
     let list_array = list_from_list_view(array);
 
     let (elements, element_field) = {
