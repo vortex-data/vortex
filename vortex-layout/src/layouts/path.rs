@@ -1,0 +1,247 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! A more configurable variant of the `StructStrategy` that allows overwriting
+//! specific leaf fields with custom write strategies.
+
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use futures::StreamExt;
+use futures::TryStreamExt;
+use futures::future::try_join_all;
+use futures::pin_mut;
+use itertools::Itertools;
+use vortex_array::ArrayContext;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
+use vortex_dtype::DType;
+use vortex_dtype::Field;
+use vortex_dtype::FieldName;
+use vortex_dtype::FieldPath;
+use vortex_dtype::Nullability;
+use vortex_error::VortexError;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_io::kanal_ext::KanalExt;
+use vortex_io::runtime::Handle;
+use vortex_utils::aliases::DefaultHashBuilder;
+use vortex_utils::aliases::hash_map::HashMap;
+use vortex_utils::aliases::hash_set::HashSet;
+
+use crate::IntoLayout;
+use crate::LayoutRef;
+use crate::LayoutStrategy;
+use crate::layouts::struct_::StructLayout;
+use crate::segments::SegmentSinkRef;
+use crate::sequence::SendableSequentialStream;
+use crate::sequence::SequenceId;
+use crate::sequence::SequencePointer;
+use crate::sequence::SequentialStreamAdapter;
+use crate::sequence::SequentialStreamExt;
+
+pub struct PathStrategy {
+    // A set of leaf field overrides, e.g. to force one column to be compact-compressed.
+    leaf_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
+    // The writer for any validity arrays that may be present
+    validity: Arc<dyn LayoutStrategy>,
+    // The fallback writer for any fields that do not have an explicit writer set in `leaf_writers`
+    fallback: Arc<dyn LayoutStrategy>,
+}
+
+impl PathStrategy {
+    /// Create a new field writer with the given path validity
+    pub fn new(
+        leaf_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
+        validity: Arc<dyn LayoutStrategy>,
+        fallback: Arc<dyn LayoutStrategy>,
+    ) -> Self {
+        Self {
+            leaf_writers,
+            validity,
+            fallback,
+        }
+    }
+}
+
+impl PathStrategy {
+    fn descend(&self, field: &Field) -> Self {
+        // Start with the existing set of overrides, then only retain the ones that contain
+        // the current field
+        let mut new_writers = self.leaf_writers.clone();
+        new_writers.retain(|k, _| k.starts_with_field(field));
+
+        Self {
+            leaf_writers: new_writers,
+            validity: self.validity.clone(),
+            fallback: self.fallback.clone(),
+        }
+    }
+}
+
+/// Specialized strategy for when we exactly know the input schema.
+#[async_trait]
+impl LayoutStrategy for PathStrategy {
+    async fn write_stream(
+        &self,
+        ctx: ArrayContext,
+        segment_sink: SegmentSinkRef,
+        stream: SendableSequentialStream,
+        mut eof: SequencePointer,
+        handle: Handle,
+    ) -> VortexResult<LayoutRef> {
+        let dtype = stream.dtype().clone();
+        let struct_dtype = dtype.as_struct_fields();
+
+        // Check for unique field names at write time.
+        if HashSet::<_, DefaultHashBuilder>::from_iter(struct_dtype.names().iter()).len()
+            != struct_dtype.names().len()
+        {
+            vortex_bail!("StructLayout must have unique field names");
+        }
+        let is_nullable = dtype.is_nullable();
+
+        // Optimization: when there are no fields, don't spawn any work and just write a trivial
+        // StructLayout.
+        if struct_dtype.nfields() == 0 && !is_nullable {
+            let row_count = stream
+                .try_fold(
+                    0u64,
+                    |acc, (_, arr)| async move { Ok(acc + arr.len() as u64) },
+                )
+                .await?;
+            return Ok(StructLayout::new(row_count, dtype, vec![]).into_layout());
+        }
+
+        // stream<struct_chunk> -> stream<vec<column_chunk>>
+        let columns_vec_stream = stream.map(move |chunk| {
+            let (sequence_id, chunk) = chunk?;
+            let mut sequence_pointer = sequence_id.descend();
+            let struct_chunk = chunk.to_struct();
+            let mut columns: Vec<(SequenceId, ArrayRef)> = Vec::new();
+            if is_nullable {
+                columns.push((
+                    sequence_pointer.advance(),
+                    chunk.validity_mask().into_array(),
+                ));
+            }
+
+            columns.extend(
+                struct_chunk
+                    .fields()
+                    .iter()
+                    .map(|field| (sequence_pointer.advance(), field.to_array())),
+            );
+
+            Ok(columns)
+        });
+
+        let mut stream_count = struct_dtype.nfields();
+        if is_nullable {
+            stream_count += 1;
+        }
+
+        let (column_streams_tx, column_streams_rx): (Vec<_>, Vec<_>) =
+            (0..stream_count).map(|_| kanal::bounded_async(1)).unzip();
+
+        // Spawn a task to fan out column chunks to their respective transposed streams
+        handle
+            .spawn(async move {
+                pin_mut!(columns_vec_stream);
+                while let Some(result) = columns_vec_stream.next().await {
+                    match result {
+                        Ok(columns) => {
+                            for (tx, column) in column_streams_tx.iter().zip_eq(columns.into_iter())
+                            {
+                                let _ = tx.send(Ok(column)).await;
+                            }
+                        }
+                        Err(e) => {
+                            let e: Arc<VortexError> = Arc::new(e);
+                            for tx in column_streams_tx.iter() {
+                                let _ = tx.send(Err(VortexError::from(e.clone()))).await;
+                            }
+                            break;
+                        }
+                    }
+                }
+            })
+            .detach();
+
+        // First child column is the validity, subsequence children are the individual struct fields
+        let column_dtypes: Vec<DType> = if is_nullable {
+            std::iter::once(DType::Bool(Nullability::NonNullable))
+                .chain(struct_dtype.fields())
+                .collect()
+        } else {
+            struct_dtype.fields().collect()
+        };
+
+        let column_names: Vec<FieldName> = if is_nullable {
+            std::iter::once(FieldName::from("__validity"))
+                .chain(struct_dtype.names().iter().cloned())
+                .collect()
+        } else {
+            struct_dtype.names().iter().cloned().collect()
+        };
+
+        let layout_futures: Vec<_> = column_dtypes
+            .into_iter()
+            .zip_eq(column_streams_rx)
+            .zip_eq(column_names)
+            .enumerate()
+            .map(move |(index, ((dtype, recv), name))| {
+                println!("PathStrategy visiting {name}");
+                let column_stream =
+                    SequentialStreamAdapter::new(dtype.clone(), recv.into_stream().boxed())
+                        .sendable();
+                let child_eof = eof.split_off();
+                let field = Field::Name(name.clone());
+                handle.spawn_nested(|h| {
+                    let fallback = self.fallback.clone();
+                    let validity = self.validity.clone();
+                    // descend further and try with new fields
+                    let writer = self
+                        .leaf_writers
+                        .get(&FieldPath::from_name(name))
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            if dtype.is_struct() {
+                                // Step into the field path for struct columns
+                                Arc::new(self.descend(&field))
+                            } else {
+                                // Use fallback for leaf columns
+                                self.fallback.clone()
+                            }
+                        });
+                    let ctx = ctx.clone();
+                    let dtype = dtype.clone();
+                    let segment_sink = segment_sink.clone();
+
+                    async move {
+                        // If we have a matching writer, we use it.
+                        // Otherwise, we descend into a new modified one.
+                        // Write validity stream
+                        if index == 0 && is_nullable {
+                            validity
+                                .write_stream(ctx, segment_sink, column_stream, child_eof, h)
+                                .await
+                        } else {
+                            // Use the underlying writer, otherwise use the fallback writer.
+                            writer
+                                .write_stream(ctx, segment_sink, column_stream, child_eof, h)
+                                .await
+                        }
+                    }
+                })
+            })
+            .collect();
+
+        let column_layouts = try_join_all(layout_futures).await?;
+        // TODO(os): transposed stream could count row counts as well,
+        // This must hold though, all columns must have the same row count of the struct layout
+        let row_count = column_layouts.first().map(|l| l.row_count()).unwrap_or(0);
+        Ok(StructLayout::new(row_count, dtype, column_layouts).into_layout())
+    }
+}

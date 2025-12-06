@@ -20,6 +20,7 @@ pub mod dict;
 pub mod file_stats;
 pub mod flat;
 pub(crate) mod partitioned;
+pub mod path;
 pub mod repartition;
 pub mod row_idx;
 pub mod struct_;
