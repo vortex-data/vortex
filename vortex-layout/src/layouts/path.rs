@@ -61,15 +61,14 @@ impl PathStrategy {
     /// ## Example
     ///
     /// ```
+    /// # use std::sync::Arc;
     /// # use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     /// # use vortex_layout::layouts::path::PathStrategy;
+    ///
     /// // Build a write strategy that does not compress validity or any leaf fields.
-    /// let strategy = PathStrategy::new(
-    ///     // strategy for validity buffer
-    ///     FlatLayoutStrategy::default(),
-    ///     // strategy for all leaf columns
-    ///     FlatLayoutStrategy::default(),
-    /// );
+    /// let flat = Arc::new(FlatLayoutStrategy::default());
+    ///
+    /// let strategy = PathStrategy::new(flat.clone(), flat.clone());
     /// ```
     pub fn new(validity: Arc<dyn LayoutStrategy>, fallback: Arc<dyn LayoutStrategy>) -> Self {
         Self {
