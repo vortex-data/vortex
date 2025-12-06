@@ -81,6 +81,17 @@ from .scan import RepeatedScan
 
 assert _lib, "Ensure we eagerly import the Vortex native library"
 
+from importlib import metadata as _metadata
+
+# Resolve the installed distribution version so it is available as vortex.__version__.
+__version__ = "unknown"
+try:
+    # Try to read the installed distribution version for the Python package name.
+    __version__ = _metadata.version("vortex-data")
+except _metadata.PackageNotFoundError:
+    # If the distribution is not installed, keep the unknown fallback.
+    pass
+
 __all__ = [
     # --- Modules ---
     "arrays",
@@ -169,4 +180,6 @@ __all__ = [
     "ArrayIterator",
     # Scan
     "RepeatedScan",
+    # Version
+    "__version__",
 ]
