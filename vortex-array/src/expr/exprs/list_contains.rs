@@ -295,7 +295,7 @@ fn constant_list_scalar_contains(list: ListViewScalar, values: Vector) -> Vortex
     // the results together.
     let mut result: BoolVector = BoolVector::new(
         BitBuffer::new_unset(values.len()),
-        Mask::new(values.len(), false),
+        Mask::new(values.len(), true),
     );
     for i in 0..elements.len() {
         let element = Datum::Scalar(elements.scalar_at(i));

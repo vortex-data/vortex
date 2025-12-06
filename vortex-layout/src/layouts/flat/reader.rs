@@ -142,13 +142,13 @@ impl LayoutReader for FlatReader {
 
             log::info!("Filter Array:\n{}", array.display_tree());
             let array = optimizer.optimize_array(array)?;
-            log::info!("Optimized Filter Array:\n{}", array.display_tree());
+            log::warn!("Optimized Filter Array:\n{}", array.display_tree());
 
             // Evaluate the array into a mask.
             let array_mask = array.execute_mask(&session)?;
             let array_mask = mask.bitand(&array_mask);
 
-            log::debug!(
+            log::warn!(
                 "Flat mask evaluation {} - {} (mask = {}) => {}",
                 name,
                 expr,
