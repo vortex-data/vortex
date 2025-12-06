@@ -9,6 +9,10 @@ import vortex
 
 
 def test_version_matches_metadata():
+    """
+    Tests that we see the correct __version__
+    value exported by the package.
+    """
     try:
         expected = importlib.metadata.version("vortex-data")
     except importlib.metadata.PackageNotFoundError:
