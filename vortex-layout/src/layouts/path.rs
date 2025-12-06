@@ -85,7 +85,7 @@ impl PathStrategy {
     ///
     /// ```no_run
     /// # use std::sync::Arc;
-    /// # use vortex_dtype::{Field, FieldPath};
+    /// # use vortex_dtype::{field_path, Field, FieldPath};
     /// # use vortex_layout::layouts::compact::CompactCompressor;
     /// # use vortex_layout::layouts::compressed::CompressingStrategy;
     /// # use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
@@ -105,7 +105,7 @@ impl PathStrategy {
     ///         Arc::new(compress_btrblocks),
     ///     )
     ///     .with_leaf_strategy(
-    ///         vec![Field::from("request"), Field::from("body"), Field::from("bytes")],
+    ///         vec![field_path!(request.body.bytes)],
     ///         Arc::new(compress_compact),
     ///     );
     /// ```
