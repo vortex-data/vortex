@@ -41,27 +41,81 @@ use crate::sequence::SequencePointer;
 use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt;
 
+/// A configurable strategy for writing tables with nested field columns, allowing
+/// overrides for specific leaf columns.
 pub struct PathStrategy {
-    // A set of leaf field overrides, e.g. to force one column to be compact-compressed.
+    /// A set of leaf field overrides, e.g. to force one column to be compact-compressed.
     leaf_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
-    // The writer for any validity arrays that may be present
+    /// The writer for any validity arrays that may be present
     validity: Arc<dyn LayoutStrategy>,
-    // The fallback writer for any fields that do not have an explicit writer set in `leaf_writers`
+    /// The fallback writer for any fields that do not have an explicit writer set in `leaf_writers`
     fallback: Arc<dyn LayoutStrategy>,
 }
 
 impl PathStrategy {
-    /// Create a new field writer with the given path validity
-    pub fn new(
-        leaf_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
-        validity: Arc<dyn LayoutStrategy>,
-        fallback: Arc<dyn LayoutStrategy>,
-    ) -> Self {
+    /// Create a new writer with the specified write strategies for validity, and for all leaf
+    /// fields, with no overrides.
+    ///
+    /// Additional overrides can be configured using the `with_leaf_strategy` method.
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// # use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
+    /// # use vortex_layout::layouts::path::PathStrategy;
+    /// // Build a write strategy that does not compress validity or any leaf fields.
+    /// let strategy = PathStrategy::new(
+    ///     // strategy for validity buffer
+    ///     FlatLayoutStrategy::default(),
+    ///     // strategy for all leaf columns
+    ///     FlatLayoutStrategy::default(),
+    /// );
+    /// ```
+    pub fn new(validity: Arc<dyn LayoutStrategy>, fallback: Arc<dyn LayoutStrategy>) -> Self {
         Self {
-            leaf_writers,
+            leaf_writers: Default::default(),
             validity,
             fallback,
         }
+    }
+
+    /// Add a custom write strategy for the given leaf field.
+    ///
+    /// ## Example
+    ///
+    /// ```no_run
+    /// # use std::sync::Arc;
+    /// # use vortex_dtype::{Field, FieldPath};
+    /// # use vortex_layout::layouts::compact::CompactCompressor;
+    /// # use vortex_layout::layouts::compressed::CompressingStrategy;
+    /// # use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
+    /// # use vortex_layout::layouts::path::PathStrategy;
+    ///
+    /// // A strategy for compressing data using the balanced BtrBlocks compressor.
+    /// let compress_btrblocks = CompressingStrategy::new_btrblocks(FlatLayoutStrategy::default(), true);
+    ///
+    /// // A strategy that compresses data using ZSTD
+    /// let compress_compact = CompressingStrategy::new_compact(FlatLayoutStrategy::default(), CompactCompressor::default());
+    ///
+    /// // Our combined strategy uses no compression for validity buffers, BtrBlocks compression
+    /// // for most columns, and will use ZSTD compression for a nested binary column that we know
+    /// // is never filtered in.
+    /// let strategy = PathStrategy::new(
+    ///         Arc::new(FlatLayoutStrategy::default()),
+    ///         Arc::new(compress_btrblocks),
+    ///     )
+    ///     .with_leaf_strategy(
+    ///         vec![Field::from("request"), Field::from("body"), Field::from("bytes")],
+    ///         Arc::new(compress_compact),
+    ///     );
+    /// ```
+    pub fn with_leaf_strategy(
+        mut self,
+        field_path: impl Into<FieldPath>,
+        writer: Arc<dyn LayoutStrategy>,
+    ) -> Self {
+        self.leaf_writers.insert(field_path.into(), writer);
+        self
     }
 }
 
@@ -199,7 +253,6 @@ impl LayoutStrategy for PathStrategy {
                 let child_eof = eof.split_off();
                 let field = Field::Name(name.clone());
                 handle.spawn_nested(|h| {
-                    let fallback = self.fallback.clone();
                     let validity = self.validity.clone();
                     // descend further and try with new fields
                     let writer = self
@@ -216,7 +269,6 @@ impl LayoutStrategy for PathStrategy {
                             }
                         });
                     let ctx = ctx.clone();
-                    let dtype = dtype.clone();
                     let segment_sink = segment_sink.clone();
 
                     async move {
