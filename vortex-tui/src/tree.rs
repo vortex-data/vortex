@@ -100,7 +100,6 @@ async fn exec_array_tree(session: &VortexSession, file: &Path, _json: bool) -> V
         .read_all()
         .await?;
 
-    // TODO: Add JSON output support for array tree
     println!("{}", full.display_tree());
 
     Ok(())
