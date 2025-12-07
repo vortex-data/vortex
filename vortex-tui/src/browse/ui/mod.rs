@@ -4,9 +4,14 @@
 //! UI rendering components for the TUI browser.
 
 mod layouts;
+mod query;
 mod segments;
 
 use layouts::render_layouts;
+pub use query::QueryFocus;
+pub use query::QueryState;
+pub use query::SortDirection;
+use query::render_query;
 use ratatui::prelude::*;
 use ratatui::widgets::Block;
 use ratatui::widgets::BorderType;
@@ -65,17 +70,13 @@ pub fn render_app(app: &mut AppState<'_>, frame: &mut Frame<'_>) {
     let selected_tab = match app.current_tab {
         Tab::Layout => 0,
         Tab::Segments => 1,
+        Tab::Query => 2,
     };
 
-    let tabs = Tabs::new([
-        "File Layout",
-        "Segments",
-        // TODO(aduffy): add SQL query interface
-        // "Query",
-    ])
-    .style(Style::default().bold().white())
-    .highlight_style(Style::default().bold().black().on_white())
-    .select(Some(selected_tab));
+    let tabs = Tabs::new(["File Layout", "Segments", "Query"])
+        .style(Style::default().bold().white())
+        .highlight_style(Style::default().bold().black().on_white())
+        .select(Some(selected_tab));
 
     frame.render_widget(tabs, tab_view);
 
@@ -85,5 +86,6 @@ pub fn render_app(app: &mut AppState<'_>, frame: &mut Frame<'_>) {
             render_layouts(app, app_view, frame.buffer_mut());
         }
         Tab::Segments => segments_ui(app, app_view, frame.buffer_mut()),
+        Tab::Query => render_query(app, app_view, frame.buffer_mut()),
     }
 }

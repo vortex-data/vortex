@@ -25,6 +25,7 @@ use vortex::layout::segments::SegmentId;
 use vortex::layout::segments::SegmentSource;
 use vortex::session::VortexSession;
 
+use super::ui::QueryState;
 use super::ui::SegmentGridState;
 
 /// The currently active tab in the TUI browser.
@@ -41,6 +42,9 @@ pub enum Tab {
     ///
     /// Displays a visual representation of how segments are laid out in the file.
     Segments,
+
+    /// SQL query interface powered by DataFusion.
+    Query,
 }
 
 /// A navigable pointer into the layout hierarchy of a Vortex file.
@@ -254,6 +258,12 @@ pub struct AppState<'a> {
 
     /// Vertical scroll offset for the encoding tree display in flat layout view.
     pub tree_scroll_offset: u16,
+
+    /// State for the Query tab
+    pub query_state: QueryState,
+
+    /// File path for use in query execution
+    pub file_path: String,
 }
 
 impl<'a> AppState<'a> {
@@ -270,6 +280,12 @@ impl<'a> AppState<'a> {
 
         let cursor = LayoutCursor::new(vxf.footer().clone(), vxf.segment_source());
 
+        let file_path = path
+            .as_ref()
+            .to_str()
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+
         Ok(AppState {
             session,
             vxf,
@@ -282,6 +298,8 @@ impl<'a> AppState<'a> {
             segment_grid_state: SegmentGridState::default(),
             frame_size: Size::new(0, 0),
             tree_scroll_offset: 0,
+            query_state: QueryState::default(),
+            file_path,
         })
     }
 
