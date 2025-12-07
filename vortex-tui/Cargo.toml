@@ -15,8 +15,11 @@ version = { workspace = true }
 
 [dependencies]
 anyhow = { workspace = true }
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 crossterm = { workspace = true }
+datafusion = { workspace = true }
 env_logger = { version = "0.11" }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
@@ -26,9 +29,12 @@ indicatif = { workspace = true, features = ["futures"] }
 itertools = { workspace = true }
 parquet = { workspace = true, features = ["arrow", "async"] }
 ratatui = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 taffy = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 vortex = { workspace = true, features = ["tokio"] }
+vortex-datafusion = { workspace = true }
 
 [lints]
 workspace = true
