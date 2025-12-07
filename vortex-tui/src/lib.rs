@@ -32,6 +32,8 @@ use vortex::session::VortexSession;
 pub mod browse;
 pub mod convert;
 pub mod inspect;
+pub mod segment_tree;
+pub mod segments;
 pub mod tree;
 
 #[derive(clap::Parser)]
@@ -51,18 +53,21 @@ enum Commands {
     Browse { file: PathBuf },
     /// Inspect Vortex file footer and metadata
     Inspect(inspect::InspectArgs),
+    /// Display segment information for a Vortex file
+    Segments(segments::SegmentsArgs),
 }
 
 impl Commands {
     fn file_path(&self) -> &PathBuf {
         match self {
             Commands::Tree(args) => match &args.mode {
-                tree::TreeMode::Array { file } => file,
+                tree::TreeMode::Array { file, .. } => file,
                 tree::TreeMode::Layout { file, .. } => file,
             },
             Commands::Browse { file } => file,
             Commands::Convert(flags) => &flags.file,
             Commands::Inspect(args) => &args.file,
+            Commands::Segments(args) => &args.file,
         }
     }
 }
@@ -95,6 +100,7 @@ pub async fn launch(session: &VortexSession) -> anyhow::Result<()> {
         Commands::Convert(flags) => convert::exec_convert(session, flags).await?,
         Commands::Browse { file } => browse::exec_tui(session, file).await?,
         Commands::Inspect(args) => inspect::exec_inspect(session, args).await?,
+        Commands::Segments(args) => segments::exec_segments(session, args).await?,
     };
 
     Ok(())
