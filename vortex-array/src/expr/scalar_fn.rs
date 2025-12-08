@@ -14,14 +14,14 @@ use vortex_error::VortexResult;
 use vortex_utils::debug_with::DebugWith;
 use vortex_vector::Datum;
 
-use crate::ArrayRef;
+use crate::expr::options::ExpressionOptions;
+use crate::expr::signature::ExpressionSignature;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::ExprVTable;
 use crate::expr::Expression;
 use crate::expr::VTable;
-use crate::expr::options::ExpressionOptions;
-use crate::expr::signature::ExpressionSignature;
+use crate::ArrayRef;
 
 /// An instance of an expression bound to some invocation options.
 pub struct ScalarFn {
@@ -100,6 +100,15 @@ impl ScalarFn {
     /// Execute the expression given the input arguments.
     pub fn execute(&self, ctx: ExecutionArgs) -> VortexResult<Datum> {
         self.vtable.as_dyn().execute(self.options.deref(), ctx)
+    }
+
+    /// Returns a cost estimate for executing _just_ this expression given a selection mask.
+    ///
+    /// Unlike [`crate::kernel::Kernel::cost_estimate`], does not include child cost.
+    pub fn cost_estimate(&self, selection: &vortex_mask::Mask) -> f64 {
+        self.vtable
+            .as_dyn()
+            .cost_estimate(self.options.deref(), selection)
     }
 }
 

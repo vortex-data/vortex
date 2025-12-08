@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_vector::Vector;
 
 use crate::kernel::Kernel;
@@ -25,5 +26,10 @@ impl ReadyKernel {
 impl Kernel for ReadyKernel {
     fn execute(self: Box<Self>) -> VortexResult<Vector> {
         Ok(self.0)
+    }
+
+    fn cost_estimate(&self, selection: &Mask) -> f64 {
+        _ = selection;
+        0.0
     }
 }

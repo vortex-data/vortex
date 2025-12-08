@@ -40,10 +40,15 @@ pub trait Kernel: 'static + Send + Debug {
     /// Push a selection mask through this kernel.
     ///
     /// Return `Ok(None)` if the filter cannot be pushed down.
-    fn push_down_filter(&self, selection: &Mask) -> VortexResult<Option<KernelRef>> {
+    fn push_down_filter(self: Box<Self>, selection: &Mask) -> VortexResult<PushDownResult> {
         _ = selection;
-        Ok(None)
+        Ok(PushDownResult::NotPushed(self))
     }
+}
+
+pub enum PushDownResult {
+    Pushed(KernelRef),
+    NotPushed(KernelRef),
 }
 
 /// Bind context for batch array compute.

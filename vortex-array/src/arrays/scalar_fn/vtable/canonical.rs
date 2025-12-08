@@ -4,15 +4,15 @@
 use itertools::Itertools;
 use vortex_error::VortexExpect;
 
-use crate::Array;
-use crate::Canonical;
-use crate::arrays::LEGACY_SESSION;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
+use crate::arrays::LEGACY_SESSION;
 use crate::executor::VectorExecutor;
 use crate::expr::ExecutionArgs;
 use crate::vectors::VectorIntoArray;
 use crate::vtable::CanonicalVTable;
+use crate::Array;
+use crate::Canonical;
 
 impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
     fn canonicalize(array: &ScalarFnArray) -> Canonical {
@@ -34,12 +34,12 @@ impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
             return_dtype: array.dtype.clone(),
         };
 
+        let len = array.len;
         let result_vector = array
             .scalar_fn
             .execute(ctx)
             .vortex_expect("Canonicalize should be fallible")
-            .into_vector()
-            .vortex_expect("Canonicalize should return a vector");
+            .ensure_vector(len);
 
         result_vector.into_array(&array.dtype).to_canonical()
     }

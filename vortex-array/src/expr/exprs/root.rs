@@ -5,12 +5,14 @@ use std::fmt::Formatter;
 
 use vortex_dtype::DType;
 use vortex_dtype::FieldPath;
+use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
+use vortex_mask::Mask;
 use vortex_vector::Datum;
 
-use crate::ArrayRef;
+use crate::expr::expression::Expression;
+use crate::expr::stats::Stat;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
@@ -19,8 +21,7 @@ use crate::expr::ExprId;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::expr::expression::Expression;
-use crate::expr::stats::Stat;
+use crate::ArrayRef;
 
 /// An expression that returns the full scope of the expression evaluation.
 // TODO(ngates): rename to "Scope"
@@ -76,6 +77,10 @@ impl VTable for Root {
 
     fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
         vortex_bail!("Root expression is not executable")
+    }
+
+    fn cost_estimate(&self, _options: &Self::Options, _selection: &Mask) -> f64 {
+        0.0
     }
 
     fn stat_expression(

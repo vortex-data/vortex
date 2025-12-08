@@ -9,17 +9,18 @@ use vortex_dtype::DType;
 use vortex_dtype::FieldName;
 use vortex_dtype::FieldPath;
 use vortex_dtype::Nullability;
+use vortex_error::vortex_err;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_proto::expr as pb;
 use vortex_vector::Datum;
 use vortex_vector::ScalarOps;
 use vortex_vector::VectorOps;
 
-use crate::ArrayRef;
-use crate::ToCanonical;
 use crate::compute::mask;
+use crate::expr::exprs::root::root;
+use crate::expr::stats::Stat;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -30,8 +31,8 @@ use crate::expr::SimplifyCtx;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::expr::exprs::root::root;
-use crate::expr::stats::Stat;
+use crate::ArrayRef;
+use crate::ToCanonical;
 
 pub struct GetItem;
 
@@ -189,6 +190,11 @@ impl VTable for GetItem {
         // If this type-checks its infallible.
         false
     }
+
+    fn cost_estimate(&self, _options: &Self::Options, _selection: &Mask) -> f64 {
+        // This is largely a metadata-only operation.
+        0.0
+    }
 }
 
 /// Creates an expression that accesses a field from the root array.
@@ -226,8 +232,6 @@ mod tests {
     use vortex_dtype::StructFields;
     use vortex_scalar::Scalar;
 
-    use crate::Array;
-    use crate::IntoArray;
     use crate::arrays::StructArray;
     use crate::expr::exprs::binary::checked_add;
     use crate::expr::exprs::get_item::get_item;
@@ -235,6 +239,8 @@ mod tests {
     use crate::expr::exprs::pack::pack;
     use crate::expr::exprs::root::root;
     use crate::validity::Validity;
+    use crate::Array;
+    use crate::IntoArray;
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[

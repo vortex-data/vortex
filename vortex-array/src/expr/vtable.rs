@@ -13,18 +13,19 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
+use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
+use vortex_mask::Mask;
 use vortex_vector::Datum;
 use vortex_vector::VectorOps;
 
-use crate::ArrayRef;
-use crate::expr::ExprId;
-use crate::expr::StatsCatalog;
 use crate::expr::expression::Expression;
 use crate::expr::scalar_fn::ScalarFn;
 use crate::expr::stats::Stat;
+use crate::expr::ExprId;
+use crate::expr::StatsCatalog;
+use crate::ArrayRef;
 
 /// This trait defines the interface for expression vtables, including methods for
 /// serialization, deserialization, validation, child naming, return type computation,
@@ -175,6 +176,20 @@ pub trait VTable: 'static + Sized + Send + Sync {
         _ = options;
         true
     }
+
+    /// Report an estimated cost for computing this expression over the given filter mask using
+    /// the [`VTable::execute`] method.
+    ///
+    /// See [`crate::kernel::Kernel::cost_estimate`].
+    ///
+    /// Return [`f64::INFINITY`] if the kernel has unknown cost, meaning filters will _always_
+    /// be pushed through the kernel if possible. Return `0.0` for expressions that are free to
+    /// compute (e.g. manipulating metadata only like `vortex.pack`).
+    fn cost_estimate(&self, options: &Self::Options, selection: &Mask) -> f64 {
+        _ = options;
+        _ = selection;
+        f64::INFINITY
+    }
 }
 
 /// The arity (number of arguments) of a function.
@@ -304,6 +319,7 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     ) -> VortexResult<Option<Expression>>;
     fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<Datum>;
     fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef>;
+    fn cost_estimate(&self, options: &dyn Any, selection: &Mask) -> f64;
 
     fn arity(&self, options: &dyn Any) -> Arity;
     fn child_name(&self, options: &dyn Any, child_idx: usize) -> ChildName;
@@ -434,6 +450,10 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
             expression,
             scope,
         )
+    }
+
+    fn cost_estimate(&self, options: &dyn Any, selection: &Mask) -> f64 {
+        V::cost_estimate(&self.0, downcast::<V>(options), selection)
     }
 
     fn arity(&self, options: &dyn Any) -> Arity {
@@ -595,8 +615,8 @@ mod tests {
     use crate::expr::exprs::root::root;
     use crate::expr::exprs::select::select;
     use crate::expr::exprs::select::select_exclude;
-    use crate::expr::proto::ExprSerializeProtoExt;
     use crate::expr::proto::deserialize_expr_proto;
+    use crate::expr::proto::ExprSerializeProtoExt;
     use crate::expr::session::ExprRegistry;
     use crate::expr::session::ExprSession;
 
