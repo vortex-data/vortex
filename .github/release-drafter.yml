@@ -37,7 +37,7 @@ version-resolver:
   default: patch
 
 exclude-labels:
-  - 'skip-changelog'
+  - "skip-changelog"
 
 template: |
   ## Changes

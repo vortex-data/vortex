@@ -7,9 +7,9 @@ on:
     # Permits a custom run to create a pre-release
     inputs:
       prerelease-identifier:
-        description: 'RC identifier (e.g., rc, beta, alpha)'
+        description: "RC identifier (e.g., rc, beta, alpha)"
         type: string
-        default: 'rc'
+        default: "rc"
 
 permissions:
   contents: read
