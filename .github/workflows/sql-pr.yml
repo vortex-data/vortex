@@ -6,7 +6,7 @@ on:
   pull_request:
     types: [labeled, synchronize]
     branches: ["develop"]
-  workflow_dispatch: {}
+  workflow_dispatch: { }
 
 permissions:
   actions: write  # for removing labels

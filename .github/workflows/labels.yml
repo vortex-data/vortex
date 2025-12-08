@@ -34,6 +34,7 @@ jobs:
             "performance"
             "break"
             "wire-break"
+            "skip-changelog"
           )
           REQUIRED_LABELS_JSON=$(jq -n '$ARGS.positional' --args "${REQUIRED_LABELS[@]}")
           echo "Required Labels: $REQUIRED_LABELS_JSON"

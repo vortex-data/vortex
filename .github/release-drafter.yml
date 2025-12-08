@@ -1,4 +1,4 @@
-name-template: "🌪 $RESOLVED_VERSION"
+name-template: "$RESOLVED_VERSION"
 tag-template: "$RESOLVED_VERSION"
 categories:
   - title: "⚠️ Breaks"
@@ -35,6 +35,9 @@ version-resolver:
       - "break"
       - "wire-break"
   default: patch
+
+exclude-labels:
+  - "skip-changelog"
 
 template: |
   ## Changes
