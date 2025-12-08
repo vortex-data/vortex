@@ -42,7 +42,7 @@ impl ArrayOptimizer {
     /// This performs two passes following the ExprSession pattern:
     /// 1. Apply parent rules - bottom-up traversal checking parent-child relationships
     /// 2. Apply reduce rules - bottom-up traversal applying transformations to each node
-    pub fn optimize_array(&self, array: ArrayRef) -> VortexResult<ArrayRef> {
+    pub fn optimize_array(&self, array: &ArrayRef) -> VortexResult<ArrayRef> {
         // First pass: apply parent rules
         let array = self.apply_parent_rules(array)?;
 
@@ -56,18 +56,18 @@ impl ArrayOptimizer {
     ///
     /// For each array, recursively process children first, then check if any parent
     /// rules apply to transform children based on their parent context.
-    fn apply_parent_rules(&self, array: ArrayRef) -> VortexResult<ArrayRef> {
+    fn apply_parent_rules(&self, array: &ArrayRef) -> VortexResult<ArrayRef> {
         // First, recursively apply parent rules to all children
         let children = array.children();
         if children.is_empty() {
-            return Ok(array);
+            return Ok(array.clone());
         }
 
         let mut optimized_children = Vec::with_capacity(children.len());
         let mut children_changed = false;
 
         for child in children.iter() {
-            let optimized_child = self.apply_parent_rules(child.clone())?;
+            let optimized_child = self.apply_parent_rules(child)?;
             children_changed |= !Arc::ptr_eq(&optimized_child, child);
             optimized_children.push(optimized_child);
         }
@@ -76,7 +76,7 @@ impl ArrayOptimizer {
         let array = if children_changed {
             array.with_children(&optimized_children)?
         } else {
-            array
+            array.clone()
         };
 
         // Now try to apply parent rules to each optimized child in the context of this array

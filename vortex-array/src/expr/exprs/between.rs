@@ -9,6 +9,7 @@ use vortex_dtype::DType::Bool;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_vector::Datum;
 
@@ -149,8 +150,39 @@ impl VTable for Between {
         between_compute(&arr, &lower, &upper, options)
     }
 
-    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
-        todo!()
+    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
+        let [arr, lower, upper]: [Datum; _] = args
+            .datums
+            .try_into()
+            .map_err(|_| vortex_err!("Expected 3 arguments for Between expression",))?;
+        let [arr_dt, lower_dt, upper_dt]: [DType; _] = args
+            .dtypes
+            .try_into()
+            .map_err(|_| vortex_err!("Expected 3 dtypes for Between expression",))?;
+
+        let lower_bound = Binary
+            .bind(options.lower_strict.to_operator().into())
+            .execute(ExecutionArgs {
+                datums: vec![lower, arr.clone()],
+                dtypes: vec![lower_dt, arr_dt.clone()],
+                row_count: args.row_count,
+                return_dtype: args.return_dtype.clone(),
+            })?;
+        let upper_bound = Binary
+            .bind(options.upper_strict.to_operator().into())
+            .execute(ExecutionArgs {
+                datums: vec![arr, upper],
+                dtypes: vec![arr_dt, upper_dt],
+                row_count: args.row_count,
+                return_dtype: args.return_dtype.clone(),
+            })?;
+
+        Binary.bind(Operator::And).execute(ExecutionArgs {
+            datums: vec![lower_bound, upper_bound],
+            dtypes: vec![args.return_dtype.clone(), args.return_dtype.clone()],
+            row_count: args.row_count,
+            return_dtype: args.return_dtype,
+        })
     }
 
     fn stat_falsification(

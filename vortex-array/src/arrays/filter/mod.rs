@@ -4,4 +4,5 @@
 mod array;
 mod vtable;
 
+pub use array::*;
 pub use vtable::*;

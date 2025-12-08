@@ -44,6 +44,15 @@ impl MaskMut {
         Self(Inner::Empty { capacity })
     }
 
+    /// Creates a new mask with the specified capacity.
+    pub fn new(len: usize, value: bool) -> Self {
+        Self(Inner::Constant {
+            value,
+            len,
+            capacity: len,
+        })
+    }
+
     /// Creates a new mask with all values set to `true`.
     pub fn new_true(len: usize) -> Self {
         Self(Inner::Constant {

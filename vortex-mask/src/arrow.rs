@@ -2,14 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_buffer::NullBuffer;
-use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
-use crate::arrow::IntoArrow;
+use crate::Mask;
 
-impl IntoArrow<Option<NullBuffer>> for Mask {
-    fn into_arrow(self) -> VortexResult<Option<NullBuffer>> {
-        Ok(match self {
+impl From<Mask> for Option<NullBuffer> {
+    fn from(value: Mask) -> Self {
+        match value {
             Mask::AllTrue(_) => None,
             Mask::AllFalse(len) => Some(NullBuffer::new_null(len)),
             Mask::Values(values) => {
@@ -21,6 +19,6 @@ impl IntoArrow<Option<NullBuffer>> for Mask {
                     )
                 })
             }
-        })
+        }
     }
 }

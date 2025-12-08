@@ -147,8 +147,9 @@ impl<T: BinaryViewType> BinaryViewVectorMut<T> {
     /// Append a repeated sequence of binary data to a vector.
     ///
     /// ```
-    /// # use vortex_vector::binaryview::StringVectorMut;
-    /// # use vortex_vector::VectorMutOps;
+    /// use vortex_vector::binaryview::StringVectorMut;
+    /// use vortex_vector::VectorMutOps;
+    ///
     /// let mut strings = StringVectorMut::with_capacity(4);
     /// strings.append_values("inlined", 2);
     /// strings.append_nulls(1);
@@ -194,9 +195,8 @@ impl<T: BinaryViewType> BinaryViewVectorMut<T> {
         } else {
             self.flush_open_buffer();
 
-            let buffer_index = u32::try_from(self.buffers.len())
-                .vortex_expect("buffer count exceeds u32::MAX")
-                + 1;
+            let buffer_index =
+                u32::try_from(self.buffers.len()).vortex_expect("buffer count exceeds u32::MAX");
             self.views
                 .push_n(BinaryView::make_view(buffer.as_ref(), buffer_index, 0), n);
             self.buffers.push(buffer);

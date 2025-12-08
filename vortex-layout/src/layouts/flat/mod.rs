@@ -82,12 +82,13 @@ impl VTable for FlatVTable {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(FlatReader::new(
             layout.clone(),
             name,
             segment_source,
+            session.clone(),
         )))
     }
 

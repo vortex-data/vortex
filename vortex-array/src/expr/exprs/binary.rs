@@ -3,11 +3,15 @@
 
 use std::fmt::Formatter;
 
+use arrow_ord::cmp;
 use prost::Message;
+use vortex_compute::arrow::IntoArrow;
+use vortex_compute::arrow::IntoVector;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_vector::Datum;
 
@@ -123,8 +127,67 @@ impl VTable for Binary {
         }
     }
 
-    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
-        todo!()
+    fn execute(&self, op: &Operator, args: ExecutionArgs) -> VortexResult<Datum> {
+        let [lhs, rhs]: [Datum; _] = args
+            .datums
+            .try_into()
+            .map_err(|_| vortex_err!("Wrong arg count"))?;
+
+        match op {
+            Operator::And => {
+                let lhs = lhs.ensure_vector(args.row_count).into_bool().into_arrow()?;
+                let rhs = rhs.ensure_vector(args.row_count).into_bool().into_arrow()?;
+                return Ok(Datum::Vector(
+                    arrow_arith::boolean::and_kleene(&lhs, &rhs)?
+                        .into_vector()?
+                        .into(),
+                ));
+            }
+            Operator::Or => {
+                let lhs = lhs.ensure_vector(args.row_count).into_bool().into_arrow()?;
+                let rhs = rhs.ensure_vector(args.row_count).into_bool().into_arrow()?;
+                return Ok(Datum::Vector(
+                    arrow_arith::boolean::or_kleene(&lhs, &rhs)?
+                        .into_vector()?
+                        .into(),
+                ));
+            }
+            _ => {}
+        }
+
+        let lhs = lhs.into_arrow()?;
+        let rhs = rhs.into_arrow()?;
+
+        let vector = match op {
+            Operator::Eq => cmp::eq(lhs.as_ref(), rhs.as_ref())?.into_vector()?.into(),
+            Operator::NotEq => cmp::neq(lhs.as_ref(), rhs.as_ref())?.into_vector()?.into(),
+            Operator::Gt => cmp::gt(lhs.as_ref(), rhs.as_ref())?.into_vector()?.into(),
+            Operator::Gte => cmp::gt_eq(lhs.as_ref(), rhs.as_ref())?
+                .into_vector()?
+                .into(),
+            Operator::Lt => cmp::lt(lhs.as_ref(), rhs.as_ref())?.into_vector()?.into(),
+            Operator::Lte => cmp::lt_eq(lhs.as_ref(), rhs.as_ref())?
+                .into_vector()?
+                .into(),
+
+            Operator::Add => {
+                arrow_arith::numeric::add(lhs.as_ref(), rhs.as_ref())?.into_vector()?
+            }
+            Operator::Sub => {
+                arrow_arith::numeric::sub(lhs.as_ref(), rhs.as_ref())?.into_vector()?
+            }
+            Operator::Mul => {
+                arrow_arith::numeric::mul(lhs.as_ref(), rhs.as_ref())?.into_vector()?
+            }
+            Operator::Div => {
+                arrow_arith::numeric::div(lhs.as_ref(), rhs.as_ref())?.into_vector()?
+            }
+            Operator::And | Operator::Or => {
+                unreachable!("Already dealt with above")
+            }
+        };
+
+        Ok(Datum::Vector(vector))
     }
 
     fn stat_falsification(

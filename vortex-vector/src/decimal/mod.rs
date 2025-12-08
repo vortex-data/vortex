@@ -15,8 +15,8 @@
 //! ## Creating and building decimal vectors
 //!
 //! ```
-//! use vortex_dtype::{PrecisionScale};
-//! use vortex_vector::decimal::{DVectorMut};
+//! use vortex_dtype::PrecisionScale;
+//! use vortex_vector::decimal::DVectorMut;
 //! use vortex_vector::VectorMutOps;
 //!
 //! // Create a decimal vector with precision=9, scale=2 (e.g., up to 9999999.99).
@@ -48,7 +48,7 @@
 //!
 //! ```
 //! use vortex_buffer::BufferMut;
-//! use vortex_dtype::{PrecisionScale};
+//! use vortex_dtype::PrecisionScale;
 //! use vortex_mask::MaskMut;
 //! use vortex_vector::decimal::DVectorMut;
 //! use vortex_vector::VectorMutOps;
@@ -78,7 +78,7 @@
 //! ## Extending and manipulating vectors
 //!
 //! ```
-//! use vortex_dtype::{PrecisionScale};
+//! use vortex_dtype::PrecisionScale;
 //! use vortex_vector::decimal::DVectorMut;
 //! use vortex_vector::VectorMutOps;
 //!
@@ -114,7 +114,7 @@
 //! ## Converting between mutable and immutable
 //!
 //! ```
-//! use vortex_dtype::{PrecisionScale};
+//! use vortex_dtype::PrecisionScale;
 //! use vortex_vector::decimal::DVectorMut;
 //! use vortex_vector::{VectorMutOps, VectorOps};
 //!

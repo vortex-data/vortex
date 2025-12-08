@@ -83,8 +83,9 @@ impl VTable for Literal {
         Ok(ConstantArray::new(scalar.clone(), scope.len()).into_array())
     }
 
-    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
-        todo!()
+    fn execute(&self, scalar: &Scalar, _args: ExecutionArgs) -> VortexResult<Datum> {
+        let vector_scalar = scalar.to_vector_scalar();
+        Ok(Datum::Scalar(vector_scalar))
     }
 
     fn stat_expression(

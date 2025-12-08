@@ -4,6 +4,7 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use itertools::Itertools as _;
 use prost::Message;
@@ -12,9 +13,15 @@ use vortex_dtype::FieldName;
 use vortex_dtype::FieldNames;
 use vortex_dtype::Nullability;
 use vortex_dtype::StructFields;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_proto::expr as pb;
 use vortex_vector::Datum;
+use vortex_vector::ScalarOps;
+use vortex_vector::VectorMutOps;
+use vortex_vector::VectorOps;
+use vortex_vector::struct_::StructVector;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -141,8 +148,32 @@ impl VTable for Pack {
         Ok(StructArray::try_new(options.names.clone(), value_arrays, len, validity)?.into_array())
     }
 
-    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
-        todo!()
+    fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
+        // If any datum is a vector, we must convert them all to vectors.
+        if args.datums.iter().any(|d| matches!(d, Datum::Vector(_))) {
+            let fields: Box<[_]> = args
+                .datums
+                .into_iter()
+                .map(|v| v.ensure_vector(args.row_count))
+                .collect();
+            return Ok(Datum::Vector(
+                StructVector::new(Arc::new(fields), Mask::new_true(args.row_count)).into(),
+            ));
+        }
+
+        // Otherwise, we can produce a scalar datum by constructing a length-1 struct vector.
+        let fields: Box<[_]> = args
+            .datums
+            .into_iter()
+            .map(|d| {
+                d.into_scalar()
+                    .vortex_expect("all scalars")
+                    .repeat(1)
+                    .freeze()
+            })
+            .collect();
+        let vector = StructVector::new(Arc::new(fields), Mask::new_true(1));
+        Ok(Datum::Scalar(vector.scalar_at(0).into()))
     }
 
     // This applies a nullability

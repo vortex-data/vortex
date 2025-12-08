@@ -8,6 +8,7 @@ use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_vector::BoolDatum;
 use vortex_vector::Datum;
 use vortex_vector::ScalarOps;
@@ -80,13 +81,12 @@ impl VTable for Mask {
         todo!()
     }
 
-    fn execute(&self, _options: &Self::Options, mut args: ExecutionArgs) -> VortexResult<Datum> {
-        let input = args.datums.pop().vortex_expect("Missing input datum");
-        let mask = args
+    fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
+        let [input, mask]: [Datum; _] = args
             .datums
-            .pop()
-            .vortex_expect("Missing mask datum")
-            .into_bool();
+            .try_into()
+            .map_err(|_| vortex_err!("Wrong arg count"))?;
+        let mask = mask.into_bool();
 
         match (input, mask) {
             (Datum::Scalar(input), BoolDatum::Scalar(mask)) => {

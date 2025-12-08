@@ -3,15 +3,34 @@
 
 use std::fmt::Formatter;
 use std::ops::BitOr;
+use std::ops::Deref;
 
+use arrow_buffer::bit_iterator::BitIndexIterator;
+use vortex_buffer::BitBuffer;
+use vortex_compute::logical::LogicalOr;
 use vortex_dtype::DType;
+use vortex_dtype::IntegerPType;
+use vortex_dtype::Nullability;
+use vortex_dtype::PTypeDowncastExt;
+use vortex_dtype::match_each_integer_ptype;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_mask::Mask;
+use vortex_vector::BoolDatum;
 use vortex_vector::Datum;
+use vortex_vector::Vector;
+use vortex_vector::VectorOps;
+use vortex_vector::bool::BoolVector;
+use vortex_vector::listview::ListViewScalar;
+use vortex_vector::listview::ListViewVector;
+use vortex_vector::primitive::PVector;
 
 use crate::ArrayRef;
 use crate::compute::list_contains as compute_list_contains;
 use crate::expr::Arity;
+use crate::expr::Binary;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
@@ -26,6 +45,7 @@ use crate::expr::exprs::binary::lt;
 use crate::expr::exprs::binary::or;
 use crate::expr::exprs::literal::Literal;
 use crate::expr::exprs::literal::lit;
+use crate::expr::operators;
 
 pub struct ListContains;
 
@@ -100,8 +120,32 @@ impl VTable for ListContains {
         compute_list_contains(list_array.as_ref(), value_array.as_ref())
     }
 
-    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
-        todo!()
+    fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
+        let [lhs, rhs]: [Datum; _] = args
+            .datums
+            .try_into()
+            .map_err(|_| vortex_err!("Wrong number of arguments for ListContains expression"))?;
+
+        let matches = match (lhs.as_scalar().is_some(), rhs.as_scalar().is_some()) {
+            (true, true) => {
+                todo!("Implement ListContains for two scalars")
+            }
+            (true, false) => constant_list_scalar_contains(
+                lhs.into_scalar().vortex_expect("scalar").into_list(),
+                rhs.into_vector().vortex_expect("vector"),
+            ),
+            (false, true) => list_contains_scalar(
+                lhs.ensure_vector(args.row_count).into_list(),
+                rhs.into_scalar().vortex_expect("scalar").into_list(),
+            ),
+            (false, false) => {
+                vortex_bail!(
+                    "ListContains currently only supports constant needle (RHS) or constant list (LHS)"
+                )
+            }
+        }?;
+
+        Ok(Datum::Vector(matches.into()))
     }
 
     fn stat_falsification(
@@ -160,6 +204,152 @@ impl VTable for ListContains {
 /// ```
 pub fn list_contains(list: Expression, value: Expression) -> Expression {
     ListContains.new_expr(EmptyOptions, [list, value])
+}
+
+/// Returns a [`BoolVector`] where each bit represents if a list contains the scalar.
+// FIXME(ngates): test implementation and move to vortex-compute
+fn list_contains_scalar(list: ListViewVector, value: ListViewScalar) -> VortexResult<BoolVector> {
+    // If the list array is constant, we perform a single comparison.
+    // if list.len() > 1 && list.is_constant() {
+    //     let contains = list_contains_scalar(&array.slice(0..1), value, nullability)?;
+    //     return Ok(ConstantArray::new(contains.scalar_at(0), array.len()).into_array());
+    // }
+
+    let elems = list.elements();
+    if elems.is_empty() {
+        // Must return false when a list is empty (but valid), or null when the list itself is null.
+        // return crate::compute::list_contains::list_false_or_null(&list_array, nullability);
+        todo!()
+    }
+
+    let matches = Binary
+        .bind(operators::Operator::Eq)
+        .execute(ExecutionArgs {
+            datums: vec![
+                Datum::Vector(elems.deref().clone()),
+                Datum::Scalar(value.into()),
+            ],
+            // FIXME(ngates): dtypes
+            dtypes: vec![],
+            row_count: elems.len(),
+            return_dtype: DType::Bool(Nullability::Nullable),
+        })?
+        .ensure_vector(elems.len())
+        .into_bool()
+        .into_bits();
+
+    // // Fast path: no elements match.
+    // if let Some(pred) = matches.as_constant() {
+    //     return match pred.as_bool().value() {
+    //         // All comparisons are invalid (result in `null`), and search is not null because
+    //         // we already checked for null above.
+    //         None => {
+    //             assert!(
+    //                 !rhs.scalar().is_null(),
+    //                 "Search value must not be null here"
+    //             );
+    //             // False, unless the list itself is null in which case we return null.
+    //             crate::compute::list_contains::list_false_or_null(&list_array, nullability)
+    //         }
+    //         // No elements match, and all comparisons are valid (result in `false`).
+    //         Some(false) => {
+    //             // False, but match the nullability to the input list array.
+    //             Ok(
+    //                 ConstantArray::new(Scalar::bool(false, nullability), list_array.len())
+    //                     .into_array(),
+    //             )
+    //         }
+    //         // All elements match, and all comparisons are valid (result in `true`).
+    //         Some(true) => {
+    //             // True, unless the list itself is empty or NULL.
+    //             crate::compute::list_contains::list_is_not_empty(&list_array, nullability)
+    //         }
+    //     };
+    // }
+
+    // Get the offsets and sizes as primitive arrays.
+    let offsets = list.offsets();
+    let sizes = list.sizes();
+
+    // Process based on the offset and size types.
+    let list_matches = match_each_integer_ptype!(offsets.ptype(), |O| {
+        match_each_integer_ptype!(sizes.ptype(), |S| {
+            process_matches::<O, S>(
+                matches,
+                list.len(),
+                offsets.downcast::<O>(),
+                sizes.downcast::<S>(),
+            )
+        })
+    });
+
+    Ok(BoolVector::new(list_matches, list.validity().clone()))
+}
+
+// Then there is a constant list scalar (haystack) being compared to an array of needles.
+// FIXME(ngates): test implementation and move to vortex-compute
+fn constant_list_scalar_contains(list: ListViewScalar, values: Vector) -> VortexResult<BoolVector> {
+    let elements = list.value().elements();
+
+    // For each element in the list, we perform a full comparison over the values and OR
+    // the results together.
+    let mut result: BoolVector = BoolVector::new(
+        BitBuffer::new_unset(values.len()),
+        Mask::new(values.len(), true),
+    );
+    for i in 0..elements.len() {
+        let element = Datum::Scalar(elements.scalar_at(i));
+        let compared: BoolDatum = Binary
+            .bind(operators::Operator::Eq)
+            .execute(ExecutionArgs {
+                datums: vec![Datum::Vector(values.clone()), element],
+                dtypes: vec![
+                    // FIXME(ngates): call compute function directly!
+                ],
+                row_count: values.len(),
+                return_dtype: DType::Bool(Nullability::Nullable),
+            })?
+            .into_bool();
+        let compared = Datum::from(compared)
+            .ensure_vector(values.len())
+            .into_bool();
+
+        result = LogicalOr::or(result, &compared);
+    }
+
+    Ok(result)
+}
+
+/// Returns a [`BitBuffer`] where each bit represents if a list contains the scalar, derived from a
+/// [`BoolArray`] of matches on the child elements array.
+///
+/// TODO(ngates): replace this for aggregation function.
+fn process_matches<O, S>(
+    matches: BitBuffer,
+    list_array_len: usize,
+    offsets: &PVector<O>,
+    sizes: &PVector<S>,
+) -> BitBuffer
+where
+    O: IntegerPType,
+    S: IntegerPType,
+{
+    let offsets_slice = offsets.elements().as_slice();
+    let sizes_slice = sizes.elements().as_slice();
+
+    (0..list_array_len)
+        .map(|i| {
+            // TODO(ngates): does validity render this invalid?
+            let offset = offsets_slice[i].as_();
+            let size = sizes_slice[i].as_();
+
+            // BitIndexIterator yields indices of true bits only. If `.next()` returns
+            // `Some(_)`, at least one element in this list's range matches.
+            let mut set_bits =
+                BitIndexIterator::new(matches.inner().as_slice(), matches.offset() + offset, size);
+            set_bits.next().is_some()
+        })
+        .collect::<BitBuffer>()
 }
 
 #[cfg(test)]

@@ -6,7 +6,9 @@ use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 
 use crate::Scalar;
+use crate::ScalarOps;
 use crate::Vector;
+use crate::VectorMutOps;
 use crate::binaryview::BinaryType;
 use crate::binaryview::BinaryViewScalar;
 use crate::binaryview::BinaryViewType;
@@ -53,6 +55,14 @@ impl From<Vector> for Datum {
 }
 
 impl Datum {
+    /// Ensure the datum is a vector by repeating the scalar value if necessary.
+    pub fn ensure_vector(self, len: usize) -> Vector {
+        match self {
+            Datum::Scalar(scalar) => scalar.repeat(len).freeze(),
+            Datum::Vector(vector) => vector,
+        }
+    }
+
     /// Returns the scalar value if this `Datum` is a `Scalar`, otherwise returns `None`.
     pub fn into_scalar(self) -> Option<Scalar> {
         match self {
@@ -180,6 +190,7 @@ macro_rules! datum {
     // Non-generic version
     ($Name:ident) => {
         paste::paste! {
+            #[derive(Clone, Debug)]
             #[doc = concat!("Datum enum for `", stringify!($Name), "`.")]
             pub enum [<$Name Datum>] {
                 /// Scalar variant
@@ -220,6 +231,7 @@ macro_rules! datum {
     // Generic version with trait bound
     ($Name:ident < $T:ident : $Bound:path >) => {
         paste::paste! {
+            #[derive(Clone, Debug)]
             #[doc = concat!("Datum enum for `", stringify!([<$Name Datum>]<$T: $Bound>), "`.")]
             pub enum [<$Name Datum>]<$T: $Bound> {
                 /// Scalar variant
@@ -270,7 +282,7 @@ datum!(FixedSizeList);
 datum!(Struct);
 
 impl PrimitiveDatum {
-    /// ptype from datum
+    /// Returns the primitive type of this datum.
     pub fn ptype(&self) -> PType {
         match self {
             PrimitiveDatum::Scalar(sc) => sc.ptype(),
@@ -280,6 +292,7 @@ impl PrimitiveDatum {
 }
 
 /// A variant of [`Datum`] that is typed.
+#[derive(Debug)]
 pub enum TypedDatum {
     /// Null datum.
     Null(NullDatum),

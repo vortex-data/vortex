@@ -2,31 +2,44 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hasher;
+use std::ops::Range;
 
 use vortex_buffer::BufferHandle;
+use vortex_compute::filter::Filter;
 use vortex_dtype::DType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
-use vortex_vector::Vector;
+use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
 use crate::ArrayEq;
 use crate::ArrayHash;
+use crate::ArrayRef;
+use crate::Canonical;
+use crate::IntoArray;
 use crate::Precision;
+use crate::arrays::LEGACY_SESSION;
 use crate::arrays::filter::array::FilterArray;
-use crate::execution::ExecutionCtx;
+use crate::kernel::BindCtx;
+use crate::kernel::KernelRef;
+use crate::kernel::kernel;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
+use crate::vectors::VectorIntoArray;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::BaseArrayVTable;
+use crate::vtable::CanonicalVTable;
 use crate::vtable::NotSupported;
+use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
+use crate::vtable::ValidityVTable;
 use crate::vtable::VisitorVTable;
 
 vtable!(Filter);
@@ -38,9 +51,9 @@ impl VTable for FilterVTable {
     type Array = FilterArray;
     type Metadata = Mask;
     type ArrayVTable = Self;
-    type CanonicalVTable = NotSupported;
-    type OperationsVTable = NotSupported;
-    type ValidityVTable = NotSupported;
+    type CanonicalVTable = Self;
+    type OperationsVTable = Self;
+    type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
@@ -81,9 +94,10 @@ impl VTable for FilterVTable {
         })
     }
 
-    fn batch_execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        let child = array.child.batch_execute(ctx)?;
-        Ok(vortex_compute::filter::Filter::filter(&child, &array.mask))
+    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
+        let child = array.child.bind_kernel(ctx)?;
+        let mask = array.mask.clone();
+        Ok(kernel(move || Ok(Filter::filter(&child.execute()?, &mask))))
     }
 }
 
@@ -107,6 +121,48 @@ impl BaseArrayVTable<FilterVTable> for FilterVTable {
 
     fn array_eq(array: &FilterArray, other: &FilterArray, precision: Precision) -> bool {
         array.child.array_eq(&other.child, precision) && array.mask.array_eq(&other.mask, precision)
+    }
+}
+
+impl CanonicalVTable<FilterVTable> for FilterVTable {
+    fn canonicalize(array: &FilterArray) -> Canonical {
+        let vector = FilterVTable::bind_kernel(array, &mut BindCtx::new(LEGACY_SESSION.clone()))
+            .vortex_expect("Canonicalize should be fallible")
+            .execute()
+            .vortex_expect("Canonicalize should be fallible");
+        vector.into_array(array.dtype()).to_canonical()
+    }
+}
+
+impl OperationsVTable<FilterVTable> for FilterVTable {
+    fn slice(array: &FilterArray, range: Range<usize>) -> ArrayRef {
+        FilterArray::new(array.child.slice(range.clone()), array.mask.slice(range)).into_array()
+    }
+
+    fn scalar_at(array: &FilterArray, index: usize) -> Scalar {
+        let rank_idx = array.mask.rank(index);
+        array.child.scalar_at(rank_idx)
+    }
+}
+
+impl ValidityVTable<FilterVTable> for FilterVTable {
+    fn is_valid(array: &FilterArray, index: usize) -> bool {
+        let rank_idx = array.mask.rank(index);
+        array.child.is_valid(rank_idx)
+    }
+
+    fn all_valid(array: &FilterArray) -> bool {
+        // An over-approximation: if the child is all valid, then the filtered array is all valid.
+        array.child.all_valid()
+    }
+
+    fn all_invalid(array: &FilterArray) -> bool {
+        // An over-approximation: if the child is all invalid, then the filtered array is all invalid.
+        array.child.all_invalid()
+    }
+
+    fn validity_mask(array: &FilterArray) -> Mask {
+        Filter::filter(&array.child.validity_mask(), &array.mask)
     }
 }
 

@@ -8498,6 +8498,7 @@ version = "0.1.0"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
+ "arrow-ord",
  "arrow-schema",
  "codspeed-divan-compat",
  "log",
@@ -8938,6 +8939,7 @@ dependencies = [
 name = "vortex-mask"
 version = "0.1.0"
 dependencies = [
+ "arrow-buffer",
  "itertools 0.14.0",
  "rstest",
  "serde",

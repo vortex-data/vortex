@@ -4,9 +4,12 @@
 use std::fmt::Formatter;
 
 use prost::Message;
+use vortex_compute::arrow::IntoArrow;
+use vortex_compute::arrow::IntoVector;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_vector::Datum;
 
@@ -109,8 +112,23 @@ impl VTable for Like {
         like_compute(&child, &pattern, *options)
     }
 
-    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
-        todo!()
+    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
+        let [child, pattern]: [Datum; _] = args
+            .datums
+            .try_into()
+            .map_err(|_| vortex_err!("Wrong argument count"))?;
+
+        let child = child.into_arrow()?;
+        let pattern = pattern.into_arrow()?;
+
+        let array = match (options.negated, options.case_insensitive) {
+            (false, false) => arrow_string::like::like(child.as_ref(), pattern.as_ref()),
+            (false, true) => arrow_string::like::ilike(child.as_ref(), pattern.as_ref()),
+            (true, false) => arrow_string::like::nlike(child.as_ref(), pattern.as_ref()),
+            (true, true) => arrow_string::like::nilike(child.as_ref(), pattern.as_ref()),
+        }?;
+
+        Ok(Datum::Vector(array.into_vector()?.into()))
     }
 
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {

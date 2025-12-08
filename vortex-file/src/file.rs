@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::ArrayRef;
+use vortex_array::VectorExecutor;
 use vortex_array::expr::Expression;
 use vortex_array::expr::pruning::checked_pruning_expr;
 use vortex_array::stats::StatsSet;
@@ -21,6 +22,7 @@ use vortex_dtype::FieldPath;
 use vortex_dtype::FieldPathSet;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
+use vortex_layout::layouts::USE_VORTEX_OPERATORS;
 use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;
 use vortex_scan::ScanBuilder;
@@ -156,10 +158,17 @@ impl VortexFile {
             return Ok(false);
         };
 
-        Ok(predicate
-            .evaluate(&file_stats)?
-            .as_constant()
-            .is_some_and(|result| result.as_bool().value() == Some(true)))
+        Ok(if *USE_VORTEX_OPERATORS {
+            file_stats
+                .execute_datum_optimized(&self.session)?
+                .into_scalar()
+                .is_some_and(|s| s.as_bool().value() == Some(true))
+        } else {
+            predicate
+                .evaluate(&file_stats)?
+                .as_constant()
+                .is_some_and(|result| result.as_bool().value() == Some(true))
+        })
     }
 
     pub fn splits(&self) -> VortexResult<Vec<Range<u64>>> {

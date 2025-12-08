@@ -24,7 +24,7 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
 
         ScalarFnArray {
             vtable: array.vtable.clone(),
-            bound: array.bound.clone(),
+            scalar_fn: array.scalar_fn.clone(),
             dtype: array.dtype.clone(),
             len: range.len(),
             children,
@@ -50,7 +50,7 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
         };
 
         let _result = array
-            .bound
+            .scalar_fn
             .execute(ctx)
             .vortex_expect("Scalar function execution should be fallible")
             .into_scalar()
