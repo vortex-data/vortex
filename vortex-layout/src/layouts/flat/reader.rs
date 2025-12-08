@@ -5,13 +5,16 @@ use std::collections::BTreeSet;
 use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
+use vortex_array::compute::filter;
 use vortex_array::expr::Expression;
+use vortex_array::expr::Root;
 use vortex_array::serde::ArrayParts;
 use vortex_array::session::ArraySessionExt;
 use vortex_dtype::DType;
@@ -26,6 +29,19 @@ use crate::LayoutReader;
 use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentSource;
+
+static USE_VORTEX_OPERATORS: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("VORTEX_OPERATORS")
+        .map(|v| v == "1" || v.to_lowercase() == "true")
+        .unwrap_or(false)
+});
+
+/// The threshold of mask density below which we will evaluate the expression only over the
+/// selected rows, and above which we evaluate the expression over all rows and then select
+/// after.
+// TODO(ngates): more experimentation is needed, and this should probably be dynamic based on the
+//  actual expression? Perhaps all expressions are given a selection mask to decide for themselves?
+const EXPR_EVAL_THRESHOLD: f64 = 0.2;
 
 pub struct FlatReader {
     layout: FlatLayout,
@@ -137,18 +153,47 @@ impl LayoutReader for FlatReader {
                 array = array.slice(row_range.clone());
             }
 
-            // Apply the expression to the array.
-            let array = array.apply(&expr)?;
+            let array_mask = if *USE_VORTEX_OPERATORS {
+                // Apply the expression to the array.
+                let array = array.apply(&expr)?;
 
-            log::info!("Filter Array:\n{}", array.display_tree());
-            let array = optimizer.optimize_array(array)?;
-            log::warn!("Optimized Filter Array:\n{}", array.display_tree());
+                log::info!("Filter Array:\n{}", array.display_tree());
+                let array = optimizer.optimize_array(array)?;
+                log::warn!("Optimized Filter Array:\n{}", array.display_tree());
 
-            // Evaluate the array into a mask.
-            let array_mask = array.execute_mask(&session)?;
-            let array_mask = mask.bitand(&array_mask);
+                // Evaluate the array into a mask.
+                let array_mask = array.execute_mask(&session)?;
+                mask.bitand(&array_mask)
+            } else {
+                // TODO(ngates): the mask may actually be dense within a range, as is often the case when
+                //  we have approximate mask results from a zone map. In which case we could look at
+                //  the true_count between the mask's first and last true positions.
+                // TODO(ngates): we could also track runtime statistics about whether it's worth selecting
+                //   or not.
+                if mask.density() < EXPR_EVAL_THRESHOLD {
+                    // Evaluate only the selected rows of the mask.
+                    array = filter(&array, &mask)?;
+                    // TODO(joe): fixme casting null to false is *VERY* unsound, if the expression in the filter
+                    // can inspect nulls (e.g. `is_null`).
+                    // you will need to call the array evaluation instead of the mask evaluation.
+                    let array_mask = expr
+                        .evaluate(&array)
+                        .map_err(|err| {
+                            err.with_context(format!("While evaluating filter {}", expr))
+                        })?
+                        .try_to_mask_fill_null_false()?;
+                    mask.intersect_by_rank(&array_mask)
+                } else {
+                    // Evaluate all rows, avoiding the more expensive rank intersection.
+                    array = expr.evaluate(&array).map_err(|err| {
+                        err.with_context(format!("While evaluating filter {}", expr))
+                    })?;
+                    let array_mask = array.try_to_mask_fill_null_false()?;
+                    mask.bitand(&array_mask)
+                }
+            };
 
-            log::warn!(
+            log::debug!(
                 "Flat mask evaluation {} - {} (mask = {}) => {}",
                 name,
                 expr,
@@ -186,17 +231,34 @@ impl LayoutReader for FlatReader {
                 array = array.slice(row_range.clone());
             }
 
-            // Evaluate the projection expression.
-            array = array.apply(&expr)?;
+            if *USE_VORTEX_OPERATORS {
+                // Evaluate the projection expression.
+                array = array.apply(&expr)?;
 
-            // Filter the array based on the row mask.
-            if !mask.all_true() {
-                array = array.filter(&mask)?;
+                // Filter the array based on the row mask.
+                if !mask.all_true() {
+                    array = array.filter(&mask)?;
+                }
+
+                log::debug!("Project Array:\n{}", array.display_tree());
+                let array = optimizer.optimize_array(array)?;
+                log::info!("Optimized Project Array:\n{}", array.display_tree());
+                array
+            } else {
+                // Filter the array based on the row mask.
+                if !mask.all_true() {
+                    array = filter(&array, &mask)?;
+                    array = array.filter(&mask)?;
+                }
+
+                // Evaluate the projection expression.
+                if !expr.is::<Root>() {
+                    array = expr.evaluate(&array).map_err(|err| {
+                        err.with_context(format!("While evaluating projection {}", expr))
+                    })?;
+                }
+                array
             }
-
-            log::info!("Project Array:\n{}", array.display_tree());
-            let array = optimizer.optimize_array(array)?;
-            log::info!("Optimized Project Array:\n{}", array.display_tree());
 
             Ok(array)
         }
