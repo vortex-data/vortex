@@ -230,7 +230,6 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: taiki-e/install-action@cargo-minimal-versions
       - run: cargo minimal-versions check --direct --workspace --ignore-private
 
   rust-lint:
@@ -343,12 +342,6 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - name: Install grcov
-        uses: taiki-e/install-action@grcov
-      - name: Install nextest
-        uses: taiki-e/install-action@v2
-        with:
-          tool: nextest
       - name: Rust Tests
         if: ${{ matrix.suite == 'tests' }}
         run: |
@@ -363,8 +356,6 @@ jobs:
         run: |
           cargo build -p vortex-ffi
           cargo run -p vortex-ffi --example hello_vortex
-      - name: Install llvm-tools-preview
-        run: rustup component add llvm-tools-preview
       - name: Generate coverage report
         run: |
           grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
