@@ -8,8 +8,8 @@
 //! ## Extending and appending
 //!
 //! ```
-//! use crate::bool::BoolVectorMut;
-//! use crate::VectorMutOps;
+//! use vortex_vector::bool::BoolVectorMut;
+//! use vortex_vector::VectorMutOps;
 //!
 //! let mut vec1 = BoolVectorMut::from_iter([true, false].map(Some));
 //! let vec2 = BoolVectorMut::from_iter([true, true].map(Some)).freeze();
@@ -26,8 +26,8 @@
 //! ## Splitting and unsplitting
 //!
 //! ```
-//! use crate::bool::BoolVectorMut;
-//! use crate::VectorMutOps;
+//! use vortex_vector::bool::BoolVectorMut;
+//! use vortex_vector::VectorMutOps;
 //!
 //! let mut vec = BoolVectorMut::from_iter([true, false, true, false, true].map(Some));
 //!
@@ -44,8 +44,8 @@
 //! ## Converting to immutable
 //!
 //! ```
-//! use crate::bool::BoolVectorMut;
-//! use crate::{VectorMutOps, VectorOps};
+//! use vortex_vector::bool::BoolVectorMut;
+//! use vortex_vector::{VectorMutOps, VectorOps};
 //!
 //! let mut vec = BoolVectorMut::from_iter([true, false, true].map(Some));
 //!

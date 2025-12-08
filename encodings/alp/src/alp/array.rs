@@ -475,6 +475,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::VectorExecutor;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::session::ArraySession;
     use vortex_array::vtable::ValidityHelper;
     use vortex_dtype::PTypeDowncast;
     use vortex_session::VortexSession;
@@ -482,7 +483,8 @@ mod tests {
 
     use super::*;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[rstest]
     #[case(0)]

@@ -243,7 +243,6 @@ impl LayoutReader for FlatReader {
                 // Filter the array based on the row mask.
                 if !mask.all_true() {
                     array = filter(&array, &mask)?;
-                    array = array.filter(&mask)?;
                 }
 
                 // Evaluate the projection expression.
