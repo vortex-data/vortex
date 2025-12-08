@@ -153,7 +153,7 @@ impl Datum {
         }
     }
 
-    /// Convert this datum into a typed datum.
+    /// Converts the `Datum` into a `TypedDatum`.
     pub fn into_typed(self) -> TypedDatum {
         match self {
             Datum::Scalar(sc) => match sc {

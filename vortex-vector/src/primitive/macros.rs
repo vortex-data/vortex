@@ -257,7 +257,7 @@ macro_rules! match_each_unsigned_pvector_mut {
     }};
 }
 
-/// Matches on pairs of [`PrimitiveVector`] with the same type and executes the provided code.
+/// Matches on pairs of [`crate::primitive::PrimitiveVector`] with the same type and executes the provided code.
 #[macro_export]
 macro_rules! match_each_pvector_pair {
     (($left:expr, $right:expr), | $l:ident, $r:ident | $body:block, $else:block) => {{
@@ -416,12 +416,10 @@ macro_rules! match_each_pscalar {
     }};
 }
 
-/// Matches on pairs of [`PrimitiveScalar`] with the same type and executes the provided code.
+/// Matches on pairs of [`crate::primitive::PrimitiveScalar`] with the same type and executes the provided code.
 ///
 /// This macro matches two primitive scalars when they have the same underlying type.
 /// For type mismatches, the `$else` block is executed.
-///
-/// [`PrimitiveScalar`]: crate::primitive::PrimitiveScalar
 #[macro_export]
 macro_rules! match_each_pscalar_pair {
     (($left:expr, $right:expr), | $l:ident, $r:ident | $body:block, $else:block) => {{

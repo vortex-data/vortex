@@ -7,8 +7,8 @@ concurrency:
 on:
   push:
     branches: ["develop"]
-  pull_request: {}
-  workflow_dispatch: {}
+  pull_request: { }
+  workflow_dispatch: { }
 
 permissions:
   actions: read
@@ -685,3 +685,6 @@ jobs:
         working-directory: vortex-flatbuffers/
         run: |
           find flatbuffers/ -type f -name "*.fbs" | sed 's/^flatbuffers\///' | xargs -I{} -n1 flatc -I flatbuffers.HEAD --conform-includes flatbuffers --conform flatbuffers/{} flatbuffers.HEAD/{}
+
+vortex-compute/src/comparison/datum:
+  rs:
