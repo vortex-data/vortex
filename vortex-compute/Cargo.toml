@@ -29,6 +29,7 @@ vortex-vector = { workspace = true }
 arrow-array = { workspace = true, optional = true }
 arrow-buffer = { workspace = true, optional = true }
 arrow-schema = { workspace = true, optional = true }
+half = { workspace = true }
 log = { workspace = true }
 multiversion = { workspace = true }
 num-traits = { workspace = true }

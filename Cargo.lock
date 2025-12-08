@@ -8500,6 +8500,7 @@ dependencies = [
  "arrow-buffer",
  "arrow-schema",
  "codspeed-divan-compat",
+ "half",
  "log",
  "multiversion",
  "num-traits",

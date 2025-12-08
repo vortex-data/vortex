@@ -33,10 +33,6 @@ use crate::validity::Validity;
 
 pub(super) struct TakeKernelPortableSimd;
 
-// SIMD types larger than the SIMD register size are beneficial for
-// performance as this leads to better instruction level parallelism.
-const SIMD_WIDTH: usize = 64;
-
 impl TakeImpl for TakeKernelPortableSimd {
     fn take(
         &self,
@@ -47,7 +43,7 @@ impl TakeImpl for TakeKernelPortableSimd {
         if array.ptype() == PType::F16 {
             // Special handling for f16 to treat as opaque u16
             let decoded = match_each_unsigned_integer_ptype!(unsigned_indices.ptype(), |C| {
-                portable::take_portable_simd::<u16, C, SIMD_WIDTH>(
+                portable::take_portable_simd::<u16, C, { portable::SIMD_WIDTH }>(
                     array.reinterpret_cast(PType::U16).as_slice(),
                     unsigned_indices.as_slice(),
                 )
@@ -58,7 +54,7 @@ impl TakeImpl for TakeKernelPortableSimd {
         } else {
             match_each_unsigned_integer_ptype!(unsigned_indices.ptype(), |C| {
                 match_each_native_simd_ptype!(array.ptype(), |V| {
-                    let decoded = portable::take_portable_simd::<V, C, SIMD_WIDTH>(
+                    let decoded = portable::take_portable_simd::<V, C, { portable::SIMD_WIDTH }>(
                         array.as_slice(),
                         unsigned_indices.as_slice(),
                     );
@@ -66,19 +62,5 @@ impl TakeImpl for TakeKernelPortableSimd {
                 })
             })
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::take_portable_simd;
-
-    #[test]
-    fn test_take_out_of_bounds() {
-        let indices = vec![2_000_000u32; 64];
-        let values = vec![1i32];
-
-        let result = take_portable_simd::<u32, i32, 64>(&indices, &values);
-        assert_eq!(result.as_slice(), [0i32; 64]);
     }
 }
