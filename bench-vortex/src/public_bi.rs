@@ -432,7 +432,7 @@ impl PBIData {
                     ListingOptions::new(df_format)
                         .with_session_config_options(session.state().config()),
                 )
-                .with_schema(schema.into());
+                .with_schema(schema.inner().clone());
 
             let listing_table = Arc::new(ListingTable::try_new(config)?);
             session.register_table(table_ref, listing_table)?;

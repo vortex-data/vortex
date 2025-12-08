@@ -254,8 +254,9 @@ mod tests {
         ┌───────────────────────────┐
         │  SortPreservingMergeExec  │
         │    --------------------   │
-        │  c1 ASC NULLS LASTlimit:  │
-        │             3             │
+        │     c1 ASC NULLS LAST     │
+        │                           │
+        │          limit: 3         │
         └─────────────┬─────────────┘
         ┌─────────────┴─────────────┐
         │       DataSourceExec      │

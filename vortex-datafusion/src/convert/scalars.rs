@@ -50,27 +50,55 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                 let precision = decimal_type.precision();
                 let scale = decimal_type.scale();
 
-                if precision <= i128::MAX_PRECISION {
+                if precision <= i32::MAX_PRECISION {
+                    match dscalar.decimal_value() {
+                        None => ScalarValue::Decimal32(None, precision, scale),
+                        Some(value) => match value.cast::<i32>() {
+                            Some(v32) => ScalarValue::Decimal32(Some(v32), precision, scale),
+                            None => {
+                                vortex_bail!(
+                                    "invalid ScalarValue {value} for decimal with precision {precision}",
+                                )
+                            }
+                        },
+                    }
+                } else if precision <= i64::MAX_PRECISION {
+                    match dscalar.decimal_value() {
+                        None => ScalarValue::Decimal64(None, precision, scale),
+                        Some(value) => match value.cast::<i64>() {
+                            Some(v64) => ScalarValue::Decimal64(Some(v64), precision, scale),
+                            None => {
+                                vortex_bail!(
+                                    "invalid ScalarValue {value} for decimal with precision {precision}",
+                                )
+                            }
+                        },
+                    }
+                } else if precision <= i128::MAX_PRECISION {
                     match dscalar.decimal_value() {
                         None => ScalarValue::Decimal128(None, precision, scale),
-                        Some(DecimalValue::I128(v128)) => {
-                            ScalarValue::Decimal128(Some(v128), precision, scale)
-                        }
-                        _ => vortex_bail!(
-                            "invalid ScalarValue for decimal with precision {}",
-                            precision
-                        ),
+                        Some(value) => match value.cast::<i128>() {
+                            Some(v128) => ScalarValue::Decimal128(Some(v128), precision, scale),
+                            None => {
+                                vortex_bail!(
+                                    "invalid ScalarValue {value} for decimal with precision {precision}",
+                                )
+                            }
+                        },
                     }
                 } else {
                     match dscalar.decimal_value() {
                         None => ScalarValue::Decimal256(None, precision, scale),
-                        Some(DecimalValue::I256(v256)) => {
-                            ScalarValue::Decimal256(Some(v256.into()), precision, scale)
-                        }
-                        _ => vortex_bail!(
-                            "invalid ScalarValue for decimal with precision {}",
-                            precision
-                        ),
+                        Some(value) => match value.cast::<i256>() {
+                            Some(v256) => {
+                                ScalarValue::Decimal256(Some(v256.into()), precision, scale)
+                            }
+                            None => {
+                                vortex_bail!(
+                                    "invalid ScalarValue {value} for decimal with precision {precision}",
+                                )
+                            }
+                        },
                     }
                 }
             }
@@ -220,6 +248,32 @@ impl FromDataFusion<ScalarValue> for Scalar {
                         .unwrap_or_else(vortex::scalar::ScalarValue::null),
                 )
             }
+            ScalarValue::Decimal32(decimal, precision, scale) => {
+                let decimal_dtype = DecimalDType::new(*precision, *scale);
+                let nullable = Nullability::Nullable;
+                if let Some(value) = decimal {
+                    Scalar::decimal(
+                        DecimalValue::I32(*value),
+                        decimal_dtype,
+                        Nullability::Nullable,
+                    )
+                } else {
+                    Scalar::null(DType::Decimal(decimal_dtype, nullable))
+                }
+            }
+            ScalarValue::Decimal64(decimal, precision, scale) => {
+                let decimal_dtype = DecimalDType::new(*precision, *scale);
+                let nullable = Nullability::Nullable;
+                if let Some(value) = decimal {
+                    Scalar::decimal(
+                        DecimalValue::I64(*value),
+                        decimal_dtype,
+                        Nullability::Nullable,
+                    )
+                } else {
+                    Scalar::null(DType::Decimal(decimal_dtype, nullable))
+                }
+            }
             ScalarValue::Decimal128(decimal, precision, scale) => {
                 let decimal_dtype = DecimalDType::new(*precision, *scale);
                 let nullable = Nullability::Nullable;
@@ -366,17 +420,41 @@ mod tests {
     }
 
     #[rstest]
-    #[case::decimal128_some(
+    #[case::decimal32_some(
         Scalar::decimal(
-            DecimalValue::I128(12345),
+            DecimalValue::I32(1234),
+            DecimalDType::new(5, 2),
+            Nullability::NonNullable
+        ),
+        ScalarValue::Decimal32(Some(1234), 5, 2)
+    )]
+    #[case::decimal32_null(
+        Scalar::null(DType::Decimal(DecimalDType::new(5, 2), Nullability::Nullable)),
+        ScalarValue::Decimal32(None, 5, 2)
+    )]
+    #[case::decimal64_some(
+        Scalar::decimal(
+            DecimalValue::I64(12345),
             DecimalDType::new(10, 2),
             Nullability::NonNullable
         ),
-        ScalarValue::Decimal128(Some(12345), 10, 2)
+        ScalarValue::Decimal64(Some(12345), 10, 2)
+    )]
+    #[case::decimal64_null(
+        Scalar::null(DType::Decimal(DecimalDType::new(10, 2), Nullability::Nullable)),
+        ScalarValue::Decimal64(None, 10, 2)
+    )]
+    #[case::decimal128_some(
+        Scalar::decimal(
+            DecimalValue::I128(12345),
+            DecimalDType::new(20, 2),
+            Nullability::NonNullable
+        ),
+        ScalarValue::Decimal128(Some(12345), 20, 2)
     )]
     #[case::decimal128_null(
-        Scalar::null(DType::Decimal(DecimalDType::new(10, 2), Nullability::Nullable)),
-        ScalarValue::Decimal128(None, 10, 2)
+        Scalar::null(DType::Decimal(DecimalDType::new(20, 2), Nullability::Nullable)),
+        ScalarValue::Decimal128(None, 20, 2)
     )]
     #[case::decimal256_some(
         Scalar::decimal(
@@ -575,8 +653,16 @@ mod tests {
         ScalarValue::Binary(None)
     )]
     #[case::null_decimal128(
+        Scalar::null(DType::Decimal(DecimalDType::new(20, 2), Nullability::Nullable)),
+        ScalarValue::Decimal128(None, 20, 2)
+    )]
+    #[case::null_decimal64(
         Scalar::null(DType::Decimal(DecimalDType::new(10, 2), Nullability::Nullable)),
-        ScalarValue::Decimal128(None, 10, 2)
+        ScalarValue::Decimal64(None, 10, 2)
+    )]
+    #[case::null_decimal32(
+        Scalar::null(DType::Decimal(DecimalDType::new(5, 2), Nullability::Nullable)),
+        ScalarValue::Decimal32(None, 5, 2)
     )]
     fn test_null_handling(#[case] vortex_null: Scalar, #[case] expected_df_null: ScalarValue) {
         // Test Vortex -> DataFusion
