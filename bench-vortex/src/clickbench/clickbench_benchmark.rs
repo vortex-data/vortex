@@ -123,29 +123,6 @@ impl Benchmark for ClickBenchBenchmark {
                             })?
                         }
                     }
-                    #[cfg(feature = "lance")]
-                    Format::Lance => {
-                        // Lance manages its own partitioning internally, so flavor doesn't matter.
-                        if self.flavor == Flavor::Single {
-                            eprintln!(
-                                "Note: Lance manages its own internal partitioning. There is no \
-                                difference between Single and Partitioned flavors for Lance format."
-                            );
-                        }
-
-                        // Download Parquet files (either Single or Partitioned).
-                        self.flavor.download(&client, basepath.as_path())?;
-
-                        // Then convert to Lance format (idempotent).
-                        if self.data_url.scheme() == "file" {
-                            let file_path = self.data_url.to_file_path().map_err(|_| {
-                                anyhow::anyhow!("invalid file URL: {}", self.data_url)
-                            })?;
-
-                            let rt = Runtime::new()?;
-                            rt.block_on(async { convert_parquet_to_lance(&file_path).await })?
-                        }
-                    }
                     f => {
                         todo!("format {f} unsupported in clickbench")
                     }

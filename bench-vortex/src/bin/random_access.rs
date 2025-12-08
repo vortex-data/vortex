@@ -16,8 +16,6 @@ use bench_vortex::display::DisplayFormat;
 use bench_vortex::display::print_measurements_json;
 use bench_vortex::display::render_table;
 use bench_vortex::measurements::TimingMeasurement;
-#[cfg(feature = "lance")]
-use bench_vortex::random_access::take::take_lance;
 use bench_vortex::random_access::take::take_parquet;
 use bench_vortex::random_access::take::take_vortex_tokio;
 use bench_vortex::setup_logging_and_tracing;
@@ -128,8 +126,6 @@ fn random_access(
         let engine = match format {
             Format::OnDiskVortex | Format::VortexCompact => Engine::Vortex,
             Format::Parquet => Engine::Arrow,
-            #[cfg(feature = "lance")]
-            Format::Lance => Engine::Arrow,
             Format::Csv | Format::Arrow | Format::OnDiskDuckDB => unimplemented!(),
         };
         let target = Target::new(engine, format);
@@ -177,22 +173,6 @@ fn random_access(
                     |indices| async { take_parquet(&taxi_parquet, indices).await },
                     TimingConfig {
                         name: "random-access/parquet-tokio-local-disk".to_string(),
-                        storage: STORAGE_NVME.to_owned(),
-                        runtime: &runtime,
-                        indices: &indices,
-                        time_limit,
-                        target,
-                    },
-                )
-            }
-            #[cfg(feature = "lance")]
-            Format::Lance => {
-                let taxi_lance = runtime.block_on(taxi_data_lance())?;
-
-                create_timing_measurement(
-                    |indices| async { take_lance(&taxi_lance, indices).await },
-                    TimingConfig {
-                        name: "random-access/lance-tokio-local-disk".to_string(),
                         storage: STORAGE_NVME.to_owned(),
                         runtime: &runtime,
                         indices: &indices,

@@ -44,12 +44,6 @@ use crate::tpch::schema::SUPPLIER;
 use crate::tpch::tpch_queries;
 use crate::tpch::tpchgen;
 use crate::tpch::tpchgen::TpchGenOptions;
-#[cfg(feature = "lance")]
-#[rustfmt::skip]
-use crate::{
-    file::register_lance_files, 
-    utils,
-};
 
 /// TPCH benchmark implementation
 pub struct TpcHBenchmark {
@@ -111,25 +105,6 @@ impl Benchmark for TpcHBenchmark {
                     .map_err(|_| anyhow!("Invalid file URL: {}", self.data_url))?;
 
                 match target.format() {
-                    #[cfg(feature = "lance")]
-                    Format::Lance => {
-                        // For Lance: first generate Parquet, then convert
-                        let options =
-                            TpchGenOptions::new(self.scale_factor.clone(), &base_data_dir)
-                                .with_format(Format::Parquet)
-                                .with_max_file_size_mb(Some(600));
-
-                        let runtime = Runtime::new()?;
-                        runtime.block_on(async {
-                            // Generate Parquet
-                            tpchgen::generate_tpch_tables(options).await?;
-
-                            // Convert to Lance
-                            let parquet_dir = base_data_dir.join("parquet");
-                            let lance_dir = base_data_dir.join("lance");
-                            convert_all_tpch_to_lance(&parquet_dir, &lance_dir).await
-                        })?;
-                    }
                     Format::Arrow => {
                         // For Arrow: load Parquet files into memory
                         let options =
@@ -267,10 +242,6 @@ impl TpcHBenchmark {
                 }
                 Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
                 Format::Csv => todo!("csv unsupported for tpch benchmark"),
-                #[cfg(feature = "lance")]
-                Format::Lance => {
-                    register_lance_files(session, name, &path, &self.dataset()).await?
-                }
             }
         }
 
@@ -365,28 +336,4 @@ impl TpcHBenchmark {
 
         Ok(())
     }
-}
-
-/// Convert TPCH Parquet tables to Lance format.
-#[cfg(feature = "lance")]
-pub async fn convert_all_tpch_to_lance(parquet_dir: &Path, lance_dir: &Path) -> Result<()> {
-    let tables = [
-        "customer", "lineitem", "nation", "orders", "part", "partsupp", "region", "supplier",
-    ];
-
-    // Convert each table to its own Lance dataset
-    for table in &tables {
-        // Use table_ prefix to avoid matching similar names (e.g., part vs partsupp)
-        let file_prefix = format!("{}_", table);
-        utils::convert_parquet_to_lance(
-            parquet_dir,
-            lance_dir,
-            table,              // Dataset name is the table name
-            Some(&file_prefix), // File prefix with underscore (e.g., customer_0.parquet)
-            true,               // Convert Utf8View to Utf8 for Lance compatibility
-        )
-        .await?;
-    }
-
-    Ok(())
 }

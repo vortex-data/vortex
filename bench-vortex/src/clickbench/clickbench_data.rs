@@ -46,8 +46,6 @@ use crate::CompactionStrategy;
 use crate::Format;
 use crate::SESSION;
 use crate::conversions::parquet_to_vortex;
-#[cfg(feature = "lance")]
-use crate::utils;
 use crate::utils::file_utils::idempotent;
 use crate::utils::file_utils::idempotent_async;
 
@@ -236,26 +234,6 @@ pub async fn convert_parquet_to_vortex(
         .try_collect::<Vec<_>>()
         .await?;
     Ok(())
-}
-
-/// Convert Parquet files to Lance format for ClickBench.
-/// Lance manages its own internal partitioning, so we convert all Parquet files
-/// (whether Single or Partitioned flavor) into a single Lance dataset.
-#[cfg(feature = "lance")]
-pub async fn convert_parquet_to_lance(input_path: &Path) -> anyhow::Result<()> {
-    let lance_dir = input_path.join(Format::Lance.name());
-    let parquet_dir = input_path.join(Format::Parquet.name());
-
-    // Use the generic converter with no prefix filter (accepts all parquet files)
-    // ClickBench also uses Utf8View columns that need conversion for Lance
-    utils::convert_parquet_to_lance(
-        &parquet_dir,
-        &lance_dir,
-        "hits", // ClickBench uses "hits" as the dataset name
-        None,   // No file prefix filter
-        true,   // Convert Utf8View to Utf8 for Lance compatibility
-    )
-    .await
 }
 
 pub async fn register_vortex_files(

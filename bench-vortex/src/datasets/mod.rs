@@ -13,8 +13,6 @@ use vortex::array::ArrayRef;
 use crate::Format;
 use crate::clickbench;
 use crate::clickbench::Flavor;
-#[cfg(feature = "lance")]
-use crate::file::register_lance_files;
 use crate::fineweb;
 use crate::realnest::gharchive;
 use crate::statpopgen;
@@ -153,10 +151,6 @@ impl BenchmarkDataset {
                     Some(glob::Pattern::new("*.vortex")?),
                 )
                 .await?;
-            }
-            #[cfg(feature = "lance")]
-            (cb @ BenchmarkDataset::ClickBench { .. }, Format::Lance) => {
-                register_lance_files(session, "hits", base_url, cb).await?;
             }
             (BenchmarkDataset::ClickBench { .. }, _) => {
                 anyhow::bail!("Unsupported format for ClickBench: {}", format);

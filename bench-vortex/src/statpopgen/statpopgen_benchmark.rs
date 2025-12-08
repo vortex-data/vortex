@@ -169,8 +169,6 @@ pub async fn register_table(
                         "DuckDB format should not be registered through DataFusion"
                     ));
                 }
-                #[cfg(feature = "lance")]
-                Format::Lance => unimplemented!(),
             })
             .with_session_config_options(session.state().config()),
         )
@@ -214,8 +212,6 @@ impl Benchmark for StatPopGenBenchmark {
                         // DuckDBCtx::register_tables will automatically rewrite the Parquet file
                         // into a duckdb file.
                     }
-                    #[cfg(feature = "lance")]
-                    Format::Lance => unimplemented!(),
                 }
                 Ok(())
             }

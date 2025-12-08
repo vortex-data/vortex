@@ -13,9 +13,6 @@ pub mod bench;
 pub mod parquet;
 pub mod vortex;
 
-#[cfg(feature = "lance")]
-pub mod lance;
-
 pub fn chunked_to_vec_record_batch(chunked: ChunkedArray) -> (Vec<RecordBatch>, Arc<Schema>) {
     let chunks_vec = chunked.chunks();
     assert!(!chunks_vec.is_empty(), "empty chunks");

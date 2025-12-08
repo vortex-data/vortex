@@ -16,19 +16,6 @@ use arrow_schema::Schema;
 use arrow_schema::SchemaRef;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 
-#[cfg(feature = "lance")]
-#[rustfmt::skip]
-use {
-    crate::utils::idempotent_async,
-    lance::dataset::Dataset as LanceDataset,
-    lance::dataset::WriteParams,
-    lance_encoding::version::LanceFileVersion,
-    log::info,
-    std::fs,
-    std::path::Path,
-    tokio::fs::create_dir_all,
-};
-
 /// A streaming iterator that reads RecordBatches from multiple Parquet files sequentially.
 /// Works equally well for single files and multiple files.
 pub struct ParquetFilesIterator {
@@ -93,120 +80,7 @@ impl RecordBatchReader for ParquetFilesIterator {
     }
 }
 
-/// Generic function to convert Parquet files to Lance format.
-///
-/// This function:
-/// 1. Finds all Parquet files matching the optional prefix
-/// 2. Creates a streaming iterator over them
-/// 3. Writes them to a single Lance dataset
-///
-/// If `convert_utf8view` is true, any Utf8View columns will be converted to Utf8
-/// (required for datasets like TPCH since Lance doesn't support Utf8View).
-#[cfg(feature = "lance")]
-pub async fn convert_parquet_to_lance(
-    parquet_dir: &Path,
-    lance_dir: &Path,
-    dataset_name: &str,
-    file_prefix: Option<&str>,
-    convert_utf8view: bool,
-) -> anyhow::Result<()> {
-    let dataset_path = lance_dir.join(format!("{}.lance", dataset_name));
-
-    // Use idempotent pattern to avoid reprocessing
-    idempotent_async(&dataset_path, move |lance_path| async move {
-        create_dir_all(&lance_dir).await?;
-
-        // Collect all Parquet files in the directory
-        let parquet_files: Vec<_> = fs::read_dir(parquet_dir)?
-            .filter_map(|entry| entry.ok())
-            .filter(|entry| {
-                let path = entry.path();
-                if path.extension().is_some_and(|e| e == "parquet") {
-                    if let Some(prefix) = file_prefix {
-                        // Check if file starts with the prefix
-                        path.file_stem()
-                            .and_then(|s| s.to_str())
-                            .map(|s| s.starts_with(prefix))
-                            .unwrap_or(false)
-                    } else {
-                        // No prefix filter, accept all parquet files
-                        true
-                    }
-                } else {
-                    false
-                }
-            })
-            .map(|entry| entry.path())
-            .collect();
-
-        if parquet_files.is_empty() {
-            anyhow::bail!(
-                "No Parquet files found{}in {}",
-                if let Some(p) = file_prefix {
-                    format!(" with prefix '{}' ", p)
-                } else {
-                    " ".to_string()
-                },
-                parquet_dir.display()
-            );
-        }
-
-        info!(
-            "Converting {} Parquet file(s) to Lance dataset '{}'",
-            parquet_files.len(),
-            dataset_name
-        );
-
-        // Get schema from the first Parquet file
-        let first_file = File::open(&parquet_files[0])?;
-        let first_builder = ParquetRecordBatchReaderBuilder::try_new(first_file)?;
-        let schema = first_builder.schema().clone();
-
-        // Create a streaming iterator that reads from all Parquet files
-        let batch_iter = ParquetFilesIterator::new(parquet_files, schema)?;
-
-        info!("Starting streaming write to Lance");
-
-        // Write all batches to a single Lance dataset
-        let lance_path_str = lance_path
-            .to_str()
-            .ok_or_else(|| anyhow!("Lance dataset path is not valid UTF-8"))?;
-
-        // Use the converting iterator if needed
-        if convert_utf8view {
-            info!("Converting Utf8View columns to Utf8 for Lance compatibility");
-            let converting_iter = ConvertingParquetFilesIterator::new(batch_iter);
-            LanceDataset::write(
-                Box::new(converting_iter),
-                lance_path_str,
-                Some(WriteParams::with_storage_version(LanceFileVersion::V2_1)),
-            )
-            .await?;
-        } else {
-            LanceDataset::write(
-                Box::new(batch_iter),
-                lance_path_str,
-                Some(WriteParams::with_storage_version(LanceFileVersion::V2_1)),
-            )
-            .await?;
-        }
-
-        info!(
-            "Successfully created Lance dataset '{}' at {}",
-            dataset_name,
-            lance_path.display()
-        );
-
-        anyhow::Ok(())
-    })
-    .await?;
-
-    Ok(())
-}
-
 // Utf8View to Utf8 conversion utilities
-// Lance doesn't support Arrow's Utf8View type (variable-length string view optimization).
-// We must convert Utf8View columns to regular Utf8 before writing to Lance.
 
 /// Convert Utf8View fields in a schema to Utf8.
 pub fn convert_utf8view_schema(schema: &Schema) -> Arc<Schema> {

@@ -136,10 +136,6 @@ pub enum Format {
     #[clap(name = "duckdb")]
     #[serde(rename = "duckdb")]
     OnDiskDuckDB,
-    #[cfg(feature = "lance")]
-    #[clap(name = "lance")]
-    #[serde(rename = "lance")]
-    Lance,
 }
 
 impl Display for Format {
@@ -157,8 +153,6 @@ impl Format {
             Format::OnDiskVortex => "vortex-file-compressed",
             Format::VortexCompact => "vortex-compact",
             Format::OnDiskDuckDB => "duckdb",
-            #[cfg(feature = "lance")]
-            Format::Lance => "lance",
         }
     }
 
@@ -170,8 +164,6 @@ impl Format {
             Format::OnDiskVortex => "vortex",
             Format::VortexCompact => "vortex",
             Format::OnDiskDuckDB => "duckdb",
-            #[cfg(feature = "lance")]
-            Format::Lance => "lance",
         }
     }
 }

@@ -11,15 +11,6 @@ use vortex::array::ArrayRef;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
-#[cfg(feature = "lance")]
-#[rustfmt::skip]
-use {
-    lance::dataset::Dataset as LanceDataset,
-    lance::dataset::WriteParams,
-    lance_encoding::version::LanceFileVersion,
-    parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder,
-    std::fs::File,
-};
 
 use crate::CompactionStrategy;
 use crate::IdempotentPath;
@@ -95,23 +86,6 @@ pub async fn taxi_data_vortex_compact() -> Result<PathBuf> {
 
         output_file.flush().await?;
         Ok(buf)
-    })
-    .await
-}
-
-#[cfg(feature = "lance")]
-pub async fn taxi_data_lance() -> Result<PathBuf> {
-    idempotent_async("taxi/taxi.lance", |output_fname| async move {
-        let parquet_path = taxi_data_parquet().await?;
-
-        let file = File::open(&parquet_path)?;
-        let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
-        let reader = builder.build()?;
-
-        let write_params = WriteParams::with_storage_version(LanceFileVersion::V2_1);
-        LanceDataset::write(reader, output_fname.to_str().unwrap(), Some(write_params)).await?;
-
-        Ok(output_fname.to_path_buf())
     })
     .await
 }

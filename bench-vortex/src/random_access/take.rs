@@ -11,12 +11,6 @@ use arrow_select::concat::concat_batches;
 use arrow_select::take::take_record_batch;
 use futures::stream;
 use itertools::Itertools;
-#[cfg(feature = "lance")]
-#[rustfmt::skip]
-use lance::dataset::{
-    Dataset,
-    ProjectionRequest
-};
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::arrow_reader::ArrowReaderOptions;
 use parquet::arrow::async_reader::AsyncFileReader;
@@ -122,12 +116,4 @@ async fn parquet_take_from_stream<T: AsyncFileReader + Unpin + Send + 'static>(
         .await;
 
     Ok(concat_batches(&schema, &batches)?)
-}
-
-#[cfg(feature = "lance")]
-pub async fn take_lance(path: &Path, indices: Buffer<u64>) -> anyhow::Result<RecordBatch> {
-    let dataset = Dataset::open(path.to_str().unwrap()).await?;
-    let projection = ProjectionRequest::from_schema(dataset.schema().clone()); // All columns.
-    let result = dataset.take(indices.as_slice(), projection).await?;
-    Ok(result)
 }

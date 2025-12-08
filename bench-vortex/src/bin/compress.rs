@@ -254,8 +254,6 @@ pub fn benchmark_compress(
                     let compress_fn: CompressFn = match format {
                         Format::OnDiskVortex => compress::benchmark_vortex_compress,
                         Format::Parquet => compress::benchmark_parquet_compress,
-                        #[cfg(feature = "lance")]
-                        Format::Lance => compress::benchmark_lance_compress,
                         _ => unimplemented!("Compress bench not implemented for {format}"),
                     };
 
@@ -272,8 +270,6 @@ pub fn benchmark_compress(
                     let decompress_fn: DecompressFn = match format {
                         Format::OnDiskVortex => compress::benchmark_vortex_decompress,
                         Format::Parquet => compress::benchmark_parquet_decompress,
-                        #[cfg(feature = "lance")]
-                        Format::Lance => compress::benchmark_lance_decompress,
                         _ => unimplemented!("Decompress bench not implemented for {format}"),
                     };
 
