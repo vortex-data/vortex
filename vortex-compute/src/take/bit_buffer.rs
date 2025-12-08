@@ -1,10 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Take operation on [`BitBuffer`].
+//!
+//! NB: We do NOT implement `impl<I: UnsignedPType> Take<PVector<I>> for &BitBuffer`, specifically
+//! because there is a very similar implementation on `Mask` that has special logic for working with
+//! null indices. That logic could also be implemented on `BitBuffer`, but since it is not
+//! immediately clear what should happen in the case of a null index when taking a `BitBuffer` (do
+//! you set it to true or false?), we do not implement this at all.
+
 use vortex_buffer::BitBuffer;
 use vortex_buffer::get_bit;
 use vortex_dtype::UnsignedPType;
 
+use crate::take::LINUX_PAGE_SIZE;
 use crate::take::Take;
 
 impl<I: UnsignedPType> Take<[I]> for &BitBuffer {
@@ -13,7 +22,7 @@ impl<I: UnsignedPType> Take<[I]> for &BitBuffer {
     fn take(self, indices: &[I]) -> BitBuffer {
         // For boolean arrays that roughly fit into a single page (at least, on Linux), it's worth
         // the overhead to convert to a `Vec<bool>`.
-        if self.len() <= 4096 {
+        if self.len() <= LINUX_PAGE_SIZE {
             let bools = self.iter().collect();
             take_byte_bool(bools, indices)
         } else {
@@ -21,12 +30,6 @@ impl<I: UnsignedPType> Take<[I]> for &BitBuffer {
         }
     }
 }
-
-// NB: We do NOT implement `impl<I: UnsignedPType> Take<PVector<I>> for &BitBuffer`, specifically
-// because there is a very similar implementation on `Mask` that has special logic for working with
-// null indices. That logic could also be implemented on `BitBuffer`, but since it is not
-// immediately clear what should happen in the case of a null index when taking a `BitBuffer` (do
-// you set it to true or false?), we do not implement this at all.
 
 /// # Panics
 ///

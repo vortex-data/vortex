@@ -8,6 +8,7 @@ use vortex_mask::Mask;
 use vortex_vector::VectorOps;
 use vortex_vector::primitive::PVector;
 
+use crate::take::LINUX_PAGE_SIZE;
 use crate::take::Take;
 
 impl<I: UnsignedPType> Take<[I]> for &Mask {
@@ -38,14 +39,10 @@ impl<I: UnsignedPType> Take<PVector<I>> for &Mask {
         let indices_validity = indices.validity();
         let indices_len = indices.len();
 
-        match indices_validity {
+        let indices_validity_values = match indices_validity {
             Mask::AllTrue(_) => return self.take(indices.elements().as_slice()),
             Mask::AllFalse(_) => return Mask::AllFalse(indices_len),
-            Mask::Values(_) => (),
-        };
-
-        let Mask::Values(indices_validity_values) = indices_validity else {
-            unreachable!("we just matched on the other cases above");
+            Mask::Values(indices_validity_values) => indices_validity_values,
         };
 
         match self {
@@ -56,7 +53,7 @@ impl<I: UnsignedPType> Take<PVector<I>> for &Mask {
             Mask::Values(mask_values) => {
                 // For boolean arrays that roughly fit into a single page (at least, on Linux), it's
                 // worth the overhead to convert to a `Vec<bool>`.
-                if self.len() <= 4096 {
+                if self.len() <= LINUX_PAGE_SIZE {
                     let bools = mask_values.bit_buffer().iter().collect();
                     Mask::from_buffer(take_byte_bool_nullable(bools, indices))
                 } else {

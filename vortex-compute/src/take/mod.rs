@@ -9,6 +9,9 @@ mod mask;
 pub mod slice;
 mod vector;
 
+/// The size of a page in Linux.
+const LINUX_PAGE_SIZE: usize = 4096;
+
 /// Function for taking based on indices (which can have different representations).
 pub trait Take<Indices: ?Sized> {
     /// The result type after performing the operation.
