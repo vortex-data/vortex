@@ -23,6 +23,7 @@ use vortex::session::VortexSession;
 use crate::inspect::InspectArgs;
 
 #[derive(clap::Parser)]
+#[command(version = option_env!("VX_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")))]
 struct Cli {
     #[clap(subcommand)]
     command: Commands,
