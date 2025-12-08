@@ -327,7 +327,7 @@ jobs:
           sccache: s3
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 1
+          fetch-depth: 0
           fetch-tags: true
       - uses: ./.github/actions/setup-rust
         with:
