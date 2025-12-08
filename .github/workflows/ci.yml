@@ -311,6 +311,28 @@ jobs:
           # https://spiraldb.slack.com/archives/C07BV3GKAJ2/p1732736281946729
           cargo hack clippy --no-default-features -- -D warnings
 
+  rust-semver:
+    name: "Rust (semver checks)"
+    timeout-minutes: 120
+    if: github.ref != 'refs/heads/develop'
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=16
+      - image=ubuntu24-full-x64
+      - extras=s3-cache
+      - tag=rust-semver
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check semver
+        uses: obi1kenobi/cargo-semver-checks-action@v2
+
   rust-coverage:
     name: "Rust tests (coverage)"
     timeout-minutes: 120
@@ -525,14 +547,14 @@ jobs:
     strategy:
       matrix:
         include:
-          - { shard: 1, name: "Core foundation", packages: "vortex-buffer vortex-dtype vortex-error" }
-          - { shard: 2, name: "Array types", packages: "vortex-array vortex-scalar vortex-vector", features: "--features test-harness" }
-          - { shard: 3, name: "Main library", packages: "vortex vortex-compute" }
-          - { shard: 4, name: "Encodings 1", packages: "vortex-alp vortex-bytebool vortex-datetime-parts" }
-          - { shard: 5, name: "Encodings 2", packages: "vortex-decimal-byte-parts vortex-fastlanes vortex-fsst", features: "--features test-harness" }
-          - { shard: 6, name: "Encodings 3", packages: "vortex-pco vortex-runend vortex-sequence" }
-          - { shard: 7, name: "Encodings 4", packages: "vortex-sparse vortex-zigzag vortex-zstd" }
-          - { shard: 8, name: "Storage formats", packages: "vortex-flatbuffers vortex-proto vortex-btrblocks" }
+          - {shard: 1, name: "Core foundation", packages: "vortex-buffer vortex-dtype vortex-error"}
+          - {shard: 2, name: "Array types", packages: "vortex-array vortex-scalar vortex-vector", features: "--features test-harness"}
+          - {shard: 3, name: "Main library", packages: "vortex vortex-compute"}
+          - {shard: 4, name: "Encodings 1", packages: "vortex-alp vortex-bytebool vortex-datetime-parts"}
+          - {shard: 5, name: "Encodings 2", packages: "vortex-decimal-byte-parts vortex-fastlanes vortex-fsst", features: "--features test-harness"}
+          - {shard: 6, name: "Encodings 3", packages: "vortex-pco vortex-runend vortex-sequence"}
+          - {shard: 7, name: "Encodings 4", packages: "vortex-sparse vortex-zigzag vortex-zstd"}
+          - {shard: 8, name: "Storage formats", packages: "vortex-flatbuffers vortex-proto vortex-btrblocks"}
     name: "Benchmark with Codspeed (Shard #${{ matrix.shard }})"
     timeout-minutes: 120
     runs-on:
