@@ -152,9 +152,9 @@ impl LayoutReader for FlatReader {
                 // Apply the expression to the array.
                 let array = array.apply(&expr)?;
 
-                log::info!("Filter Array:\n{}", array.display_tree());
+                log::debug!("Filter Array:\n{}", array.display_tree());
                 let array = optimizer.optimize_array(&array)?;
-                log::warn!("Optimized Filter Array:\n{}", array.display_tree());
+                log::info!("Optimized Filter Array:\n{}", array.display_tree());
 
                 // Evaluate the array into a mask.
                 let array_mask = array.execute_mask(&session)?;

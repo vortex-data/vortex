@@ -31,8 +31,10 @@ use vortex_mask::Mask;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::VectorExecutor;
 use crate::kernel::BindCtx;
 use crate::kernel::KernelRef;
+use crate::kernel::kernel;
 use crate::serde::ArrayChildren;
 
 /// The array [`VTable`] encapsulates logic for an Array type within Vortex.
@@ -143,8 +145,12 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// arrays as needed.
     fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
         // TODO(ngates): convert arrays to canonicalize over vectors.
-        let canonical = Self::CanonicalVTable::canonicalize(array);
-        canonical.into_array().bind_kernel(ctx)
+        let array = array.clone();
+        let session = ctx.session().clone();
+        Ok(kernel(move || {
+            let canonical = Self::CanonicalVTable::canonicalize(&array);
+            canonical.into_array().execute_vector_optimized(&session)
+        }))
     }
 
     /// Return an array filtered using the given mask.
