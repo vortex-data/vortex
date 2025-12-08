@@ -184,6 +184,78 @@ impl FlatLayout {
     pub fn array_tree(&self) -> Option<&ByteBuffer> {
         self.array_tree.as_ref()
     }
+
+    /// Returns a display-friendly representation of the array tree metadata.
+    ///
+    /// When `FLAT_LAYOUT_INLINE_ARRAY_NODE` is enabled, this parses the inlined flatbuffer
+    /// and displays information about the array encoding tree and buffer descriptors.
+    /// When the array tree is not inlined, displays the segment ID instead.
+    pub fn display_array_tree(&self) -> ArrayTreeDisplay {
+        ArrayTreeDisplay {
+            array_tree: self.array_tree.clone(),
+            segment_id: self.segment_id,
+            ctx: self.ctx.clone(),
+        }
+    }
+}
+
+/// Display wrapper for the array tree metadata stored in a FlatLayout.
+pub struct ArrayTreeDisplay {
+    array_tree: Option<ByteBuffer>,
+    segment_id: SegmentId,
+    ctx: ArrayContext,
+}
+
+impl std::fmt::Display for ArrayTreeDisplay {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use flatbuffers::root;
+        use vortex_flatbuffers::FlatBuffer;
+        use vortex_flatbuffers::array as fba;
+
+        let Some(array_tree) = &self.array_tree else {
+            return write!(f, "segment {}", *self.segment_id);
+        };
+
+        let fb_buffer = FlatBuffer::align_from(array_tree.clone());
+        let Ok(fb_array) = root::<fba::Array>(fb_buffer.as_ref()) else {
+            return write!(f, "<invalid flatbuffer>");
+        };
+
+        let Some(fb_root) = fb_array.root() else {
+            return write!(f, "<missing root node>");
+        };
+
+        // Get the encoding name from context
+        let encoding_id = fb_root.encoding();
+        let encoding_name = self
+            .ctx
+            .lookup_encoding(encoding_id)
+            .map(|v| v.id().to_string())
+            .unwrap_or_else(|| format!("encoding#{}", encoding_id));
+
+        write!(f, "ArrayTree({}", encoding_name)?;
+
+        // Show children count
+        let nchildren = fb_root.children().map_or(0, |c| c.len());
+        if nchildren > 0 {
+            write!(f, ", children={}", nchildren)?;
+        }
+
+        // Show buffer info
+        if let Some(buffers) = fb_array.buffers() {
+            write!(f, ", buffers=[")?;
+            for (i, buf) in buffers.iter().enumerate() {
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{}B", buf.length())?;
+            }
+            write!(f, "]")?;
+        }
+
+        write!(f, ")")?;
+        Ok(())
+    }
 }
 
 #[derive(prost::Message)]

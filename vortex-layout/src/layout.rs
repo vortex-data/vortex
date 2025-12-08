@@ -3,6 +3,7 @@
 
 use std::any::Any;
 use std::fmt::Debug;
+use std::fmt::Display;
 use std::fmt::Formatter;
 use std::sync::Arc;
 
@@ -21,6 +22,7 @@ use crate::LayoutEncodingRef;
 use crate::LayoutReaderRef;
 use crate::VTable;
 use crate::display::DisplayLayoutTree;
+use crate::display::display_tree_with_segment_sizes;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 
@@ -212,6 +214,48 @@ impl dyn Layout + '_ {
     /// Display the layout as a tree structure with optional verbose metadata.
     pub fn display_tree_verbose(&self, verbose: bool) -> DisplayLayoutTree {
         DisplayLayoutTree::new(self.to_layout(), verbose)
+    }
+
+    /// Display the layout as a tree structure, fetching segment buffer sizes from the segment source.
+    ///
+    /// # Warning
+    ///
+    /// This function performs IO to fetch each segment's buffer. For layouts with
+    /// many segments, this may result in significant IO overhead.
+    pub async fn display_tree_with_segments(
+        &self,
+        segment_source: Arc<dyn SegmentSource>,
+    ) -> VortexResult<DisplayLayoutTree> {
+        display_tree_with_segment_sizes(self.to_layout(), segment_source).await
+    }
+}
+
+/// Display the encoding, dtype, row count, and segment IDs of this layout.
+impl Display for dyn Layout + '_ {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let segment_ids = self.segment_ids();
+        if segment_ids.is_empty() {
+            write!(
+                f,
+                "{}({}, rows={})",
+                self.encoding_id(),
+                self.dtype(),
+                self.row_count()
+            )
+        } else {
+            write!(
+                f,
+                "{}({}, rows={}, segments=[{}])",
+                self.encoding_id(),
+                self.dtype(),
+                self.row_count(),
+                segment_ids
+                    .iter()
+                    .map(|s| format!("{}", **s))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }
     }
 }
 
@@ -440,5 +484,119 @@ mod tests {
             assert_eq!(field.name(), field_name);
             assert_eq!(field.row_offset(), Some(0));
         }
+    }
+
+    #[test]
+    fn test_struct_layout_display() {
+        use vortex_array::ArrayContext;
+        use vortex_dtype::Nullability::NonNullable;
+        use vortex_dtype::PType;
+        use vortex_dtype::StructFields;
+
+        use crate::IntoLayout;
+        use crate::layouts::chunked::ChunkedLayout;
+        use crate::layouts::dict::DictLayout;
+        use crate::layouts::flat::FlatLayout;
+        use crate::layouts::struct_::StructLayout;
+        use crate::segments::SegmentId;
+
+        let ctx = ArrayContext::empty();
+
+        // Create a flat layout for dict values (utf8 strings)
+        let dict_values =
+            FlatLayout::new(3, DType::Utf8(NonNullable), SegmentId::from(0), ctx.clone())
+                .into_layout();
+
+        // Test flat layout display shows segment
+        assert_eq!(
+            format!("{}", dict_values),
+            "vortex.flat(utf8, rows=3, segments=[0])"
+        );
+
+        // Create a flat layout for dict codes
+        let dict_codes = FlatLayout::new(
+            10,
+            DType::Primitive(PType::U16, NonNullable),
+            SegmentId::from(1),
+            ctx.clone(),
+        )
+        .into_layout();
+
+        // Test flat layout display shows segment
+        assert_eq!(
+            format!("{}", dict_codes),
+            "vortex.flat(u16, rows=10, segments=[1])"
+        );
+
+        // Create dict layout (column "name")
+        let dict_layout = DictLayout::new(dict_values.clone(), dict_codes.clone()).into_layout();
+
+        // Test dict layout display (no direct segments)
+        assert_eq!(format!("{}", dict_layout), "vortex.dict(utf8, rows=10)");
+
+        // Create flat layouts for chunks
+        let chunk1 = FlatLayout::new(
+            5,
+            DType::Primitive(PType::I64, NonNullable),
+            SegmentId::from(2),
+            ctx.clone(),
+        )
+        .into_layout();
+
+        let chunk2 = FlatLayout::new(
+            5,
+            DType::Primitive(PType::I64, NonNullable),
+            SegmentId::from(3),
+            ctx,
+        )
+        .into_layout();
+
+        // Create chunked layout (column "value")
+        let chunked_layout = ChunkedLayout::new(
+            10,
+            DType::Primitive(PType::I64, NonNullable),
+            crate::OwnedLayoutChildren::layout_children(vec![chunk1.clone(), chunk2.clone()]),
+        )
+        .into_layout();
+
+        // Test chunked layout display (no direct segments)
+        assert_eq!(
+            format!("{}", chunked_layout),
+            "vortex.chunked(i64, rows=10)"
+        );
+
+        // Test chunk displays show segments
+        assert_eq!(
+            format!("{}", chunk1),
+            "vortex.flat(i64, rows=5, segments=[2])"
+        );
+        assert_eq!(
+            format!("{}", chunk2),
+            "vortex.flat(i64, rows=5, segments=[3])"
+        );
+
+        // Create struct layout with two fields
+        let field_names: Vec<Arc<str>> = vec!["name".into(), "value".into()];
+        let struct_dtype = DType::Struct(
+            StructFields::new(
+                field_names.into(),
+                vec![
+                    DType::Utf8(NonNullable),
+                    DType::Primitive(PType::I64, NonNullable),
+                ],
+            ),
+            NonNullable,
+        );
+
+        let struct_layout =
+            StructLayout::new(10, struct_dtype, vec![dict_layout, chunked_layout]).into_layout();
+
+        println!("{}", struct_layout.display_tree_verbose(true));
+
+        // Test Display impl for struct (no direct segments)
+        assert_eq!(
+            format!("{}", struct_layout),
+            "vortex.struct({name=utf8, value=i64}, rows=10)"
+        );
     }
 }
