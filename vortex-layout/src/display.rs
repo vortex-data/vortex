@@ -218,6 +218,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
+    use vortex_array::serde::ArrayParts;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBufferMut;
     use vortex_buffer::buffer;
@@ -232,6 +233,7 @@ mod tests {
     use crate::IntoLayout;
     use crate::OwnedLayoutChildren;
     use crate::layouts::chunked::ChunkedLayout;
+    use crate::layouts::flat::FlatVTable;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::struct_::StructLayout;
     use crate::segments::TestSegments;
@@ -413,34 +415,21 @@ vortex.chunked, dtype: i32, children: 2, rows: 10
                 .await
                 .unwrap();
 
-            // Downcast to FlatLayout to access the array_tree
-            use vortex_array::serde::ArrayParts;
-
-            use crate::layouts::flat::FlatVTable;
-
             let flat_layout = layout.as_::<FlatVTable>();
 
-            // Verify that array_tree is populated when FLAT_LAYOUT_INLINE_ARRAY_NODE is set
             let array_tree = flat_layout
                 .array_tree()
                 .expect("array_tree should be populated when FLAT_LAYOUT_INLINE_ARRAY_NODE is set");
 
-            // Verify from_array_tree works on the inline metadata
             let parts = ArrayParts::from_array_tree(array_tree.as_ref().to_vec())
                 .expect("should parse array_tree");
             assert_eq!(parts.buffer_lengths(), vec![20]); // 5 i32 values = 20 bytes
 
-            // Test display_array_tree exact output
-            let array_tree_display = flat_layout.display_array_tree();
             assert_eq!(
-                format!("{}", array_tree_display),
-                "ArrayTree(vortex.primitive, buffers=[20B])"
-            );
-
-            // Test display_tree exact output
-            assert_eq!(
-                format!("{}", layout.display_tree()),
-                "vortex.flat, dtype: i32?, segment 0, buffers=[20B], total=20B\n"
+                layout.display_tree().to_string(),
+                "\
+vortex.flat, dtype: i32?, segment 0, buffers=[20B], total=20B
+"
             );
         })
     }
@@ -469,8 +458,10 @@ vortex.chunked, dtype: i32, children: 2, rows: 10
 
             // Test display_tree exact output (with inline array_tree enabled by env var from other test)
             assert_eq!(
-                format!("{}", layout.display_tree()),
-                "vortex.flat, dtype: i64, segment 0, buffers=[24B], total=24B\n"
+                layout.display_tree().to_string(),
+                "\
+vortex.flat, dtype: i64, segment 0, buffers=[24B], total=24B
+"
             );
         })
     }

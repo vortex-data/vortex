@@ -184,19 +184,6 @@ impl FlatLayout {
     pub fn array_tree(&self) -> Option<&ByteBuffer> {
         self.array_tree.as_ref()
     }
-
-    /// Returns a display-friendly representation of the array tree metadata.
-    ///
-    /// When `FLAT_LAYOUT_INLINE_ARRAY_NODE` is enabled, this parses the inlined flatbuffer
-    /// and displays information about the array encoding tree and buffer descriptors.
-    /// When the array tree is not inlined, displays the segment ID instead.
-    pub fn display_array_tree(&self) -> ArrayTreeDisplay {
-        ArrayTreeDisplay {
-            array_tree: self.array_tree.clone(),
-            segment_id: self.segment_id,
-            ctx: self.ctx.clone(),
-        }
-    }
 }
 
 /// Display wrapper for the array tree metadata stored in a FlatLayout.
