@@ -96,7 +96,7 @@ fn test_reduce_rules_traverse_whole_tree() -> VortexResult<()> {
         Validity::NonNullable,
     )?;
 
-    let optimized = optimizer.optimize_array(outer_struct.into_array())?;
+    let optimized = optimizer.optimize_array(&outer_struct.into_array())?;
 
     let optimized_outer = optimized.as_opt::<StructVTable>().unwrap();
     let optimized_inner_struct = optimized_outer.field_by_name("inner_struct")?;
@@ -181,7 +181,7 @@ fn test_parent_rules_traverse_whole_tree() -> VortexResult<()> {
     ])?
     .into_array();
 
-    let optimized = optimizer.optimize_array(outer_struct.clone())?;
+    let optimized = optimizer.optimize_array(&outer_struct)?;
 
     let optimized_outer = optimized.as_opt::<StructVTable>().unwrap();
     let inner_struct = optimized_outer.field_by_name("inner_struct")?;

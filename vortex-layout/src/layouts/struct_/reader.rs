@@ -50,6 +50,7 @@ pub struct StructReader {
     layout: StructLayout,
     name: Arc<str>,
     lazy_children: LazyReaderChildren,
+    session: VortexSession,
 
     /// A `pack` expression that holds each individual field of the root DType. This expansion
     /// ensures we can correctly partition expressions over the fields of the struct.
@@ -95,7 +96,7 @@ impl StructReader {
             dtypes,
             names,
             segment_source.clone(),
-            session,
+            session.clone(),
         );
 
         // Create an expanded root expression that contains all fields of the struct.
@@ -106,6 +107,7 @@ impl StructReader {
         Ok(Self {
             layout,
             name,
+            session,
             expanded_root_expr,
             lazy_children,
             field_lookup,
@@ -295,6 +297,7 @@ impl LayoutReader for StructReader {
                             ))
                         })
                 },
+                self.session.clone(),
             ),
         }
     }

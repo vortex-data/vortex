@@ -218,7 +218,11 @@ impl<A: 'static + Send> ScanBuilder<A> {
         // Enrich the layout reader to support RowIdx expressions.
         // Note that this is applied below the filter layout reader since it can perform
         // better over individual conjunctions.
-        layout_reader = Arc::new(RowIdxLayoutReader::new(self.row_offset, layout_reader));
+        layout_reader = Arc::new(RowIdxLayoutReader::new(
+            self.row_offset,
+            layout_reader,
+            self.session.clone(),
+        ));
 
         // Normalize and simplify the expressions.
         let projection = self.projection.simplify(layout_reader.dtype())?;

@@ -4,39 +4,49 @@
 use std::ops::BitAnd;
 
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
+use vortex_vector::Datum;
 
 use crate::Array;
-use crate::arrays::ConstantVTable;
+use crate::ArrayRef;
+use crate::executor::VectorExecutor;
+use crate::session::ArraySessionExt;
 
-impl dyn Array + '_ {
+/// Executor for exporting a Vortex [`Mask`] from an [`ArrayRef`].
+pub trait MaskExecutor {
+    /// Execute the array to produce a mask, after first running the optimizer.
+    fn execute_mask_optimized(&self, session: &VortexSession) -> VortexResult<Mask>;
+
     /// Execute the array to produce a mask.
-    pub fn execute_mask(&self, session: &VortexSession) -> VortexResult<Mask> {
+    fn execute_mask(&self, session: &VortexSession) -> VortexResult<Mask>;
+}
+
+impl MaskExecutor for ArrayRef {
+    fn execute_mask_optimized(&self, session: &VortexSession) -> VortexResult<Mask> {
+        session
+            .arrays()
+            .optimizer()
+            .optimize_array(self)?
+            .execute_mask(session)
+    }
+
+    fn execute_mask(&self, session: &VortexSession) -> VortexResult<Mask> {
         if !matches!(self.dtype(), DType::Bool(_)) {
             vortex_bail!("Mask array must have boolean dtype, not {}", self.dtype());
         }
 
-        if let Some(constant) = self.as_opt::<ConstantVTable>() {
-            let value = constant
-                .scalar()
-                .as_bool()
-                .value()
-                .vortex_expect("non-nullable");
-            Ok(Mask::new(self.len(), value))
-        } else {
-            let bool = self.execute(session)?.into_bool();
-
-            // To handle nullable boolean arrays, we treat nulls as false in the mask.
-            // TODO(ngates): is this correct? Feels like we should just force the caller to
-            //  pass non-nullable boolean arrays.
-            let (bits, mask) = bool.into_parts();
-            let mask = mask.bitand(&Mask::from(bits));
-
-            Ok(mask)
-        }
+        Ok(match self.execute_datum(session)? {
+            Datum::Scalar(s) => Mask::new(self.len(), s.as_bool().value().unwrap_or(false)),
+            Datum::Vector(v) => {
+                let (bits, mask) = v.into_bool().into_parts();
+                // To handle nullable boolean arrays, we treat nulls as false in the mask.
+                // TODO(ngates): is this correct? Feels like we should just force the caller to
+                //  pass non-nullable boolean arrays.
+                mask.bitand(&Mask::from(bits))
+            }
+        })
     }
 }

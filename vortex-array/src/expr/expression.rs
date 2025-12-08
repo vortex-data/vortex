@@ -14,7 +14,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::expr::Root;
@@ -124,12 +123,11 @@ impl Expression {
     }
 
     /// Evaluates the expression in the given scope, returning an array.
-    pub fn evaluate(&self, _scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        vortex_panic!("DEPRECATED");
-        // if self.is::<Root>() {
-        //     return Ok(scope.clone());
-        // }
-        // self.scalar_fn.evaluate(self, scope)
+    pub fn evaluate(&self, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+        if self.is::<Root>() {
+            return Ok(scope.clone());
+        }
+        self.scalar_fn.evaluate(self, scope)
     }
 
     /// An expression over zone-statistics which implies all records in the zone evaluate to false.

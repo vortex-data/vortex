@@ -22,9 +22,6 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
-use vortex_session::VortexSession;
-use vortex_vector::Vector;
-use vortex_vector::VectorOps;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -371,35 +368,6 @@ impl dyn Array + '_ {
             }
         }
         nbytes
-    }
-
-    /// Execute the array and return the resulting vector.
-    ///
-    /// This entry-point function will choose an appropriate CPU-based execution strategy.
-    pub fn execute(&self, session: &VortexSession) -> VortexResult<Vector> {
-        let mut ctx = BindCtx::new(session.clone());
-
-        // NOTE(ngates): in the future we can choose a different mode of execution, or run
-        // optimization here, etc.
-        let kernel = self.bind_kernel(&mut ctx)?;
-        let result = kernel.execute()?;
-
-        vortex_ensure!(
-            result.len() == self.len(),
-            "Result length mismatch for {}",
-            self.encoding_id()
-        );
-
-        #[cfg(debug_assertions)]
-        {
-            vortex_ensure!(
-                vortex_vector::vector_matches_dtype(&result, self.dtype()),
-                "Executed vector dtype mismatch for {}",
-                self.encoding_id(),
-            );
-        }
-
-        Ok(result)
     }
 }
 

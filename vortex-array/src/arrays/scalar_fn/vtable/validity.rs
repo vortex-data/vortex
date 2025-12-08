@@ -3,11 +3,15 @@
 
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
+use vortex_vector::Datum;
+use vortex_vector::ScalarOps;
+use vortex_vector::VectorOps;
 
 use crate::Array;
 use crate::arrays::LEGACY_SESSION;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
+use crate::executor::VectorExecutor;
 use crate::vtable::ValidityVTable;
 
 impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
@@ -46,9 +50,13 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
     }
 
     fn validity_mask(array: &ScalarFnArray) -> Mask {
-        let vector = array
-            .execute(&LEGACY_SESSION)
+        let datum = array
+            .to_array()
+            .execute_datum(&LEGACY_SESSION)
             .vortex_expect("Validity mask computation should be fallible");
-        Mask::from_buffer(vector.into_bool().into_bits())
+        match datum {
+            Datum::Scalar(s) => Mask::new(array.len, s.is_valid()),
+            Datum::Vector(v) => v.validity().clone(),
+        }
     }
 }

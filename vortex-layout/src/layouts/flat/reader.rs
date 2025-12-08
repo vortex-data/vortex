@@ -5,7 +5,6 @@ use std::collections::BTreeSet;
 use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
-use std::sync::LazyLock;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -15,6 +14,7 @@ use vortex_array::MaskFuture;
 use vortex_array::compute::filter;
 use vortex_array::expr::Expression;
 use vortex_array::expr::Root;
+use vortex_array::mask::MaskExecutor;
 use vortex_array::serde::ArrayParts;
 use vortex_array::session::ArraySessionExt;
 use vortex_dtype::DType;
@@ -27,14 +27,9 @@ use vortex_session::VortexSession;
 
 use crate::LayoutReader;
 use crate::layouts::SharedArrayFuture;
+use crate::layouts::USE_VORTEX_OPERATORS;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentSource;
-
-static USE_VORTEX_OPERATORS: LazyLock<bool> = LazyLock::new(|| {
-    std::env::var("VORTEX_OPERATORS")
-        .map(|v| v == "1" || v.to_lowercase() == "true")
-        .unwrap_or(false)
-});
 
 /// The threshold of mask density below which we will evaluate the expression only over the
 /// selected rows, and above which we evaluate the expression over all rows and then select
@@ -158,7 +153,7 @@ impl LayoutReader for FlatReader {
                 let array = array.apply(&expr)?;
 
                 log::info!("Filter Array:\n{}", array.display_tree());
-                let array = optimizer.optimize_array(array)?;
+                let array = optimizer.optimize_array(&array)?;
                 log::warn!("Optimized Filter Array:\n{}", array.display_tree());
 
                 // Evaluate the array into a mask.
@@ -231,7 +226,7 @@ impl LayoutReader for FlatReader {
                 array = array.slice(row_range.clone());
             }
 
-            if *USE_VORTEX_OPERATORS {
+            Ok(if *USE_VORTEX_OPERATORS {
                 // Evaluate the projection expression.
                 array = array.apply(&expr)?;
 
@@ -241,7 +236,7 @@ impl LayoutReader for FlatReader {
                 }
 
                 log::debug!("Project Array:\n{}", array.display_tree());
-                let array = optimizer.optimize_array(array)?;
+                let array = optimizer.optimize_array(&array)?;
                 log::info!("Optimized Project Array:\n{}", array.display_tree());
                 array
             } else {
@@ -258,9 +253,7 @@ impl LayoutReader for FlatReader {
                     })?;
                 }
                 array
-            }
-
-            Ok(array)
+            })
         }
         .boxed())
     }
