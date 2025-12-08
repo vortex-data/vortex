@@ -383,6 +383,8 @@ jobs:
           tool: nextest
       - name: Rust Tests
         if: ${{ matrix.suite == 'tests' }}
+        env:
+          RUSTFLAGS: "-Cinstrument-coverage -A warnings --cfg vortex_nightly"
         run: |
           cargo +nightly nextest run --locked --workspace --all-features --no-fail-fast
       - name: Run TPC-H
@@ -429,7 +431,7 @@ jobs:
       - tag=rust-test-sanitizer
     env:
       # Add debug symbols and enable ASAN/LSAN with better output
-      RUSTFLAGS: "-A warnings -Zsanitizer=address -Zsanitizer=leak --cfg disable_loom -C debuginfo=2 -C opt-level=0 -C strip=none"
+      RUSTFLAGS: "-A warnings -Zsanitizer=address -Zsanitizer=leak --cfg disable_loom --cfg vortex_nightly -C debuginfo=2 -C opt-level=0 -C strip=none"
       ASAN_OPTIONS: "symbolize=1:print_stats=1:check_initialization_order=1:detect_leaks=1:halt_on_error=0:verbosity=1:leak_check_at_exit=1"
       LSAN_OPTIONS: "verbosity=1:report_objects=1"
       ASAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
@@ -669,7 +671,7 @@ jobs:
     timeout-minutes: 120
     env:
       MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation -Zmiri-env-forward=RUST_BACKTRACE
-      RUSTFLAGS: "-A warnings"
+      RUSTFLAGS: "-A warnings --cfg vortex_nightly"
       RUST_BACKTRACE: full
     steps:
       - uses: actions/checkout@v6

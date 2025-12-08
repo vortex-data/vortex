@@ -126,11 +126,7 @@ impl GithubArchive {
 
 impl Benchmark for GithubArchive {
     fn queries(&self) -> anyhow::Result<Vec<(usize, String)>> {
-        Ok(QUERIES
-            .iter()
-            .map(|s| (s.to_string()))
-            .enumerate()
-            .collect())
+        Ok(QUERIES.iter().map(|s| s.to_string()).enumerate().collect())
     }
 
     fn generate_data(&self, target: &Target) -> anyhow::Result<()> {
