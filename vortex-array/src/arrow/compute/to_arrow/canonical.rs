@@ -71,12 +71,11 @@ use crate::arrays::NullArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::list_from_list_view;
 use crate::arrow::IntoArrowArray;
 use crate::arrow::array::ArrowArray;
 use crate::arrow::compute::ToArrowArgs;
 use crate::arrow::compute::to_arrow::null_buffer::to_null_buffer;
-use crate::builders::ArrayBuilder;
-use crate::builders::ListBuilder;
 use crate::compute::InvocationArgs;
 use crate::compute::Kernel;
 use crate::compute::Output;
@@ -530,28 +529,11 @@ fn to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
     array: ListViewArray,
     element_field: Option<&FieldRef>,
 ) -> VortexResult<ArrowArrayRef> {
-    // Since `ListViewArray` can have lists stored out-of-order, we must rebuild the entire array.
-    // We also can't use `list_from_list_view` because we need this specific `O` type for offsets.
-    let mut list_builder = ListBuilder::<O>::with_capacity(
-        array
-            .dtype()
-            .as_list_element_opt()
-            .vortex_expect("`ListViewArray` somehow was not of type `List`")
-            .clone(),
-        array.dtype().nullability(),
-        array.elements().len(), // This might be wrong, but it's better than nothing.
-        array.len(),
-    );
+    // Convert listview -> list, via the fast path when possible.
+    // TODO(aduffy): extend list_from_list_view to support target offsets/size PTypes
+    //   to avoid the copy below
+    let list_array = list_from_list_view(array);
 
-    // TODO(connor)[ListView]: We can potentially make a generic version of `list_from_list_view`
-    // over the offsets so we don't have to rewrite this.
-
-    list_builder.extend_from_array(&array.to_array());
-    let list_array = list_builder.finish_into_list();
-
-    // Now that we have a normal `ListArray`, we can convert all the child arrays.
-
-    // Convert the child `elements` array to Arrow.
     let (elements, element_field) = {
         if let Some(element_field) = element_field {
             // Convert elements to the specific Arrow type the caller wants.
@@ -573,8 +555,7 @@ fn to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
     };
 
     // Convert the child `offsets` and `validity` array to Arrow.
-    let offsets = list_array
-        .offsets()
+    let offsets = cast(list_array.offsets().as_ref(), &DType::from(O::PTYPE))?
         .to_primitive()
         .buffer::<O>()
         .into_arrow_offset_buffer();

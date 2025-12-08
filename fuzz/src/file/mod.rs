@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use libfuzzer_sys::arbitrary::Arbitrary;
-use libfuzzer_sys::arbitrary::Unstructured;
+use arbitrary::Arbitrary;
+use arbitrary::Unstructured;
 use vortex_array::ArrayRef;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::expr::Expression;
@@ -20,7 +20,7 @@ pub struct FuzzFileAction {
 }
 
 impl<'a> Arbitrary<'a> for FuzzFileAction {
-    fn arbitrary(u: &mut Unstructured<'a>) -> libfuzzer_sys::arbitrary::Result<Self> {
+    fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
         let array = ArbitraryArray::arbitrary(u)?.0;
         let dtype = array.dtype().clone();
         Ok(FuzzFileAction {

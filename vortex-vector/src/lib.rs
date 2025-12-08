@@ -5,10 +5,10 @@
 // differences from Arrow (builders and arrays and scalars), etc.
 //! Immutable and mutable decompressed (canonical) vectors for Vortex.
 
-#![deny(missing_docs)]
 #![deny(clippy::missing_errors_doc)]
 #![deny(clippy::missing_panics_doc)]
 #![deny(clippy::missing_safety_doc)]
+#![deny(missing_docs)]
 
 pub mod binaryview;
 pub mod bool;
@@ -26,7 +26,7 @@ mod vector;
 mod vector_mut;
 mod vector_ops;
 
-pub use datum::Datum;
+pub use datum::*;
 pub use scalar::Scalar;
 pub use scalar_ops::ScalarOps;
 pub use vector::Vector;

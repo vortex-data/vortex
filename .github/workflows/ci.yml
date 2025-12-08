@@ -4,11 +4,7 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
 
-on:
-  push:
-    branches: ["develop"]
-  pull_request: {}
-  workflow_dispatch: {}
+on: [push, pull_request, workflow_dispatch]
 
 permissions:
   actions: read
@@ -38,8 +34,7 @@ jobs:
           # Lint the workflows and yamllint's configuration file.
           yamllint \
             --strict \
-            -c yamllint-config.yaml \
-            yamllint-config.yaml \
+            -c .yamllint.yaml \
             .github/
 
   python-lint:
@@ -311,6 +306,43 @@ jobs:
           # https://spiraldb.slack.com/archives/C07BV3GKAJ2/p1732736281946729
           cargo hack clippy --no-default-features -- -D warnings
 
+  rust-semver:
+    name: "Rust (semver checks)"
+    timeout-minutes: 120
+    if: github.ref != 'refs/heads/develop'
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=16
+      - image=ubuntu24-full-x64
+      - extras=s3-cache
+      - tag=rust-semver
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # We have to set the correct Cargo.toml versions so semver checks uses the previous release.
+      - name: Latest Tag
+        id: latest-tag
+        run: |
+          LATEST_TAG=$(git describe --tags --abbrev=0)
+          echo "tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+      - name: Cargo Set Version
+        run: |
+          cargo install cargo-edit
+          cargo set-version --workspace ${{ steps.latest-tag.outputs.tag }}
+
+      - name: Check semver
+        uses: obi1kenobi/cargo-semver-checks-action@v2
+
   rust-coverage:
     name: "Rust tests (coverage)"
     timeout-minutes: 120
@@ -421,6 +453,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           toolchain: nightly
           components: "rust-src, rustfmt, clippy, llvm-tools-preview"
+          cache-suffix: "sanitizer"
       - name: Install build dependencies
         run: |
           sudo apt-get update

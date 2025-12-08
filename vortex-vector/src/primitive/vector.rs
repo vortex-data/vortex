@@ -85,6 +85,10 @@ impl VectorOps for PrimitiveVector {
         match_each_pvector!(self, |v| { v.validity() })
     }
 
+    fn mask_validity(&mut self, mask: &Mask) {
+        match_each_pvector!(self, |v| { v.mask_validity(mask) })
+    }
+
     fn scalar_at(&self, index: usize) -> PrimitiveScalar {
         match_each_pvector!(self, |v| { v.scalar_at(index).into() })
     }

@@ -22,6 +22,7 @@ use crate::compute::sub;
 use crate::expr::ChildName;
 use crate::expr::ExprId;
 use crate::expr::ExpressionView;
+use crate::expr::ScalarFnExprExt;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
@@ -29,6 +30,7 @@ use crate::expr::expression::Expression;
 use crate::expr::exprs::literal::lit;
 use crate::expr::exprs::operators::Operator;
 use crate::expr::stats::Stat;
+use crate::scalar_fns::binary;
 
 pub struct Binary;
 
@@ -274,6 +276,10 @@ impl VTable for Binary {
 
         !infallible
     }
+
+    fn expr_v2(&self, view: &ExpressionView<Self>) -> VortexResult<Expression> {
+        ScalarFnExprExt::try_new_expr(&binary::BinaryFn, view.operator(), view.children().clone())
+    }
 }
 
 impl ExpressionView<'_, Binary> {
@@ -319,7 +325,7 @@ pub fn eq(lhs: Expression, rhs: Expression) -> Expression {
 /// ## Example usage
 ///
 /// ```
-/// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
+/// # use vortex_array::arrays::{BoolArray, PrimitiveArray};
 /// # use vortex_array::{IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;

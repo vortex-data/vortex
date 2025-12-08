@@ -21,7 +21,7 @@ use crate::expr::functions::FunctionId;
 use crate::expr::functions::NullHandling;
 use crate::expr::functions::VTable;
 use crate::expr::stats::Stat;
-use crate::scalar_fns::BuiltinScalarFns;
+use crate::scalar_fns::ExprBuiltins;
 
 pub struct CastFn;
 impl VTable for CastFn {
@@ -49,7 +49,7 @@ impl VTable for CastFn {
     }
 
     fn arity(&self, _options: &DType) -> Arity {
-        Arity::Fixed(1)
+        Arity::Exact(1)
     }
 
     fn null_handling(&self, _options: &DType) -> NullHandling {

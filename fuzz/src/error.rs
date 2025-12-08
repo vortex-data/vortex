@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::backtrace::Backtrace;
+// Platform-specific backtrace type - re-exported for use by fuzz targets
+#[cfg(not(target_arch = "wasm32"))]
+pub use std::backtrace::Backtrace;
 use std::error::Error;
 use std::fmt;
 use std::fmt::Debug;
@@ -15,6 +17,24 @@ use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_error::VortexError;
 use vortex_scalar::Scalar;
+
+#[cfg(target_arch = "wasm32")]
+#[derive(Default)]
+pub struct Backtrace;
+
+#[cfg(target_arch = "wasm32")]
+impl Backtrace {
+    pub fn capture() -> Self {
+        Backtrace
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Display for Backtrace {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "<backtrace unavailable in WASM>")
+    }
+}
 
 #[non_exhaustive]
 pub enum VortexFuzzError {

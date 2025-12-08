@@ -15,6 +15,10 @@ inputs:
   targets:
     description: "optional targets override (e.g. wasm32-unknown-unknown)"
     required: false
+  cache-suffix:
+    description: "optional suffix for cache key to isolate builds with different RUSTFLAGS (e.g. 'sanitizer')"
+    required: false
+    default: ""
 
 runs:
   using: "composite"
@@ -48,7 +52,7 @@ runs:
       uses: Swatinem/rust-cache@v2
       with:
         save-if: ${{ github.ref_name == 'develop' }}
-        shared-key: "rust-cache-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-${{ steps.toolchain-config.outputs.toolchain }}-${{ steps.toolchain-config.outputs.targets }}"
+        shared-key: "rust-cache-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-${{ steps.toolchain-config.outputs.toolchain }}-${{ steps.toolchain-config.outputs.targets }}${{ inputs.cache-suffix && format('-{0}', inputs.cache-suffix) || '' }}"
 
     - name: Rust Compile Cache
       uses: mozilla-actions/sccache-action@v0.0.9

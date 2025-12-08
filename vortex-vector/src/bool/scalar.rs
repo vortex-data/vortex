@@ -8,7 +8,7 @@ use crate::VectorMutOps;
 use crate::bool::BoolVectorMut;
 
 /// A scalar value for boolean types.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct BoolScalar(Option<bool>);
 
 impl BoolScalar {
@@ -28,6 +28,12 @@ impl ScalarOps for BoolScalar {
         self.0.is_some()
     }
 
+    fn mask_validity(&mut self, mask: bool) {
+        if !mask {
+            self.0 = None;
+        }
+    }
+
     fn repeat(&self, n: usize) -> VectorMut {
         let mut vec = BoolVectorMut::with_capacity(n);
         match self.0 {
@@ -41,5 +47,11 @@ impl ScalarOps for BoolScalar {
 impl From<BoolScalar> for Scalar {
     fn from(val: BoolScalar) -> Self {
         Scalar::Bool(val)
+    }
+}
+
+impl From<bool> for Scalar {
+    fn from(value: bool) -> Self {
+        BoolScalar::new(Some(value)).into()
     }
 }

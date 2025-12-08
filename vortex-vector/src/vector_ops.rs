@@ -39,6 +39,10 @@ pub trait VectorOps: private::Sealed + Into<Vector> + Sized {
     /// add nullable data to a vector they want to keep as non-nullable.
     fn validity(&self) -> &Mask;
 
+    /// Masks the validity of the vector with another validity mask.
+    /// The resulting vector's validity is the intersection of the two validity masks.
+    fn mask_validity(&mut self, mask: &Mask);
+
     /// Returns the null count of the vector.
     fn null_count(&self) -> usize {
         self.validity().false_count()
