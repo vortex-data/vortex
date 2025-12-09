@@ -25,9 +25,7 @@ futures = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 mimalloc = { workspace = true, optional = true }
-moka = { workspace = true, features = ["sync"] }
 object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
-parking_lot = { workspace = true }
 paste = { workspace = true }
 prost = { workspace = true }
 simplelog = { workspace = true }

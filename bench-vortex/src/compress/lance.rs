@@ -26,8 +26,8 @@ use lance::dataset::WriteParams;
 use lance_encoding::version::LanceFileVersion;
 use tempfile::TempDir;
 
-use crate::utils::parquet_utils::convert_utf8view_batch;
-use crate::utils::parquet_utils::convert_utf8view_schema;
+use crate::utils::parquet::convert_utf8view_batch;
+use crate::utils::parquet::convert_utf8view_schema;
 
 /// Write pre-converted [`RecordBatch`]es to Lance format.
 pub async fn lance_compress_write_only(

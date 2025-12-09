@@ -18,5 +18,4 @@ name = "vortex_gpu_kernels"
 
 [dependencies]
 anyhow = { workspace = true }
-clap = { workspace = true, features = ["derive"] }
 fastlanes = { workspace = true }

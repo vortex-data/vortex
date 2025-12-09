@@ -11,7 +11,7 @@ The `vortex-scan` crate provides efficient scanning operations over Vortex array
 - **Filter predicates** - Push filters down to the storage layer
 - **Row selection** - Efficiently skip unwanted rows
 - **Multi-threaded execution** - Work-stealing parallelism for CPU-bound operations
-- **Async I/O** - Tokio-based async execution for I/O operations
+- **Async I/O** - Async execution for I/O operations
 - **Arrow integration** - Seamless conversion to Apache Arrow format
 
 ## Features
@@ -187,11 +187,9 @@ Core dependencies:
 - `vortex-array`: Core array types and operations (includes expression evaluation framework)
 - `vortex-layout`: Layout reader abstraction
 - `futures`: Async runtime abstractions
-- `tokio` (optional): Multi-threaded async runtime
 - `arrow-array` (optional): Arrow integration
 
 ## Feature Flags
 
 - `default`: Standard features for most use cases
-- `tokio`: Enable multi-threaded execution with Tokio runtime
 - `roaring`: Support for Roaring bitmap selections

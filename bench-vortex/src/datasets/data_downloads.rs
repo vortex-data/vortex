@@ -15,8 +15,8 @@ use reqwest::Client;
 use tokio::fs::File as TokioFile;
 use tokio::io::AsyncWriteExt;
 
-use crate::utils::file_utils::idempotent;
-use crate::utils::file_utils::idempotent_async;
+use crate::utils::file::idempotent;
+use crate::utils::file::idempotent_async;
 
 pub async fn download_data(fname: PathBuf, data_url: &str) -> Result<PathBuf> {
     idempotent_async(&fname, async |path| {
