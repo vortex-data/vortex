@@ -3,9 +3,9 @@
 
 pub mod registry;
 
-use std::any::type_name;
 use std::any::Any;
 use std::any::TypeId;
+use std::any::type_name;
 use std::fmt::Debug;
 use std::hash::BuildHasherDefault;
 use std::hash::Hasher;
@@ -15,8 +15,8 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use dashmap::Entry;
-use vortex_error::vortex_panic;
 use vortex_error::VortexExpect;
+use vortex_error::vortex_panic;
 
 /// A Vortex session encapsulates the set of extensible arrays, layouts, compute functions, dtypes,
 /// etc. that are available for use in a given context.
@@ -68,7 +68,7 @@ pub trait SessionExt: Sized + private::Sealed {
     /// Returns the scope variable of type `V`, or inserts a default one if it does not exist.
     ///
     /// Note that the returned value internally holds a lock on the variable.
-    fn get_mut<V: SessionVar>(&self) -> RefMut<'_, V>;
+    fn get_mut<V: SessionVar + Default>(&self) -> RefMut<'_, V>;
 
     /// Returns the scope variable of type `V`, if it exists.
     ///
@@ -133,8 +133,8 @@ impl SessionExt for VortexSession {
         self.0.get_mut(&TypeId::of::<V>()).map(|v| {
             RefMut(v.map(|v| {
                 (**v)
-                    .as_any()
-                    .downcast_ref::<V>()
+                    .as_any_mut()
+                    .downcast_mut::<V>()
                     .vortex_expect("Type mismatch - this is a bug")
             }))
         })
