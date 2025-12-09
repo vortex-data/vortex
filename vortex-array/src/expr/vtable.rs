@@ -433,6 +433,15 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         {
             use vortex_error::vortex_ensure;
             use vortex_vector::datum_matches_dtype;
+
+            if !datum_matches_dtype(&result, &expected_dtype) {
+                vortex_bail!(
+                    "Expression execution returned datum of invalid dtype. Expected {}, got {:?}",
+                    expected_dtype,
+                    result
+                );
+            }
+
             vortex_ensure!(
                 datum_matches_dtype(&result, &expected_dtype),
                 "Expression execution invalid for dtype {}",

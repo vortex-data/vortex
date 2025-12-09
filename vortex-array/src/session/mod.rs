@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_session::registry::Registry;
 use vortex_session::Ref;
 use vortex_session::SessionExt;
-use vortex_session::registry::Registry;
 
 use crate::arrays::BoolMaskedValidityRule;
 use crate::arrays::BoolVTable;
@@ -19,6 +19,7 @@ use crate::arrays::MaskedVTable;
 use crate::arrays::NullVTable;
 use crate::arrays::PrimitiveMaskedValidityRule;
 use crate::arrays::PrimitiveVTable;
+use crate::arrays::StructGetItemRule;
 use crate::arrays::StructVTable;
 use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewVTable;
@@ -96,6 +97,7 @@ impl Default for ArraySession {
         optimizer.register_parent_rule(BoolMaskedValidityRule);
         optimizer.register_parent_rule(PrimitiveMaskedValidityRule);
         optimizer.register_parent_rule(DecimalMaskedValidityRule);
+        optimizer.register_parent_rule(StructGetItemRule);
 
         session
     }
