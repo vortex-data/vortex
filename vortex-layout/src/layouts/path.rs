@@ -104,7 +104,7 @@ impl PathStrategy {
     ///         Arc::new(compress_btrblocks),
     ///     )
     ///     .with_leaf_strategy(
-    ///         vec![field_path!(request.body.bytes)],
+    ///         field_path!(request.body.bytes),
     ///         Arc::new(compress_compact),
     ///     );
     /// ```
