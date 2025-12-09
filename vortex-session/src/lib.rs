@@ -3,9 +3,9 @@
 
 pub mod registry;
 
+use std::any::type_name;
 use std::any::Any;
 use std::any::TypeId;
-use std::any::type_name;
 use std::fmt::Debug;
 use std::hash::BuildHasherDefault;
 use std::hash::Hasher;
@@ -15,8 +15,8 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use dashmap::Entry;
-use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
+use vortex_error::VortexExpect;
 
 /// A Vortex session encapsulates the set of extensible arrays, layouts, compute functions, dtypes,
 /// etc. that are available for use in a given context.
@@ -60,12 +60,20 @@ pub trait SessionExt: Sized + private::Sealed {
     fn session(&self) -> VortexSession;
 
     /// Returns the scope variable of type `V`, or inserts a default one if it does not exist.
-    fn get<V: SessionVar>(&self) -> Ref<'_, V>;
+    fn get<V: SessionVar + Default>(&self) -> Ref<'_, V>;
+
+    /// Returns the scope variable of type `V` if it exists.
+    fn get_opt<V: SessionVar>(&self) -> Option<Ref<'_, V>>;
 
     /// Returns the scope variable of type `V`, or inserts a default one if it does not exist.
     ///
     /// Note that the returned value internally holds a lock on the variable.
     fn get_mut<V: SessionVar>(&self) -> RefMut<'_, V>;
+
+    /// Returns the scope variable of type `V`, if it exists.
+    ///
+    /// Note that the returned value internally holds a lock on the variable.
+    fn get_mut_opt<V: SessionVar>(&self) -> Option<RefMut<'_, V>>;
 }
 
 mod private {
@@ -79,13 +87,12 @@ impl SessionExt for VortexSession {
     }
 
     /// Returns the scope variable of type `V`, or inserts a default one if it does not exist.
-    fn get<V: SessionVar>(&self) -> Ref<'_, V> {
+    fn get<V: SessionVar + Default>(&self) -> Ref<'_, V> {
         Ref(self
             .0
-            .get(&TypeId::of::<V>())
-            .unwrap_or_else(|| {
-                vortex_panic!("Session has not been initialized with {}", type_name::<V>())
-            })
+            .entry(TypeId::of::<V>())
+            .or_insert_with(|| Box::new(V::default()))
+            .downgrade()
             .map(|v| {
                 (**v)
                     .as_any()
@@ -94,16 +101,25 @@ impl SessionExt for VortexSession {
             }))
     }
 
+    fn get_opt<V: SessionVar>(&self) -> Option<Ref<'_, V>> {
+        self.0.get(&TypeId::of::<V>()).map(|v| {
+            Ref(v.map(|v| {
+                (**v)
+                    .as_any()
+                    .downcast_ref::<V>()
+                    .vortex_expect("Type mismatch - this is a bug")
+            }))
+        })
+    }
+
     /// Returns the scope variable of type `V`, or inserts a default one if it does not exist.
     ///
     /// Note that the returned value internally holds a lock on the variable.
-    fn get_mut<V: SessionVar>(&self) -> RefMut<'_, V> {
+    fn get_mut<V: SessionVar + Default>(&self) -> RefMut<'_, V> {
         RefMut(
             self.0
-                .get_mut(&TypeId::of::<V>())
-                .unwrap_or_else(|| {
-                    vortex_panic!("Session has not been initialized with {}", type_name::<V>())
-                })
+                .entry(TypeId::of::<V>())
+                .or_insert_with(|| Box::new(V::default()))
                 .map(|v| {
                     (**v)
                         .as_any_mut()
@@ -111,6 +127,17 @@ impl SessionExt for VortexSession {
                         .vortex_expect("Type mismatch - this is a bug")
                 }),
         )
+    }
+
+    fn get_mut_opt<V: SessionVar>(&self) -> Option<RefMut<'_, V>> {
+        self.0.get_mut(&TypeId::of::<V>()).map(|v| {
+            RefMut(v.map(|v| {
+                (**v)
+                    .as_any()
+                    .downcast_ref::<V>()
+                    .vortex_expect("Type mismatch - this is a bug")
+            }))
+        })
     }
 }
 
