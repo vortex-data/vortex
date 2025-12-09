@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use vortex_dtype::FieldPath;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
@@ -13,11 +14,12 @@ use vortex_layout::layouts::compressed::CompressingStrategy;
 use vortex_layout::layouts::compressed::CompressorPlugin;
 use vortex_layout::layouts::dict::writer::DictStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
+use vortex_layout::layouts::path::PathStrategy;
 use vortex_layout::layouts::repartition::RepartitionStrategy;
 use vortex_layout::layouts::repartition::RepartitionWriterOptions;
-use vortex_layout::layouts::struct_::writer::StructStrategy;
 use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
 use vortex_layout::layouts::zoned::writer::ZonedStrategy;
+use vortex_utils::aliases::hash_map::HashMap;
 
 const ONE_MEG: u64 = 1 << 20;
 
@@ -29,6 +31,7 @@ const ONE_MEG: u64 = 1 << 20;
 pub struct WriteStrategyBuilder {
     compressor: Option<Arc<dyn CompressorPlugin>>,
     row_block_size: usize,
+    field_writers: Option<HashMap<FieldPath, Arc<dyn LayoutStrategy>>>,
 }
 
 impl Default for WriteStrategyBuilder {
@@ -44,6 +47,7 @@ impl WriteStrategyBuilder {
         Self {
             compressor: None,
             row_block_size: 8192,
+            field_writers: None,
         }
     }
 
@@ -59,6 +63,19 @@ impl WriteStrategyBuilder {
     /// Override the row block size used to determine the zone map sizes.
     pub fn with_row_block_size(mut self, row_block_size: usize) -> Self {
         self.row_block_size = row_block_size;
+        self
+    }
+
+    /// Override the default write layout for a specific field somewhere in the nested
+    /// schema tree.
+    pub fn with_field_writer(
+        mut self,
+        field: impl Into<FieldPath>,
+        writer: Arc<dyn LayoutStrategy>,
+    ) -> Self {
+        let mut writers = self.field_writers.unwrap_or_default();
+        writers.insert(field.into(), writer);
+        self.field_writers = Some(writers);
         self
     }
 
@@ -126,6 +143,15 @@ impl WriteStrategyBuilder {
         // 0. start with splitting columns
         let validity_strategy = CollectStrategy::new(compress_then_flat);
 
-        Arc::new(StructStrategy::new(repartition, validity_strategy))
+        let table_strategy = PathStrategy::new(Arc::new(validity_strategy), Arc::new(repartition));
+
+        // Take any field overrides from the builder and apply them to the final strategy.
+        let table_strategy = if let Some(overrides) = self.field_writers {
+            table_strategy.set_field_writers(overrides)
+        } else {
+            table_strategy
+        };
+
+        Arc::new(table_strategy)
     }
 }
