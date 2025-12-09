@@ -163,6 +163,15 @@ impl LayoutStrategy for PathStrategy {
         handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
+
+        // Fallback: if the array is not a struct, fallback to writing a single array.
+        if !dtype.is_struct() {
+            return self
+                .fallback
+                .write_stream(ctx, segment_sink, stream, eof, handle)
+                .await;
+        }
+
         let struct_dtype = dtype.as_struct_fields();
 
         // Check for unique field names at write time.
