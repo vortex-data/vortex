@@ -19,8 +19,8 @@ impl Display for DisplayTreeExpr<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         pub use termtree::Tree;
         fn make_tree(expr: &Expression) -> Result<Tree<String>, std::fmt::Error> {
-            let bound: &ScalarFn = expr.deref();
-            let node_name = format!("{}", bound);
+            let scalar_fn: &ScalarFn = expr.deref();
+            let node_name = format!("{}", scalar_fn);
 
             // Get child names for display purposes
             let child_names = (0..expr.children().len()).map(|i| expr.signature().child_name(i));

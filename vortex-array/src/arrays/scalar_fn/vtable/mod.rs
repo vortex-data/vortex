@@ -161,7 +161,7 @@ pub trait ScalarFnArrayExt: expr::VTable {
         options: Self::Options,
         children: impl Into<Vec<ArrayRef>>,
     ) -> VortexResult<ArrayRef> {
-        let bound = ScalarFn::new_static(self, options);
+        let scalar_fn = ScalarFn::new_static(self, options);
 
         let children = children.into();
         vortex_ensure!(
@@ -170,16 +170,16 @@ pub trait ScalarFnArrayExt: expr::VTable {
         );
 
         let child_dtypes = children.iter().map(|c| c.dtype().clone()).collect_vec();
-        let dtype = bound.return_dtype(&child_dtypes)?;
+        let dtype = scalar_fn.return_dtype(&child_dtypes)?;
 
         let array_vtable: ArrayVTable = ScalarFnVTable {
-            vtable: bound.vtable().clone(),
+            vtable: scalar_fn.vtable().clone(),
         }
         .into_vtable();
 
         Ok(ScalarFnArray {
             vtable: array_vtable,
-            scalar_fn: bound,
+            scalar_fn,
             dtype,
             len,
             children,
