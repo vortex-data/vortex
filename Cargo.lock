@@ -9146,6 +9146,8 @@ version = "0.1.0"
 dependencies = [
  "dashmap",
  "hashbrown 0.16.1",
+ "parking_lot",
+ "vortex-error",
 ]
 
 [[package]]
