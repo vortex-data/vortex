@@ -59,9 +59,7 @@ fn filter_primitive_indices<T: Copy>(
     values: &[T],
     indices: impl Iterator<Item = usize>,
 ) -> Buffer<T> {
-    indices
-        .map(|idx| *unsafe { values.get_unchecked(idx) })
-        .collect()
+    indices.map(|idx| values[idx]).collect()
 }
 
 fn filter_primitive_slices<T: Clone>(
