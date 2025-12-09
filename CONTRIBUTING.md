@@ -28,6 +28,7 @@ At the time of writing, the following individuals serve as Committers (non-votin
 8. Marko Bakovic
 9. Onur Satici
 10. Xinyu Zeng
+11. Alfonso Subiotto
 
 ### Maintainers
 
