@@ -14,9 +14,10 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
+arcref = { workspace = true, optional = true }
 dashmap = { workspace = true, optional = true }
 hashbrown = { workspace = true }
-parking_lot = { workspace = true, optional = true }
+parking_lot = { workspace = true, optional = true, features = ["arc_lock"] }
 vortex-error = { workspace = true }
 
 [lints]
@@ -24,4 +25,4 @@ workspace = true
 
 [features]
 dyn-traits = []
-test-harness = ["dashmap", "parking_lot"]
+test-harness = ["arcref", "dashmap", "parking_lot"]

@@ -8,6 +8,7 @@ use termtree::Tree;
 use vortex_array::serde::ArrayParts;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::LayoutRef;
 use crate::layouts::flat::FlatLayout;
@@ -26,9 +27,8 @@ pub(super) async fn display_tree_with_segment_sizes(
     segment_source: Arc<dyn SegmentSource>,
 ) -> VortexResult<DisplayLayoutTree> {
     // First, collect all segment IDs from the layout tree (excluding those with inline array_tree)
-    let mut segments_to_fetch = Vec::new();
+    let mut segments_to_fetch = HashSet::new();
     collect_segments_to_fetch(&layout, &mut segments_to_fetch)?;
-    segments_to_fetch.dedup();
 
     // Fetch segments in parallel and parse buffer info
     let fetch_futures = segments_to_fetch.iter().map(|&segment_id| {
@@ -52,12 +52,12 @@ pub(super) async fn display_tree_with_segment_sizes(
 /// Collect segment IDs that need to be fetched (those without inline array_tree).
 fn collect_segments_to_fetch(
     layout: &LayoutRef,
-    segment_ids: &mut Vec<SegmentId>,
+    segment_ids: &mut HashSet<SegmentId>,
 ) -> VortexResult<()> {
     // For FlatLayout, only add if there's no inline array_tree
     if let Some(flat_layout) = layout.as_opt::<FlatVTable>() {
         if flat_layout.array_tree().is_none() {
-            segment_ids.push(flat_layout.segment_id());
+            segment_ids.insert(flat_layout.segment_id());
         }
     } else {
         // For other layouts, add all segment IDs

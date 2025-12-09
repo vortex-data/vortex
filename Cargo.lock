@@ -9144,10 +9144,10 @@ dependencies = [
 name = "vortex-utils"
 version = "0.1.0"
 dependencies = [
+ "arcref",
  "dashmap",
  "hashbrown 0.16.1",
  "parking_lot",
- "vortex-error",
 ]
 
 [[package]]

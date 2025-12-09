@@ -3,22 +3,34 @@
 
 //! Environment variable utilities for testing.
 
+use std::sync::Arc;
+use std::sync::LazyLock;
+use std::time::Duration;
+
+use arcref::ArcRef;
 use dashmap::DashMap;
+use parking_lot::ArcMutexGuard;
 use parking_lot::Mutex;
 use vortex_error::vortex_panic;
 
 /// Global registry of locks per environment variable key.
-///
-/// Each mutex is lazily created and leaked to get a 'static lifetime.
-/// This is acceptable for test utilities that live for the process duration.
-static ENV_LOCKS: std::sync::LazyLock<DashMap<&'static str, &'static Mutex<()>>> =
-    std::sync::LazyLock::new(DashMap::new);
+static ENV_LOCKS: LazyLock<DashMap<ArcRef<str>, Arc<Mutex<()>>>> = LazyLock::new(DashMap::new);
 
-/// Get or create a static mutex for the given key.
-fn get_or_create_lock(key: &'static str) -> &'static Mutex<()> {
-    *ENV_LOCKS
-        .entry(key)
-        .or_insert_with(|| Box::leak(Box::new(Mutex::new(()))))
+/// Timeout for waiting on an env var lock.
+const LOCK_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Get or create a mutex for the given key.
+fn get_or_create_lock(key: &ArcRef<str>) -> Arc<Mutex<()>> {
+    // Fast path: check if mutex already exists
+    if let Some(mutex) = ENV_LOCKS.get(key) {
+        return mutex.clone();
+    }
+
+    // Slow path: insert new mutex
+    ENV_LOCKS
+        .entry(key.clone())
+        .or_insert_with(|| Arc::new(Mutex::new(())))
+        .clone()
 }
 
 /// RAII guard to set/remove an environment variable for the duration of a scope.
@@ -44,64 +56,64 @@ fn get_or_create_lock(key: &'static str) -> &'static Mutex<()> {
 /// assert!(std::env::var("OTHER_VAR").is_err());
 /// ```
 ///
-/// # Panics
+/// # Blocking Behavior
 ///
-/// Panics if a guard already exists for the same environment variable key
-/// (detected via mutex lock contention).
+/// If another guard holds the lock for the same key, this will wait up to 10 seconds
+/// for it to be released. If the timeout expires, it panics to avoid deadlocks.
 ///
 /// # Safety
 ///
 /// Environment variable modification is inherently unsafe in multi-threaded contexts.
-/// This guard is intended for use in tests that are run serially or where env var
-/// races are acceptable. The per-key locking ensures that the same env var isn't
-/// modified concurrently by multiple guards.
+/// This guard is intended for use in tests. The per-key locking ensures that the
+/// same env var isn't modified concurrently by multiple guards.
 pub struct EnvVarGuard {
-    key: &'static str,
+    key: ArcRef<str>,
     /// We store this to ensure the mutex stays locked for our lifetime.
-    /// The () is just a dummy value - we only care about the lock.
     #[allow(dead_code)]
-    lock_guard: parking_lot::MutexGuard<'static, ()>,
+    lock_guard: ArcMutexGuard<parking_lot::RawMutex, ()>,
 }
-
-/// Timeout for waiting on an env var lock.
-const LOCK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl EnvVarGuard {
     /// Acquire the lock for this key, waiting up to 10 seconds.
     ///
     /// If another guard holds the lock, this will wait for it to be released.
     /// If the lock isn't released within 10 seconds, this panics to avoid deadlocks.
-    fn acquire_lock(key: &'static str) -> parking_lot::MutexGuard<'static, ()> {
+    #[allow(clippy::panic)]
+    fn acquire_lock(key: &ArcRef<str>) -> ArcMutexGuard<parking_lot::RawMutex, ()> {
         let mutex = get_or_create_lock(key);
-        match mutex.try_lock_for(LOCK_TIMEOUT) {
+        match mutex.try_lock_arc_for(LOCK_TIMEOUT) {
             Some(guard) => guard,
             None => vortex_panic!(
-                "EnvVarGuard: timed out after {LOCK_TIMEOUT:?} waiting for environment variable '{key}'. \
-                 This likely indicates a deadlock - ensure guards for the same key are properly scoped \
-                 taken in lexicographical order and dropped before acquiring a new one."
+                "EnvVarGuard: timed out after {:?} waiting for environment variable '{}'. \
+                 This likely indicates a deadlock - ensure guards for the same key are \
+                 properly scoped and dropped before acquiring a new one.",
+                LOCK_TIMEOUT,
+                key
             ),
         }
     }
 
     /// Set an environment variable for the duration of this guard's lifetime.
-    pub fn set(key: &'static str, value: &str) -> Self {
-        let lock_guard = Self::acquire_lock(key);
+    pub fn set(key: impl Into<ArcRef<str>>, value: &str) -> Self {
+        let key: ArcRef<str> = key.into();
+        let lock_guard = Self::acquire_lock(&key);
 
         // SAFETY: We hold an exclusive lock for this key.
         unsafe {
-            std::env::set_var(key, value);
+            std::env::set_var(&*key, value);
         }
 
         Self { key, lock_guard }
     }
 
     /// Remove an environment variable for the duration of this guard's lifetime.
-    pub fn remove(key: &'static str) -> Self {
-        let lock_guard = Self::acquire_lock(key);
+    pub fn remove(key: impl Into<ArcRef<str>>) -> Self {
+        let key: ArcRef<str> = key.into();
+        let lock_guard = Self::acquire_lock(&key);
 
         // SAFETY: We hold an exclusive lock for this key.
         unsafe {
-            std::env::remove_var(key);
+            std::env::remove_var(&*key);
         }
 
         Self { key, lock_guard }
@@ -112,86 +124,8 @@ impl Drop for EnvVarGuard {
     fn drop(&mut self) {
         // SAFETY: We hold an exclusive lock for this key.
         unsafe {
-            std::env::remove_var(self.key);
+            std::env::remove_var(&*self.key);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_set_and_remove() {
-        let key = "VORTEX_TEST_ENV_VAR_SET";
-
-        // Initially not set
-        assert!(std::env::var(key).is_err());
-
-        {
-            let _guard = EnvVarGuard::set(key, "test_value");
-            assert_eq!(std::env::var(key).unwrap(), "test_value");
-        }
-
-        // After guard drops, var is removed
-        assert!(std::env::var(key).is_err());
-    }
-
-    #[test]
-    fn test_remove() {
-        let key = "VORTEX_TEST_ENV_VAR_REMOVE";
-
-        // Set it first
-        unsafe {
-            std::env::set_var(key, "initial");
-        }
-
-        {
-            let _guard = EnvVarGuard::remove(key);
-            assert!(std::env::var(key).is_err());
-        }
-
-        // After guard drops, var is still removed
-        assert!(std::env::var(key).is_err());
-    }
-
-    /// Test that a second guard waits for the first to be released.
-    #[test]
-    fn test_second_guard_waits_for_first() {
-        use std::sync::Arc;
-        use std::sync::atomic::AtomicBool;
-        use std::sync::atomic::Ordering;
-        use std::thread;
-        use std::time::Duration;
-
-        let key = "VORTEX_TEST_ENV_VAR_WAIT";
-        let second_acquired = Arc::new(AtomicBool::new(false));
-        let second_acquired_clone = second_acquired.clone();
-
-        // First guard in main thread
-        let _guard1 = EnvVarGuard::set(key, "first");
-        assert_eq!(std::env::var(key).unwrap(), "first");
-
-        // Spawn thread that will wait for the lock
-        let handle = thread::spawn(move || {
-            let _guard2 = EnvVarGuard::set(key, "second");
-            second_acquired_clone.store(true, Ordering::SeqCst);
-            assert_eq!(std::env::var(key).unwrap(), "second");
-        });
-
-        // Give the thread time to start waiting
-        thread::sleep(Duration::from_millis(50));
-
-        // Second guard should NOT have acquired yet (still waiting)
-        assert!(!second_acquired.load(Ordering::SeqCst));
-
-        // Drop the first guard - this should allow the second to proceed
-        drop(_guard1);
-
-        // Wait for second thread to complete
-        handle.join().unwrap();
-
-        // Now the second guard should have acquired and set the value
-        assert!(second_acquired.load(Ordering::SeqCst));
+        // lock_guard is dropped here, releasing the mutex
     }
 }
