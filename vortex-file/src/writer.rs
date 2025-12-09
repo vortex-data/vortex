@@ -129,7 +129,7 @@ impl VortexWriteOptions {
         self,
         write: W,
         stream: S,
-    ) -> VortexResult<WriteSummary> {
+    ) -> VortexResult<(WriteSummary, W)> {
         self.write_internal(write, ArrayStreamExt::boxed(stream))
             .await
     }
@@ -221,10 +221,13 @@ impl VortexWriteOptions {
 
         write.flush().await?;
 
-        Ok(WriteSummary {
-            footer,
-            size: position,
-        })
+        Ok((
+            WriteSummary {
+                footer,
+                size: position,
+            },
+            write,
+        ))
     }
 
     /// Create a push-based [`Writer`] that can be used to incrementally write arrays to the file.
@@ -238,7 +241,11 @@ impl VortexWriteOptions {
         let write = CountingVortexWrite::new(write);
         let bytes_written = write.counter();
         let strategy = self.strategy.clone();
-        let future = self.write(write, arrays).boxed_local().fuse();
+        let future = self
+            .write(write, arrays)
+            .map(move |result| result.map(|(summary, _writer)| summary))
+            .boxed_local()
+            .fuse();
 
         Writer {
             arrays: Some(arrays_send),
@@ -375,11 +382,13 @@ impl<'rt, B: BlockingRuntime> BlockingWrite<'rt, B> {
         write: W,
         iter: impl ArrayIterator + Send + 'static,
     ) -> VortexResult<WriteSummary> {
-        self.runtime.block_on(async move {
-            self.options
-                .write(BlockingWriteAdapter(write), iter.into_array_stream())
-                .await
-        })
+        self.runtime
+            .block_on(async move {
+                self.options
+                    .write(BlockingWriteAdapter(write), iter.into_array_stream())
+                    .await
+            })
+            .map(|(summary, _)| summary)
     }
 
     pub fn writer<'w, W: Write + Unpin + 'w>(

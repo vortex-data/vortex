@@ -11,8 +11,8 @@ use vortex_io::VortexWrite;
 
 /// A wrapper around an `VortexWrite` that counts the number of bytes written.
 pub(crate) struct CountingVortexWrite<W> {
-    inner: W,
-    bytes_written: Arc<AtomicU64>,
+    pub(crate) inner: W,
+    pub(crate) bytes_written: Arc<AtomicU64>,
 }
 
 impl<W: VortexWrite> CountingVortexWrite<W> {

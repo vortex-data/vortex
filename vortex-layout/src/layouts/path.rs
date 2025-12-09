@@ -133,8 +133,15 @@ impl PathStrategy {
     fn descend(&self, field: &Field) -> Self {
         // Start with the existing set of overrides, then only retain the ones that contain
         // the current field
-        let mut new_writers = self.leaf_writers.clone();
-        new_writers.retain(|k, _| k.starts_with_field(field));
+        let mut new_writers = HashMap::with_capacity(self.leaf_writers.len());
+
+        for (field_path, strategy) in &self.leaf_writers {
+            if field_path.starts_with_field(field)
+                && let Some(subpath) = field_path.clone().step_into()
+            {
+                new_writers.insert(subpath, strategy.clone());
+            }
+        }
 
         Self {
             leaf_writers: new_writers,
@@ -256,7 +263,6 @@ impl LayoutStrategy for PathStrategy {
             .zip_eq(column_names)
             .enumerate()
             .map(move |(index, ((dtype, recv), name))| {
-                println!("PathStrategy visiting {name}");
                 let column_stream =
                     SequentialStreamAdapter::new(dtype.clone(), recv.into_stream().boxed())
                         .sendable();
