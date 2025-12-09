@@ -4,6 +4,8 @@
 use fastlanes::FastLanes;
 use prost::Message;
 use vortex_array::ProstMetadata;
+use vortex_array::kernel::BindCtx;
+use vortex_array::kernel::KernelRef;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
@@ -19,10 +21,12 @@ use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use self::kernel::DeltaKernel;
 use crate::DeltaArray;
 
 mod array;
 mod canonical;
+mod kernel;
 mod operations;
 mod validity;
 mod visitor;
@@ -97,6 +101,24 @@ impl VTable for DeltaVTable {
         let deltas = children.get(1, dtype, deltas_len)?;
 
         DeltaArray::try_new(bases, deltas, metadata.0.offset as usize, len)
+    }
+
+    fn bind_kernel(array: &DeltaArray, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
+        let bases_kernel = array.bases().bind_kernel(ctx)?;
+        let deltas_kernel = array.deltas().bind_kernel(ctx)?;
+
+        let start = array.offset();
+        let end = start + array.len();
+
+        let validity = array.deltas().validity_mask().slice(start..end);
+
+        Ok(Box::new(DeltaKernel {
+            bases_kernel,
+            deltas_kernel,
+            start,
+            end,
+            validity,
+        }))
     }
 }
 
