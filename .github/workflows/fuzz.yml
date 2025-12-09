@@ -1,9 +1,16 @@
 name: Fuzz
 
+concurrency:
+  # The group causes runs to queue instead of running in parallel.
+  group: fuzz
+  # This ensures each run builds on the previous run's corpus discoveries rather than losing them to
+  # failed compare-and-swap uploads.
+  cancel-in-progress: false
+
 on:
   schedule:
     - cron: "0 */4 * * *"  # every 4 hours
-  workflow_dispatch:
+  workflow_dispatch: { }
 
 jobs:
   io_fuzz:

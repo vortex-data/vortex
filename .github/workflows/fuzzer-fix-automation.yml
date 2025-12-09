@@ -1,5 +1,9 @@
 name: Fuzzer Fix Automation
 
+concurrency:
+  group: fuzzer-fix-${{ inputs.issue_number || github.run_id }}
+  cancel-in-progress: true
+
 on:
   workflow_dispatch:
     inputs:

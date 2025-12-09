@@ -1,10 +1,18 @@
 name: CI
 
+# Concurrency control:
+# - PRs: new commits on a feature branch will cancel in-progress (outdated) runs.
+# - Push to develop: runs queue sequentially, never cancelled. This allows us to have benchmarks
+#   run on every commit for our benchmarks website.
+# - `workflow_dispatch`: groups by branch and queues if run on develop.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
-
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+    branches: [develop]
+  pull_request: { }
+  workflow_dispatch: { }
 
 permissions:
   actions: read
