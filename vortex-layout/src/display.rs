@@ -229,6 +229,7 @@ mod tests {
     use vortex_dtype::PType;
     use vortex_dtype::StructFields;
     use vortex_io::runtime::single::block_on;
+    use vortex_utils::env::EnvVarGuard;
 
     use crate::IntoLayout;
     use crate::OwnedLayoutChildren;
@@ -244,6 +245,7 @@ mod tests {
     /// Test display_tree with inline array_tree metadata (no segment source needed).
     #[test]
     fn test_display_tree_inline_array_tree() {
+        let _guard = EnvVarGuard::set("FLAT_LAYOUT_INLINE_ARRAY_NODE", "1");
         block_on(|handle| async move {
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
@@ -333,6 +335,8 @@ vortex.struct, dtype: {numbers=i64?, strings=utf8}, children: 2, rows: 5
     /// Test display_tree_with_segments using async segment source to fetch buffer sizes.
     #[test]
     fn test_display_tree_with_segment_source() {
+        // Ensure inline array node is disabled for this test
+        let _guard = EnvVarGuard::remove("FLAT_LAYOUT_INLINE_ARRAY_NODE");
         block_on(|handle| async move {
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
@@ -380,31 +384,26 @@ vortex.struct, dtype: {numbers=i64?, strings=utf8}, children: 2, rows: 5
 
             let expected = "\
 vortex.chunked, dtype: i32, children: 2, rows: 10
-├── [0]: vortex.flat, dtype: i32, metadata: 98 bytes, rows: 5, segment 0, buffers=[20B], total=20B
-└── [1]: vortex.flat, dtype: i32, metadata: 98 bytes, rows: 5, segment 1, buffers=[20B], total=20B
+├── [0]: vortex.flat, dtype: i32, rows: 5, segment 0, buffers=[20B], total=20B
+└── [1]: vortex.flat, dtype: i32, rows: 5, segment 1, buffers=[20B], total=20B
 ";
-            assert_eq!(format!("{}", output), expected);
+            assert_eq!(output.to_string(), expected);
         })
     }
 
     /// Test display_array_tree with inline array node metadata.
     #[test]
     fn test_display_array_tree_with_inline_node() {
-        // Set the env var to enable inlined array node
-        // SAFETY: This test is single-threaded and we're only setting an env var
-        unsafe {
-            std::env::set_var("FLAT_LAYOUT_INLINE_ARRAY_NODE", "1");
-        }
+        let _guard = EnvVarGuard::set("FLAT_LAYOUT_INLINE_ARRAY_NODE", "1");
 
-        block_on(|handle| async {
-            let ctx = ArrayContext::empty();
-            let segments = Arc::new(TestSegments::default());
-            let (ptr, eof) = SequenceId::root().split();
+        let ctx = ArrayContext::empty();
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
 
-            // Create a simple primitive array
-            let array = PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5], Validity::AllValid);
-
-            let layout = FlatLayoutStrategy::default()
+        // Create a simple primitive array
+        let array = PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5], Validity::AllValid);
+        let layout = block_on(|handle| async {
+            FlatLayoutStrategy::default()
                 .write_stream(
                     ctx.clone(),
                     segments.clone(),
@@ -413,39 +412,40 @@ vortex.chunked, dtype: i32, children: 2, rows: 10
                     handle,
                 )
                 .await
-                .unwrap();
+                .unwrap()
+        });
 
-            let flat_layout = layout.as_::<FlatVTable>();
+        let flat_layout = layout.as_::<FlatVTable>();
 
-            let array_tree = flat_layout
-                .array_tree()
-                .expect("array_tree should be populated when FLAT_LAYOUT_INLINE_ARRAY_NODE is set");
+        let array_tree = flat_layout
+            .array_tree()
+            .expect("array_tree should be populated when FLAT_LAYOUT_INLINE_ARRAY_NODE is set");
 
-            let parts = ArrayParts::from_array_tree(array_tree.as_ref().to_vec())
-                .expect("should parse array_tree");
-            assert_eq!(parts.buffer_lengths(), vec![20]); // 5 i32 values = 20 bytes
+        let parts = ArrayParts::from_array_tree(array_tree.as_ref().to_vec())
+            .expect("should parse array_tree");
+        assert_eq!(parts.buffer_lengths(), vec![20]); // 5 i32 values = 20 bytes
 
-            assert_eq!(
-                layout.display_tree().to_string(),
-                "\
+        assert_eq!(
+            layout.display_tree().to_string(),
+            "\
 vortex.flat, dtype: i32?, segment 0, buffers=[20B], total=20B
 "
-            );
-        })
+        );
     }
 
     /// Test display_tree without inline array node (shows segment ID).
     #[test]
     fn test_display_tree_without_inline_node() {
-        block_on(|handle| async {
-            let ctx = ArrayContext::empty();
-            let segments = Arc::new(TestSegments::default());
-            let (ptr, eof) = SequenceId::root().split();
+        let _guard = EnvVarGuard::set("FLAT_LAYOUT_INLINE_ARRAY_NODE", "1");
 
-            // Create a simple primitive array
-            let array = PrimitiveArray::new(buffer![10i64, 20, 30], Validity::NonNullable);
+        let ctx = ArrayContext::empty();
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
 
-            let layout = FlatLayoutStrategy::default()
+        // Create a simple primitive array
+        let array = PrimitiveArray::new(buffer![10i64, 20, 30], Validity::NonNullable);
+        let layout = block_on(|handle| async {
+            FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
                     segments.clone(),
@@ -454,15 +454,15 @@ vortex.flat, dtype: i32?, segment 0, buffers=[20B], total=20B
                     handle,
                 )
                 .await
-                .unwrap();
+                .unwrap()
+        });
 
-            // Test display_tree exact output (with inline array_tree enabled by env var from other test)
-            assert_eq!(
-                layout.display_tree().to_string(),
-                "\
+        // Test display_tree exact output (with inline array_tree enabled by env var from other test)
+        assert_eq!(
+            layout.display_tree().to_string(),
+            "\
 vortex.flat, dtype: i64, segment 0, buffers=[24B], total=24B
 "
-            );
-        })
+        );
     }
 }
