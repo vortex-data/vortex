@@ -21,7 +21,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 
 #[derive(Debug)]
-pub struct StructGetItemRule;
+pub(crate) struct StructGetItemRule;
 impl ArrayParentReduceRule<Exact<StructVTable>, ExactScalarFn<GetItem>> for StructGetItemRule {
     fn child(&self) -> Exact<StructVTable> {
         Exact::from(&StructVTable)

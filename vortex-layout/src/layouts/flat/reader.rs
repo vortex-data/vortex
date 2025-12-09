@@ -6,17 +6,17 @@ use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::FutureExt;
 use futures::future::BoxFuture;
-use vortex_array::Array;
-use vortex_array::ArrayRef;
-use vortex_array::MaskFuture;
+use futures::FutureExt;
 use vortex_array::compute::filter;
 use vortex_array::expr::Expression;
 use vortex_array::expr::Root;
 use vortex_array::mask::MaskExecutor;
 use vortex_array::serde::ArrayParts;
 use vortex_array::session::ArraySessionExt;
+use vortex_array::Array;
+use vortex_array::ArrayRef;
+use vortex_array::MaskFuture;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexExpect;
@@ -25,11 +25,11 @@ use vortex_error::VortexUnwrap as _;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
-use crate::LayoutReader;
+use crate::layouts::flat::FlatLayout;
 use crate::layouts::SharedArrayFuture;
 use crate::layouts::USE_VORTEX_OPERATORS;
-use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentSource;
+use crate::LayoutReader;
 
 /// The threshold of mask density below which we will evaluate the expression only over the
 /// selected rows, and above which we evaluate the expression over all rows and then select
@@ -154,7 +154,7 @@ impl LayoutReader for FlatReader {
 
                 log::debug!("Filter Array:\n{}", array.display_tree());
                 let array = optimizer.optimize_array(&array)?;
-                log::info!("Optimized Filter Array:\n{}", array.display_tree());
+                log::debug!("Optimized Filter Array:\n{}", array.display_tree());
 
                 // Evaluate the array into a mask.
                 let array_mask = array.execute_mask(&session)?;
@@ -237,7 +237,7 @@ impl LayoutReader for FlatReader {
 
                 log::debug!("Project Array:\n{}", array.display_tree());
                 let array = optimizer.optimize_array(&array)?;
-                log::info!("Optimized Project Array:\n{}", array.display_tree());
+                log::debug!("Optimized Project Array:\n{}", array.display_tree());
                 array
             } else {
                 // Filter the array based on the row mask.
@@ -262,26 +262,26 @@ impl LayoutReader for FlatReader {
 mod test {
     use std::sync::Arc;
 
-    use vortex_array::ArrayContext;
-    use vortex_array::IntoArray;
-    use vortex_array::MaskFuture;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
     use vortex_array::validity::Validity;
-    use vortex_buffer::BitBuffer;
+    use vortex_array::ArrayContext;
+    use vortex_array::IntoArray;
+    use vortex_array::MaskFuture;
+    use vortex_array::ToCanonical;
     use vortex_buffer::buffer;
+    use vortex_buffer::BitBuffer;
     use vortex_io::runtime::single::block_on;
 
-    use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
     use crate::test::SESSION;
+    use crate::LayoutStrategy;
 
     #[test]
     fn flat_identity() {

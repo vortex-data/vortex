@@ -36,8 +36,6 @@ impl VectorExecutor for ArrayRef {
     }
 
     fn execute_datum(&self, session: &VortexSession) -> VortexResult<Datum> {
-        log::error!("Executing array: {}", self.display_tree());
-
         // Attempt to short-circuit constant arrays.
         if let Some(constant) = self.as_opt::<ConstantVTable>() {
             return Ok(Datum::Scalar(constant.scalar().to_vector_scalar()));

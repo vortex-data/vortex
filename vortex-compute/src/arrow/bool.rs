@@ -6,10 +6,11 @@ use arrow_array::BooleanArray;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
 use vortex_vector::bool::BoolVector;
+use vortex_vector::VectorOps;
 
+use crate::arrow::nulls_to_mask;
 use crate::arrow::IntoArrow;
 use crate::arrow::IntoVector;
-use crate::arrow::nulls_to_mask;
 
 impl IntoArrow for BoolVector {
     type Output = BooleanArray;
