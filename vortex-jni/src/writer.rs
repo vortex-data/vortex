@@ -176,8 +176,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriterMethods_create(
 
         let (store, _scheme) = make_object_store(&url, &properties)?;
         let write_handle = SESSION.handle().spawn(async move {
-            let mut write = ObjectStoreWriter::new(store, &path).await?;
-            let summary = SESSION.write_options().write(&mut write, w).await?;
+            let write = ObjectStoreWriter::new(store, &path).await?;
+            let (summary, mut write) = SESSION.write_options().write(write, w).await?;
             write.shutdown().await?;
             Ok(summary)
         });
