@@ -64,3 +64,13 @@ def test_scan_with_cast(vxfile: vx.VortexFile):
         [{"index": 1, "string": pa.scalar("1", pa.string_view()), "bool": False, "float": math.sqrt(1)}]
     )
     assert str(actual.to_arrow_array()) == str(expected)
+
+
+def test_scanner_property_projected(vxfile: vx.VortexFile):
+    assert vxfile.to_dataset().scanner(columns=["bool"]).projected_schema == pa.schema([("bool", pa.bool_())])
+
+
+def test_scanner_property_dataset_schema(vxfile: vx.VortexFile):
+    assert vxfile.to_dataset().scanner().dataset_schema == pa.schema(
+        [("bool", pa.bool_()), ("float", pa.float64()), ("index", pa.int64()), ("string", pa.string_view())]
+    )
