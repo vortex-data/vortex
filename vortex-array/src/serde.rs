@@ -403,6 +403,43 @@ impl ArrayParts {
             })
     }
 
+    /// Returns the buffer lengths as stored in the flatbuffer metadata.
+    ///
+    /// This reads the buffer descriptors from the flatbuffer, which contain the
+    /// serialized length of each buffer. This is useful for displaying buffer sizes
+    /// without needing to access the actual buffer data.
+    pub fn buffer_lengths(&self) -> Vec<usize> {
+        let fb_array = root::<fba::Array>(self.flatbuffer.as_ref())
+            .vortex_expect("ArrayParts flatbuffer must be a valid Array");
+        fb_array
+            .buffers()
+            .map(|buffers| buffers.iter().map(|b| b.length() as usize).collect())
+            .unwrap_or_default()
+    }
+
+    /// Create an [`ArrayParts`] from a raw array tree flatbuffer (metadata only).
+    ///
+    /// This constructor creates an `ArrayParts` with no buffer data, useful for
+    /// inspecting the metadata when the actual buffer data is not needed
+    /// (e.g., displaying buffer sizes from inlined array tree metadata).
+    ///
+    /// Note: Calling `buffer()` on the returned `ArrayParts` will fail since
+    /// no actual buffer data is available.
+    pub fn from_array_tree(array_tree: impl Into<ByteBuffer>) -> VortexResult<Self> {
+        let fb_buffer = FlatBuffer::align_from(array_tree.into());
+        let fb_array = root::<fba::Array>(fb_buffer.as_ref())?;
+        let fb_root = fb_array
+            .root()
+            .ok_or_else(|| vortex_err!("Array must have a root node"))?;
+        let flatbuffer_loc = fb_root._tab.loc();
+
+        Ok(ArrayParts {
+            flatbuffer: fb_buffer,
+            flatbuffer_loc,
+            buffers: Arc::new([]),
+        })
+    }
+
     /// Returns the root ArrayNode flatbuffer.
     fn flatbuffer(&self) -> fba::ArrayNode<'_> {
         unsafe { fba::ArrayNode::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }

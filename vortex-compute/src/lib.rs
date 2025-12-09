@@ -3,6 +3,7 @@
 
 //! A collection of compute functions primarily for operating over Vortex vectors.
 
+#![cfg_attr(vortex_nightly, feature(portable_simd))]
 #![deny(missing_docs)]
 #![deny(clippy::missing_panics_doc)]
 #![deny(clippy::missing_safety_doc)]

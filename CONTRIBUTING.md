@@ -28,6 +28,7 @@ At the time of writing, the following individuals serve as Committers (non-votin
 8. Marko Bakovic
 9. Onur Satici
 10. Xinyu Zeng
+11. Alfonso Subiotto
 
 ### Maintainers
 
@@ -46,11 +47,12 @@ Our CI process enforces an extensive set of linter (e.g., `clippy`) rules, as we
 
 ## Reporting Issues
 
-Found a bug? Have an improvement to suggest? Please file a
-[GitHub issue](https://github.com/vortex-data/vortex/issues).
-Before you create a new issue, please ensure that a relevant issue doesn't
-already exist by running a quick search of existing issues.
-If you're unable to find an open issue, then please open a new one.
+The Vortex project triages all issues and feature requests via Discussions.
+
+See #5495 for background on this change.
+
+If you see something that you think is a bug, create a new Discussion and select "Issue Triage"
+for the template. Then fill out the form.
 
 ## Code Contributions
 

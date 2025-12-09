@@ -19,9 +19,9 @@ cargo-fuzz = true
 
 [features]
 default = ["native"]
-native = ["libfuzzer-sys", "zstd", "vortex-file"]
+native = ["libfuzzer-sys", "zstd", "vortex-file", "vortex/files"]
 wasmfuzz = []
-zstd = ["vortex-layout/zstd"]
+zstd = ["vortex/zstd"]
 
 [dependencies]
 # Always needed - arbitrary is used for input generation

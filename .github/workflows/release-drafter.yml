@@ -3,6 +3,13 @@ on:
   push:
     branches:
       - develop
+  workflow_dispatch:
+    # Permits a custom run to create a pre-release
+    inputs:
+      prerelease-identifier:
+        description: "RC identifier (e.g., rc, beta, alpha)"
+        type: string
+        default: "rc"
 
 permissions:
   contents: read
@@ -14,9 +21,10 @@ jobs:
       contents: write
     runs-on: ubuntu-latest
     steps:
-      # Drafts your next Release notes as Pull Requests are merged into "develop"
       - uses: release-drafter/release-drafter@v6.1.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          commitish: "develop"
+          commitish: ${{ github.ref_name }}
+          prerelease: ${{ github.event_name == 'workflow_dispatch' }}
+          prerelease-identifier: ${{ inputs.prerelease-identifier || '' }}

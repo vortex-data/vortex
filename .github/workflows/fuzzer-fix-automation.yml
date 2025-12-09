@@ -163,7 +163,7 @@ jobs:
           echo "Building fuzzer target: ${{ steps.extract.outputs.target }} (debug mode for faster build)"
 
           # Build the fuzzer target in debug mode (faster than release)
-          if cargo +nightly fuzz build --dev --sanitizer=none "${{ steps.extract.outputs.target }}" 2>&1 | tee fuzzer_build.log; then
+          if RUSTFLAGS="--cfg vortex_nightly" cargo +nightly fuzz build --dev --sanitizer=none "${{ steps.extract.outputs.target }}" 2>&1 | tee fuzzer_build.log; then
             echo "✅ Fuzzer target built successfully"
             echo "build_success=true" >> $GITHUB_OUTPUT
           else
@@ -183,7 +183,7 @@ jobs:
           echo "Attempting to reproduce crash with fuzzer (debug mode)..."
 
           # Run fuzzer with crash file (debug mode, no sanitizer, full backtrace)
-          RUST_BACKTRACE=full timeout 30s cargo +nightly fuzz run --dev --sanitizer=none "${{ steps.extract.outputs.target }}" "${{ steps.download.outputs.crash_file_path }}" -- -runs=1 2>&1 | tee crash_reproduction.log
+          RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=full timeout 30s cargo +nightly fuzz run --dev --sanitizer=none "${{ steps.extract.outputs.target }}" "${{ steps.download.outputs.crash_file_path }}" -- -runs=1 2>&1 | tee crash_reproduction.log
 
           FUZZ_EXIT_CODE=${PIPESTATUS[0]}
 

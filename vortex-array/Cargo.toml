@@ -97,6 +97,7 @@ arrow-cast = { workspace = true }
 divan = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 insta = { workspace = true }
+rand_distr = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { path = ".", features = ["test-harness", "table-display"] }
 
@@ -113,19 +114,11 @@ name = "compare"
 harness = false
 
 [[bench]]
-name = "take_strings"
-harness = false
-
-[[bench]]
 name = "take_patches"
 harness = false
 
 [[bench]]
 name = "chunk_array_builder"
-harness = false
-
-[[bench]]
-name = "take_struct"
 harness = false
 
 [[bench]]
@@ -166,4 +159,8 @@ harness = false
 
 [[bench]]
 name = "varbinview_zip"
+harness = false
+
+[[bench]]
+name = "take_primitive"
 harness = false

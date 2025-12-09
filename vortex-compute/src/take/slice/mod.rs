@@ -30,6 +30,7 @@ impl<T: NativePType, I: UnsignedPType> Take<[I]> for &[T] {
             }
         }
 
+        #[allow(unreachable_code, reason = "`vortex_nightly` path returns early")]
         take_scalar(self, indices)
     }
 }

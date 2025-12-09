@@ -11,6 +11,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_metrics::Counter;
 use vortex_metrics::Histogram;
 use vortex_metrics::Timer;
 use vortex_metrics::VortexMetrics;
@@ -161,6 +162,7 @@ impl VortexReadAt for ByteBuffer {
 pub struct InstrumentedReadAt<T: VortexReadAt> {
     read: Arc<T>,
     sizes: Arc<Histogram>,
+    total_size: Arc<Counter>,
     durations: Arc<Timer>,
 }
 
@@ -169,6 +171,7 @@ impl<T: VortexReadAt> InstrumentedReadAt<T> {
         Self {
             read,
             sizes: metrics.histogram("vortex.io.read.size"),
+            total_size: metrics.counter("vortex.io.read.total_size"),
             durations: metrics.timer("vortex.io.read.duration"),
         }
     }
@@ -188,6 +191,10 @@ where
             sizes.value(0.99),
             sizes.value(0.999),
         );
+
+        let total_size = self.total_size.count();
+        log::debug!("Total read size: {total_size}");
+
         let durations = self.durations.snapshot();
         log::debug!(
             "Read duration: p50={}ms p95={}ms p99={}ms p999={}ms",
@@ -209,11 +216,13 @@ impl<T: VortexReadAt> VortexReadAt for InstrumentedReadAt<T> {
     ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
         let durations = self.durations.clone();
         let sizes = self.sizes.clone();
+        let total_size = self.total_size.clone();
         let read_fut = self.read.read_at(offset, length, alignment);
         async move {
             let _timer = durations.time();
             let buf = read_fut.await;
             sizes.update(length as i64);
+            total_size.add(length as i64);
             buf
         }
         .boxed()
