@@ -3,9 +3,10 @@
 name: PR Benchmarks
 
 concurrency:
+  # The group causes runs to queue instead of running in parallel.
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-  # TODO(connor): Do we actually want to cancel benchmarks if someone retriggers them?
-  cancel-in-progress: true
+  # Don't cancel benchmarks that are already running, instead just queue them up.
+  cancel-in-progress: false
 
 on:
   pull_request:
