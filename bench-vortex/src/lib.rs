@@ -9,6 +9,7 @@ use std::fmt::Display;
 use std::str::FromStr;
 use std::sync::LazyLock;
 
+use anyhow::anyhow;
 use clap::ValueEnum;
 use itertools::Itertools;
 use serde::Serialize;
@@ -73,28 +74,25 @@ impl FromStr for Target {
             vortex_panic!("invalid target string {}", target_string);
         };
 
-        Ok(Self {
-            engine: Engine::from_str(engine_str, true)
-                .map_err(|e| {
-                    vortex_err!(
-                        "cannot convert str ({}) to an Engine oneof([{}]), got error {}",
-                        *engine_str,
-                        Engine::value_variants().iter().join(","),
-                        e
-                    )
-                })
-                .vortex_unwrap(),
-            format: Format::from_str(format_str, true)
-                .map_err(|e| {
-                    vortex_err!(
-                        "cannot convert str ({}) to a Format oneof([{}]), got error {}",
-                        *format_str,
-                        Format::value_variants().iter().join(","),
-                        e
-                    )
-                })
-                .vortex_unwrap(),
-        })
+        let engine = Engine::from_str(engine_str, true).map_err(|e| {
+            anyhow!(
+                "cannot convert str ({}) to an Engine oneof([{}]), got error {}",
+                *engine_str,
+                Engine::value_variants().iter().join(","),
+                e
+            )
+        })?;
+
+        let format = Format::from_str(format_str, true).map_err(|e| {
+            anyhow!(
+                "cannot convert str ({}) to a Format oneof([{}]), got error {}",
+                *format_str,
+                Format::value_variants().iter().join(","),
+                e
+            )
+        })?;
+
+        Ok(Self { engine, format })
     }
 }
 

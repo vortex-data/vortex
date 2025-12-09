@@ -313,12 +313,10 @@ impl PBIData {
         let decompress_futures = self.tables.iter().map(|table| {
             let bzipped = self.get_file_path(&table.name, FileType::CsvBzip2);
             let unzipped = self.get_file_path(&table.name, FileType::Csv);
-            tokio::task::spawn_blocking(move || decompress_bz2(bzipped, unzipped))
+            decompress_bz2(bzipped, unzipped)
         });
-        let results = join_all(decompress_futures).await;
-        for result in results {
-            result.map_err(|e| anyhow::anyhow!("Failed to spawn decompression task: {}", e))??;
-        }
+        try_join_all(decompress_futures).await?;
+
         Ok(())
     }
 

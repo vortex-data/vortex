@@ -16,17 +16,10 @@ use arrow_schema::Schema;
 use arrow_schema::SchemaRef;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 
-#[cfg(feature = "lance")]
-#[rustfmt::skip]
 use {
-    crate::utils::idempotent_async,
-    lance::dataset::Dataset as LanceDataset,
-    lance::dataset::WriteParams,
-    lance_encoding::version::LanceFileVersion,
-    log::info,
-    std::fs,
-    std::path::Path,
-    tokio::fs::create_dir_all,
+    crate::utils::idempotent_async, lance::dataset::Dataset as LanceDataset,
+    lance::dataset::WriteParams, lance_encoding::version::LanceFileVersion, log::info, std::fs,
+    std::path::Path, tokio::fs::create_dir_all,
 };
 
 /// A streaming iterator that reads RecordBatches from multiple Parquet files sequentially.
@@ -102,7 +95,6 @@ impl RecordBatchReader for ParquetFilesIterator {
 ///
 /// If `convert_utf8view` is true, any Utf8View columns will be converted to Utf8
 /// (required for datasets like TPCH since Lance doesn't support Utf8View).
-#[cfg(feature = "lance")]
 pub async fn convert_parquet_to_lance(
     parquet_dir: &Path,
     lance_dir: &Path,

@@ -4,7 +4,7 @@
 use std::fmt;
 use std::fmt::Display;
 use std::fs;
-use std::fs::File;
+
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -29,11 +29,15 @@ use glob::Pattern;
 use log::trace;
 use rayon::prelude::IntoParallelIterator;
 use rayon::prelude::ParallelIterator;
+use reqwest::Client;
 use reqwest::IntoUrl;
-use reqwest::blocking::Response;
+use reqwest::Response;
 use serde::Serialize;
+use tokio::fs::File;
 use tokio::fs::OpenOptions;
 use tokio::fs::create_dir_all;
+use tokio::io::AsyncWriteExt;
+use tokio::task::JoinSet;
 use tracing::Instrument;
 use tracing::info;
 use tracing::warn;
@@ -390,60 +394,67 @@ impl Display for Flavor {
 
 impl Flavor {
     // TODO(joe): move these elsewhere.
-    pub fn download(
+    pub async fn download(
         &self,
-        client: &reqwest::blocking::Client,
+        client: &Client,
         basepath: impl AsRef<Path>,
     ) -> anyhow::Result<()> {
         let basepath = basepath.as_ref();
         match self {
             Flavor::Single => {
                 let output_path = basepath.join(Format::Parquet.name()).join("hits.parquet");
-                idempotent(&output_path, |output_path| {
+                idempotent_async(&output_path, |output_path| async move {
                     info!("Downloading single clickbench file");
                     let url = "https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_single/hits.parquet";
-                    let mut response = retry_get(client, url)?;
-                    let mut file = File::create(output_path)?;
-                    response.copy_to(&mut file)?;
+                    let  response = retry_get(client, url).await?;
+                    let mut file = File::create(output_path).await?;
+                    let body = response.bytes().await?;
+                    file.write_all(&body).await?;
 
                     anyhow::Ok(())
-                })?;
+                }).await?;
             }
             Flavor::Partitioned => {
                 // The clickbench-provided file is missing some higher-level type info, so we reprocess it
                 // to add that info, see https://github.com/ClickHouse/ClickBench/issues/7.
-                let pool = rayon::ThreadPoolBuilder::new()
-                    .thread_name(|i| format!("clickbench download {i}"))
-                    .build()?;
-                let _unused = pool.install(|| (0_u32..100).into_par_iter().map(|idx| {
+
+                let mut tasks = JoinSet::new();
+
+                let tasks = (0..100) .map(|idx| async move{
                     let output_path = basepath.join(Format::Parquet.name()).join(format!("hits_{idx}.parquet"));
-                    idempotent(&output_path, |output_path| {
+                    let f = idempotent_async(output_path,  move|output_path| {
+                        let output_path = output_path.clone();
+                        async move{
                         info!("Downloading file {idx}");
                         let url = format!("https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/hits_{idx}.parquet");
-                        let mut response = retry_get(client, url)?;
-                        let mut file = File::create(output_path)?;
-                        response.copy_to(&mut file)?;
+                        let  response = retry_get(client, url).await?;
+                        let mut file = File::create(output_path).await?;
+                                            let body = response.bytes().await?;
+                    file.write_all(&body).await?;
 
                         anyhow::Ok(())
-                    })
-                }).collect::<anyhow::Result<Vec<_>>>())?;
+                    }});
+
+                    tasks.spawn(f);
+                });
             }
         }
         Ok(())
     }
 }
 
-fn retry_get(client: &reqwest::blocking::Client, url: impl IntoUrl) -> anyhow::Result<Response> {
-    let url = url.as_str();
-    let make_req = || client.get(url).send();
+async fn retry_get(client: &Client, url: impl IntoUrl) -> anyhow::Result<Response> {
+    let url = url.into_url()?;
 
-    let mut output = None;
-
-    for attempt in 1..4 {
-        match make_req().and_then(|r| r.error_for_status()) {
+    for attempt in 1..4u64 {
+        match client
+            .get(url.clone())
+            .send()
+            .await
+            .and_then(|r| r.error_for_status())
+        {
             Ok(r) => {
-                output = Some(r);
-                break;
+                return Ok(r);
             }
             Err(e) => {
                 warn!("Request errored with {e}, retying for the {attempt} time");
@@ -451,11 +462,8 @@ fn retry_get(client: &reqwest::blocking::Client, url: impl IntoUrl) -> anyhow::R
         }
 
         // Very basic backoff mechanism
-        std::thread::sleep(Duration::from_secs(attempt));
+        tokio::time::sleep(Duration::from_secs(attempt)).await;
     }
 
-    match output {
-        Some(v) => Ok(v),
-        None => anyhow::bail!("Exahusted retry attempts for {url}"),
-    }
+    anyhow::bail!("Exahusted retry attempts for {url}")
 }

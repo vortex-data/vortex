@@ -2,11 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
 use anyhow::Result;
 use log::trace;
+use parking_lot::RwLock;
 use url::Url;
 use vortex::error::VortexExpect;
 use vortex_duckdb::duckdb::Config;
@@ -36,8 +38,8 @@ impl DuckDBObject {
 
 /// DuckDB context for benchmarks.
 pub struct DuckDBCtx {
-    pub db: Database,
-    pub connection: Connection,
+    pub db: Arc<RwLock<Database>>,
+    pub connection: Arc<RwLock<Connection>>,
     pub db_path: Option<PathBuf>,
     pub threads: Option<usize>,
 }
@@ -85,7 +87,7 @@ impl DuckDBCtx {
     pub fn open_and_setup_database(
         path: Option<PathBuf>,
         threads: Option<usize>,
-    ) -> Result<(Database, Connection)> {
+    ) -> Result<(Arc<RwLock<Database>>, Arc<RwLock<Connection>>)> {
         let config = Config::new().vortex_expect("failed to create duckdb config");
 
         // Register Vortex extension options before creating connection
@@ -115,26 +117,25 @@ impl DuckDBCtx {
             connection.query(&format!("SET vortex_max_threads = {}", thread_count))?;
         }
 
-        Ok((db, connection))
+        Ok((Arc::new(RwLock::new(db)), Arc::new(RwLock::new(connection))))
     }
 
     pub fn reopen(&mut self) -> Result<()> {
         // take ownership of the connection & database
-        let mut connection = unsafe { Connection::borrow(self.connection.as_ptr()) };
-        std::mem::swap(&mut self.connection, &mut connection);
-        let mut db = unsafe { Database::borrow(self.db.as_ptr()) };
-        std::mem::swap(&mut self.db, &mut db);
+        let mut connection = unsafe { Connection::borrow(self.connection.read().as_ptr()) };
+        std::mem::swap(&mut *self.connection.write(), &mut connection);
+        let mut db = unsafe { Database::borrow(self.db.read().as_ptr()) };
+        std::mem::swap(&mut *self.db.write(), &mut db);
 
         // drop the connection, then the database (order might be important?)
         // NB: self.db and self.connection will be dangling pointers, which we'll fix below
         drop(connection);
         drop(db);
 
-        let (mut db, mut connection) =
-            Self::open_and_setup_database(self.db_path.clone(), self.threads)?;
+        let (db, connection) = Self::open_and_setup_database(self.db_path.clone(), self.threads)?;
 
-        std::mem::swap(&mut self.connection, &mut connection);
-        std::mem::swap(&mut self.db, &mut db);
+        std::mem::swap(&mut self.connection.write(), &mut connection.write());
+        std::mem::swap(&mut self.db.write(), &mut db.write());
 
         Ok(())
     }
@@ -153,7 +154,7 @@ impl DuckDBCtx {
     pub fn execute_query(&self, query: &str) -> Result<(Duration, usize)> {
         trace!("execute duckdb query: {query}");
         let time_instant = Instant::now();
-        let result = self.connection.query(query)?;
+        let result = self.connection.read().query(query)?;
         let query_time = time_instant.elapsed();
         trace!("query completed in {:.3}s", query_time.as_secs_f64());
 

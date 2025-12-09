@@ -281,7 +281,8 @@ fn validate_scale_factor(val: &str) -> Result<String, String> {
     }
 }
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     match args.command {
         Commands::ClickBench(clickbench_args) => run_clickbench(clickbench_args),

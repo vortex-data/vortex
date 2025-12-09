@@ -77,7 +77,8 @@ struct Args {
     tracing: bool,
 }
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     setup_logging_and_tracing(args.verbose, args.tracing)?;

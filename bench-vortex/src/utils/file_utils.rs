@@ -30,10 +30,10 @@ pub fn idempotent<T, P: IdempotentPath + ?Sized>(
     Ok(data_path)
 }
 
-pub async fn idempotent_async<T, F, P>(path: &P, f: impl FnOnce(PathBuf) -> F) -> Result<PathBuf>
+pub async fn idempotent_async<T, F, P>(path: P, f: impl FnOnce(PathBuf) -> F) -> Result<PathBuf>
 where
     F: Future<Output = Result<T>>,
-    P: IdempotentPath + ?Sized,
+    P: IdempotentPath,
 {
     let data_path = path.to_data_path();
     let temp_path = temp_download_filepath();
@@ -60,13 +60,37 @@ pub fn temp_download_filepath() -> PathBuf {
     data_dir().join(format!("download_{}.file", uuid::Uuid::new_v4()))
 }
 
-impl IdempotentPath for str {
+impl IdempotentPath for &str {
+    fn to_data_path(&self) -> PathBuf {
+        data_dir().join(self)
+    }
+}
+
+impl IdempotentPath for String {
     fn to_data_path(&self) -> PathBuf {
         data_dir().join(self)
     }
 }
 
 impl IdempotentPath for PathBuf {
+    fn to_data_path(&self) -> PathBuf {
+        self.to_path_buf()
+    }
+}
+
+impl IdempotentPath for &PathBuf {
+    fn to_data_path(&self) -> PathBuf {
+        self.to_path_buf()
+    }
+}
+
+impl IdempotentPath for Path {
+    fn to_data_path(&self) -> PathBuf {
+        self.to_path_buf()
+    }
+}
+
+impl IdempotentPath for &Path {
     fn to_data_path(&self) -> PathBuf {
         self.to_path_buf()
     }

@@ -4,6 +4,7 @@
 //! Simple benchmark trait interface focused on core operations
 
 use anyhow::Result;
+use async_trait::async_trait;
 use url::Url;
 
 use crate::BenchmarkDataset;
@@ -14,6 +15,7 @@ use crate::df;
 use crate::engines::EngineCtx;
 
 /// Core benchmark operations that all benchmark types implement
+#[async_trait]
 pub trait Benchmark {
     /// Get all available queries for this benchmark
     fn queries(&self) -> Result<Vec<(usize, String)>>;
@@ -51,10 +53,9 @@ pub trait Benchmark {
 
     /// Generate or prepare data for the benchmark at the specified URL for a specific target
     /// This should be idempotent - safe to call multiple times for the same target
-    fn generate_data(&self, target: &Target) -> Result<()>;
+    async fn generate_data(&self, target: &Target) -> Result<()>;
 
     /// Register tables with the engine context
-    #[allow(async_fn_in_trait)]
     async fn register_tables(&self, engine_ctx: &EngineCtx, format: Format) -> Result<()>;
 
     /// Get the benchmark dataset identifier

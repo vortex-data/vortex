@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use datafusion::datasource::file_format::parquet::ParquetFormat;
 use datafusion::datasource::listing::ListingOptions;
 use datafusion::datasource::listing::ListingTable;
@@ -26,6 +27,7 @@ use vortex_datafusion::VortexFormat;
 
 use crate::BenchmarkDataset;
 use crate::Format;
+use crate::IdempotentPath;
 use crate::SESSION;
 use crate::Target;
 use crate::benchmark_trait::Benchmark;
@@ -65,7 +67,7 @@ impl GithubArchive {
     fn create_data_url(remote_data_dir: &Option<String>) -> anyhow::Result<Url> {
         match remote_data_dir {
             None => {
-                let data_dir = crate::IdempotentPath::to_data_path("gharchive");
+                let data_dir = "gharchive".to_data_path();
                 Url::from_directory_path(&data_dir).map_err(|_| {
                     anyhow::anyhow!("Failed to create URL from directory path: {:?}", &data_dir)
                 })
@@ -124,6 +126,7 @@ impl GithubArchive {
     }
 }
 
+#[async_trait]
 impl Benchmark for GithubArchive {
     fn queries(&self) -> anyhow::Result<Vec<(usize, String)>> {
         Ok(QUERIES
@@ -133,16 +136,11 @@ impl Benchmark for GithubArchive {
             .collect())
     }
 
-    fn generate_data(&self, target: &Target) -> anyhow::Result<()> {
+    async fn generate_data(&self, target: &Target) -> anyhow::Result<()> {
         // Skip generation if using remote storage
-        match self.data_url.scheme() {
-            "file" => {
-                // Continue with local generation
-            }
-            _ => {
-                // Remote storage - data should already be uploaded
-                return Ok(());
-            }
+        if self.data_url.scheme() == "file" {
+            // Remote storage - data should already be uploaded
+            return Ok(());
         }
 
         // Before downloading anything, make sure we are using a supported target.
@@ -191,7 +189,7 @@ impl Benchmark for GithubArchive {
 
         let json_path = json.display().to_string();
 
-        let parquet = idempotent(&self.parquet_path()?, move |parquet_path| {
+        let parquet = rt.block_on(idempotent_async(&self.parquet_path()?, move |parquet_path| async move {
             let parquet = parquet_path.display().to_string();
             info!(
                 "Converting GithubArchive JSON to Parquet with DuckDB @ {}",
@@ -211,7 +209,7 @@ impl Benchmark for GithubArchive {
             }
 
             Ok(())
-        })?;
+        }))?;
 
         let target_path = match target.format {
             Format::Parquet => parquet,

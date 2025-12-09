@@ -15,7 +15,6 @@ use reqwest::Client;
 use tokio::fs::File as TokioFile;
 use tokio::io::AsyncWriteExt;
 
-use crate::utils::file_utils::idempotent;
 use crate::utils::file_utils::idempotent_async;
 
 pub async fn download_data(fname: PathBuf, data_url: &str) -> Result<PathBuf> {
@@ -54,8 +53,8 @@ pub async fn download_data(fname: PathBuf, data_url: &str) -> Result<PathBuf> {
     .await
 }
 
-pub fn decompress_bz2(input_path: PathBuf, output_path: PathBuf) -> Result<PathBuf> {
-    idempotent(&output_path, |path| {
+pub async fn decompress_bz2(input_path: PathBuf, output_path: PathBuf) -> Result<PathBuf> {
+    idempotent_async(&output_path.clone(), |path| async move {
         info!(
             "Decompressing bzip from {} to {}",
             input_path
@@ -74,11 +73,12 @@ pub fn decompress_bz2(input_path: PathBuf, output_path: PathBuf) -> Result<PathB
             .read_to_end(&mut buffer)
             .context("Failed to decompress bzip2 data")?;
 
-        let mut output_file = File::create(path)
+        let mut output_file = File::create(path.as_path())
             .with_context(|| format!("Failed to create output file: {:?}", path))?;
         output_file
             .write_all(&buffer)
             .context("Failed to write decompressed data")?;
         Ok(output_path.clone())
     })
+    .await
 }

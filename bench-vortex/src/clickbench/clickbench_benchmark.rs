@@ -5,6 +5,8 @@ use std::env;
 use std::path::Path;
 
 use anyhow::Result;
+use async_trait::async_trait;
+use reqwest::Client;
 use tokio::runtime::Runtime;
 use url::Url;
 use vortex::error::VortexExpect;
@@ -42,7 +44,7 @@ impl ClickBenchBenchmark {
     fn create_data_url(remote_data_dir: &Option<String>, flavor: Flavor) -> Result<Url> {
         match remote_data_dir {
             None => {
-                let basepath = format!("clickbench_{flavor}").to_data_path();
+                let basepath = format!("clickbench_{flavor}").as_str().to_data_path();
                 Ok(Url::parse(&format!(
                     "file:{}/",
                     basepath.to_str().vortex_expect("path should be utf8")
@@ -68,6 +70,7 @@ impl ClickBenchBenchmark {
     }
 }
 
+#[async_trait]
 impl Benchmark for ClickBenchBenchmark {
     fn queries(&self) -> Result<Vec<(usize, String)>> {
         let queries_filepath = match &self.queries_file {
@@ -78,21 +81,21 @@ impl Benchmark for ClickBenchBenchmark {
         Ok(clickbench_queries(queries_filepath))
     }
 
-    fn generate_data(&self, target: &Target) -> Result<()> {
+    async fn generate_data(&self, target: &Target) -> Result<()> {
         match self.data_url.scheme() {
             "file" => {
-                let basepath = clickbench_flavor(self.flavor).to_data_path();
-                let client = reqwest::blocking::Client::default();
+                let basepath = clickbench_flavor(self.flavor).as_str().to_data_path();
+                let client = Client::default();
 
                 match target.format() {
                     Format::Parquet | Format::OnDiskDuckDB => {
                         // Download Parquet files (idempotent - won't re-download if already present)
                         // For DuckDB format, we typically start with Parquet and let DuckDB handle it
-                        self.flavor.download(&client, basepath.as_path())?;
+                        self.flavor.download(&client, basepath.as_path()).await?;
                     }
                     Format::OnDiskVortex | Format::VortexCompact => {
                         // First ensure Parquet files exist
-                        self.flavor.download(&client, basepath.as_path())?;
+                        self.flavor.download(&client, basepath.as_path()).await?;
 
                         // Then convert to Vortex format (idempotent)
                         if self.data_url.scheme() == "file" {
@@ -134,7 +137,7 @@ impl Benchmark for ClickBenchBenchmark {
                         }
 
                         // Download Parquet files (either Single or Partitioned).
-                        self.flavor.download(&client, basepath.as_path())?;
+                        self.flavor.download(&client, basepath.as_path()).await?;
 
                         // Then convert to Lance format (idempotent).
                         if self.data_url.scheme() == "file" {
@@ -157,7 +160,6 @@ impl Benchmark for ClickBenchBenchmark {
         }
     }
 
-    #[allow(async_fn_in_trait)]
     async fn register_tables(&self, engine_ctx: &EngineCtx, format: Format) -> Result<()> {
         let dataset = self.dataset();
 
