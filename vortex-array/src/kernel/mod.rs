@@ -40,10 +40,7 @@ pub trait Kernel: 'static + Send + Debug {
     /// Push a selection mask through this kernel.
     ///
     /// Return `Ok(None)` if the filter cannot be pushed down.
-    fn push_down_filter(self: Box<Self>, selection: &Mask) -> VortexResult<PushDownResult> {
-        _ = selection;
-        Ok(PushDownResult::NotPushed(self))
-    }
+    fn push_down_filter(self: Box<Self>, selection: &Mask) -> VortexResult<PushDownResult>;
 }
 
 pub enum PushDownResult {

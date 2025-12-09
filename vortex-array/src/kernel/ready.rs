@@ -7,6 +7,7 @@ use vortex_vector::Vector;
 
 use crate::kernel::Kernel;
 use crate::kernel::KernelRef;
+use crate::kernel::PushDownResult;
 
 /// Create a kernel that is already computed and ready.
 pub fn ready(vector: Vector) -> KernelRef {
@@ -31,5 +32,9 @@ impl Kernel for ReadyKernel {
     fn cost_estimate(&self, selection: &Mask) -> f64 {
         _ = selection;
         0.0
+    }
+
+    fn push_down_filter(self: Box<Self>, _selection: &Mask) -> VortexResult<PushDownResult> {
+        Ok(PushDownResult::NotPushed(self))
     }
 }
