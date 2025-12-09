@@ -128,11 +128,7 @@ impl CopyFunction for VortexCopyFunction {
         let handle = SESSION.handle();
         let write_task = handle.spawn(async move {
             let mut file = async_fs::File::create(file_path).await?;
-            SESSION
-                .write_options()
-                .write(&mut file, array_stream)
-                .await
-                .map(|(summary, _)| summary)
+            SESSION.write_options().write(&mut file, array_stream).await
         });
 
         let worker_pool = RUNTIME.new_pool();

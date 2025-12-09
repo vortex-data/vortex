@@ -77,11 +77,11 @@ async fn test_file_roundtrip() {
             .set_field_writer(field_path!(a.raw), Arc::new(FlatLayoutStrategy::default())),
     );
 
-    let bytes = Vec::new();
-    let (_, bytes) = SESSION
+    let mut bytes = Vec::new();
+    SESSION
         .write_options()
         .with_strategy(writer)
-        .write(bytes, data.to_array_stream())
+        .write(&mut bytes, data.to_array_stream())
         .await
         .expect("write");
 
