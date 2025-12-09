@@ -171,10 +171,10 @@ pub fn read_url<'py>(
 pub fn write(py: Python, iter: PyIntoArrayIterator, path: &str) -> PyResult<()> {
     py.detach(|| {
         TOKIO_RUNTIME.block_on(async move {
-            let mut file = File::create(path).await?;
+            let file = File::create(path).await?;
             SESSION
                 .write_options()
-                .write(&mut file, iter.into_inner().into_array_stream())
+                .write(file, iter.into_inner().into_array_stream())
                 .await
         })
     })?;
@@ -285,7 +285,7 @@ impl PyVortexWriteOptions {
     pub fn write_path(&self, py: Python, iter: PyIntoArrayIterator, path: &str) -> PyResult<()> {
         py.detach(|| {
             TOKIO_RUNTIME.block_on(async move {
-                let mut file = File::create(path).await?;
+                let file = File::create(path).await?;
 
                 let mut strategy = WriteStrategyBuilder::new();
                 if let Some(compressor) = self.compressor.as_ref() {
@@ -295,7 +295,7 @@ impl PyVortexWriteOptions {
                 SESSION
                     .write_options()
                     .with_strategy(strategy.build())
-                    .write(&mut file, iter.into_inner().into_array_stream())
+                    .write(file, iter.into_inner().into_array_stream())
                     .await
             })
         })?;
