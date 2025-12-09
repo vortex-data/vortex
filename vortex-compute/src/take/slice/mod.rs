@@ -16,6 +16,9 @@ impl<T: Copy, I: UnsignedPType> Take<[I]> for &[T] {
     type Output = Buffer<T>;
 
     fn take(self, indices: &[I]) -> Buffer<T> {
+        // TODO(connor): Make the SIMD implementations bound by `Copy` instead of `NativePType`.
+        /*
+
         #[cfg(vortex_nightly)]
         {
             return portable::take_portable(self, indices);
@@ -28,6 +31,8 @@ impl<T: Copy, I: UnsignedPType> Take<[I]> for &[T] {
                 return unsafe { avx2::take_avx2(self, indices) };
             }
         }
+
+        */
 
         #[allow(unreachable_code, reason = "`vortex_nightly` path returns early")]
         take_scalar(self, indices)
