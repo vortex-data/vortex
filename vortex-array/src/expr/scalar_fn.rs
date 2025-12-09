@@ -14,14 +14,14 @@ use vortex_error::VortexResult;
 use vortex_utils::debug_with::DebugWith;
 use vortex_vector::Datum;
 
-use crate::expr::options::ExpressionOptions;
-use crate::expr::signature::ExpressionSignature;
+use crate::ArrayRef;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::ExprVTable;
 use crate::expr::Expression;
 use crate::expr::VTable;
-use crate::ArrayRef;
+use crate::expr::options::ExpressionOptions;
+use crate::expr::signature::ExpressionSignature;
 
 /// An instance of an expression bound to some invocation options.
 pub struct ScalarFn {

@@ -3,6 +3,9 @@
 
 use vortex_error::VortexResult;
 
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExactScalarFn;
 use crate::arrays::ScalarFnArrayExt;
@@ -16,9 +19,6 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::Exact;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::Array;
-use crate::ArrayRef;
-use crate::IntoArray;
 
 #[derive(Debug)]
 pub(crate) struct StructGetItemRule;

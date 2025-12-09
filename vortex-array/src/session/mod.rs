@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_session::registry::Registry;
 use vortex_session::Ref;
 use vortex_session::SessionExt;
+use vortex_session::registry::Registry;
 
 use crate::arrays::BoolMaskedValidityRule;
 use crate::arrays::BoolVTable;

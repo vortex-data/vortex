@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_dtype::DType;
-use vortex_error::vortex_ensure;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 use vortex_vector::Vector;
 use vortex_vector::VectorOps;

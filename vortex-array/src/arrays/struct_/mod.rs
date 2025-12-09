@@ -7,7 +7,7 @@ mod compute;
 mod rules;
 
 mod vtable;
-pub use rules::*;
+pub(crate) use rules::*;
 pub use vtable::StructVTable;
 
 #[cfg(test)]

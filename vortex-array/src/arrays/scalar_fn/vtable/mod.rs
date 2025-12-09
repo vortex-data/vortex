@@ -13,15 +13,18 @@ use std::ops::Deref;
 use itertools::Itertools;
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
+use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::VortexResult;
 
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ConstantVTable;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::kernel::KernelInput;
 use crate::arrays::scalar_fn::kernel::ScalarFnKernel;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
-use crate::arrays::ConstantVTable;
 use crate::expr;
 use crate::expr::ExprVTable;
 use crate::expr::ScalarFn;
@@ -36,9 +39,6 @@ use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
-use crate::Array;
-use crate::ArrayRef;
-use crate::IntoArray;
 
 vtable!(ScalarFn);
 

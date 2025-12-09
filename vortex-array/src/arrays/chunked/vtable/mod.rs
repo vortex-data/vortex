@@ -6,14 +6,16 @@ use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
+use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_vector::Vector;
 use vortex_vector::VectorMut;
 use vortex_vector::VectorMutOps;
 
+use crate::EmptyMetadata;
+use crate::ToCanonical;
 use crate::arrays::ChunkedArray;
 use crate::arrays::PrimitiveArray;
 use crate::kernel::BindCtx;
@@ -28,8 +30,6 @@ use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
-use crate::EmptyMetadata;
-use crate::ToCanonical;
 
 mod array;
 mod canonical;

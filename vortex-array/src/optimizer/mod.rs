@@ -5,8 +5,11 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::Array;
+use crate::ArrayVisitor;
 use crate::array::ArrayRef;
 use crate::optimizer::rules::AnyArray;
 use crate::optimizer::rules::ArrayParentReduceRule;
@@ -17,8 +20,6 @@ use crate::optimizer::rules::MatchKey;
 use crate::optimizer::rules::Matcher;
 use crate::optimizer::rules::ParentReduceRuleAdapter;
 use crate::optimizer::rules::ReduceRuleAdapter;
-use crate::Array;
-use crate::ArrayVisitor;
 
 pub mod rules;
 
@@ -126,6 +127,19 @@ impl ArrayOptimizer {
 
         for rule in rules {
             if let Some(new_array) = rule.reduce(array)? {
+                vortex_ensure!(
+                    new_array.len() == array.len(),
+                    "Parent reduction rule produced array of incorrect length: expected {}, got {}",
+                    array.len(),
+                    new_array.len()
+                );
+                #[cfg(debug_assertions)]
+                vortex_ensure!(
+                    new_array.dtype() == array.dtype(),
+                    "Parent reduction rule produced array of incorrect dtype: expected {}, got {}",
+                    array.dtype(),
+                    new_array.dtype()
+                );
                 return Ok(Some(new_array));
             }
         }
@@ -164,6 +178,19 @@ impl ArrayOptimizer {
 
         for rule in rules {
             if let Some(new_array) = rule.reduce_parent(child, parent, child_idx)? {
+                vortex_ensure!(
+                    new_array.len() == parent.len(),
+                    "Parent reduction rule produced array of incorrect length: expected {}, got {}",
+                    parent.len(),
+                    new_array.len()
+                );
+                #[cfg(debug_assertions)]
+                vortex_ensure!(
+                    new_array.dtype() == parent.dtype(),
+                    "Parent reduction rule produced array of incorrect dtype: expected {}, got {}",
+                    parent.dtype(),
+                    new_array.dtype()
+                );
                 return Ok(Some(new_array));
             }
         }
