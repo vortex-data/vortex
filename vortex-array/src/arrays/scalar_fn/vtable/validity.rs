@@ -46,6 +46,6 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
         let vector = array
             .execute(&SCALAR_FN_SESSION)
             .vortex_expect("Validity mask computation should be fallible");
-        Mask::from_buffer(vector.into_bool().into_bits())
+        Mask::from_buffer(vector.into_bool().into_parts().0)
     }
 }

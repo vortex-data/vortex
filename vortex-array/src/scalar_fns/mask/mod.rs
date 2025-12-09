@@ -63,7 +63,7 @@ impl VTable for MaskFn {
             }
             (Datum::Scalar(input), BoolDatum::Vector(mask)) => {
                 let mut result = input.repeat(args.row_count()).freeze();
-                result.mask_validity(&Mask::from(mask.into_bits()));
+                result.mask_validity(&Mask::from(mask.into_parts().0));
                 Ok(Datum::Vector(result))
             }
             (Datum::Vector(input_array), BoolDatum::Scalar(mask)) => {
@@ -76,7 +76,7 @@ impl VTable for MaskFn {
             }
             (Datum::Vector(input_array), BoolDatum::Vector(mask)) => {
                 let mut result = input_array;
-                result.mask_validity(&Mask::from(mask.into_bits()));
+                result.mask_validity(&Mask::from(mask.into_parts().0));
                 Ok(Datum::Vector(result))
             }
         }

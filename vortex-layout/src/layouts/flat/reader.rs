@@ -262,6 +262,11 @@ mod test {
                 .await
                 .unwrap();
 
+            assert_eq!(
+                format!("{}", layout),
+                "vortex.flat(i32?, rows=5, segments=[0])"
+            );
+
             let result = layout
                 .new_reader("".into(), segments, &SESSION)
                 .unwrap()
