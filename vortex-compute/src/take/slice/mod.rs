@@ -4,7 +4,6 @@
 //! Take function implementations on slices.
 
 use vortex_buffer::Buffer;
-use vortex_dtype::NativePType;
 use vortex_dtype::UnsignedPType;
 
 use crate::take::Take;
@@ -13,7 +12,7 @@ pub mod avx2;
 pub mod portable;
 
 /// Specialized implementation for non-nullable indices.
-impl<T: NativePType, I: UnsignedPType> Take<[I]> for &[T] {
+impl<T: Copy, I: UnsignedPType> Take<[I]> for &[T] {
     type Output = Buffer<T>;
 
     fn take(self, indices: &[I]) -> Buffer<T> {
@@ -40,6 +39,6 @@ impl<T: NativePType, I: UnsignedPType> Take<[I]> for &[T] {
     reason = "Compiler may see this as unused based on enabled features"
 )]
 #[inline]
-fn take_scalar<T: NativePType, I: UnsignedPType>(buffer: &[T], indices: &[I]) -> Buffer<T> {
+fn take_scalar<T: Copy, I: UnsignedPType>(buffer: &[T], indices: &[I]) -> Buffer<T> {
     indices.iter().map(|idx| buffer[idx.as_()]).collect()
 }
