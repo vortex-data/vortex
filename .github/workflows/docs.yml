@@ -1,8 +1,18 @@
 name: Vortex Docs
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [develop]
+    # TODO(connor): Maybe add these path filters.
+    # paths:
+    #   - 'docs/**'
+    #   - 'vortex-python/**'
+    #   - 'java/**'
+    #   - '**.rs'
   workflow_dispatch: { }
 
 permissions:

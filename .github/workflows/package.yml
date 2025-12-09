@@ -1,5 +1,9 @@
 name: Package
 
+concurrency:
+  group: package-${{ inputs.version }}
+  cancel-in-progress: true
+
 on:
   workflow_dispatch:
     inputs:

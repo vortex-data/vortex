@@ -1,10 +1,19 @@
 name: CI
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
 
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+    branches: [develop]
+  pull_request: { }
+  workflow_dispatch: { }
+  # TODO(connor): Maybe add these path filters.
+  # paths-ignore:
+  #   - '**.md'
+  #   - 'docs/**'
+  #   - 'benchmarks-website/**'
 
 permissions:
   actions: read
