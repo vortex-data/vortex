@@ -335,11 +335,12 @@ vortex.struct, dtype: {numbers=i64?, strings=utf8}, children: 2, rows: 5
     /// Test display_tree_with_segments using async segment source to fetch buffer sizes.
     #[test]
     fn test_display_tree_with_segment_source() {
-        // Ensure inline array node is disabled for this test
         let _guard = EnvVarGuard::remove("FLAT_LAYOUT_INLINE_ARRAY_NODE");
+        println!("{:?}", std::env::var("FLAT_LAYOUT_INLINE_ARRAY_NODE"));
         block_on(|handle| async move {
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
+            println!("{:?}", std::env::var("FLAT_LAYOUT_INLINE_ARRAY_NODE"));
 
             // Create simple i32 array
             let (ptr1, eof1) = SequenceId::root().split();
@@ -381,6 +382,7 @@ vortex.struct, dtype: {numbers=i64?, strings=utf8}, children: 2, rows: 5
                 .display_tree_with_segments(segments)
                 .await
                 .unwrap();
+            println!("{:?}", std::env::var("FLAT_LAYOUT_INLINE_ARRAY_NODE"));
 
             let expected = "\
 vortex.chunked, dtype: i32, children: 2, rows: 10

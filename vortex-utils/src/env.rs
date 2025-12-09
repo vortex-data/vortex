@@ -114,7 +114,6 @@ impl Drop for EnvVarGuard {
         unsafe {
             std::env::remove_var(self.key);
         }
-        // lock_guard is dropped here, releasing the mutex
     }
 }
 
