@@ -58,3 +58,29 @@ fn take_bool<I: UnsignedPType>(bools: &BitBuffer, indices: &[I]) -> BitBuffer {
         get_bit(buffer, offset + bool_idx)
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::take::Take;
+
+    #[test]
+    fn test_bit_buffer_take_small_and_large() {
+        use vortex_buffer::BitBuffer;
+
+        // Small buffer (uses take_byte_bool path).
+        let small: BitBuffer = [true, false, true, true, false, true, false, false]
+            .into_iter()
+            .collect();
+        let result = (&small).take(&[7u32, 0, 2, 5, 1][..]);
+
+        let values: Vec<bool> = (0..result.len()).map(|i| result.value(i)).collect();
+        assert_eq!(values, vec![false, true, true, true, false]);
+
+        // Large buffer (uses take_bool path, len > 4096).
+        let large: BitBuffer = (0..5000).map(|i| i % 3 == 0).collect();
+        let result = (&large).take(&[4999u32, 0, 1, 2, 3, 4998][..]);
+
+        let values: Vec<bool> = (0..result.len()).map(|i| result.value(i)).collect();
+        assert_eq!(values, vec![false, true, false, false, true, true]);
+    }
+}

@@ -134,7 +134,7 @@ jiff = "0.2.0"
 kanal = "0.1.1"
 lending-iterator = "0.1.7"
 libfuzzer-sys = "0.4"
-log = { version = "0.4" }
+log = { version = "0.4.21" }
 loom = { version = "0.7", features = ["checkpoint"] }
 memmap2 = "0.9.5"
 mimalloc = "0.1.42"
