@@ -5,9 +5,11 @@ use std::ops::Deref;
 
 use vortex_dtype::NativePType;
 use vortex_dtype::PType;
+use vortex_dtype::PTypeDowncast;
 use vortex_dtype::PTypeUpcast;
 use vortex_dtype::half::f16;
 use vortex_error::VortexExpect;
+use vortex_error::vortex_panic;
 
 use crate::Scalar;
 use crate::ScalarOps;
@@ -189,6 +191,87 @@ impl PTypeUpcast for PrimitiveScalar {
 
     fn from_f64(input: Self::Input<f64>) -> Self {
         PrimitiveScalar::F64(input)
+    }
+}
+
+impl PTypeDowncast for PrimitiveScalar {
+    type Output<T: NativePType> = PScalar<T>;
+
+    fn into_u8(self) -> Self::Output<u8> {
+        if let Self::U8(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveScalar::U8, got {self:?}");
+    }
+
+    fn into_u16(self) -> Self::Output<u16> {
+        if let Self::U16(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveScalar::U16, got {self:?}");
+    }
+
+    fn into_u32(self) -> Self::Output<u32> {
+        if let Self::U32(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveScalar::U32, got {self:?}");
+    }
+
+    fn into_u64(self) -> Self::Output<u64> {
+        if let Self::U64(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveScalar::U64, got {self:?}");
+    }
+
+    fn into_i8(self) -> Self::Output<i8> {
+        if let Self::I8(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveScalar::I8, got {self:?}");
+    }
+
+    fn into_i16(self) -> Self::Output<i16> {
+        if let Self::I16(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveScalar::I16, got {self:?}");
+    }
+
+    fn into_i32(self) -> Self::Output<i32> {
+        if let Self::I32(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveScalar::I32, got {self:?}");
+    }
+
+    fn into_i64(self) -> Self::Output<i64> {
+        if let Self::I64(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveScalar::I64, got {self:?}");
+    }
+
+    fn into_f16(self) -> Self::Output<f16> {
+        if let Self::F16(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveScalar::F16, got {self:?}");
+    }
+
+    fn into_f32(self) -> Self::Output<f32> {
+        if let Self::F32(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveScalar::F32, got {self:?}");
+    }
+
+    fn into_f64(self) -> Self::Output<f64> {
+        if let Self::F64(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveScalar::F64, got {self:?}");
     }
 }
 

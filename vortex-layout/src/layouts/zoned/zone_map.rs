@@ -13,6 +13,7 @@ use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProvider;
 use vortex_array::mask::MaskExecutor;
+use vortex_array::session::ArraySessionExt;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;
 use vortex_dtype::DType;
@@ -152,10 +153,11 @@ impl ZoneMap {
     /// All zones where the predicate evaluates to `true` can be skipped entirely.
     pub fn prune(&self, predicate: &Expression, session: &VortexSession) -> VortexResult<Mask> {
         if *USE_VORTEX_OPERATORS {
-            self.array
-                .to_array()
-                .apply(predicate)?
-                .execute_mask_optimized(session)
+            let array = self.array.to_array().apply(predicate)?;
+            println!("PRUNE: {}", array.display_tree());
+            let array = session.arrays().optimizer().optimize_array(&array)?;
+            println!("PRUNE OPTIMIZED: {}", array.display_tree());
+            array.execute_mask(session)
         } else {
             predicate
                 .evaluate(&self.array.to_array())?
