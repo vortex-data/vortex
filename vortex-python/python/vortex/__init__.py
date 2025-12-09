@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+from importlib import metadata as _metadata
+
 from . import _lib, arrays, dataset, expr, file, io, ray, registry, scan
 from ._lib.arrays import (  # pyright: ignore[reportMissingModuleSource]
     AlpArray,
@@ -80,8 +82,6 @@ from .file import VortexFile, open
 from .scan import RepeatedScan
 
 assert _lib, "Ensure we eagerly import the Vortex native library"
-
-from importlib import metadata as _metadata
 
 # Resolve the installed distribution version so it is available as vortex.__version__.
 __version__ = "unknown"
