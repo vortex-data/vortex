@@ -24,20 +24,21 @@ fn main() {
     divan::main();
 }
 
-/// Number of indices/codes to process.
+/// Number of indices to take.
 const NUM_INDICES: &[usize] = &[1_000, 10_000, 100_000];
 
-// --- PVector take benchmarks ---
-// Source vector is 1/10th the indices size (same as dict values).
+/// Size of the source vector / dictionary values.
+const VECTOR_SIZE: &[usize] = &[16, 256, 2048, 8192];
 
-#[divan::bench(args = NUM_INDICES, sample_count = 100_000)]
-fn pvector_take_uniform(bencher: Bencher, num_indices: usize) {
-    let vector_size = num_indices / 10;
-    let data: Buffer<u32> = (0..vector_size as u32).collect();
-    let pvector = PVector::new(data, Mask::AllTrue(vector_size));
+// --- PVector take benchmarks ---
+
+#[divan::bench(args = NUM_INDICES, consts = VECTOR_SIZE, sample_count = 100_000)]
+fn pvector_take_uniform<const VECTOR_SIZE: usize>(bencher: Bencher, num_indices: usize) {
+    let data: Buffer<u32> = (0..VECTOR_SIZE as u32).collect();
+    let pvector = PVector::new(data, Mask::AllTrue(VECTOR_SIZE));
 
     let rng = StdRng::seed_from_u64(0);
-    let range = Uniform::new(0u32, vector_size as u32).unwrap();
+    let range = Uniform::new(0u32, VECTOR_SIZE as u32).unwrap();
     let indices: Vec<u32> = rng.sample_iter(range).take(num_indices).collect();
 
     bencher
@@ -45,18 +46,17 @@ fn pvector_take_uniform(bencher: Bencher, num_indices: usize) {
         .bench_refs(|(pv, idx)| pv.take(*idx));
 }
 
-#[divan::bench(args = NUM_INDICES, sample_count = 100_000)]
-fn pvector_take_zipfian(bencher: Bencher, num_indices: usize) {
-    let vector_size = num_indices / 10;
-    let data: Buffer<u32> = (0..vector_size as u32).collect();
-    let pvector = PVector::new(data, Mask::AllTrue(vector_size));
+#[divan::bench(args = NUM_INDICES, consts = VECTOR_SIZE, sample_count = 100_000)]
+fn pvector_take_zipfian<const VECTOR_SIZE: usize>(bencher: Bencher, num_indices: usize) {
+    let data: Buffer<u32> = (0..VECTOR_SIZE as u32).collect();
+    let pvector = PVector::new(data, Mask::AllTrue(VECTOR_SIZE));
 
     let rng = StdRng::seed_from_u64(0);
-    let zipf = Zipf::new(vector_size as f64, 1.0).unwrap();
+    let zipf = Zipf::new(VECTOR_SIZE as f64, 1.0).unwrap();
     let indices: Vec<u32> = rng
         .sample_iter(&zipf)
         .take(num_indices)
-        .map(|i: f64| (i as u32 - 1).min(vector_size as u32 - 1))
+        .map(|i: f64| (i as u32 - 1).min(VECTOR_SIZE as u32 - 1))
         .collect();
 
     bencher
@@ -65,15 +65,13 @@ fn pvector_take_zipfian(bencher: Bencher, num_indices: usize) {
 }
 
 // --- DictArray canonicalization benchmarks ---
-// Dictionary has num_indices/10 unique values, num_indices codes.
 
-#[divan::bench(args = NUM_INDICES, sample_count = 100_000)]
-fn dict_canonicalize_uniform(bencher: Bencher, num_indices: usize) {
-    let num_values = num_indices / 10;
-    let values = PrimitiveArray::from_iter(0..num_values as u32);
+#[divan::bench(args = NUM_INDICES, consts = VECTOR_SIZE, sample_count = 100_000)]
+fn dict_canonicalize_uniform<const NUM_VALUES: usize>(bencher: Bencher, num_indices: usize) {
+    let values = PrimitiveArray::from_iter(0..NUM_VALUES as u32);
 
     let rng = StdRng::seed_from_u64(0);
-    let range = Uniform::new(0u32, num_values as u32).unwrap();
+    let range = Uniform::new(0u32, NUM_VALUES as u32).unwrap();
     let codes = PrimitiveArray::from_iter(rng.sample_iter(range).take(num_indices));
 
     let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
@@ -83,17 +81,16 @@ fn dict_canonicalize_uniform(bencher: Bencher, num_indices: usize) {
         .bench_refs(|dict| dict.to_canonical());
 }
 
-#[divan::bench(args = NUM_INDICES, sample_count = 100_000)]
-fn dict_canonicalize_zipfian(bencher: Bencher, num_indices: usize) {
-    let num_values = num_indices / 10;
-    let values = PrimitiveArray::from_iter(0..num_values as u32);
+#[divan::bench(args = NUM_INDICES, consts = VECTOR_SIZE, sample_count = 100_000)]
+fn dict_canonicalize_zipfian<const NUM_VALUES: usize>(bencher: Bencher, num_indices: usize) {
+    let values = PrimitiveArray::from_iter(0..NUM_VALUES as u32);
 
     let rng = StdRng::seed_from_u64(0);
-    let zipf = Zipf::new(num_values as f64, 1.0).unwrap();
+    let zipf = Zipf::new(NUM_VALUES as f64, 1.0).unwrap();
     let codes = PrimitiveArray::from_iter(
         rng.sample_iter(&zipf)
             .take(num_indices)
-            .map(|i: f64| (i as u32 - 1).min(num_values as u32 - 1)),
+            .map(|i: f64| (i as u32 - 1).min(NUM_VALUES as u32 - 1)),
     );
 
     let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
