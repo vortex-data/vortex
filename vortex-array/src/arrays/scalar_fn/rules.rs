@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 use vortex_vector::Datum;
+use vortex_vector::VectorOps;
 use vortex_vector::scalar_matches_dtype;
 
 use crate::Array;
@@ -37,17 +37,23 @@ impl ArrayReduceRule<AnyScalarFn> for ScalarFnConstantRule {
             .collect();
         let input_dtypes = array.children.iter().map(|c| c.dtype().clone()).collect();
 
-        let result = array
-            .scalar_fn
-            .execute(ExecutionArgs {
-                datums: input_datums,
-                dtypes: input_dtypes,
-                row_count: array.len,
-                return_dtype: array.dtype.clone(),
-            })?
-            .into_scalar()
-            .vortex_expect("Scalar inputs should produce scalar output");
+        let result = array.scalar_fn.execute(ExecutionArgs {
+            datums: input_datums,
+            dtypes: input_dtypes,
+            row_count: array.len,
+            return_dtype: array.dtype.clone(),
+        })?;
 
+        let result = match result {
+            Datum::Scalar(s) => s,
+            Datum::Vector(v) => {
+                log::warn!(
+                    "Scalar function {} returned vector from execution over all scalar inputs",
+                    array.scalar_fn
+                );
+                v.scalar_at(0)
+            }
+        };
         assert!(scalar_matches_dtype(&result, &array.dtype));
 
         Ok(Some(

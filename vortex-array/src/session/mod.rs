@@ -23,6 +23,7 @@ use crate::arrays::StructGetItemRule;
 use crate::arrays::StructVTable;
 use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewVTable;
+use crate::arrays::rules::ScalarFnConstantRule;
 use crate::optimizer::ArrayOptimizer;
 use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
@@ -94,6 +95,9 @@ impl Default for ArraySession {
         };
 
         let optimizer = session.optimizer_mut();
+
+        optimizer.register_reduce_rule(ScalarFnConstantRule);
+
         optimizer.register_parent_rule(BoolMaskedValidityRule);
         optimizer.register_parent_rule(PrimitiveMaskedValidityRule);
         optimizer.register_parent_rule(DecimalMaskedValidityRule);

@@ -136,6 +136,7 @@ impl VTable for Binary {
 
         match op {
             Operator::And => {
+                // FIXME(ngates): implement logical compute over datums
                 let lhs = lhs.ensure_vector(args.row_count).into_bool().into_arrow()?;
                 let rhs = rhs.ensure_vector(args.row_count).into_bool().into_arrow()?;
                 return Ok(Datum::Vector(
@@ -145,6 +146,7 @@ impl VTable for Binary {
                 ));
             }
             Operator::Or => {
+                // FIXME(ngates): implement logical compute over datums
                 let lhs = lhs.ensure_vector(args.row_count).into_bool().into_arrow()?;
                 let rhs = rhs.ensure_vector(args.row_count).into_bool().into_arrow()?;
                 return Ok(Datum::Vector(
