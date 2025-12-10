@@ -41,12 +41,6 @@ pub trait KleeneBinaryOp {
     /// Apply the operation to two [`BitBuffer`]s.
     fn bit_op(lhs: &BitBuffer, rhs: &BitBuffer) -> BitBuffer;
 
-    /// Absorbing bits when one side is all-null.
-    ///
-    /// - AND: all-false, since `x AND null` is false or null.
-    /// - OR: all-true, since `x OR null` is true or null.
-    fn absorbing_bits_from_len(len: usize) -> BitBuffer;
-
     /// Returns a mask of positions with absorbing values.
     ///
     /// - AND: `FALSE` absorbs, so return `bits.not()` (false positions).
@@ -60,10 +54,6 @@ pub trait KleeneBinaryOp {
 impl KleeneBinaryOp for KleeneAnd {
     fn bit_op(lhs: &BitBuffer, rhs: &BitBuffer) -> BitBuffer {
         lhs.bitand(rhs)
-    }
-
-    fn absorbing_bits_from_len(len: usize) -> BitBuffer {
-        BitBuffer::new_unset(len) // All false.
     }
 
     fn absorb_bits(bits: &BitBuffer) -> BitBuffer {
@@ -82,10 +72,6 @@ impl KleeneBinaryOp for KleeneAnd {
 impl KleeneBinaryOp for KleeneOr {
     fn bit_op(lhs: &BitBuffer, rhs: &BitBuffer) -> BitBuffer {
         lhs.bitor(rhs)
-    }
-
-    fn absorbing_bits_from_len(len: usize) -> BitBuffer {
-        BitBuffer::new_set(len) // All true.
     }
 
     fn absorb_bits(bits: &BitBuffer) -> BitBuffer {
@@ -181,16 +167,20 @@ fn kleene_vector_op<Op: KleeneBinaryOp>(lhs: &BoolVector, rhs: &BoolVector) -> B
 
         // LHS is all valid, RHS is all null.
         (Mask::AllTrue(_), Mask::AllFalse(_)) => {
-            // The result vector is valid where the LHS has an absorbing value.
-            let result_bits = Op::absorbing_bits_from_len(len);
+            // The result vector is valid where the LHS has an absorbing value. Since only
+            // absorbing values produce valid results, and absorbing values equal the result of the
+            // operation, we can reuse the LHS bits directly.
+            let result_bits = lhs.bits().clone();
             let validity = Op::absorb_bits(lhs.bits());
             BoolVector::new(result_bits, Mask::from(validity))
         }
 
         // LHS is all null, RHS is all valid.
         (Mask::AllFalse(_), Mask::AllTrue(_)) => {
-            // The result vector is valid where the RHS has an absorbing value.
-            let result_bits = Op::absorbing_bits_from_len(len);
+            // The result vector is valid where the RHS has an absorbing value. Since only
+            // absorbing values produce valid results, and absorbing values equal the result of the
+            // operation, we can reuse the RHS bits directly.
+            let result_bits = rhs.bits().clone();
             let validity = Op::absorb_bits(rhs.bits());
             BoolVector::new(result_bits, Mask::from(validity))
         }
@@ -213,23 +203,25 @@ fn kleene_vector_op<Op: KleeneBinaryOp>(lhs: &BoolVector, rhs: &BoolVector) -> B
 
         // LHS is all null, RHS has specific validity.
         (Mask::AllFalse(_), Mask::Values(rhs_values)) => {
-            // The result vector is valid where the RHS is valid AND has an absorbing value.
-            let result_bits = Op::absorbing_bits_from_len(len);
+            // The result vector is valid where the RHS is valid AND has an absorbing value. Since
+            // only absorbing values produce valid results, we can reuse the RHS bits directly.
+            let result_bits = rhs.bits().clone();
             let validity = rhs_values.bit_buffer().bitand(&Op::absorb_bits(rhs.bits()));
             BoolVector::new(result_bits, Mask::from(validity))
         }
 
         // LHS has specific validity, RHS is all null.
         (Mask::Values(lhs_values), Mask::AllFalse(_)) => {
-            // The result vector is valid where the LHS is valid AND has an absorbing value.
-            let result_bits = Op::absorbing_bits_from_len(len);
+            // The result vector is valid where the LHS is valid AND has an absorbing value. Since
+            // only absorbing values produce valid results, we can reuse the LHS bits directly.
+            let result_bits = lhs.bits().clone();
             let validity = lhs_values.bit_buffer().bitand(&Op::absorb_bits(lhs.bits()));
             BoolVector::new(result_bits, Mask::from(validity))
         }
 
         // Both sides have specific validity.
         (Mask::Values(lhs_values), Mask::Values(rhs_values)) => {
-            // The result is valid at position i when:
+            // The result is valid at position `i` iff:
             // 1. Both lhs[i] and rhs[i] are valid (standard case), OR
             // 2. lhs[i] is null but rhs[i] is valid AND has an absorbing value, OR
             // 3. rhs[i] is null but lhs[i] is valid AND has an absorbing value.
@@ -237,28 +229,21 @@ fn kleene_vector_op<Op: KleeneBinaryOp>(lhs: &BoolVector, rhs: &BoolVector) -> B
             // Absorbing values in Kleene logic:
             // - AND: false absorbs null (false AND null = false).
             // - OR: true absorbs null (true OR null = true).
+            //
+            // This simplifies to the gosition is valid iff:
+            //   - (lhs_valid OR rhs_absorbs) AND
+            //   - (rhs_valid OR lhs_absorbs).
+            //
+            // In other words, each side must either be valid or have an absorbing value that
+            // "covers" the other side's null.
             let result_bits = Op::bit_op(lhs.bits(), rhs.bits());
 
-            // Case 1: Both operands are valid at this position.
-            let both_valid = lhs_values.bit_buffer().bitand(rhs_values.bit_buffer());
+            let lhs_valid_or_rhs_absorbs =
+                lhs_values.bit_buffer().bitor(&Op::absorb_bits(rhs.bits()));
+            let rhs_valid_or_lhs_absorbs =
+                rhs_values.bit_buffer().bitor(&Op::absorb_bits(lhs.bits()));
+            let validity = lhs_valid_or_rhs_absorbs.bitand(&rhs_valid_or_lhs_absorbs);
 
-            // Case 2: LHS is null, but RHS is valid with an absorbing value.
-            let lhs_null_rhs_absorbs = lhs_values
-                .bit_buffer()
-                .not()
-                .bitand(rhs_values.bit_buffer())
-                .bitand(&Op::absorb_bits(rhs.bits()));
-
-            // Case 3: RHS is null, but LHS is valid with an absorbing value.
-            let rhs_null_lhs_absorbs = rhs_values
-                .bit_buffer()
-                .not()
-                .bitand(lhs_values.bit_buffer())
-                .bitand(&Op::absorb_bits(lhs.bits()));
-
-            let validity = both_valid
-                .bitor(&lhs_null_rhs_absorbs)
-                .bitor(&rhs_null_lhs_absorbs);
             BoolVector::new(result_bits, Mask::from(validity))
         }
     }
