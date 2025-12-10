@@ -144,6 +144,18 @@ impl TableStrategy {
         }
         self
     }
+
+    /// Override the default strategy for leaf columns that don't have overrides.
+    pub fn with_default_strategy(mut self, default: Arc<dyn LayoutStrategy>) -> Self {
+        self.fallback = default;
+        self
+    }
+
+    /// Override the strategy for compressing struct validity at all levels of the schema tree.
+    pub fn with_validity_strategy(mut self, validity: Arc<dyn LayoutStrategy>) -> Self {
+        self.validity = validity;
+        self
+    }
 }
 
 impl TableStrategy {
@@ -169,6 +181,11 @@ impl TableStrategy {
     }
 
     fn validate_path(&self, path: FieldPath) -> FieldPath {
+        assert!(
+            !path.is_root(),
+            "Do not set override as a root strategy, instead set the default strategy"
+        );
+
         // Validate that the field path does not conflict with any overrides
         // that we've added by overlapping.
         for field_path in self.leaf_writers.keys() {
@@ -358,6 +375,7 @@ impl LayoutStrategy for TableStrategy {
 mod tests {
     use std::sync::Arc;
 
+    use vortex_dtype::FieldPath;
     use vortex_dtype::field_path;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -375,5 +393,14 @@ mod tests {
 
         // Should panic right here.
         let _path = path.with_field_writer(field_path!(a.b), flat);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Do not set override as a root strategy, instead set the default strategy"
+    )]
+    fn test_root_override() {
+        let _strategy = TableStrategy::default()
+            .with_field_writer(FieldPath::root(), Arc::new(FlatLayoutStrategy::default()));
     }
 }
