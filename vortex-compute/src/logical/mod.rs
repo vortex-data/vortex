@@ -2,63 +2,36 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Logical boolean functions.
+//!
+//! This module provides logical operations for boolean scalars, vectors, and datums:
+//!
+//! - **Simple operations** (`binary`): AND, OR, AND NOT. These propagate nulls.
+//! - **Kleene operations** (`kleene`): AND KLEENE, OR KLEENE. These use Kleene three-valued
+//!   logic where `false AND null = false` and `true OR null = true`.
+//! - **Unary operations** (`not`): NOT.
 
-use vortex_vector::BoolDatum;
-use vortex_vector::ScalarOps;
-use vortex_vector::VectorMutOps;
-use vortex_vector::VectorOps;
-use vortex_vector::bool::BoolScalar;
-use vortex_vector::bool::BoolVector;
+// TODO: We want to add these logical traits on the owned versions of the operands so that we can do
+// in-place operatinos.
 
-mod and;
-mod and_kleene;
-mod and_not;
+mod binary;
+mod kleene;
 mod not;
-mod or;
-mod or_kleene;
 
-/// kleene `and` op
-pub struct KleeneAnd;
-/// kleene `or` op
-pub struct KleeneOr;
+pub use binary::And;
+pub use binary::AndNot;
+pub use binary::LogicalBinaryOp;
+pub use binary::Or;
+pub use kleene::KleeneAnd;
+pub use kleene::KleeneBinaryOp;
+pub use kleene::KleeneOr;
 
-/// (Bool, Bool) -> Bool compute function.
+/// `(Bool, Bool) -> Bool` compute function.
 pub trait LogicalOp<Op, Rhs = Self> {
-    /// The resulting type after performing the logical AND KLEENE operation.
+    /// The resulting type after performing the logical operation.
     type Output;
 
-    /// Perform a logical AND operation between two values.
+    /// Perform a logical operation between two values.
     fn op(self, other: Rhs) -> Self::Output;
-}
-
-impl<Op> LogicalOp<Op> for BoolDatum
-where
-    for<'a> &'a BoolVector: LogicalOp<Op, Output = BoolVector>,
-    for<'a> &'a BoolScalar: LogicalOp<Op, Output = BoolScalar>,
-{
-    type Output = Self;
-
-    fn op(self, rhs: Self) -> Self::Output {
-        match (self, rhs) {
-            (BoolDatum::Vector(lhs_vec), BoolDatum::Vector(rhs_vec)) => {
-                BoolDatum::Vector(lhs_vec.op(&rhs_vec))
-            }
-            (BoolDatum::Scalar(lhs_sc), BoolDatum::Scalar(rhs_sc)) => {
-                BoolDatum::Scalar(lhs_sc.and_kleene(&rhs_sc))
-            }
-            // TODO: remove repeat
-            (BoolDatum::Scalar(lhs_sc), BoolDatum::Vector(rhs_vec)) => BoolDatum::Vector(
-                lhs_sc
-                    .repeat(rhs_vec.len())
-                    .freeze()
-                    .into_bool()
-                    .op(&rhs_vec),
-            ),
-            (BoolDatum::Vector(lhs_vec), BoolDatum::Scalar(rhs_sc)) => {
-                BoolDatum::Vector(lhs_vec.op(&rhs_sc.repeat(lhs_vec.len()).freeze().into_bool()))
-            }
-        }
-    }
 }
 
 /// Trait for performing logical AND operations.
@@ -75,7 +48,7 @@ pub trait LogicalAndKleene<Rhs = Self> {
     /// The resulting type after performing the logical AND KLEENE operation.
     type Output;
 
-    /// Perform a logical AND operation between two values.
+    /// Perform a logical AND KLEENE operation between two values.
     fn and_kleene(self, other: Rhs) -> Self::Output;
 }
 
@@ -84,13 +57,13 @@ pub trait LogicalAndNot<Rhs = Self> {
     /// The resulting type after performing the logical AND NOT operation.
     type Output;
 
-    /// Perform a logical AND operation between two values.
+    /// Perform a logical AND NOT operation between two values.
     fn and_not(self, other: Rhs) -> Self::Output;
 }
 
 /// Trait for performing logical OR operations.
 pub trait LogicalOr<Rhs = Self> {
-    /// The resulting type after performing the logical AND operation.
+    /// The resulting type after performing the logical OR operation.
     type Output;
 
     /// Perform a logical OR operation between two values.
@@ -99,7 +72,7 @@ pub trait LogicalOr<Rhs = Self> {
 
 /// Trait for performing logical OR KLEENE operations.
 pub trait LogicalOrKleene<Rhs = Self> {
-    /// The resulting type after performing the logical AND operation.
+    /// The resulting type after performing the logical OR KLEENE operation.
     type Output;
 
     /// Perform a logical OR KLEENE operation between two values.
@@ -108,7 +81,7 @@ pub trait LogicalOrKleene<Rhs = Self> {
 
 /// Trait for performing logical NOT operations.
 pub trait LogicalNot {
-    /// The resulting type after performing the logical AND NOT operation.
+    /// The resulting type after performing the logical NOT operation.
     type Output;
 
     /// Perform a logical NOT operation.

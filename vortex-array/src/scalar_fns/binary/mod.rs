@@ -101,14 +101,16 @@ impl VTable for BinaryFn {
             Operator::Lte => Ok(Compare::<LessThanOrEqual>::compare(lhs, rhs).into()),
             Operator::Gt => Ok(Compare::<GreaterThan>::compare(lhs, rhs).into()),
             Operator::Gte => Ok(Compare::<GreaterThanOrEqual>::compare(lhs, rhs).into()),
-            Operator::And => Ok(<BoolDatum as LogicalOp<KleeneAnd>>::op(
-                lhs.into_bool(),
-                rhs.into_bool(),
+            Operator::And => Ok(<&BoolDatum as LogicalOp<KleeneAnd>>::op(
+                &lhs.into_bool(),
+                &rhs.into_bool(),
             )
             .into()),
-            Operator::Or => {
-                Ok(<BoolDatum as LogicalOp<KleeneOr>>::op(lhs.into_bool(), rhs.into_bool()).into())
-            }
+            Operator::Or => Ok(<&BoolDatum as LogicalOp<KleeneOr>>::op(
+                &lhs.into_bool(),
+                &rhs.into_bool(),
+            )
+            .into()),
             Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => {
                 execute_arithmetic_primitive(lhs.into_primitive(), rhs.into_primitive(), *op)
             }
