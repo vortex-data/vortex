@@ -19,6 +19,7 @@ use vortex_vector::VectorOps;
 
 use crate::ArrayRef;
 use crate::ToCanonical;
+use crate::builtins::ExprBuiltins;
 use crate::compute::mask;
 use crate::expr::Arity;
 use crate::expr::ChildName;
@@ -33,7 +34,6 @@ use crate::expr::VTableExt;
 use crate::expr::exprs::root::root;
 use crate::expr::lit;
 use crate::expr::stats::Stat;
-use crate::scalar_fns::ExprBuiltins;
 
 pub struct GetItem;
 

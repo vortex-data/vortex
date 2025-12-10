@@ -10,6 +10,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::Array;
 use crate::ArrayVisitor;
+use crate::ArrayVisitorExt;
 use crate::array::ArrayRef;
 use crate::optimizer::rules::AnyArray;
 use crate::optimizer::rules::ArrayParentReduceRule;
@@ -44,32 +45,49 @@ impl ArrayOptimizer {
     // TODO(ngates): this is slow, overly recursive, and will stack overflow if the rules end up
     //  forming a cycle.
     pub fn optimize_array(&self, array: &ArrayRef) -> VortexResult<ArrayRef> {
-        // TODO(ngates): we should reduce first on the way down?
-
-        let new_children: Vec<_> = array
-            .children()
-            .iter()
-            .map(|child| self.optimize_array(child))
-            .try_collect()?;
-
-        // If any children changed, reconstruct the array
-        let array = array.with_children(&new_children)?;
-
-        // Apply reduction rules to the current array until no more rules apply.
-        if let Some(new_array) = self.apply_reduce_rules(&array)? {
-            // Start over
-            return self.optimize_array(&new_array);
-        }
-
-        // Apply parent reduction rules to each child in the context of the current array.
-        for (idx, child) in array.children().iter().enumerate() {
-            if let Some(new_array) = self.apply_parent_rules(child, &array, idx)? {
-                // If the parent was replaced, then we start over with the new parent
-                return self.optimize_array(&new_array);
+        // Inner recursive function that tracks number of iterations to avoid infinite loops.
+        fn inner(
+            opt: &ArrayOptimizer,
+            array: &ArrayRef,
+            iterations: usize,
+        ) -> VortexResult<ArrayRef> {
+            if iterations == 0 {
+                // Prevent infinite recursion by limiting the number of iterations.
+                return Ok(array.clone());
             }
+
+            // TODO(ngates): we should reduce first on the way down?
+            let new_children: Vec<_> = array
+                .children()
+                .iter()
+                .map(|child| inner(opt, child, iterations - 1))
+                .try_collect()?;
+
+            // If any children changed, reconstruct the array
+            let array = array.with_children(&new_children)?;
+
+            // Apply reduction rules to the current array until no more rules apply.
+            if let Some(new_array) = opt.apply_reduce_rules(&array)? {
+                // Start over
+                return inner(opt, &new_array, iterations - 1);
+            }
+
+            // Apply parent reduction rules to each child in the context of the current array.
+            for (idx, child) in array.children().iter().enumerate() {
+                if let Some(new_array) = opt.apply_parent_rules(child, &array, idx)? {
+                    // If the parent was replaced, then we start over with the new parent
+                    return inner(opt, &new_array, iterations - 1);
+                }
+            }
+
+            Ok(array)
         }
 
-        Ok(array)
+        // The number of iterations we allow is the number of nodes in the array tree * 4.
+        // No real reason to pick 4.
+        let max_iterations = array.depth_first_traversal().count() * 4;
+
+        inner(self, array, max_iterations)
     }
 
     /// Register a reduce rule for a specific array encoding.

@@ -146,6 +146,7 @@ pub trait VortexSessionDefault {
 }
 
 impl VortexSessionDefault for VortexSession {
+    #[allow(unused_mut)]
     fn default() -> VortexSession {
         let mut session = VortexSession::empty()
             .with::<VortexMetrics>()

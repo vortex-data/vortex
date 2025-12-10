@@ -104,9 +104,6 @@ pub struct PScalar<T>(Option<T>);
 impl<T: NativePType> PScalar<T> {
     /// Creates a new primitive scalar with the given value.
     pub fn new(value: Option<T>) -> Self {
-        if value.is_none() {
-            vortex_panic!("NULL")
-        }
         Self(value)
     }
 

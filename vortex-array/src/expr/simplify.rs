@@ -72,7 +72,7 @@ impl Expression {
         };
 
         let simplified = self.simplify_untyped()?;
-        let simplified = inner(&simplified, &cache)?.unwrap_or_else(|| self.clone());
+        let simplified = inner(&simplified, &cache)?.unwrap_or(simplified);
 
         // TODO(ngates): perform constant folding by executing expressions with all-literal
         //  children here
