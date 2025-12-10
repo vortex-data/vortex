@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Implementations of `take` on [`ListViewVector`].
+//!
+//! take` on the list view simply performs a `take` on the views of the vector, which means the
+//! resulting vector may have "garbage" data in its `elements` child vector.
+//!
+//! Note that it is on the outer array type to perform compaction / garbage collection.
+
 use vortex_dtype::UnsignedPType;
 use vortex_vector::VectorOps;
 use vortex_vector::listview::ListViewVector;
@@ -23,11 +30,7 @@ impl<I: UnsignedPType> Take<PVector<I>> for &ListViewVector {
 impl<I: UnsignedPType> Take<[I]> for &ListViewVector {
     type Output = ListViewVector;
 
-    fn take(self, _indices: &[I]) -> ListViewVector {
-        todo!("TODO(connor): Implement `take` for `ListViewVector` and figure out rebuilding");
-
-        /*
-
+    fn take(self, indices: &[I]) -> ListViewVector {
         let taken_offsets = self.offsets().take(indices);
         let taken_sizes = self.sizes().take(indices);
         let taken_validity = self.validity().take(indices);
@@ -46,24 +49,20 @@ impl<I: UnsignedPType> Take<[I]> for &ListViewVector {
                 taken_validity,
             )
         }
-
-        */
     }
 }
 
 fn take_nullable<I: UnsignedPType>(
-    _lvector: &ListViewVector,
-    _indices: &PVector<I>,
+    list_view: &ListViewVector,
+    indices: &PVector<I>,
 ) -> ListViewVector {
-    todo!("TODO(connor): Implement `take` for `ListViewVector` and figure out rebuilding");
-
-    /*
-
     // We ignore nullability when taking the offsets and sizes since we can let the `Mask`
     // implementation determine which elements are null.
-    let taken_offsets = lvector.offsets().take(indices.elements().as_slice());
-    let taken_sizes = lvector.sizes().take(indices.elements().as_slice());
-    let taken_validity = lvector.validity().take(indices);
+    let taken_offsets = list_view.offsets().take(indices.elements().as_slice());
+    let taken_sizes = list_view.sizes().take(indices.elements().as_slice());
+
+    // Note that this is **not** the same as the `indices: &[I]` `take` implementation above.
+    let taken_validity = list_view.validity().take(indices);
 
     debug_assert_eq!(taken_offsets.len(), taken_validity.len());
     debug_assert_eq!(taken_sizes.len(), taken_validity.len());
@@ -73,12 +72,10 @@ fn take_nullable<I: UnsignedPType>(
     // via Arc, so all view references remain valid.
     unsafe {
         ListViewVector::new_unchecked(
-            lvector.elements().clone(),
+            list_view.elements().clone(),
             taken_offsets,
             taken_sizes,
             taken_validity,
         )
     }
-
-    */
 }
