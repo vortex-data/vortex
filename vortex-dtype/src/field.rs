@@ -206,6 +206,12 @@ impl FieldPath {
         // Indexing a struct type always allocates anyway.
         self.resolve(dtype).is_some()
     }
+
+    /// Returns true if this path overlaps with another path (i.e., one is a prefix of the other).
+    pub fn overlap(&self, other: &FieldPath) -> bool {
+        let min_len = self.0.len().min(other.0.len());
+        self.0.iter().take(min_len).eq(other.0.iter().take(min_len))
+    }
 }
 
 impl FromIterator<Field> for FieldPath {
@@ -387,5 +393,29 @@ mod tests {
         let path = FieldPath::from_name("a").push(Field::ElementType);
         assert!(path.resolve(dtype.clone()).is_none());
         assert!(!path.exists_in(dtype));
+    }
+
+    #[test]
+    fn test_overlap_positive() {
+        let path1 = field_path!(a.b.c);
+        let path2 = field_path!(a.b);
+        assert!(path1.overlap(&path2));
+        assert!(path2.overlap(&path1));
+
+        let path3 = field_path!(a);
+        assert!(path1.overlap(&path3));
+        assert!(path3.overlap(&path1));
+    }
+
+    #[test]
+    fn test_overlap_negative() {
+        let path1 = field_path!(a.b.c);
+        let path2 = field_path!(a.x.y);
+        assert!(!path1.overlap(&path2));
+        assert!(!path2.overlap(&path1));
+
+        let path3 = field_path!(x);
+        assert!(!path1.overlap(&path3));
+        assert!(!path3.overlap(&path1));
     }
 }
