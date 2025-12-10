@@ -281,6 +281,7 @@ pub trait Compressor {
     /// Evaluates all available schemes against the provided statistics and returns
     /// the one with the highest compression ratio. Falls back to the default scheme
     /// if no scheme provides compression benefits.
+    #[allow(clippy::cognitive_complexity)]
     fn choose_scheme(
         stats: &Self::StatsType,
         is_sample: bool,

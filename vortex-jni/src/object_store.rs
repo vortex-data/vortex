@@ -23,6 +23,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::utils::aliases::hash_map::HashMap;
 
+#[expect(clippy::cognitive_complexity)]
 pub(crate) fn make_object_store(
     url: &Url,
     properties: &HashMap<String, String>,
@@ -129,7 +130,7 @@ pub(crate) fn make_object_store(
         // Guard dropped at close of scope.
     }
 
-    let duration = std::time::Instant::now().duration_since(start);
+    let duration = start.elapsed();
     tracing::debug!("make_object_store latency = {duration:?}");
 
     Ok((store, scheme))

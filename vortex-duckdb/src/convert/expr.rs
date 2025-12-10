@@ -43,10 +43,6 @@ fn like_pattern_str(value: &duckdb::Expression) -> VortexResult<Option<String>> 
     }
 }
 
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "complexity from exhaustive match on expression types"
-)]
 pub fn try_from_bound_expression(value: &duckdb::Expression) -> VortexResult<Option<Expression>> {
     let Some(value) = value.as_class() else {
         tracing::debug!("no expression class id {:?}", value.as_class_id());
