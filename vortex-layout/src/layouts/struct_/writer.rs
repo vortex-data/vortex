@@ -41,9 +41,9 @@ use crate::sequence::SequentialStreamExt;
 /// as its own distinct stream.
 ///
 /// This is now deprecated, users are encouraged to instead use the
-/// [`PathStrategy`][crate::layouts::path::PathStrategy].
+/// [`TableStrategy`][crate::layouts::table::TableStrategy].
 #[derive(Clone)]
-#[deprecated(since = "0.57.0", note = "Use the `PathStrategy` instead.")]
+#[deprecated(since = "0.57.0", note = "Use the `TableStrategy` instead.")]
 pub struct StructStrategy {
     child: Arc<dyn LayoutStrategy>,
     validity: Arc<dyn LayoutStrategy>,

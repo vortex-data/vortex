@@ -44,7 +44,7 @@ use crate::sequence::SequentialStreamExt;
 
 /// A configurable strategy for writing tables with nested field columns, allowing
 /// overrides for specific leaf columns.
-pub struct PathStrategy {
+pub struct TableStrategy {
     /// A set of leaf field overrides, e.g. to force one column to be compact-compressed.
     leaf_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
     /// The writer for any validity arrays that may be present
@@ -53,7 +53,7 @@ pub struct PathStrategy {
     fallback: Arc<dyn LayoutStrategy>,
 }
 
-impl Default for PathStrategy {
+impl Default for TableStrategy {
     fn default() -> Self {
         let flat = Arc::new(FlatLayoutStrategy::default());
 
@@ -65,7 +65,7 @@ impl Default for PathStrategy {
     }
 }
 
-impl PathStrategy {
+impl TableStrategy {
     /// Create a new writer with the specified write strategies for validity, and for all leaf
     /// fields, with no overrides.
     ///
@@ -76,12 +76,12 @@ impl PathStrategy {
     /// ```
     /// # use std::sync::Arc;
     /// # use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
-    /// # use vortex_layout::layouts::path::PathStrategy;
+    /// # use vortex_layout::layouts::table::TableStrategy;
     ///
     /// // Build a write strategy that does not compress validity or any leaf fields.
     /// let flat = Arc::new(FlatLayoutStrategy::default());
     ///
-    /// let strategy = PathStrategy::new(flat.clone(), flat.clone());
+    /// let strategy = TableStrategy::new(flat.clone(), flat.clone());
     /// ```
     pub fn new(validity: Arc<dyn LayoutStrategy>, fallback: Arc<dyn LayoutStrategy>) -> Self {
         Self {
@@ -101,7 +101,7 @@ impl PathStrategy {
     /// # use vortex_layout::layouts::compact::CompactCompressor;
     /// # use vortex_layout::layouts::compressed::CompressingStrategy;
     /// # use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
-    /// # use vortex_layout::layouts::path::PathStrategy;
+    /// # use vortex_layout::layouts::table::TableStrategy;
     ///
     /// // A strategy for compressing data using the balanced BtrBlocks compressor.
     /// let compress_btrblocks = CompressingStrategy::new_btrblocks(FlatLayoutStrategy::default(), true);
@@ -112,7 +112,7 @@ impl PathStrategy {
     /// // Our combined strategy uses no compression for validity buffers, BtrBlocks compression
     /// // for most columns, and will use ZSTD compression for a nested binary column that we know
     /// // is never filtered in.
-    /// let strategy = PathStrategy::new(
+    /// let strategy = TableStrategy::new(
     ///         Arc::new(FlatLayoutStrategy::default()),
     ///         Arc::new(compress_btrblocks),
     ///     )
@@ -146,7 +146,7 @@ impl PathStrategy {
     }
 }
 
-impl PathStrategy {
+impl TableStrategy {
     // Descend into a subfield for the writer.
     fn descend(&self, field: &Field) -> Self {
         // Start with the existing set of overrides, then only retain the ones that contain
@@ -184,7 +184,7 @@ impl PathStrategy {
 
 /// Specialized strategy for when we exactly know the input schema.
 #[async_trait]
-impl LayoutStrategy for PathStrategy {
+impl LayoutStrategy for TableStrategy {
     async fn write_stream(
         &self,
         ctx: ArrayContext,
@@ -361,7 +361,7 @@ mod tests {
     use vortex_dtype::field_path;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::layouts::path::PathStrategy;
+    use crate::layouts::table::TableStrategy;
 
     #[test]
     #[should_panic(
@@ -371,7 +371,7 @@ mod tests {
         let flat = Arc::new(FlatLayoutStrategy::default());
 
         // Success
-        let path = PathStrategy::default().with_field_writer(field_path!(a.b.c), flat.clone());
+        let path = TableStrategy::default().with_field_writer(field_path!(a.b.c), flat.clone());
 
         // Should panic right here.
         let _path = path.with_field_writer(field_path!(a.b), flat);

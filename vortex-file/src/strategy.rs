@@ -14,9 +14,9 @@ use vortex_layout::layouts::compressed::CompressingStrategy;
 use vortex_layout::layouts::compressed::CompressorPlugin;
 use vortex_layout::layouts::dict::writer::DictStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
-use vortex_layout::layouts::path::PathStrategy;
 use vortex_layout::layouts::repartition::RepartitionStrategy;
 use vortex_layout::layouts::repartition::RepartitionWriterOptions;
+use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
 use vortex_layout::layouts::zoned::writer::ZonedStrategy;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -142,7 +142,7 @@ impl WriteStrategyBuilder {
         let validity_strategy = CollectStrategy::new(compress_then_flat);
 
         // Take any field overrides from the builder and apply them to the final strategy.
-        let table_strategy = PathStrategy::new(Arc::new(validity_strategy), Arc::new(repartition))
+        let table_strategy = TableStrategy::new(Arc::new(validity_strategy), Arc::new(repartition))
             .with_field_writers(self.field_writers);
 
         Arc::new(table_strategy)
