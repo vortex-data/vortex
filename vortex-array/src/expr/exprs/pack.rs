@@ -17,14 +17,12 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_proto::expr as pb;
+use vortex_vector::struct_::StructVector;
 use vortex_vector::Datum;
 use vortex_vector::ScalarOps;
 use vortex_vector::VectorMutOps;
 use vortex_vector::VectorOps;
-use vortex_vector::struct_::StructVector;
 
-use crate::ArrayRef;
-use crate::IntoArray;
 use crate::arrays::StructArray;
 use crate::expr::Arity;
 use crate::expr::ChildName;
@@ -34,6 +32,8 @@ use crate::expr::Expression;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::validity::Validity;
+use crate::ArrayRef;
+use crate::IntoArray;
 
 /// Pack zero or more expressions into a structure with named fields.
 pub struct Pack;
@@ -157,7 +157,7 @@ impl VTable for Pack {
                 .map(|v| v.ensure_vector(args.row_count))
                 .collect();
             return Ok(Datum::Vector(
-                StructVector::new(Arc::new(fields), Mask::new_true(args.row_count)).into(),
+                StructVector::try_new(Arc::new(fields), Mask::new_true(args.row_count))?.into(),
             ));
         }
 
@@ -219,22 +219,22 @@ pub fn pack(
 mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
-    use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
+    use vortex_error::VortexResult;
 
+    use super::pack;
     use super::Pack;
     use super::PackOptions;
-    use super::pack;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
+    use crate::expr::exprs::get_item::col;
+    use crate::expr::VTableExt;
+    use crate::validity::Validity;
+    use crate::vtable::ValidityHelper;
     use crate::Array;
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::ToCanonical;
-    use crate::arrays::PrimitiveArray;
-    use crate::arrays::StructArray;
-    use crate::expr::VTableExt;
-    use crate::expr::exprs::get_item::col;
-    use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
 
     fn test_array() -> ArrayRef {
         StructArray::from_fields(&[

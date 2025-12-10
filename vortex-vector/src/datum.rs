@@ -1,14 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::NativeDecimalType;
-use vortex_dtype::NativePType;
-use vortex_dtype::PType;
-
-use crate::Scalar;
-use crate::ScalarOps;
-use crate::Vector;
-use crate::VectorMutOps;
 use crate::binaryview::BinaryType;
 use crate::binaryview::BinaryViewScalar;
 use crate::binaryview::BinaryViewType;
@@ -32,6 +24,15 @@ use crate::primitive::PrimitiveScalar;
 use crate::primitive::PrimitiveVector;
 use crate::struct_::StructScalar;
 use crate::struct_::StructVector;
+use crate::Scalar;
+use crate::ScalarOps;
+use crate::Vector;
+use crate::VectorMutOps;
+use crate::VectorOps;
+use vortex_dtype::NativeDecimalType;
+use vortex_dtype::NativePType;
+use vortex_dtype::PType;
+use vortex_error::vortex_panic;
 
 /// Represents either a scalar or vector value.
 #[derive(Clone, Debug)]
@@ -59,7 +60,16 @@ impl Datum {
     pub fn ensure_vector(self, len: usize) -> Vector {
         match self {
             Datum::Scalar(scalar) => scalar.repeat(len).freeze(),
-            Datum::Vector(vector) => vector,
+            Datum::Vector(vector) => {
+                if vector.len() != len {
+                    vortex_panic!(
+                        "Vector length mismatch: expected length {}, got {}",
+                        len,
+                        vector.len()
+                    );
+                }
+                vector
+            }
         }
     }
 

@@ -19,7 +19,6 @@ use arrow_array::ArrayRef;
 use arrow_array::PrimitiveArray;
 use vortex_buffer::Buffer;
 use vortex_dtype::half::f16;
-use vortex_error::vortex_panic;
 use vortex_error::VortexResult;
 use vortex_vector::match_each_pvector;
 use vortex_vector::primitive::PVector;

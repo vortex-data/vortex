@@ -7,24 +7,15 @@ use std::ops::Range;
 use vortex_buffer::BufferHandle;
 use vortex_compute::filter::Filter;
 use vortex_dtype::DType;
+use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::Array;
-use crate::ArrayBufferVisitor;
-use crate::ArrayChildVisitor;
-use crate::ArrayEq;
-use crate::ArrayHash;
-use crate::ArrayRef;
-use crate::Canonical;
-use crate::IntoArray;
-use crate::Precision;
-use crate::arrays::LEGACY_SESSION;
 use crate::arrays::filter::array::FilterArray;
 use crate::arrays::filter::kernel::FilterKernel;
+use crate::arrays::LEGACY_SESSION;
 use crate::kernel::BindCtx;
 use crate::kernel::KernelRef;
 use crate::kernel::PushDownResult;
@@ -42,6 +33,15 @@ use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 use crate::vtable::VisitorVTable;
+use crate::Array;
+use crate::ArrayBufferVisitor;
+use crate::ArrayChildVisitor;
+use crate::ArrayEq;
+use crate::ArrayHash;
+use crate::ArrayRef;
+use crate::Canonical;
+use crate::IntoArray;
+use crate::Precision;
 
 vtable!(Filter);
 
@@ -108,7 +108,11 @@ impl VTable for FilterVTable {
             pushdown_cost
         );
 
-        if pushdown_cost < full_cost {
+        // NOTE(ngates): for now we keep the same behavior as develop where we push-down any
+        //  query with <20% true values.
+        let pushdown = (pushdown_cost < full_cost) || (array.mask.density() < 0.2);
+
+        if pushdown {
             // Try to push down the filter to the child if it's cheaper.
             child = match child.push_down_filter(&mask)? {
                 PushDownResult::Pushed(new_k) => {
@@ -116,7 +120,7 @@ impl VTable for FilterVTable {
                     return Ok(new_k);
                 }
                 PushDownResult::NotPushed(child) => {
-                    log::debug!(
+                    log::warn!(
                         "Filter pushdown was cheaper but not supported by child array {}",
                         array.child.display_tree()
                     );

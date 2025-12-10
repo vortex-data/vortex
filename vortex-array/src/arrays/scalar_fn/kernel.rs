@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -40,14 +39,17 @@ pub(super) enum KernelInput {
 
 impl Kernel for ScalarFnKernel {
     fn execute(self: Box<Self>) -> VortexResult<Vector> {
-        let datums: Vec<_> = self
-            .inputs
-            .into_iter()
-            .map(|input| match input {
-                KernelInput::Scalar(s) => Ok(Datum::Scalar(s)),
-                KernelInput::Vector(k) => k.execute().map(Datum::Vector),
-            })
-            .try_collect()?;
+        let mut datums: Vec<Datum> = Vec::with_capacity(self.inputs.len());
+        for input in self.inputs {
+            match input {
+                KernelInput::Scalar(s) => {
+                    datums.push(Datum::Scalar(s));
+                }
+                KernelInput::Vector(kernel) => {
+                    datums.push(Datum::Vector(kernel.execute()?));
+                }
+            }
+        }
 
         let args = ExecutionArgs {
             datums,
@@ -96,7 +98,7 @@ impl Kernel for ScalarFnKernel {
             scalar_fn: self.scalar_fn,
             inputs: new_inputs,
             input_dtypes: self.input_dtypes,
-            row_count: self.row_count,
+            row_count: selection.true_count(),
             return_dtype: self.return_dtype,
         })))
     }
