@@ -74,7 +74,7 @@ async fn test_file_roundtrip() {
 
     let writer = Arc::new(
         PathStrategy::new(Arc::new(FlatLayoutStrategy::default()), default_strategy)
-            .set_field_writer(field_path!(a.raw), Arc::new(FlatLayoutStrategy::default())),
+            .with_field_writer(field_path!(a.raw), Arc::new(FlatLayoutStrategy::default())),
     );
 
     let mut bytes = Vec::new();

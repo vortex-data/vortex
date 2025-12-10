@@ -31,7 +31,7 @@ const ONE_MEG: u64 = 1 << 20;
 pub struct WriteStrategyBuilder {
     compressor: Option<Arc<dyn CompressorPlugin>>,
     row_block_size: usize,
-    field_writers: Option<HashMap<FieldPath, Arc<dyn LayoutStrategy>>>,
+    field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
 }
 
 impl Default for WriteStrategyBuilder {
@@ -43,11 +43,11 @@ impl Default for WriteStrategyBuilder {
 impl WriteStrategyBuilder {
     /// Create a new empty builder. It can be further configured, and then finally built
     /// yielding the [`LayoutStrategy`].
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             compressor: None,
             row_block_size: 8192,
-            field_writers: None,
+            field_writers: HashMap::new(),
         }
     }
 
@@ -73,9 +73,7 @@ impl WriteStrategyBuilder {
         field: impl Into<FieldPath>,
         writer: Arc<dyn LayoutStrategy>,
     ) -> Self {
-        let mut writers = self.field_writers.unwrap_or_default();
-        writers.insert(field.into(), writer);
-        self.field_writers = Some(writers);
+        self.field_writers.insert(field.into(), writer);
         self
     }
 
@@ -143,14 +141,9 @@ impl WriteStrategyBuilder {
         // 0. start with splitting columns
         let validity_strategy = CollectStrategy::new(compress_then_flat);
 
-        let table_strategy = PathStrategy::new(Arc::new(validity_strategy), Arc::new(repartition));
-
         // Take any field overrides from the builder and apply them to the final strategy.
-        let table_strategy = if let Some(overrides) = self.field_writers {
-            table_strategy.set_field_writers(overrides)
-        } else {
-            table_strategy
-        };
+        let table_strategy = PathStrategy::new(Arc::new(validity_strategy), Arc::new(repartition))
+            .with_field_writers(self.field_writers);
 
         Arc::new(table_strategy)
     }
