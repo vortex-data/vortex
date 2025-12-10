@@ -16,7 +16,7 @@ use vortex::dtype::Nullability;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::runtime::BlockingRuntime;
-use vortex::io::session::RuntimeSessionExt;
+use vortex::io::session::RuntimeSessionMutExt;
 use vortex::session::VortexSession;
 use vortex::VortexSessionDefault;
 
