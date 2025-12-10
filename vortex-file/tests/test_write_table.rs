@@ -65,8 +65,8 @@ async fn test_file_roundtrip() {
     )
     .into_array();
 
-    // Create a writer which by default uses the BtrBlocks compressor, but for a.raw column it will
-    // leave it uncompressed. And for the a.no_dict column disables dictionary compression.
+    // Create a writer which by default uses the BtrBlocks compressor for a.compressed, but leaves
+    // the b and the a.raw columns uncompressed.
     let default_strategy = Arc::new(CompressingStrategy::new_btrblocks(
         FlatLayoutStrategy::default(),
         false,
@@ -74,7 +74,8 @@ async fn test_file_roundtrip() {
 
     let writer = Arc::new(
         TableStrategy::new(Arc::new(FlatLayoutStrategy::default()), default_strategy)
-            .with_field_writer(field_path!(a.raw), Arc::new(FlatLayoutStrategy::default())),
+            .with_field_writer(field_path!(a.raw), Arc::new(FlatLayoutStrategy::default()))
+            .with_field_writer(field_path!(b), Arc::new(FlatLayoutStrategy::default())),
     );
 
     let mut bytes = Vec::new();
@@ -101,6 +102,7 @@ async fn test_file_roundtrip() {
         let next = next.expect("next");
         let next = next.to_struct();
         let a = next.field_by_name("a").unwrap().to_struct();
+        let b = next.field_by_name("b").unwrap();
 
         let raw = a.field_by_name("raw").unwrap();
         let compressed = a.field_by_name("compressed").unwrap();
@@ -108,6 +110,7 @@ async fn test_file_roundtrip() {
         assert!(raw.is_canonical());
         assert!(!compressed.is_canonical());
 
+        assert!(b.is_canonical());
         assert!(raw.nbytes() > compressed.nbytes());
     }
 }
