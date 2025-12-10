@@ -103,12 +103,12 @@ impl PathStrategy {
     ///         Arc::new(FlatLayoutStrategy::default()),
     ///         Arc::new(compress_btrblocks),
     ///     )
-    ///     .set_field_writer(
+    ///     .with_field_writer(
     ///         field_path!(request.body.bytes),
     ///         Arc::new(compress_compact),
     ///     );
     /// ```
-    pub fn set_field_writer(
+    pub fn with_field_writer(
         mut self,
         field_path: impl Into<FieldPath>,
         writer: Arc<dyn LayoutStrategy>,
@@ -120,7 +120,7 @@ impl PathStrategy {
     /// Set writers for several fields at once.
     ///
     /// See also: [`set_field_writer`][Self::set_field_writer].
-    pub fn set_field_writers(
+    pub fn with_field_writers(
         mut self,
         writers: impl IntoIterator<Item = (FieldPath, Arc<dyn LayoutStrategy>)>,
     ) -> Self {
