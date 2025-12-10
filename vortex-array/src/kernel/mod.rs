@@ -17,6 +17,8 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_vector::Vector;
 
+use crate::arrays::FilterKernel;
+
 /// A boxed reference to a kernel.
 pub type KernelRef = Box<dyn Kernel>;
 
@@ -25,25 +27,15 @@ pub trait Kernel: 'static + Send + Debug {
     /// Execute the kernel and produce a vector result.
     fn execute(self: Box<Self>) -> VortexResult<Vector>;
 
-    /// Report an estimated cost for computing this kernel over the given filter mask.
-    ///
-    /// This is obviously a very rough estimate, but is used to decide when a filter should be
-    /// pushed through a kernel using [`Kernel::push_down_filter`].
-    ///
-    /// Return [`f64::INFINITY`] if the kernel has unknown cost, meaning filters will _always_
-    /// be pushed through the kernel if possible.
-    fn cost_estimate(&self, selection: &Mask) -> f64 {
-        _ = selection;
-        f64::INFINITY
-    }
-
     /// Push a selection mask through this kernel.
     ///
     /// Return `Ok(None)` if the filter cannot be pushed down.
-    fn push_down_filter(&self, selection: &Mask) -> VortexResult<Option<KernelRef>> {
-        _ = selection;
-        Ok(None)
-    }
+    fn push_down_filter(self: Box<Self>, selection: &Mask) -> VortexResult<PushDownResult>;
+}
+
+pub enum PushDownResult {
+    Pushed(KernelRef),
+    NotPushed(KernelRef),
 }
 
 /// Bind context for batch array compute.
@@ -60,5 +52,15 @@ impl BindCtx {
     /// Get the session associated with this execution context.
     pub fn session(&self) -> &VortexSession {
         &self.session
+    }
+}
+
+impl dyn Kernel + '_ {
+    /// Push-down a filter mask, or else wrap up the kernel to apply the filter later.
+    pub fn force_push_down_filter(self: Box<Self>, selection: &Mask) -> VortexResult<KernelRef> {
+        match self.push_down_filter(selection)? {
+            PushDownResult::Pushed(k) => Ok(k),
+            PushDownResult::NotPushed(k) => Ok(Box::new(FilterKernel::new(k, selection.clone()))),
+        }
     }
 }

@@ -17,6 +17,6 @@ pub struct ScalarFnMetadata {
 // Array tree display wrongly uses debug...
 impl Debug for ScalarFnMetadata {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.scalar_fn)
+        write!(f, "{}", self.scalar_fn.options())
     }
 }

@@ -44,4 +44,9 @@ impl ScalarFnArray {
             stats: Default::default(),
         })
     }
+
+    /// Get the scalar function bound to this array.
+    pub fn scalar_fn(&self) -> &ScalarFn {
+        &self.scalar_fn
+    }
 }

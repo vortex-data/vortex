@@ -371,7 +371,7 @@ mod tests {
         // Test freeze and accessors.
         let frozen = vec.freeze();
         assert_eq!(frozen.len(), 5);
-        assert_eq!(frozen.list_size(), 3);
+        assert_eq!(frozen.element_size(), 3);
         assert_eq!(frozen.elements().len(), 15);
     }
 
@@ -503,7 +503,7 @@ mod tests {
         // Verify operations work correctly.
         let frozen = vec.freeze();
         assert_eq!(frozen.len(), 1);
-        assert_eq!(frozen.list_size(), 1000);
+        assert_eq!(frozen.element_size(), 1000);
     }
 
     #[test]

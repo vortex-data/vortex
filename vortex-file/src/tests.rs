@@ -71,14 +71,14 @@ use crate::VortexFile;
 use crate::WriteOptionsSessionExt;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = VortexSession::empty()
+    let mut session = VortexSession::empty()
         .with::<VortexMetrics>()
         .with::<ArraySession>()
         .with::<LayoutSession>()
         .with::<ExprSession>()
         .with::<RuntimeSession>();
 
-    crate::register_default_encodings(&session);
+    crate::register_default_encodings(&mut session);
 
     session
 });

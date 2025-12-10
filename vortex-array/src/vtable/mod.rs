@@ -149,7 +149,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         let session = ctx.session().clone();
         Ok(kernel(move || {
             let canonical = Self::CanonicalVTable::canonicalize(&array);
-            canonical.into_array().execute_vector_optimized(&session)
+            canonical.into_array().execute_vector(&session)
         }))
     }
 

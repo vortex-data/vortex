@@ -32,7 +32,7 @@ where
     type Output = FixedSizeListVector;
 
     fn filter(self, selection: &M) -> Self::Output {
-        let list_size = self.list_size();
+        let list_size = self.element_size();
         let filtered_validity = self.validity().filter(selection);
 
         let filtered_elements = if list_size != 0 {

@@ -14,6 +14,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_vector::Datum;
+use vortex_vector::VectorOps;
 
 use crate::ArrayRef;
 use crate::compute;
@@ -135,6 +136,7 @@ impl VTable for Binary {
 
         match op {
             Operator::And => {
+                // FIXME(ngates): implement logical compute over datums
                 let lhs = lhs.ensure_vector(args.row_count).into_bool().into_arrow()?;
                 let rhs = rhs.ensure_vector(args.row_count).into_bool().into_arrow()?;
                 return Ok(Datum::Vector(
@@ -144,6 +146,7 @@ impl VTable for Binary {
                 ));
             }
             Operator::Or => {
+                // FIXME(ngates): implement logical compute over datums
                 let lhs = lhs.ensure_vector(args.row_count).into_bool().into_arrow()?;
                 let rhs = rhs.ensure_vector(args.row_count).into_bool().into_arrow()?;
                 return Ok(Datum::Vector(
@@ -186,6 +189,11 @@ impl VTable for Binary {
                 unreachable!("Already dealt with above")
             }
         };
+
+        // Arrow computed over scalar datums
+        if vector.len() == 1 && args.row_count != 1 {
+            return Ok(Datum::Scalar(vector.scalar_at(0)));
+        }
 
         Ok(Datum::Vector(vector))
     }
