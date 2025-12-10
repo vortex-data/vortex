@@ -188,7 +188,7 @@ fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
             10,
         );
 
-        log::trace!(
+        tracing::trace!(
             "Sampling {} values out of {}",
             SAMPLE_SIZE as usize * sample_count,
             source_len
@@ -202,7 +202,7 @@ fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
         .nbytes();
     let before = sample.source().nbytes();
 
-    log::debug!(
+    tracing::debug!(
         "estimate_compression_ratio_with_sampling(compressor={compressor:#?} is_sample={is_sample}, allowed_cascading={allowed_cascading}) = {}",
         before as f64 / after as f64
     );
@@ -271,7 +271,7 @@ pub trait Compressor {
         if output.nbytes() < array.nbytes() {
             Ok(output)
         } else {
-            log::debug!("resulting tree too large: {}", output.display_tree());
+            tracing::debug!("resulting tree too large: {}", output.display_tree());
             Ok(array.to_array())
         }
     }
@@ -303,11 +303,17 @@ pub trait Compressor {
                 continue;
             }
 
-            log::trace!("depth={depth} is_sample={is_sample} trying scheme: {scheme:#?}",);
+            tracing::trace!(is_sample, depth, ?scheme, "Trying compression scheme");
 
             let ratio =
                 scheme.expected_compression_ratio(stats, is_sample, allowed_cascading, excludes)?;
-            log::trace!("depth={depth} is_sample={is_sample} scheme: {scheme:?} ratio = {ratio}");
+            tracing::trace!(
+                is_sample,
+                depth,
+                ratio,
+                ?scheme,
+                "Expected compression result"
+            );
 
             if !(ratio.is_subnormal() || ratio.is_infinite() || ratio.is_nan()) {
                 if ratio > best_ratio {
@@ -315,13 +321,13 @@ pub trait Compressor {
                     best_scheme = Some(*scheme);
                 }
             } else {
-                log::trace!(
+                tracing::trace!(
                     "Calculated invalid compression ratio {ratio} for scheme: {scheme:?}. Must not be sub-normal, infinite or nan."
                 );
             }
         }
 
-        log::trace!("depth={depth} best scheme = {best_scheme:?}  ratio = {best_ratio}");
+        tracing::trace!(depth, scheme = ?best_scheme, ratio = best_ratio, "best scheme found");
 
         if let Some(best) = best_scheme {
             Ok(best)

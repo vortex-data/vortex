@@ -26,7 +26,6 @@ futures = { workspace = true, features = ["std", "executor"] }
 # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
 getrandom_v03 = { workspace = true }
 kanal = { workspace = true }
-log = { workspace = true }
 object_store = { workspace = true, optional = true, features = ["fs"] }
 oneshot = { workspace = true }
 parking_lot = { workspace = true }

@@ -49,7 +49,7 @@ fn like_pattern_str(value: &duckdb::Expression) -> VortexResult<Option<String>> 
 )]
 pub fn try_from_bound_expression(value: &duckdb::Expression) -> VortexResult<Option<Expression>> {
     let Some(value) = value.as_class() else {
-        log::debug!("no expression class id {:?}", value.as_class_id());
+        tracing::debug!("no expression class id {:?}", value.as_class_id());
         return Ok(None);
     };
     Ok(Some(match value {
@@ -166,7 +166,7 @@ pub fn try_from_bound_expression(value: &duckdb::Expression) -> VortexResult<Opt
                 Like.new_expr(LikeOptions::default(), [value, pattern])
             }
             _ => {
-                log::debug!("bound function {}", func.scalar_function.name());
+                tracing::debug!("bound function {}", func.scalar_function.name());
                 return Ok(None);
             }
         },

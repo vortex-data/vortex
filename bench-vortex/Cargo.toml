@@ -47,7 +47,6 @@ glob = { workspace = true }
 humansize = { workspace = true }
 indicatif = { workspace = true, features = ["futures"] }
 itertools = { workspace = true }
-log = { workspace = true, features = ["max_level_debug"] }
 mimalloc = { workspace = true }
 noodles-bgzf = { workspace = true, features = ["async"] }
 noodles-vcf = { workspace = true, features = ["async"] }
@@ -74,7 +73,7 @@ tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 tpchgen = { workspace = true }
 tpchgen-arrow = { workspace = true }
-tracing = { workspace = true }
+tracing = { workspace = true, features = ["max_level_debug"] }
 tracing-perfetto = { workspace = true }
 tracing-subscriber = { workspace = true, features = [
     "env-filter",

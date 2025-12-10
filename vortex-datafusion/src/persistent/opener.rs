@@ -280,10 +280,10 @@ impl FileOpener for VortexOpener {
             let layout_reader = match layout_reader.entry(file_meta.object_meta.location.clone()) {
                 Entry::Occupied(mut occupied_entry) => {
                     if let Some(reader) = occupied_entry.get().upgrade() {
-                        log::trace!("reusing layout reader for {}", occupied_entry.key());
+                        tracing::trace!("reusing layout reader for {}", occupied_entry.key());
                         reader
                     } else {
-                        log::trace!("creating layout reader for {}", occupied_entry.key());
+                        tracing::trace!("creating layout reader for {}", occupied_entry.key());
                         let reader = vxf.layout_reader().map_err(|e| {
                             DataFusionError::Execution(format!(
                                 "Failed to create layout reader: {e}"
@@ -294,7 +294,7 @@ impl FileOpener for VortexOpener {
                     }
                 }
                 Entry::Vacant(vacant_entry) => {
-                    log::trace!("creating layout reader for {}", vacant_entry.key());
+                    tracing::trace!("creating layout reader for {}", vacant_entry.key());
                     let reader = vxf.layout_reader().map_err(|e| {
                         DataFusionError::Execution(format!("Failed to create layout reader: {e}"))
                     })?;

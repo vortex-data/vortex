@@ -65,7 +65,7 @@ impl ComputeFnVTable for Invert {
         }
 
         // Otherwise, we canonicalize into a boolean array and invert.
-        log::debug!(
+        tracing::debug!(
             "No invert implementation found for encoding {}",
             array.encoding_id(),
         );

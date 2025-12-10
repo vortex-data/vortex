@@ -104,7 +104,7 @@ pub unsafe fn take_avx2<V: NativePType, I: UnsignedPType>(
 
         // Scalar fallback for unsupported value types.
         _ => {
-            log::trace!(
+            tracing::trace!(
                 "take AVX2 kernel missing for indices {} values {}, falling back to scalar",
                 I::PTYPE,
                 V::PTYPE

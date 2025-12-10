@@ -164,7 +164,7 @@ impl LayoutReader for FlatReader {
                 mask.bitand(&array_mask)
             };
 
-            log::debug!(
+            tracing::debug!(
                 "Flat mask evaluation {} - {} (mask = {}) => {}",
                 name,
                 expr,
@@ -191,7 +191,7 @@ impl LayoutReader for FlatReader {
         let expr = expr.clone();
 
         Ok(async move {
-            log::debug!("Flat array evaluation {} - {}", name, expr);
+            tracing::debug!("Flat array evaluation {} - {}", name, expr);
 
             let mut array = array.clone().await?;
             let mask = mask.await?;

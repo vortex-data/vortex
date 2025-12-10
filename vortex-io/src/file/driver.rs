@@ -126,7 +126,7 @@ impl State {
     }
 
     fn on_event(&mut self, event: ReadEvent) {
-        log::debug!("Received ReadEvent: {:?}", event);
+        tracing::debug!("Received ReadEvent: {:?}", event);
         match event {
             ReadEvent::Request(req) => {
                 self.requests_by_offset.insert((req.offset, req.id));
@@ -140,11 +140,11 @@ impl State {
             ReadEvent::Dropped(req_id) => {
                 if let Some(req) = self.requests.remove(&req_id) {
                     self.requests_by_offset.remove(&(req.offset, req_id));
-                    log::debug!("ReadRequest dropped before poll: {:?}", req);
+                    tracing::debug!("ReadRequest dropped before poll: {:?}", req);
                 }
                 if let Some(req) = self.polled_requests.remove(&req_id) {
                     self.requests_by_offset.remove(&(req.offset, req_id));
-                    log::debug!("ReadRequest dropped after poll: {:?}", req);
+                    tracing::debug!("ReadRequest dropped after poll: {:?}", req);
                 }
             }
         }
@@ -177,7 +177,7 @@ impl State {
         while let Some((req_id, req)) = self.polled_requests.pop_first() {
             self.requests_by_offset.remove(&(req.offset, req_id));
             if req.callback.is_closed() {
-                log::debug!("Dropping canceled request");
+                tracing::debug!("Dropping canceled request");
                 continue;
             }
             return Some(req);
@@ -269,7 +269,7 @@ impl State {
         // Sort requests by offset for correct slicing in resolve
         requests.sort_unstable_by_key(|r| r.offset);
 
-        log::debug!(
+        tracing::debug!(
             "Coalesced {} requests into range {}..{} (len={})",
             requests.len(),
             current_start,

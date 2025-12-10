@@ -344,17 +344,17 @@ fn make_object_store(
     // Configure extra properties on that scheme instead.
     match scheme {
         ObjectStoreScheme::Local => {
-            log::trace!("using LocalFileSystem object store");
+            tracing::trace!("using LocalFileSystem object store");
             Ok(Arc::new(LocalFileSystem::default()))
         }
         ObjectStoreScheme::AmazonS3 => {
-            log::trace!("using AmazonS3 object store");
+            tracing::trace!("using AmazonS3 object store");
             let mut builder = AmazonS3Builder::new().with_url(url.to_string());
             for (key, val) in property_keys.iter().zip_eq(property_vals.iter()) {
                 if let Ok(config_key) = AmazonS3ConfigKey::from_str(key.as_str()) {
                     builder = builder.with_config(config_key, val);
                 } else {
-                    log::warn!("Skipping unknown Amazon S3 config key: {key}");
+                    tracing::warn!("Skipping unknown Amazon S3 config key: {key}");
                 }
             }
 
@@ -369,14 +369,14 @@ fn make_object_store(
             Ok(store)
         }
         ObjectStoreScheme::MicrosoftAzure => {
-            log::trace!("using MicrosoftAzure object store");
+            tracing::trace!("using MicrosoftAzure object store");
 
             let mut builder = MicrosoftAzureBuilder::new().with_url(url.to_string());
             for (key, val) in property_keys.iter().zip(property_vals.iter()) {
                 if let Ok(config_key) = AzureConfigKey::from_str(key.as_str()) {
                     builder = builder.with_config(config_key, val);
                 } else {
-                    log::warn!("Skipping unknown Azure config key: {key}");
+                    tracing::warn!("Skipping unknown Azure config key: {key}");
                 }
             }
 
@@ -384,14 +384,14 @@ fn make_object_store(
             Ok(store)
         }
         ObjectStoreScheme::GoogleCloudStorage => {
-            log::trace!("using GoogleCloudStorage object store");
+            tracing::trace!("using GoogleCloudStorage object store");
 
             let mut builder = GoogleCloudStorageBuilder::new().with_url(url.to_string());
             for (key, val) in property_keys.iter().zip(property_vals.iter()) {
                 if let Ok(config_key) = GoogleConfigKey::from_str(key.as_str()) {
                     builder = builder.with_config(config_key, val);
                 } else {
-                    log::warn!("Skipping unknown Google Cloud Storage config key: {key}");
+                    tracing::warn!("Skipping unknown Google Cloud Storage config key: {key}");
                 }
             }
 

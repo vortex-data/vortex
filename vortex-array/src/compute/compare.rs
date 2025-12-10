@@ -207,7 +207,7 @@ impl ComputeFnVTable for Compare {
         // Only log missing compare implementation if there's possibly better one than arrow,
         // i.e. lhs isn't arrow or rhs isn't arrow or constant
         if !(lhs.is_arrow() && (rhs.is_arrow() || right_is_constant)) {
-            log::debug!(
+            tracing::debug!(
                 "No compare implementation found for LHS {}, RHS {}, and operator {} (or inverse)",
                 lhs.encoding_id(),
                 rhs.encoding_id(),

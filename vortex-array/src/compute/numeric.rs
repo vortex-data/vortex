@@ -175,7 +175,7 @@ impl ComputeFnVTable for Numeric {
             return Ok(output);
         }
 
-        log::debug!(
+        tracing::debug!(
             "No numeric implementation found for LHS {}, RHS {}, and operator {:?}",
             lhs.encoding_id(),
             rhs.encoding_id(),

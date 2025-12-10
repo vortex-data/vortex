@@ -284,7 +284,7 @@ fn is_sorted_impl(
     }
 
     if !array.is_canonical() {
-        log::debug!(
+        tracing::debug!(
             "No is_sorted implementation found for {}",
             array.encoding_id()
         );

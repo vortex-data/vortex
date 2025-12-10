@@ -24,7 +24,6 @@ flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "executor"] }
 itertools = { workspace = true }
 kanal = { workspace = true }
-log = { workspace = true }
 moka = { workspace = true, features = ["future"] }
 once_cell = { workspace = true, features = ["parking_lot"] }
 oneshot = { workspace = true }
@@ -36,6 +35,7 @@ prost = { workspace = true }
 rustc-hash = { workspace = true }
 termtree = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
+tracing = { workspace = true }
 uuid = { workspace = true }
 vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }

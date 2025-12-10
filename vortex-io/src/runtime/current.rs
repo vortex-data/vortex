@@ -73,7 +73,7 @@ impl CurrentThreadRuntime {
                 while let Some(item) = stream.next().await {
                     // If all receivers are dropped, we stop driving the stream.
                     if let Err(e) = result_tx.send(item).await {
-                        log::trace!("all receivers dropped, stopping stream: {}", e);
+                        tracing::trace!("all receivers dropped, stopping stream: {}", e);
                         break;
                     }
                 }

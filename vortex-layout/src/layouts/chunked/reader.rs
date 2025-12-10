@@ -218,7 +218,7 @@ impl LayoutReader for ChunkedReader {
 
         let name = self.name.clone();
         Ok(MaskFuture::new(mask.len(), async move {
-            log::debug!(
+            tracing::debug!(
                 "Chunked pruning evaluation {} (mask = {})",
                 name,
                 mask.density()
@@ -257,7 +257,7 @@ impl LayoutReader for ChunkedReader {
 
         let name = self.name.clone();
         Ok(MaskFuture::new(mask.len(), async move {
-            log::debug!("Chunked mask evaluation {}", name);
+            tracing::debug!("Chunked mask evaluation {}", name);
 
             // Split the mask over each chunk.
             let masks: Vec<_> = FuturesOrdered::from_iter(chunk_evals).try_collect().await?;
