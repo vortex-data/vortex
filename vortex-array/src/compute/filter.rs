@@ -132,7 +132,7 @@ impl ComputeFnVTable for Filter {
         }
 
         // Fallback: implement using Arrow kernels.
-        log::debug!("No filter implementation found for {}", array.encoding_id(),);
+        tracing::debug!("No filter implementation found for {}", array.encoding_id(),);
 
         if !array.is_canonical() {
             let canonical = array.to_canonical().into_array();

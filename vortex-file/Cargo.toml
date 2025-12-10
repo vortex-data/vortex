@@ -25,10 +25,10 @@ futures = { workspace = true, features = ["std", "async-await"] }
 getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
 kanal = { workspace = true }
-log = { workspace = true }
 object_store = { workspace = true, optional = true }
 parking_lot = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
+tracing = { workspace = true }
 # Needed to pickup the "js" feature for wasm targets from the workspace configuration
 uuid = { workspace = true }
 vortex-alp = { workspace = true }

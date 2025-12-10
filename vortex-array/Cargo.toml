@@ -39,7 +39,6 @@ goldenfile = { workspace = true, optional = true }
 humansize = { workspace = true }
 inventory = { workspace = true }
 itertools = { workspace = true }
-log = { workspace = true }
 multiversion = { workspace = true }
 num-traits = { workspace = true }
 num_enum = { workspace = true }
@@ -57,6 +56,7 @@ tabled = { workspace = true, optional = true, default-features = false, features
     "std",
 ] }
 termtree = { workspace = true }
+tracing = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-compute = { workspace = true, default-features = true }
 vortex-dtype = { workspace = true, features = ["arrow", "serde"] }

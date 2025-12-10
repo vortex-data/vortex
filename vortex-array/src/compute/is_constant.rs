@@ -185,7 +185,7 @@ fn is_constant_impl(
         return Ok(output.unwrap_scalar()?.as_bool().value());
     }
 
-    log::debug!(
+    tracing::debug!(
         "No is_constant implementation found for {}",
         array.encoding_id()
     );

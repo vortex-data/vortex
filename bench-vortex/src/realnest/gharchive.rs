@@ -16,8 +16,8 @@ use datafusion::datasource::listing::ListingTableConfig;
 use datafusion::datasource::listing::ListingTableUrl;
 use datafusion::prelude::SessionContext;
 use futures::StreamExt;
-use log::info;
 use parquet::arrow::async_writer::AsyncFileWriter;
+use tracing::info;
 use url::Url;
 use vortex::compressor::CompactCompressor;
 use vortex::file::WriteOptionsSessionExt;
@@ -72,11 +72,11 @@ impl GithubArchive {
             }
             Some(remote_data_dir) => {
                 if !remote_data_dir.ends_with("/") {
-                    log::warn!(
+                    tracing::warn!(
                         "Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev-eu/develop/12345/gharchive/"
                     );
                 }
-                log::info!(
+                tracing::info!(
                     concat!(
                         "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
                         "If it does not, you should kill this command, locally generate the files (by running without\n",

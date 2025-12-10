@@ -333,7 +333,7 @@ impl dyn Array + '_ {
             cost: Cost::Specialized,
         };
         is_constant_opts(self, &opts)
-            .inspect_err(|e| log::warn!("Failed to compute IsConstant: {e}"))
+            .inspect_err(|e| tracing::warn!("Failed to compute IsConstant: {e}"))
             .ok()
             .flatten()
             .unwrap_or_default()
@@ -342,7 +342,7 @@ impl dyn Array + '_ {
     pub fn is_constant_opts(&self, cost: Cost) -> bool {
         let opts = IsConstantOpts { cost };
         is_constant_opts(self, &opts)
-            .inspect_err(|e| log::warn!("Failed to compute IsConstant: {e}"))
+            .inspect_err(|e| tracing::warn!("Failed to compute IsConstant: {e}"))
             .ok()
             .flatten()
             .unwrap_or_default()

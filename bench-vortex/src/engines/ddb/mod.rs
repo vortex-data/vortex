@@ -6,7 +6,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 use anyhow::Result;
-use log::trace;
+use tracing::trace;
 use url::Url;
 use vortex::error::VortexExpect;
 use vortex_duckdb::duckdb::Config;
