@@ -14,7 +14,6 @@ use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_mask::Mask;
 use vortex_utils::aliases::hash_set::HashSet;
 use vortex_vector::Datum;
 
@@ -184,11 +183,6 @@ impl VTable for Merge {
 
     fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
         todo!()
-    }
-
-    fn cost_estimate(&self, _options: &Self::Options, _selection: &Mask) -> f64 {
-        // This is largely a metadata-only operation.
-        0.0
     }
 
     fn simplify(

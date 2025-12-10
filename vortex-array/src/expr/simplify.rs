@@ -34,20 +34,35 @@ impl Expression {
                     .map(|(new_c, old_c)| new_c.unwrap_or_else(|| old_c.clone()))
                     .collect();
 
-                let new_expr = expr.clone().with_children(new_children)?;
+                let mut new_expr = expr.clone().with_children(new_children)?;
 
                 // Then we simplify the new expression, and since we rewrote the expression we must
                 // always return a new expression (even if simplification returns None)
-                Ok(Some(
-                    new_expr
-                        .vtable()
-                        .as_dyn()
-                        .simplify(&new_expr, cache)?
-                        .unwrap_or(new_expr),
-                ))
+                if let Some(simple) = new_expr.vtable().as_dyn().simplify_untyped(&new_expr)? {
+                    new_expr = simple;
+                }
+                if let Some(simple) = new_expr.vtable().as_dyn().simplify(&new_expr, cache)? {
+                    new_expr = simple;
+                }
+
+                Ok(Some(new_expr))
             } else {
                 // Otherwise, we attempt to simplify the current expression
-                expr.vtable().as_dyn().simplify(expr, cache)
+                let mut new_expr = expr.clone();
+                let mut simplified = false;
+                if let Some(simple) = new_expr.vtable().as_dyn().simplify_untyped(&new_expr)? {
+                    new_expr = simple;
+                    simplified = true;
+                }
+                if let Some(simple) = new_expr.vtable().as_dyn().simplify(&new_expr, cache)? {
+                    new_expr = simple;
+                    simplified = true;
+                }
+                if simplified {
+                    Ok(Some(new_expr))
+                } else {
+                    Ok(None)
+                }
             }
         }
 
@@ -56,14 +71,56 @@ impl Expression {
             dtype_cache: RefCell::new(HashMap::new()),
         };
 
-        let simplified = inner(self, &cache)?.unwrap_or_else(|| self.clone());
+        let simplified = self.simplify_untyped()?;
+        let simplified = inner(&simplified, &cache)?.unwrap_or_else(|| self.clone());
+
+        // TODO(ngates): perform constant folding by executing expressions with all-literal
+        //  children here
+        Ok(simplified)
+    }
+
+    pub fn simplify_untyped(&self) -> VortexResult<Expression> {
+        // Recurse into the expression and simplify from the bottom up.
+        fn inner(expr: &Expression) -> VortexResult<Option<Expression>> {
+            let children: Vec<_> = expr.children().iter().map(inner).try_collect()?;
+
+            if children.iter().any(|c| c.is_some()) {
+                // If any child changed, we need to create a new expression node
+                let new_children: Vec<_> = children
+                    .into_iter()
+                    .zip(expr.children().iter())
+                    .map(|(new_c, old_c)| new_c.unwrap_or_else(|| old_c.clone()))
+                    .collect();
+
+                let new_expr = expr.clone().with_children(new_children)?;
+
+                // Then we simplify the new expression, and since we rewrote the expression we must
+                // always return a new expression (even if simplification returns None)
+                Ok(Some(
+                    new_expr
+                        .vtable()
+                        .as_dyn()
+                        .simplify_untyped(&new_expr)?
+                        .unwrap_or(new_expr),
+                ))
+            } else {
+                // Otherwise, we attempt to simplify the current expression
+                expr.vtable().as_dyn().simplify_untyped(expr)
+            }
+        }
+
+        let simplified = self
+            .vtable()
+            .as_dyn()
+            .simplify_untyped(self)?
+            .unwrap_or_else(|| self.clone());
+
+        let simplified = inner(&simplified)?.unwrap_or(simplified);
 
         // TODO(ngates): remove the "between" optimization, or rewrite it to not always convert
         //  to CNF?
         let simplified = find_between(simplified);
 
-        // TODO(ngates): perform constant folding by executing expressions with all-literal
-        //  children here
         Ok(simplified)
     }
 }

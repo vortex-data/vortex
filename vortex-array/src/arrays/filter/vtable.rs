@@ -7,15 +7,24 @@ use std::ops::Range;
 use vortex_buffer::BufferHandle;
 use vortex_compute::filter::Filter;
 use vortex_dtype::DType;
-use vortex_error::vortex_bail;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
+use crate::Array;
+use crate::ArrayBufferVisitor;
+use crate::ArrayChildVisitor;
+use crate::ArrayEq;
+use crate::ArrayHash;
+use crate::ArrayRef;
+use crate::Canonical;
+use crate::IntoArray;
+use crate::Precision;
+use crate::arrays::LEGACY_SESSION;
 use crate::arrays::filter::array::FilterArray;
 use crate::arrays::filter::kernel::FilterKernel;
-use crate::arrays::LEGACY_SESSION;
 use crate::kernel::BindCtx;
 use crate::kernel::KernelRef;
 use crate::kernel::PushDownResult;
@@ -33,15 +42,6 @@ use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 use crate::vtable::VisitorVTable;
-use crate::Array;
-use crate::ArrayBufferVisitor;
-use crate::ArrayChildVisitor;
-use crate::ArrayEq;
-use crate::ArrayHash;
-use crate::ArrayRef;
-use crate::Canonical;
-use crate::IntoArray;
-use crate::Precision;
 
 vtable!(Filter);
 
@@ -100,17 +100,9 @@ impl VTable for FilterVTable {
         let mut child = array.child.bind_kernel(ctx)?;
         let mask = array.mask.clone();
 
-        let full_cost = child.cost_estimate(&Mask::new_true(array.child.len()));
-        let pushdown_cost = child.cost_estimate(&mask);
-        log::debug!(
-            "Filter kernel cost estimate: full={}, pushdown={}",
-            full_cost,
-            pushdown_cost
-        );
-
         // NOTE(ngates): for now we keep the same behavior as develop where we push-down any
         //  query with <20% true values.
-        let pushdown = (pushdown_cost < full_cost) || (array.mask.density() < 0.2);
+        let pushdown = array.mask.density() < 0.2;
 
         if pushdown {
             // Try to push down the filter to the child if it's cheaper.

@@ -8,7 +8,6 @@ use vortex_dtype::FieldPath;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_mask::Mask;
 use vortex_vector::Datum;
 
 use crate::ArrayRef;
@@ -77,10 +76,6 @@ impl VTable for Root {
 
     fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
         vortex_bail!("Root expression is not executable")
-    }
-
-    fn cost_estimate(&self, _options: &Self::Options, _selection: &Mask) -> f64 {
-        0.0
     }
 
     fn stat_expression(

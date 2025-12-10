@@ -3,20 +3,20 @@
 
 use std::sync::Arc;
 
-use arrow_array::types::Float16Type;
-use arrow_array::types::Float32Type;
-use arrow_array::types::Float64Type;
-use arrow_array::types::Int16Type;
-use arrow_array::types::Int32Type;
-use arrow_array::types::Int64Type;
-use arrow_array::types::Int8Type;
-use arrow_array::types::UInt16Type;
-use arrow_array::types::UInt32Type;
-use arrow_array::types::UInt64Type;
-use arrow_array::types::UInt8Type;
 use arrow_array::Array;
 use arrow_array::ArrayRef;
 use arrow_array::PrimitiveArray;
+use arrow_array::types::Float16Type;
+use arrow_array::types::Float32Type;
+use arrow_array::types::Float64Type;
+use arrow_array::types::Int8Type;
+use arrow_array::types::Int16Type;
+use arrow_array::types::Int32Type;
+use arrow_array::types::Int64Type;
+use arrow_array::types::UInt8Type;
+use arrow_array::types::UInt16Type;
+use arrow_array::types::UInt32Type;
+use arrow_array::types::UInt64Type;
 use vortex_buffer::Buffer;
 use vortex_dtype::half::f16;
 use vortex_error::VortexResult;
@@ -24,9 +24,9 @@ use vortex_vector::match_each_pvector;
 use vortex_vector::primitive::PVector;
 use vortex_vector::primitive::PrimitiveVector;
 
-use crate::arrow::nulls_to_mask;
 use crate::arrow::IntoArrow;
 use crate::arrow::IntoVector;
+use crate::arrow::nulls_to_mask;
 
 impl IntoArrow for PrimitiveVector {
     type Output = ArrayRef;

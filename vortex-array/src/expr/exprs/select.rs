@@ -13,7 +13,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_mask::Mask;
 use vortex_proto::expr::FieldNames as ProtoFieldNames;
 use vortex_proto::expr::SelectOpts;
 use vortex_proto::expr::select_opts::Opts;
@@ -237,11 +236,6 @@ impl VTable for Select {
             }
         }
         .into())
-    }
-
-    fn cost_estimate(&self, _options: &Self::Options, _selection: &Mask) -> f64 {
-        // This is largely a metadata-only operation.
-        0.0
     }
 
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {

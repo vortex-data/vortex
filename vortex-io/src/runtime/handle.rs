@@ -4,15 +4,15 @@
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Weak;
-use std::task::ready;
 use std::task::Context;
 use std::task::Poll;
+use std::task::ready;
 
-use futures::channel::mpsc;
 use futures::FutureExt;
 use futures::StreamExt;
-use vortex_error::vortex_panic;
+use futures::channel::mpsc;
 use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 use vortex_metrics::VortexMetrics;
 
 use crate::file::FileRead;

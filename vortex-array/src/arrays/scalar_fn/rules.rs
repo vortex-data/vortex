@@ -3,19 +3,19 @@
 
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
-use vortex_vector::scalar_matches_dtype;
 use vortex_vector::Datum;
 use vortex_vector::VectorOps;
+use vortex_vector::scalar_matches_dtype;
 
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::AnyScalarFn;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::arrays::ScalarFnArray;
 use crate::expr::ExecutionArgs;
 use crate::optimizer::rules::ArrayReduceRule;
-use crate::Array;
-use crate::ArrayRef;
-use crate::IntoArray;
 
 #[derive(Debug)]
 pub(crate) struct ScalarFnConstantRule;

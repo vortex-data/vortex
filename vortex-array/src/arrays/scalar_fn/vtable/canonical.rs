@@ -3,15 +3,15 @@
 
 use vortex_error::VortexExpect;
 
+use crate::Array;
+use crate::Canonical;
+use crate::arrays::LEGACY_SESSION;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
-use crate::arrays::LEGACY_SESSION;
 use crate::executor::VectorExecutor;
 use crate::expr::ExecutionArgs;
 use crate::vectors::VectorIntoArray;
 use crate::vtable::CanonicalVTable;
-use crate::Array;
-use crate::Canonical;
 
 impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
     fn canonicalize(array: &ScalarFnArray) -> Canonical {

@@ -44,9 +44,10 @@ impl ArrayOptimizer {
     // TODO(ngates): this is slow, overly recursive, and will stack overflow if the rules end up
     //  forming a cycle.
     pub fn optimize_array(&self, array: &ArrayRef) -> VortexResult<ArrayRef> {
-        let children = array.children();
+        // TODO(ngates): we should reduce first on the way down?
 
-        let new_children: Vec<_> = children
+        let new_children: Vec<_> = array
+            .children()
             .iter()
             .map(|child| self.optimize_array(child))
             .try_collect()?;

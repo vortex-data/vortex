@@ -101,15 +101,6 @@ impl ScalarFn {
     pub fn execute(&self, ctx: ExecutionArgs) -> VortexResult<Datum> {
         self.vtable.as_dyn().execute(self.options.deref(), ctx)
     }
-
-    /// Returns a cost estimate for executing _just_ this expression given a selection mask.
-    ///
-    /// Unlike [`crate::kernel::Kernel::cost_estimate`], does not include child cost.
-    pub fn cost_estimate(&self, selection: &vortex_mask::Mask) -> f64 {
-        self.vtable
-            .as_dyn()
-            .cost_estimate(self.options.deref(), selection)
-    }
 }
 
 impl Clone for ScalarFn {

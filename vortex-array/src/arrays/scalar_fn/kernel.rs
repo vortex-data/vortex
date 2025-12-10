@@ -61,20 +61,6 @@ impl Kernel for ScalarFnKernel {
         Ok(self.scalar_fn.execute(args)?.ensure_vector(self.row_count))
     }
 
-    fn cost_estimate(&self, selection: &Mask) -> f64 {
-        let self_cost = self.scalar_fn.cost_estimate(selection);
-        let child_cost = self
-            .inputs
-            .iter()
-            .map(|input| match input {
-                KernelInput::Scalar(_) => 0.0,
-                KernelInput::Vector(k) => k.cost_estimate(selection),
-            })
-            .sum::<f64>();
-
-        self_cost + child_cost
-    }
-
     fn push_down_filter(self: Box<Self>, selection: &Mask) -> VortexResult<PushDownResult> {
         let mut new_inputs = Vec::with_capacity(self.inputs.len());
         for (input, dtype) in self.inputs.into_iter().zip(&self.input_dtypes) {

@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::Scalar;
+use crate::ScalarOps;
+use crate::Vector;
+use crate::VectorMutOps;
+use crate::VectorOps;
 use crate::binaryview::BinaryType;
 use crate::binaryview::BinaryViewScalar;
 use crate::binaryview::BinaryViewType;
@@ -24,11 +29,6 @@ use crate::primitive::PrimitiveScalar;
 use crate::primitive::PrimitiveVector;
 use crate::struct_::StructScalar;
 use crate::struct_::StructVector;
-use crate::Scalar;
-use crate::ScalarOps;
-use crate::Vector;
-use crate::VectorMutOps;
-use crate::VectorOps;
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::NativePType;
 use vortex_dtype::PType;

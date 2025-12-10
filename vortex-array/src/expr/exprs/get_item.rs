@@ -9,18 +9,17 @@ use vortex_dtype::DType;
 use vortex_dtype::FieldName;
 use vortex_dtype::FieldPath;
 use vortex_dtype::Nullability;
-use vortex_error::vortex_err;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
+use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_vector::Datum;
 use vortex_vector::ScalarOps;
 use vortex_vector::VectorOps;
 
+use crate::ArrayRef;
+use crate::ToCanonical;
 use crate::compute::mask;
-use crate::expr::exprs::root::root;
-use crate::expr::stats::Stat;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -31,9 +30,10 @@ use crate::expr::SimplifyCtx;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
+use crate::expr::exprs::root::root;
+use crate::expr::lit;
+use crate::expr::stats::Stat;
 use crate::scalar_fns::ExprBuiltins;
-use crate::ArrayRef;
-use crate::ToCanonical;
 
 pub struct GetItem;
 
@@ -173,6 +173,44 @@ impl VTable for GetItem {
         Ok(None)
     }
 
+    fn simplify_untyped(
+        &self,
+        field_name: &FieldName,
+        expr: &Expression,
+    ) -> VortexResult<Option<Expression>> {
+        let child = expr.child(0);
+
+        // If the child is a Pack expression, we can directly return the corresponding child.
+        if let Some(pack) = child.as_opt::<Pack>() {
+            let idx = pack
+                .names
+                .iter()
+                .position(|name| name == field_name)
+                .ok_or_else(|| {
+                    vortex_err!(
+                        "Cannot find field {} in pack fields {:?}",
+                        field_name,
+                        pack.names
+                    )
+                })?;
+
+            let mut field = child.child(idx).clone();
+
+            // It's useful to simplify this node without type info, but we need to make sure
+            // the nullability is correct. We cannot cast since we don't have the dtype info here,
+            // so instead we insert a Mask expression that we know converts a child's dtype to
+            // nullable.
+            if pack.nullability.is_nullable() {
+                // Mask with an all-true array to ensure the field DType is nullable.
+                field = field.mask(lit(true))?;
+            }
+
+            return Ok(Some(field));
+        }
+
+        Ok(None)
+    }
+
     fn stat_expression(
         &self,
         field_name: &FieldName,
@@ -199,11 +237,6 @@ impl VTable for GetItem {
     fn is_fallible(&self, _field_name: &FieldName) -> bool {
         // If this type-checks its infallible.
         false
-    }
-
-    fn cost_estimate(&self, _options: &Self::Options, _selection: &Mask) -> f64 {
-        // This is largely a metadata-only operation.
-        0.0
     }
 }
 
@@ -242,6 +275,8 @@ mod tests {
     use vortex_dtype::StructFields;
     use vortex_scalar::Scalar;
 
+    use crate::Array;
+    use crate::IntoArray;
     use crate::arrays::StructArray;
     use crate::expr::exprs::binary::checked_add;
     use crate::expr::exprs::get_item::get_item;
@@ -249,8 +284,6 @@ mod tests {
     use crate::expr::exprs::pack::pack;
     use crate::expr::exprs::root::root;
     use crate::validity::Validity;
-    use crate::Array;
-    use crate::IntoArray;
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[

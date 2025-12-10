@@ -15,7 +15,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_mask::Mask;
 use vortex_vector::Datum;
 use vortex_vector::VectorOps;
 
@@ -115,6 +114,17 @@ pub trait VTable: 'static + Sized + Send + Sync {
         Ok(None)
     }
 
+    /// Simplify the expression if possible, without type information.
+    fn simplify_untyped(
+        &self,
+        options: &Self::Options,
+        expr: &Expression,
+    ) -> VortexResult<Option<Expression>> {
+        _ = options;
+        _ = expr;
+        Ok(None)
+    }
+
     /// See [`Expression::stat_falsification`].
     fn stat_falsification(
         &self,
@@ -174,20 +184,6 @@ pub trait VTable: 'static + Sized + Send + Sync {
     fn is_fallible(&self, options: &Self::Options) -> bool {
         _ = options;
         true
-    }
-
-    /// Report an estimated cost for computing this expression over the given filter mask using
-    /// the [`VTable::execute`] method.
-    ///
-    /// See [`crate::kernel::Kernel::cost_estimate`].
-    ///
-    /// Return [`f64::INFINITY`] if the kernel has unknown cost, meaning filters will _always_
-    /// be pushed through the kernel if possible. Return `0.0` for expressions that are free to
-    /// compute (e.g. manipulating metadata only like `vortex.pack`).
-    fn cost_estimate(&self, options: &Self::Options, selection: &Mask) -> f64 {
-        _ = options;
-        _ = selection;
-        f64::INFINITY
     }
 }
 
@@ -316,9 +312,9 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
         expression: &Expression,
         ctx: &dyn SimplifyCtx,
     ) -> VortexResult<Option<Expression>>;
+    fn simplify_untyped(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
     fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<Datum>;
     fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef>;
-    fn cost_estimate(&self, options: &dyn Any, selection: &Mask) -> f64;
 
     fn arity(&self, options: &dyn Any) -> Arity;
     fn child_name(&self, options: &dyn Any, child_idx: usize) -> ChildName;
@@ -408,6 +404,14 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         )
     }
 
+    fn simplify_untyped(&self, expression: &Expression) -> VortexResult<Option<Expression>> {
+        V::simplify_untyped(
+            &self.0,
+            downcast::<V>(expression.options().as_any()),
+            expression,
+        )
+    }
+
     fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<Datum> {
         let options = downcast::<V>(options);
 
@@ -452,10 +456,6 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
             expression,
             scope,
         )
-    }
-
-    fn cost_estimate(&self, options: &dyn Any, selection: &Mask) -> f64 {
-        V::cost_estimate(&self.0, downcast::<V>(options), selection)
     }
 
     fn arity(&self, options: &dyn Any) -> Arity {

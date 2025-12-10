@@ -9,28 +9,28 @@ use arrow_schema::ArrowError;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::SchemaRef;
-use datafusion_common::arrow::array::RecordBatch;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
+use datafusion_common::arrow::array::RecordBatch;
+use datafusion_datasource::FileRange;
+use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::file_meta::FileMeta;
 use datafusion_datasource::file_stream::FileOpenFuture;
 use datafusion_datasource::file_stream::FileOpener;
 use datafusion_datasource::schema_adapter::SchemaAdapterFactory;
-use datafusion_datasource::FileRange;
-use datafusion_datasource::PartitionedFile;
+use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
 use datafusion_physical_expr::split_conjunction;
-use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr_adapter::PhysicalExprAdapterFactory;
 use datafusion_physical_expr_common::physical_expr::is_dynamic_physical_expr;
 use datafusion_physical_plan::metrics::Count;
 use datafusion_pruning::FilePruner;
-use futures::stream;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
-use object_store::path::Path;
+use futures::stream;
 use object_store::ObjectStore;
+use object_store::path::Path;
 use tracing::Instrument;
 use vortex::array::ArrayRef;
 use vortex::dtype::FieldName;
@@ -334,8 +334,8 @@ impl FileOpener for VortexOpener {
 
             let stream = scan_builder
                 .with_metrics(metrics)
-                .with_projection(projection_expr.clone())
-                .with_some_filter(filter.clone())
+                .with_projection(projection_expr)
+                .with_some_filter(filter)
                 .with_ordered(has_output_ordering)
                 .map(|chunk| RecordBatch::try_from(chunk.as_ref()))
                 .into_stream()
@@ -428,15 +428,15 @@ mod tests {
     use datafusion::scalar::ScalarValue;
     use insta::assert_snapshot;
     use itertools::Itertools;
-    use object_store::memory::InMemory;
     use object_store::ObjectMeta;
+    use object_store::memory::InMemory;
     use rstest::rstest;
+    use vortex::VortexSessionDefault;
     use vortex::array::arrow::FromArrowArray;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::ObjectStoreWriter;
     use vortex::io::VortexWrite;
     use vortex::session::VortexSession;
-    use vortex::VortexSessionDefault;
 
     use super::*;
 
