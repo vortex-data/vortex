@@ -64,7 +64,7 @@ mod tests {
     use crate::take::Take;
 
     #[test]
-    fn test_bit_buffer_take_small_and_large() {
+    fn test_take_bit_buffer_take_small_and_large() {
         use vortex_buffer::BitBuffer;
 
         // Small buffer (uses take_byte_bool path).

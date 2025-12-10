@@ -24,11 +24,7 @@ impl<D: NativeDecimalType, I: UnsignedPType> Take<PVector<I>> for &DVector<D> {
 impl<D: NativeDecimalType, I: UnsignedPType> Take<[I]> for &DVector<D> {
     type Output = DVector<D>;
 
-    fn take(self, _indices: &[I]) -> DVector<D> {
-        todo!("TODO(connor): Implement `take` for `DVector` and figure out trait bounds");
-
-        /*
-
+    fn take(self, indices: &[I]) -> DVector<D> {
         let taken_elements = self.elements().take(indices);
         let taken_validity = self.validity().take(indices);
 
@@ -38,19 +34,13 @@ impl<D: NativeDecimalType, I: UnsignedPType> Take<[I]> for &DVector<D> {
         // components must have the same length. The elements are unchanged, so they must still be
         // within the precision/scale bounds.
         unsafe { DVector::new_unchecked(self.precision_scale(), taken_elements, taken_validity) }
-
-        */
     }
 }
 
 fn take_nullable<D: NativeDecimalType, I: UnsignedPType>(
-    _dvector: &DVector<D>,
-    _indices: &PVector<I>,
+    dvector: &DVector<D>,
+    indices: &PVector<I>,
 ) -> DVector<D> {
-    todo!("TODO(connor): Implement `take` for `DVector` and figure out trait bounds");
-
-    /*
-
     // We ignore nullability when taking the elements since we can let the `Mask` implementation
     // determine which elements are null.
     let taken_elements = dvector.elements().take(indices.elements().as_slice());
@@ -62,6 +52,4 @@ fn take_nullable<D: NativeDecimalType, I: UnsignedPType>(
     // same length. The elements are unchanged, so they must still be within the precision/scale
     // bounds.
     unsafe { DVector::new_unchecked(dvector.precision_scale(), taken_elements, taken_validity) }
-
-    */
 }
