@@ -17,17 +17,14 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
-itertools = { workspace = true }
 pco = { workspace = true }
 prost = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
-vortex-compute = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
-vortex-vector = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }
@@ -39,3 +36,6 @@ vortex-array = { workspace = true, features = ["test-harness"] }
 [[bench]]
 name = "pco"
 harness = false
+
+[package.metadata.cargo-machete]
+ignored = ["getrandom_v03"]

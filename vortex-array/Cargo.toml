@@ -30,11 +30,8 @@ arrow-ord = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 arrow-string = { workspace = true }
-async-trait = { workspace = true }
-bitvec = { workspace = true }
 cfg-if = { workspace = true }
 enum-iterator = { workspace = true }
-enum-map = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "std"] }
 getrandom_v03 = { workspace = true }
@@ -42,7 +39,6 @@ goldenfile = { workspace = true, optional = true }
 humansize = { workspace = true }
 inventory = { workspace = true }
 itertools = { workspace = true }
-log = { workspace = true }
 multiversion = { workspace = true }
 num-traits = { workspace = true }
 num_enum = { workspace = true }
@@ -56,19 +52,17 @@ rstest_reuse = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
 simdutf8 = { workspace = true }
-static_assertions = { workspace = true }
 tabled = { workspace = true, optional = true, default-features = false, features = [
     "std",
 ] }
 termtree = { workspace = true }
+tracing = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-compute = { workspace = true, default-features = true }
 vortex-dtype = { workspace = true, features = ["arrow", "serde"] }
 vortex-error = { workspace = true, features = ["prost"] }
 vortex-flatbuffers = { workspace = true, features = ["array"] }
-vortex-io = { workspace = true }
 vortex-mask = { workspace = true }
-vortex-metrics = { workspace = true }
 vortex-proto = { workspace = true, features = ["expr"] }
 vortex-scalar = { workspace = true }
 vortex-session = { workspace = true }
@@ -97,6 +91,7 @@ arrow-cast = { workspace = true }
 divan = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 insta = { workspace = true }
+rand_distr = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { path = ".", features = ["test-harness", "table-display"] }
 
@@ -113,19 +108,11 @@ name = "compare"
 harness = false
 
 [[bench]]
-name = "take_strings"
-harness = false
-
-[[bench]]
 name = "take_patches"
 harness = false
 
 [[bench]]
 name = "chunk_array_builder"
-harness = false
-
-[[bench]]
-name = "take_struct"
 harness = false
 
 [[bench]]
@@ -167,3 +154,10 @@ harness = false
 [[bench]]
 name = "varbinview_zip"
 harness = false
+
+[[bench]]
+name = "take_primitive"
+harness = false
+
+[package.metadata.cargo-machete]
+ignored = ["getrandom_v03"]

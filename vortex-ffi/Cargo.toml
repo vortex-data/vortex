@@ -23,14 +23,12 @@ all-features = true
 async-fs = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
-log = { workspace = true }
 mimalloc = { workspace = true, optional = true }
-moka = { workspace = true, features = ["sync"] }
 object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
-parking_lot = { workspace = true }
 paste = { workspace = true }
 prost = { workspace = true }
-simplelog = { workspace = true }
+tracing = { workspace = true, features = ["std", "log"] }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true, features = [] }
 vortex = { workspace = true, features = ["object_store"] }
 

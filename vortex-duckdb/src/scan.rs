@@ -272,7 +272,7 @@ impl TableFunction for VortexTableFunction {
                     .unwrap_or(1)
             });
 
-        log::trace!("running scan with max_threads {max_threads}");
+        tracing::trace!("running scan with max_threads {max_threads}");
 
         let (file_urls, _metadata) = RUNTIME.block_on(Compat::new(expand_glob(
             file_glob_string.as_ref().as_string(),
@@ -358,7 +358,7 @@ impl TableFunction for VortexTableFunction {
         let projection_expr = extract_projection_expr(init_input);
         let filter_expr = extract_table_filter_expr(init_input, init_input.column_ids())?;
 
-        log::trace!(
+        tracing::trace!(
             "Global init Vortex scan SELECT {} WHERE {}",
             &projection_expr,
             filter_expr

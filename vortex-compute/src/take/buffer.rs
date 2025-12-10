@@ -2,12 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::Buffer;
-use vortex_dtype::NativePType;
 use vortex_dtype::UnsignedPType;
 
 use crate::take::Take;
 
-impl<T: NativePType, I: UnsignedPType> Take<[I]> for &Buffer<T> {
+impl<T: Copy, I: UnsignedPType> Take<[I]> for &Buffer<T> {
     type Output = Buffer<T>;
 
     fn take(self, indices: &[I]) -> Buffer<T> {

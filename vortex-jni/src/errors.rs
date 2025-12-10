@@ -103,7 +103,7 @@ where
             let msg = error.to_string();
             match env.throw(msg) {
                 Ok(()) => {}
-                Err(err) => log::warn!("Failed throwing exception back up to Java: {err}"),
+                Err(err) => tracing::warn!("Failed throwing exception back up to Java: {err}"),
             }
 
             T::jni_default()

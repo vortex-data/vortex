@@ -736,7 +736,7 @@ vx_array_iterator *vx_file_scan(const vx_session *session,
 /**
  * Set the stderr logger to output at the specified level.
  *
- * This function is optional, if it is not called then no logger will be installed.
+ * The logger will only be installed on the first call.
  */
 void vx_set_log_level(vx_log_level level);
 

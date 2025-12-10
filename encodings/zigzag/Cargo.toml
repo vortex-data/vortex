@@ -14,7 +14,6 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
-itertools = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }

@@ -188,7 +188,7 @@ impl LayoutReader for FlatReader {
                 }
             };
 
-            log::debug!(
+            tracing::debug!(
                 "Flat mask evaluation {} - {} (mask = {}) => {}",
                 name,
                 expr,
@@ -216,7 +216,7 @@ impl LayoutReader for FlatReader {
         let optimizer = self.session.arrays().optimizer().clone();
 
         Ok(async move {
-            log::debug!("Flat array evaluation {} - {}", name, expr);
+            tracing::debug!("Flat array evaluation {} - {}", name, expr);
 
             let mut array = array.clone().await?;
             let mask = mask.await?;
@@ -300,6 +300,11 @@ mod test {
                 )
                 .await
                 .unwrap();
+
+            assert_eq!(
+                format!("{}", layout),
+                "vortex.flat(i32?, rows=5, segments=[0])"
+            );
 
             let result = layout
                 .new_reader("".into(), segments, &SESSION)

@@ -123,7 +123,7 @@ impl Debug for ReadRequest {
 impl ReadRequest {
     pub(crate) fn resolve(self, result: VortexResult<ByteBuffer>) {
         if let Err(e) = self.callback.send(result) {
-            log::debug!("ReadRequest {} dropped before resolving: {e}", self.id);
+            tracing::debug!("ReadRequest {} dropped before resolving: {e}", self.id);
         }
     }
 }

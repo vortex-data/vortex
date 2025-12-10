@@ -7,7 +7,6 @@ use arrow_buffer::BooleanBufferBuilder;
 use arrow_buffer::MutableBuffer;
 use arrow_buffer::bit_iterator::BitIterator;
 use enum_iterator::last;
-use log::debug;
 pub use stats_set::*;
 
 mod array;
@@ -54,7 +53,7 @@ pub fn stats_from_bitset_bytes(bytes: &[u8]) -> Vec<Stat> {
         // Filter out indices failing conversion, these are stats written by newer version of library
         .filter_map(|i| {
             let Ok(stat) = u8::try_from(i) else {
-                debug!("invalid stat encountered: {i}");
+                tracing::debug!("invalid stat encountered: {i}");
                 return None;
             };
             Stat::try_from(stat).ok()

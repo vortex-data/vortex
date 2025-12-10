@@ -1,9 +1,15 @@
 name: Nightly Benchmarks
 
+concurrency:
+  # The group causes runs to queue instead of running in parallel.
+  group: nightly-bench
+  # This queues manual triggers to run after scheduled benchmarks complete.
+  cancel-in-progress: false
+
 on:
   schedule:
     - cron: "0 0 * * *"  # daily
-  workflow_dispatch:
+  workflow_dispatch: { }
 
 permissions:
   id-token: write  # enables AWS-GitHub OIDC

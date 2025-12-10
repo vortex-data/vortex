@@ -12,7 +12,7 @@ use std::sync::LazyLock;
 use clap::ValueEnum;
 use itertools::Itertools;
 use serde::Serialize;
-pub use utils::file_utils::*;
+pub use utils::file::*;
 pub use utils::logging::*;
 use vortex::error::VortexUnwrap;
 use vortex::error::vortex_err;

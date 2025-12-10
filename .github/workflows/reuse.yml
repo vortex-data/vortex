@@ -2,7 +2,15 @@
 # SPDX-License-Identifier: CC0-1.0
 name: REUSE Compliance Check
 
-on: [push, pull_request]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  # Cancel outdated runs on PRs, but let all develop commits complete.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
+
+on:
+  push:
+    branches: [develop]
+  pull_request: { }
 
 jobs:
   reuse-check:

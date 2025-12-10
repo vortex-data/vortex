@@ -14,7 +14,6 @@ use arrow_schema::SchemaRef;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
-use log::info;
 use parquet::arrow::AsyncArrowWriter;
 use parquet::basic::Compression;
 use parquet::file::properties::WriterProperties;
@@ -30,6 +29,7 @@ use tpchgen::generators::PartSuppGenerator;
 use tpchgen::generators::RegionGenerator;
 use tpchgen::generators::SupplierGenerator;
 use tpchgen_arrow::RecordBatchIterator;
+use tracing::info;
 use vortex::array::ArrayRef;
 use vortex::array::arrow::FromArrowArray;
 use vortex::array::stream::ArrayStreamAdapter;
@@ -42,7 +42,7 @@ use crate::CompactionStrategy;
 use crate::Format;
 use crate::IdempotentPath;
 use crate::SESSION;
-use crate::utils::file_utils::idempotent_async;
+use crate::utils::file::idempotent_async;
 
 type TableFuture<'a> = Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 

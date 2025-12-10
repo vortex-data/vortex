@@ -17,7 +17,6 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
-async-trait = { workspace = true }
 fsst-rs = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true, optional = true }
@@ -47,3 +46,6 @@ harness = false
 name = "chunked_dict_fsst_builder"
 harness = false
 required-features = ["test-harness"]
+
+[package.metadata.cargo-machete]
+ignored = ["fsst-rs"]

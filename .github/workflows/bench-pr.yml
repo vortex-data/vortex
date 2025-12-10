@@ -2,6 +2,12 @@
 
 name: PR Benchmarks
 
+concurrency:
+  # The group causes runs to queue instead of running in parallel.
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  # Don't cancel benchmarks that are already running, instead just queue them up.
+  cancel-in-progress: false
+
 on:
   pull_request:
     types: [labeled, synchronize]

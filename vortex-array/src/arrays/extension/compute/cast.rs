@@ -29,7 +29,7 @@ impl CastKernel for ExtensionVTable {
         let new_storage = match compute::cast(array.storage(), ext_dtype.storage_dtype()) {
             Ok(arr) => arr,
             Err(e) => {
-                log::warn!("Failed to cast storage array: {e}");
+                tracing::warn!("Failed to cast storage array: {e}");
                 return Ok(None);
             }
         };

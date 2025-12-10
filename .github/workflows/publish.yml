@@ -1,4 +1,5 @@
 name: Publish
+
 concurrency:
   group: publish
   cancel-in-progress: true

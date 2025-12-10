@@ -119,7 +119,7 @@ impl ComputeFnVTable for FillNull {
             return Ok(output);
         }
 
-        log::debug!("FillNullFn not implemented for {}", array.encoding_id());
+        tracing::debug!("FillNullFn not implemented for {}", array.encoding_id());
         if !array.is_canonical() {
             let canonical_arr = array.to_canonical().into_array();
             return Ok(fill_null(canonical_arr.as_ref(), fill_value)?.into());

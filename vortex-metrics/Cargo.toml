@@ -21,3 +21,6 @@ witchcraft-metrics = { workspace = true }
 
 [lints]
 workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["getrandom_v03"]

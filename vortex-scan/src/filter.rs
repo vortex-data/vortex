@@ -123,7 +123,7 @@ impl FilterExpr {
                 .vortex_expect("Can't compare selectivity values")
         });
 
-        log::debug!(
+        tracing::debug!(
             "Reordered conjuncts based on new selectivity {:?}",
             ordering
                 .iter()

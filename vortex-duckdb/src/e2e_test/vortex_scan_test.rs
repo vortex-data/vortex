@@ -807,7 +807,7 @@ async fn write_vortex_file_with_encodings() -> NamedTempFile {
     temp_file_path
 }
 
-#[allow(clippy::cognitive_complexity)]
+#[expect(clippy::cognitive_complexity)]
 #[test]
 fn test_vortex_encodings_roundtrip() {
     let file = RUNTIME.block_on(write_vortex_file_with_encodings());

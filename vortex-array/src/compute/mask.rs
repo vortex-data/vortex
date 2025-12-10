@@ -141,7 +141,7 @@ impl ComputeFnVTable for MaskFn {
         }
 
         // Fallback: implement using Arrow kernels.
-        log::debug!("No mask implementation found for {}", array.encoding_id());
+        tracing::debug!("No mask implementation found for {}", array.encoding_id());
 
         let array_ref = array.to_array().into_arrow_preferred()?;
         let mask = BooleanArray::new(mask.to_bit_buffer().into(), None);

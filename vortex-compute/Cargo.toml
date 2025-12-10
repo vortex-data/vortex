@@ -22,7 +22,6 @@ workspace = true
 [dependencies]
 arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
-arrow-ord = { workspace = true }
 arrow-schema = { workspace = true }
 
 vortex-buffer = { workspace = true }
@@ -31,10 +30,11 @@ vortex-error = { workspace = true }
 vortex-mask = { workspace = true, features = ["arrow"] }
 vortex-vector = { workspace = true }
 
-log = { workspace = true }
+half = { workspace = true }
 multiversion = { workspace = true }
 num-traits = { workspace = true }
 paste = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }

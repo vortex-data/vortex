@@ -286,7 +286,7 @@ fn supported_data_types(dt: &DataType) -> bool {
         );
 
     if !is_supported {
-        log::debug!("DataFusion data type {dt:?} is not supported");
+        tracing::debug!("DataFusion data type {dt:?} is not supported");
     }
 
     is_supported

@@ -181,10 +181,11 @@ impl<T> Drop for InstrumentedReadAt<T>
 where
     T: VortexReadAt,
 {
+    #[allow(clippy::cognitive_complexity)]
     fn drop(&mut self) {
         let sizes = self.sizes.snapshot();
-        log::debug!("Reads: {}", self.sizes.count());
-        log::debug!(
+        tracing::debug!("Reads: {}", self.sizes.count());
+        tracing::debug!(
             "Read size: p50={} p95={} p99={} p999={}",
             sizes.value(0.5),
             sizes.value(0.95),
@@ -193,10 +194,10 @@ where
         );
 
         let total_size = self.total_size.count();
-        log::debug!("Total read size: {total_size}");
+        tracing::debug!("Total read size: {total_size}");
 
         let durations = self.durations.snapshot();
-        log::debug!(
+        tracing::debug!(
             "Read duration: p50={}ms p95={}ms p99={}ms p999={}ms",
             durations.value(0.5) / 1_000_000.0,
             durations.value(0.95) / 1_000_000.0,

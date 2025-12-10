@@ -164,7 +164,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriterMethods_create(
 
         let start = std::time::Instant::now();
         let duration = std::time::Instant::now().duration_since(start);
-        log::debug!("make_object_store latency = {duration:?}");
+        tracing::debug!("make_object_store latency = {duration:?}");
 
         // Peg a stream task upfront that all has the same schema.
         let path = Path::from_url_path(url.path())

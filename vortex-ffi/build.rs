@@ -7,6 +7,12 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
+    // Set up dependency tracking
+    println!("cargo:rerun-if-changed=src/");
+    println!("cargo:rerun-if-changed=cbindgen.toml");
+    println!("cargo:rerun-if-changed=Cargo.toml");
+    println!("cargo:rerun-if-changed=build.rs");
+
     // Skip header generation in environments where cbindgen macro expansion fails
     if env::var("MIRI").is_ok() || env::var("MIRIFLAGS").is_ok() {
         println!("cargo:warning=Skipping header generation under miri (cbindgen incompatible)");
@@ -59,10 +65,4 @@ fn main() {
             panic!("Failed to generate header with cbindgen: {}", e);
         }
     }
-
-    // Set up dependency tracking
-    println!("cargo:rerun-if-changed=src/");
-    println!("cargo:rerun-if-changed=cbindgen.toml");
-    println!("cargo:rerun-if-changed=Cargo.toml");
-    println!("cargo:rerun-if-changed=build.rs");
 }

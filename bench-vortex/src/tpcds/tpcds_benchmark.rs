@@ -6,7 +6,7 @@
 use anyhow::Result;
 use anyhow::anyhow;
 use datafusion::prelude::SessionContext;
-use log::info;
+use tracing::info;
 use url::Url;
 
 use crate::BenchmarkDataset;

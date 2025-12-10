@@ -1,43 +1,42 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::OnceLock;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use jni::JNIEnv;
 use jni::objects::JClass;
 use jni::sys::jint;
-use log::LevelFilter;
-use simplelog::ColorChoice;
-use simplelog::Config;
-use simplelog::TermLogger;
-use simplelog::TerminalMode;
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::EnvFilter;
 
 // Ensure the logger is initialized only once
-static LOGGER_INIT: OnceLock<()> = OnceLock::new();
+static LOGGER_INIT: AtomicBool = AtomicBool::new(false);
 
-#[expect(clippy::expect_used, reason = "logger initialization must succeed")]
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeLogging_initLogging(
     _env: JNIEnv,
     _class: JClass,
     level: jint,
 ) {
-    LOGGER_INIT.get_or_init(|| {
+    if !LOGGER_INIT.fetch_or(true, Ordering::SeqCst) {
         let level = match level {
-            0 => LevelFilter::Error,
-            1 => LevelFilter::Warn,
-            2 => LevelFilter::Info,
-            3 => LevelFilter::Debug,
-            4 => LevelFilter::Trace,
-            _ => LevelFilter::Off,
+            0 => LevelFilter::ERROR,
+            1 => LevelFilter::WARN,
+            2 => LevelFilter::INFO,
+            3 => LevelFilter::DEBUG,
+            4 => LevelFilter::TRACE,
+            _ => LevelFilter::OFF,
         };
 
-        TermLogger::init(
-            level,
-            Config::default(),
-            TerminalMode::Stderr,
-            ColorChoice::Auto,
-        )
-        .expect("Failed to initialize logger");
-    });
+        let filter = EnvFilter::builder()
+            .with_default_directive(level.into())
+            .parse_lossy("");
+
+        tracing_subscriber::fmt()
+            .compact()
+            .with_writer(std::io::stderr)
+            .with_env_filter(filter)
+            .init();
+    }
 }

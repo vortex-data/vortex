@@ -256,7 +256,7 @@ pub fn sum_impl(
     }
 
     // Otherwise, canonicalize and try again.
-    log::debug!("No sum implementation found for {}", array.encoding_id());
+    tracing::debug!("No sum implementation found for {}", array.encoding_id());
     if array.is_canonical() {
         // Panic to avoid recursion, but it should never be hit.
         vortex_panic!(
