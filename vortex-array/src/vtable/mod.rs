@@ -28,14 +28,14 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::kernel::kernel;
+use crate::kernel::BindCtx;
+use crate::kernel::KernelRef;
+use crate::serde::ArrayChildren;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VectorExecutor;
-use crate::kernel::BindCtx;
-use crate::kernel::KernelRef;
-use crate::kernel::kernel;
-use crate::serde::ArrayChildren;
 
 /// The array [`VTable`] encapsulates logic for an Array type within Vortex.
 ///
@@ -149,7 +149,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         let session = ctx.session().clone();
         Ok(kernel(move || {
             let canonical = Self::CanonicalVTable::canonicalize(&array);
-            canonical.into_array().execute_vector_optimized(&session)
+            canonical.into_array().execute_vector(&session)
         }))
     }
 

@@ -4,15 +4,15 @@
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Weak;
+use std::task::ready;
 use std::task::Context;
 use std::task::Poll;
-use std::task::ready;
 
+use futures::channel::mpsc;
 use futures::FutureExt;
 use futures::StreamExt;
-use futures::channel::mpsc;
-use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
+use vortex_error::VortexResult;
 use vortex_metrics::VortexMetrics;
 
 use crate::file::FileRead;
@@ -186,18 +186,19 @@ impl<T> Task<T> {
 impl<T> Future for Task<T> {
     type Output = T;
 
+    #[allow(clippy::panic)]
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match ready!(self.recv.poll_unpin(cx)) {
             Ok(result) => Poll::Ready(result),
-            Err(recv_err) => {
+            Err(_recv_err) => {
                 // If the other end of the channel was dropped, it means the runtime dropped
                 // the future without ever completing it. If the caller aborted this task by
                 // dropping it, then they wouldn't be able to poll it anymore.
                 // So we consider a closed channel to be a Runtime programming error and therefore
                 // we panic.
-                vortex_panic!(
-                    "Runtime dropped task without completing it, likely it panicked: {recv_err}"
-                )
+
+                // NOTE(ngates): we don't use vortex_panic to avoid printing a useless backtrace.
+                panic!("Runtime dropped task without completing it, likely it panicked")
             }
         }
     }

@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_vector::Datum;
 use vortex_vector::Vector;
 use vortex_vector::VectorOps;
 
-use crate::Array;
-use crate::ArrayRef;
 use crate::arrays::ConstantVTable;
 use crate::kernel::BindCtx;
 use crate::session::ArraySessionExt;
+use crate::Array;
+use crate::ArrayRef;
 
 /// Executor for exporting a Vortex [`Vector`] or [`Datum`] from an [`ArrayRef`].
 pub trait VectorExecutor {

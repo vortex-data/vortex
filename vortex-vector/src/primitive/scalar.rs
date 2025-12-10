@@ -3,21 +3,21 @@
 
 use std::ops::Deref;
 
+use vortex_dtype::half::f16;
 use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 use vortex_dtype::PTypeDowncast;
 use vortex_dtype::PTypeUpcast;
-use vortex_dtype::half::f16;
-use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
+use vortex_error::VortexExpect;
 
+use crate::match_each_pscalar;
+use crate::primitive::PVectorMut;
+use crate::primitive::PrimitiveVectorMut;
 use crate::Scalar;
 use crate::ScalarOps;
 use crate::VectorMut;
 use crate::VectorMutOps;
-use crate::match_each_pscalar;
-use crate::primitive::PVectorMut;
-use crate::primitive::PrimitiveVectorMut;
 
 /// Represents a primitive scalar value.
 #[derive(Clone, Debug)]
@@ -104,6 +104,9 @@ pub struct PScalar<T>(Option<T>);
 impl<T: NativePType> PScalar<T> {
     /// Creates a new primitive scalar with the given value.
     pub fn new(value: Option<T>) -> Self {
+        if value.is_none() {
+            vortex_panic!("NULL")
+        }
         Self(value)
     }
 

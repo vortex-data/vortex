@@ -8,20 +8,17 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_buffer::Buffer;
+use vortex_dtype::match_each_decimal_value_type;
+use vortex_dtype::match_each_native_ptype;
 use vortex_dtype::DType;
 use vortex_dtype::DecimalType;
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::PTypeDowncastExt;
 use vortex_dtype::PrecisionScale;
-use vortex_dtype::match_each_decimal_value_type;
-use vortex_dtype::match_each_native_ptype;
+use vortex_error::vortex_ensure;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
-use vortex_vector::VectorMut;
-use vortex_vector::VectorMutOps;
-use vortex_vector::VectorOps;
 use vortex_vector::binaryview::BinaryScalar;
 use vortex_vector::binaryview::StringScalar;
 use vortex_vector::bool::BoolScalar;
@@ -36,6 +33,9 @@ use vortex_vector::primitive::PScalar;
 use vortex_vector::primitive::PVector;
 use vortex_vector::struct_::StructScalar;
 use vortex_vector::struct_::StructVector;
+use vortex_vector::VectorMut;
+use vortex_vector::VectorMutOps;
+use vortex_vector::VectorOps;
 
 use crate::DecimalValue;
 use crate::Scalar;
@@ -158,7 +158,7 @@ impl Scalar {
                                 field_vec.freeze()
                             })
                             .collect();
-                        StructScalar::new(StructVector::new(Arc::new(fields), Mask::new_false(1)))
+                        StructScalar::new(StructVector::new(Arc::new(fields), Mask::new_true(1)))
                             .into()
                     }
                 }
@@ -210,7 +210,7 @@ impl Scalar {
                                 );
                                 Scalar::null(dtype.clone())
                             }
-                            Some(v) => Scalar::decimal(DecimalValue::from(v), dec_type.clone(), *n),
+                            Some(v) => Scalar::decimal(DecimalValue::from(v), *dec_type, *n),
                         }
                     }
                 )

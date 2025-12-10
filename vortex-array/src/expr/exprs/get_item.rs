@@ -9,18 +9,19 @@ use vortex_dtype::DType;
 use vortex_dtype::FieldName;
 use vortex_dtype::FieldPath;
 use vortex_dtype::Nullability;
+use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_proto::expr as pb;
 use vortex_vector::Datum;
 use vortex_vector::ScalarOps;
 use vortex_vector::VectorOps;
 
-use crate::ArrayRef;
-use crate::ToCanonical;
 use crate::compute::mask;
+use crate::expr::exprs::root::root;
+use crate::expr::stats::Stat;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -31,8 +32,9 @@ use crate::expr::SimplifyCtx;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::expr::exprs::root::root;
-use crate::expr::stats::Stat;
+use crate::scalar_fns::ExprBuiltins;
+use crate::ArrayRef;
+use crate::ToCanonical;
 
 pub struct GetItem;
 
@@ -139,9 +141,10 @@ impl VTable for GetItem {
         &self,
         field_name: &FieldName,
         expr: &Expression,
-        _ctx: &dyn SimplifyCtx,
+        ctx: &dyn SimplifyCtx,
     ) -> VortexResult<Option<Expression>> {
         let child = expr.child(0);
+        let child_dtype = ctx.return_dtype(child)?;
 
         // If the child is a Pack expression, we can directly return the corresponding child.
         if let Some(pack) = child.as_opt::<Pack>() {
@@ -157,7 +160,15 @@ impl VTable for GetItem {
                     )
                 })?;
 
-            return Ok(Some(child.child(idx).clone()));
+            let mut field = child.child(idx).clone();
+
+            // If the pack expression is nullable but the child field is not, we need to
+            // adjust the nullability of the resulting expression.
+            if pack.nullability.is_nullable() && !child_dtype.is_nullable() {
+                field = field.cast(child_dtype.as_nullable())?;
+            }
+
+            return Ok(Some(field));
         }
 
         Ok(None)
@@ -232,8 +243,6 @@ mod tests {
     use vortex_dtype::StructFields;
     use vortex_scalar::Scalar;
 
-    use crate::Array;
-    use crate::IntoArray;
     use crate::arrays::StructArray;
     use crate::expr::exprs::binary::checked_add;
     use crate::expr::exprs::get_item::get_item;
@@ -241,6 +250,8 @@ mod tests {
     use crate::expr::exprs::pack::pack;
     use crate::expr::exprs::root::root;
     use crate::validity::Validity;
+    use crate::Array;
+    use crate::IntoArray;
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[

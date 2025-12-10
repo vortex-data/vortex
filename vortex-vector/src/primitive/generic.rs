@@ -9,14 +9,14 @@ use std::ops::RangeBounds;
 
 use vortex_buffer::Buffer;
 use vortex_dtype::NativePType;
+use vortex_error::vortex_ensure;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
-use crate::VectorOps;
 use crate::primitive::PScalar;
 use crate::primitive::PVectorMut;
+use crate::VectorOps;
 
 /// An immutable vector of generic primitive values.
 ///
@@ -51,7 +51,6 @@ impl<T> PVector<T> {
             validity.len() == elements.len(),
             "`PVector` validity mask must have the same length as elements"
         );
-
         Ok(Self { elements, validity })
     }
 

@@ -48,8 +48,20 @@ impl Kernel for FilterKernel {
 }
 
 fn cost_for_dtype(dtype: &DType, selection: &Mask) -> f64 {
+    if selection.true_count() == 0 {
+        return 0.0;
+    }
+
     match dtype {
         DType::Null => 0.0,
+        DType::Primitive(ptype, _) => {
+            // Some estimate based on PType width and true-count or number of slices??
+            // Maybe nullable types are more expensive?
+            // ... No idea how to tune this yet.
+            let width = ptype.byte_width() as f64;
+            let selectivity = selection.true_count() as f64 / selection.len() as f64;
+            width * selectivity
+        }
         DType::Extension(ext) => cost_for_dtype(ext.storage_dtype(), selection),
         _ => f64::INFINITY,
     }

@@ -3,19 +3,19 @@
 
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
+use vortex_vector::scalar_matches_dtype;
 use vortex_vector::Datum;
 use vortex_vector::VectorOps;
-use vortex_vector::scalar_matches_dtype;
 
-use crate::Array;
-use crate::ArrayRef;
-use crate::IntoArray;
 use crate::arrays::AnyScalarFn;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::arrays::ScalarFnArray;
 use crate::expr::ExecutionArgs;
 use crate::optimizer::rules::ArrayReduceRule;
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
 
 #[derive(Debug)]
 pub(crate) struct ScalarFnConstantRule;
@@ -56,6 +56,7 @@ impl ArrayReduceRule<AnyScalarFn> for ScalarFnConstantRule {
         };
         assert!(scalar_matches_dtype(&result, &array.dtype));
 
+        let _fn = format!("{}", array.scalar_fn);
         Ok(Some(
             ConstantArray::new(Scalar::from_vector_scalar(result, &array.dtype)?, array.len)
                 .into_array(),
