@@ -65,9 +65,11 @@ impl VortexSession {
     ///
     /// Note that the returned value internally holds a lock on the variable.
     pub fn get_mut<V: SessionVar + Default>(&mut self) -> &mut V {
-        self.0
+        let v = self
+            .0
             .entry(TypeId::of::<V>())
-            .or_insert_with(|| Box::new(V::default()))
+            .or_insert_with(|| Box::new(V::default()));
+        (**v)
             .as_any_mut()
             .downcast_mut::<V>()
             .vortex_expect("Type mismatch - this is a bug")

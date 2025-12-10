@@ -6,9 +6,13 @@
 use std::path::Path;
 
 use vortex::array::arrays::StructArray;
-use vortex::array::builders::{ArrayBuilder, DecimalBuilder, VarBinViewBuilder};
+use vortex::array::builders::ArrayBuilder;
+use vortex::array::builders::DecimalBuilder;
+use vortex::array::builders::VarBinViewBuilder;
 use vortex::array::validity::Validity;
-use vortex::dtype::{DType, DecimalDType, Nullability};
+use vortex::dtype::DType;
+use vortex::dtype::DecimalDType;
+use vortex::dtype::Nullability;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::runtime::BlockingRuntime;
@@ -32,7 +36,9 @@ use vortex::VortexSessionDefault;
 /// | John   | 10000  | VA    |
 fn main() {
     let runtime = CurrentThreadRuntime::new();
-    let session = VortexSession::default().with_handle(runtime.handle());
+    let session = VortexSession::new_with_defaults()
+        .with_handle(runtime.handle())
+        .freeze();
 
     let mut names = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::NonNullable), 10);
     names.append_value("Alice");

@@ -157,6 +157,7 @@ impl VortexSessionDefault for VortexSession {
         VortexSession::empty().with_defaults()
     }
 
+    #[allow(unused_mut)]
     fn with_defaults(self) -> VortexSession {
         let mut this = self
             .with::<VortexMetrics>()
