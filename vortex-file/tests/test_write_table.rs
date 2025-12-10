@@ -24,7 +24,7 @@ use vortex_file::WriteOptionsSessionExt;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::layouts::compressed::CompressingStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
-use vortex_layout::layouts::path::PathStrategy;
+use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::session::LayoutSession;
 use vortex_metrics::VortexMetrics;
 use vortex_session::VortexSession;
@@ -66,14 +66,14 @@ async fn test_file_roundtrip() {
     .into_array();
 
     // Create a writer which by default uses the BtrBlocks compressor, but for a.raw column it will
-    // leave it uncompressed.
+    // leave it uncompressed. And for the a.no_dict column disables dictionary compression.
     let default_strategy = Arc::new(CompressingStrategy::new_btrblocks(
         FlatLayoutStrategy::default(),
         false,
     ));
 
     let writer = Arc::new(
-        PathStrategy::new(Arc::new(FlatLayoutStrategy::default()), default_strategy)
+        TableStrategy::new(Arc::new(FlatLayoutStrategy::default()), default_strategy)
             .with_field_writer(field_path!(a.raw), Arc::new(FlatLayoutStrategy::default())),
     );
 
