@@ -14,7 +14,7 @@ use arrow_schema::SchemaRef;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
-use log::info;
+use tracing::info;
 use parquet::arrow::AsyncArrowWriter;
 use parquet::basic::Compression;
 use parquet::file::properties::WriterProperties;

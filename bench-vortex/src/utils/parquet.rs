@@ -19,7 +19,7 @@ use arrow_schema::SchemaRef;
 use lance::dataset::Dataset as LanceDataset;
 use lance::dataset::WriteParams;
 use lance_encoding::version::LanceFileVersion;
-use log::info;
+use tracing::info;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use tokio::fs::create_dir_all;
 

@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use indicatif::ProgressBar;
-use log::warn;
+use tracing::warn;
 use vortex::error::VortexExpect;
 use vortex_datafusion::metrics::VortexMetricsFinder;
 

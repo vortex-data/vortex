@@ -771,7 +771,6 @@ mod tests {
     use rand::RngCore;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
-    use tracing::level_filters::LevelFilter;
     use vortex_array::Array;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
