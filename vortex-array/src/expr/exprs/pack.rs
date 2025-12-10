@@ -157,7 +157,7 @@ impl VTable for Pack {
                 .map(|v| v.ensure_vector(args.row_count))
                 .collect();
             return Ok(Datum::Vector(
-                StructVector::new(Arc::new(fields), Mask::new_true(args.row_count)).into(),
+                StructVector::try_new(Arc::new(fields), Mask::new_true(args.row_count))?.into(),
             ));
         }
 

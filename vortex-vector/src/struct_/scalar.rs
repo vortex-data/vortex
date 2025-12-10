@@ -36,6 +36,11 @@ impl StructScalar {
     pub fn field(&self, field_idx: usize) -> Scalar {
         self.0.fields()[field_idx].scalar_at(0)
     }
+
+    /// Returns an iterator over the field scalars of the struct.
+    pub fn fields(&self) -> impl Iterator<Item = Scalar> {
+        self.0.fields().iter().map(|f| f.scalar_at(0))
+    }
 }
 
 impl ScalarOps for StructScalar {

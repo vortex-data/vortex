@@ -23,6 +23,7 @@ use vortex::session::VortexSession;
 use crate::inspect::InspectArgs;
 
 #[derive(clap::Parser)]
+#[command(version)]
 struct Cli {
     #[clap(subcommand)]
     command: Commands,

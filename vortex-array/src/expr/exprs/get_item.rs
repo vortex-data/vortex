@@ -19,6 +19,7 @@ use vortex_vector::VectorOps;
 
 use crate::ArrayRef;
 use crate::ToCanonical;
+use crate::builtins::ExprBuiltins;
 use crate::compute::mask;
 use crate::expr::Arity;
 use crate::expr::ChildName;
@@ -31,6 +32,7 @@ use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::expr::exprs::root::root;
+use crate::expr::lit;
 use crate::expr::stats::Stat;
 
 pub struct GetItem;
@@ -138,7 +140,43 @@ impl VTable for GetItem {
         &self,
         field_name: &FieldName,
         expr: &Expression,
-        _ctx: &dyn SimplifyCtx,
+        ctx: &dyn SimplifyCtx,
+    ) -> VortexResult<Option<Expression>> {
+        let child = expr.child(0);
+        let child_dtype = ctx.return_dtype(child)?;
+
+        // If the child is a Pack expression, we can directly return the corresponding child.
+        if let Some(pack) = child.as_opt::<Pack>() {
+            let idx = pack
+                .names
+                .iter()
+                .position(|name| name == field_name)
+                .ok_or_else(|| {
+                    vortex_err!(
+                        "Cannot find field {} in pack fields {:?}",
+                        field_name,
+                        pack.names
+                    )
+                })?;
+
+            let mut field = child.child(idx).clone();
+
+            // If the pack expression is nullable but the child field is not, we need to
+            // adjust the nullability of the resulting expression.
+            if pack.nullability.is_nullable() && !child_dtype.is_nullable() {
+                field = field.cast(child_dtype.as_nullable())?;
+            }
+
+            return Ok(Some(field));
+        }
+
+        Ok(None)
+    }
+
+    fn simplify_untyped(
+        &self,
+        field_name: &FieldName,
+        expr: &Expression,
     ) -> VortexResult<Option<Expression>> {
         let child = expr.child(0);
 
@@ -156,7 +194,18 @@ impl VTable for GetItem {
                     )
                 })?;
 
-            return Ok(Some(child.child(idx).clone()));
+            let mut field = child.child(idx).clone();
+
+            // It's useful to simplify this node without type info, but we need to make sure
+            // the nullability is correct. We cannot cast since we don't have the dtype info here,
+            // so instead we insert a Mask expression that we know converts a child's dtype to
+            // nullable.
+            if pack.nullability.is_nullable() {
+                // Mask with an all-true array to ensure the field DType is nullable.
+                field = field.mask(lit(true))?;
+            }
+
+            return Ok(Some(field));
         }
 
         Ok(None)

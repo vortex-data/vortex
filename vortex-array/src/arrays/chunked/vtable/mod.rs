@@ -9,6 +9,7 @@ use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_vector::Vector;
 use vortex_vector::VectorMut;
 use vortex_vector::VectorMutOps;
@@ -20,6 +21,7 @@ use crate::arrays::PrimitiveArray;
 use crate::kernel::BindCtx;
 use crate::kernel::Kernel;
 use crate::kernel::KernelRef;
+use crate::kernel::PushDownResult;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -156,5 +158,9 @@ impl Kernel for ChunkedKernel {
             vector.extend_from_vector(&chunk_vector);
         }
         Ok(vector.freeze())
+    }
+
+    fn push_down_filter(self: Box<Self>, _selection: &Mask) -> VortexResult<PushDownResult> {
+        Ok(PushDownResult::NotPushed(self))
     }
 }

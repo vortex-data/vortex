@@ -154,7 +154,7 @@ impl LayoutReader for FlatReader {
 
                 log::debug!("Filter Array:\n{}", array.display_tree());
                 let array = optimizer.optimize_array(&array)?;
-                log::info!("Optimized Filter Array:\n{}", array.display_tree());
+                log::debug!("Optimized Filter Array:\n{}", array.display_tree());
 
                 // Evaluate the array into a mask.
                 let array_mask = array.execute_mask(&session)?;
@@ -237,7 +237,7 @@ impl LayoutReader for FlatReader {
 
                 log::debug!("Project Array:\n{}", array.display_tree());
                 let array = optimizer.optimize_array(&array)?;
-                log::info!("Optimized Project Array:\n{}", array.display_tree());
+                log::debug!("Optimized Project Array:\n{}", array.display_tree());
                 array
             } else {
                 // Filter the array based on the row mask.

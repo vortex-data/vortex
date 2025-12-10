@@ -10,6 +10,7 @@ use vortex_vector::VectorOps;
 
 use crate::kernel::Kernel;
 use crate::kernel::KernelRef;
+use crate::kernel::PushDownResult;
 
 #[derive(Debug)]
 pub struct ValidateKernel {
@@ -46,11 +47,7 @@ impl Kernel for ValidateKernel {
         Ok(vector)
     }
 
-    fn cost_estimate(&self, selection: &Mask) -> f64 {
-        self.inner.cost_estimate(selection)
-    }
-
-    fn push_down_filter(&self, selection: &Mask) -> VortexResult<Option<KernelRef>> {
+    fn push_down_filter(self: Box<Self>, selection: &Mask) -> VortexResult<PushDownResult> {
         // TODO(ngates): should this wrap back up in the ValidateKernel?
         self.inner.push_down_filter(selection)
     }

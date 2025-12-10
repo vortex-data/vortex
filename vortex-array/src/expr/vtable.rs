@@ -8,7 +8,6 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
-use std::ops::Deref;
 use std::sync::Arc;
 
 use arcref::ArcRef;
@@ -112,6 +111,17 @@ pub trait VTable: 'static + Sized + Send + Sync {
         _ = options;
         _ = expr;
         _ = ctx;
+        Ok(None)
+    }
+
+    /// Simplify the expression if possible, without type information.
+    fn simplify_untyped(
+        &self,
+        options: &Self::Options,
+        expr: &Expression,
+    ) -> VortexResult<Option<Expression>> {
+        _ = options;
+        _ = expr;
         Ok(None)
     }
 
@@ -302,6 +312,7 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
         expression: &Expression,
         ctx: &dyn SimplifyCtx,
     ) -> VortexResult<Option<Expression>>;
+    fn simplify_untyped(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
     fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<Datum>;
     fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef>;
 
@@ -328,7 +339,7 @@ pub struct VTableAdapter<V>(V);
 impl<V: VTable> DynExprVTable for VTableAdapter<V> {
     #[inline(always)]
     fn as_any(&self) -> &dyn Any {
-        self
+        &self.0
     }
 
     #[inline(always)]
@@ -393,6 +404,14 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         )
     }
 
+    fn simplify_untyped(&self, expression: &Expression) -> VortexResult<Option<Expression>> {
+        V::simplify_untyped(
+            &self.0,
+            downcast::<V>(expression.options().as_any()),
+            expression,
+        )
+    }
+
     fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<Datum> {
         let options = downcast::<V>(options);
 
@@ -406,7 +425,8 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
             assert_eq!(
                 v.len(),
                 expected_row_count,
-                "Expression execution returned vector of length {}, but expected {}",
+                "Expression execution {} returned vector of length {}, but expected {}",
+                self.0.id(),
                 v.len(),
                 expected_row_count,
             );
@@ -415,13 +435,15 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         // In debug mode, validate that the output dtype matches the expected return dtype.
         #[cfg(debug_assertions)]
         {
-            use vortex_error::vortex_ensure;
             use vortex_vector::datum_matches_dtype;
-            vortex_ensure!(
-                datum_matches_dtype(&result, &expected_dtype),
-                "Expression execution invalid for dtype {}",
-                expected_dtype
-            );
+
+            if !datum_matches_dtype(&result, &expected_dtype) {
+                vortex_bail!(
+                    "Expression execution returned datum of invalid dtype. Expected {}, got {:?}",
+                    expected_dtype,
+                    result
+                );
+            }
         }
 
         Ok(result)
@@ -508,7 +530,7 @@ impl ExprVTable {
 
     /// Return the vtable as an Any reference.
     pub fn as_any(&self) -> &dyn Any {
-        self.0.deref().as_any()
+        self.0.as_any()
     }
 
     /// Creates a new [`ExprVTable`] from a vtable.
@@ -531,7 +553,7 @@ impl ExprVTable {
 
     /// Returns whether this vtable is of a given type.
     pub fn is<V: VTable>(&self) -> bool {
-        self.0.as_any().is::<VTableAdapter<V>>()
+        self.0.as_any().is::<V>()
     }
 
     /// Deserialize an options of this expression vtable from metadata.

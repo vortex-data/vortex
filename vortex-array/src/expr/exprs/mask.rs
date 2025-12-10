@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Formatter;
+use std::ops::Not;
 
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
@@ -15,6 +16,7 @@ use vortex_vector::ScalarOps;
 use vortex_vector::VectorMutOps;
 use vortex_vector::VectorOps;
 
+use crate::Array;
 use crate::ArrayRef;
 use crate::expr::Arity;
 use crate::expr::ChildName;
@@ -75,10 +77,15 @@ impl VTable for Mask {
     fn evaluate(
         &self,
         _options: &Self::Options,
-        _expr: &Expression,
-        _scope: &ArrayRef,
+        expr: &Expression,
+        scope: &ArrayRef,
     ) -> VortexResult<ArrayRef> {
-        todo!()
+        let child = expr.child(0).evaluate(scope)?;
+
+        // Invert the validity mask - we want to set values to null where validity is false.
+        let inverted_mask = child.validity_mask().not();
+
+        crate::compute::mask(&child, &inverted_mask)
     }
 
     fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {

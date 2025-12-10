@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use vortex_error::VortexExpect;
 
 use crate::Array;
@@ -17,15 +16,16 @@ use crate::vtable::CanonicalVTable;
 impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
     fn canonicalize(array: &ScalarFnArray) -> Canonical {
         let child_dtypes: Vec<_> = array.children.iter().map(|c| c.dtype().clone()).collect();
-        let child_datums: Vec<_> = array
-            .children()
-            .iter()
-            .map(|child| child.execute_datum_optimized(&LEGACY_SESSION))
-            .try_collect()
-            // FIXME(ngates): canonicalizing really ought to be fallible
-            .vortex_expect(
-                "Failed to execute child array during canonicalization of ScalarFnArray",
-            );
+
+        let mut child_datums = Vec::with_capacity(array.children.len());
+        for child in array.children.iter() {
+            let datum = child
+                .execute_datum_optimized(&LEGACY_SESSION)
+                .vortex_expect(
+                    "Failed to execute child array during canonicalization of ScalarFnArray",
+                );
+            child_datums.push(datum);
+        }
 
         let ctx = ExecutionArgs {
             datums: child_datums,
@@ -34,12 +34,12 @@ impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
             return_dtype: array.dtype.clone(),
         };
 
+        let len = array.len;
         let result_vector = array
             .scalar_fn
             .execute(ctx)
             .vortex_expect("Canonicalize should be fallible")
-            .into_vector()
-            .vortex_expect("Canonicalize should return a vector");
+            .ensure_vector(len);
 
         result_vector.into_array(&array.dtype).to_canonical()
     }

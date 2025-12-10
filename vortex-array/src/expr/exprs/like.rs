@@ -12,6 +12,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_vector::Datum;
+use vortex_vector::VectorOps;
 
 use crate::ArrayRef;
 use crate::compute::LikeOptions;
@@ -127,6 +128,12 @@ impl VTable for Like {
             (true, false) => arrow_string::like::nlike(child.as_ref(), pattern.as_ref()),
             (true, true) => arrow_string::like::nilike(child.as_ref(), pattern.as_ref()),
         }?;
+
+        let vector = array.into_vector()?;
+        if vector.len() == 1 && args.row_count != 1 {
+            // Arrow returns a scalar datum result
+            return Ok(Datum::Scalar(vector.scalar_at(0).into()));
+        }
 
         Ok(Datum::Vector(array.into_vector()?.into()))
     }

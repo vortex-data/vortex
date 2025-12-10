@@ -24,9 +24,10 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::LEGACY_SESSION;
 use crate::arrays::filter::array::FilterArray;
+use crate::arrays::filter::kernel::FilterKernel;
 use crate::kernel::BindCtx;
 use crate::kernel::KernelRef;
-use crate::kernel::kernel;
+use crate::kernel::PushDownResult;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::vectors::VectorIntoArray;
@@ -82,22 +83,46 @@ impl VTable for FilterVTable {
         &self,
         dtype: &DType,
         len: usize,
-        metadata: &Self::Metadata,
+        selection_mask: &Mask,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<Self::Array> {
-        let child = children.get(0, dtype, len)?;
+        assert_eq!(len, selection_mask.true_count());
+        let child = children.get(0, dtype, selection_mask.len())?;
         Ok(FilterArray {
             child,
-            mask: metadata.clone(),
+            mask: selection_mask.clone(),
             stats: Default::default(),
         })
     }
 
     fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
-        let child = array.child.bind_kernel(ctx)?;
+        let mut child = array.child.bind_kernel(ctx)?;
         let mask = array.mask.clone();
-        Ok(kernel(move || Ok(Filter::filter(&child.execute()?, &mask))))
+
+        // NOTE(ngates): for now we keep the same behavior as develop where we push-down any
+        //  query with <20% true values.
+        let pushdown = array.mask.density() < 0.2;
+
+        if pushdown {
+            // Try to push down the filter to the child if it's cheaper.
+            child = match child.push_down_filter(&mask)? {
+                PushDownResult::Pushed(new_k) => {
+                    log::debug!("Filter push down kernel:\n{:?}", new_k);
+                    return Ok(new_k);
+                }
+                PushDownResult::NotPushed(child) => {
+                    log::warn!(
+                        "Filter pushdown was cheaper but not supported by child array {}",
+                        array.child.display_tree()
+                    );
+                    child
+                }
+            };
+        }
+
+        // Otherwise, wrap up the child in a filter kernel.
+        Ok(Box::new(FilterKernel::new(child, mask)))
     }
 }
 
