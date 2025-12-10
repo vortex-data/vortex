@@ -8453,6 +8453,8 @@ dependencies = [
  "arrow-schema",
  "codspeed-divan-compat",
  "half",
+ "itertools 0.14.0",
+ "log",
  "multiversion",
  "num-traits",
  "paste",

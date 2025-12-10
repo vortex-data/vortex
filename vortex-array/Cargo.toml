@@ -159,5 +159,9 @@ harness = false
 name = "take_primitive"
 harness = false
 
+[[bench]]
+name = "take_struct"
+harness = false
+
 [package.metadata.cargo-machete]
 ignored = ["getrandom_v03"]

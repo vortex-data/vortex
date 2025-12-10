@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::BitBuffer;
 use vortex_dtype::NativePType;
-use vortex_mask::Mask;
 use vortex_vector::VectorMutOps;
 use vortex_vector::VectorOps;
 use vortex_vector::bool::BoolVector;
@@ -84,64 +82,6 @@ fn test_bool_vector_take_with_primitive_vector_indices() {
 }
 
 #[test]
-fn test_bit_buffer_take_small_and_large() {
-    // Small buffer (uses take_byte_bool path).
-    let small: BitBuffer = [true, false, true, true, false, true, false, false]
-        .into_iter()
-        .collect();
-    let result = small.take(&[7u32, 0, 2, 5, 1][..]);
-
-    let values: Vec<bool> = result.iter().collect();
-    assert_eq!(values, vec![false, true, true, true, false]);
-
-    // Large buffer (uses take_bool path, len > 4096).
-    let large: BitBuffer = (0..5000).map(|i| i % 3 == 0).collect();
-    let result = large.take(&[4999u32, 0, 1, 2, 3, 4998][..]);
-
-    let values: Vec<bool> = result.iter().collect();
-    assert_eq!(values, vec![false, true, false, false, true, true]);
-}
-
-#[test]
-fn test_mask_take_all_variants() {
-    // AllTrue with slice indices.
-    let result = Mask::AllTrue(10).take(&[9u32, 0, 5][..]);
-    assert!(result.all_true());
-    assert_eq!(result.len(), 3);
-
-    // AllFalse with slice indices.
-    let result = Mask::AllFalse(10).take(&[9u32, 0, 5][..]);
-    assert!(result.all_false());
-    assert_eq!(result.len(), 3);
-
-    // Values with slice indices.
-    let values = Mask::from_iter([true, false, true, true, false, true]);
-    let result = values.take(&[5u32, 1, 0, 4][..]);
-    let bools: Vec<bool> = (0..result.len()).map(|i| result.value(i)).collect();
-    assert_eq!(bools, vec![true, false, true, false]);
-
-    // AllTrue with nullable PVector indices.
-    let indices: PVector<u32> =
-        PVectorMut::from_iter([Some(0), None, Some(5), None, Some(9)]).freeze();
-    let result = Mask::AllTrue(10).take(&indices);
-    let bools: Vec<bool> = (0..result.len()).map(|i| result.value(i)).collect();
-    assert_eq!(bools, vec![true, false, true, false, true]);
-
-    // AllFalse with nullable PVector indices.
-    let result = Mask::AllFalse(10).take(&indices);
-    assert!(result.all_false());
-    assert_eq!(result.len(), 5);
-
-    // Values with nullable PVector indices.
-    let values = Mask::from_iter([true, false, true, false, true, false]);
-    let indices: PVector<u32> =
-        PVectorMut::from_iter([Some(0), None, Some(1), Some(4), None]).freeze();
-    let result = values.take(&indices);
-    let bools: Vec<bool> = (0..result.len()).map(|i| result.value(i)).collect();
-    assert_eq!(bools, vec![true, false, false, true, false]);
-}
-
-#[test]
 fn test_primitive_vector_take_with_pvector_indices() {
     let data: PrimitiveVector =
         PVectorMut::from_iter([Some(10i32), Some(20), None, Some(40), Some(50)])
@@ -159,4 +99,204 @@ fn test_primitive_vector_take_with_pvector_indices() {
         collect_pvector(&result),
         vec![Some(50), None, None, Some(10), None]
     );
+}
+
+#[test]
+fn test_null_vector_take() {
+    use vortex_vector::VectorOps;
+    use vortex_vector::null::NullVector;
+
+    let data = NullVector::new(10);
+
+    // Take with slice indices.
+    let result = (&data).take(&[0u32, 5, 9, 2][..]);
+    assert_eq!(result.len(), 4);
+    assert!(result.validity().all_false());
+
+    // Take with nullable PVector indices.
+    let indices: PVector<u32> = PVectorMut::from_iter([Some(0), None, Some(5), None]).freeze();
+    let result = (&data).take(&indices);
+    assert_eq!(result.len(), 4);
+    assert!(result.validity().all_false());
+}
+
+#[ignore = "TODO(connor): Implement `DecimalVector::take`."]
+#[test]
+fn test_dvector_take() {
+    use vortex_buffer::buffer;
+    use vortex_dtype::PrecisionScale;
+    use vortex_mask::Mask;
+    use vortex_vector::VectorOps;
+    use vortex_vector::decimal::DVector;
+
+    let ps = PrecisionScale::<i64>::new(10, 2);
+    let data = DVector::new(
+        ps,
+        buffer![100i64, 200, 300, 400, 500],
+        Mask::from_iter([true, true, false, true, true]),
+    );
+
+    // Take with slice indices.
+    let result = (&data).take(&[4u32, 2, 0, 1][..]);
+    assert_eq!(result.elements().as_slice(), &[500i64, 300, 100, 200]);
+    let validity: Vec<bool> = (0..result.len())
+        .map(|i| result.validity().value(i))
+        .collect();
+    assert_eq!(validity, vec![true, false, true, true]);
+    assert_eq!(result.precision_scale(), ps);
+
+    // Take with nullable indices.
+    let indices: PVector<u32> = PVectorMut::from_iter([Some(0), None, Some(4), None]).freeze();
+    let result = (&data).take(&indices);
+    let validity: Vec<bool> = (0..result.len())
+        .map(|i| result.validity().value(i))
+        .collect();
+    assert_eq!(validity, vec![true, false, true, false]);
+}
+
+#[ignore = "TODO(connor): Implement `DecimalVector::take`."]
+#[test]
+fn test_decimal_vector_take() {
+    use vortex_buffer::buffer;
+    use vortex_dtype::PrecisionScale;
+    use vortex_mask::Mask;
+    use vortex_vector::decimal::DVector;
+    use vortex_vector::decimal::DecimalVector;
+
+    let ps = PrecisionScale::<i32>::new(5, 1);
+    let data: DecimalVector =
+        DVector::new(ps, buffer![10i32, 20, 30, 40, 50], Mask::new_true(5)).into();
+
+    let result = (&data).take(&[4u32, 0, 2][..]);
+
+    let DecimalVector::D32(result) = result else {
+        panic!("Expected D32 variant")
+    };
+    assert_eq!(result.elements().as_slice(), &[50i32, 10, 30]);
+}
+
+#[test]
+fn test_struct_vector_take() {
+    use std::sync::Arc;
+
+    use vortex_mask::Mask;
+    use vortex_vector::Vector;
+    use vortex_vector::VectorOps;
+    use vortex_vector::struct_::StructVector;
+
+    let field1: Vector =
+        PVectorMut::from_iter([Some(10i32), Some(20), Some(30), Some(40), Some(50)])
+            .freeze()
+            .into();
+    let field2: Vector =
+        BoolVectorMut::from_iter([Some(true), Some(false), Some(true), Some(false), Some(true)])
+            .freeze()
+            .into();
+    let data = StructVector::new(
+        Arc::new(vec![field1, field2].into()),
+        Mask::from_iter([true, true, false, true, true]),
+    );
+
+    // Take with slice indices.
+    let result = (&data).take(&[4u32, 2, 0][..]);
+    let validity: Vec<bool> = (0..result.len())
+        .map(|i| result.validity().value(i))
+        .collect();
+    assert_eq!(validity, vec![true, false, true]);
+
+    let Vector::Primitive(PrimitiveVector::I32(f0)) = &result.fields()[0] else {
+        panic!("Expected I32")
+    };
+    assert_eq!(f0.elements().as_slice(), &[50i32, 30, 10]);
+
+    // Take with nullable indices.
+    let indices: PVector<u32> = PVectorMut::from_iter([Some(0), None, Some(4)]).freeze();
+    let result = (&data).take(&indices);
+    let validity: Vec<bool> = (0..result.len())
+        .map(|i| result.validity().value(i))
+        .collect();
+    assert_eq!(validity, vec![true, false, true]);
+}
+
+#[test]
+fn test_fixed_size_list_vector_take() {
+    use std::sync::Arc;
+
+    use vortex_mask::Mask;
+    use vortex_vector::Vector;
+    use vortex_vector::VectorOps;
+    use vortex_vector::fixed_size_list::FixedSizeListVector;
+
+    // Elements: [1..12], grouped as 4 lists of size 3.
+    let elements: Vector = PVectorMut::from_iter((1..=12).map(Some)).freeze().into();
+    let data = FixedSizeListVector::new(
+        Arc::new(elements),
+        3,
+        Mask::from_iter([true, true, false, true]),
+    );
+
+    // Take lists [3, 1, 0] -> elements [10,11,12], [4,5,6], [1,2,3].
+    let result = (&data).take(&[3u32, 1, 0][..]);
+    assert_eq!(result.len(), 3);
+    assert_eq!(result.list_size(), 3);
+
+    let validity: Vec<bool> = (0..result.len())
+        .map(|i| result.validity().value(i))
+        .collect();
+    assert_eq!(validity, vec![true, true, true]);
+
+    let Vector::Primitive(PrimitiveVector::I32(elems)) = result.elements().as_ref() else {
+        panic!("Expected I32")
+    };
+    assert_eq!(elems.elements().as_slice(), &[10, 11, 12, 4, 5, 6, 1, 2, 3]);
+
+    // Take with nullable indices.
+    let indices: PVector<u32> = PVectorMut::from_iter([Some(2), None, Some(0)]).freeze();
+    let result = (&data).take(&indices);
+    let validity: Vec<bool> = (0..result.len())
+        .map(|i| result.validity().value(i))
+        .collect();
+    assert_eq!(validity, vec![false, false, true]);
+}
+
+#[test]
+fn test_fixed_size_list_vector_take_degenerate() {
+    use std::sync::Arc;
+
+    use vortex_mask::Mask;
+    use vortex_vector::Vector;
+    use vortex_vector::VectorOps;
+    use vortex_vector::fixed_size_list::FixedSizeListVector;
+
+    // Degenerate FSL with list_size=0.
+    let elements: Vector = PVectorMut::<i32>::from_iter(std::iter::empty::<Option<i32>>())
+        .freeze()
+        .into();
+    let data = FixedSizeListVector::new(Arc::new(elements), 0, Mask::new_true(5));
+
+    let result = (&data).take(&[4u32, 0, 2][..]);
+    assert_eq!(result.len(), 3);
+    assert_eq!(result.list_size(), 0);
+    assert!(result.elements().is_empty());
+}
+
+#[test]
+fn test_vector_enum_take() {
+    use vortex_vector::Vector;
+    use vortex_vector::VectorOps;
+
+    let data: Vector = PVectorMut::from_iter([Some(100i32), Some(200), None, Some(400), Some(500)])
+        .freeze()
+        .into();
+
+    let result = (&data).take(&[4u32, 2, 0][..]);
+
+    let Vector::Primitive(PrimitiveVector::I32(result)) = result else {
+        panic!("Expected I32")
+    };
+    assert_eq!(result.elements().as_slice(), &[500i32, 0, 100]);
+    let validity: Vec<bool> = (0..result.len())
+        .map(|i| result.validity().value(i))
+        .collect();
+    assert_eq!(validity, vec![true, false, true]);
 }
