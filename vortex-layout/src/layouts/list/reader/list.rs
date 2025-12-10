@@ -7,20 +7,22 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
-use crate::ArrayFuture;
-use crate::LayoutReader;
-use crate::LayoutReaderRef;
-use crate::layouts::list::ListLayout;
 use async_trait::async_trait;
 use futures::future::try_join_all;
+use vortex_array::MaskFuture;
 use vortex_array::arrays::ListArray;
-use vortex_array::expr::{Expression, root};
+use vortex_array::expr::Expression;
+use vortex_array::expr::root;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, MaskFuture};
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+
+use crate::ArrayFuture;
+use crate::LayoutReader;
+use crate::LayoutReaderRef;
+use crate::layouts::list::ListLayout;
 
 /// `LayoutReader` for the list layout holding
 /// `List`-typed data.
@@ -133,7 +135,7 @@ impl LayoutReader for ListReader {
 
         let expr = expr.clone();
 
-        // TODO(aduffy): this is awful. We have to splat the mask to be in the elements space.
+        // TODO(aduffy): this is awful. But it's hard to splat the mask onto the elements space.
         Ok(Box::pin(async move {
             let offsets_fut =
                 offsets.projection_evaluation(&offsets_range, &root(), offsets_mask)?;
@@ -163,7 +165,7 @@ impl LayoutReader for ListReader {
 
             // Rebuild the List and execute the Mask operation directly.
             let list = ListArray::try_new(elements, offsets, validity)?;
-            let list = vortex_array::compute::mask(list.as_ref(), &mask)?;
+            let list = vortex_array::compute::filter(list.as_ref(), &mask)?;
 
             // apply the projection expression
             expr.evaluate(&list)

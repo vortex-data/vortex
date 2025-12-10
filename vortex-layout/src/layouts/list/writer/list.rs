@@ -172,6 +172,7 @@ impl LayoutStrategy for ListStrategy {
 
         // Pump chunks to the output nodes.
         let mut row_count = 0;
+
         while let Some((sequence_id, chunk)) = stream.next().await.transpose()? {
             row_count += chunk.len() as u64;
 
@@ -186,7 +187,11 @@ impl LayoutStrategy for ListStrategy {
                     .send(Ok((sequence_pointer.advance(), offsets)))
                     .await,
             );
-            drop(elements_tx.send(Ok((sequence_pointer.advance(), elements))));
+            drop(
+                elements_tx
+                    .send(Ok((sequence_pointer.advance(), elements)))
+                    .await,
+            );
 
             if dtype.is_nullable() {
                 let validity = chunk.validity_mask().into_array();
@@ -197,6 +202,11 @@ impl LayoutStrategy for ListStrategy {
                 );
             }
         }
+
+        // Drop all the senders to signal that we are done pumping messages to the children.
+        drop(offsets_tx);
+        drop(elements_tx);
+        drop(validity_tx);
 
         // Join the offsets and elements tasks
         let mut layouts = try_join_all(tasks).await?;
@@ -245,22 +255,30 @@ async fn write_empty_list(
 
 #[cfg(test)]
 mod tests {
-    use crate::LayoutStrategy;
-    use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::layouts::list::writer::ListStrategy;
-    use crate::layouts::struct_::writer::StructStrategy;
-    use crate::segments::TestSegments;
-    use crate::sequence::{SequenceId, SequentialArrayStreamExt};
-    use crate::test::SESSION;
     use std::sync::Arc;
-    use vortex_array::arrays::{ListArray, StructArray};
+
+    use vortex_array::ArrayContext;
+    use vortex_array::IntoArray;
+    use vortex_array::MaskFuture;
+    use vortex_array::arrays::ListArray;
+    use vortex_array::arrays::StructArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::expr::root;
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayContext, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dtype::FieldNames;
     use vortex_io::session::RuntimeSessionExt;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+    use crate::LayoutStrategy;
+    use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::layouts::list::writer::ListStrategy;
+    use crate::layouts::table::TableStrategy;
+    use crate::segments::TestSegments;
+    use crate::sequence::SequenceId;
+    use crate::sequence::SequentialArrayStreamExt;
+    use crate::test::SESSION;
+
+    #[tokio::test]
     async fn test_simple() {
         let elements = StructArray::new(
             FieldNames::from(["a", "b"]),
@@ -282,17 +300,14 @@ mod tests {
         let segments = Arc::new(TestSegments::default());
         let writer = Arc::new(ListStrategy::new(
             Arc::new(FlatLayoutStrategy::default()),
-            Arc::new(StructStrategy::new(
-                FlatLayoutStrategy::default(),
-                FlatLayoutStrategy::default(),
-            )),
+            Arc::new(TableStrategy::default()),
             Arc::new(FlatLayoutStrategy::default()),
         ));
 
         let (ptr, eof) = SequenceId::root().split();
-        let stream = list.to_array_stream().sequenced(ptr);
+        let stream = list.clone().to_array_stream().sequenced(ptr);
 
-        let summary = writer
+        let list_layout = writer
             .write_stream(
                 ArrayContext::empty(),
                 segments.clone(),
@@ -303,6 +318,17 @@ mod tests {
             .await
             .unwrap();
 
-        // Read the segments
+        let reader = list_layout
+            .new_reader(Arc::from("test_data"), segments.clone(), &*SESSION)
+            .unwrap();
+
+        // Read the data back out directly.
+        let result = reader
+            .projection_evaluation(&(0..3), &root(), MaskFuture::new_true(3))
+            .unwrap()
+            .await
+            .unwrap();
+
+        assert_arrays_eq!(result, list);
     }
 }
