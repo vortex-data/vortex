@@ -67,10 +67,10 @@ def test_table_encode():
     )
 
 
-@pytest.mark.skip(reason="We have no way to guarantee that the bench-vortex data has been downloaded.")
+@pytest.mark.skip(reason="We have no way to guarantee that the vortex-bench data has been downloaded.")
 def test_taxi():
     curdir = Path(os.path.dirname(__file__)).parent.parent
-    table = pq.read_table(curdir / "bench-vortex/data/yellow-tripdata-2023-11.parquet")  # pyright: ignore[reportUnknownMemberType]
+    table = pq.read_table(curdir / "vortex-bench/data/yellow-tripdata-2023-11.parquet")  # pyright: ignore[reportUnknownMemberType]
     compressed = vortex.compress(vortex.array(table[:100]))
     decompressed = compressed.to_arrow_array()
     assert len(decompressed) == 100

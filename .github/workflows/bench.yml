@@ -69,7 +69,7 @@ jobs:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         # The main difference between this and `bench-pr.yml` is that we add the `lance` feature.
         run: |
-          cargo build --bin ${{ matrix.benchmark.id }} --package bench-vortex --profile release_debug --features lance
+          cargo build --bin ${{ matrix.benchmark.id }} --package vortex-bench --profile release_debug --features lance
 
       - name: Setup Polar Signals
         uses: polarsignals/gh-actions-ps-profiling@v0.6.0
@@ -85,7 +85,7 @@ jobs:
         env:
           RUST_BACKTRACE: full
         run: |
-          target/release_debug/${{ matrix.benchmark.id }} -d gh-json -o ${{ matrix.benchmark.id }}.json --formats parquet,lance,vortex
+          target/release_debug/${{ matrix.benchmark.id }} -d gh-json --formats parquet,lance,vortex
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v5
@@ -96,7 +96,8 @@ jobs:
       - name: Upload Benchmark Results
         shell: bash
         run: |
-          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json.gz ${{ matrix.benchmark.id }}.json
+          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json.gz target/vortex-bench/${{ matrix.benchmark.id }}/results.json
+
   sql:
     uses: ./.github/workflows/sql-benchmarks.yml
     secrets: inherit
@@ -109,73 +110,71 @@ jobs:
             "subcommand": "clickbench",
             "name": "Clickbench on NVME",
             "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,datafusion:lance,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
-            "build_args": "--features lance"
+            "build_lance": true
           },
           {
             "id": "tpch-nvme",
             "subcommand": "tpch",
             "name": "TPC-H SF=1 on NVME",
             "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,datafusion:lance,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
-            "scale_factor": "--scale-factor 1.0",
-            "build_args": "--features lance"
+            "scale_factor": "1.0",
+            "build_lance": true
           },
           {
             "id": "tpch-s3",
             "subcommand": "tpch",
             "name": "TPC-H SF=1 on S3",
-            "local_dir": "bench-vortex/data/tpch/1.0",
+            "local_dir": "vortex-bench/data/tpch/1.0",
             "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/${{github.run_id}}/tpch/1.0/",
             "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,datafusion:lance,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
-            "scale_factor": "--scale-factor 1.0",
-            "build_args": "--features lance"
+            "scale_factor": "1.0",
+            "build_lance": true
           },
           {
             "id": "tpch-nvme-10",
             "subcommand": "tpch",
             "name": "TPC-H SF=10 on NVME",
             "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,datafusion:lance,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
-            "scale_factor": "--scale-factor 10.0",
-            "build_args": "--features lance"
+            "scale_factor": "10.0",
+            "build_lance": true
           },
           {
             "id": "tpch-s3-10",
             "subcommand": "tpch",
             "name": "TPC-H SF=10 on S3",
-            "local_dir": "bench-vortex/data/tpch/10.0",
+            "local_dir": "vortex-bench/data/tpch/10.0",
             "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/${{github.run_id}}/tpch/10.0/",
             "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,datafusion:lance,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
-            "scale_factor": "--scale-factor 10.0",
-            "build_args": "--features lance"
+            "scale_factor": "10.0",
+            "build_lance": true
           },
           {
             "id": "tpcds-nvme",
             "subcommand": "tpcds",
             "name": "TPC-DS SF=1 on NVME",
             "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
-            "scale_factor": "--scale-factor 1.0"
+            "scale_factor": "1.0"
           },
           {
             "id": "statpopgen",
             "subcommand": "statpopgen",
             "name": "Statistical and Population Genetics",
-            "local_dir": "bench-vortex/data/statpopgen",
+            "local_dir": "vortex-bench/data/statpopgen",
             "targets": "duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
-            "scale_factor": "--scale-factor 100"
+            "scale_factor": "100"
           },
           {
             "id": "fineweb",
             "subcommand": "fineweb",
             "name": "FineWeb NVMe",
-            "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
-            "scale_factor": "--scale-factor 100"
+            "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact"
           },
           {
             "id": "fineweb-s3",
             "subcommand": "fineweb",
             "name": "FineWeb S3",
-            "local_dir": "bench-vortex/data/fineweb",
+            "local_dir": "vortex-bench/data/fineweb",
             "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/${{github.run_id}}/fineweb/",
-            "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
-            "scale_factor": "--scale-factor 100"
+            "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact"
           },
         ]

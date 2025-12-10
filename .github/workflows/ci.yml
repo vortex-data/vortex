@@ -399,7 +399,8 @@ jobs:
         if: ${{ matrix.suite == 'tpc-h' }}
         # We use i2 to ensure that restarting the duckdb connection succeeds
         run: |
-          cargo run --bin query_bench -- tpch -i2 --targets "datafusion:vortex,datafusion:vortex-compact,duckdb:vortex,duckdb:vortex-compact" --scale-factor 0.1
+          cargo run --bin df-bench -- tpch -i2 --formats "vortex,vortex-compact" --options scale-factor=0.1
+          cargo run --bin ddb-bench -- tpch -i2 --formats "vortex,vortex-compact" --options scale-factor=0.1
       - name: Run FFI Example
         if: ${{ matrix.suite == 'ffi' }}
         run: |
@@ -411,12 +412,12 @@ jobs:
         run: |
           grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
             --threads $(nproc) \
-            --ignore '../*' --ignore '/*' --ignore 'fuzz/*' --ignore 'bench-vortex/*' \
+            --ignore '../*' --ignore '/*' --ignore 'fuzz/*' --ignore 'vortex-bench/*' \
             --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*' --ignore 'vortex-error/*' \
             --ignore 'vortex-python/*' --ignore 'vortex-jni/*' --ignore 'vortex-flatbuffers/*' \
             --ignore 'vortex-proto/*' --ignore 'vortex-tui/*' --ignore 'vortex-datafusion/examples/*' \
             --ignore 'vortex-ffi/examples/*' --ignore '*/arbitrary/*' --ignore '*/arbitrary.rs' --ignore 'vortex-cxx/*' \
-            --ignore 'vortex-gpu/*' \
+            --ignore 'vortex-gpu/*' --ignore benchmarks/* \
             -o ${{ env.GRCOV_OUTPUT_FILE }}
       - name: Codecov
         uses: codecov/codecov-action@v5
@@ -528,10 +529,10 @@ jobs:
           tool: nextest
       - name: Rust Tests (Windows)
         if: matrix.os == 'windows-x64'
-        run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude bench-vortex --exclude vortex-python --exclude vortex-duckdb --exclude vortex-fuzz
+        run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude vortex-python --exclude vortex-duckdb --exclude vortex-fuzz
       - name: Rust Tests (Other)
         if: matrix.os != 'windows-x64'
-        run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude bench-vortex --exclude vortex-duckdb
+        run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude vortex-duckdb
 
   build-java:
     name: "Java"

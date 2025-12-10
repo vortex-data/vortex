@@ -1,0 +1,245 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::borrow::Cow;
+use std::fmt;
+use std::time::Duration;
+use std::time::Instant;
+
+use anyhow::Result;
+use async_trait::async_trait;
+use bytes::Bytes;
+use clap::ValueEnum;
+use serde::Serialize;
+use vortex::array::Array;
+use vortex::utils::aliases::hash_map::HashMap;
+
+use crate::Format;
+use crate::measurements::CompressionTimingMeasurement;
+use crate::measurements::CustomUnitMeasurement;
+
+// ============================================================================
+// Measurement types
+// ============================================================================
+
+#[derive(Default)]
+pub struct CompressMeasurements {
+    pub timings: Vec<CompressionTimingMeasurement>,
+    pub ratios: Vec<CustomUnitMeasurement>,
+}
+
+impl Extend<CompressMeasurements> for CompressMeasurements {
+    fn extend<T: IntoIterator<Item = CompressMeasurements>>(&mut self, iter: T) {
+        iter.into_iter().for_each(|measurement| {
+            self.timings.extend(measurement.timings);
+            self.ratios.extend(measurement.ratios);
+        })
+    }
+}
+
+impl FromIterator<CompressMeasurements> for CompressMeasurements {
+    fn from_iter<T: IntoIterator<Item = CompressMeasurements>>(iter: T) -> Self {
+        let mut into_iter = iter.into_iter();
+        match into_iter.next() {
+            None => CompressMeasurements::default(),
+            Some(mut ms) => {
+                ms.extend(into_iter);
+                ms
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, ValueEnum, Serialize)]
+pub enum CompressOp {
+    Compress,
+    Decompress,
+}
+
+impl fmt::Display for CompressOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CompressOp::Compress => write!(f, "Compress"),
+            CompressOp::Decompress => write!(f, "Decompress"),
+        }
+    }
+}
+
+/// Result of a compression benchmark run.
+pub struct CompressResult {
+    pub time: Duration,
+    pub compressed_size: u64,
+    pub timing: CompressionTimingMeasurement,
+    pub ratios: Vec<CustomUnitMeasurement>,
+}
+
+/// Result of a decompression benchmark run.
+pub struct DecompressResult {
+    pub time: Duration,
+    pub timing: CompressionTimingMeasurement,
+}
+
+// ============================================================================
+// Compressor trait
+// ============================================================================
+
+/// Trait for format-specific compression/decompression operations.
+///
+/// Implementations handle the actual compression logic for a specific format
+/// (e.g., Vortex, Parquet, Lance). The benchmark functions use this trait
+/// to run timing measurements.
+#[async_trait]
+pub trait Compressor: Send + Sync {
+    /// The format this compressor handles.
+    fn format(&self) -> Format;
+
+    /// Compress the array data, returning the compressed bytes.
+    async fn compress(&self, array: &dyn Array) -> Result<Bytes>;
+
+    /// Decompress the data, returning the decompressed size in bytes.
+    async fn decompress(&self, data: Bytes) -> Result<usize>;
+}
+
+// ============================================================================
+// Benchmark functions
+// ============================================================================
+
+/// Run a compression benchmark for the given compressor.
+///
+/// Executes compression `iterations` times and returns timing statistics.
+pub async fn benchmark_compress(
+    compressor: &dyn Compressor,
+    uncompressed: &dyn Array,
+    iterations: usize,
+    bench_name: &str,
+) -> Result<CompressResult> {
+    let format = compressor.format();
+    let mut fastest = Duration::MAX;
+    let mut compressed_size = 0u64;
+
+    for _ in 0..iterations {
+        let start = Instant::now();
+        let compressed = compressor.compress(uncompressed).await?;
+        let elapsed = start.elapsed();
+
+        compressed_size = compressed.len() as u64;
+        fastest = fastest.min(elapsed);
+    }
+
+    let ratios = vec![CustomUnitMeasurement {
+        name: format!("{} size/{bench_name}", format.name()),
+        format,
+        unit: Cow::from("bytes"),
+        value: compressed_size as f64,
+    }];
+
+    let timing = CompressionTimingMeasurement {
+        name: format!("compress time/{bench_name}"),
+        time: fastest,
+        format,
+    };
+
+    Ok(CompressResult {
+        time: fastest,
+        compressed_size,
+        timing,
+        ratios,
+    })
+}
+
+/// Run a decompression benchmark for the given compressor.
+///
+/// First compresses the data to get compressed bytes, then benchmarks
+/// decompression `iterations` times.
+pub async fn benchmark_decompress(
+    compressor: &dyn Compressor,
+    uncompressed: &dyn Array,
+    iterations: usize,
+    bench_name: &str,
+) -> Result<DecompressResult> {
+    let format = compressor.format();
+
+    // First compress to get the bytes we'll decompress
+    let compressed = compressor.compress(uncompressed).await?;
+
+    let mut fastest = Duration::MAX;
+
+    for _ in 0..iterations {
+        let start = Instant::now();
+        let _ = compressor.decompress(compressed.clone()).await?;
+        let elapsed = start.elapsed();
+
+        fastest = fastest.min(elapsed);
+    }
+
+    let timing = CompressionTimingMeasurement {
+        name: format!("decompress time/{bench_name}"),
+        time: fastest,
+        format,
+    };
+
+    Ok(DecompressResult {
+        time: fastest,
+        timing,
+    })
+}
+
+// ============================================================================
+// Ratio calculations
+// ============================================================================
+
+/// Calculate cross-format comparison ratios.
+pub fn calculate_ratios(
+    measurements: &HashMap<(Format, CompressOp), Duration>,
+    compressed_sizes: &HashMap<Format, u64>,
+    bench_name: &str,
+    ratios: &mut Vec<CustomUnitMeasurement>,
+) {
+    calculate_vortex_parquet_ratios(measurements, compressed_sizes, bench_name, ratios);
+}
+
+fn calculate_vortex_parquet_ratios(
+    measurements: &HashMap<(Format, CompressOp), Duration>,
+    compressed_sizes: &HashMap<Format, u64>,
+    bench_name: &str,
+    ratios: &mut Vec<CustomUnitMeasurement>,
+) {
+    // Size ratio: vortex vs parquet.
+    if let (Some(vortex_size), Some(parquet_size)) = (
+        compressed_sizes.get(&Format::OnDiskVortex),
+        compressed_sizes.get(&Format::Parquet),
+    ) {
+        ratios.push(CustomUnitMeasurement {
+            name: format!("vortex:parquet-zstd size/{bench_name}"),
+            format: Format::OnDiskVortex,
+            unit: Cow::from("ratio"),
+            value: *vortex_size as f64 / *parquet_size as f64,
+        });
+    }
+
+    // Compress time ratio: vortex vs parquet.
+    if let (Some(vortex_time), Some(parquet_time)) = (
+        measurements.get(&(Format::OnDiskVortex, CompressOp::Compress)),
+        measurements.get(&(Format::Parquet, CompressOp::Compress)),
+    ) {
+        ratios.push(CustomUnitMeasurement {
+            name: format!("vortex:parquet-zstd ratio compress time/{bench_name}"),
+            format: Format::OnDiskVortex,
+            unit: Cow::from("ratio"),
+            value: vortex_time.as_nanos() as f64 / parquet_time.as_nanos() as f64,
+        });
+    }
+
+    // Decompress time ratio: vortex vs parquet.
+    if let (Some(vortex_time), Some(parquet_time)) = (
+        measurements.get(&(Format::OnDiskVortex, CompressOp::Decompress)),
+        measurements.get(&(Format::Parquet, CompressOp::Decompress)),
+    ) {
+        ratios.push(CustomUnitMeasurement {
+            name: format!("vortex:parquet-zstd ratio decompress time/{bench_name}"),
+            format: Format::OnDiskVortex,
+            unit: Cow::from("ratio"),
+            value: vortex_time.as_nanos() as f64 / parquet_time.as_nanos() as f64,
+        });
+    }
+}

@@ -12,7 +12,7 @@ A small, helpful CLI tool for exploring and analyzing Vortex files.
 Using the `tree` subcommand to print the encoding tree for a file:
 
 ```
-$ vx tree ./bench-vortex/data/tpch/1/vortex_compressed/nation.vortex
+$ vx tree ./vortex-bench/data/tpch/1/vortex_compressed/nation.vortex
 
 root: vortex.struct(0x04)({n_nationkey=i64, n_name=utf8, n_regionkey=i64, n_comment=utf8?}, len=25) nbytes=3.04 kB (100.00%)
   metadata: StructMetadata { validity: NonNullable }
@@ -48,7 +48,7 @@ root: vortex.struct(0x04)({n_nationkey=i64, n_name=utf8, n_regionkey=i64, n_comm
 Opening an interactive TUI to browse the sample file:
 
 ```
-vx browse ./bench-vortex/data/tpch/1/vortex_compressed/nation.vortex
+vx browse ./vortex-bench/data/tpch/1/vortex_compressed/nation.vortex
 ```
 
 ### Inspecting File Footer
