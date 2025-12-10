@@ -44,8 +44,8 @@ impl Display for StructScalar<'_> {
                 let formatted_fields = self
                     .names()
                     .iter()
-                    .zip_eq(self.struct_fields().fields())
-                    .zip_eq(fields.iter())
+                    .zip(self.struct_fields().fields())
+                    .zip(fields.iter())
                     .map(|((name, dtype), value)| {
                         let val = Scalar::new(dtype, value.clone());
                         format!("{name}: {val}")

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use num_traits::AsPrimitive;
 use num_traits::CheckedAdd;
 use vortex_buffer::BitBuffer;
@@ -112,7 +111,7 @@ fn sum_decimal_with_validity<T: AsPrimitive<I>, I: Copy + CheckedAdd + 'static>(
     initial: I,
 ) -> Option<I> {
     let mut sum = initial;
-    for (v, valid) in values.iter().zip_eq(validity) {
+    for (v, valid) in values.iter().zip(validity) {
         if valid {
             let v: I = v.as_();
             sum = CheckedAdd::checked_add(&sum, &v)?;

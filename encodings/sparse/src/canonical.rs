@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use itertools::Itertools;
 use num_traits::NumCast;
 use vortex_array::Array;
 use vortex_array::Canonical;
@@ -410,12 +409,10 @@ fn canonicalize_sparse_struct(
     };
 
     StructArray::try_from_iter_with_validity(
-        names.iter().zip_eq(
-            columns_patch_values
-                .iter()
-                .cloned()
-                .zip_eq(fill_values)
-                .map(|(patch_values, fill_value)| unsafe {
+        names
+            .iter()
+            .zip(columns_patch_values.iter().cloned().zip(fill_values).map(
+                |(patch_values, fill_value)| unsafe {
                     SparseArray::new_unchecked(
                         unresolved_patches
                             .clone()
@@ -423,8 +420,8 @@ fn canonicalize_sparse_struct(
                             .vortex_expect("Replacing patch values"),
                         fill_value,
                     )
-                }),
-        ),
+                },
+            )),
         validity,
     )
     .map(Canonical::Struct)
@@ -500,7 +497,7 @@ fn canonicalize_varbin_inner<I: IntegerPType>(
     };
 
     let mut views = buffer_mut![fill; len];
-    for (patch_index, &patch) in indices.into_iter().zip_eq(values.views().iter()) {
+    for (patch_index, &patch) in indices.into_iter().zip(values.views().iter()) {
         let patch_index_usize = <usize as NumCast>::from(patch_index)
             .vortex_expect("var bin view indices must fit in usize");
         views[patch_index_usize] = patch;

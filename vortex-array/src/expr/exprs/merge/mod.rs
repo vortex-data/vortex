@@ -98,7 +98,7 @@ impl VTable for Merge {
 
             merge_nullability |= dtype.nullability();
 
-            for (field_name, field_dtype) in fields.names().iter().zip_eq(fields.fields()) {
+            for (field_name, field_dtype) in fields.names().iter().zip(fields.fields()) {
                 if let Some(idx) = field_names.iter().position(|name| name == field_name) {
                     duplicate_names.insert(field_name.clone());
                     arrays[idx] = field_dtype;
@@ -139,7 +139,7 @@ impl VTable for Merge {
             }
             let array = array.to_struct();
 
-            for (field_name, array) in array.names().iter().zip_eq(array.fields().iter().cloned()) {
+            for (field_name, array) in array.names().iter().zip(array.fields().iter().cloned()) {
                 // Update or insert field.
                 if let Some(idx) = field_names.iter().position(|name| name == field_name) {
                     duplicate_names.insert(field_name.clone());

@@ -5,7 +5,6 @@ use std::future;
 use std::sync::Arc;
 
 use futures::StreamExt;
-use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::ToCanonical as _;
@@ -97,7 +96,7 @@ impl FileStatsAccumulator {
                 .accumulators
                 .lock()
                 .iter_mut()
-                .zip_eq(chunk.fields().iter())
+                .zip(chunk.fields().iter())
             {
                 acc.push_chunk(field)?;
             }

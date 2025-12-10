@@ -907,7 +907,7 @@ unsafe fn apply_patches_to_buffer_inner<P, I>(
     match patches_validity {
         Validity::NonNullable | Validity::AllValid => {
             // All patch values are valid, apply them all.
-            for (&i, &value) in patch_indices.iter().zip_eq(patch_values) {
+            for (&i, &value) in patch_indices.iter().zip(patch_values) {
                 let index = i.as_() - patch_offset;
 
                 // SAFETY: `index` is valid because caller guarantees all patch indices are within
@@ -934,7 +934,7 @@ unsafe fn apply_patches_to_buffer_inner<P, I>(
             // Some patch values may be null, check each one.
             let bool_array = array.to_bool();
             let mask = bool_array.bit_buffer();
-            for (patch_idx, (&i, &value)) in patch_indices.iter().zip_eq(patch_values).enumerate() {
+            for (patch_idx, (&i, &value)) in patch_indices.iter().zip(patch_values).enumerate() {
                 let index = i.as_() - patch_offset;
 
                 // SAFETY: `index` and `patch_idx` are valid because caller guarantees all patch

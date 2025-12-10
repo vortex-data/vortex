@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use fastlanes::BitPacking;
-use itertools::Itertools;
 use num_traits::PrimInt;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -313,7 +312,7 @@ fn bit_width_histogram_typed<T: NativePType + PrimInt>(
         }
         AllOr::Some(buffer) => {
             // Some values are valid
-            for (is_valid, v) in buffer.iter().zip_eq(array.as_slice::<T>()) {
+            for (is_valid, v) in buffer.iter().zip(array.as_slice::<T>()) {
                 if is_valid {
                     bit_widths[bit_width(*v)] += 1;
                 } else {

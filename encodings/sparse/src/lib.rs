@@ -4,7 +4,6 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use itertools::Itertools as _;
 use num_traits::AsPrimitive;
 use prost::Message as _;
 use vortex_array::Array;
@@ -438,7 +437,7 @@ fn patch_validity<I: NativePType + AsPrimitive<usize>>(
         }
         Mask::Values(mask_values) => {
             let is_valid = mask_values.bit_buffer().iter();
-            for (index, is_valid) in indices.zip_eq(is_valid) {
+            for (index, is_valid) in indices.zip(is_valid) {
                 is_valid_buffer.set_to(index, is_valid);
             }
         }

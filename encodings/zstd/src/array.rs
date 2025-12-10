@@ -6,7 +6,6 @@ use std::hash::Hash;
 use std::ops::Range;
 use std::sync::Arc;
 
-use itertools::Itertools as _;
 use prost::Message as _;
 use vortex_array::ArrayBufferVisitor;
 use vortex_array::ArrayChildVisitor;
@@ -621,7 +620,7 @@ impl ZstdArray {
                         );
 
                         let mut views = BufferMut::<BinaryView>::zeroed(slice_n_rows);
-                        for (view, index) in valid_views.into_iter().zip_eq(valid_indices) {
+                        for (view, index) in valid_views.into_iter().zip(valid_indices) {
                             views[*index] = view
                         }
 

@@ -197,7 +197,7 @@ impl StructReader {
                 partitioned.partitions = partitioned
                     .partitions
                     .iter()
-                    .zip_eq(partitioned.partition_names.iter())
+                    .zip(partitioned.partition_names.iter())
                     .map(|(e, name)| replace(e.clone(), &col(name.clone()), root()))
                     .collect();
 

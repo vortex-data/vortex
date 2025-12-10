@@ -46,8 +46,8 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
         let field_evals: Vec<_> = self
             .partition_annotations
             .iter()
-            .zip_eq(self.partitions.iter())
-            .zip_eq(self.partition_dtypes.iter())
+            .zip(self.partitions.iter())
+            .zip(self.partition_dtypes.iter())
             .map(|((annotation, expr), dtype)| {
                 Ok::<_, VortexError>(if matches!(dtype, DType::Bool(Nullability::NonNullable)) {
                     // If the partition evaluates to a boolean, we can evaluate it as a mask which
@@ -103,7 +103,7 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
         let field_evals: Vec<_> = self
             .partition_annotations
             .iter()
-            .zip_eq(self.partitions.iter())
+            .zip(self.partitions.iter())
             .map(|(annotation, expr)| array_fn(annotation, expr, mask.clone()))
             .try_collect()?;
 

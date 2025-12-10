@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -42,7 +41,7 @@ impl CastKernel for StructVTable {
             array
                 .fields()
                 .iter()
-                .zip_eq(target_sdtype.fields())
+                .zip(target_sdtype.fields())
                 .map(|(field, dtype)| cast(field, &dtype))
                 .collect::<Result<Vec<_>, _>>()?,
             array.len(),

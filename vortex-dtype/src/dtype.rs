@@ -191,7 +191,7 @@ impl DType {
                 (lhs_dtype.names() == rhs_dtype.names())
                     && (lhs_dtype
                         .fields()
-                        .zip_eq(rhs_dtype.fields())
+                        .zip(rhs_dtype.fields())
                         .all(|(l, r)| l.eq_ignore_nullability(&r)))
             }
             (Extension(lhs_extdtype), Extension(rhs_extdtype)) => {

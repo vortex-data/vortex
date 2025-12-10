@@ -3,7 +3,6 @@
 
 use std::hash::Hash;
 
-use itertools::Itertools;
 use num_traits::Float;
 use rustc_hash::FxBuildHasher;
 use vortex_array::ToCanonical;
@@ -177,7 +176,7 @@ where
         AllOr::Some(v) => {
             for (&value, valid) in first_valid_buff
                 .iter()
-                .zip_eq(v.slice(head_idx..array.len()).iter())
+                .zip(v.slice(head_idx..array.len()).iter())
             {
                 if valid {
                     if count_distinct_values {

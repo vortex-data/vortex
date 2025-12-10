@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
@@ -203,7 +202,7 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
     match values_validity {
         Mask::AllTrue(_) => {
             let mut decoded: BufferMut<T> = BufferMut::with_capacity(length);
-            for (end, value) in run_ends.zip_eq(values) {
+            for (end, value) in run_ends.zip(values) {
                 assert!(end <= length, "Runend end must be less than overall length");
                 // SAFETY:
                 // We preallocate enough capacity because we know the total length
@@ -215,7 +214,7 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
         Mask::Values(mask) => {
             let mut decoded = BufferMut::with_capacity(length);
             let mut decoded_validity = BitBufferMut::with_capacity(length);
-            for (end, value) in run_ends.zip_eq(
+            for (end, value) in run_ends.zip(
                 values
                     .iter()
                     .zip(mask.bit_buffer().iter())
@@ -252,7 +251,7 @@ pub fn runend_decode_typed_bool(
     match values_validity {
         Mask::AllTrue(_) => {
             let mut decoded = BitBufferMut::with_capacity(length);
-            for (end, value) in run_ends.zip_eq(values.iter()) {
+            for (end, value) in run_ends.zip(values.iter()) {
                 decoded.append_n(value, end - decoded.len());
             }
             BoolArray::from_bit_buffer(decoded.freeze(), values_nullability.into())
@@ -263,7 +262,7 @@ pub fn runend_decode_typed_bool(
         Mask::Values(mask) => {
             let mut decoded = BitBufferMut::with_capacity(length);
             let mut decoded_validity = BitBufferMut::with_capacity(length);
-            for (end, value) in run_ends.zip_eq(
+            for (end, value) in run_ends.zip(
                 values
                     .iter()
                     .zip(mask.bit_buffer().iter())

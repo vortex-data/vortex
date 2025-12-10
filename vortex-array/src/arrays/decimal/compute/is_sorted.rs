@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexResult;
@@ -53,7 +52,7 @@ where
             let iter = mask_values
                 .bit_buffer()
                 .iter()
-                .zip_eq(values)
+                .zip(values)
                 .map(|(is_valid, v)| is_valid.then_some(v));
 
             Ok(if strict {

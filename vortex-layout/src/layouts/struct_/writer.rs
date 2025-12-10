@@ -8,7 +8,6 @@ use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::future::try_join_all;
 use futures::pin_mut;
-use itertools::Itertools;
 use vortex_array::Array;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
@@ -128,7 +127,7 @@ impl LayoutStrategy for StructStrategy {
                 while let Some(result) = columns_vec_stream.next().await {
                     match result {
                         Ok(columns) => {
-                            for (tx, column) in column_streams_tx.iter().zip_eq(columns.into_iter())
+                            for (tx, column) in column_streams_tx.iter().zip(columns.into_iter())
                             {
                                 let _ = tx.send(Ok(column)).await;
                             }
@@ -156,7 +155,7 @@ impl LayoutStrategy for StructStrategy {
 
         let layout_futures: Vec<_> = column_dtypes
             .into_iter()
-            .zip_eq(column_streams_rx)
+            .zip(column_streams_rx)
             .enumerate()
             .map(move |(index, (dtype, recv))| {
                 let column_stream =

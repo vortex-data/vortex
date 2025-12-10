@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
@@ -77,7 +76,7 @@ fn compute_is_sorted<T: NativePType>(array: &PrimitiveArray, strict: bool) -> Vo
             let iter = mask_values
                 .bit_buffer()
                 .iter()
-                .zip_eq(array.as_slice::<T>())
+                .zip(array.as_slice::<T>())
                 .map(|(is_valid, value)| is_valid.then_some(ComparablePrimitive::from(value)));
 
             Ok(if strict {

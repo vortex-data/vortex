@@ -124,7 +124,7 @@ impl VTable for Pack {
         let value_arrays = expr
             .children()
             .iter()
-            .zip_eq(expr.data().names.iter())
+            .zip(expr.data().names.iter())
             .map(|(child_expr, name)| {
                 child_expr
                     .evaluate(scope)

@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use fastlanes::BitPacking;
-use itertools::Itertools;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::ArrayBuilder;
@@ -151,7 +150,7 @@ fn insert_values_and_validity_at_indices_to_uninit_range<
         vortex_panic!("BitPackedArray somehow had nullable patch values");
     };
 
-    for (index, &value) in indices.iter().zip_eq(values) {
+    for (index, &value) in indices.iter().zip(values) {
         dst.set_value(index.as_() - indices_offset, f(value));
     }
 }

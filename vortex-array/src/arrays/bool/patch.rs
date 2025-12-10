@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use vortex_dtype::match_each_unsigned_integer_ptype;
 
 use crate::ToCanonical;
@@ -26,7 +25,7 @@ impl BoolArray {
             for (idx, value) in indices
                 .as_slice::<I>()
                 .iter()
-                .zip_eq(values.bit_buffer().iter())
+                .zip(values.bit_buffer().iter())
             {
                 #[allow(clippy::cast_possible_truncation)]
                 own_values.set_to(*idx as usize - offset, value);

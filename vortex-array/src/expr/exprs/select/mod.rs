@@ -136,7 +136,7 @@ impl VTable for Select {
                 .names()
                 .iter()
                 .cloned()
-                .zip_eq(child_struct_dtype.fields())
+                .zip(child_struct_dtype.fields())
                 .filter(|(name, _)| !fields.as_ref().contains(name))
                 .collect(),
         };

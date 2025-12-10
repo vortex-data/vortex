@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use num_traits::CheckedAdd;
 use num_traits::Float;
 use num_traits::ToPrimitive;
@@ -75,7 +74,7 @@ fn sum_integer_with_validity<T: NativePType + ToPrimitive, R: NativePType + Chec
     accumulator: R,
 ) -> Option<R> {
     let mut sum: R = accumulator;
-    for (&x, valid) in values.iter().zip_eq(validity.iter()) {
+    for (&x, valid) in values.iter().zip(validity.iter()) {
         if valid {
             sum = sum.checked_add(&R::from(x)?)?;
         }
@@ -97,7 +96,7 @@ fn sum_float_with_validity<T: NativePType + Float>(
     accumulator: f64,
 ) -> f64 {
     let mut sum = accumulator;
-    for (&x, valid) in array.iter().zip_eq(validity.iter()) {
+    for (&x, valid) in array.iter().zip(validity.iter()) {
         if valid {
             sum += x.to_f64().vortex_expect("Failed to cast value to f64");
         }

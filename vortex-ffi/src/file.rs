@@ -13,7 +13,6 @@ use std::slice;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use itertools::Itertools;
 use object_store::ObjectStore;
 use object_store::ObjectStoreScheme;
 use object_store::aws::AmazonS3Builder;
@@ -350,7 +349,7 @@ fn make_object_store(
         ObjectStoreScheme::AmazonS3 => {
             log::trace!("using AmazonS3 object store");
             let mut builder = AmazonS3Builder::new().with_url(url.to_string());
-            for (key, val) in property_keys.iter().zip_eq(property_vals.iter()) {
+            for (key, val) in property_keys.iter().zip(property_vals.iter()) {
                 if let Ok(config_key) = AmazonS3ConfigKey::from_str(key.as_str()) {
                     builder = builder.with_config(config_key, val);
                 } else {

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -88,7 +87,7 @@ where
             Mask::Values(is_valid) => {
                 let (pos, vals): (BufferMut<u64>, BufferMut<T>) = exceptional_positions
                     .into_iter()
-                    .zip_eq(exceptional_values)
+                    .zip(exceptional_values)
                     .filter(|(index, _)| {
                         let is_valid = is_valid.value(*index as usize);
                         if !is_valid {

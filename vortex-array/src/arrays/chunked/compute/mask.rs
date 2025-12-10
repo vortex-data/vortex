@@ -105,7 +105,7 @@ fn mask_slices(
     array
         .chunks()
         .iter()
-        .zip_eq(chunked_filters)
+        .zip(chunked_filters)
         .map(|(chunk, chunk_filter)| -> VortexResult<ArrayRef> {
             match chunk_filter {
                 ChunkFilter::All => {

@@ -159,7 +159,7 @@ impl GpuStructReader {
                 partitioned.partitions = partitioned
                     .partitions
                     .iter()
-                    .zip_eq(partitioned.partition_names.iter())
+                    .zip(partitioned.partition_names.iter())
                     .map(|(e, name)| replace(e.clone(), &col(name.clone()), root()))
                     .collect();
 
@@ -223,7 +223,7 @@ impl GpuLayoutReader for GpuStructReader {
                 let field_evals: Vec<_> = partitioned
                     .partition_annotations
                     .iter()
-                    .zip_eq(partitioned.partitions.iter())
+                    .zip(partitioned.partitions.iter())
                     .map(|(annotation, expr)| {
                         self.child(annotation)?
                             .projection_evaluation(row_range, expr)

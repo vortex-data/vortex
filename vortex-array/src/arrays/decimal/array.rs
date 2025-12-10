@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -311,7 +310,7 @@ where
         )
     }
 
-    for (idx, value) in patch_indices.iter().zip_eq(patch_values.into_iter()) {
+    for (idx, value) in patch_indices.iter().zip(patch_values.into_iter()) {
         buffer[idx.as_() - patch_indices_offset] = <ValuesDVT as BigCast>::from(value).vortex_expect(
             "values of a given DecimalDType are representable in all compatible NativeDecimalType",
         );

@@ -3,7 +3,6 @@
 
 use std::ops::Range;
 
-use itertools::Itertools;
 use lending_iterator::LendingIterator;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::IS_CONST_LANE_WIDTH;
@@ -159,7 +158,7 @@ fn apply_patches_idx_typed<T: BitPacked, I: IntegerPType>(
     for (i, &v) in patch_indices
         .iter()
         .map(|i| i.as_() - indices_offset)
-        .zip_eq(patch_values)
+        .zip(patch_values)
         .skip_while(|(i, _)| i < &values_range.start)
         .take_while(|(i, _)| i < &values_range.end)
     {

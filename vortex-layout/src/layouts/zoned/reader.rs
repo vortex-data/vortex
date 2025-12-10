@@ -269,7 +269,7 @@ impl LayoutReader for ZonedReader {
             let pruning_mask = pruning_mask_future.await?.mask()?;
 
             let mut builder = BitBufferMut::with_capacity(mask.len());
-            for (zone_idx, &zone_length) in zone_range.clone().zip_eq(&zone_lengths) {
+            for (zone_idx, &zone_length) in zone_range.clone().zip(&zone_lengths) {
                 builder.append_n(!pruning_mask.value(usize::try_from(zone_idx)?), zone_length);
             }
 

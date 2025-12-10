@@ -6,7 +6,6 @@ use std::fmt;
 use std::ops::Index;
 use std::sync::Arc;
 
-use itertools::Itertools;
 use vortex_utils::aliases::StringEscape;
 
 /// A name for a field in a struct.
@@ -161,7 +160,7 @@ impl PartialEq<&FieldNames> for FieldNames {
 
 impl PartialEq<&[&str]> for FieldNames {
     fn eq(&self, other: &&[&str]) -> bool {
-        self.len() == other.len() && self.iter().zip_eq(other.iter()).all(|(l, r)| l == r)
+        self.len() == other.len() && self.iter().zip(other.iter()).all(|(l, r)| l == r)
     }
 }
 
@@ -361,6 +360,8 @@ impl<F: Into<FieldName>> FromIterator<F> for FieldNames {
 
 #[cfg(test)]
 mod tests {
+    use itertools::Itertools;
+
     use super::*;
 
     #[test]

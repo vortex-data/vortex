@@ -3,7 +3,6 @@
 
 use std::any::Any;
 
-use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::StructFields;
@@ -74,7 +73,7 @@ impl StructBuilder {
         }
 
         if let Some(fields) = struct_scalar.fields() {
-            for (builder, field) in self.builders.iter_mut().zip_eq(fields) {
+            for (builder, field) in self.builders.iter_mut().zip(fields) {
                 builder.append_scalar(&field)?;
             }
             self.nulls.append_non_null();
@@ -169,12 +168,7 @@ impl ArrayBuilder for StructBuilder {
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
         let array = array.to_struct();
 
-        for (a, builder) in array
-            .fields()
-            .iter()
-            .cloned()
-            .zip_eq(self.builders.iter_mut())
-        {
+        for (a, builder) in array.fields().iter().cloned().zip(self.builders.iter_mut()) {
             a.append_to_builder(builder.as_mut());
         }
 
