@@ -17,6 +17,8 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_vector::Vector;
 
+use crate::arrays::FilterKernel;
+
 /// A boxed reference to a kernel.
 pub type KernelRef = Box<dyn Kernel>;
 
@@ -50,5 +52,15 @@ impl BindCtx {
     /// Get the session associated with this execution context.
     pub fn session(&self) -> &VortexSession {
         &self.session
+    }
+}
+
+impl dyn Kernel + '_ {
+    /// Push-down a filter mask, or else wrap up the kernel to apply the filter later.
+    pub fn force_push_down_filter(self: Box<Self>, selection: &Mask) -> VortexResult<KernelRef> {
+        match self.push_down_filter(selection)? {
+            PushDownResult::Pushed(k) => Ok(k),
+            PushDownResult::NotPushed(k) => Ok(Box::new(FilterKernel::new(k, selection.clone()))),
+        }
     }
 }

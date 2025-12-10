@@ -5,17 +5,21 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_buffer::BufferHandle;
+use vortex_compute::filter::Filter;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_mask::Mask;
+use vortex_vector::Vector;
 use vortex_vector::struct_::StructVector;
 
 use crate::EmptyMetadata;
 use crate::arrays::struct_::StructArray;
 use crate::kernel::BindCtx;
+use crate::kernel::Kernel;
 use crate::kernel::KernelRef;
-use crate::kernel::kernel;
+use crate::kernel::PushDownResult;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -115,11 +119,40 @@ impl VTable for StructVTable {
             .try_collect()?;
         let validity_mask = array.validity_mask();
 
-        Ok(kernel(move || {
-            // SAFETY: we know that all field lengths match the struct array length, and the validity
-            let fields = fields.into_iter().map(|k| k.execute()).try_collect()?;
-            Ok(unsafe { StructVector::new_unchecked(Arc::new(fields), validity_mask) }.into())
+        Ok(Box::new(StructKernel {
+            fields,
+            validity_mask,
         }))
+    }
+}
+
+#[derive(Debug)]
+struct StructKernel {
+    fields: Box<[KernelRef]>,
+    // TODO(ngates): hold a kernel that computes the mask.
+    validity_mask: Mask,
+}
+
+impl Kernel for StructKernel {
+    fn execute(self: Box<Self>) -> VortexResult<Vector> {
+        // SAFETY: we know that all field lengths match the struct array length, and the validity
+        let fields = self.fields.into_iter().map(|k| k.execute()).try_collect()?;
+        Ok(unsafe { StructVector::new_unchecked(Arc::new(fields), self.validity_mask) }.into())
+    }
+
+    fn push_down_filter(self: Box<Self>, selection: &Mask) -> VortexResult<PushDownResult> {
+        let fields = self
+            .fields
+            .into_iter()
+            .map(|k| k.force_push_down_filter(selection))
+            .try_collect()?;
+
+        let validity_mask = self.validity_mask.filter(selection);
+
+        Ok(PushDownResult::Pushed(Box::new(StructKernel {
+            fields,
+            validity_mask,
+        })))
     }
 }
 

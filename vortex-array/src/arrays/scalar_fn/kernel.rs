@@ -8,7 +8,6 @@ use vortex_vector::Datum;
 use vortex_vector::Scalar;
 use vortex_vector::Vector;
 
-use crate::arrays::FilterKernel;
 use crate::expr::ExecutionArgs;
 use crate::expr::ScalarFn;
 use crate::kernel::Kernel;
@@ -63,20 +62,14 @@ impl Kernel for ScalarFnKernel {
 
     fn push_down_filter(self: Box<Self>, selection: &Mask) -> VortexResult<PushDownResult> {
         let mut new_inputs = Vec::with_capacity(self.inputs.len());
-        for (input, dtype) in self.inputs.into_iter().zip(&self.input_dtypes) {
+        for input in self.inputs {
             match input {
                 KernelInput::Scalar(s) => {
                     new_inputs.push(KernelInput::Scalar(s.clone()));
                 }
-                KernelInput::Vector(k) => match k.push_down_filter(selection)? {
-                    PushDownResult::Pushed(new_k) => {
-                        new_inputs.push(KernelInput::Vector(new_k));
-                    }
-                    PushDownResult::NotPushed(k) => {
-                        let new_k = FilterKernel::new(k, selection.clone(), dtype.clone());
-                        new_inputs.push(KernelInput::Vector(Box::new(new_k)));
-                    }
-                },
+                KernelInput::Vector(k) => {
+                    new_inputs.push(KernelInput::Vector(k.force_push_down_filter(selection)?));
+                }
             }
         }
 

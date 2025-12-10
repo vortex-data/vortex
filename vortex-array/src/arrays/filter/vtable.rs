@@ -122,11 +122,7 @@ impl VTable for FilterVTable {
         }
 
         // Otherwise, wrap up the child in a filter kernel.
-        Ok(Box::new(FilterKernel::new(
-            child,
-            mask,
-            array.dtype().clone(),
-        )))
+        Ok(Box::new(FilterKernel::new(child, mask)))
     }
 }
 

@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_compute::filter::Filter;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_vector::Vector;
@@ -15,13 +14,11 @@ use crate::kernel::PushDownResult;
 pub struct FilterKernel {
     child: KernelRef,
     mask: Mask,
-    // Used for estimating filter cost
-    dtype: DType,
 }
 
 impl FilterKernel {
-    pub fn new(child: KernelRef, mask: Mask, dtype: DType) -> Self {
-        Self { child, mask, dtype }
+    pub fn new(child: KernelRef, mask: Mask) -> Self {
+        Self { child, mask }
     }
 }
 
@@ -36,7 +33,6 @@ impl Kernel for FilterKernel {
             PushDownResult::NotPushed(k) => PushDownResult::NotPushed(Box::new(FilterKernel {
                 child: k,
                 mask: new_mask,
-                dtype: self.dtype.clone(),
             })),
             PushDownResult::Pushed(new_k) => PushDownResult::Pushed(new_k),
         })
