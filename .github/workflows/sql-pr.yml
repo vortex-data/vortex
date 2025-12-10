@@ -9,6 +9,7 @@ concurrency:
 on:
   pull_request:
     types: [labeled, synchronize]
+    branches: ["develop"]
   workflow_dispatch: { }
 
 permissions:
