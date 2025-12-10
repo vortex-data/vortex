@@ -125,8 +125,9 @@ impl State {
         }
     }
 
+    #[allow(clippy::cognitive_complexity)]
     fn on_event(&mut self, event: ReadEvent) {
-        tracing::debug!("Received ReadEvent: {:?}", event);
+        tracing::debug!(?event, "Received ReadEvent");
         match event {
             ReadEvent::Request(req) => {
                 self.requests_by_offset.insert((req.offset, req.id));
@@ -140,11 +141,11 @@ impl State {
             ReadEvent::Dropped(req_id) => {
                 if let Some(req) = self.requests.remove(&req_id) {
                     self.requests_by_offset.remove(&(req.offset, req_id));
-                    tracing::debug!("ReadRequest dropped before poll: {:?}", req);
+                    tracing::debug!(?req, "ReadRequest dropped before poll");
                 }
                 if let Some(req) = self.polled_requests.remove(&req_id) {
                     self.requests_by_offset.remove(&(req.offset, req_id));
-                    tracing::debug!("ReadRequest dropped after poll: {:?}", req);
+                    tracing::debug!(?req, "ReadRequest dropped after poll");
                 }
             }
         }

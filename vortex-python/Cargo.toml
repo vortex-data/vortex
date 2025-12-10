@@ -35,7 +35,7 @@ pyo3-bytes = { workspace = true }
 pyo3-log = { workspace = true }
 tokio = { workspace = true, features = ["fs", "rt-multi-thread"] }
 # This feature makes the underlying tracing logs to be emitted as `log` events
-tracing = { workspace = true, features = ["log"] }
+tracing = { workspace = true, features = ["std", "log"] }
 url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "python", "tokio"] }
 

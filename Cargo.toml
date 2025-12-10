@@ -202,7 +202,7 @@ tokio-stream = "0.1.17"
 tokio-util = { version = "0.7.16" }
 tpchgen = { version = "2" }
 tpchgen-arrow = { version = "2" }
-tracing = { version = "0.1.41" }
+tracing = { version = "0.1.41", default-features = false }
 tracing-perfetto = "0.1.5"
 tracing-subscriber = "0.3"
 url = "2.5.7"

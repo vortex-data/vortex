@@ -27,7 +27,7 @@ parking_lot = { workspace = true }
 prost = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
-tracing = { workspace = true }
+tracing = { workspace = true, features = ["std", "log"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "files", "tokio"] }

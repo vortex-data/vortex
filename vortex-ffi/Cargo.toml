@@ -27,7 +27,7 @@ mimalloc = { workspace = true, optional = true }
 object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
 paste = { workspace = true }
 prost = { workspace = true }
-tracing = { workspace = true }
+tracing = { workspace = true, features = ["std", "log"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true, features = [] }
 vortex = { workspace = true, features = ["object_store"] }

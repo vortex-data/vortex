@@ -13,11 +13,11 @@ use anyhow::anyhow;
 use datafusion::prelude::SessionContext;
 use ddb::DuckDBCtx;
 use glob::Pattern;
-use tracing::info;
-use tracing::warn;
 use similar::ChangeTag;
 use similar::TextDiff;
 use tokio::runtime::Runtime;
+use tracing::info;
+use tracing::warn;
 use url::Url;
 
 use crate::BenchmarkDataset;

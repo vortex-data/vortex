@@ -13,7 +13,6 @@ use tracing_subscriber::EnvFilter;
 // Ensure the logger is initialized only once
 static LOGGER_INIT: AtomicBool = AtomicBool::new(false);
 
-#[expect(clippy::expect_used, reason = "logger initialization must succeed")]
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeLogging_initLogging(
     _env: JNIEnv,
