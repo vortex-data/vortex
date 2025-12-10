@@ -133,7 +133,7 @@ impl TableStrategy {
 
     /// Set writers for several fields at once.
     ///
-    /// See also: [`set_field_writer`][Self::set_field_writer].
+    /// See also: [`with_field_writer`][Self::with_field_writer].
     pub fn with_field_writers(
         mut self,
         writers: impl IntoIterator<Item = (FieldPath, Arc<dyn LayoutStrategy>)>,
