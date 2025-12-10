@@ -35,7 +35,13 @@ use crate::sequence::SequencePointer;
 use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt;
 
+/// A write strategy that shreds tabular data into columns and writes each column
+/// as its own distinct stream.
+///
+/// This is now deprecated, users are encouraged to instead use the
+/// [`PathStrategy`][crate::layouts::path::PathStrategy].
 #[derive(Clone)]
+#[deprecated(since = "0.57.0", note = "Use the `PathStrategy` instead.")]
 pub struct StructStrategy {
     child: Arc<dyn LayoutStrategy>,
     validity: Arc<dyn LayoutStrategy>,
