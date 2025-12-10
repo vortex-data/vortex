@@ -27,7 +27,6 @@ use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::Pack;
-use crate::expr::SimplifyCtx;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
@@ -134,43 +133,6 @@ impl VTable for GetItem {
                 Ok(Datum::Vector(field))
             }
         }
-    }
-
-    fn simplify(
-        &self,
-        field_name: &FieldName,
-        expr: &Expression,
-        ctx: &dyn SimplifyCtx,
-    ) -> VortexResult<Option<Expression>> {
-        let child = expr.child(0);
-        let child_dtype = ctx.return_dtype(child)?;
-
-        // If the child is a Pack expression, we can directly return the corresponding child.
-        if let Some(pack) = child.as_opt::<Pack>() {
-            let idx = pack
-                .names
-                .iter()
-                .position(|name| name == field_name)
-                .ok_or_else(|| {
-                    vortex_err!(
-                        "Cannot find field {} in pack fields {:?}",
-                        field_name,
-                        pack.names
-                    )
-                })?;
-
-            let mut field = child.child(idx).clone();
-
-            // If the pack expression is nullable but the child field is not, we need to
-            // adjust the nullability of the resulting expression.
-            if pack.nullability.is_nullable() && !child_dtype.is_nullable() {
-                field = field.cast(child_dtype.as_nullable())?;
-            }
-
-            return Ok(Some(field));
-        }
-
-        Ok(None)
     }
 
     fn simplify_untyped(
