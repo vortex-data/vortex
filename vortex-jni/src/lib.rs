@@ -10,8 +10,9 @@ use vortex::VortexSessionDefault;
 use vortex::error::VortexExpect;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::tokio::TokioRuntime;
-use vortex::io::session::RuntimeSessionExt;
+use vortex::io::session::RuntimeSessionMutExt;
 use vortex::session::VortexSession;
+use vortex::session::VortexSessionRef;
 
 macro_rules! throw_runtime {
     ($($tt:tt)*) => {
@@ -38,5 +39,8 @@ static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
 static RUNTIME: LazyLock<TokioRuntime> =
     LazyLock::new(|| TokioRuntime::from(TOKIO_RUNTIME.handle().clone()));
 /// Shared Vortex session for the JNI instance.
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_handle(RUNTIME.handle()));
+static SESSION: LazyLock<VortexSessionRef> = LazyLock::new(|| {
+    VortexSession::new_with_defaults()
+        .with_handle(RUNTIME.handle())
+        .freeze()
+});

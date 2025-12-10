@@ -54,6 +54,7 @@ use vortex::expr::stats::Stat;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
+use vortex::session::VortexSessionRef;
 
 use super::cache::VortexFileCache;
 use super::sink::VortexSink;
@@ -63,7 +64,7 @@ use crate::convert::TryToDataFusion;
 
 /// Vortex implementation of a DataFusion [`FileFormat`].
 pub struct VortexFormat {
-    session: VortexSession,
+    session: VortexSessionRef,
     file_cache: VortexFileCache,
     opts: VortexOptions,
 }
@@ -95,7 +96,7 @@ impl Eq for VortexOptions {}
 /// Minimal factory to create [`VortexFormat`] instances.
 #[derive(Debug)]
 pub struct VortexFormatFactory {
-    session: VortexSession,
+    session: VortexSessionRef,
     options: Option<VortexOptions>,
 }
 
@@ -106,7 +107,7 @@ impl GetExt for VortexFormatFactory {
 }
 
 impl VortexFormatFactory {
-    /// Creates a new instance with a default [`VortexSession`] and default options.
+    /// Creates a new instance with a default [`VortexSessionRef`] and default options.
     #[expect(
         clippy::new_without_default,
         reason = "FormatFactory defines `default` method, so having `Default` implementation is confusing"
@@ -121,7 +122,7 @@ impl VortexFormatFactory {
     /// Creates a new instance with customized session and default options for all [`VortexFormat`] instances created from this factory.
     ///
     /// The options can be overridden by table-level configuration pass in [`FileFormatFactory::create`].
-    pub fn new_with_options(session: VortexSession, options: VortexOptions) -> Self {
+    pub fn new_with_options(session: VortexSessionRef, options: VortexOptions) -> Self {
         Self {
             session,
             options: Some(options),
@@ -175,12 +176,12 @@ impl FileFormatFactory for VortexFormatFactory {
 
 impl VortexFormat {
     /// Create a new instance with default options.
-    pub fn new(session: VortexSession) -> Self {
+    pub fn new(session: VortexSessionRef) -> Self {
         Self::new_with_options(session, VortexOptions::default())
     }
 
     /// Creates a new instance with configured by a [`VortexOptions`].
-    pub fn new_with_options(session: VortexSession, opts: VortexOptions) -> Self {
+    pub fn new_with_options(session: VortexSessionRef, opts: VortexOptions) -> Self {
         Self {
             session: session.clone(),
             file_cache: VortexFileCache::new(

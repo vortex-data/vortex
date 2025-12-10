@@ -12,7 +12,7 @@ use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::ReadFlatBuffer;
 use vortex_flatbuffers::dtype as fbd;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 
 use crate::EOF_SIZE;
 use crate::Footer;
@@ -30,7 +30,7 @@ pub struct FooterDeserializer {
     // the caller.
     buffer: ByteBuffer,
     // The session to use for deserialization.
-    session: VortexSession,
+    session: VortexSessionRef,
     // The DType, if provided externally.
     dtype: Option<DType>,
 
@@ -43,7 +43,7 @@ pub struct FooterDeserializer {
 }
 
 impl FooterDeserializer {
-    pub(super) fn new(initial_read: ByteBuffer, session: VortexSession) -> Self {
+    pub(super) fn new(initial_read: ByteBuffer, session: VortexSessionRef) -> Self {
         Self {
             buffer: initial_read,
             session,

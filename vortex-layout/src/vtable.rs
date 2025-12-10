@@ -10,7 +10,7 @@ use vortex_array::DeserializeMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 
 use crate::IntoLayout;
 use crate::Layout;
@@ -61,7 +61,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        session: &VortexSession,
+        session: &VortexSessionRef,
     ) -> VortexResult<LayoutReaderRef>;
 
     #[cfg(gpu_unstable)]

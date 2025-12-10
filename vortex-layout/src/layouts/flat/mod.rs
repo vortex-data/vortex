@@ -15,7 +15,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 
 use crate::LayoutChildType;
 use crate::LayoutEncodingRef;
@@ -84,7 +84,7 @@ impl VTable for FlatVTable {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        _session: &VortexSession,
+        _session: &VortexSessionRef,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(FlatReader::new(
             layout.clone(),

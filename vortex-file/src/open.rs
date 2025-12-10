@@ -5,7 +5,6 @@ use std::sync::Arc;
 
 use futures::executor::block_on;
 use parking_lot::RwLock;
-use vortex_array::session::ArraySessionExt;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -22,10 +21,9 @@ use vortex_layout::segments::SegmentCacheMetrics;
 use vortex_layout::segments::SegmentCacheSourceAdapter;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::segments::SharedSegmentSource;
-use vortex_layout::session::LayoutSessionExt;
 use vortex_metrics::MetricsSessionExt;
 use vortex_metrics::VortexMetrics;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::DeserializeStep;
@@ -41,7 +39,7 @@ const INITIAL_READ_SIZE: usize = 1 << 20; // 1 MB
 /// Open options for a Vortex file reader.
 pub struct VortexOpenOptions {
     /// The session to use for opening the file.
-    session: VortexSession,
+    session: VortexSessionRef,
     /// Cache to use for file segments.
     segment_cache: Arc<dyn SegmentCache>,
     /// The number of bytes to read when parsing the footer.
@@ -58,13 +56,15 @@ pub struct VortexOpenOptions {
     metrics: VortexMetrics,
 }
 
-pub trait OpenOptionsSessionExt:
-    ArraySessionExt + LayoutSessionExt + MetricsSessionExt + RuntimeSessionExt
-{
+pub trait OpenOptionsSessionExt {
     /// Create a new [`VortexOpenOptions`] using the provided session to open a file.
+    fn open_options(&self) -> VortexOpenOptions;
+}
+
+impl OpenOptionsSessionExt for VortexSessionRef {
     fn open_options(&self) -> VortexOpenOptions {
         VortexOpenOptions {
-            session: self.session(),
+            session: self.clone(),
             segment_cache: Arc::new(NoOpSegmentCache),
             initial_read_size: INITIAL_READ_SIZE,
             file_size: None,
@@ -74,10 +74,6 @@ pub trait OpenOptionsSessionExt:
             metrics: self.metrics(),
         }
     }
-}
-impl<S: ArraySessionExt + LayoutSessionExt + MetricsSessionExt + RuntimeSessionExt>
-    OpenOptionsSessionExt for S
-{
 }
 
 impl VortexOpenOptions {

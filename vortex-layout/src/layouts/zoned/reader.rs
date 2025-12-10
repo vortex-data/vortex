@@ -31,7 +31,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::LayoutReader;
@@ -66,7 +66,7 @@ impl ZonedReader {
         layout: ZonedLayout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        session: VortexSession,
+        session: VortexSessionRef,
     ) -> VortexResult<Self> {
         let dtypes = vec![
             layout.dtype.clone(),

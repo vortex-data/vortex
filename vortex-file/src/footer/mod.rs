@@ -38,7 +38,7 @@ use vortex_layout::LayoutContext;
 use vortex_layout::LayoutRef;
 use vortex_layout::layout_from_flatbuffer;
 use vortex_layout::session::LayoutSessionExt;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]
@@ -71,7 +71,7 @@ impl Footer {
         layout_bytes: FlatBuffer,
         dtype: DType,
         statistics: Option<FileStatistics>,
-        session: &VortexSession,
+        session: &VortexSessionRef,
     ) -> VortexResult<Self> {
         let fb_footer = root::<fb::Footer>(&footer_bytes)?;
 
@@ -145,7 +145,7 @@ impl Footer {
     }
 
     /// Create a deserializer for a Vortex file footer.
-    pub fn deserializer(eof_buffer: ByteBuffer, session: VortexSession) -> FooterDeserializer {
+    pub fn deserializer(eof_buffer: ByteBuffer, session: VortexSessionRef) -> FooterDeserializer {
         FooterDeserializer::new(eof_buffer, session)
     }
 }

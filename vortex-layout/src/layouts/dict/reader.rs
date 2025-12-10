@@ -27,7 +27,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use super::DictLayout;
@@ -57,7 +57,7 @@ impl DictReader {
         layout: DictLayout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        session: &VortexSession,
+        session: &VortexSessionRef,
     ) -> VortexResult<Self> {
         let values_len = usize::try_from(layout.values.row_count())?;
         let values = layout.values.new_reader(

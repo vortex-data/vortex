@@ -19,6 +19,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 use vortex_vector::Vector;
 
 use crate::Array;
@@ -43,8 +44,8 @@ use crate::vtable::VTable;
 // TODO(ngates): canonicalize doesn't currently take a session, therefore we cannot dispatch
 //  to registered scalar function kernels. We therefore hold our own non-pluggable session here
 //  that contains all the built-in kernels while we migrate over to "execute" instead of canonicalize.
-static SCALAR_FN_SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SCALAR_FN_SESSION: LazyLock<VortexSessionRef> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>().freeze());
 
 vtable!(ScalarFn);
 

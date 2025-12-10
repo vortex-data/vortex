@@ -25,7 +25,7 @@ use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;
 use vortex_scan::ScanBuilder;
 use vortex_scan::SplitBy;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::footer::Footer;
@@ -45,7 +45,7 @@ pub struct VortexFile {
     /// Metrics tied to the file.
     pub(crate) metrics: VortexMetrics,
     /// The Vortex session used to open this file
-    pub(crate) session: VortexSession,
+    pub(crate) session: VortexSessionRef,
 }
 
 impl VortexFile {

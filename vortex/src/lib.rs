@@ -15,6 +15,7 @@ use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
 use vortex_metrics::VortexMetrics;
 use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 
 // We re-export like so in order to allow users to search inside subcrates when using the Rust docs.
 
@@ -140,14 +141,24 @@ pub mod encodings {
 }
 
 /// Extension trait to create a default Vortex session.
-pub trait VortexSessionDefault {
+pub trait VortexSessionDefault: Sized {
+    /// Creates a new [`VortexSession`] with defaults enabled.
+    fn new_with_defaults() -> VortexSession;
+
+    /// Enables the standard arrays, layouts, and expressions.
+    fn with_defaults(self) -> VortexSession;
+
     /// Creates a default Vortex session with the standard arrays, layouts, and expressions.
-    fn default() -> VortexSession;
+    fn default() -> VortexSessionRef;
 }
 
 impl VortexSessionDefault for VortexSession {
-    fn default() -> VortexSession {
-        let session = VortexSession::empty()
+    fn new_with_defaults() -> VortexSession {
+        VortexSession::empty().with_defaults()
+    }
+
+    fn with_defaults(self) -> VortexSession {
+        let mut this = self
             .with::<VortexMetrics>()
             .with::<ArraySession>()
             .with::<LayoutSession>()
@@ -155,9 +166,13 @@ impl VortexSessionDefault for VortexSession {
             .with::<RuntimeSession>();
 
         #[cfg(feature = "files")]
-        file::register_default_encodings(&session);
+        file::register_default_encodings(&mut this);
 
-        session
+        this
+    }
+
+    fn default() -> VortexSessionRef {
+        VortexSession::empty().with_defaults().freeze()
     }
 }
 
@@ -183,9 +198,9 @@ mod test {
     use vortex_file::WriteOptionsSessionExt;
     use vortex_file::WriteStrategyBuilder;
     use vortex_layout::layouts::compact::CompactCompressor;
-    use vortex_session::VortexSession;
 
     use crate as vortex;
+    use crate::VortexSession;
     use crate::VortexSessionDefault;
 
     #[test]

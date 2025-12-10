@@ -63,6 +63,7 @@ use vortex_metrics::VortexMetrics;
 use vortex_scalar::Scalar;
 use vortex_scan::ScanBuilder;
 use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 
 use crate::OpenOptionsSessionExt;
 use crate::V1_FOOTER_FBS_SIZE;
@@ -70,17 +71,17 @@ use crate::VERSION;
 use crate::VortexFile;
 use crate::WriteOptionsSessionExt;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = VortexSession::empty()
+static SESSION: LazyLock<VortexSessionRef> = LazyLock::new(|| {
+    let mut session = VortexSession::empty()
         .with::<VortexMetrics>()
         .with::<ArraySession>()
         .with::<LayoutSession>()
         .with::<ExprSession>()
         .with::<RuntimeSession>();
 
-    crate::register_default_encodings(&session);
+    crate::register_default_encodings(&mut session);
 
-    session
+    session.freeze()
 });
 
 #[tokio::test]

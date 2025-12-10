@@ -211,6 +211,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_session::VortexSession;
+    use vortex_session::VortexSessionRef;
     use vortex_vector::VectorMutOps;
     use vortex_vector::VectorOps;
 
@@ -218,7 +219,7 @@ mod tests {
     use crate::BitPackedVTable;
     use crate::bitpack_compress::bitpack_encode;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSessionRef> = LazyLock::new(|| VortexSession::empty().freeze());
 
     fn compression_roundtrip(n: usize) {
         let values = PrimitiveArray::from_iter((0..n).map(|i| (i % 2047) as u16));

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::registry::Registry;
 
@@ -52,19 +51,19 @@ impl ArraySession {
     }
 
     /// Register a new array encoding, replacing any existing encoding with the same ID.
-    pub fn register(&self, encoding: ArrayVTable) {
+    pub fn register(&mut self, encoding: ArrayVTable) {
         self.registry.register(encoding)
     }
 
     /// Register many array encodings, replacing any existing encodings with the same ID.
-    pub fn register_many(&self, encodings: impl IntoIterator<Item = ArrayVTable>) {
+    pub fn register_many(&mut self, encodings: impl IntoIterator<Item = ArrayVTable>) {
         self.registry.register_many(encodings);
     }
 }
 
 impl Default for ArraySession {
     fn default() -> Self {
-        let encodings = ArrayRegistry::default();
+        let mut encodings = ArrayRegistry::default();
 
         // Register the canonical encodings.
         encodings.register_many([
@@ -108,7 +107,7 @@ impl Default for ArraySession {
 /// Session data for Vortex arrays.
 pub trait ArraySessionExt: SessionExt {
     /// Returns the array encoding registry.
-    fn arrays(&self) -> Ref<'_, ArraySession> {
+    fn arrays(&self) -> &ArraySession {
         self.get::<ArraySession>()
     }
 }

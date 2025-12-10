@@ -4,7 +4,6 @@
 mod rewrite;
 
 pub use rewrite::RewriteRuleRegistry;
-use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::registry::Registry;
 
@@ -54,12 +53,12 @@ impl ExprSession {
     }
 
     /// Register an expression vtable in the session, replacing any existing vtable with the same ID.
-    pub fn register(&self, expr: ExprVTable) {
+    pub fn register(&mut self, expr: ExprVTable) {
         self.registry.register(expr)
     }
 
     /// Register expression vtables in the session, replacing any existing vtables with the same IDs.
-    pub fn register_many(&self, exprs: impl IntoIterator<Item = ExprVTable>) {
+    pub fn register_many(&mut self, exprs: impl IntoIterator<Item = ExprVTable>) {
         self.registry.register_many(exprs);
     }
 
@@ -151,7 +150,7 @@ impl ExprSession {
 
 impl Default for ExprSession {
     fn default() -> Self {
-        let expressions = ExprRegistry::default();
+        let mut expressions = ExprRegistry::default();
 
         // Register built-in expressions here if needed.
         expressions.register_many([
@@ -187,7 +186,7 @@ impl Default for ExprSession {
 /// Extension trait for accessing expression session data.
 pub trait ExprSessionExt: SessionExt {
     /// Returns the expression vtable registry.
-    fn expressions(&self) -> Ref<'_, ExprSession> {
+    fn expressions(&self) -> &ExprSession {
         self.get::<ExprSession>()
     }
 }

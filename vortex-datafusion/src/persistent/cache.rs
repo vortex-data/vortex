@@ -25,14 +25,14 @@ use vortex::file::VortexFile;
 use vortex::layout::segments::SegmentCache;
 use vortex::layout::segments::SegmentId;
 use vortex::metrics::MetricsSessionExt;
-use vortex::session::VortexSession;
+use vortex::session::VortexSessionRef;
 use vortex::utils::aliases::DefaultHashBuilder;
 
 #[derive(Clone)]
 pub(crate) struct VortexFileCache {
     file_cache: Cache<FileKey, VortexFile, DefaultHashBuilder>,
     segment_cache: Cache<SegmentKey, ByteBuffer, DefaultHashBuilder>,
-    session: VortexSession,
+    session: VortexSessionRef,
 }
 
 /// Cache key for a [`VortexFile`].
@@ -59,7 +59,7 @@ struct SegmentKey {
 }
 
 impl VortexFileCache {
-    pub fn new(size_mb: usize, segment_size_mb: usize, session: VortexSession) -> Self {
+    pub fn new(size_mb: usize, segment_size_mb: usize, session: VortexSessionRef) -> Self {
         let file_cache = Cache::builder()
             .max_capacity(size_mb as u64 * (1 << 20))
             .eviction_listener(|k: Arc<FileKey>, _v: VortexFile, cause| {

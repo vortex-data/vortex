@@ -11,7 +11,7 @@ use vortex_array::DeserializeMetadata;
 use vortex_array::EmptyMetadata;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 
 use crate::LayoutChildType;
 use crate::LayoutEncodingRef;
@@ -72,7 +72,7 @@ impl VTable for ChunkedVTable {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        session: &VortexSession,
+        session: &VortexSessionRef,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(ChunkedReader::new(
             layout.clone(),

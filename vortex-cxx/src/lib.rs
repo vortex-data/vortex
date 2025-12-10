@@ -17,8 +17,9 @@ use scalar::*;
 use vortex::VortexSessionDefault;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::CurrentThreadRuntime;
-use vortex::io::session::RuntimeSessionExt;
+use vortex::io::session::RuntimeSessionMutExt;
 use vortex::session::VortexSession;
+use vortex::session::VortexSessionRef;
 use write::*;
 
 /// By default, the C++ API uses a current-thread runtime, providing control of the threading
@@ -28,8 +29,11 @@ use write::*;
 //  this runtime.
 pub(crate) static RUNTIME: LazyLock<CurrentThreadRuntime> =
     LazyLock::new(CurrentThreadRuntime::new);
-pub(crate) static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_handle(RUNTIME.handle()));
+pub(crate) static SESSION: LazyLock<VortexSessionRef> = LazyLock::new(|| {
+    VortexSession::new_with_defaults()
+        .with_handle(RUNTIME.handle())
+        .freeze()
+});
 
 #[cxx::bridge(namespace = "vortex::ffi")]
 #[allow(let_underscore_drop)]

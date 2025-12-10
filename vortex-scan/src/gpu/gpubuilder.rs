@@ -14,21 +14,21 @@ use vortex_gpu::GpuVector;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::gpu::GpuLayoutReaderRef;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 
 use crate::gpu::GpuScan;
 use crate::gpu::gputask::TaskFuture;
 use crate::scan_builder::filter_and_projection_masks;
 
 pub struct GpuScanBuilder<A> {
-    session: VortexSession,
+    session: VortexSessionRef,
     layout_reader: GpuLayoutReaderRef,
     projection: Expression,
     map_fn: Arc<dyn Fn(Vec<GpuVector>) -> VortexResult<Vec<A>> + Send + Sync>,
 }
 
 impl GpuScanBuilder<GpuVector> {
-    pub fn new(session: VortexSession, layout_reader: GpuLayoutReaderRef) -> Self {
+    pub fn new(session: VortexSessionRef, layout_reader: GpuLayoutReaderRef) -> Self {
         Self {
             session,
             layout_reader,

@@ -46,6 +46,7 @@ use vortex_array::stream::ArrayStreamExt;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -189,7 +190,7 @@ impl ShutdownSignal {
 
 impl VortexLayer {
     async fn new(
-        session: VortexSession,
+        session: VortexSessionRef,
         output_dir: PathBuf,
         batch_size: usize,
     ) -> (Self, WriterHandle, ShutdownSignal) {
@@ -273,7 +274,7 @@ struct WriterHandle {
 
 impl WriterHandle {
     fn spawn(
-        session: VortexSession,
+        session: VortexSessionRef,
         mut rx: mpsc::UnboundedReceiver<TraceEvent>,
         output_dir: PathBuf,
         batch_size: usize,
@@ -310,7 +311,7 @@ impl WriterHandle {
 
 /// Writes a batch of events to a Vortex file
 async fn write_batch_to_vortex(
-    session: VortexSession,
+    session: VortexSessionRef,
     output_dir: &Path,
     events: &[TraceEvent],
     file_index: usize,
@@ -409,7 +410,7 @@ async fn write_batch_to_vortex(
 
 /// Reads and displays trace files
 async fn read_trace_files(
-    session: &VortexSession,
+    session: &VortexSessionRef,
     output_dir: &Path,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut entries = tokio::fs::read_dir(output_dir).await?;

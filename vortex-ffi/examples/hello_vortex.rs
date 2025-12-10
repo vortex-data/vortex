@@ -30,12 +30,16 @@ use vortex::file::WriteOptionsSessionExt;
 use vortex::io::VortexWrite;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::CurrentThreadRuntime;
-use vortex::io::session::RuntimeSessionExt;
+use vortex::io::session::RuntimeSessionMutExt;
 use vortex::session::VortexSession;
+use vortex::session::VortexSessionRef;
 
 static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_handle(RUNTIME.handle()));
+static SESSION: LazyLock<VortexSessionRef> = LazyLock::new(|| {
+    VortexSession::new_with_defaults()
+        .with_handle(RUNTIME.handle())
+        .freeze()
+});
 
 const BIN_NAME: &str = "hello_vortex";
 

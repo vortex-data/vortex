@@ -40,7 +40,7 @@ use vortex::expr::select;
 use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
 use vortex::scan::ScanBuilder;
-use vortex::session::VortexSession;
+use vortex::session::VortexSessionRef;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 
@@ -50,7 +50,7 @@ use crate::convert::exprs::make_vortex_predicate;
 
 #[derive(Clone)]
 pub(crate) struct VortexOpener {
-    pub session: VortexSession,
+    pub session: VortexSessionRef,
     pub object_store: Arc<dyn ObjectStore>,
     /// Projection by index of the file's columns
     pub projection: Option<Arc<[usize]>>,
@@ -437,10 +437,11 @@ mod tests {
     use vortex::io::ObjectStoreWriter;
     use vortex::io::VortexWrite;
     use vortex::session::VortexSession;
+    use vortex::session::VortexSessionRef;
 
     use super::*;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
+    static SESSION: LazyLock<VortexSessionRef> = LazyLock::new(VortexSession::default);
 
     #[rstest]
     #[case(0..100, 100, 100, 0..100)]

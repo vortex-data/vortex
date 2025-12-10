@@ -5,6 +5,7 @@ use std::fmt::Debug;
 
 use vortex_error::VortexExpect;
 use vortex_session::SessionExt;
+use vortex_session::VortexSession;
 
 use crate::runtime::Handle;
 
@@ -12,6 +13,8 @@ use crate::runtime::Handle;
 pub struct RuntimeSession {
     handle: Option<Handle>,
 }
+
+impl RuntimeSession {}
 
 impl Default for RuntimeSession {
     fn default() -> Self {
@@ -27,6 +30,32 @@ impl Debug for RuntimeSession {
     }
 }
 
+/// Extension trait for setting runtime session data.
+pub trait RuntimeSessionMutExt: Sized {
+    /// Configure the runtime session to use the application's Tokio runtime.
+    ///
+    /// For example, if the application is launched using `#[tokio::main]`.
+    #[cfg(feature = "tokio")]
+    fn with_tokio(self) -> Self;
+
+    /// Configure the runtime session to use a specific Vortex runtime handle.
+    fn with_handle(self, handle: Handle) -> Self;
+}
+
+impl RuntimeSessionMutExt for VortexSession {
+    #[cfg(feature = "tokio")]
+    fn with_tokio(mut self) -> Self {
+        self.get_mut::<RuntimeSession>().handle =
+            Some(crate::runtime::tokio::TokioRuntime::current());
+        self
+    }
+
+    fn with_handle(mut self, handle: Handle) -> Self {
+        self.get_mut::<RuntimeSession>().handle = Some(handle);
+        self
+    }
+}
+
 /// Extension trait for accessing runtime session data.
 pub trait RuntimeSessionExt: SessionExt {
     /// Returns a handle for this session's runtime.
@@ -35,22 +64,6 @@ pub trait RuntimeSessionExt: SessionExt {
                 .as_ref()
                 .vortex_expect("Runtime handle not configured in Vortex session. Please setup a `CurrentThreadRuntime`, or configure the session for `with_tokio`.")
                 .clone()
-    }
-
-    /// Configure the runtime session to use the application's Tokio runtime.
-    ///
-    /// For example, if the application is launched using `#[tokio::main]`.
-    #[cfg(feature = "tokio")]
-    fn with_tokio(self) -> Self {
-        self.get_mut::<RuntimeSession>().handle =
-            Some(crate::runtime::tokio::TokioRuntime::current());
-        self
-    }
-
-    /// Configure the runtime session to use a specific Vortex runtime handle.
-    fn with_handle(self, handle: Handle) -> Self {
-        self.get_mut::<RuntimeSession>().handle = Some(handle);
-        self
     }
 }
 impl<S: SessionExt> RuntimeSessionExt for S {}

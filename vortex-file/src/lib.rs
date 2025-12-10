@@ -109,7 +109,7 @@ pub use strategy::*;
 use vortex_alp::ALPRDVTable;
 use vortex_alp::ALPVTable;
 use vortex_array::arrays::DictVTable;
-use vortex_array::session::ArraySessionExt;
+use vortex_array::session::ArraySession;
 use vortex_array::vtable::ArrayVTableExt;
 use vortex_bytebool::ByteBoolVTable;
 use vortex_datetime_parts::DateTimePartsVTable;
@@ -163,8 +163,8 @@ mod forever_constant {
 ///
 /// NOTE: this function will be changed in the future to encapsulate logic for using different
 /// Vortex "Editions" that may support different sets of encodings.
-pub fn register_default_encodings(session: &VortexSession) {
-    session.arrays().register_many([
+pub fn register_default_encodings(session: &mut VortexSession) {
+    session.get_mut::<ArraySession>().register_many([
         ALPVTable.as_vtable(),
         ALPRDVTable.as_vtable(),
         BitPackedVTable.as_vtable(),

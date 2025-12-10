@@ -26,12 +26,16 @@ mod native_runtime {
     use vortex::VortexSessionDefault;
     use vortex_io::runtime::BlockingRuntime;
     use vortex_io::runtime::current::CurrentThreadRuntime;
-    use vortex_io::session::RuntimeSessionExt;
+    use vortex_io::session::RuntimeSessionMutExt;
     use vortex_session::VortexSession;
+    use vortex_session::VortexSessionRef;
 
     pub static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
-    pub static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::default().with_handle(RUNTIME.handle()));
+    pub static SESSION: LazyLock<VortexSessionRef> = LazyLock::new(|| {
+        VortexSession::new_with_defaults()
+            .with_handle(RUNTIME.handle())
+            .freeze()
+    });
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -46,10 +50,10 @@ mod wasm_runtime {
     use vortex::VortexSessionDefault;
     use vortex_io::runtime::wasm::WasmRuntime;
     use vortex_io::session::RuntimeSessionExt;
-    use vortex_session::VortexSession;
+    use vortex_session::VortexSessionRef;
 
-    pub static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::default().with_handle(WasmRuntime::handle()));
+    pub static SESSION: LazyLock<VortexSessionRef> =
+        LazyLock::new(|| VortexSession::empty().with_handle(WasmRuntime::handle()));
 }
 
 #[cfg(target_arch = "wasm32")]

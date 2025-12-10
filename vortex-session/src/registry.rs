@@ -6,14 +6,13 @@
 
 use std::fmt::Display;
 use std::ops::Deref;
-use std::sync::Arc;
 
-use vortex_utils::aliases::dash_map::DashMap;
+use vortex_utils::aliases::hash_map::HashMap;
 
 /// A registry of items that are keyed by a string identifier.
 // TODO(ngates): define a RegistryItem trait that has a custom key to avoid to_string calls.
 #[derive(Clone, Debug)]
-pub struct Registry<T>(Arc<DashMap<String, T>>);
+pub struct Registry<T>(HashMap<String, T>);
 
 impl<T> Default for Registry<T> {
     fn default() -> Self {
@@ -28,7 +27,7 @@ impl<T: Clone + Display + Eq> Registry<T> {
 
     /// List the items in the registry.
     pub fn items(&self) -> impl Iterator<Item = T> + '_ {
-        self.0.iter().map(|i| i.value().clone())
+        self.0.iter().map(|(_key, item)| item.clone())
     }
 
     /// Return the items with the given IDs.
@@ -41,16 +40,16 @@ impl<T: Clone + Display + Eq> Registry<T> {
 
     /// Find the item with the given ID.
     pub fn find(&self, id: &str) -> Option<T> {
-        self.0.get(id).as_deref().cloned()
+        self.0.get(id).cloned()
     }
 
     /// Register a new item, replacing any existing item with the same ID.
-    pub fn register(&self, item: T) {
+    pub fn register(&mut self, item: T) {
         self.0.insert(item.to_string(), item);
     }
 
     /// Register a new item, replacing any existing item with the same ID.
-    pub fn register_many<I: IntoIterator<Item = T>>(&self, items: I) {
+    pub fn register_many<I: IntoIterator<Item = T>>(&mut self, items: I) {
         for item in items {
             self.0.insert(item.to_string(), item);
         }

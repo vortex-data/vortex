@@ -9,12 +9,14 @@ use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
 use vortex_metrics::VortexMetrics;
 use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 
-pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+pub static SESSION: LazyLock<VortexSessionRef> = LazyLock::new(|| {
     VortexSession::empty()
         .with::<VortexMetrics>()
         .with::<ArraySession>()
         .with::<LayoutSession>()
         .with::<ExprSession>()
         .with::<RuntimeSession>()
+        .freeze()
 });

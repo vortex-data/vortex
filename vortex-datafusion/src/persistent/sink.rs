@@ -35,16 +35,16 @@ use vortex::error::VortexResult;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::ObjectStoreWriter;
 use vortex::io::VortexWrite;
-use vortex::session::VortexSession;
+use vortex::session::VortexSessionRef;
 
 pub struct VortexSink {
     config: FileSinkConfig,
     schema: SchemaRef,
-    session: VortexSession,
+    session: VortexSessionRef,
 }
 
 impl VortexSink {
-    pub fn new(config: FileSinkConfig, schema: SchemaRef, session: VortexSession) -> Self {
+    pub fn new(config: FileSinkConfig, schema: SchemaRef, session: VortexSessionRef) -> Self {
         Self {
             config,
             schema,

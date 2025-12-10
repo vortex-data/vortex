@@ -48,15 +48,16 @@ pub use datasets::file;
 pub use engines::df;
 use vortex::VortexSessionDefault;
 pub use vortex::error::vortex_panic;
-use vortex::io::session::RuntimeSessionExt;
+use vortex::io::session::RuntimeSessionMutExt;
 use vortex::session::VortexSession;
+use vortex::session::VortexSessionRef;
 
 // All benchmarks run with mimalloc for consistency.
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-pub static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_tokio());
+pub static SESSION: LazyLock<VortexSessionRef> =
+    LazyLock::new(|| VortexSession::new_with_defaults().with_tokio().freeze());
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize)]
 pub struct Target {

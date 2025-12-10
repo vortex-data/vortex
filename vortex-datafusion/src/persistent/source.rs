@@ -32,7 +32,7 @@ use vortex::error::VortexExpect as _;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
 use vortex::metrics::MetricsSessionExt;
-use vortex::session::VortexSession;
+use vortex::session::VortexSessionRef;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use super::cache::VortexFileCache;
@@ -45,7 +45,7 @@ use crate::convert::exprs::can_be_pushed_down;
 /// [`DataSourceExec`]: datafusion_datasource::source::DataSourceExec
 #[derive(Clone)]
 pub struct VortexSource {
-    pub(crate) session: VortexSession,
+    pub(crate) session: VortexSessionRef,
     pub(crate) file_cache: VortexFileCache,
     /// Combined predicate expression containing all filters from DataFusion query planning.
     /// Used with FilePruner to skip files based on statistics and partition values.
@@ -67,7 +67,7 @@ pub struct VortexSource {
 }
 
 impl VortexSource {
-    pub(crate) fn new(session: VortexSession, file_cache: VortexFileCache) -> Self {
+    pub(crate) fn new(session: VortexSessionRef, file_cache: VortexFileCache) -> Self {
         Self {
             session,
             file_cache,

@@ -41,8 +41,7 @@ use vortex_layout::layouts::file_stats::accumulate_stats;
 use vortex_layout::sequence::SequenceId;
 use vortex_layout::sequence::SequentialStreamAdapter;
 use vortex_layout::sequence::SequentialStreamExt;
-use vortex_session::SessionExt;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 
 use crate::Footer;
 use crate::MAGIC_BYTES;
@@ -57,18 +56,23 @@ use crate::segments::writer::BufferedSegmentSink;
 /// Unless overridden, the default [write strategy][crate::WriteStrategyBuilder] will be used with no
 /// additional configuration.
 pub struct VortexWriteOptions {
-    session: VortexSession,
+    session: VortexSessionRef,
     strategy: Arc<dyn LayoutStrategy>,
     exclude_dtype: bool,
     max_variable_length_statistics_size: usize,
     file_statistics: Vec<Stat>,
 }
 
-pub trait WriteOptionsSessionExt: SessionExt {
+pub trait WriteOptionsSessionExt {
+    /// Create [`VortexWriteOptions`] for writing to a Vortex file.
+    fn write_options(&self) -> VortexWriteOptions;
+}
+
+impl WriteOptionsSessionExt for VortexSessionRef {
     /// Create [`VortexWriteOptions`] for writing to a Vortex file.
     fn write_options(&self) -> VortexWriteOptions {
         VortexWriteOptions {
-            session: self.session(),
+            session: self.clone(),
             strategy: WriteStrategyBuilder::new().build(),
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
@@ -76,11 +80,10 @@ pub trait WriteOptionsSessionExt: SessionExt {
         }
     }
 }
-impl<S: SessionExt> WriteOptionsSessionExt for S {}
 
 impl VortexWriteOptions {
     /// Create a new [`VortexWriteOptions`] with the given session.
-    pub fn new(session: VortexSession) -> Self {
+    pub fn new(session: VortexSessionRef) -> Self {
         VortexWriteOptions {
             session,
             strategy: WriteStrategyBuilder::new().build(),

@@ -3,15 +3,16 @@
 
 use vortex::VortexSessionDefault;
 use vortex::io::runtime::BlockingRuntime;
-use vortex::io::session::RuntimeSessionExt;
+use vortex::io::session::RuntimeSessionMutExt;
 use vortex::session::VortexSession;
+use vortex::session::VortexSessionRef;
 
 use crate::RUNTIME;
 use crate::box_wrapper;
 
 box_wrapper!(
     /// A handle to a Vortex session.
-    VortexSession,
+    VortexSessionRef,
     vx_session
 );
 
@@ -21,6 +22,8 @@ box_wrapper!(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_session_new() -> *mut vx_session {
     vx_session::new(Box::new(
-        VortexSession::default().with_handle(RUNTIME.handle()),
+        VortexSession::new_with_defaults()
+            .with_handle(RUNTIME.handle())
+            .freeze(),
     ))
 }

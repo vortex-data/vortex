@@ -21,7 +21,7 @@ use vortex_error::VortexResult;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::LayoutReaderRef;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 
 use crate::filter::FilterExpr;
 use crate::selection::Selection;
@@ -34,7 +34,7 @@ use crate::tasks::split_exec;
 /// The method of this struct enable, possibly concurrent, scanning of multiple row ranges of this
 /// data source.
 pub struct RepeatedScan<A: 'static + Send> {
-    session: VortexSession,
+    session: VortexSessionRef,
     layout_reader: LayoutReaderRef,
     projection: Expression,
     filter: Option<Expression>,
@@ -84,7 +84,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         reason = "all arguments are needed for scan construction"
     )]
     pub(super) fn new(
-        session: VortexSession,
+        session: VortexSessionRef,
         layout_reader: LayoutReaderRef,
         projection: Expression,
         filter: Option<Expression>,

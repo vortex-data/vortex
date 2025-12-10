@@ -22,7 +22,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 use vortex_vector::Vector;
 use vortex_vector::VectorOps;
 
@@ -366,7 +366,7 @@ impl dyn Array + '_ {
     /// Execute the array and return the resulting vector.
     ///
     /// This entry-point function will choose an appropriate CPU-based execution strategy.
-    pub fn execute(&self, session: &VortexSession) -> VortexResult<Vector> {
+    pub fn execute(&self, session: &VortexSessionRef) -> VortexResult<Vector> {
         let mut ctx = ExecutionCtx::new(session.clone());
         self.batch_execute(&mut ctx)
     }

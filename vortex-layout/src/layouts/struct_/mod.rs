@@ -20,8 +20,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_session::SessionExt;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 
 use crate::LayoutChildType;
 use crate::LayoutEncodingRef;
@@ -114,13 +113,13 @@ impl VTable for StructVTable {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        session: &VortexSession,
+        session: &VortexSessionRef,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(StructReader::try_new(
             layout.clone(),
             name,
             segment_source,
-            session.session(),
+            session.clone(),
         )?))
     }
 

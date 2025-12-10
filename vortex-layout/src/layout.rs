@@ -15,7 +15,7 @@ use vortex_dtype::FieldName;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 
 use crate::LayoutEncodingId;
 use crate::LayoutEncodingRef;
@@ -74,7 +74,7 @@ pub trait Layout: 'static + Send + Sync + Debug + private::Sealed {
         &self,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        session: &VortexSession,
+        session: &VortexSessionRef,
     ) -> VortexResult<LayoutReaderRef>;
 }
 
@@ -327,7 +327,7 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
         &self,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        session: &VortexSession,
+        session: &VortexSessionRef,
     ) -> VortexResult<LayoutReaderRef> {
         V::new_reader(&self.0, name, segment_source, session)
     }

@@ -16,7 +16,7 @@ use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 
 use crate::children::LayoutChildren;
 use crate::segments::SegmentSource;
@@ -108,7 +108,7 @@ pub struct LazyReaderChildren {
     dtypes: Vec<DType>,
     names: Vec<Arc<str>>,
     segment_source: Arc<dyn SegmentSource>,
-    session: VortexSession,
+    session: VortexSessionRef,
     // TODO(ngates): we may want a hash map of some sort here?
     cache: Vec<OnceCell<LayoutReaderRef>>,
 }
@@ -119,7 +119,7 @@ impl LazyReaderChildren {
         dtypes: Vec<DType>,
         names: Vec<Arc<str>>,
         segment_source: Arc<dyn SegmentSource>,
-        session: VortexSession,
+        session: VortexSessionRef,
     ) -> Self {
         let nchildren = children.nchildren();
         let cache = (0..nchildren).map(|_| OnceCell::new()).collect();

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::registry::Registry;
 
@@ -22,12 +21,12 @@ pub struct LayoutSession {
 
 impl LayoutSession {
     /// Register a layout encoding in the session, replacing any existing encoding with the same ID.
-    pub fn register(&self, layout: LayoutEncodingRef) {
+    pub fn register(&mut self, layout: LayoutEncodingRef) {
         self.registry.register(layout);
     }
 
     /// Register layout encodings in the session, replacing any existing encodings with the same IDs.
-    pub fn register_many(&self, layouts: impl IntoIterator<Item = LayoutEncodingRef>) {
+    pub fn register_many(&mut self, layouts: impl IntoIterator<Item = LayoutEncodingRef>) {
         self.registry.register_many(layouts);
     }
 
@@ -39,7 +38,7 @@ impl LayoutSession {
 
 impl Default for LayoutSession {
     fn default() -> Self {
-        let layouts = LayoutRegistry::default();
+        let mut layouts = LayoutRegistry::default();
 
         // Register the built-in layout encodings.
         layouts.register_many([
@@ -57,7 +56,7 @@ impl Default for LayoutSession {
 /// Extension trait for accessing layout session data.
 pub trait LayoutSessionExt: SessionExt {
     /// Returns the layout encoding registry.
-    fn layouts(&self) -> Ref<'_, LayoutSession> {
+    fn layouts(&self) -> &LayoutSession {
         self.get::<LayoutSession>()
     }
 }

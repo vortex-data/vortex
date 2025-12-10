@@ -42,7 +42,7 @@ use vortex::io::runtime::BlockingRuntime;
 use vortex::proto::expr::Expr;
 use vortex::scan::ScanBuilder;
 use vortex::scan::SplitBy;
-use vortex::session::VortexSession;
+use vortex::session::VortexSessionRef;
 
 use crate::RUNTIME;
 use crate::arc_wrapper;
@@ -126,7 +126,7 @@ impl vx_file_scan_options {
     /// Processes FFI scan options.
     ///
     /// Extracts and converts a scan configuration from an FFI options struct.
-    fn process_scan_options(&self, session: &VortexSession) -> VortexResult<ScanOptions> {
+    fn process_scan_options(&self, session: &VortexSessionRef) -> VortexResult<ScanOptions> {
         // Extract field names for projection.
         let projection_expr = extract_expression(
             session.expressions().registry(),

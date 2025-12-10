@@ -31,7 +31,7 @@ use vortex_layout::LayoutReader;
 use vortex_layout::LayoutReaderRef;
 use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
 use vortex_metrics::VortexMetrics;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 
 use crate::RepeatedScan;
 use crate::selection::Selection;
@@ -42,7 +42,7 @@ use crate::splits::attempt_split_ranges;
 /// A struct for building a scan operation.
 pub struct ScanBuilder<A> {
     expr_optimizer: ExprOptimizer,
-    session: VortexSession,
+    session: VortexSessionRef,
     layout_reader: LayoutReaderRef,
     projection: Expression,
     filter: Option<Expression>,
@@ -70,8 +70,8 @@ pub struct ScanBuilder<A> {
 }
 
 impl ScanBuilder<ArrayRef> {
-    pub fn new(session: VortexSession, layout_reader: Arc<dyn LayoutReader>) -> Self {
-        let expr_optimizer = ExprOptimizer::new(&session.expressions());
+    pub fn new(session: VortexSessionRef, layout_reader: Arc<dyn LayoutReader>) -> Self {
+        let expr_optimizer = ExprOptimizer::new(session.expressions());
         Self {
             expr_optimizer,
             session,

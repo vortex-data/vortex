@@ -17,7 +17,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 
 use crate::LayoutChildType;
 use crate::LayoutEncodingRef;
@@ -89,7 +89,7 @@ impl VTable for DictVTable {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        session: &VortexSession,
+        session: &VortexSessionRef,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(DictReader::try_new(
             layout.clone(),

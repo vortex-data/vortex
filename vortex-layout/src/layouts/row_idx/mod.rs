@@ -37,7 +37,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_sequence::SequenceArray;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::ArrayFuture;
@@ -53,8 +53,8 @@ pub struct RowIdxLayoutReader {
 }
 
 impl RowIdxLayoutReader {
-    pub fn new(row_offset: u64, child: Arc<dyn LayoutReader>, session: &VortexSession) -> Self {
-        let expr_optimizer = ExprOptimizer::new(&session.expressions());
+    pub fn new(row_offset: u64, child: Arc<dyn LayoutReader>, session: &VortexSessionRef) -> Self {
+        let expr_optimizer = ExprOptimizer::new(session.expressions());
         Self {
             name: child.name().clone(),
             row_offset,

@@ -36,7 +36,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -68,7 +68,7 @@ impl StructReader {
         layout: StructLayout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        session: VortexSession,
+        session: VortexSessionRef,
     ) -> VortexResult<Self> {
         let struct_dt = layout.struct_fields();
 
@@ -106,7 +106,7 @@ impl StructReader {
         let expanded_root_expr = replace_root_fields(root(), struct_dt);
 
         // Create the expression optimizer once during construction
-        let expr_optimizer = ExprOptimizer::new(&session.expressions());
+        let expr_optimizer = ExprOptimizer::new(session.expressions());
 
         // This is where we need to do some complex things with the scan in order to split it into
         // different scans for different fields.

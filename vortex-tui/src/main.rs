@@ -17,8 +17,9 @@ use tree::TreeArgs;
 use tree::exec_tree;
 use vortex::VortexSessionDefault;
 use vortex::error::VortexExpect;
-use vortex::io::session::RuntimeSessionExt;
+use vortex::io::session::RuntimeSessionMutExt;
 use vortex::session::VortexSession;
+use vortex::session::VortexSessionRef;
 
 use crate::inspect::InspectArgs;
 
@@ -55,8 +56,8 @@ impl Commands {
     }
 }
 
-pub(crate) static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_tokio());
+pub(crate) static SESSION: LazyLock<VortexSessionRef> =
+    LazyLock::new(|| VortexSession::new_with_defaults().with_tokio().freeze());
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

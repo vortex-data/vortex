@@ -460,11 +460,12 @@ mod tests {
     use vortex_array::vtable::ValidityHelper;
     use vortex_dtype::PTypeDowncast;
     use vortex_session::VortexSession;
+    use vortex_session::VortexSessionRef;
     use vortex_vector::VectorOps;
 
     use super::*;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSessionRef> = LazyLock::new(|| VortexSession::empty().freeze());
 
     #[rstest]
     #[case(0)]

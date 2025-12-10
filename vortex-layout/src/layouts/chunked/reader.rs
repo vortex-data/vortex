@@ -20,7 +20,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionRef;
 
 use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
@@ -42,7 +42,7 @@ impl ChunkedReader {
         layout: ChunkedLayout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        session: &VortexSession,
+        session: &VortexSessionRef,
     ) -> Self {
         let nchildren = layout.nchildren();
 
