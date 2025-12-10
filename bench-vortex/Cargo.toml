@@ -17,15 +17,15 @@ version = { workspace = true }
 workspace = true
 
 [features]
-lance = ["dep:lance", "dep:lance-encoding"]
+lance = ["dep:lance", "dep:lance-encoding", "dep:arrow-cast"]
 
 [dependencies]
+arrow-cast = { workspace = true, optional = true }
 lance = { version = "0.39.0", optional = true }
 lance-encoding = { version = "0.39.0", optional = true }
 
 anyhow = { workspace = true }
 arrow-array = { workspace = true }
-arrow-cast = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 async-trait = { workspace = true }
@@ -57,7 +57,6 @@ opentelemetry-otlp = { workspace = true, features = ["trace"] }
 opentelemetry_sdk = { workspace = true }
 parking_lot = { workspace = true }
 parquet = { workspace = true, features = ["async"] }
-paste = { workspace = true }
 rand = { workspace = true }
 rayon = { workspace = true }
 regex = { workspace = true }

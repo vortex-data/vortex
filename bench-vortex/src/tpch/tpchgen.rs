@@ -42,7 +42,7 @@ use crate::CompactionStrategy;
 use crate::Format;
 use crate::IdempotentPath;
 use crate::SESSION;
-use crate::utils::file_utils::idempotent_async;
+use crate::utils::file::idempotent_async;
 
 type TableFuture<'a> = Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 

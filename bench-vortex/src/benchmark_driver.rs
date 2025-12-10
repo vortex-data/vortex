@@ -28,8 +28,8 @@ use crate::metrics::export_plan_spans;
 use crate::query_bench::filter_queries;
 use crate::query_bench::print_memory_usage;
 use crate::query_bench::print_results;
+use crate::utils::file::url_scheme_to_storage;
 use crate::utils::new_tokio_runtime;
-use crate::utils::url_scheme_to_storage;
 use crate::vortex_panic;
 
 /// Mode for EXPLAIN queries
