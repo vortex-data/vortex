@@ -92,6 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 
 /// Simulates application activity with various log levels and spans
+#[expect(clippy::cognitive_complexity)]
 async fn simulate_application_activity(user_id: u32) {
     // Simulate HTTP request handling
     let request_span = span!(

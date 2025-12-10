@@ -325,7 +325,7 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
     })
 }
 
-#[allow(clippy::cognitive_complexity)]
+#[expect(clippy::cognitive_complexity)]
 fn make_object_store(
     url: &Url,
     property_keys: &[String],
