@@ -112,7 +112,6 @@ use vortex_array::arrays::DictVTable;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::vtable::ArrayVTableExt;
 use vortex_bytebool::ByteBoolVTable;
-use vortex_datetime_parts::DateTimePartsVTable;
 use vortex_decimal_byte_parts::DecimalBytePartsVTable;
 use vortex_fastlanes::BitPackedVTable;
 use vortex_fastlanes::DeltaVTable;
@@ -168,7 +167,6 @@ pub fn register_default_encodings(session: &mut VortexSession) {
         ALPRDVTable.as_vtable(),
         BitPackedVTable.as_vtable(),
         ByteBoolVTable.as_vtable(),
-        DateTimePartsVTable.as_vtable(),
         DecimalBytePartsVTable.as_vtable(),
         DeltaVTable.as_vtable(),
         DictVTable.as_vtable(),
@@ -183,7 +181,8 @@ pub fn register_default_encodings(session: &mut VortexSession) {
         vortex_zstd::ZstdVTable.as_vtable(),
     ]);
 
-    // Eventually all encodings crates should expose an initialize function. For now it's only
-    // a few of them.
-    vortex_runend::initialize(session)
+    // Eventually all encodings crates should expose an initialize function.
+    // For now. it's only a few of them.
+    vortex_datetime_parts::initialize(session);
+    vortex_runend::initialize(session);
 }

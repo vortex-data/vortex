@@ -8529,6 +8529,7 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-scalar",
+ "vortex-session",
 ]
 
 [[package]]

@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_session::Ref;
-use vortex_session::SessionExt;
 use vortex_session::registry::Registry;
+use vortex_session::Ref;
+use vortex_session::RefMut;
+use vortex_session::SessionExt;
 
+use crate::arrays::rules::ScalarFnConstantRule;
 use crate::arrays::BoolMaskedValidityRule;
 use crate::arrays::BoolVTable;
 use crate::arrays::ChunkedVTable;
@@ -23,7 +25,7 @@ use crate::arrays::StructGetItemRule;
 use crate::arrays::StructVTable;
 use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewVTable;
-use crate::arrays::rules::ScalarFnConstantRule;
+use crate::expr::rules::PackFilterPushdown;
 use crate::optimizer::ArrayOptimizer;
 use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
@@ -102,6 +104,7 @@ impl Default for ArraySession {
         optimizer.register_parent_rule(PrimitiveMaskedValidityRule);
         optimizer.register_parent_rule(DecimalMaskedValidityRule);
         optimizer.register_parent_rule(StructGetItemRule);
+        optimizer.register_parent_rule(PackFilterPushdown);
 
         session
     }
@@ -112,6 +115,11 @@ pub trait ArraySessionExt: SessionExt {
     /// Returns the array encoding registry.
     fn arrays(&self) -> Ref<'_, ArraySession> {
         self.get::<ArraySession>()
+    }
+
+    /// Returns the array encoding registry.
+    fn arrays_mut(&self) -> RefMut<'_, ArraySession> {
+        self.get_mut::<ArraySession>()
     }
 }
 

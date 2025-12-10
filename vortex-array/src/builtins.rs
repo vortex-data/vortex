@@ -13,9 +13,8 @@ use vortex_dtype::DType;
 use vortex_dtype::FieldName;
 use vortex_error::VortexResult;
 
-use crate::Array;
-use crate::ArrayRef;
 use crate::arrays::ScalarFnArrayExt;
+use crate::expr::Binary;
 use crate::expr::Cast;
 use crate::expr::EmptyOptions;
 use crate::expr::Expression;
@@ -24,6 +23,8 @@ use crate::expr::IsNull;
 use crate::expr::Mask;
 use crate::expr::Not;
 use crate::expr::VTableExt;
+use crate::Array;
+use crate::ArrayRef;
 
 /// A collection of built-in scalar functions that can be applied to expressions or arrays.
 pub trait ExprBuiltins: Sized {
@@ -80,10 +81,22 @@ pub trait ArrayBuiltins: Sized {
     /// Mask the array using the given boolean mask.
     /// The resulting array's validity is the intersection of the original array's validity
     /// and the mask's validity.
-    fn mask(&self, mask: &ArrayRef) -> VortexResult<ArrayRef>;
+    fn mask(&self, mask: ArrayRef) -> VortexResult<ArrayRef>;
 
     /// Boolean negation.
     fn not(&self) -> VortexResult<ArrayRef>;
+
+    /// Add two arrays together.
+    fn add(&self, other: ArrayRef) -> VortexResult<ArrayRef>;
+
+    /// Subtract two arrays.
+    fn sub(&self, other: ArrayRef) -> VortexResult<ArrayRef>;
+
+    /// Multiply two arrays together.
+    fn mul(&self, other: ArrayRef) -> VortexResult<ArrayRef>;
+
+    /// Divide two arrays.
+    fn div(&self, other: ArrayRef) -> VortexResult<ArrayRef>;
 }
 
 impl ArrayBuiltins for ArrayRef {
@@ -99,11 +112,43 @@ impl ArrayBuiltins for ArrayRef {
         IsNull.try_new_array(self.len(), EmptyOptions, [self.clone()])
     }
 
-    fn mask(&self, mask: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn mask(&self, mask: ArrayRef) -> VortexResult<ArrayRef> {
         Mask.try_new_array(self.len(), EmptyOptions, [self.clone(), mask.clone()])
     }
 
     fn not(&self) -> VortexResult<ArrayRef> {
         Not.try_new_array(self.len(), EmptyOptions, [self.clone()])
+    }
+
+    fn add(&self, other: ArrayRef) -> VortexResult<ArrayRef> {
+        Binary.try_new_array(
+            self.len(),
+            crate::expr::Operator::Add,
+            [self.clone(), other],
+        )
+    }
+
+    fn sub(&self, other: ArrayRef) -> VortexResult<ArrayRef> {
+        Binary.try_new_array(
+            self.len(),
+            crate::expr::Operator::Sub,
+            [self.clone(), other],
+        )
+    }
+
+    fn mul(&self, other: ArrayRef) -> VortexResult<ArrayRef> {
+        Binary.try_new_array(
+            self.len(),
+            crate::expr::Operator::Mul,
+            [self.clone(), other],
+        )
+    }
+
+    fn div(&self, other: ArrayRef) -> VortexResult<ArrayRef> {
+        Binary.try_new_array(
+            self.len(),
+            crate::expr::Operator::Div,
+            [self.clone(), other],
+        )
     }
 }
