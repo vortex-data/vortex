@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![allow(deprecated, reason = "This module is deprecated")]
+
 use std::sync::Arc;
 
 use async_trait::async_trait;

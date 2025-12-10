@@ -33,6 +33,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
@@ -50,6 +51,18 @@ pub struct PathStrategy {
     validity: Arc<dyn LayoutStrategy>,
     /// The fallback writer for any fields that do not have an explicit writer set in `leaf_writers`
     fallback: Arc<dyn LayoutStrategy>,
+}
+
+impl Default for PathStrategy {
+    fn default() -> Self {
+        let flat = Arc::new(FlatLayoutStrategy::default());
+
+        Self {
+            leaf_writers: HashMap::default(),
+            validity: flat.clone(),
+            fallback: flat,
+        }
+    }
 }
 
 impl PathStrategy {
@@ -113,7 +126,8 @@ impl PathStrategy {
         field_path: impl Into<FieldPath>,
         writer: Arc<dyn LayoutStrategy>,
     ) -> Self {
-        self.leaf_writers.insert(field_path.into(), writer);
+        self.leaf_writers
+            .insert(self.validate_path(field_path.into()), writer);
         self
     }
 
@@ -124,12 +138,16 @@ impl PathStrategy {
         mut self,
         writers: impl IntoIterator<Item = (FieldPath, Arc<dyn LayoutStrategy>)>,
     ) -> Self {
-        self.leaf_writers.extend(writers);
+        for (field_path, strategy) in writers {
+            self.leaf_writers
+                .insert(self.validate_path(field_path), strategy);
+        }
         self
     }
 }
 
 impl PathStrategy {
+    // Descend into a subfield for the writer.
     fn descend(&self, field: &Field) -> Self {
         // Start with the existing set of overrides, then only retain the ones that contain
         // the current field
@@ -148,6 +166,19 @@ impl PathStrategy {
             validity: self.validity.clone(),
             fallback: self.fallback.clone(),
         }
+    }
+
+    fn validate_path(&self, path: FieldPath) -> FieldPath {
+        // Validate that the field path does not conflict with any overrides
+        // that we've added by overlapping.
+        for field_path in self.leaf_writers.keys() {
+            assert!(
+                !path.overlap(field_path),
+                "Override for field_path {path} conflicts with existing override for {field_path}"
+            );
+        }
+
+        path
     }
 }
 
@@ -320,5 +351,29 @@ impl LayoutStrategy for PathStrategy {
         // This must hold though, all columns must have the same row count of the struct layout
         let row_count = column_layouts.first().map(|l| l.row_count()).unwrap_or(0);
         Ok(StructLayout::new(row_count, dtype, column_layouts).into_layout())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_dtype::field_path;
+
+    use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::layouts::path::PathStrategy;
+
+    #[test]
+    #[should_panic(
+        expected = "Override for field_path $a.$b conflicts with existing override for $a.$b.$c"
+    )]
+    fn test_overlapping_paths_fail() {
+        let flat = Arc::new(FlatLayoutStrategy::default());
+
+        // Success
+        let path = PathStrategy::default().with_field_writer(field_path!(a.b.c), flat.clone());
+
+        // Should panic right here.
+        let _path = path.with_field_writer(field_path!(a.b), flat);
     }
 }
