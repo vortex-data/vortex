@@ -36,6 +36,7 @@ prost = { workspace = true }
 rustc-hash = { workspace = true }
 termtree = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
+uuid = { workspace = true }
 vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
@@ -68,3 +69,6 @@ zstd = ["dep:vortex-zstd"]
 
 [lints]
 workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["uuid"]
