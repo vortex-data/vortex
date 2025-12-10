@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import final
+
 import numpy as np
 import pyarrow as pa
 import pytest
@@ -12,7 +14,6 @@ from pcodec import (  # pyright: ignore[reportMissingTypeStubs]
 from pcodec import (  # pyright: ignore[reportMissingTypeStubs]
     wrapped as pco,  # pyright: ignore[reportAttributeAccessIssue, reportUnknownVariableType]
 )
-from typing import final
 from typing_extensions import override
 
 import vortex as vx
