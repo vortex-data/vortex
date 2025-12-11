@@ -51,6 +51,8 @@ jobs:
             name: Random Access
           - id: compress
             name: Compression
+    env:
+      VORTEX_OPERATORS: "true"
     steps:
       - uses: runs-on/action@v2
         if: github.event.pull_request.head.repo.fork == false

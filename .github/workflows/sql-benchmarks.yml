@@ -1,5 +1,8 @@
 name: "SQL-related benchmarks"
 
+env:
+  VORTEX_OPERATORS: "true"
+
 on:
   workflow_call:
     inputs:
@@ -110,7 +113,8 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJSON(inputs.benchmark_matrix) }}
-
+    env:
+      VORTEX_OPERATORS: "true"
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=${{ inputs.machine_type }}
