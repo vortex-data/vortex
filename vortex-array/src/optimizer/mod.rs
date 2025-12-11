@@ -64,7 +64,7 @@ impl ArrayOptimizer {
                 .try_collect()?;
 
             // If any children changed, reconstruct the array
-            let array = array.with_children(&new_children)?;
+            let array = array.with_children(new_children)?;
 
             // Apply reduction rules to the current array until no more rules apply.
             if let Some(new_array) = opt.apply_reduce_rules(&array)? {
@@ -87,7 +87,11 @@ impl ArrayOptimizer {
         // No real reason to pick 4.
         let max_iterations = array.depth_first_traversal().count() * 4;
 
-        inner(self, array, max_iterations)
+        tracing::debug!("Starting array optimization\n{}", array.display_tree());
+        let array = inner(self, array, max_iterations)?;
+        tracing::debug!("Optimized array\n{}", array.display_tree());
+
+        Ok(array)
     }
 
     /// Register a reduce rule for a specific array encoding.

@@ -37,6 +37,7 @@ use vortex::compute::InvocationArgs;
 use vortex::compute::Output;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
+use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::mask::Mask;
 use vortex::scalar::Scalar;
@@ -136,6 +137,15 @@ impl VTable for PythonVTable {
         _children: &dyn ArrayChildren,
     ) -> VortexResult<PythonArray> {
         todo!()
+    }
+
+    fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.is_empty(),
+            "PythonArray has no children, got {}",
+            children.len()
+        );
+        Ok(())
     }
 }
 

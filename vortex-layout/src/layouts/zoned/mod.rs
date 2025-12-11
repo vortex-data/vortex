@@ -141,6 +141,17 @@ impl VTable for ZonedVTable {
             present_stats: metadata.present_stats.clone(),
         })
     }
+
+    fn with_children(layout: &mut Self::Layout, children: Vec<LayoutRef>) -> VortexResult<()> {
+        if children.len() != 2 {
+            vortex_bail!(
+                "ZonedLayout expects exactly 2 children (data, zones), got {}",
+                children.len()
+            );
+        }
+        layout.children = OwnedLayoutChildren::layout_children(children);
+        Ok(())
+    }
 }
 
 #[derive(Debug)]

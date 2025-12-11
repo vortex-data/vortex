@@ -21,6 +21,7 @@ use vortex_array::compute::min_max;
 use vortex_array::compute::take;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
+use vortex_array::mask::MaskExecutor;
 use vortex_array::session::ArraySessionExt;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
@@ -183,35 +184,41 @@ impl LayoutReader for DictReader {
             MaskFuture::new_true(mask.len()),
         )?;
 
+        let session = self.session.clone();
+
         Ok(MaskFuture::new(mask.len(), async move {
             // Join on the I/O futures first, before the mask.
             let (codes, values) = try_join!(codes_eval, values_eval.map_err(VortexError::from))?;
             let mask = mask.await?;
 
-            // Short-circuit when the values are all true/false.
-            if values.all_valid()
-                && let Some(MinMaxResult { min, max }) = min_max(&values)?
-            {
-                #[expect(clippy::bool_comparison, reason = "easy to follow")]
-                if max.as_bool().value().vortex_expect("non null") == false {
-                    // All values are false
-                    return Ok(Mask::AllFalse(mask.len()));
+            let dict_mask = if *USE_VORTEX_OPERATORS {
+                values.take(codes)?.execute_mask_optimized(&session)?
+            } else {
+                // Short-circuit when the values are all true/false.
+                if values.all_valid()
+                    && let Some(MinMaxResult { min, max }) = min_max(&values)?
+                {
+                    #[expect(clippy::bool_comparison, reason = "easy to follow")]
+                    if max.as_bool().value().vortex_expect("non null") == false {
+                        // All values are false
+                        return Ok(Mask::AllFalse(mask.len()));
+                    }
+                    #[expect(clippy::bool_comparison, reason = "easy to follow")]
+                    if min.as_bool().value().vortex_expect("not null") == true {
+                        // All values are true, but we still need to respect codes validity
+                        return Ok(mask.bitand(&codes.validity_mask()));
+                    }
                 }
-                #[expect(clippy::bool_comparison, reason = "easy to follow")]
-                if min.as_bool().value().vortex_expect("not null") == true {
-                    // All values are true, but we still need to respect codes validity
-                    return Ok(mask.bitand(&codes.validity_mask()));
-                }
-            }
 
-            // Creating a mask from the dict array would canonicalize it,
-            // it should be fine for now as long as values is already canonical,
-            // so different row ranges do not canonicalize to the same array
-            // multiple times.
-            // TODO(joe): fixme casting null to false is *VERY* unsound, if the expression in the filter
-            // can inspect nulls (e.g. `is_null`).
-            // See `FlatEvaluation` for more details.
-            let dict_mask = take(&values, &codes)?.try_to_mask_fill_null_false()?;
+                // Creating a mask from the dict array would canonicalize it,
+                // it should be fine for now as long as values is already canonical,
+                // so different row ranges do not canonicalize to the same array
+                // multiple times.
+                // TODO(joe): fixme casting null to false is *VERY* unsound, if the expression in the filter
+                // can inspect nulls (e.g. `is_null`).
+                // See `FlatEvaluation` for more details.
+                take(&values, &codes)?.try_to_mask_fill_null_false()?
+            };
 
             Ok(mask.bitand(&dict_mask))
         }))

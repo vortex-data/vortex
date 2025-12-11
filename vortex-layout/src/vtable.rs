@@ -10,6 +10,7 @@ use vortex_array::DeserializeMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
 use crate::IntoLayout;
@@ -83,6 +84,14 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         children: &dyn LayoutChildren,
         ctx: ArrayContext,
     ) -> VortexResult<Self::Layout>;
+
+    /// Replaces the children of the layout with the given layout references.
+    ///
+    /// The count and types of children must match the layout's requirements.
+    /// This method is used for transforming layout trees by replacing child layouts.
+    fn with_children(_layout: &mut Self::Layout, _children: Vec<LayoutRef>) -> VortexResult<()> {
+        vortex_bail!("with_children not implemented for this layout")
+    }
 }
 
 #[macro_export]

@@ -22,8 +22,8 @@ use crate::validity::Validity;
 #[derive(Clone, Debug)]
 pub struct VarBinArray {
     pub(super) dtype: DType,
-    bytes: ByteBuffer,
-    offsets: ArrayRef,
+    pub(super) bytes: ByteBuffer,
+    pub(super) offsets: ArrayRef,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }

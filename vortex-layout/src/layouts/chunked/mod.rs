@@ -20,6 +20,7 @@ use crate::LayoutReaderRef;
 use crate::LayoutRef;
 use crate::VTable;
 use crate::children::LayoutChildren;
+use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
@@ -113,6 +114,21 @@ impl VTable for ChunkedVTable {
             dtype.clone(),
             children.to_arc(),
         ))
+    }
+
+    fn with_children(layout: &mut Self::Layout, children: Vec<LayoutRef>) -> VortexResult<()> {
+        let new_children = OwnedLayoutChildren::layout_children(children);
+
+        // Recalculate chunk offsets based on new children
+        let mut chunk_offsets = Vec::with_capacity(new_children.nchildren() + 1);
+        chunk_offsets.push(0);
+        for i in 0..new_children.nchildren() {
+            chunk_offsets.push(chunk_offsets[i] + new_children.child_row_count(i));
+        }
+
+        layout.children = new_children;
+        layout.chunk_offsets = chunk_offsets;
+        Ok(())
     }
 }
 

@@ -26,7 +26,6 @@ pub use visitor::*;
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -133,10 +132,15 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         children: &dyn ArrayChildren,
     ) -> VortexResult<Self::Array>;
 
+    /// Replaces the children in `array` with `children`. The count must be the same and types
+    /// of children must be expected.
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()>;
+
     /// Bind this array into a [`KernelRef`] for CPU execution.
     ///
-    /// The returned vector must be the appropriate one for the array's logical type (they are
-    /// one-to-one with Vortex `DType`s), and should respect the output nullability of the array.
+    /// The returned [`vortex_vector::Vector`] must be the appropriate one for the array's logical
+    /// type (they are one-to-one with Vortex `DType`s), and should respect the output nullability
+    /// of the array.
     ///
     /// Debug builds will panic if the returned vector is of the wrong type, wrong length, or
     /// incorrectly contains null values.
@@ -151,21 +155,6 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
             let canonical = Self::CanonicalVTable::canonicalize(&array);
             canonical.into_array().execute_vector(&session)
         }))
-    }
-
-    /// Return an array filtered using the given mask.
-    ///
-    /// This should be implemented if the array is able to push down filtering operations to its
-    /// children. If not, return `Ok(None)` and the caller will handle filtering.
-    ///
-    /// NOTE: in the future, filter push-down will happen over the physical execution plan in
-    /// order to avoid cases where pushing down filters actually becomes more expensive. This
-    /// happens because filtering is very slow, and performing it in every leaf of a tree
-    /// can be more expensive than filtering once at the root.
-    fn filter(array: &Self::Array, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
-        _ = array;
-        _ = mask;
-        Ok(None)
     }
 }
 

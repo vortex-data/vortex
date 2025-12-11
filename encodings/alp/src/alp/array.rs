@@ -43,6 +43,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 
 use crate::ALPFloat;
 use crate::alp::Exponents;
@@ -139,6 +140,51 @@ impl VTable for ALPVTable {
             },
             patches,
         )
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        // Children: encoded, patches (if present): indices, values, chunk_offsets (optional)
+        let patches_info = array
+            .patches
+            .as_ref()
+            .map(|p| (p.array_len(), p.offset(), p.chunk_offsets().is_some()));
+
+        let expected_children = match &patches_info {
+            Some((_, _, has_chunk_offsets)) => 1 + 2 + if *has_chunk_offsets { 1 } else { 0 },
+            None => 1,
+        };
+
+        vortex_ensure!(
+            children.len() == expected_children,
+            "ALPArray expects {} children, got {}",
+            expected_children,
+            children.len()
+        );
+
+        let mut children_iter = children.into_iter();
+        array.encoded = children_iter
+            .next()
+            .ok_or_else(|| vortex_err!("Expected encoded child"))?;
+
+        if let Some((array_len, offset, _has_chunk_offsets)) = patches_info {
+            let indices = children_iter
+                .next()
+                .ok_or_else(|| vortex_err!("Expected patch indices child"))?;
+            let values = children_iter
+                .next()
+                .ok_or_else(|| vortex_err!("Expected patch values child"))?;
+            let chunk_offsets = children_iter.next();
+
+            array.patches = Some(Patches::new(
+                array_len,
+                offset,
+                indices,
+                values,
+                chunk_offsets,
+            ));
+        }
+
+        Ok(())
     }
 
     fn bind_kernel(array: &ALPArray, ctx: &mut BindCtx) -> VortexResult<KernelRef> {

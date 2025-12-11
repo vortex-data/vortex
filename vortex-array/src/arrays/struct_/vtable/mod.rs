@@ -9,8 +9,10 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_vector::struct_::StructVector;
 
+use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::arrays::struct_::StructArray;
 use crate::kernel::BindCtx;
@@ -105,6 +107,38 @@ impl VTable for StructVTable {
             .try_collect()?;
 
         StructArray::try_new_with_dtype(children, struct_dtype.clone(), len, validity)
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        let DType::Struct(struct_dtype, _nullability) = &array.dtype else {
+            vortex_bail!("Expected struct dtype, found {:?}", array.dtype)
+        };
+
+        // First child is validity (if present), followed by fields
+        let (validity, non_data_children) = if children.len() == struct_dtype.nfields() {
+            (array.validity.clone(), 0_usize)
+        } else if children.len() == struct_dtype.nfields() + 1 {
+            (Validity::Array(children[0].clone()), 1_usize)
+        } else {
+            vortex_bail!(
+                "Expected {} or {} children, found {}",
+                struct_dtype.nfields(),
+                struct_dtype.nfields() + 1,
+                children.len()
+            );
+        };
+
+        let fields: Arc<[ArrayRef]> = children.into_iter().skip(non_data_children).collect();
+        vortex_ensure!(
+            fields.len() == struct_dtype.nfields(),
+            "Expected {} field children, found {}",
+            struct_dtype.nfields(),
+            fields.len()
+        );
+
+        array.fields = fields;
+        array.validity = validity;
+        Ok(())
     }
 
     fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {

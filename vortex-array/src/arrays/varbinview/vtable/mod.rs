@@ -10,10 +10,12 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_vector::binaryview::BinaryVector;
 use vortex_vector::binaryview::BinaryView;
 use vortex_vector::binaryview::StringVector;
 
+use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::arrays::varbinview::VarBinViewArray;
 use crate::kernel::BindCtx;
@@ -106,6 +108,23 @@ impl VTable for VarBinViewVTable {
         };
 
         VarBinViewArray::try_new(views, Arc::from(buffers), dtype.clone(), validity)
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        match children.len() {
+            0 => {}
+            1 => {
+                let [validity]: [ArrayRef; 1] = children
+                    .try_into()
+                    .map_err(|_| vortex_err!("Failed to convert children to array"))?;
+                array.validity = Validity::Array(validity);
+            }
+            _ => vortex_bail!(
+                "VarBinViewArray expects 0 or 1 children (validity?), got {}",
+                children.len()
+            ),
+        }
+        Ok(())
     }
 
     fn bind_kernel(array: &Self::Array, _ctx: &mut BindCtx) -> VortexResult<KernelRef> {
