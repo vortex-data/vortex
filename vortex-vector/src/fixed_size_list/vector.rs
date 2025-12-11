@@ -62,7 +62,6 @@ impl PartialEq for FixedSizeListVector {
         if self.list_size != other.list_size {
             return false;
         }
-        // Validity patterns must match
         if self.validity != other.validity {
             return false;
         }
@@ -75,7 +74,6 @@ impl PartialEq for FixedSizeListVector {
             .collect();
         let element_mask = Mask::from_slices(self.elements.len(), valid_slices);
 
-        // Clone elements and apply the element-level mask
         let mut self_elements = self.elements.as_ref().clone();
         let mut other_elements = other.elements.as_ref().clone();
         self_elements.mask_validity(&element_mask);
