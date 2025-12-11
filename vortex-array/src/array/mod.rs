@@ -31,6 +31,7 @@ use crate::DynArrayHash;
 use crate::arrays::BoolVTable;
 use crate::arrays::ConstantVTable;
 use crate::arrays::DecimalVTable;
+use crate::arrays::DictArray;
 use crate::arrays::ExtensionVTable;
 use crate::arrays::FilterArray;
 use crate::arrays::FixedSizeListVTable;
@@ -96,8 +97,11 @@ pub trait Array:
     /// Performs a constant-time slice of the array.
     fn slice(&self, range: Range<usize>) -> ArrayRef;
 
-    /// Performs a constant-time filter of the array.
-    fn filter(&self, mask: &Mask) -> VortexResult<ArrayRef>;
+    /// Wraps the array in a [`FilterArray`] such that it is logically filtered by the given mask.
+    fn filter(&self, mask: Mask) -> VortexResult<ArrayRef>;
+
+    /// Wraps the array in a [`DictArray`] such that it is logically taken by the given indices.
+    fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef>;
 
     /// Fetch the scalar at the given index.
     ///
@@ -232,8 +236,12 @@ impl Array for Arc<dyn Array> {
         self.as_ref().slice(range)
     }
 
-    fn filter(&self, mask: &Mask) -> VortexResult<ArrayRef> {
+    fn filter(&self, mask: Mask) -> VortexResult<ArrayRef> {
         self.as_ref().filter(mask)
+    }
+
+    fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
+        self.as_ref().take(indices)
     }
 
     #[inline]
@@ -505,10 +513,13 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         sliced
     }
 
-    fn filter(&self, mask: &Mask) -> VortexResult<ArrayRef> {
+    fn filter(&self, mask: Mask) -> VortexResult<ArrayRef> {
         vortex_ensure!(self.len() == mask.len(), "Filter mask length mismatch");
-        Ok(V::filter(&self.0, mask)?
-            .unwrap_or_else(|| FilterArray::new(self.to_array(), mask.clone()).into_array()))
+        Ok(FilterArray::new(self.to_array(), mask).into_array())
+    }
+
+    fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
+        Ok(DictArray::try_new(indices, self.to_array())?.into_array())
     }
 
     fn scalar_at(&self, index: usize) -> Scalar {
