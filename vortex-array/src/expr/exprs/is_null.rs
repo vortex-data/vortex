@@ -94,7 +94,7 @@ impl VTable for IsNull {
     fn execute(&self, _data: &Self::Options, mut args: ExecutionArgs) -> VortexResult<Datum> {
         let child = args.datums.pop().vortex_expect("Missing input child");
         Ok(match child {
-            Datum::Scalar(s) => Datum::Scalar(BoolScalar::new(Some(s.is_invalid())).into()),
+            Datum::Scalar(s) => Datum::Scalar(BoolScalar::new(Some(s.is_null())).into()),
             Datum::Vector(v) => Datum::Vector(
                 BoolVector::new(v.validity().to_bit_buffer().not(), Mask::new_true(v.len())).into(),
             ),

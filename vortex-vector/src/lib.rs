@@ -118,7 +118,7 @@ pub fn vector_matches_dtype(vector: &Vector, dtype: &DType) -> bool {
 
 /// Returns true if the scalar's is compatible with the provided data type.
 pub fn scalar_matches_dtype(scalar: &Scalar, dtype: &DType) -> bool {
-    if !dtype.is_nullable() && scalar.is_invalid() {
+    if !dtype.is_nullable() && scalar.is_null() {
         // Non-nullable dtype cannot have nulls in the scalar.
         return false;
     }

@@ -11,7 +11,7 @@ pub trait ScalarOps: private::Sealed + Sized + Into<Scalar> {
     fn is_valid(&self) -> bool;
 
     /// Returns true if the scalar is null.
-    fn is_invalid(&self) -> bool {
+    fn is_null(&self) -> bool {
         !self.is_valid()
     }
 

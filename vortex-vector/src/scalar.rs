@@ -44,10 +44,6 @@ impl ScalarOps for Scalar {
         match_each_scalar!(self, |v| { v.is_valid() })
     }
 
-    fn is_invalid(&self) -> bool {
-        !self.is_valid()
-    }
-
     fn mask_validity(&mut self, mask: bool) {
         match_each_scalar!(self, |v| { v.mask_validity(mask) })
     }
