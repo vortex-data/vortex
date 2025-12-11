@@ -56,6 +56,20 @@ impl ArrayOptimizer {
                 return Ok(array.clone());
             }
 
+            // // Apply reduction rules to the current array until no more rules apply.
+            if let Some(new_array) = opt.apply_reduce_rules(&array)? {
+                // Start over
+                return inner(opt, &new_array, iterations - 1);
+            }
+            //
+            // // Apply parent reduction rules to each child in the context of the current array.
+            for (idx, child) in array.children().iter().enumerate() {
+                if let Some(new_array) = opt.apply_parent_rules(child, &array, idx)? {
+                    // If the parent was replaced, then we start over with the new parent
+                    return inner(opt, &new_array, iterations - 1);
+                }
+            }
+
             // TODO(ngates): we should reduce first on the way down?
             let new_children: Vec<_> = array
                 .children()
