@@ -23,13 +23,15 @@ impl Display for DisplayTreeExpr<'_> {
             let child_names = (0..expr.children().len()).map(|i| expr.child_name(i));
             let children = expr.children();
 
-            let child_trees: Result<Vec<Tree<String>>, _> = children
+            let child_trees: Result<Vec<Tree<String>>, std::fmt::Error> = children
                 .iter()
                 .zip(child_names)
                 .map(|(child, name)| {
                     let child_tree = make_tree(child)?;
-                    Ok(Tree::new(format!("{}: {}", name, child_tree.root))
-                        .with_leaves(child_tree.leaves))
+                    Ok::<Tree<String>, std::fmt::Error>(
+                        Tree::new(format!("{}: {}", name, child_tree.root))
+                            .with_leaves(child_tree.leaves),
+                    )
                 })
                 .collect();
 
