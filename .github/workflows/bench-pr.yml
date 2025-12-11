@@ -9,10 +9,11 @@ concurrency:
   cancel-in-progress: false
 
 on:
-  pull_request:
-    types: [labeled, synchronize]
-    branches: ["develop"]
-  workflow_dispatch: { }
+  push:
+    branches: ["operators-bench"]
+
+env:
+  VORTEX_OPERATORS: "true"
 
 permissions:
   actions: write  # for removing labels
