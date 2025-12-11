@@ -120,20 +120,35 @@ where
     S: vortex_dtype::NativePType + Copy,
     usize: TryFrom<O> + TryFrom<S>,
 {
-    // Build element-level mask: for each valid list, mark elements[offset..offset+size] as valid
-    let valid_slices: Vec<(usize, usize)> = (0..len)
-        .filter(|&i| validity.value(i))
-        .map(|i| {
+    // Fast path: if all lists are invalid, elements don't matter
+    if validity.all_false() {
+        return true;
+    }
+
+    // Fast path: if all lists are valid, compare elements directly
+    if validity.all_true() {
+        return self_elements == other_elements
+            && self_offsets == other_offsets
+            && self_sizes == other_sizes;
+    }
+
+    // Build element-level mask using Vec<bool> to handle overlapping slices correctly
+    let elem_len = self_elements.len();
+    let mut element_valid = vec![false; elem_len];
+    for i in 0..len {
+        if validity.value(i) {
             let offset = self_offsets
                 .get_as::<usize>(i)
                 .vortex_expect("offset is valid and fits in usize");
             let size = self_sizes
                 .get_as::<usize>(i)
                 .vortex_expect("size is valid and fits in usize");
-            (offset, offset + size)
-        })
-        .collect();
-    let element_mask = Mask::from_slices(self_elements.len(), valid_slices);
+            for j in offset..(offset + size).min(elem_len) {
+                element_valid[j] = true;
+            }
+        }
+    }
+    let element_mask = Mask::from_buffer(vortex_buffer::BitBuffer::from(element_valid));
 
     // Clone elements and apply the element-level mask
     let mut self_elems = self_elements.clone();
