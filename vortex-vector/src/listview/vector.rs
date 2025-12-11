@@ -17,6 +17,7 @@ use super::ListViewScalar;
 use super::ListViewVectorMut;
 use crate::Vector;
 use crate::match_each_integer_pvector;
+use crate::match_each_integer_pvector_pair;
 use crate::primitive::PrimitiveVector;
 use crate::vector_ops::VectorMutOps;
 use crate::vector_ops::VectorOps;
@@ -65,58 +66,91 @@ pub struct ListViewVector {
 }
 
 impl PartialEq for ListViewVector {
-    #[allow(clippy::cast_possible_truncation)]
     fn eq(&self, other: &Self) -> bool {
         if self.len != other.len {
             return false;
         }
-        // Validity patterns must match
         if self.validity != other.validity {
             return false;
         }
-        // Elements lengths must match
         if self.elements.len() != other.elements.len() {
             return false;
         }
-        // Build element-level mask: for each valid list, mark elements[offset..offset+size] as valid
-        let valid_slices: Vec<(usize, usize)> = (0..self.len)
-            .filter(|&i| self.validity.value(i))
-            .map(|i| {
-                let offset =
-                    match_each_integer_pvector!(&self.offsets, |v| { v.as_ref()[i] as usize });
-                let size = match_each_integer_pvector!(&self.sizes, |v| { v.as_ref()[i] as usize });
-                (offset, offset + size)
-            })
-            .collect();
-        let element_mask = Mask::from_slices(self.elements.len(), valid_slices);
 
-        // Clone elements and apply the element-level mask
-        let mut self_elements = self.elements.as_ref().clone();
-        let mut other_elements = other.elements.as_ref().clone();
-        self_elements.mask_validity(&element_mask);
-        other_elements.mask_validity(&element_mask);
-
-        // Compare masked elements
-        if self_elements != other_elements {
-            return false;
-        }
-
-        // Compare offsets and sizes at valid positions
-        (0..self.len).all(|i| {
-            if !self.validity.value(i) {
-                return true;
-            }
-            let self_offset =
-                match_each_integer_pvector!(&self.offsets, |v| { v.as_ref()[i] as usize });
-            let other_offset =
-                match_each_integer_pvector!(&other.offsets, |v| { v.as_ref()[i] as usize });
-            let self_size =
-                match_each_integer_pvector!(&self.sizes, |v| { v.as_ref()[i] as usize });
-            let other_size =
-                match_each_integer_pvector!(&other.sizes, |v| { v.as_ref()[i] as usize });
-            self_offset == other_offset && self_size == other_size
-        })
+        // Offsets and sizes must have matching types, then compare within the match
+        match_each_integer_pvector_pair!(
+            (&self.offsets, &other.offsets),
+            |self_offsets, other_offsets| {
+                match_each_integer_pvector_pair!(
+                    (&self.sizes, &other.sizes),
+                    |self_sizes, other_sizes| {
+                        listview_eq_impl(
+                            self.len,
+                            &self.validity,
+                            self.elements.as_ref(),
+                            other.elements.as_ref(),
+                            self_offsets,
+                            other_offsets,
+                            self_sizes,
+                            other_sizes,
+                        )
+                    },
+                    { false } // Size types don't match
+                )
+            },
+            { false } // Offset types don't match
+        )
     }
+}
+
+/// Helper function for ListViewVector equality comparison.
+#[expect(clippy::too_many_arguments)]
+fn listview_eq_impl<O, S>(
+    len: usize,
+    validity: &Mask,
+    self_elements: &Vector,
+    other_elements: &Vector,
+    self_offsets: &crate::primitive::PVector<O>,
+    other_offsets: &crate::primitive::PVector<O>,
+    self_sizes: &crate::primitive::PVector<S>,
+    other_sizes: &crate::primitive::PVector<S>,
+) -> bool
+where
+    O: vortex_dtype::NativePType + Copy,
+    S: vortex_dtype::NativePType + Copy,
+    usize: TryFrom<O> + TryFrom<S>,
+{
+    // Build element-level mask: for each valid list, mark elements[offset..offset+size] as valid
+    let valid_slices: Vec<(usize, usize)> = (0..len)
+        .filter(|&i| validity.value(i))
+        .map(|i| {
+            let offset = self_offsets
+                .get_as::<usize>(i)
+                .vortex_expect("offset is valid and fits in usize");
+            let size = self_sizes
+                .get_as::<usize>(i)
+                .vortex_expect("size is valid and fits in usize");
+            (offset, offset + size)
+        })
+        .collect();
+    let element_mask = Mask::from_slices(self_elements.len(), valid_slices);
+
+    // Clone elements and apply the element-level mask
+    let mut self_elems = self_elements.clone();
+    let mut other_elems = other_elements.clone();
+    self_elems.mask_validity(&element_mask);
+    other_elems.mask_validity(&element_mask);
+
+    if self_elems != other_elems {
+        return false;
+    }
+
+    // Compare offsets and sizes at valid positions
+    (0..len).all(|i| {
+        !validity.value(i)
+            || (self_offsets.get_as::<usize>(i) == other_offsets.get_as::<usize>(i)
+                && self_sizes.get_as::<usize>(i) == other_sizes.get_as::<usize>(i))
+    })
 }
 
 impl ListViewVector {

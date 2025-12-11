@@ -189,3 +189,52 @@ impl VectorOps for BoolVector {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::BitBuffer;
+    use vortex_mask::Mask;
+
+    use super::*;
+
+    #[test]
+    fn test_bool_vector_eq_with_validity_127() {
+        // Test with 127 elements (not a multiple of 64, tests edge cases)
+        let len = 127;
+
+        // Create bits: alternating true/false pattern
+        let bits1: Vec<bool> = (0..len).map(|i| i % 2 == 0).collect();
+        let mut bits2: Vec<bool> = bits1.clone();
+
+        // Create validity: every 3rd element is invalid
+        let validity_bools: Vec<bool> = (0..len).map(|i| i % 3 != 0).collect();
+        let validity = Mask::from_buffer(BitBuffer::from(validity_bools));
+
+        let v1 = BoolVector::new(BitBuffer::from(bits1.clone()), validity.clone());
+        let v2 = BoolVector::new(BitBuffer::from(bits2.clone()), validity.clone());
+
+        // Should be equal - same bits at valid positions
+        assert_eq!(v1, v2);
+
+        // Now modify bits2 at an INVALID position - should still be equal
+        bits2[0] = !bits2[0]; // Flip bit 0, which is invalid (0 % 3 == 0)
+        let v3 = BoolVector::new(BitBuffer::from(bits2.clone()), validity.clone());
+        assert_eq!(
+            v1, v3,
+            "Vectors should be equal when only invalid positions differ"
+        );
+
+        // Now modify bits2 at a VALID position - should NOT be equal
+        bits2[1] = !bits2[1]; // Flip bit 1, which is valid (1 % 3 != 0)
+        let v4 = BoolVector::new(BitBuffer::from(bits2), validity);
+        assert_ne!(v1, v4, "Vectors should differ when valid positions differ");
+
+        // Test with different validity patterns - should NOT be equal
+        let validity2 = Mask::new_true(len);
+        let v5 = BoolVector::new(BitBuffer::from(bits1), validity2);
+        assert_ne!(
+            v1, v5,
+            "Vectors with different validity should not be equal"
+        );
+    }
+}

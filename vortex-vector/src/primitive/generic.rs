@@ -132,6 +132,23 @@ impl<T> PVector<T> {
         self.validity.value(index).then(|| &self.elements[index])
     }
 
+    /// Gets an element at the given index and converts it to type `U`.
+    ///
+    /// Returns `None` if:
+    /// - The element at the given index is null
+    /// - The conversion from `T` to `U` fails
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds.
+    pub fn get_as<U>(&self, index: usize) -> Option<U>
+    where
+        U: TryFrom<T>,
+        T: Copy,
+    {
+        self.get(index).and_then(|&v| U::try_from(v).ok())
+    }
+
     /// Returns the internal [`Buffer`] of the [`PVector`].
     ///
     /// Note that the internal buffer may hold garbage data in place of nulls. That information is
