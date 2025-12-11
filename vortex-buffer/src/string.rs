@@ -23,6 +23,11 @@ impl BufferString {
         Self(buffer)
     }
 
+    /// Creates an empty `BufferString`.
+    pub fn empty() -> Self {
+        Self(ByteBuffer::from(vec![]))
+    }
+
     /// Return a view of the contents of BufferString as an immutable `&str`.
     pub fn as_str(&self) -> &str {
         // SAFETY: We have already validated that the buffer is valid UTF-8

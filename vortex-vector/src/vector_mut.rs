@@ -32,8 +32,7 @@ use crate::struct_::StructVectorMut;
 /// vectors are **always** considered as nullable, and it is the responsibility of the user to not
 /// add any nullable data to a vector they want to keep as non-nullable.
 ///
-/// The immutable equivalent of this type is [`Vector`], which implements the
-/// [`VectorOps`](crate::VectorOps) trait.
+/// The immutable equivalent of this type is [`Vector`], which implements the [`VectorOps`] trait.
 #[derive(Debug, Clone)]
 pub enum VectorMut {
     /// Mutable Null vectors.

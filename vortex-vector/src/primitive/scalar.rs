@@ -8,6 +8,7 @@ use vortex_dtype::PType;
 use vortex_dtype::PTypeDowncast;
 use vortex_dtype::PTypeUpcast;
 use vortex_dtype::half::f16;
+use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
@@ -63,6 +64,16 @@ impl PrimitiveScalar {
             PrimitiveScalar::F64(_) => PType::F64,
         }
     }
+
+    /// Creates a zero primitive scalar of the given [`PType`].
+    pub fn zero(ptype: PType) -> Self {
+        match_each_native_ptype!(ptype, |T| { PScalar::<T>::zero().into() })
+    }
+
+    /// Creates a null primitive scalar of the given [`PType`].
+    pub fn null(ptype: PType) -> Self {
+        match_each_native_ptype!(ptype, |T| { PScalar::<T>::null().into() })
+    }
 }
 
 impl ScalarOps for PrimitiveScalar {
@@ -110,6 +121,16 @@ impl<T: NativePType> PScalar<T> {
     /// Returns the value of the primitive scalar, or `None` if it is null.
     pub fn value(&self) -> Option<T> {
         self.0
+    }
+
+    /// Creates a zero primitive scalar.
+    pub fn zero() -> Self {
+        Self::new(Some(T::default()))
+    }
+
+    /// Creates a null primitive scalar.
+    pub fn null() -> Self {
+        Self::new(None)
     }
 }
 

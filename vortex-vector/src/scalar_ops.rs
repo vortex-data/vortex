@@ -21,6 +21,6 @@ pub trait ScalarOps: private::Sealed + Sized + Into<Scalar> {
     /// If the mask is false, the resulting scalar is null.
     fn mask_validity(&mut self, mask: bool);
 
-    /// Creates a new vector with n repetitions of this scalar.
+    /// Creates a new vector with `n` repetitions of this scalar.
     fn repeat(&self, n: usize) -> VectorMut;
 }
