@@ -28,6 +28,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::Array;
+use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VectorExecutor;
 use crate::kernel::BindCtx;
