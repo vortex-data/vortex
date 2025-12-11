@@ -171,7 +171,7 @@ pub trait Array:
     fn statistics(&self) -> StatsSetRef<'_>;
 
     /// Replaces the children of the array with the given array references.
-    fn with_children(&self, children: &[ArrayRef]) -> VortexResult<ArrayRef>;
+    fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
 
     /// Optionally invoke a kernel for the given compute function.
     ///
@@ -288,8 +288,7 @@ impl Array for Arc<dyn Array> {
         self.as_ref().statistics()
     }
 
-    // TODO(ngates): take a Vec<ArrayRef> to avoid clones
-    fn with_children(&self, children: &[ArrayRef]) -> VortexResult<ArrayRef> {
+    fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
         self.as_ref().with_children(children)
     }
 
@@ -626,42 +625,8 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         <V::ArrayVTable as BaseArrayVTable<V>>::stats(&self.0)
     }
 
-    fn with_children(&self, children: &[ArrayRef]) -> VortexResult<ArrayRef> {
-        struct ReplacementChildren<'a> {
-            children: &'a [ArrayRef],
-        }
-
-        impl ArrayChildren for ReplacementChildren<'_> {
-            fn get(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<ArrayRef> {
-                if index >= self.children.len() {
-                    vortex_bail!(OutOfBounds: index, 0, self.children.len());
-                }
-                let child = &self.children[index];
-                if child.len() != len {
-                    vortex_bail!(
-                        "Child length mismatch: expected {}, got {}",
-                        len,
-                        child.len()
-                    );
-                }
-                if child.dtype() != dtype {
-                    vortex_bail!(
-                        "Child dtype mismatch: expected {}, got {}",
-                        dtype,
-                        child.dtype()
-                    );
-                }
-                Ok(child.clone())
-            }
-
-            fn len(&self) -> usize {
-                self.children.len()
-            }
-        }
-
-        // Replace the children of the array by re-building the array from parts.
-        self.encoding()
-            .with_children(self, &ReplacementChildren { children })
+    fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
+        self.encoding().with_children(self, children)
     }
 
     fn invoke(
