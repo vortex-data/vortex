@@ -5,11 +5,13 @@ use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
 use vortex_vector::ScalarOps;
 use vortex_vector::VectorMutOps;
 
+use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::arrays::ConstantArray;
 use crate::kernel::BindCtx;
@@ -90,5 +92,14 @@ impl VTable for ConstantVTable {
         let scalar = array.scalar().to_vector_scalar();
         let len = array.len();
         Ok(kernel(move || Ok(scalar.clone().repeat(len).freeze())))
+    }
+
+    fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.is_empty(),
+            "ConstantArray has no children, got {}",
+            children.len()
+        );
+        Ok(())
     }
 }

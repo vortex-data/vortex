@@ -42,8 +42,10 @@ use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::fsst_compress;
@@ -145,6 +147,34 @@ impl VTable for FSSTVTable {
             codes,
             uncompressed_lengths,
         )
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() == 2,
+            "FSSTArray expects 2 children, got {}",
+            children.len()
+        );
+
+        let mut children_iter = children.into_iter();
+        let codes = children_iter.next().vortex_expect("codes child");
+        let codes = codes
+            .as_opt::<VarBinVTable>()
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Expected VarBinArray for codes, got {}",
+                    codes.encoding_id()
+                )
+            })?
+            .clone();
+        let uncompressed_lengths = children_iter
+            .next()
+            .vortex_expect("uncompressed_lengths child");
+
+        array.codes = codes;
+        array.uncompressed_lengths = uncompressed_lengths;
+
+        Ok(())
     }
 }
 

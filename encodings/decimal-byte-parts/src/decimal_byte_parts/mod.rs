@@ -44,6 +44,7 @@ use vortex_dtype::match_each_signed_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_scalar::DecimalValue;
 use vortex_scalar::Scalar;
 
@@ -115,6 +116,16 @@ impl VTable for DecimalBytePartsVTable {
         );
 
         DecimalBytePartsArray::try_new(msp, *decimal_dtype)
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() == 1,
+            "DecimalBytePartsArray expects exactly 1 child (msp), got {}",
+            children.len()
+        );
+        array.msp = children.into_iter().next().vortex_expect("checked");
+        Ok(())
     }
 }
 

@@ -45,6 +45,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::alp_rd::alp_rd_decode;
@@ -184,6 +185,47 @@ impl VTable for ALPRDVTable {
             })?,
             left_parts_patches,
         )
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        // Children: left_parts, right_parts, patches (if present): indices, values
+        let patches_info = array
+            .left_parts_patches
+            .as_ref()
+            .map(|p| (p.array_len(), p.offset()));
+
+        let expected_children = if patches_info.is_some() { 4 } else { 2 };
+
+        vortex_ensure!(
+            children.len() == expected_children,
+            "ALPRDArray expects {} children, got {}",
+            expected_children,
+            children.len()
+        );
+
+        let mut children_iter = children.into_iter();
+        array.left_parts = children_iter
+            .next()
+            .ok_or_else(|| vortex_err!("Expected left_parts child"))?;
+        array.right_parts = children_iter
+            .next()
+            .ok_or_else(|| vortex_err!("Expected right_parts child"))?;
+
+        if let Some((array_len, offset)) = patches_info {
+            let indices = children_iter
+                .next()
+                .ok_or_else(|| vortex_err!("Expected patch indices child"))?;
+            let values = children_iter
+                .next()
+                .ok_or_else(|| vortex_err!("Expected patch values child"))?;
+
+            array.left_parts_patches = Some(Patches::new(
+                array_len, offset, indices, values,
+                None, // chunk_offsets not currently supported for ALPRD
+            ));
+        }
+
+        Ok(())
     }
 }
 

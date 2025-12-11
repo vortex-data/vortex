@@ -54,7 +54,7 @@ impl ArrayParentReduceRule<Exact<RunEndVTable>, AnyScalarFn> for RunEndScalarFnR
         }
 
         let values_len = run_end.values().len();
-        let mut new_children = parent.children();
+        let mut new_children: Vec<ArrayRef> = parent.children().to_vec();
         for (idx, child) in new_children.iter_mut().enumerate() {
             if idx == child_idx {
                 // Replace ourselves with run end values

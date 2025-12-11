@@ -9,9 +9,12 @@ mod visitor;
 
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 
+use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::arrays::extension::ExtensionArray;
 use crate::kernel::BindCtx;
@@ -76,6 +79,19 @@ impl VTable for ExtensionVTable {
         }
         let storage = children.get(0, ext_dtype.storage_dtype(), len)?;
         Ok(ExtensionArray::new(ext_dtype.clone(), storage))
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() == 1,
+            "ExtensionArray expects exactly 1 child (storage), got {}",
+            children.len()
+        );
+        array.storage = children
+            .into_iter()
+            .next()
+            .vortex_expect("children length already validated");
+        Ok(())
     }
 
     fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {

@@ -5,12 +5,14 @@ use std::sync::Arc;
 
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_vector::fixed_size_list::FixedSizeListVector;
 
 use crate::Array;
+use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::arrays::FixedSizeListArray;
 use crate::kernel::BindCtx;
@@ -125,5 +127,28 @@ impl VTable for FixedSizeListVTable {
             }
             .into())
         }))
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() == 1 || children.len() == 2,
+            "FixedSizeListArray expects 1 or 2 children, got {}",
+            children.len()
+        );
+
+        let mut iter = children.into_iter();
+        let elements = iter
+            .next()
+            .vortex_expect("children length already validated");
+        let validity = if let Some(validity_array) = iter.next() {
+            Validity::Array(validity_array)
+        } else {
+            Validity::from(array.dtype.nullability())
+        };
+
+        let new_array =
+            FixedSizeListArray::try_new(elements, array.list_size(), validity, array.len())?;
+        *array = new_array;
+        Ok(())
     }
 }

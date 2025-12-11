@@ -135,9 +135,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
 
     /// Replaces the children in `array` with `children`. The count must be the same and types
     /// of children must be expected.
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        todo!()
-    }
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()>;
 
     /// Execute this array tree to return a canonical [`Vector`].
     /// Bind this array into a [`KernelRef`] for CPU execution.

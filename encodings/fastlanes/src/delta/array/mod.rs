@@ -55,12 +55,12 @@ pub mod delta_decompress;
 /// Note the validity is stored in the deltas array.
 #[derive(Clone, Debug)]
 pub struct DeltaArray {
-    offset: usize,
-    len: usize,
-    dtype: DType,
-    bases: ArrayRef,
-    deltas: ArrayRef,
-    stats_set: ArrayStats,
+    pub(super) offset: usize,
+    pub(super) len: usize,
+    pub(super) dtype: DType,
+    pub(super) bases: ArrayRef,
+    pub(super) deltas: ArrayRef,
+    pub(super) stats_set: ArrayStats,
 }
 
 impl DeltaArray {
