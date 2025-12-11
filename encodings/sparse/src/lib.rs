@@ -24,7 +24,6 @@ use vortex_array::compute::compare;
 use vortex_array::compute::fill_null;
 use vortex_array::compute::filter;
 use vortex_array::compute::sub_scalar;
-use vortex_array::kernel::{BindCtx, KernelRef, kernel};
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
