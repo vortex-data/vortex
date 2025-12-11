@@ -41,6 +41,7 @@ use vortex_dtype::StructFields;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_dtype::match_each_native_ptype;
+use vortex_dtype::match_smallest_offset_type;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
@@ -124,27 +125,6 @@ fn canonicalize_sparse_lists(
     values_dtype: Arc<DType>,
     nullability: Nullability,
 ) -> Canonical {
-    // TODO(connor): We should move this to `vortex-dtype` so that we can use this elsewhere.
-    macro_rules! match_smallest_offset_type {
-        ($n_elements:expr, | $offset_type:ident | $body:block) => {{
-            let n_elements = $n_elements;
-            if n_elements <= u8::MAX as usize {
-                type $offset_type = u8;
-                $body
-            } else if n_elements <= u16::MAX as usize {
-                type $offset_type = u16;
-                $body
-            } else if n_elements <= u32::MAX as usize {
-                type $offset_type = u32;
-                $body
-            } else {
-                assert!(u64::try_from(n_elements).is_ok());
-                type $offset_type = u64;
-                $body
-            }
-        }};
-    }
-
     let resolved_patches = array.resolved_patches();
 
     let indices = resolved_patches.indices().to_primitive();

@@ -5,9 +5,9 @@ use vortex_buffer::BitBufferMut;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::Nullability;
 use vortex_dtype::match_each_integer_ptype;
+use vortex_dtype::match_smallest_offset_type;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::Array;
@@ -34,19 +34,25 @@ use crate::vtable::ValidityHelper;
 /// that lists are stored contiguously and in-order (`offset[i+1] >= offset[i]`). Taking
 /// non-contiguous indices would violate this requirement.
 impl TakeKernel for ListVTable {
+    #[expect(clippy::cognitive_complexity)]
     fn take(&self, array: &ListArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive();
         let offsets = array.offsets().to_primitive();
+        // This is an over-approximation of the total number of elements in the resulting array.
+        let total_approx = array.elements().len().saturating_mul(indices.len());
 
         match_each_integer_ptype!(offsets.dtype().as_ptype(), |O| {
+            let offsets_slice = offsets.as_slice::<O>();
             match_each_integer_ptype!(indices.ptype(), |I| {
-                _take::<I, O>(
-                    array,
-                    offsets.as_slice::<O>(),
-                    &indices,
-                    array.validity_mask(),
-                    indices.validity_mask(),
-                )
+                match_smallest_offset_type!(total_approx, |OutputOffsetType| {
+                    _take::<I, O, OutputOffsetType>(
+                        array,
+                        offsets_slice,
+                        &indices,
+                        array.validity_mask(),
+                        indices.validity_mask(),
+                    )
+                })
             })
         })
     }
@@ -54,7 +60,7 @@ impl TakeKernel for ListVTable {
 
 register_kernel!(TakeKernelAdapter(ListVTable).lift());
 
-fn _take<I: IntegerPType, O: IntegerPType>(
+fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     array: &ListArray,
     offsets: &[O],
     indices_array: &PrimitiveArray,
@@ -64,7 +70,7 @@ fn _take<I: IntegerPType, O: IntegerPType>(
     let indices: &[I] = indices_array.as_slice::<I>();
 
     if !indices_validity_mask.all_true() || !data_validity.all_true() {
-        return _take_nullable::<I, O>(
+        return _take_nullable::<I, O, OutputOffsetType>(
             array,
             offsets,
             indices,
@@ -73,17 +79,18 @@ fn _take<I: IntegerPType, O: IntegerPType>(
         );
     }
 
-    let mut new_offsets = PrimitiveBuilder::with_capacity(Nullability::NonNullable, indices.len());
+    let mut new_offsets = PrimitiveBuilder::<OutputOffsetType>::with_capacity(
+        Nullability::NonNullable,
+        indices.len(),
+    );
     let mut elements_to_take =
         PrimitiveBuilder::with_capacity(Nullability::NonNullable, 2 * indices.len());
 
-    let mut current_offset = O::zero();
+    let mut current_offset = OutputOffsetType::zero();
     new_offsets.append_zero();
 
     for &data_idx in indices {
-        let data_idx = data_idx
-            .to_usize()
-            .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", data_idx));
+        let data_idx: usize = data_idx.as_();
 
         let start = offsets[data_idx];
         let stop = offsets[data_idx + 1];
@@ -93,15 +100,15 @@ fn _take<I: IntegerPType, O: IntegerPType>(
         // We could convert start and end to usize, but that would impose a potentially
         // harder constraint - now we don't care if they fit into usize as long as their
         // difference does.
-        let additional = (stop - start).to_usize().unwrap_or_else(|| {
-            vortex_panic!("Failed to convert range length to usize: {}", stop - start)
-        });
+        let additional: usize = (stop - start).as_();
 
+        // TODO(0ax1): optimize this
         elements_to_take.reserve_exact(additional);
         for i in 0..additional {
             elements_to_take.append_value(start + O::from_usize(i).vortex_expect("i < additional"));
         }
-        current_offset += stop - start;
+        current_offset +=
+            OutputOffsetType::from_usize((stop - start).as_()).vortex_expect("offset conversion");
         new_offsets.append_value(current_offset);
     }
 
@@ -121,14 +128,17 @@ fn _take<I: IntegerPType, O: IntegerPType>(
     .to_array())
 }
 
-fn _take_nullable<I: IntegerPType, O: IntegerPType>(
+fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     array: &ListArray,
     offsets: &[O],
     indices: &[I],
     data_validity: Mask,
     indices_validity: Mask,
 ) -> VortexResult<ArrayRef> {
-    let mut new_offsets = PrimitiveBuilder::with_capacity(Nullability::NonNullable, indices.len());
+    let mut new_offsets = PrimitiveBuilder::<OutputOffsetType>::with_capacity(
+        Nullability::NonNullable,
+        indices.len(),
+    );
 
     // This will be the indices we push down to the child array to call `take` with.
     //
@@ -140,7 +150,7 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType>(
     let mut elements_to_take =
         PrimitiveBuilder::<O>::with_capacity(Nullability::NonNullable, 2 * indices.len());
 
-    let mut current_offset = O::zero();
+    let mut current_offset = OutputOffsetType::zero();
     new_offsets.append_zero();
 
     // Set all bits to invalid and selectively set which values are valid.
@@ -153,9 +163,7 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType>(
             continue;
         }
 
-        let data_idx = data_idx
-            .to_usize()
-            .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", data_idx));
+        let data_idx: usize = data_idx.as_();
 
         if !data_validity.value(data_idx) {
             new_offsets.append_value(current_offset);
@@ -167,15 +175,14 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType>(
         let stop = offsets[data_idx + 1];
 
         // See the note it the `take` on the reasoning
-        let additional = (stop - start).to_usize().unwrap_or_else(|| {
-            vortex_panic!("Failed to convert range length to usize: {}", stop - start)
-        });
+        let additional: usize = (stop - start).as_();
 
         elements_to_take.reserve_exact(additional);
         for i in 0..additional {
             elements_to_take.append_value(start + O::from_usize(i).vortex_expect("i < additional"));
         }
-        current_offset += stop - start;
+        current_offset +=
+            OutputOffsetType::from_usize((stop - start).as_()).vortex_expect("offset conversion");
         new_offsets.append_value(current_offset);
         new_validity.set(idx);
     }
@@ -410,5 +417,47 @@ mod test {
     ).unwrap())]
     fn test_take_list_conformance(#[case] list: ListArray) {
         test_take_conformance(list.as_ref());
+    }
+
+    #[test]
+    fn test_u64_offset_accumulation_non_nullable() {
+        let elements = buffer![0i32; 200].into_array();
+        let offsets = buffer![0u8, 200].into_array();
+        let list = ListArray::try_new(elements, offsets, Validity::NonNullable)
+            .unwrap()
+            .to_array();
+
+        // Take the same large list twice - would overflow u8 but works with u64.
+        let idx = buffer![0u8, 0].into_array();
+        let result = take(&list, &idx).unwrap();
+
+        assert_eq!(result.len(), 2);
+
+        let result_view = result.to_listview();
+        assert_eq!(result_view.len(), 2);
+        assert!(result_view.is_valid(0));
+        assert!(result_view.is_valid(1));
+    }
+
+    #[test]
+    fn test_u64_offset_accumulation_nullable() {
+        let elements = buffer![0i32; 150].into_array();
+        let offsets = buffer![0u8, 150, 150].into_array();
+        let validity = BoolArray::from_iter(vec![true, false]).to_array();
+        let list = ListArray::try_new(elements, offsets, Validity::Array(validity))
+            .unwrap()
+            .to_array();
+
+        // Take the same large list twice - would overflow u8 but works with u64.
+        let idx = PrimitiveArray::from_option_iter(vec![Some(0u8), None, Some(0u8)]).to_array();
+        let result = take(&list, &idx).unwrap();
+
+        assert_eq!(result.len(), 3);
+
+        let result_view = result.to_listview();
+        assert_eq!(result_view.len(), 3);
+        assert!(result_view.is_valid(0));
+        assert!(result_view.is_invalid(1));
+        assert!(result_view.is_valid(2));
     }
 }
