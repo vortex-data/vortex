@@ -219,22 +219,16 @@ mod tests {
         // Now modify bits2 at an INVALID position - should still be equal
         bits2[0] = !bits2[0]; // Flip bit 0, which is invalid (0 % 3 == 0)
         let v3 = BoolVector::new(BitBuffer::from(bits2.clone()), validity.clone());
-        assert_eq!(
-            v1, v3,
-            "Vectors should be equal when only invalid positions differ"
-        );
+        assert_eq!(v1, v3);
 
         // Now modify bits2 at a VALID position - should NOT be equal
         bits2[1] = !bits2[1]; // Flip bit 1, which is valid (1 % 3 != 0)
         let v4 = BoolVector::new(BitBuffer::from(bits2), validity);
-        assert_ne!(v1, v4, "Vectors should differ when valid positions differ");
+        assert_ne!(v1, v4);
 
         // Test with different validity patterns - should NOT be equal
         let validity2 = Mask::new_true(len);
         let v5 = BoolVector::new(BitBuffer::from(bits1), validity2);
-        assert_ne!(
-            v1, v5,
-            "Vectors with different validity should not be equal"
-        );
+        assert_ne!(v1, v5);
     }
 }
