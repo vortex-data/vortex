@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::VecDeque;
+use std::mem;
 use std::sync::Arc;
 
-use itertools::Itertools;
+use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::Array;
 use crate::ArrayVisitor;
-use crate::ArrayVisitorExt;
 use crate::array::ArrayRef;
 use crate::optimizer::rules::AnyArray;
 use crate::optimizer::rules::ArrayParentReduceRule;
@@ -41,57 +42,102 @@ pub struct ArrayOptimizer {
 
 impl ArrayOptimizer {
     /// Optimize the given array by applying registered rewrite rules.
-    ///
-    // TODO(ngates): this is slow, overly recursive, and will stack overflow if the rules end up
-    //  forming a cycle.
     pub fn optimize_array(&self, array: &ArrayRef) -> VortexResult<ArrayRef> {
-        // Inner recursive function that tracks number of iterations to avoid infinite loops.
-        fn inner(
-            opt: &ArrayOptimizer,
-            array: &ArrayRef,
-            iterations: usize,
-        ) -> VortexResult<ArrayRef> {
-            if iterations == 0 {
-                // Prevent infinite recursion by limiting the number of iterations.
-                return Ok(array.clone());
-            }
+        // To handle large and bushy plan trees, we implement iterative optimizer passes.
+        // We need to know how to do one step of optimizer here.
 
-            // TODO(ngates): we should reduce first on the way down?
-            let new_children: Vec<_> = array
-                .children()
-                .iter()
-                .map(|child| inner(opt, child, iterations - 1))
-                .try_collect()?;
+        let mut job_id = 0;
+        let mut make_job = |array: ArrayRef| {
+            let job = OptimizerJob {
+                child_tasks: vec![],
+                unoptimized_children: array.children(),
+                #[cfg(debug_assertions)]
+                dtype: array.dtype().clone(),
+                array,
+                id: job_id,
+            };
 
-            // If any children changed, reconstruct the array
-            let array = array.with_children(new_children)?;
+            job_id += 1;
 
-            // Apply reduction rules to the current array until no more rules apply.
-            if let Some(new_array) = opt.apply_reduce_rules(&array)? {
-                // Start over
-                return inner(opt, &new_array, iterations - 1);
-            }
+            job
+        };
 
-            // Apply parent reduction rules to each child in the context of the current array.
-            for (idx, child) in array.children().iter().enumerate() {
-                if let Some(new_array) = opt.apply_parent_rules(child, &array, idx)? {
-                    // If the parent was replaced, then we start over with the new parent
-                    return inner(opt, &new_array, iterations - 1);
-                }
-            }
-
-            Ok(array)
+        struct OptimizerJob {
+            id: usize,
+            array: ArrayRef,
+            unoptimized_children: Vec<ArrayRef>,
+            child_tasks: Vec<usize>,
+            #[cfg(debug_assertions)]
+            dtype: DType,
         }
 
-        // The number of iterations we allow is the number of nodes in the array tree * 4.
-        // No real reason to pick 4.
-        let max_iterations = array.depth_first_traversal().count() * 4;
+        // mapping of results
+        let mut results: HashMap<usize, ArrayRef> = HashMap::new();
+        let mut optimize_stack = VecDeque::new();
+
+        // Stage the first piece of work.
+        let root_job = make_job(array.clone());
+        let root_job_id = root_job.id;
+        optimize_stack.push_front(root_job);
 
         tracing::debug!("Starting array optimization\n{}", array.display_tree());
-        let array = inner(self, array, max_iterations)?;
-        tracing::debug!("Optimized array\n{}", array.display_tree());
 
-        Ok(array)
+        'outer: while !optimize_stack.is_empty() {
+            // Pop off another job. This is an array which may have several children that need
+            // to be optimized before it can itself be optimized.
+            let mut job = optimize_stack.pop_front().unwrap();
+
+            if let Some(child) = job.unoptimized_children.pop() {
+                // Make a new task for the next child that needs to be completed.
+                let child_task = make_job(child);
+                job.child_tasks.push(child_task.id);
+
+                optimize_stack.push_front(job);
+                optimize_stack.push_front(child_task);
+                continue 'outer;
+            }
+
+            // No unoptimized children, let's collect the results of optimizing.
+            let task_ids = mem::take(&mut job.child_tasks);
+            let optimized_children = task_ids
+                .into_iter()
+                .map(|id| {
+                    results
+                        .remove(&id)
+                        .expect("optimizer attempted to finish task before its child completed")
+                })
+                .collect::<Vec<_>>();
+
+            let array = job.array.with_children(optimized_children)?;
+            #[cfg(debug_assertions)]
+            {
+                debug_assert_eq!(array.dtype(), &job.dtype);
+            }
+
+            if let Some(new_array) = self.apply_reduce_rules(&array)? {
+                #[cfg(debug_assertions)]
+                {
+                    debug_assert_eq!(new_array.dtype(), &job.dtype);
+                }
+
+                // Update the job with the same job ID, but new children and new array
+                job.unoptimized_children = new_array.children();
+                job.child_tasks.clear();
+                job.array = new_array;
+                optimize_stack.push_front(job);
+                continue 'outer;
+            }
+
+            // Otherwise, we push the result into the stack instead here.
+            results.insert(job.id, array);
+        }
+
+        let optimized = results
+            .remove(&root_job_id)
+            .expect("job queue completion without resolving job 0");
+        tracing::debug!("Optimized array\n{}", optimized.display_tree());
+
+        Ok(optimized)
     }
 
     /// Register a reduce rule for a specific array encoding.
