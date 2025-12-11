@@ -14,7 +14,7 @@ use crate::VectorMutOps;
 use crate::decimal::DVectorMut;
 
 /// Represents a decimal scalar value.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DecimalScalar {
     /// 8-bit decimal scalar.
     D8(DScalar<i8>),

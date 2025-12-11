@@ -11,7 +11,7 @@ use vortex_mask::Mask;
 /// Represents a struct scalar value.
 ///
 /// The inner value is a StructVector with length 1.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct StructScalar(StructVector);
 
 impl StructScalar {

@@ -63,7 +63,7 @@ pub trait BinaryViewType: Debug + Sized + Send + Sync + 'static + private::Seale
 }
 
 /// [`BinaryType`] for UTF-8 strings.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StringType;
 impl BinaryViewType for StringType {
     type Slice = str;
@@ -96,7 +96,7 @@ impl BinaryViewType for StringType {
 }
 
 /// [`BinaryType`] for raw binary data.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BinaryType;
 impl BinaryViewType for BinaryType {
     type Slice = [u8];

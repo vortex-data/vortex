@@ -44,6 +44,38 @@ pub struct StructVector {
     pub(super) len: usize,
 }
 
+impl PartialEq for StructVector {
+    fn eq(&self, other: &Self) -> bool {
+        if self.len != other.len {
+            return false;
+        }
+        // Number of fields must match
+        if self.fields.len() != other.fields.len() {
+            return false;
+        }
+        // Validity patterns must match
+        if self.validity != other.validity {
+            return false;
+        }
+        // For each field pair: clone the fields, call mask_validity(&combined_mask) on both clones
+        // where combined_mask = self.validity AND other.validity, then compare with ==
+        let combined_mask = self.validity.bitand(&other.validity);
+
+        // Each field must match with the combined mask applied
+        for (self_field, other_field) in self.fields.iter().zip(other.fields.iter()) {
+            let mut self_field_masked = self_field.clone();
+            let mut other_field_masked = other_field.clone();
+            self_field_masked.mask_validity(&combined_mask);
+            other_field_masked.mask_validity(&combined_mask);
+
+            if self_field_masked != other_field_masked {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 impl StructVector {
     /// Creates a new [`StructVector`] from the given fields and validity mask.
     ///

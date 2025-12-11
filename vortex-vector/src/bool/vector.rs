@@ -20,12 +20,42 @@ use crate::bool::BoolVectorMut;
 /// An immutable vector of boolean values.
 ///
 /// Internally, this `BoolVector` is a wrapper around a [`BitBuffer`] and a validity mask.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq)]
 pub struct BoolVector {
     /// The bits that we use to represent booleans.
     pub(super) bits: BitBuffer,
     /// The validity mask (where `true` represents an element is **not** null).
     pub(super) validity: Mask,
+}
+
+impl PartialEq for BoolVector {
+    fn eq(&self, other: &Self) -> bool {
+        if self.len() != other.len() {
+            return false;
+        }
+        // Validity patterns must match
+        if self.validity != other.validity {
+            return false;
+        }
+        // Use XNOR comparison: bits are equal where !(lhs ^ rhs) is true
+        let lhs_chunks = self.bits.chunks();
+        let rhs_chunks = other.bits.chunks();
+        let validity_bits = self.validity.to_bit_buffer();
+        let validity_chunks = validity_bits.chunks();
+
+        // For equality: check that !(lhs ^ rhs) & validity == validity at each chunk
+        for ((lhs, rhs), valid) in lhs_chunks
+            .iter_padded()
+            .zip(rhs_chunks.iter_padded())
+            .zip(validity_chunks.iter_padded())
+        {
+            let equal_bits = !(lhs ^ rhs); // XNOR: true where bits are equal
+            if (equal_bits & valid) != valid {
+                return false;
+            }
+        }
+        true
+    }
 }
 
 impl BoolVector {

@@ -30,6 +30,26 @@ pub struct PVector<T> {
     pub(super) validity: Mask,
 }
 
+impl<T: NativePType + PartialEq> PartialEq for PVector<T> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.len() != other.len() {
+            return false;
+        }
+        // Validity patterns must match
+        if self.validity != other.validity {
+            return false;
+        }
+        // Compare all elements, OR with !validity to ignore invalid positions
+        self.elements
+            .iter()
+            .zip(other.elements.iter())
+            .enumerate()
+            .all(|(i, (a, b))| !self.validity.value(i) || a == b)
+    }
+}
+
+impl<T: NativePType + Eq> Eq for PVector<T> {}
+
 impl<T> PVector<T> {
     /// Creates a new [`PVector<T>`] from the given elements buffer and validity mask.
     ///
@@ -38,6 +58,19 @@ impl<T> PVector<T> {
     /// Panics if the length of the validity mask does not match the length of the elements buffer.
     pub fn new(elements: Buffer<T>, validity: Mask) -> Self {
         Self::try_new(elements, validity).vortex_expect("Failed to create `PVector`")
+    }
+
+    /// Creates a new [`PVector<T>`] from the given elements buffer and validity mask.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the length of the validity mask does not match the length of the elements buffer.
+    pub fn new_valid(elements: Buffer<T>) -> Self {
+        let len = elements.len();
+        Self {
+            elements,
+            validity: Mask::new_true(len),
+        }
     }
 
     /// Tries to create a new [`PVector<T>`] from the given elements buffer and validity mask.

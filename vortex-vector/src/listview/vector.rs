@@ -64,6 +64,61 @@ pub struct ListViewVector {
     pub(super) len: usize,
 }
 
+impl PartialEq for ListViewVector {
+    #[allow(clippy::cast_possible_truncation)]
+    fn eq(&self, other: &Self) -> bool {
+        if self.len != other.len {
+            return false;
+        }
+        // Validity patterns must match
+        if self.validity != other.validity {
+            return false;
+        }
+        // Elements lengths must match
+        if self.elements.len() != other.elements.len() {
+            return false;
+        }
+        // Build element-level mask: for each valid list, mark elements[offset..offset+size] as valid
+        let valid_slices: Vec<(usize, usize)> = (0..self.len)
+            .filter(|&i| self.validity.value(i))
+            .map(|i| {
+                let offset =
+                    match_each_integer_pvector!(&self.offsets, |v| { v.as_ref()[i] as usize });
+                let size = match_each_integer_pvector!(&self.sizes, |v| { v.as_ref()[i] as usize });
+                (offset, offset + size)
+            })
+            .collect();
+        let element_mask = Mask::from_slices(self.elements.len(), valid_slices);
+
+        // Clone elements and apply the element-level mask
+        let mut self_elements = self.elements.as_ref().clone();
+        let mut other_elements = other.elements.as_ref().clone();
+        self_elements.mask_validity(&element_mask);
+        other_elements.mask_validity(&element_mask);
+
+        // Compare masked elements
+        if self_elements != other_elements {
+            return false;
+        }
+
+        // Compare offsets and sizes at valid positions
+        (0..self.len).all(|i| {
+            if !self.validity.value(i) {
+                return true;
+            }
+            let self_offset =
+                match_each_integer_pvector!(&self.offsets, |v| { v.as_ref()[i] as usize });
+            let other_offset =
+                match_each_integer_pvector!(&other.offsets, |v| { v.as_ref()[i] as usize });
+            let self_size =
+                match_each_integer_pvector!(&self.sizes, |v| { v.as_ref()[i] as usize });
+            let other_size =
+                match_each_integer_pvector!(&other.sizes, |v| { v.as_ref()[i] as usize });
+            self_offset == other_offset && self_size == other_size
+        })
+    }
+}
+
 impl ListViewVector {
     /// Creates a new [`ListViewVector`] from its components.
     ///

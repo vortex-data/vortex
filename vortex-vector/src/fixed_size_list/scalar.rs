@@ -13,7 +13,7 @@ use vortex_mask::Mask;
 /// The inner value is a length-1 fsl vector.
 // NOTE(ngates): the reason we don't hold Option<Vector> representing the elements is that we
 //  wouldn't be able to go back to a vector using "repeat".
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FixedSizeListScalar(FixedSizeListVector);
 
 impl FixedSizeListScalar {

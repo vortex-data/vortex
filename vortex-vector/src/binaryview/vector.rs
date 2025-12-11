@@ -38,6 +38,49 @@ pub struct BinaryViewVector<T: BinaryViewType> {
     _marker: std::marker::PhantomData<T>,
 }
 
+impl<T: BinaryViewType> PartialEq for BinaryViewVector<T> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.views.len() != other.views.len() {
+            return false;
+        }
+        // Validity patterns must match
+        if self.validity != other.validity {
+            return false;
+        }
+        // Compare all views, OR with !validity to ignore invalid positions
+        self.views
+            .iter()
+            .zip(other.views.iter())
+            .enumerate()
+            .all(|(i, (self_view, other_view))| {
+                // If invalid, treat as equal
+                if !self.validity.value(i) {
+                    return true;
+                }
+                // For valid elements, compare the actual byte content via the view
+                let self_bytes: &[u8] = if self_view.is_inlined() {
+                    self_view.as_inlined().value()
+                } else {
+                    let view_ref = self_view.as_view();
+                    let buffer = &self.buffers[view_ref.buffer_index as usize];
+                    &buffer[view_ref.as_range()]
+                };
+
+                let other_bytes: &[u8] = if other_view.is_inlined() {
+                    other_view.as_inlined().value()
+                } else {
+                    let view_ref = other_view.as_view();
+                    let buffer = &other.buffers[view_ref.buffer_index as usize];
+                    &buffer[view_ref.as_range()]
+                };
+
+                self_bytes == other_bytes
+            })
+    }
+}
+
+impl<T: BinaryViewType> Eq for BinaryViewVector<T> {}
+
 impl<T: BinaryViewType> BinaryViewVector<T> {
     /// Creates a new [`BinaryViewVector`] from the provided components.
     ///
