@@ -18,6 +18,7 @@ use super::ListViewVectorMut;
 use crate::Vector;
 use crate::match_each_integer_pvector;
 use crate::match_each_integer_pvector_pair;
+use crate::primitive::PVector;
 use crate::primitive::PrimitiveVector;
 use crate::vector_ops::VectorMutOps;
 use crate::vector_ops::VectorOps;
@@ -110,10 +111,10 @@ fn listview_eq_impl<O, S>(
     validity: &Mask,
     self_elements: &Vector,
     other_elements: &Vector,
-    self_offsets: &crate::primitive::PVector<O>,
-    other_offsets: &crate::primitive::PVector<O>,
-    self_sizes: &crate::primitive::PVector<S>,
-    other_sizes: &crate::primitive::PVector<S>,
+    self_offsets: &PVector<O>,
+    other_offsets: &PVector<O>,
+    self_sizes: &PVector<S>,
+    other_sizes: &PVector<S>,
 ) -> bool
 where
     O: vortex_dtype::NativePType + Copy,
@@ -458,4 +459,192 @@ fn validate_views_bound(
     });
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_buffer::Buffer;
+    use vortex_mask::Mask;
+
+    use super::*;
+    use crate::primitive::PVector;
+
+    /// Helper to create a ListViewVector with i32 elements and u32 offsets/sizes
+    fn make_listview(
+        elements: Vec<i32>,
+        offsets: Vec<u32>,
+        sizes: Vec<u32>,
+        validity: Mask,
+    ) -> ListViewVector {
+        let elem_validity = Mask::new_true(elements.len());
+        let elements = PVector::new(Buffer::from(elements), elem_validity);
+        let offsets_len = offsets.len();
+        let sizes_len = sizes.len();
+        let offsets = PVector::new(Buffer::from(offsets), Mask::new_true(offsets_len));
+        let sizes = PVector::new(Buffer::from(sizes), Mask::new_true(sizes_len));
+        ListViewVector::try_new(
+            Arc::new(Vector::from(elements)),
+            PrimitiveVector::from(offsets),
+            PrimitiveVector::from(sizes),
+            validity,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn test_listview_eq_all_valid() {
+        // All lists valid - direct element comparison
+        let v1 = make_listview(
+            vec![1, 2, 3, 4, 5],
+            vec![0, 2, 3],
+            vec![2, 1, 2],
+            Mask::new_true(3),
+        );
+        let v2 = make_listview(
+            vec![1, 2, 3, 4, 5],
+            vec![0, 2, 3],
+            vec![2, 1, 2],
+            Mask::new_true(3),
+        );
+        assert_eq!(v1, v2);
+
+        // Different elements should not be equal
+        let v3 = make_listview(
+            vec![1, 2, 99, 4, 5],
+            vec![0, 2, 3],
+            vec![2, 1, 2],
+            Mask::new_true(3),
+        );
+        assert_ne!(v1, v3);
+    }
+
+    #[test]
+    fn test_listview_eq_all_invalid() {
+        // All lists invalid - elements don't matter
+        let v1 = make_listview(
+            vec![1, 2, 3, 4, 5],
+            vec![0, 2, 3],
+            vec![2, 1, 2],
+            Mask::new_false(3),
+        );
+        let v2 = make_listview(
+            vec![99, 99, 99, 99, 99],
+            vec![0, 2, 3],
+            vec![2, 1, 2],
+            Mask::new_false(3),
+        );
+        assert_eq!(v1, v2);
+    }
+
+    #[test]
+    fn test_listview_eq_mixed_validity() {
+        // Lists: [1,2], null, [4,5]
+        // Elements at positions 2 (index of null list's elements) don't matter
+        let validity = Mask::from_indices(3, vec![0, 2]);
+
+        let v1 = make_listview(
+            vec![1, 2, 3, 4, 5],
+            vec![0, 2, 3],
+            vec![2, 1, 2],
+            validity.clone(),
+        );
+        let v2 = make_listview(
+            vec![1, 2, 3, 4, 5],
+            vec![0, 2, 3],
+            vec![2, 1, 2],
+            validity.clone(),
+        );
+        assert_eq!(v1, v2);
+
+        // Element at position 2 is only used by the invalid list - should still be equal
+        let v3 = make_listview(
+            vec![1, 2, 99, 4, 5],
+            vec![0, 2, 3],
+            vec![2, 1, 2],
+            validity.clone(),
+        );
+        assert_eq!(v1, v3, "Invalid list's elements should be ignored");
+
+        // Element at position 0 is used by valid list 0 - should NOT be equal
+        let v4 = make_listview(
+            vec![99, 2, 3, 4, 5],
+            vec![0, 2, 3],
+            vec![2, 1, 2],
+            validity.clone(),
+        );
+        assert_ne!(v1, v4, "Valid list's elements must match");
+    }
+
+    #[test]
+    fn test_listview_eq_overlapping_slices() {
+        // Overlapping ranges: list0=[0..3], list1=[1..4] (overlapping at positions 1,2)
+        // This tests that the Vec<bool> approach handles overlaps correctly
+        let v1 = make_listview(vec![1, 2, 3, 4], vec![0, 1], vec![3, 3], Mask::new_true(2));
+        let v2 = make_listview(vec![1, 2, 3, 4], vec![0, 1], vec![3, 3], Mask::new_true(2));
+        assert_eq!(v1, v2);
+
+        // Different element in overlapping region
+        let v3 = make_listview(vec![1, 99, 3, 4], vec![0, 1], vec![3, 3], Mask::new_true(2));
+        assert_ne!(v1, v3);
+    }
+
+    #[test]
+    fn test_listview_eq_overlapping_with_invalid() {
+        // list0=[0..3] valid, list1=[1..4] invalid
+        // Positions 1,2 are in overlap but list1 is invalid, so only list0's view matters
+        let validity = Mask::from_indices(2, vec![0]); // only list 0 is valid
+
+        let v1 = make_listview(vec![1, 2, 3, 4], vec![0, 1], vec![3, 3], validity.clone());
+
+        // Element at position 3 is only used by invalid list1 - can differ
+        let v2 = make_listview(vec![1, 2, 3, 99], vec![0, 1], vec![3, 3], validity.clone());
+        assert_eq!(v1, v2, "Element used only by invalid list can differ");
+
+        // Element at position 2 is used by valid list0 - must match
+        let v3 = make_listview(vec![1, 2, 99, 4], vec![0, 1], vec![3, 3], validity.clone());
+        assert_ne!(v1, v3, "Element used by valid list must match");
+    }
+
+    #[test]
+    fn test_listview_eq_different_offsets_sizes() {
+        // Same elements but different offsets at valid positions
+        let v1 = make_listview(vec![1, 2, 3, 4], vec![0, 2], vec![2, 2], Mask::new_true(2));
+        let v2 = make_listview(
+            vec![1, 2, 3, 4],
+            vec![0, 1], // different offset for list1
+            vec![2, 2],
+            Mask::new_true(2),
+        );
+        assert_ne!(v1, v2, "Different offsets at valid positions");
+
+        // Different sizes at valid positions
+        let v3 = make_listview(
+            vec![1, 2, 3, 4],
+            vec![0, 2],
+            vec![2, 1], // different size for list1
+            Mask::new_true(2),
+        );
+        assert_ne!(v1, v3, "Different sizes at valid positions");
+    }
+
+    #[test]
+    fn test_listview_eq_different_validity() {
+        let v1 = make_listview(vec![1, 2, 3, 4], vec![0, 2], vec![2, 2], Mask::new_true(2));
+        let v2 = make_listview(
+            vec![1, 2, 3, 4],
+            vec![0, 2],
+            vec![2, 2],
+            Mask::from_indices(2, vec![0]), // only first list valid
+        );
+        assert_ne!(v1, v2, "Different validity patterns");
+    }
+
+    #[test]
+    fn test_listview_eq_empty() {
+        let v1 = make_listview(vec![], vec![], vec![], Mask::new_true(0));
+        let v2 = make_listview(vec![], vec![], vec![], Mask::new_true(0));
+        assert_eq!(v1, v2);
+    }
 }

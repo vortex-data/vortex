@@ -174,7 +174,7 @@ mod tests {
         let right = PVector::new(buffer![10u32, 20, 30, 40], Mask::new_true(4));
 
         let result = Arithmetic::<WrappingAdd, _>::eval(left, &right);
-        let expected = PVector::new_valid(buffer![11u32, 22, 33, 44]);
+        let expected = PVector::from(buffer![11u32, 22, 33, 44]);
         assert_eq!(result, expected);
     }
 
@@ -182,7 +182,7 @@ mod tests {
     fn test_add_scalar() {
         let vec = PVector::new(buffer![1u32, 2, 3, 4], Mask::new_true(4));
         let result = Arithmetic::<WrappingAdd, _>::eval(vec, &10);
-        let expected = PVector::new_valid(buffer![11u32, 12, 13, 14]);
+        let expected = PVector::from(buffer![11u32, 12, 13, 14]);
         assert_eq!(result, expected);
     }
 
@@ -203,7 +203,7 @@ mod tests {
         let right = PVector::new(buffer![1u32, 2, 3, 4], Mask::new_true(4));
 
         let result = Arithmetic::<WrappingSub, _>::eval(left, &right);
-        let expected = PVector::new_valid(buffer![9u32, 18, 27, 36]);
+        let expected = PVector::from(buffer![9u32, 18, 27, 36]);
         assert_eq!(result, expected);
     }
 
@@ -211,7 +211,7 @@ mod tests {
     fn test_sub_scalar() {
         let vec = PVector::new(buffer![10u32, 20, 30, 40], Mask::new_true(4));
         let result = Arithmetic::<WrappingSub, _>::eval(vec, &5);
-        let expected = PVector::new_valid(buffer![5u32, 15, 25, 35]);
+        let expected = PVector::from(buffer![5u32, 15, 25, 35]);
         assert_eq!(result, expected);
     }
 
@@ -221,7 +221,7 @@ mod tests {
         let right = PVector::new(buffer![10u32, 20, 30, 40], Mask::new_true(4));
 
         let result = Arithmetic::<WrappingMul, _>::eval(left, &right);
-        let expected = PVector::new_valid(buffer![20u32, 60, 120, 200]);
+        let expected = PVector::from(buffer![20u32, 60, 120, 200]);
         assert_eq!(result, expected);
     }
 
@@ -229,7 +229,7 @@ mod tests {
     fn test_mul_scalar() {
         let vec = PVector::new(buffer![1u32, 2, 3, 4], Mask::new_true(4));
         let result = Arithmetic::<WrappingMul, _>::eval(vec, &10);
-        let expected = PVector::new_valid(buffer![10u32, 20, 30, 40]);
+        let expected = PVector::from(buffer![10u32, 20, 30, 40]);
         assert_eq!(result, expected);
     }
 

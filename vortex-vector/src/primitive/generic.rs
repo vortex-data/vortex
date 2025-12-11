@@ -60,19 +60,6 @@ impl<T> PVector<T> {
         Self::try_new(elements, validity).vortex_expect("Failed to create `PVector`")
     }
 
-    /// Creates a new [`PVector<T>`] from the given elements buffer and validity mask.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the length of the validity mask does not match the length of the elements buffer.
-    pub fn new_valid(elements: Buffer<T>) -> Self {
-        let len = elements.len();
-        Self {
-            elements,
-            validity: Mask::new_true(len),
-        }
-    }
-
     /// Tries to create a new [`PVector<T>`] from the given elements buffer and validity mask.
     ///
     /// # Errors
@@ -235,5 +222,16 @@ impl<T: NativePType> VectorOps for PVector<T> {
         let validity = self.validity.into_mut();
 
         PVectorMut { elements, validity }
+    }
+}
+
+impl<T> From<Buffer<T>> for PVector<T> {
+    /// Creates a new [`PVector<T>`] from the given elements buffer, with an all valid validity.
+    fn from(value: Buffer<T>) -> Self {
+        let len = value.len();
+        Self {
+            elements: value,
+            validity: Mask::new_true(len),
+        }
     }
 }
