@@ -160,6 +160,8 @@ impl StructVector {
     }
 }
 
+impl Eq for StructVector {}
+
 impl VectorOps for StructVector {
     type Mutable = StructVectorMut;
     type Scalar = StructScalar;
@@ -268,5 +270,223 @@ impl VectorOps for StructVector {
             len,
             validity,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_mask::Mask;
+
+    use super::*;
+    use crate::bool::BoolVectorMut;
+    use crate::null::NullVector;
+    use crate::primitive::PVectorMut;
+
+    #[test]
+    fn test_struct_vector_eq_identical() {
+        // Two identical struct vectors should be equal.
+        let v1 = StructVector::new(
+            Arc::new(Box::new([
+                NullVector::new(3).into(),
+                BoolVectorMut::from_iter([true, false, true])
+                    .freeze()
+                    .into(),
+                PVectorMut::<i32>::from_iter([10, 20, 30]).freeze().into(),
+            ])),
+            Mask::AllTrue(3),
+        );
+
+        let v2 = StructVector::new(
+            Arc::new(Box::new([
+                NullVector::new(3).into(),
+                BoolVectorMut::from_iter([true, false, true])
+                    .freeze()
+                    .into(),
+                PVectorMut::<i32>::from_iter([10, 20, 30]).freeze().into(),
+            ])),
+            Mask::AllTrue(3),
+        );
+
+        assert_eq!(v1, v2);
+    }
+
+    #[test]
+    fn test_struct_vector_eq_different_length() {
+        // Struct vectors with different lengths should not be equal.
+        let v1 = StructVector::new(
+            Arc::new(Box::new([PVectorMut::<i32>::from_iter([10, 20, 30])
+                .freeze()
+                .into()])),
+            Mask::AllTrue(3),
+        );
+
+        let v2 = StructVector::new(
+            Arc::new(Box::new([PVectorMut::<i32>::from_iter([10, 20])
+                .freeze()
+                .into()])),
+            Mask::AllTrue(2),
+        );
+
+        assert_ne!(v1, v2);
+    }
+
+    #[test]
+    fn test_struct_vector_eq_different_field_count() {
+        // Struct vectors with different number of fields should not be equal.
+        let v1 = StructVector::new(
+            Arc::new(Box::new([
+                PVectorMut::<i32>::from_iter([10, 20, 30]).freeze().into(),
+                BoolVectorMut::from_iter([true, false, true])
+                    .freeze()
+                    .into(),
+            ])),
+            Mask::AllTrue(3),
+        );
+
+        let v2 = StructVector::new(
+            Arc::new(Box::new([PVectorMut::<i32>::from_iter([10, 20, 30])
+                .freeze()
+                .into()])),
+            Mask::AllTrue(3),
+        );
+
+        assert_ne!(v1, v2);
+    }
+
+    #[test]
+    fn test_struct_vector_eq_different_validity() {
+        // Struct vectors with different validity patterns should not be equal.
+        let v1 = StructVector::new(
+            Arc::new(Box::new([PVectorMut::<i32>::from_iter([10, 20, 30])
+                .freeze()
+                .into()])),
+            Mask::AllTrue(3),
+        );
+
+        let v2 = StructVector::new(
+            Arc::new(Box::new([PVectorMut::<i32>::from_iter([10, 20, 30])
+                .freeze()
+                .into()])),
+            Mask::from_iter([true, false, true]),
+        );
+
+        assert_ne!(v1, v2);
+    }
+
+    #[test]
+    fn test_struct_vector_eq_different_field_values() {
+        // Struct vectors with different field values should not be equal.
+        let v1 = StructVector::new(
+            Arc::new(Box::new([PVectorMut::<i32>::from_iter([10, 20, 30])
+                .freeze()
+                .into()])),
+            Mask::AllTrue(3),
+        );
+
+        let v2 = StructVector::new(
+            Arc::new(Box::new([PVectorMut::<i32>::from_iter([10, 99, 30])
+                .freeze()
+                .into()])),
+            Mask::AllTrue(3),
+        );
+
+        assert_ne!(v1, v2);
+    }
+
+    #[test]
+    fn test_struct_vector_eq_ignores_invalid_positions() {
+        // Two struct vectors with different values at invalid positions should be equal
+        // as long as they have the same validity pattern and same values at valid positions.
+        //
+        // validity = [true, false, true] means position 1 is invalid
+        let validity = Mask::from_iter([true, false, true]);
+
+        let v1 = StructVector::new(
+            Arc::new(Box::new([PVectorMut::<i32>::from_iter([10, 20, 30])
+                .freeze()
+                .into()])),
+            validity.clone(),
+        );
+
+        // Different value at position 1 (which is invalid)
+        let v2 = StructVector::new(
+            Arc::new(Box::new([PVectorMut::<i32>::from_iter([10, 99, 30])
+                .freeze()
+                .into()])),
+            validity,
+        );
+
+        assert_eq!(v1, v2);
+    }
+
+    #[test]
+    fn test_struct_vector_eq_combined_mask_applied() {
+        // Test that the combined mask (self.validity AND other.validity) is applied.
+        // Both vectors have the same validity, so the combined mask equals that validity.
+        //
+        // validity = [true, false, true, false, true] means positions 1,3 are invalid
+        let validity = Mask::from_iter([true, false, true, false, true]);
+
+        let v1 = StructVector::new(
+            Arc::new(Box::new([
+                PVectorMut::<i32>::from_iter([1, 2, 3, 4, 5])
+                    .freeze()
+                    .into(),
+                BoolVectorMut::from_iter([true, true, true, true, true])
+                    .freeze()
+                    .into(),
+            ])),
+            validity.clone(),
+        );
+
+        // Different values at invalid positions (1 and 3)
+        let v2 = StructVector::new(
+            Arc::new(Box::new([
+                PVectorMut::<i32>::from_iter([1, 999, 3, 888, 5])
+                    .freeze()
+                    .into(),
+                BoolVectorMut::from_iter([true, false, true, false, true])
+                    .freeze()
+                    .into(),
+            ])),
+            validity,
+        );
+
+        assert_eq!(v1, v2);
+    }
+
+    #[test]
+    fn test_struct_vector_eq_nested() {
+        // Test equality with nested struct vectors.
+        let inner1 = StructVector::new(
+            Arc::new(Box::new([BoolVectorMut::from_iter([true, false, true])
+                .freeze()
+                .into()])),
+            Mask::AllTrue(3),
+        );
+
+        let inner2 = StructVector::new(
+            Arc::new(Box::new([BoolVectorMut::from_iter([true, false, true])
+                .freeze()
+                .into()])),
+            Mask::AllTrue(3),
+        );
+
+        let v1 = StructVector::new(Arc::new(Box::new([inner1.into()])), Mask::AllTrue(3));
+
+        let v2 = StructVector::new(Arc::new(Box::new([inner2.into()])), Mask::AllTrue(3));
+
+        assert_eq!(v1, v2);
+    }
+
+    #[test]
+    fn test_struct_vector_eq_empty() {
+        // Two empty struct vectors should be equal.
+        let v1 = StructVector::new(Arc::new(Box::new([])), Mask::AllTrue(0));
+        let v2 = StructVector::new(Arc::new(Box::new([])), Mask::AllTrue(0));
+
+        assert_eq!(v1, v2);
     }
 }
