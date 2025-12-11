@@ -152,10 +152,7 @@ mod tests {
         let schema = create_arrow_schema();
         let data_type = DataType::Struct(schema.fields().clone());
 
-        let result = to_record_batch(vortex_array, &data_type);
-        assert!(result.is_ok());
-
-        let batch = result.unwrap();
+        let batch = to_record_batch(vortex_array, &data_type)?;
         assert_eq!(batch.num_columns(), 2);
         assert_eq!(batch.num_rows(), 4);
 

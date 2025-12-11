@@ -78,5 +78,5 @@ fn alternating_mask(len: usize) -> Mask {
 }
 
 fn block_mask(len: usize, block: usize) -> Mask {
-    Mask::from_iter((0..len).map(|i| (i / block) % 2 == 0))
+    Mask::from_iter((0..len).map(|i| (i / block).is_multiple_of(2)))
 }

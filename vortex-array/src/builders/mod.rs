@@ -192,7 +192,7 @@ pub trait ArrayBuilder: Send {
     ///
     /// # Safety
     ///
-    /// Given validity must have an equal length to [`self.len()`].
+    /// Given validity must have an equal length to [`self.len()`](Self::len).
     unsafe fn set_validity_unchecked(&mut self, validity: Mask);
 
     /// Constructs an Array from the builder components.

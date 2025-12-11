@@ -363,7 +363,7 @@ impl TableFunction for VortexTableFunction {
             &projection_expr,
             filter_expr
                 .as_ref()
-                .map_or("true".to_string(), |f| f.to_string())
+                .map_or_else(|| "true".to_string(), |f| f.to_string())
         );
 
         // Use the max_threads from bind_data (read from vortex_max_threads setting)

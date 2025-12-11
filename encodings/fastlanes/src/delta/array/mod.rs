@@ -122,7 +122,7 @@ impl DeltaArray {
 
         let lanes = lane_count(ptype);
 
-        if (deltas.len() % 1024 == 0) != (bases.len() % lanes == 0) {
+        if deltas.len().is_multiple_of(1024) != bases.len().is_multiple_of(lanes) {
             vortex_bail!(
                 "deltas length ({}) is a multiple of 1024 iff bases length ({}) is a multiple of LANES ({})",
                 deltas.len(),
