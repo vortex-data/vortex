@@ -10,6 +10,8 @@ mod intersect_by_rank;
 mod iter_bools;
 mod mask_mut;
 
+#[cfg(feature = "arrow")]
+mod arrow;
 #[cfg(test)]
 mod tests;
 
@@ -418,6 +420,21 @@ impl Mask {
                 }
                 values.buffer.set_indices().next()
             }
+        }
+    }
+
+    /// Returns the position in the mask of the nth true value.
+    pub fn rank(&self, n: usize) -> usize {
+        if n >= self.true_count() {
+            vortex_panic!(
+                "Rank {n} out of bounds for mask with true count {}",
+                self.true_count()
+            );
+        }
+        match &self {
+            Self::AllTrue(_) => n,
+            Self::AllFalse(_) => unreachable!("no true values in all-false mask"),
+            Self::Values(values) => values.indices()[n],
         }
     }
 

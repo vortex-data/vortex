@@ -655,8 +655,8 @@ mod tests {
             if node.is::<GetItem>() {
                 nodes.push(node)
             }
-            if let Some(bin) = node.as_opt::<Binary>()
-                && bin.operator() == Operator::Eq
+            if let Some(operator) = node.as_opt::<Binary>()
+                && *operator == Operator::Eq
             {
                 return Ok(TraversalOrder::Skip);
             }
@@ -683,8 +683,8 @@ mod tests {
             if node.is::<GetItem>() {
                 nodes.push(node)
             }
-            if let Some(bin) = node.as_opt::<Binary>()
-                && bin.operator() == Operator::Eq
+            if let Some(operator) = node.as_opt::<Binary>()
+                && *operator == Operator::Eq
             {
                 return Ok(TraversalOrder::Stop);
             }

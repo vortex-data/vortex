@@ -3,10 +3,11 @@
 
 mod array;
 pub use array::StructArray;
-
 mod compute;
+mod rules;
 
 mod vtable;
+pub(crate) use rules::*;
 pub use vtable::StructVTable;
 
 #[cfg(test)]

@@ -1,41 +1,45 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use vortex_error::VortexExpect;
-use vortex_vector::Datum;
 
 use crate::Array;
 use crate::Canonical;
+use crate::arrays::LEGACY_SESSION;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
-use crate::arrays::scalar_fn::vtable::SCALAR_FN_SESSION;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
-use crate::expr::functions::ExecutionArgs;
+use crate::executor::VectorExecutor;
+use crate::expr::ExecutionArgs;
 use crate::vectors::VectorIntoArray;
 use crate::vtable::CanonicalVTable;
 
 impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
     fn canonicalize(array: &ScalarFnArray) -> Canonical {
         let child_dtypes: Vec<_> = array.children.iter().map(|c| c.dtype().clone()).collect();
-        let child_datums: Vec<_> = array
-            .children()
-            .iter()
-            // TODO(ngates): we could make all execution operate over datums
-            .map(|child| child.execute(&SCALAR_FN_SESSION).map(Datum::Vector))
-            .try_collect()
-            // FIXME(ngates): canonicalizing really ought to be fallible
-            .vortex_expect(
-                "Failed to execute child array during canonicalization of ScalarFnArray",
-            );
 
-        let ctx = ExecutionArgs::new(array.len, array.dtype.clone(), child_dtypes, child_datums);
+        let mut child_datums = Vec::with_capacity(array.children.len());
+        for child in array.children.iter() {
+            let datum = child
+                .execute_datum_optimized(&LEGACY_SESSION)
+                .vortex_expect(
+                    "Failed to execute child array during canonicalization of ScalarFnArray",
+                );
+            child_datums.push(datum);
+        }
 
+        let ctx = ExecutionArgs {
+            datums: child_datums,
+            dtypes: child_dtypes,
+            row_count: array.len,
+            return_dtype: array.dtype.clone(),
+        };
+
+        let len = array.len;
         let result_vector = array
             .scalar_fn
-            .execute(&ctx)
+            .execute(ctx)
             .vortex_expect("Canonicalize should be fallible")
-            .into_vector()
-            .vortex_expect("Canonicalize should return a vector");
+            .ensure_vector(len);
 
         result_vector.into_array(&array.dtype).to_canonical()
     }

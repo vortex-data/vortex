@@ -8873,6 +8873,7 @@ dependencies = [
  "vortex-sequence",
  "vortex-session",
  "vortex-utils",
+ "vortex-vector",
  "vortex-zstd",
 ]
 
@@ -8880,6 +8881,7 @@ dependencies = [
 name = "vortex-mask"
 version = "0.1.0"
 dependencies = [
+ "arrow-buffer",
  "itertools 0.14.0",
  "rstest",
  "serde",
@@ -8962,6 +8964,7 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-scalar",
+ "vortex-session",
 ]
 
 [[package]]

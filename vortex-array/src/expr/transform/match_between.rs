@@ -49,65 +49,69 @@ pub fn find_between(expr: Expression) -> Expression {
 }
 
 fn maybe_match(lhs: &Expression, rhs: &Expression) -> Option<Expression> {
-    let (Some(lhs_e), Some(rhs_e)) = (lhs.as_opt::<Binary>(), rhs.as_opt::<Binary>()) else {
+    let (Some(lhs_op), Some(rhs_op)) = (lhs.as_opt::<Binary>(), rhs.as_opt::<Binary>()) else {
         return None;
     };
 
+    // Extract the grandchildren
+    let lhs_lhs = lhs.child(0);
+    let lhs_rhs = lhs.child(1);
+    let rhs_lhs = rhs.child(0);
+    let rhs_rhs = rhs.child(1);
+
     // Cannot compare to self
-    if lhs_e.lhs().eq(lhs_e.rhs()) || rhs_e.lhs().eq(rhs_e.rhs()) {
+    if lhs_lhs.eq(lhs_rhs) || rhs_lhs.eq(rhs_rhs) {
         return None;
     }
 
     // First, get both halves to have GetItem on the left
-    let lhs = match (lhs_e.lhs().is::<GetItem>(), lhs_e.rhs().is::<GetItem>()) {
+    let lhs = match (lhs_lhs.is::<GetItem>(), lhs_rhs.is::<GetItem>()) {
         (true, false) => lhs.clone(),
-        (false, true) => Binary.new_expr(
-            lhs_e.operator().swap()?,
-            [lhs_e.rhs().clone(), lhs_e.lhs().clone()],
-        ),
+        (false, true) => Binary.new_expr(lhs_op.swap()?, [lhs_rhs.clone(), lhs_lhs.clone()]),
         _ => return None,
     };
-    let lhs_e = lhs.as_::<Binary>();
+    let lhs_op = lhs.as_::<Binary>();
+    let lhs_lhs = lhs.child(0);
 
-    let rhs = match (rhs_e.lhs().is::<GetItem>(), rhs_e.rhs().is::<GetItem>()) {
+    let rhs = match (rhs_lhs.is::<GetItem>(), rhs_rhs.is::<GetItem>()) {
         (true, false) => rhs.clone(),
-        (false, true) => Binary.new_expr(
-            rhs_e.operator().swap()?,
-            [rhs_e.rhs().clone(), rhs_e.lhs().clone()],
-        ),
+        (false, true) => Binary.new_expr(rhs_op.swap()?, [rhs_rhs.clone(), rhs_lhs.clone()]),
         _ => return None,
     };
-    let rhs_e = rhs.as_::<Binary>();
+    let rhs_op = rhs.as_::<Binary>();
+    let rhs_lhs = rhs.child(0);
 
     // Both conjuncts must reference the same GetItem column
-    if !lhs_e.lhs().eq(rhs_e.lhs()) {
+    if !lhs_lhs.eq(rhs_lhs) {
         return None;
     }
 
-    let target = lhs_e.lhs().clone();
+    let target = lhs_lhs.clone();
 
     // Find the lower bound
-    let (lower, upper) = match (lhs_e.operator(), rhs_e.operator()) {
+    let (lower, upper) = match (lhs_op, rhs_op) {
         (Operator::Lt | Operator::Lte, Operator::Gt | Operator::Gte) => (rhs, lhs),
         (Operator::Gt | Operator::Gte, Operator::Lt | Operator::Lte) => (lhs, rhs),
         _ => return None,
     };
-    let lower_e = lower.as_::<Binary>();
-    let upper_e = upper.as_::<Binary>();
+    let lower_op = lower.as_::<Binary>();
+    let lower_rhs = lower.child(1);
+    let upper_op = upper.as_::<Binary>();
+    let upper_rhs = upper.child(1);
 
     // Ensure bounds are literals
-    let _ = lower_e.rhs().as_opt::<Literal>()?;
-    let _ = upper_e.rhs().as_opt::<Literal>()?;
+    let _ = lower_rhs.as_opt::<Literal>()?;
+    let _ = upper_rhs.as_opt::<Literal>()?;
 
-    let lower_strict = is_strict_comparison(lower_e.operator())?;
-    let upper_strict = is_strict_comparison(upper_e.operator())?;
+    let lower_strict = is_strict_comparison(*lower_op)?;
+    let upper_strict = is_strict_comparison(*upper_op)?;
 
     Some(Between.new_expr(
         BetweenOptions {
             lower_strict,
             upper_strict,
         },
-        [target, lower_e.rhs().clone(), upper_e.rhs().clone()],
+        [target, lower_rhs.clone(), upper_rhs.clone()],
     ))
 }
 

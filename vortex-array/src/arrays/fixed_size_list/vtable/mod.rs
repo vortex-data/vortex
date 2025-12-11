@@ -8,12 +8,14 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_vector::Vector;
 use vortex_vector::fixed_size_list::FixedSizeListVector;
 
+use crate::Array;
 use crate::EmptyMetadata;
 use crate::arrays::FixedSizeListArray;
-use crate::execution::ExecutionCtx;
+use crate::kernel::BindCtx;
+use crate::kernel::KernelRef;
+use crate::kernel::kernel;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -108,14 +110,20 @@ impl VTable for FixedSizeListVTable {
         FixedSizeListArray::try_new(elements, *list_size, validity, len)
     }
 
-    fn batch_execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        Ok(unsafe {
-            FixedSizeListVector::new_unchecked(
-                Arc::new(array.elements().batch_execute(ctx)?),
-                array.list_size(),
-                array.validity_mask(),
-            )
-        }
-        .into())
+    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
+        let elements_kernel = array.elements().bind_kernel(ctx)?;
+        let list_size = array.list_size();
+        let validity_mask = array.validity_mask();
+
+        Ok(kernel(move || {
+            Ok(unsafe {
+                FixedSizeListVector::new_unchecked(
+                    Arc::new(elements_kernel.execute()?),
+                    list_size,
+                    validity_mask,
+                )
+            }
+            .into())
+        }))
     }
 }

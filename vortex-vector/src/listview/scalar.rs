@@ -6,7 +6,10 @@ use crate::ScalarOps;
 use crate::VectorMut;
 use crate::VectorOps;
 use crate::listview::ListViewVector;
+use crate::listview::ListViewVectorMut;
+use std::sync::Arc;
 use vortex_mask::Mask;
+use vortex_mask::MaskMut;
 
 /// A scalar value for list view types.
 ///
@@ -42,8 +45,21 @@ impl ScalarOps for ListViewScalar {
         }
     }
 
-    fn repeat(&self, _n: usize) -> VectorMut {
-        todo!()
+    fn repeat(&self, n: usize) -> VectorMut {
+        // Grab the scalar elements.
+        let elements = self.0.elements.clone();
+        // Repeat the offset and size n times.
+        let offsets = self.0.offsets.scalar_at(0).repeat(n).into_primitive();
+        let sizes = self.0.sizes.scalar_at(0).repeat(n).into_primitive();
+        unsafe {
+            ListViewVectorMut::new_unchecked(
+                Box::new(Arc::unwrap_or_clone(elements).into_mut()),
+                offsets,
+                sizes,
+                MaskMut::new(n, self.is_valid()),
+            )
+        }
+        .into()
     }
 }
 

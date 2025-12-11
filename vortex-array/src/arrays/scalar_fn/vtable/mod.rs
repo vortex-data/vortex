@@ -9,30 +9,30 @@ mod visitor;
 
 use std::marker::PhantomData;
 use std::ops::Deref;
-use std::sync::LazyLock;
 
 use itertools::Itertools;
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_session::VortexSession;
-use vortex_vector::Vector;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::ConstantVTable;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
+use crate::arrays::scalar_fn::kernel::KernelInput;
+use crate::arrays::scalar_fn::kernel::ScalarFnKernel;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
-use crate::execution::ExecutionCtx;
-use crate::expr::functions;
-use crate::expr::functions::scalar::ScalarFn;
+use crate::expr;
+use crate::expr::ExprVTable;
+use crate::expr::ScalarFn;
+use crate::kernel::BindCtx;
+use crate::kernel::KernelRef;
 use crate::optimizer::rules::MatchKey;
 use crate::optimizer::rules::Matcher;
 use crate::serde::ArrayChildren;
-use crate::session::ArraySession;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
@@ -40,21 +40,15 @@ use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
-// TODO(ngates): canonicalize doesn't currently take a session, therefore we cannot dispatch
-//  to registered scalar function kernels. We therefore hold our own non-pluggable session here
-//  that contains all the built-in kernels while we migrate over to "execute" instead of canonicalize.
-static SCALAR_FN_SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
-
 vtable!(ScalarFn);
 
 #[derive(Clone, Debug)]
 pub struct ScalarFnVTable {
-    vtable: functions::ScalarFnVTable,
+    vtable: ExprVTable,
 }
 
 impl ScalarFnVTable {
-    pub fn new(vtable: functions::ScalarFnVTable) -> Self {
+    pub fn new(vtable: ExprVTable) -> Self {
         Self { vtable }
     }
 }
@@ -130,29 +124,37 @@ impl VTable for ScalarFnVTable {
         })
     }
 
-    fn batch_execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        let input_dtypes: Vec<_> = array.children().iter().map(|c| c.dtype().clone()).collect();
-        let input_datums = array
+    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
+        let inputs: Vec<_> = array
             .children()
             .iter()
-            .map(|child| child.batch_execute(ctx))
+            .map(|child| match child.as_opt::<ConstantVTable>() {
+                None => child.bind_kernel(ctx).map(KernelInput::Vector),
+                Some(constant) => {
+                    let scalar = constant.scalar().to_vector_scalar();
+                    Ok(KernelInput::Scalar(scalar))
+                }
+            })
             .try_collect()?;
-        let ctx = functions::ExecutionArgs::new(
-            array.len(),
-            array.dtype.clone(),
+
+        let input_dtypes: Vec<_> = array
+            .children()
+            .iter()
+            .map(|child| child.dtype().clone())
+            .collect();
+
+        Ok(Box::new(ScalarFnKernel {
+            scalar_fn: array.scalar_fn.clone(),
+            inputs,
             input_dtypes,
-            input_datums,
-        );
-        Ok(array
-            .scalar_fn
-            .execute(&ctx)?
-            .into_vector()
-            .vortex_expect("Vector inputs should return vector outputs"))
+            row_count: array.len(),
+            return_dtype: array.dtype().clone(),
+        }))
     }
 }
 
 /// Array factory functions for scalar functions.
-pub trait ScalarFnArrayExt: functions::VTable {
+pub trait ScalarFnArrayExt: expr::VTable {
     fn try_new_array(
         &'static self,
         len: usize,
@@ -186,7 +188,7 @@ pub trait ScalarFnArrayExt: functions::VTable {
         .into_array())
     }
 }
-impl<V: functions::VTable> ScalarFnArrayExt for V {}
+impl<V: expr::VTable> ScalarFnArrayExt for V {}
 
 /// A matcher that matches any scalar function expression.
 #[derive(Debug)]
@@ -205,12 +207,12 @@ impl Matcher for AnyScalarFn {
 
 /// A matcher that matches a specific scalar function expression.
 #[derive(Debug)]
-pub struct ExactScalarFn<F: functions::VTable> {
+pub struct ExactScalarFn<F: expr::VTable> {
     id: ArrayId,
     _phantom: PhantomData<F>,
 }
 
-impl<F: functions::VTable> From<&'static F> for ExactScalarFn<F> {
+impl<F: expr::VTable> From<&'static F> for ExactScalarFn<F> {
     fn from(value: &'static F) -> Self {
         Self {
             id: value.id(),
@@ -219,7 +221,7 @@ impl<F: functions::VTable> From<&'static F> for ExactScalarFn<F> {
     }
 }
 
-impl<F: functions::VTable> Matcher for ExactScalarFn<F> {
+impl<F: expr::VTable> Matcher for ExactScalarFn<F> {
     type View<'a> = ScalarFnArrayView<'a, F>;
 
     fn key(&self) -> MatchKey {
@@ -246,13 +248,13 @@ impl<F: functions::VTable> Matcher for ExactScalarFn<F> {
     }
 }
 
-pub struct ScalarFnArrayView<'a, F: functions::VTable> {
+pub struct ScalarFnArrayView<'a, F: expr::VTable> {
     array: &'a ArrayRef,
     pub vtable: &'a F,
     pub options: &'a F::Options,
 }
 
-impl<F: functions::VTable> Deref for ScalarFnArrayView<'_, F> {
+impl<F: expr::VTable> Deref for ScalarFnArrayView<'_, F> {
     type Target = ArrayRef;
 
     fn deref(&self) -> &Self::Target {

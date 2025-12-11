@@ -3,6 +3,7 @@
 
 use crate::Scalar;
 use crate::ScalarOps;
+use crate::VectorMut;
 use crate::VectorMutOps;
 use crate::binaryview::BinaryType;
 use crate::binaryview::BinaryViewType;
@@ -39,7 +40,7 @@ impl<T: BinaryViewType> ScalarOps for BinaryViewScalar<T> {
         }
     }
 
-    fn repeat(&self, n: usize) -> crate::VectorMut {
+    fn repeat(&self, n: usize) -> VectorMut {
         let mut vec = BinaryViewVectorMut::<T>::with_capacity(n);
         match self.value() {
             None => vec.append_nulls(n),

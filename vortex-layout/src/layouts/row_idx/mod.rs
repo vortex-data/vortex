@@ -22,11 +22,10 @@ use vortex_array::expr::ExactExpr;
 use vortex_array::expr::Expression;
 use vortex_array::expr::is_root;
 use vortex_array::expr::root;
-use vortex_array::expr::session::ExprSessionExt;
-use vortex_array::expr::transform::ExprOptimizer;
 use vortex_array::expr::transform::PartitionedExpr;
 use vortex_array::expr::transform::partition;
 use vortex_array::expr::transform::replace;
+use vortex_array::mask::MaskExecutor;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
 use vortex_dtype::FieldName;
@@ -42,6 +41,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::ArrayFuture;
 use crate::LayoutReader;
+use crate::layouts::USE_VORTEX_OPERATORS;
 use crate::layouts::partitioned::PartitionedExprEval;
 
 pub struct RowIdxLayoutReader {
@@ -49,18 +49,17 @@ pub struct RowIdxLayoutReader {
     row_offset: u64,
     child: Arc<dyn LayoutReader>,
     partition_cache: DashMap<ExactExpr, Partitioning>,
-    expr_optimizer: ExprOptimizer,
+    session: VortexSession,
 }
 
 impl RowIdxLayoutReader {
-    pub fn new(row_offset: u64, child: Arc<dyn LayoutReader>, session: &VortexSession) -> Self {
-        let expr_optimizer = ExprOptimizer::new(&session.expressions());
+    pub fn new(row_offset: u64, child: Arc<dyn LayoutReader>, session: VortexSession) -> Self {
         Self {
             name: child.name().clone(),
             row_offset,
             child,
             partition_cache: DashMap::with_hasher(Default::default()),
-            expr_optimizer,
+            session,
         }
     }
 
@@ -69,20 +68,15 @@ impl RowIdxLayoutReader {
             .entry(ExactExpr(expr.clone()))
             .or_insert_with(|| {
                 // Partition the expression into row idx and child expressions.
-                let mut partitioned = partition(
-                    expr.clone(),
-                    self.dtype(),
-                    |expr| {
-                        if expr.is::<RowIdx>() {
-                            vec![Partition::RowIdx]
-                        } else if is_root(expr) {
-                            vec![Partition::Child]
-                        } else {
-                            vec![]
-                        }
-                    },
-                    &self.expr_optimizer,
-                )
+                let mut partitioned = partition(expr.clone(), self.dtype(), |expr| {
+                    if expr.is::<RowIdx>() {
+                        vec![Partition::RowIdx]
+                    } else if is_root(expr) {
+                        vec![Partition::Child]
+                    } else {
+                        vec![]
+                    }
+                })
                 .vortex_expect("We should not fail to partition expression over struct fields");
 
                 // If there's only a single partition, we can directly return the expression.
@@ -174,9 +168,13 @@ impl LayoutReader for RowIdxLayoutReader {
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         Ok(match &self.partition_expr(expr) {
-            Partitioning::RowIdx(expr) => {
-                row_idx_mask_future(self.row_offset, row_range, expr, MaskFuture::ready(mask))
-            }
+            Partitioning::RowIdx(expr) => row_idx_mask_future(
+                self.row_offset,
+                row_range,
+                expr,
+                MaskFuture::ready(mask),
+                self.session.clone(),
+            ),
             Partitioning::Child(expr) => self.child.pruning_evaluation(row_range, expr, mask)?,
             Partitioning::Partitioned(..) => MaskFuture::ready(mask),
         })
@@ -196,9 +194,13 @@ impl LayoutReader for RowIdxLayoutReader {
             Partitioning::Partitioned(p) => p.clone().into_mask_future(
                 mask,
                 |annotation, expr, mask| match annotation {
-                    Partition::RowIdx => {
-                        Ok(row_idx_mask_future(self.row_offset, row_range, expr, mask))
-                    }
+                    Partition::RowIdx => Ok(row_idx_mask_future(
+                        self.row_offset,
+                        row_range,
+                        expr,
+                        mask,
+                        self.session.clone(),
+                    )),
                     Partition::Child => self.child.filter_evaluation(row_range, expr, mask),
                 },
                 |annotation, expr, mask| match annotation {
@@ -207,6 +209,7 @@ impl LayoutReader for RowIdxLayoutReader {
                     }
                     Partition::Child => self.child.projection_evaluation(row_range, expr, mask),
                 },
+                self.session.clone(),
             ),
         }
     }
@@ -253,12 +256,19 @@ fn row_idx_mask_future(
     row_range: &Range<u64>,
     expr: &Expression,
     mask: MaskFuture,
+    session: VortexSession,
 ) -> MaskFuture {
     let row_range = row_range.clone();
     let expr = expr.clone();
     MaskFuture::new(mask.len(), async move {
         let array = idx_array(row_offset, &row_range).into_array();
-        let result_mask = expr.evaluate(&array)?.try_to_mask_fill_null_false()?;
+
+        let result_mask = if *USE_VORTEX_OPERATORS {
+            array.apply(&expr)?.execute_mask_optimized(&session)
+        } else {
+            expr.evaluate(&array)?.try_to_mask_fill_null_false()
+        }?;
+
         Ok(result_mask.bitand(&mask.await?))
     })
 }
@@ -274,7 +284,11 @@ fn row_idx_array_future(
     async move {
         let array = idx_array(row_offset, &row_range).into_array();
         let array = filter(&array, &mask.await?)?;
-        expr.evaluate(&array)
+        if *USE_VORTEX_OPERATORS {
+            array.apply(&expr)
+        } else {
+            expr.evaluate(&array)
+        }
     }
     .boxed()
 }
@@ -329,7 +343,7 @@ mod tests {
             let result = RowIdxLayoutReader::new(
                 0,
                 layout.new_reader("".into(), segments, &SESSION).unwrap(),
-                &SESSION,
+                SESSION.clone(),
             )
             .projection_evaluation(
                 &(0..layout.row_count()),
@@ -370,7 +384,7 @@ mod tests {
             let result = RowIdxLayoutReader::new(
                 0,
                 layout.new_reader("".into(), segments, &SESSION).unwrap(),
-                &SESSION,
+                SESSION.clone(),
             )
             .projection_evaluation(
                 &(0..layout.row_count()),
@@ -415,7 +429,7 @@ mod tests {
             let result = RowIdxLayoutReader::new(
                 0,
                 layout.new_reader("".into(), segments, &SESSION).unwrap(),
-                &SESSION,
+                SESSION.clone(),
             )
             .projection_evaluation(
                 &(0..layout.row_count()),

@@ -7,13 +7,14 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
-use vortex_vector::Vector;
+use vortex_vector::ScalarOps;
 use vortex_vector::VectorMutOps;
 
 use crate::EmptyMetadata;
 use crate::arrays::ConstantArray;
-use crate::arrays::constant::vector::to_vector;
-use crate::execution::ExecutionCtx;
+use crate::kernel::BindCtx;
+use crate::kernel::KernelRef;
+use crate::kernel::kernel;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
@@ -85,7 +86,9 @@ impl VTable for ConstantVTable {
         Ok(ConstantArray::new(scalar, len))
     }
 
-    fn batch_execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        Ok(to_vector(array.scalar().clone(), array.len()).freeze())
+    fn bind_kernel(array: &Self::Array, _ctx: &mut BindCtx) -> VortexResult<KernelRef> {
+        let scalar = array.scalar().to_vector_scalar();
+        let len = array.len();
+        Ok(kernel(move || Ok(scalar.clone().repeat(len).freeze())))
     }
 }

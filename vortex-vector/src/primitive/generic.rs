@@ -51,7 +51,6 @@ impl<T> PVector<T> {
             validity.len() == elements.len(),
             "`PVector` validity mask must have the same length as elements"
         );
-
         Ok(Self { elements, validity })
     }
 

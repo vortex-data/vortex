@@ -120,7 +120,6 @@ use vortex_fastlanes::FoRVTable;
 use vortex_fastlanes::RLEVTable;
 use vortex_fsst::FSSTVTable;
 use vortex_pco::PcoVTable;
-use vortex_runend::RunEndVTable;
 use vortex_sequence::SequenceVTable;
 use vortex_session::VortexSession;
 use vortex_sparse::SparseVTable;
@@ -163,7 +162,7 @@ mod forever_constant {
 ///
 /// NOTE: this function will be changed in the future to encapsulate logic for using different
 /// Vortex "Editions" that may support different sets of encodings.
-pub fn register_default_encodings(session: &VortexSession) {
+pub fn register_default_encodings(session: &mut VortexSession) {
     session.arrays().register_many([
         ALPVTable.as_vtable(),
         ALPRDVTable.as_vtable(),
@@ -177,11 +176,14 @@ pub fn register_default_encodings(session: &VortexSession) {
         FoRVTable.as_vtable(),
         PcoVTable.as_vtable(),
         RLEVTable.as_vtable(),
-        RunEndVTable.as_vtable(),
         SequenceVTable.as_vtable(),
         SparseVTable.as_vtable(),
         ZigZagVTable.as_vtable(),
         #[cfg(feature = "zstd")]
         vortex_zstd::ZstdVTable.as_vtable(),
     ]);
+
+    // Eventually all encodings crates should expose an initialize function. For now it's only
+    // a few of them.
+    vortex_runend::initialize(session)
 }

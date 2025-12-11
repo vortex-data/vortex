@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
@@ -148,6 +150,19 @@ impl ComputeFnVTable for Like {
 pub struct LikeOptions {
     pub negated: bool,
     pub case_insensitive: bool,
+}
+
+impl Display for LikeOptions {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if self.negated {
+            write!(f, "NOT ")?;
+        }
+        if self.case_insensitive {
+            write!(f, "ILIKE")
+        } else {
+            write!(f, "LIKE")
+        }
+    }
 }
 
 impl Options for LikeOptions {

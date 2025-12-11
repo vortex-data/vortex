@@ -6,7 +6,9 @@ use crate::ScalarOps;
 use crate::VectorMut;
 use crate::VectorOps;
 use crate::struct_::StructVector;
+use crate::struct_::StructVectorMut;
 use vortex_mask::Mask;
+use vortex_mask::MaskMut;
 
 /// Represents a struct scalar value.
 ///
@@ -34,6 +36,11 @@ impl StructScalar {
     pub fn field(&self, field_idx: usize) -> Scalar {
         self.0.fields()[field_idx].scalar_at(0)
     }
+
+    /// Returns an iterator over the field scalars of the struct.
+    pub fn fields(&self) -> impl Iterator<Item = Scalar> {
+        self.0.fields().iter().map(|f| f.scalar_at(0))
+    }
 }
 
 impl ScalarOps for StructScalar {
@@ -47,8 +54,15 @@ impl ScalarOps for StructScalar {
         }
     }
 
-    fn repeat(&self, _n: usize) -> VectorMut {
-        todo!()
+    fn repeat(&self, n: usize) -> VectorMut {
+        let fields = self
+            .0
+            .fields()
+            .iter()
+            .map(|f| f.scalar_at(0).repeat(n))
+            .collect();
+        let validity = MaskMut::new(n, self.is_valid());
+        VectorMut::Struct(StructVectorMut::new(fields, validity))
     }
 }
 

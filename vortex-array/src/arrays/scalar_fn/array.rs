@@ -8,7 +8,7 @@ use vortex_error::vortex_ensure;
 use crate::Array;
 use crate::ArrayRef;
 use crate::arrays::ScalarFnVTable;
-use crate::expr::functions::scalar::ScalarFn;
+use crate::expr::ScalarFn;
 use crate::stats::ArrayStats;
 use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
@@ -26,9 +26,9 @@ pub struct ScalarFnArray {
 
 impl ScalarFnArray {
     /// Create a new ScalarFnArray from a scalar function and its children.
-    pub fn try_new(scalar_fn: ScalarFn, children: Vec<ArrayRef>, len: usize) -> VortexResult<Self> {
+    pub fn try_new(bound: ScalarFn, children: Vec<ArrayRef>, len: usize) -> VortexResult<Self> {
         let arg_dtypes: Vec<_> = children.iter().map(|c| c.dtype().clone()).collect();
-        let dtype = scalar_fn.return_dtype(&arg_dtypes)?;
+        let dtype = bound.return_dtype(&arg_dtypes)?;
 
         vortex_ensure!(
             children.iter().all(|c| c.len() == len),
@@ -36,12 +36,17 @@ impl ScalarFnArray {
         );
 
         Ok(Self {
-            vtable: ScalarFnVTable::new(scalar_fn.vtable().clone()).into_vtable(),
-            scalar_fn,
+            vtable: ScalarFnVTable::new(bound.vtable().clone()).into_vtable(),
+            scalar_fn: bound,
             dtype,
             len,
             children,
             stats: Default::default(),
         })
+    }
+
+    /// Get the scalar function bound to this array.
+    pub fn scalar_fn(&self) -> &ScalarFn {
+        &self.scalar_fn
     }
 }

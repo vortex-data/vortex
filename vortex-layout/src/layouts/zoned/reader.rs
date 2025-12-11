@@ -49,6 +49,7 @@ pub struct ZonedReader {
     layout: ZonedLayout,
     name: Arc<str>,
     lazy_children: LazyReaderChildren,
+    session: VortexSession,
 
     /// A cache of expr -> optional pruning result (applying the pruning expr to the zone map)
     pruning_result: LazyLock<DashMap<Expression, Option<SharedPruningResult>>>,
@@ -78,13 +79,14 @@ impl ZonedReader {
             dtypes,
             names,
             segment_source.clone(),
-            session,
+            session.clone(),
         );
 
         Ok(Self {
             layout,
             name,
             lazy_children,
+            session,
             pruning_result: Default::default(),
             zone_map: Default::default(),
             pruning_predicates: Default::default(),
@@ -161,21 +163,24 @@ impl ZonedReader {
                     );
                     let zone_map = self.zone_map();
                     let dynamic_updates = DynamicExprUpdates::new(&expr);
+                    let session = self.session.clone();
 
                     Some(
                         async move {
                             let zone_map = zone_map.await?;
-                            let initial_mask = zone_map.prune(&predicate).map_err(|err| {
-                                err.with_context(format!(
-                                    "While evaluating pruning predicate {} (derived from {})",
-                                    predicate, expr
-                                ))
-                            })?;
+                            let initial_mask =
+                                zone_map.prune(&predicate, &session).map_err(|err| {
+                                    err.with_context(format!(
+                                        "While evaluating pruning predicate {} (derived from {})",
+                                        predicate, expr
+                                    ))
+                                })?;
                             Ok(Arc::new(PruningResult {
                                 zone_map,
                                 predicate,
                                 dynamic_updates,
                                 latest_result: RwLock::new((0, initial_mask)),
+                                session,
                             }))
                         }
                         .boxed()
@@ -328,6 +333,7 @@ struct PruningResult {
     predicate: Expression,
     dynamic_updates: Option<DynamicExprUpdates>,
     latest_result: RwLock<(u64, Mask)>,
+    session: VortexSession,
 }
 
 impl PruningResult {
@@ -366,12 +372,15 @@ impl PruningResult {
             self.predicate
         );
 
-        let next_mask = self.zone_map.prune(&self.predicate).map_err(|err| {
-            err.with_context(format!(
-                "While evaluating pruning predicate {}",
-                self.predicate
-            ))
-        })?;
+        let next_mask = self
+            .zone_map
+            .prune(&self.predicate, &self.session)
+            .map_err(|err| {
+                err.with_context(format!(
+                    "While evaluating pruning predicate {}",
+                    self.predicate
+                ))
+            })?;
         *guard = (version, next_mask.clone());
 
         Ok(next_mask)

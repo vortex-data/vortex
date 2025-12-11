@@ -95,7 +95,7 @@ impl VTable for DictVTable {
             layout.clone(),
             name,
             segment_source,
-            session,
+            session.clone(),
         )?))
     }
 

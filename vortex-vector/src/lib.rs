@@ -91,7 +91,7 @@ pub fn vector_matches_dtype(vector: &Vector, dtype: &DType) -> bool {
         },
         DType::FixedSizeList(elements, size, _) => match vector {
             Vector::FixedSizeList(v) => {
-                v.element_size() == *size && vector_matches_dtype(v.elements(), elements.as_ref())
+                v.list_size() == *size && vector_matches_dtype(v.elements(), elements.as_ref())
             }
             _ => false,
         },
@@ -118,7 +118,7 @@ pub fn vector_matches_dtype(vector: &Vector, dtype: &DType) -> bool {
 
 /// Returns true if the scalar's is compatible with the provided data type.
 pub fn scalar_matches_dtype(scalar: &Scalar, dtype: &DType) -> bool {
-    if !dtype.is_nullable() && scalar.is_valid() {
+    if !dtype.is_nullable() && scalar.is_invalid() {
         // Non-nullable dtype cannot have nulls in the scalar.
         return false;
     }

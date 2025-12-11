@@ -75,6 +75,11 @@ impl BoolVector {
         &self.bits
     }
 
+    /// Consumes the boolean vector and returns the bits buffer.
+    pub fn into_bits(self) -> BitBuffer {
+        self.bits
+    }
+
     /// Gets a nullable element at the given index, panicking on out-of-bounds.
     ///
     /// If the element at the given index is null, returns `None`. Otherwise, returns `Some(x)`,
