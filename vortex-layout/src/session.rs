@@ -9,6 +9,7 @@ use crate::LayoutEncodingRef;
 use crate::layouts::chunked::ChunkedLayoutEncoding;
 use crate::layouts::dict::DictLayoutEncoding;
 use crate::layouts::flat::FlatLayoutEncoding;
+use crate::layouts::list::ListLayoutEncoding;
 use crate::layouts::struct_::StructLayoutEncoding;
 use crate::layouts::zoned::ZonedLayoutEncoding;
 
@@ -48,6 +49,7 @@ impl Default for LayoutSession {
             LayoutEncodingRef::new_ref(StructLayoutEncoding.as_ref()),
             LayoutEncodingRef::new_ref(ZonedLayoutEncoding.as_ref()),
             LayoutEncodingRef::new_ref(DictLayoutEncoding.as_ref()),
+            LayoutEncodingRef::new_ref(ListLayoutEncoding.as_ref()),
         ]);
 
         Self { registry: layouts }

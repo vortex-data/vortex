@@ -239,7 +239,7 @@ impl VTable for ListVTable {
         session: &VortexSession,
     ) -> VortexResult<LayoutReaderRef> {
         match &*layout.inner {
-            l @ ListLayoutInner::List {
+            ListLayoutInner::List {
                 offsets,
                 elements,
                 validity,
