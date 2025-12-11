@@ -5,13 +5,13 @@ use std::hash::Hash;
 
 use vortex_dtype::DType;
 
+use crate::Precision;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::stats::StatsSetRef;
 use crate::vtable::BaseArrayVTable;
-use crate::Precision;
 
 impl BaseArrayVTable<BoolVTable> for BoolVTable {
     fn len(array: &BoolArray) -> usize {

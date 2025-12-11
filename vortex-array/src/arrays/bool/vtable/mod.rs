@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
@@ -103,7 +104,9 @@ impl VTable for BoolVTable {
         };
 
         let buffer = buffers[0].clone().try_to_bytes()?;
-        BoolArray::try_new(buffer, metadata.offset as usize, len, validity)
+        let bits = BitBuffer::new_with_offset(buffer, len, metadata.offset as usize);
+
+        BoolArray::try_new(bits, validity)
     }
 
     fn batch_execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {

@@ -5,16 +5,16 @@ use arrow_array::BooleanArray;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_dtype::DType;
-use vortex_error::vortex_ensure;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
+use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::bool;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::ArrayRef;
-use crate::IntoArray;
 
 /// A boolean array that stores true/false values in a compact bit-packed format.
 ///
@@ -248,18 +248,18 @@ impl IntoArray for BitBufferMut {
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::buffer;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::BitBufferMut;
+    use vortex_buffer::buffer;
 
+    use crate::Array;
+    use crate::IntoArray;
+    use crate::ToCanonical;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::patches::Patches;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
-    use crate::Array;
-    use crate::IntoArray;
-    use crate::ToCanonical;
 
     #[test]
     fn bool_array() {
