@@ -4,10 +4,7 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
-on:
-  pull_request:
-    # Trigger on these PR activities
-    types: [opened, reopened, synchronize, labeled, unlabeled]
+on: { }
 
 jobs:
   check_changelog_label:

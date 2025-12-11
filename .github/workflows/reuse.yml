@@ -7,10 +7,7 @@ concurrency:
   # Cancel outdated runs on PRs, but let all develop commits complete.
   cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
 
-on:
-  push:
-    branches: [develop]
-  pull_request: { }
+on: { }
 
 jobs:
   reuse-check:

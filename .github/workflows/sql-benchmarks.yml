@@ -1,5 +1,8 @@
 name: "SQL-related benchmarks"
 
+env:
+  VORTEX_OPERATORS: "true"
+
 on:
   workflow_call:
     inputs:
@@ -94,7 +97,8 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJSON(inputs.benchmark_matrix) }}
-
+    env:
+      VORTEX_OPERATORS: "true"
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=${{ inputs.machine_type }}
@@ -135,6 +139,7 @@ jobs:
         shell: bash
         env:
           RUST_BACKTRACE: full
+          VORTEX_OPERATORS: "true"
         run: |
           # Generate data, running each query once to make sure they don't panic.
           target/release_debug/query_bench \
@@ -178,6 +183,7 @@ jobs:
           OTEL_EXPORTER_OTLP_ENDPOINT: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_ENDPOINT || '' }}"
           OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
+          VORTEX_OPERATORS: "true"
         run: |
           target/release_debug/query_bench ${{ matrix.subcommand }} \
             -d gh-json \
@@ -196,6 +202,7 @@ jobs:
           OTEL_EXPORTER_OTLP_ENDPOINT: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_ENDPOINT || '' }}"
           OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
+          VORTEX_OPERATORS: "true"
         run: |
           target/release_debug/query_bench ${{ matrix.subcommand }} \
               --use-remote-data-dir ${{ matrix.remote_storage }} \

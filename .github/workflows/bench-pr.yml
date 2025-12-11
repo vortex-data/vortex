@@ -14,6 +14,9 @@ on:
     branches: ["develop"]
   workflow_dispatch: { }
 
+env:
+  VORTEX_OPERATORS: "true"
+
 permissions:
   actions: write  # for removing labels
   contents: read
@@ -33,7 +36,6 @@ jobs:
           labels: benchmark
 
   bench:
-    needs: label_trigger
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -49,7 +51,8 @@ jobs:
             name: Random Access
           - id: compress
             name: Compression
-    if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'benchmark' && github.event_name == 'pull_request' }}
+    env:
+      VORTEX_OPERATORS: "true"
     steps:
       - uses: runs-on/action@v2
         if: github.event.pull_request.head.repo.fork == false
@@ -134,7 +137,6 @@ jobs:
           comment-tag: bench-pr-comment-${{ matrix.benchmark.id }}
 
   sql:
-    needs: label_trigger
     uses: ./.github/workflows/sql-benchmarks.yml
     secrets: inherit
     with:
