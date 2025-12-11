@@ -45,6 +45,7 @@ use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
@@ -267,6 +268,15 @@ impl VTable for SequenceVTable {
             dtype.nullability(),
             len,
         ))
+    }
+
+    fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.is_empty(),
+            "SequenceArray expects 0 children, got {}",
+            children.len()
+        );
+        Ok(())
     }
 
     fn bind_kernel(array: &Self::Array, _ctx: &mut BindCtx) -> VortexResult<KernelRef> {

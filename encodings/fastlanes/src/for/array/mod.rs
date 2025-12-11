@@ -17,9 +17,9 @@ pub mod for_decompress;
 /// storage requirements when values are clustered around a specific point.
 #[derive(Clone, Debug)]
 pub struct FoRArray {
-    encoded: ArrayRef,
-    reference: Scalar,
-    stats_set: ArrayStats,
+    pub(super) encoded: ArrayRef,
+    pub(super) reference: Scalar,
+    pub(super) stats_set: ArrayStats,
 }
 
 impl FoRArray {

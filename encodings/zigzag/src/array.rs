@@ -38,6 +38,7 @@ use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_scalar::Scalar;
 use zigzag::ZigZag as ExternalZigZag;
 
@@ -97,6 +98,16 @@ impl VTable for ZigZagVTable {
 
         let encoded = children.get(0, &encoded_type, len)?;
         ZigZagArray::try_new(encoded)
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() == 1,
+            "ZigZagArray expects exactly 1 child (encoded), got {}",
+            children.len()
+        );
+        array.encoded = children.into_iter().next().vortex_expect("checked");
+        Ok(())
     }
 }
 

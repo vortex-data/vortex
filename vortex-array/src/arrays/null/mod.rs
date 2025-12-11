@@ -7,6 +7,7 @@ use std::ops::Range;
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 use vortex_vector::null::NullVector;
@@ -86,6 +87,15 @@ impl VTable for NullVTable {
 
     fn bind_kernel(array: &Self::Array, _ctx: &mut BindCtx) -> VortexResult<KernelRef> {
         Ok(ready(NullVector::new(array.len()).into()))
+    }
+
+    fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.is_empty(),
+            "NullArray has no children, got {}",
+            children.len()
+        );
+        Ok(())
     }
 }
 

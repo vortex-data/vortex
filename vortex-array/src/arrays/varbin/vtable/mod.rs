@@ -8,7 +8,9 @@ use vortex_dtype::PType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 
+use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
@@ -104,6 +106,29 @@ impl VTable for VarBinVTable {
         let bytes = buffers[0].clone().try_to_bytes()?;
 
         VarBinArray::try_new(offsets, bytes, dtype.clone(), validity)
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        match children.len() {
+            1 => {
+                let [offsets]: [ArrayRef; 1] = children
+                    .try_into()
+                    .map_err(|_| vortex_err!("Failed to convert children to array"))?;
+                array.offsets = offsets;
+            }
+            2 => {
+                let [offsets, validity]: [ArrayRef; 2] = children
+                    .try_into()
+                    .map_err(|_| vortex_err!("Failed to convert children to array"))?;
+                array.offsets = offsets;
+                array.validity = Validity::Array(validity);
+            }
+            _ => vortex_bail!(
+                "VarBinArray expects 1 or 2 children (offsets, validity?), got {}",
+                children.len()
+            ),
+        }
+        Ok(())
     }
 }
 

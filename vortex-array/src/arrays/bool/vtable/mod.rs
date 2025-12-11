@@ -7,8 +7,10 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_vector::bool::BoolVector;
 
+use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
@@ -114,6 +116,22 @@ impl VTable for BoolVTable {
         Ok(ready(
             BoolVector::new(array.bit_buffer().clone(), array.validity_mask()).into(),
         ))
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() <= 1,
+            "BoolArray can have at most 1 child (validity), got {}",
+            children.len()
+        );
+
+        array.validity = if children.is_empty() {
+            Validity::from(array.dtype().nullability())
+        } else {
+            Validity::Array(children.into_iter().next().vortex_expect("checked"))
+        };
+
+        Ok(())
     }
 }
 

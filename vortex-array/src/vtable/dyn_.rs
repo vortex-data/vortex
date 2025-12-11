@@ -46,11 +46,7 @@ pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
         children: &dyn ArrayChildren,
     ) -> VortexResult<ArrayRef>;
 
-    fn with_children(
-        &self,
-        array: &dyn Array,
-        children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef>;
+    fn with_children(&self, array: &dyn Array, children: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
 
     /// Encode the canonical array into this encoding implementation.
     /// Returns `None` if this encoding does not support the given canonical array, for example
@@ -94,25 +90,10 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         Ok(array.to_array())
     }
 
-    fn with_children(
-        &self,
-        array: &dyn Array,
-        children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
-        let buffers: Vec<BufferHandle> = array
-            .buffers()
-            .into_iter()
-            .map(BufferHandle::Buffer)
-            .collect();
-        V::build(
-            &self.0,
-            array.dtype(),
-            array.len(),
-            &V::metadata(array.as_::<V>())?,
-            &buffers,
-            children,
-        )
-        .map(|a| a.into_array())
+    fn with_children(&self, array: &dyn Array, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
+        let mut array = array.as_::<V>().clone();
+        V::with_children(&mut array, children)?;
+        Ok(array.to_array())
     }
 
     fn encode(

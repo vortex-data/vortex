@@ -219,8 +219,13 @@ impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
         BinaryViewScalar::<T>::new(self.get(index))
     }
 
-    fn slice(&self, _range: impl RangeBounds<usize> + Clone + Debug) -> Self {
-        todo!()
+    fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self {
+        BinaryViewVector {
+            views: self.views.slice(range.clone()),
+            buffers: self.buffers().clone(),
+            validity: self.validity.slice(range),
+            _marker: self._marker,
+        }
     }
 
     fn clear(&mut self) {
