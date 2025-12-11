@@ -9,8 +9,10 @@ concurrency:
   cancel-in-progress: false
 
 on:
-  push:
-    branches: ["operators-bench"]
+  pull_request:
+    types: [labeled, synchronize]
+    branches: ["develop"]
+  workflow_dispatch: { }
 
 env:
   VORTEX_OPERATORS: "true"
