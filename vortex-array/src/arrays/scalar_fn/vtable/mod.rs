@@ -124,6 +124,17 @@ impl VTable for ScalarFnVTable {
         })
     }
 
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() == array.children.len(),
+            "ScalarFnArray expects {} children, got {}",
+            array.children.len(),
+            children.len()
+        );
+        array.children = children;
+        Ok(())
+    }
+
     fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
         let inputs: Vec<_> = array
             .children()

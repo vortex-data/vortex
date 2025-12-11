@@ -64,7 +64,7 @@ impl ArrayOptimizer {
                 .try_collect()?;
 
             // If any children changed, reconstruct the array
-            let array = array.with_children(&new_children)?;
+            let array = array.with_children(new_children)?;
 
             // Apply reduction rules to the current array until no more rules apply.
             if let Some(new_array) = opt.apply_reduce_rules(&array)? {

@@ -141,6 +141,28 @@ impl VTable for SparseVTable {
 
         SparseArray::try_new(patch_indices, patch_values, len, fill_value)
     }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() == 2,
+            "SparseArray expects 2 children, got {}",
+            children.len()
+        );
+
+        let mut children_iter = children.into_iter();
+        let patch_indices = children_iter.next().vortex_expect("patch_indices child");
+        let patch_values = children_iter.next().vortex_expect("patch_values child");
+
+        array.patches = Patches::new(
+            array.patches.array_len(),
+            array.patches.offset(),
+            patch_indices,
+            patch_values,
+            array.patches.chunk_offsets().clone(),
+        );
+
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug)]

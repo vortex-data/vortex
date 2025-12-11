@@ -8,12 +8,15 @@ mod validity;
 
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_vector::VectorOps;
 
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
+use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::arrays::masked::MaskedArray;
 use crate::kernel::BindCtx;
@@ -115,6 +118,28 @@ impl VTable for MaskedVTable {
             vector.mask_validity(&validity_mask);
             Ok(vector)
         }))
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() == 1 || children.len() == 2,
+            "MaskedArray expects 1 or 2 children, got {}",
+            children.len()
+        );
+
+        let mut iter = children.into_iter();
+        let child = iter
+            .next()
+            .vortex_expect("children length already validated");
+        let validity = if let Some(validity_array) = iter.next() {
+            Validity::Array(validity_array)
+        } else {
+            Validity::from(array.dtype.nullability())
+        };
+
+        let new_array = MaskedArray::try_new(child, validity)?;
+        *array = new_array;
+        Ok(())
     }
 }
 

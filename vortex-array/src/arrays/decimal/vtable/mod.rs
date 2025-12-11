@@ -15,6 +15,7 @@ use vortex_error::vortex_ensure;
 use vortex_scalar::DecimalType;
 use vortex_vector::decimal::DVector;
 
+use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
@@ -123,6 +124,26 @@ impl VTable for DecimalVTable {
             let buffer = Buffer::<D>::from_byte_buffer(buffer);
             DecimalArray::try_new::<D>(buffer, *decimal_dtype, validity)
         })
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() <= 1,
+            "DecimalArray expects 0 or 1 child (validity), got {}",
+            children.len()
+        );
+
+        if children.is_empty() {
+            array.validity = Validity::from(array.dtype.nullability());
+        } else {
+            array.validity = Validity::Array(
+                children
+                    .into_iter()
+                    .next()
+                    .vortex_expect("children length already validated"),
+            );
+        }
+        Ok(())
     }
 
     fn bind_kernel(array: &Self::Array, _ctx: &mut BindCtx) -> VortexResult<KernelRef> {

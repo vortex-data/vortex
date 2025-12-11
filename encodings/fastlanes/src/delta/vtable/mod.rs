@@ -3,6 +3,7 @@
 
 use fastlanes::FastLanes;
 use prost::Message;
+use vortex_array::ArrayRef;
 use vortex_array::ProstMetadata;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable;
@@ -17,6 +18,7 @@ use vortex_dtype::DType;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::DeltaArray;
@@ -57,6 +59,23 @@ impl VTable for DeltaVTable {
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
         DeltaVTable.as_vtable()
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        // DeltaArray children order (from visit_children):
+        // 1. bases
+        // 2. deltas
+
+        vortex_ensure!(
+            children.len() == 2,
+            "Expected 2 children for Delta encoding, got {}",
+            children.len()
+        );
+
+        array.bases = children[0].clone();
+        array.deltas = children[1].clone();
+
+        Ok(())
     }
 
     fn metadata(array: &DeltaArray) -> VortexResult<Self::Metadata> {

@@ -28,6 +28,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::Array;
+use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VectorExecutor;
 use crate::kernel::BindCtx;
@@ -131,10 +132,15 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         children: &dyn ArrayChildren,
     ) -> VortexResult<Self::Array>;
 
+    /// Replaces the children in `array` with `children`. The count must be the same and types
+    /// of children must be expected.
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()>;
+
     /// Bind this array into a [`KernelRef`] for CPU execution.
     ///
-    /// The returned vector must be the appropriate one for the array's logical type (they are
-    /// one-to-one with Vortex `DType`s), and should respect the output nullability of the array.
+    /// The returned [`vortex_vector::Vector`] must be the appropriate one for the array's logical
+    /// type (they are one-to-one with Vortex `DType`s), and should respect the output nullability
+    /// of the array.
     ///
     /// Debug builds will panic if the returned vector is of the wrong type, wrong length, or
     /// incorrectly contains null values.

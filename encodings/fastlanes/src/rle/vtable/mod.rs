@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use prost::Message;
+use vortex_array::ArrayRef;
 use vortex_array::ProstMetadata;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable;
@@ -16,6 +17,7 @@ use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 use crate::RLEArray;
 
@@ -63,6 +65,25 @@ impl VTable for RLEVTable {
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
         RLEVTable.as_vtable()
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        // RLEArray children order (from visit_children):
+        // 1. values
+        // 2. indices
+        // 3. values_idx_offsets
+
+        vortex_ensure!(
+            children.len() == 3,
+            "Expected 3 children for RLE encoding, got {}",
+            children.len()
+        );
+
+        array.values = children[0].clone();
+        array.indices = children[1].clone();
+        array.values_idx_offsets = children[2].clone();
+
+        Ok(())
     }
 
     fn metadata(array: &RLEArray) -> VortexResult<Self::Metadata> {

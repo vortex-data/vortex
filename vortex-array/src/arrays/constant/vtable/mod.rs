@@ -15,6 +15,7 @@ use vortex_vector::ScalarOps;
 use vortex_vector::Vector;
 use vortex_vector::VectorMutOps;
 
+use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::arrays::ConstantArray;
 use crate::kernel::BindCtx;
@@ -98,6 +99,15 @@ impl VTable for ConstantVTable {
             len: array.len,
         }))
     }
+
+    fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.is_empty(),
+            "ConstantArray has no children, got {}",
+            children.len()
+        );
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -118,4 +128,6 @@ impl Kernel for ConstantKernel {
             len: selection.true_count(),
         })))
     }
+
+
 }

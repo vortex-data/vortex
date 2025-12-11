@@ -10,6 +10,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -94,6 +95,19 @@ impl VTable for FilterVTable {
             mask: selection_mask.clone(),
             stats: Default::default(),
         })
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() == 1,
+            "FilterArray expects exactly 1 child, got {}",
+            children.len()
+        );
+        array.child = children
+            .into_iter()
+            .next()
+            .vortex_expect("children length already validated");
+        Ok(())
     }
 
     fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {

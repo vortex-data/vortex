@@ -12,6 +12,7 @@ use vortex_dtype::Nullability;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -84,6 +85,15 @@ impl VTable for ArrowVTable {
         _children: &dyn ArrayChildren,
     ) -> VortexResult<Self::Array> {
         vortex_bail!("ArrowArray cannot be deserialized")
+    }
+
+    fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.is_empty(),
+            "ArrowArray has no children, got {}",
+            children.len()
+        );
+        Ok(())
     }
 }
 
