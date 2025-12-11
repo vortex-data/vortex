@@ -84,19 +84,9 @@ impl BoolArray {
 
     /// Creates a new [`BoolArray`] without validation from these components:
     ///
-    /// * `buffer` is a raw [`ByteBuffer`] holding the packed bits.
-    /// * `offset` is the number of bits in the start of the buffer that should be skipped when
-    ///   looking up the i-th value.
-    /// * `len` is the length of the array, which should correspond to the number of bits.
-    /// * `validity` holds the null values.
-    ///
     /// # Safety
     ///
-    /// The caller must ensure all of the following invariants are satisfied:
-    ///
-    /// - `buffer` must contain at least `(offset + len).div_ceil(8)` bytes.
-    /// - `offset` must be less than 8 (it represents the bit offset within the first byte).
-    /// - If `validity` is `Validity::Array`, its length must exactly equal `len`.
+    /// The caller must ensure that the validity length is equal to the bit buffer length.
     pub unsafe fn new_unchecked(bits: BitBuffer, validity: Validity) -> Self {
         if cfg!(debug_assertions) {
             Self::new(bits, validity)
