@@ -34,7 +34,6 @@ jobs:
           labels: benchmark
 
   bench:
-    needs: label_trigger
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -135,7 +134,6 @@ jobs:
           comment-tag: bench-pr-comment-${{ matrix.benchmark.id }}
 
   sql:
-    needs: label_trigger
     uses: ./.github/workflows/sql-benchmarks.yml
     secrets: inherit
     with:
