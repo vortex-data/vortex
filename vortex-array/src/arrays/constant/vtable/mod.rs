@@ -128,6 +128,4 @@ impl Kernel for ConstantKernel {
             len: selection.true_count(),
         })))
     }
-
-
 }
