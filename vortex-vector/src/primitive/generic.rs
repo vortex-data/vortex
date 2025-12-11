@@ -44,7 +44,7 @@ impl<T: NativePType + PartialEq> PartialEq for PVector<T> {
             .iter()
             .zip(other.elements.iter())
             .enumerate()
-            .all(|(i, (a, b))| !self.validity.value(i) || a == b)
+            .all(|(i, (a, b))| !self.validity.value(i) | (a == b))
     }
 }
 

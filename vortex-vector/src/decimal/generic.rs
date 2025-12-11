@@ -54,7 +54,7 @@ impl<D: NativeDecimalType + PartialEq> PartialEq for DVector<D> {
             .iter()
             .zip(other.elements.iter())
             .enumerate()
-            .all(|(i, (a, b))| !self.validity.value(i) || a == b)
+            .all(|(i, (a, b))| !self.validity.value(i) | (a == b))
     }
 }
 
