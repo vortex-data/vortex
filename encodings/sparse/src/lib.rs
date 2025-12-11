@@ -24,6 +24,7 @@ use vortex_array::compute::compare;
 use vortex_array::compute::fill_null;
 use vortex_array::compute::filter;
 use vortex_array::compute::sub_scalar;
+use vortex_array::kernel::{kernel, BindCtx, KernelRef};
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
@@ -118,11 +119,11 @@ impl VTable for SparseVTable {
                 children.len()
             )
         }
-        assert_eq!(
-            metadata.0.patches.offset(),
-            0,
-            "Patches must start at offset 0"
-        );
+        // assert_eq!(
+        //     metadata.0.patches.offset(),
+        //     0,
+        //     "Patches must start at offset 0"
+        // );
 
         let patch_indices = children.get(
             0,
@@ -139,7 +140,28 @@ impl VTable for SparseVTable {
             ScalarValue::from_protobytes(&buffers[0].clone().try_to_bytes()?)?,
         );
 
-        SparseArray::try_new(patch_indices, patch_values, len, fill_value)
+        let patches = Patches::new(
+            len,
+            metadata.0.patches.offset(),
+            patch_indices,
+            patch_values,
+            None,
+        );
+
+        SparseArray::try_new_from_patches(patches, fill_value)
+    }
+
+    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
+        let indices = array.patches().indices().bind_kernel(ctx)?;
+        let values = array.patches().values().bind_kernel(ctx)?;
+        let fill = array.fill_scalar().clone();
+
+        Ok(kernel(move|| {
+            let indices = indices.execute()?;
+            let values = values.execute()?;
+
+            // Use the fill value and apply it into the array here.
+        }))
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
