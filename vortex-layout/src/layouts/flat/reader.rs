@@ -232,7 +232,7 @@ impl LayoutReader for FlatReader {
 
                 // Filter the array based on the row mask.
                 if !mask.all_true() {
-                    array = array.filter(&mask)?;
+                    array = array.filter(mask)?;
                 }
 
                 tracing::debug!("Project Array:\n{}", array.display_tree());
