@@ -7,7 +7,6 @@ use fastlanes::Delta;
 use fastlanes::FastLanes;
 use fastlanes::Transpose;
 use num_traits::WrappingAdd;
-use vortex_array::Array;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
@@ -21,26 +20,32 @@ use crate::DeltaArray;
 pub fn delta_decompress(array: &DeltaArray) -> PrimitiveArray {
     let bases = array.bases().to_primitive();
     let deltas = array.deltas().to_primitive();
-    let decoded = match_each_unsigned_integer_ptype!(deltas.ptype(), |T| {
+
+    let start = array.offset();
+    let end = start + array.len();
+
+    // TODO(connor): This is incorrect, we need to untranspose the validity!!!
+
+    let validity = Validity::from_mask(array.deltas().validity_mask(), array.dtype().nullability());
+    let validity = validity.slice(start..end);
+
+    match_each_unsigned_integer_ptype!(deltas.ptype(), |T| {
         const LANES: usize = T::LANES;
 
-        PrimitiveArray::new(
-            decompress_primitive::<T, LANES>(bases.as_slice(), deltas.as_slice()),
-            Validity::from_mask(array.deltas().validity_mask(), array.dtype().nullability()),
-        )
-    });
+        let buffer = decompress_primitive::<T, LANES>(bases.as_slice(), deltas.as_slice());
+        let buffer = buffer.slice(start..end);
 
-    decoded
-        .slice(array.offset()..array.offset() + array.len())
-        .to_primitive()
+        PrimitiveArray::new(buffer, validity)
+    })
 }
 
 // TODO(ngates): can we re-use the deltas buffer for the result? Might be tricky given the
 //  traversal ordering, but possibly doable.
-fn decompress_primitive<T: NativePType + Delta + Transpose + WrappingAdd, const LANES: usize>(
-    bases: &[T],
-    deltas: &[T],
-) -> Buffer<T> {
+/// Performs the low-level delta decompression on primitive values.
+pub(crate) fn decompress_primitive<T, const LANES: usize>(bases: &[T], deltas: &[T]) -> Buffer<T>
+where
+    T: NativePType + Delta + Transpose + WrappingAdd,
+{
     // How many fastlanes vectors we will process.
     let num_chunks = deltas.len() / 1024;
 
