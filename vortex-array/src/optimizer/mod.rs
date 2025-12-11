@@ -90,7 +90,7 @@ impl ArrayOptimizer {
             if let Some(child) = job.unoptimized_children.pop() {
                 // Make a new task for the next child that needs to be completed.
                 let child_task = make_job(child);
-                job.child_tasks.push(child_task.id);
+                job.child_tasks.insert(0, child_task.id);
 
                 optimize_stack.push_front(job);
                 optimize_stack.push_front(child_task);
@@ -115,11 +115,6 @@ impl ArrayOptimizer {
             }
 
             if let Some(new_array) = self.apply_reduce_rules(&array)? {
-                #[cfg(debug_assertions)]
-                {
-                    debug_assert_eq!(new_array.dtype(), &job.dtype);
-                }
-
                 // Update the job with the same job ID, but new children and new array
                 job.unoptimized_children = new_array.children();
                 job.child_tasks.clear();
@@ -129,6 +124,10 @@ impl ArrayOptimizer {
             }
 
             // Otherwise, we push the result into the stack instead here.
+            #[cfg(debug_assertions)]
+            {
+                debug_assert_eq!(&job.dtype, array.dtype());
+            }
             results.insert(job.id, array);
         }
 
