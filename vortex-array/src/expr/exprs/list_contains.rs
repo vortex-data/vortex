@@ -314,7 +314,7 @@ fn constant_list_scalar_contains(list: ListViewScalar, values: Vector) -> Vortex
             .ensure_vector(values.len())
             .into_bool();
 
-        result = LogicalOr::or(result, &compared);
+        result = LogicalOr::or(&result, &compared);
     }
 
     Ok(result)

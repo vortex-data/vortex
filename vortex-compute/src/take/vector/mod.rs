@@ -1,18 +1,44 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_dtype::UnsignedPType;
+use vortex_vector::Vector;
 use vortex_vector::match_each_unsigned_pvector;
+use vortex_vector::match_each_vector;
 use vortex_vector::primitive::PVector;
 use vortex_vector::primitive::PrimitiveVector;
 
 use crate::take::Take;
 
+mod binaryview;
 mod bool;
+mod decimal;
+mod dvector;
+mod fixed_size_list;
+mod listview;
+mod null;
 mod primitive;
 mod pvector;
+mod struct_;
 
 #[cfg(test)]
 mod tests;
+
+impl<I: UnsignedPType> Take<PVector<I>> for &Vector {
+    type Output = Vector;
+
+    fn take(self, indices: &PVector<I>) -> Vector {
+        match_each_vector!(self, |v| { v.take(indices).into() })
+    }
+}
+
+impl<I: UnsignedPType> Take<[I]> for &Vector {
+    type Output = Vector;
+
+    fn take(self, indices: &[I]) -> Vector {
+        match_each_vector!(self, |v| { v.take(indices).into() })
+    }
+}
 
 impl<T> Take<PrimitiveVector> for &T
 where

@@ -91,7 +91,7 @@ pub fn vector_matches_dtype(vector: &Vector, dtype: &DType) -> bool {
         },
         DType::FixedSizeList(elements, size, _) => match vector {
             Vector::FixedSizeList(v) => {
-                v.element_size() == *size && vector_matches_dtype(v.elements(), elements.as_ref())
+                v.list_size() == *size && vector_matches_dtype(v.elements(), elements.as_ref())
             }
             _ => false,
         },

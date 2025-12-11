@@ -249,7 +249,7 @@ impl Scalar {
             DType::FixedSizeList(elem_dtype, size, n) => {
                 let scalar = scalar.into_fixed_size_list();
                 let elements = scalar.value().elements();
-                vortex_ensure!(scalar.value().element_size() == *size);
+                vortex_ensure!(scalar.value().list_size() == *size);
 
                 Scalar::fixed_size_list(
                     DType::FixedSizeList(elem_dtype.clone(), *size, *n),

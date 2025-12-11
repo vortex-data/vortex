@@ -134,7 +134,7 @@ impl FixedSizeListVector {
     }
 
     /// Returns the element size of every list in the vector.
-    pub fn element_size(&self) -> u32 {
+    pub fn list_size(&self) -> u32 {
         self.list_size
     }
 
@@ -256,7 +256,7 @@ mod tests {
         let validity = Mask::new_true(2);
         let vec = FixedSizeListVector::new(elements.clone(), 3, validity.clone());
         assert_eq!(vec.len(), 2);
-        assert_eq!(vec.element_size(), 3);
+        assert_eq!(vec.list_size(), 3);
 
         // Valid construction with try_new().
         let result = FixedSizeListVector::try_new(elements.clone(), 3, validity);
@@ -279,7 +279,7 @@ mod tests {
         assert!(result.is_ok());
         let vec = result.unwrap();
         assert_eq!(vec.len(), 5);
-        assert_eq!(vec.element_size(), 0);
+        assert_eq!(vec.list_size(), 0);
 
         // Degenerate case with non-empty elements should fail.
         let result = FixedSizeListVector::try_new(elements, 0, Mask::new_true(1));
@@ -291,7 +291,7 @@ mod tests {
         let validity = Mask::new_true(2);
         let vec = unsafe { FixedSizeListVector::new_unchecked(elements, 2, validity) };
         assert_eq!(vec.len(), 2);
-        assert_eq!(vec.element_size(), 2);
+        assert_eq!(vec.list_size(), 2);
     }
 
     #[test]
@@ -332,7 +332,7 @@ mod tests {
         // The error case should return the original vector.
         if let Err(returned_vec) = result {
             assert_eq!(returned_vec.len(), 2);
-            assert_eq!(returned_vec.element_size(), 2);
+            assert_eq!(returned_vec.list_size(), 2);
         }
     }
 
@@ -348,7 +348,7 @@ mod tests {
 
         // Test accessors.
         assert_eq!(vec.len(), 3);
-        assert_eq!(vec.element_size(), 2);
+        assert_eq!(vec.list_size(), 2);
         assert_eq!(vec.elements().len(), 6);
         assert_eq!(vec.validity().true_count(), 3);
 

@@ -88,6 +88,18 @@ impl SessionExt for VortexSession {
 
     /// Returns the scope variable of type `V`, or inserts a default one if it does not exist.
     fn get<V: SessionVar + Default>(&self) -> Ref<'_, V> {
+        // NOTE(ngates): we don't use `entry().or_insert_with_key()` here because the DashMap
+        //  would immediately acquire an exclusive write lock.
+        if let Some(v) = self.0.get(&TypeId::of::<V>()) {
+            return Ref(v.map(|v| {
+                (**v)
+                    .as_any()
+                    .downcast_ref::<V>()
+                    .vortex_expect("Type mismatch - this is a bug")
+            }));
+        }
+
+        // If we get here, the value was not present, so we insert the default with a write lock.
         Ref(self
             .0
             .entry(TypeId::of::<V>())
