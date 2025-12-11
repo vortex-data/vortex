@@ -82,7 +82,7 @@ impl ArrayOptimizer {
 
         tracing::debug!("Starting array optimization\n{}", array.display_tree());
 
-        'outer: while !optimize_stack.is_empty() {
+        while !optimize_stack.is_empty() {
             // Pop off another job. This is an array which may have several children that need
             // to be optimized before it can itself be optimized.
             let mut job = optimize_stack.pop_front().unwrap();
@@ -94,7 +94,7 @@ impl ArrayOptimizer {
 
                 optimize_stack.push_front(job);
                 optimize_stack.push_front(child_task);
-                continue 'outer;
+                continue;
             }
 
             // No unoptimized children, let's collect the results of optimizing.
@@ -120,7 +120,7 @@ impl ArrayOptimizer {
                 job.child_tasks.clear();
                 job.array = new_array;
                 optimize_stack.push_front(job);
-                continue 'outer;
+                continue;
             }
 
             // Otherwise, we push the result into the stack instead here.
