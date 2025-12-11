@@ -87,7 +87,11 @@ impl ArrayOptimizer {
         // No real reason to pick 4.
         let max_iterations = array.depth_first_traversal().count() * 4;
 
-        inner(self, array, max_iterations)
+        tracing::debug!("Starting array optimization\n{}", array.display_tree());
+        let array = inner(self, array, max_iterations)?;
+        tracing::debug!("Optimized array\n{}", array.display_tree());
+
+        Ok(array)
     }
 
     /// Register a reduce rule for a specific array encoding.

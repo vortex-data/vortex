@@ -73,12 +73,14 @@ impl ArrayParentReduceRule<Exact<RunEndVTable>, AnyScalarFn> for RunEndScalarFnR
                 .into_array();
 
         Ok(Some(
-            RunEndArray::try_new_offset_length(
-                run_end.ends().clone(),
-                new_values,
-                run_end.offset(),
-                run_end.len(),
-            )?
+            unsafe {
+                RunEndArray::new_unchecked(
+                    run_end.ends().clone(),
+                    new_values,
+                    run_end.offset(),
+                    run_end.len(),
+                )
+            }
             .into_array(),
         ))
     }
