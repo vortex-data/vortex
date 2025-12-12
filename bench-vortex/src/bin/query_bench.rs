@@ -113,6 +113,11 @@ struct CommonArgs {
 
     #[arg(long, default_value_t = false)]
     explain_analyze: bool,
+
+    /// Run a single query once and print the results for correctness checking.
+    /// Requires exactly 1 target and 1 query (via -q).
+    #[arg(long, default_value_t = false)]
+    check: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -322,6 +327,7 @@ fn run_clickbench(args: ClickBenchArgs) -> anyhow::Result<()> {
         skip_generate: args.common.skip_generate,
         explain: args.common.explain,
         explain_analyze: args.common.explain_analyze,
+        check: args.common.check,
     };
 
     // Determine data URL
@@ -354,6 +360,7 @@ fn run_tpch(args: TpcHArgs) -> anyhow::Result<()> {
         skip_generate: args.common.skip_generate,
         explain: args.common.explain,
         explain_analyze: args.common.explain_analyze,
+        check: args.common.check,
     };
 
     // Run benchmark using the trait system
@@ -387,6 +394,7 @@ fn run_tpcds(args: TpcDSArgs) -> anyhow::Result<()> {
         skip_generate: args.common.skip_generate,
         explain: args.common.explain,
         explain_analyze: args.common.explain_analyze,
+        check: args.common.check,
     };
 
     // Run benchmark using the trait system
@@ -422,6 +430,7 @@ fn run_statpopgen(args: StatPopGenArgs) -> anyhow::Result<()> {
         skip_generate: args.common.skip_generate,
         explain: args.common.explain,
         explain_analyze: args.common.explain_analyze,
+        check: args.common.check,
     };
 
     // Run benchmark using the trait system
@@ -451,6 +460,7 @@ fn run_fineweb(args: FinewebArgs) -> anyhow::Result<()> {
         skip_generate: args.common.skip_generate,
         explain: args.common.explain,
         explain_analyze: args.common.explain_analyze,
+        check: args.common.check,
     };
 
     run_benchmark(benchmark, config)
@@ -479,6 +489,7 @@ fn run_gharchive(args: GhArchiveArgs) -> anyhow::Result<()> {
         skip_generate: args.common.skip_generate,
         explain: args.common.explain,
         explain_analyze: args.common.explain_analyze,
+        check: args.common.check,
     };
 
     run_benchmark(benchmark, config)

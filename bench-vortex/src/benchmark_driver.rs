@@ -7,6 +7,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 use anyhow::Result;
+use datafusion::arrow::util::pretty::pretty_format_batches;
 use indicatif::ProgressBar;
 use tracing::warn;
 use vortex::error::VortexExpect;
@@ -69,10 +70,16 @@ pub struct DriverConfig {
     pub skip_generate: bool,
     pub explain: bool,
     pub explain_analyze: bool,
+    pub check: bool,
 }
 
 /// Run a benchmark using the provided implementation and configuration
 pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result<()> {
+    // If check mode is enabled, run a single query and print results.
+    if config.check {
+        return run_check_query(benchmark, config);
+    }
+
     // If explain-analyze mode is enabled, run explain analyze
     if config.explain_analyze {
         return run_explain_query(benchmark, config, ExplainMode::Analyze);
@@ -420,6 +427,94 @@ fn run_explain_query<B: Benchmark>(
                     }
                 }
             }
+        }
+    }
+
+    Ok(())
+}
+
+/// Run a single query and print the results for correctness checking.
+fn run_check_query<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result<()> {
+    // Validate exactly one target.
+    anyhow::ensure!(
+        config.targets.len() == 1,
+        "--check requires exactly 1 target, but {} were provided",
+        config.targets.len()
+    );
+
+    // Validate exactly one query is selected.
+    let Some(ref queries) = config.queries else {
+        anyhow::bail!("--check requires exactly 1 query to be specified via -q");
+    };
+    anyhow::ensure!(
+        queries.len() == 1,
+        "--check requires exactly 1 query, but {} were specified",
+        queries.len()
+    );
+
+    let target = &config.targets[0];
+
+    // Generate data (idempotent).
+    if !config.skip_generate {
+        benchmark.generate_data(target)?;
+    }
+
+    let filtered_queries = filter_queries(
+        benchmark.queries()?,
+        config.queries.as_ref(),
+        config.exclude_queries.as_ref(),
+    );
+
+    let tokio_runtime = new_tokio_runtime(config.threads)?;
+
+    let engine_ctx = benchmark.setup_engine_context(
+        target,
+        config.disable_datafusion_cache,
+        config.emit_plan,
+        config.delete_duckdb_database,
+        config.threads,
+    )?;
+
+    tokio_runtime.block_on(benchmark.register_tables(&engine_ctx, target.format()))?;
+
+    for &(query_idx, ref query_string) in filtered_queries.iter() {
+        println!("Query {}", query_idx);
+        println!("SQL: {}\n", query_string);
+
+        match &engine_ctx {
+            EngineCtx::DataFusion(ctx) => {
+                match tokio_runtime.block_on(ctx.execute_query(query_string)) {
+                    Ok((batches, _plan)) => {
+                        let row_count: usize = batches.iter().map(|b| b.num_rows()).sum();
+                        match pretty_format_batches(&batches) {
+                            Ok(formatted) => println!("{}", formatted),
+                            Err(err) => eprintln!("Error formatting results: {}", err),
+                        }
+                        println!("\n({} rows)", row_count);
+                    }
+                    Err(err) => {
+                        eprintln!("Error running query {}: {}", query_idx, err);
+                    }
+                }
+            }
+            EngineCtx::DuckDB(ctx) => match ctx.connection.query(query_string) {
+                Ok(result) => {
+                    let mut row_count = 0u64;
+                    for chunk in result {
+                        row_count += chunk.len();
+                        match String::try_from(&chunk) {
+                            Ok(output) => println!("{}", output),
+                            Err(err) => {
+                                eprintln!("Error converting chunk to string: {}", err)
+                            }
+                        }
+                    }
+                    println!("\n({} rows)", row_count);
+                }
+                Err(err) => {
+                    eprintln!("Error running query {}: {}", query_idx, err);
+                }
+            },
         }
     }
 
