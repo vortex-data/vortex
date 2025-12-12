@@ -154,7 +154,7 @@ impl VTable for Pack {
             let fields: Box<[_]> = args
                 .datums
                 .into_iter()
-                .map(|v| v.ensure_vector(args.row_count))
+                .map(|v| v.unwrap_into_vector(args.row_count))
                 .collect();
             return Ok(Datum::Vector(
                 StructVector::try_new(Arc::new(fields), Mask::new_true(args.row_count))?.into(),

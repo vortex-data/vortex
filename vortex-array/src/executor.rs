@@ -55,6 +55,6 @@ impl VectorExecutor for ArrayRef {
 
     fn execute_vector(&self, session: &VortexSession) -> VortexResult<Vector> {
         let len = self.len();
-        Ok(self.execute_datum(session)?.ensure_vector(len))
+        Ok(self.execute_datum(session)?.unwrap_into_vector(len))
     }
 }

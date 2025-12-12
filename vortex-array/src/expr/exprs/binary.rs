@@ -137,8 +137,14 @@ impl VTable for Binary {
         match op {
             Operator::And => {
                 // FIXME(ngates): implement logical compute over datums
-                let lhs = lhs.ensure_vector(args.row_count).into_bool().into_arrow()?;
-                let rhs = rhs.ensure_vector(args.row_count).into_bool().into_arrow()?;
+                let lhs = lhs
+                    .unwrap_into_vector(args.row_count)
+                    .into_bool()
+                    .into_arrow()?;
+                let rhs = rhs
+                    .unwrap_into_vector(args.row_count)
+                    .into_bool()
+                    .into_arrow()?;
                 return Ok(Datum::Vector(
                     arrow_arith::boolean::and_kleene(&lhs, &rhs)?
                         .into_vector()?
@@ -147,8 +153,14 @@ impl VTable for Binary {
             }
             Operator::Or => {
                 // FIXME(ngates): implement logical compute over datums
-                let lhs = lhs.ensure_vector(args.row_count).into_bool().into_arrow()?;
-                let rhs = rhs.ensure_vector(args.row_count).into_bool().into_arrow()?;
+                let lhs = lhs
+                    .unwrap_into_vector(args.row_count)
+                    .into_bool()
+                    .into_arrow()?;
+                let rhs = rhs
+                    .unwrap_into_vector(args.row_count)
+                    .into_bool()
+                    .into_arrow()?;
                 return Ok(Datum::Vector(
                     arrow_arith::boolean::or_kleene(&lhs, &rhs)?
                         .into_vector()?
