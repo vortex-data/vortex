@@ -36,12 +36,8 @@ use crate::arrays::ExtensionVTable;
 use crate::arrays::TemporalArray;
 use crate::arrow::array::ArrowArray;
 use crate::arrow::compute::to_arrow::ToArrowArgs;
-<<<<<<< Updated upstream
 use crate::arrow::null_buffer::to_null_buffer;
-=======
-use crate::arrow::compute::to_arrow::null_buffer::to_null_buffer;
 use crate::builtins::ArrayBuiltins;
->>>>>>> Stashed changes
 use crate::compute::InvocationArgs;
 use crate::compute::Kernel;
 use crate::compute::Output;

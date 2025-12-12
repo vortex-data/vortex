@@ -24,13 +24,8 @@ use crate::arrays::list_view_from_list;
 use crate::arrow::IntoArrowArray;
 use crate::arrow::compute::ToArrowKernel;
 use crate::arrow::compute::ToArrowKernelAdapter;
-<<<<<<< Updated upstream
 use crate::arrow::null_buffer::to_null_buffer;
-use crate::compute::cast;
-=======
-use crate::arrow::compute::to_arrow::null_buffer::to_null_buffer;
 use crate::builtins::ArrayBuiltins;
->>>>>>> Stashed changes
 use crate::register_kernel;
 
 impl ToArrowKernel for ListVTable {
