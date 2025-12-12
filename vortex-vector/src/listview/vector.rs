@@ -572,7 +572,7 @@ mod tests {
             vec![99, 2, 3, 4, 5],
             vec![0, 2, 3],
             vec![2, 1, 2],
-            validity.clone(),
+            validity,
         );
         assert_ne!(v1, v4, "Valid list's elements must match");
     }
@@ -603,7 +603,7 @@ mod tests {
         assert_eq!(v1, v2, "Element used only by invalid list can differ");
 
         // Element at position 2 is used by valid list0 - must match
-        let v3 = make_listview(vec![1, 2, 99, 4], vec![0, 1], vec![3, 3], validity.clone());
+        let v3 = make_listview(vec![1, 2, 99, 4], vec![0, 1], vec![3, 3], validity);
         assert_ne!(v1, v3, "Element used by valid list must match");
     }
 
