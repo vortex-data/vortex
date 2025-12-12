@@ -30,7 +30,7 @@ use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ReduceRuleSet;
 
 pub(super) const RULES: ReduceRuleSet<ScalarFnVTable> =
-    ReduceRuleSet::new(&[&ScalarFnConstantRule, &ScalarFnAbstractReduceRule]);
+    ReduceRuleSet::new(&[&ScalarFnConstantRule, &ScalarFnAbstractReduceRule, ]);
 
 #[derive(Debug)]
 struct ScalarFnConstantRule;
