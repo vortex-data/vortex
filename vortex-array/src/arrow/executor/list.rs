@@ -84,6 +84,7 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
 
     let elements = array
         .elements()
+        .clone()
         .execute_arrow(elements_field.data_type(), session)?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,

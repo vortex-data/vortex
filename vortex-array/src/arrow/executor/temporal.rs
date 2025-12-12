@@ -97,7 +97,7 @@ pub(super) fn to_arrow_temporal(
 }
 
 fn to_temporal<T: ArrowTemporalType>(
-    array: &ArrayRef,
+    array: ArrayRef,
     session: &VortexSession,
 ) -> VortexResult<ArrowArrayRef>
 where
@@ -108,7 +108,7 @@ where
 }
 
 fn to_arrow_timestamp<T: ArrowTimestampType>(
-    array: &ArrayRef,
+    array: ArrayRef,
     arrow_tz: &Option<Arc<str>>,
     session: &VortexSession,
 ) -> VortexResult<ArrowArrayRef>
@@ -121,7 +121,7 @@ where
 }
 
 fn to_arrow_temporal_primitive<T: ArrowTemporalType>(
-    array: &ArrayRef,
+    array: ArrayRef,
     session: &VortexSession,
 ) -> VortexResult<ArrowPrimitiveArray<T>>
 where

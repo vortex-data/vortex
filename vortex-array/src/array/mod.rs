@@ -4,7 +4,6 @@
 mod visitor;
 
 use std::any::Any;
-use std::any::type_name;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hash;
