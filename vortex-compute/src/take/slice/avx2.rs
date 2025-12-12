@@ -6,10 +6,15 @@
 //! Only enabled for x86_64 hosts and it is gated at runtime behind feature detection to ensure AVX2
 //! instructions are available.
 
+#![allow(
+    unused,
+    reason = "Compiler may see things in this module as unused based on enabled features"
+)]
 #![cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 
 use std::arch::x86_64::__m256i;
 use std::arch::x86_64::_mm_loadu_si128;
+use std::arch::x86_64::_mm_movemask_epi8;
 use std::arch::x86_64::_mm_setzero_si128;
 use std::arch::x86_64::_mm_shuffle_epi32;
 use std::arch::x86_64::_mm_storeu_si128;
@@ -26,92 +31,68 @@ use std::arch::x86_64::_mm256_loadu_si256;
 use std::arch::x86_64::_mm256_mask_i32gather_epi32;
 use std::arch::x86_64::_mm256_mask_i64gather_epi32;
 use std::arch::x86_64::_mm256_mask_i64gather_epi64;
+use std::arch::x86_64::_mm256_movemask_epi8;
 use std::arch::x86_64::_mm256_set1_epi32;
 use std::arch::x86_64::_mm256_set1_epi64x;
 use std::arch::x86_64::_mm256_setzero_si256;
 use std::arch::x86_64::_mm256_storeu_si256;
 use std::convert::identity;
+use std::mem::size_of;
 
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_dtype::NativePType;
-use vortex_dtype::PType;
 use vortex_dtype::UnsignedPType;
+use vortex_dtype::match_each_unsigned_integer_ptype;
 
 use crate::take::slice::take_scalar;
 
 /// Takes the specified indices into a new [`Buffer`] using AVX2 SIMD.
 ///
-/// This returns None if the AVX2 feature is not detected at runtime, signalling to the caller
-/// that it should fall back to the scalar implementation.
-///
-/// If AVX2 is available, this returns a PrimitiveArray containing the result of the take operation
-/// accelerated using AVX2 instructions.
+/// This function handles the type matching required to satisfy AVX2 gather instruction requirements
+/// by casting to unsigned integers of the same size. Falls back to scalar implementation for
+/// unsupported type sizes.
 ///
 /// # Panics
 ///
-/// This function panics if any of the provided `indices` are out of bounds for `values`
+/// This function panics if any of the provided `indices` are out of bounds for `values`.
 ///
 /// # Safety
 ///
 /// The caller must ensure the `avx2` feature is enabled.
-#[allow(dead_code, unused_variables, reason = "TODO(connor): Implement this")]
 #[target_feature(enable = "avx2")]
 #[inline]
-pub unsafe fn take_avx2<V: NativePType, I: UnsignedPType>(
-    buffer: &[V],
-    indices: &[I],
-) -> Buffer<V> {
-    macro_rules! dispatch_avx2 {
-        ($indices:ty, $values:ty) => {
-            { let result = dispatch_avx2!($indices, $values, cast: $values); result }
-        };
-        ($indices:ty, $values:ty, cast: $cast:ty) => {{
-            let indices = unsafe { std::mem::transmute::<&[I], &[$indices]>(indices) };
-            let values = unsafe { std::mem::transmute::<&[V], &[$cast]>(buffer) };
-
-            let result = exec_take::<$cast, $indices, AVX2Gather>(values, indices);
-            result.cast_into::<V>()
-        }};
-    }
-
-    match (I::PTYPE, V::PTYPE) {
-        // Int value types. Only 32 and 64 bit types are supported.
-        (PType::U8, PType::I32) => dispatch_avx2!(u8, i32),
-        (PType::U8, PType::U32) => dispatch_avx2!(u8, u32),
-        (PType::U8, PType::I64) => dispatch_avx2!(u8, i64),
-        (PType::U8, PType::U64) => dispatch_avx2!(u8, u64),
-        (PType::U16, PType::I32) => dispatch_avx2!(u16, i32),
-        (PType::U16, PType::U32) => dispatch_avx2!(u16, u32),
-        (PType::U16, PType::I64) => dispatch_avx2!(u16, i64),
-        (PType::U16, PType::U64) => dispatch_avx2!(u16, u64),
-        (PType::U32, PType::I32) => dispatch_avx2!(u32, i32),
-        (PType::U32, PType::U32) => dispatch_avx2!(u32, u32),
-        (PType::U32, PType::I64) => dispatch_avx2!(u32, i64),
-        (PType::U32, PType::U64) => dispatch_avx2!(u32, u64),
-
-        // Float value types, treat them as if they were corresponding int types.
-        (PType::U8, PType::F32) => dispatch_avx2!(u8, f32, cast: u32),
-        (PType::U16, PType::F32) => dispatch_avx2!(u16, f32, cast: u32),
-        (PType::U32, PType::F32) => dispatch_avx2!(u32, f32, cast: u32),
-        (PType::U64, PType::F32) => dispatch_avx2!(u64, f32, cast: u32),
-
-        (PType::U8, PType::F64) => dispatch_avx2!(u8, f64, cast: u64),
-        (PType::U16, PType::F64) => dispatch_avx2!(u16, f64, cast: u64),
-        (PType::U32, PType::F64) => dispatch_avx2!(u32, f64, cast: u64),
-        (PType::U64, PType::F64) => dispatch_avx2!(u64, f64, cast: u64),
-
-        // Scalar fallback for unsupported value types.
-        _ => {
-            tracing::trace!(
-                "take AVX2 kernel missing for indices {} values {}, falling back to scalar",
-                I::PTYPE,
-                V::PTYPE
-            );
-
-            take_scalar(buffer, indices)
+pub unsafe fn take_avx2<V: Copy, I: UnsignedPType>(buffer: &[V], indices: &[I]) -> Buffer<V> {
+    // AVX2 gather operations only care about bit patterns, not semantic type. We cast to unsigned
+    // integers which have the required gather implementations and then cast back.
+    //
+    // SAFETY: The pointer casts below are safe because:
+    // - `V` and the target type have the same size (matched by `size_of::<V>()`)
+    // - The alignment of unsigned integers is always <= their size, and `buffer` came from a valid
+    //   `&[V]` which guarantees proper alignment for types of the same size.
+    match size_of::<V>() {
+        4 => {
+            let values: &[u32] =
+                unsafe { std::slice::from_raw_parts(buffer.as_ptr().cast::<u32>(), buffer.len()) };
+            match_each_unsigned_integer_ptype!(I::PTYPE, |IC| {
+                let indices: &[IC] = unsafe {
+                    std::slice::from_raw_parts(indices.as_ptr().cast::<IC>(), indices.len())
+                };
+                exec_take::<u32, IC, AVX2Gather>(values, indices).cast_into::<V>()
+            })
         }
+        8 => {
+            let values: &[u64] =
+                unsafe { std::slice::from_raw_parts(buffer.as_ptr().cast::<u64>(), buffer.len()) };
+            match_each_unsigned_integer_ptype!(I::PTYPE, |IC| {
+                let indices: &[IC] = unsafe {
+                    std::slice::from_raw_parts(indices.as_ptr().cast::<IC>(), indices.len())
+                };
+                exec_take::<u64, IC, AVX2Gather>(values, indices).cast_into::<V>()
+            })
+        }
+        // Fall back to scalar implementation for unsupported type sizes (1, 2 byte types).
+        _ => take_scalar(buffer, indices),
     }
 }
 
@@ -127,30 +108,43 @@ pub(crate) trait GatherFn<Idx, Values> {
     /// Gather values from `src` into the `dst` using the `indices`, optionally using
     /// SIMD instructions.
     ///
+    /// Returns `true` if all indices in this batch were valid (less than `max_idx`), `false`
+    /// otherwise. Invalid indices are masked out during the gather (substituting zeros).
+    ///
     /// # Safety
     ///
     /// This function can read up to `STRIDE` elements through `indices`, and read/write up to
     /// `WIDTH` elements through `src` and `dst` respectively.
-    unsafe fn gather(indices: *const Idx, max_idx: Idx, src: *const Values, dst: *mut Values);
+    unsafe fn gather(
+        indices: *const Idx,
+        max_idx: Idx,
+        src: *const Values,
+        dst: *mut Values,
+    ) -> bool;
 }
 
 /// AVX2 version of GatherFn defined for 32- and 64-bit value types.
 enum AVX2Gather {}
 
 macro_rules! impl_gather {
-    ($idx:ty, $({$value:ty => load: $load:ident, extend: $extend:ident, splat: $splat:ident, zero_vec: $zero_vec:ident, mask_indices: $mask_indices:ident, mask_cvt: |$mask_var:ident| $mask_cvt:block, gather: $masked_gather:ident, store: $store:ident, WIDTH = $WIDTH:literal, STRIDE = $STRIDE:literal }),+) => {
+    ($idx:ty, $({$value:ty => load: $load:ident, extend: $extend:ident, splat: $splat:ident, zero_vec: $zero_vec:ident, mask_indices: $mask_indices:ident, mask_cvt: |$mask_var:ident| $mask_cvt:block, movemask: $movemask:ident, all_valid_mask: $all_valid_mask:expr, gather: $masked_gather:ident, store: $store:ident, WIDTH = $WIDTH:literal, STRIDE = $STRIDE:literal }),+) => {
         $(
-            impl_gather!(single; $idx, $value, load: $load, extend: $extend, splat: $splat, zero_vec: $zero_vec, mask_indices: $mask_indices, mask_cvt: |$mask_var| $mask_cvt, gather: $masked_gather, store: $store, WIDTH = $WIDTH, STRIDE = $STRIDE);
+            impl_gather!(single; $idx, $value, load: $load, extend: $extend, splat: $splat, zero_vec: $zero_vec, mask_indices: $mask_indices, mask_cvt: |$mask_var| $mask_cvt, movemask: $movemask, all_valid_mask: $all_valid_mask, gather: $masked_gather, store: $store, WIDTH = $WIDTH, STRIDE = $STRIDE);
         )*
     };
-    (single; $idx:ty, $value:ty, load: $load:ident, extend: $extend:ident, splat: $splat:ident, zero_vec: $zero_vec:ident, mask_indices: $mask_indices:ident, mask_cvt: |$mask_var:ident| $mask_cvt:block, gather: $masked_gather:ident, store: $store:ident, WIDTH = $WIDTH:literal, STRIDE = $STRIDE:literal) => {
+    (single; $idx:ty, $value:ty, load: $load:ident, extend: $extend:ident, splat: $splat:ident, zero_vec: $zero_vec:ident, mask_indices: $mask_indices:ident, mask_cvt: |$mask_var:ident| $mask_cvt:block, movemask: $movemask:ident, all_valid_mask: $all_valid_mask:expr, gather: $masked_gather:ident, store: $store:ident, WIDTH = $WIDTH:literal, STRIDE = $STRIDE:literal) => {
             impl GatherFn<$idx, $value> for AVX2Gather {
                 const WIDTH: usize = $WIDTH;
                 const STRIDE: usize = $STRIDE;
 
                 #[allow(unused_unsafe, clippy::cast_possible_truncation)]
                 #[inline(always)]
-                unsafe fn gather(indices: *const $idx, max_idx: $idx, src: *const $value, dst: *mut $value) {
+                unsafe fn gather(
+                    indices: *const $idx,
+                    max_idx: $idx,
+                    src: *const $value,
+                    dst: *mut $value
+                ) -> bool {
                     const {
                         assert!($WIDTH <= $STRIDE, "dst cannot advance by more than the stride");
                     }
@@ -158,33 +152,39 @@ macro_rules! impl_gather {
                     const SCALE: i32 = std::mem::size_of::<$value>() as i32;
 
                     let indices_vec = unsafe { $load(indices.cast()) };
-                    // Extend indices to fill vector register
+                    // Extend indices to fill vector register.
                     let indices_vec = unsafe { $extend(indices_vec) };
 
-                    // create a vec of the max idx
+                    // Create a vec of the max idx.
                     let max_idx_vec = unsafe { $splat(max_idx as _) };
-                    // create a mask for valid indices (where the max_idx > provided index).
-                    let invalid_mask = unsafe { $mask_indices(max_idx_vec, indices_vec) };
-                    let invalid_mask = {
-                        let $mask_var = invalid_mask;
+                    // Create a mask for valid indices (where the max_idx > provided index).
+                    let valid_mask = unsafe { $mask_indices(max_idx_vec, indices_vec) };
+                    let valid_mask = {
+                        let $mask_var = valid_mask;
                         $mask_cvt
                     };
                     let zero_vec = unsafe { $zero_vec() };
 
                     // Gather the values into new vector register, for masked positions
                     // it substitutes zero instead of accessing the src.
-                    let values_vec = unsafe { $masked_gather::<SCALE>(zero_vec, src.cast(), indices_vec, invalid_mask) };
+                    let values_vec = unsafe {
+                        $masked_gather::<SCALE>(zero_vec, src.cast(), indices_vec, valid_mask)
+                    };
 
                     // Write the vec out to dst.
                     unsafe { $store(dst.cast(), values_vec) };
+
+                    // Return true if all indices were valid (all mask bits set).
+                    let mask_bits = unsafe { $movemask(valid_mask) };
+                    mask_bits == $all_valid_mask
                 }
             }
     };
 }
 
-// kernels for u8 indices
+// Kernels for u8 indices.
 impl_gather!(u8,
-    // 32-bit values, loaded 8 at a time
+    // 32-bit values, loaded 8 at a time.
     { u32 =>
         load: _mm_loadu_si128,
         extend: _mm256_cvtepu8_epi32,
@@ -192,23 +192,13 @@ impl_gather!(u8,
         zero_vec: _mm256_setzero_si256,
         mask_indices: _mm256_cmpgt_epi32,
         mask_cvt: |x| { x },
+        movemask: _mm256_movemask_epi8,
+        all_valid_mask: -1_i32,
         gather: _mm256_mask_i32gather_epi32,
         store: _mm256_storeu_si256,
         WIDTH = 8, STRIDE = 16
     },
-    { i32 =>
-        load: _mm_loadu_si128,
-        extend: _mm256_cvtepu8_epi32,
-        splat: _mm256_set1_epi32,
-        zero_vec: _mm256_setzero_si256,
-        mask_indices: _mm256_cmpgt_epi32,
-        mask_cvt: |x| { x },
-        gather: _mm256_mask_i32gather_epi32,
-        store: _mm256_storeu_si256,
-        WIDTH = 8, STRIDE = 16
-    },
-
-    // 64-bit values, loaded 4 at a time
+    // 64-bit values, loaded 4 at a time.
     { u64 =>
         load: _mm_loadu_si128,
         extend: _mm256_cvtepu8_epi64,
@@ -216,26 +206,17 @@ impl_gather!(u8,
         zero_vec: _mm256_setzero_si256,
         mask_indices: _mm256_cmpgt_epi64,
         mask_cvt: |x| { x },
-        gather: _mm256_mask_i64gather_epi64,
-        store: _mm256_storeu_si256,
-        WIDTH = 4, STRIDE = 16
-    },
-    { i64 =>
-        load: _mm_loadu_si128,
-        extend: _mm256_cvtepu8_epi64,
-        splat: _mm256_set1_epi64x,
-        zero_vec: _mm256_setzero_si256,
-        mask_indices: _mm256_cmpgt_epi64,
-        mask_cvt: |x| { x },
+        movemask: _mm256_movemask_epi8,
+        all_valid_mask: -1_i32,
         gather: _mm256_mask_i64gather_epi64,
         store: _mm256_storeu_si256,
         WIDTH = 4, STRIDE = 16
     }
 );
 
-// kernels for u16 indices
+// Kernels for u16 indices.
 impl_gather!(u16,
-    // 32-bit values. 8x indices loaded at a time and 8x values written at a time
+    // 32-bit values. 8x indices loaded at a time and 8x values written at a time.
     { u32 =>
         load: _mm_loadu_si128,
         extend: _mm256_cvtepu16_epi32,
@@ -243,22 +224,12 @@ impl_gather!(u16,
         zero_vec: _mm256_setzero_si256,
         mask_indices: _mm256_cmpgt_epi32,
         mask_cvt: |x| { x },
+        movemask: _mm256_movemask_epi8,
+        all_valid_mask: -1_i32,
         gather: _mm256_mask_i32gather_epi32,
         store: _mm256_storeu_si256,
         WIDTH = 8, STRIDE = 8
     },
-    { i32 =>
-        load: _mm_loadu_si128,
-        extend: _mm256_cvtepu16_epi32,
-        splat: _mm256_set1_epi32,
-        zero_vec: _mm256_setzero_si256,
-        mask_indices: _mm256_cmpgt_epi32,
-        mask_cvt: |x| { x },
-        gather: _mm256_mask_i32gather_epi32,
-        store: _mm256_storeu_si256,
-        WIDTH = 8, STRIDE = 8
-    },
-
     // 64-bit values. 8x indices loaded at a time and 4x values loaded at a time.
     { u64 =>
         load: _mm_loadu_si128,
@@ -267,26 +238,17 @@ impl_gather!(u16,
         zero_vec: _mm256_setzero_si256,
         mask_indices: _mm256_cmpgt_epi64,
         mask_cvt: |x| { x },
-        gather: _mm256_mask_i64gather_epi64,
-        store: _mm256_storeu_si256,
-        WIDTH = 4, STRIDE = 8
-    },
-    { i64 =>
-        load: _mm_loadu_si128,
-        extend: _mm256_cvtepu16_epi64,
-        splat: _mm256_set1_epi64x,
-        zero_vec: _mm256_setzero_si256,
-        mask_indices: _mm256_cmpgt_epi64,
-        mask_cvt: |x| { x },
+        movemask: _mm256_movemask_epi8,
+        all_valid_mask: -1_i32,
         gather: _mm256_mask_i64gather_epi64,
         store: _mm256_storeu_si256,
         WIDTH = 4, STRIDE = 8
     }
 );
 
-// kernels for u32 indices
+// Kernels for u32 indices.
 impl_gather!(u32,
-    // 32-bit values. 8x indices loaded at a time and 8x values written
+    // 32-bit values. 8x indices loaded at a time and 8x values written.
     { u32 =>
         load: _mm256_loadu_si256,
         extend: identity,
@@ -294,23 +256,13 @@ impl_gather!(u32,
         zero_vec: _mm256_setzero_si256,
         mask_indices: _mm256_cmpgt_epi32,
         mask_cvt: |x| { x },
+        movemask: _mm256_movemask_epi8,
+        all_valid_mask: -1_i32,
         gather: _mm256_mask_i32gather_epi32,
         store: _mm256_storeu_si256,
         WIDTH = 8, STRIDE = 8
     },
-    { i32 =>
-        load: _mm256_loadu_si256,
-        extend: identity,
-        splat: _mm256_set1_epi32,
-        zero_vec: _mm256_setzero_si256,
-        mask_indices: _mm256_cmpgt_epi32,
-        mask_cvt: |x| { x },
-        gather: _mm256_mask_i32gather_epi32,
-        store: _mm256_storeu_si256,
-        WIDTH = 8, STRIDE = 8
-    },
-
-    // 64-bit values
+    // 64-bit values.
     { u64 =>
         load: _mm_loadu_si128,
         extend: _mm256_cvtepu32_epi64,
@@ -318,25 +270,17 @@ impl_gather!(u32,
         zero_vec: _mm256_setzero_si256,
         mask_indices: _mm256_cmpgt_epi64,
         mask_cvt: |x| { x },
-        gather: _mm256_mask_i64gather_epi64,
-        store: _mm256_storeu_si256,
-        WIDTH = 4, STRIDE = 4
-    },
-    { i64 =>
-        load: _mm_loadu_si128,
-        extend: _mm256_cvtepu32_epi64,
-        splat: _mm256_set1_epi64x,
-        zero_vec: _mm256_setzero_si256,
-        mask_indices: _mm256_cmpgt_epi64,
-        mask_cvt: |x| { x },
+        movemask: _mm256_movemask_epi8,
+        all_valid_mask: -1_i32,
         gather: _mm256_mask_i64gather_epi64,
         store: _mm256_storeu_si256,
         WIDTH = 4, STRIDE = 4
     }
 );
 
-// kernels for u64 indices
+// Kernels for u64 indices.
 impl_gather!(u64,
+    // 32-bit values.
     { u32 =>
         load: _mm256_loadu_si256,
         extend: identity,
@@ -352,31 +296,13 @@ impl_gather!(u64,
                 _mm_unpacklo_epi64(lo_packed, hi_packed)
             }
         },
+        movemask: _mm_movemask_epi8,
+        all_valid_mask: 0xFFFF_i32,
         gather: _mm256_mask_i64gather_epi32,
         store: _mm_storeu_si128,
         WIDTH = 4, STRIDE = 4
     },
-    { i32 =>
-        load: _mm256_loadu_si256,
-        extend: identity,
-        splat: _mm256_set1_epi64x,
-        zero_vec: _mm_setzero_si128,
-        mask_indices: _mm256_cmpgt_epi64,
-        mask_cvt: |m| {
-            unsafe {
-                let lo_bits = _mm256_extracti128_si256::<0>(m);    // lower half
-                let hi_bits = _mm256_extracti128_si256::<1>(m);    // upper half
-                let lo_packed = _mm_shuffle_epi32::<0b01_01_01_01>(lo_bits);
-                let hi_packed = _mm_shuffle_epi32::<0b01_01_01_01>(hi_bits);
-                _mm_unpacklo_epi64(lo_packed, hi_packed)
-            }
-        },
-        gather: _mm256_mask_i64gather_epi32,
-        store: _mm_storeu_si128,
-        WIDTH = 4, STRIDE = 4
-    },
-
-    // 64-bit values
+    // 64-bit values.
     { u64 =>
         load: _mm256_loadu_si256,
         extend: identity,
@@ -384,17 +310,8 @@ impl_gather!(u64,
         zero_vec: _mm256_setzero_si256,
         mask_indices: _mm256_cmpgt_epi64,
         mask_cvt: |x| { x },
-        gather: _mm256_mask_i64gather_epi64,
-        store: _mm256_storeu_si256,
-        WIDTH = 4, STRIDE = 4
-    },
-    { i64 =>
-        load: _mm256_loadu_si256,
-        extend: identity,
-        splat: _mm256_set1_epi64x,
-        zero_vec: _mm256_setzero_si256,
-        mask_indices: _mm256_cmpgt_epi64,
-        mask_cvt: |x| { x },
+        movemask: _mm256_movemask_epi8,
+        all_valid_mask: -1_i32,
         gather: _mm256_mask_i64gather_epi64,
         store: _mm256_storeu_si256,
         WIDTH = 4, STRIDE = 4
@@ -416,6 +333,8 @@ where
     let buf_uninit = buffer.spare_capacity_mut();
 
     let mut offset = 0;
+    let mut all_valid = true;
+
     // Loop terminates STRIDE elements before end of the indices array because the GatherFn
     // might read up to STRIDE src elements at a time, even though it only advances WIDTH elements
     // in the dst.
@@ -423,7 +342,7 @@ where
         // SAFETY: gather_simd preconditions satisfied:
         //  1. `(indices + offset)..(indices + offset + STRIDE)` is in-bounds for indices allocation
         //  2. `buffer` has same len as indices so `buffer + offset + STRIDE` is always valid.
-        unsafe {
+        let batch_valid = unsafe {
             Gather::gather(
                 indices.as_ptr().add(offset),
                 max_index,
@@ -431,10 +350,15 @@ where
                 buf_uninit.as_mut_ptr().add(offset).cast(),
             )
         };
+        all_valid &= batch_valid;
         offset += Gather::WIDTH;
     }
 
-    // Remainder
+    // Check accumulated validity after hot loop. If there are any 0's, then there was an
+    // out-of-bounds index.
+    assert!(all_valid, "index out of bounds in AVX2 take");
+
+    // Fall back to scalar iteration for the remainder.
     while offset < indices_len {
         buf_uninit[offset].write(values[indices[offset].as_()]);
         offset += 1;

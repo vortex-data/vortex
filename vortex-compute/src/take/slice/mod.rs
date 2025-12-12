@@ -3,6 +3,11 @@
 
 //! Take function implementations on slices.
 
+#![allow(
+    unused,
+    reason = "Compiler may see things in this module as unused based on enabled features"
+)]
+
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_dtype::UnsignedPType;
@@ -22,10 +27,6 @@ impl<T: Copy, I: UnsignedPType> Take<[I]> for &[T] {
             return portable::take_portable(self, indices);
         }
 
-        // TODO(connor): Make the SIMD implementations bound by `Copy` instead of `NativePType`.
-
-        /*
-
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         {
             if is_x86_feature_detected!("avx2") {
@@ -34,14 +35,12 @@ impl<T: Copy, I: UnsignedPType> Take<[I]> for &[T] {
             }
         }
 
-        */
-
         #[allow(unreachable_code, reason = "`vortex_nightly` path returns early")]
         take_scalar(self, indices)
     }
 }
 
-fn take_scalar<T: Copy, I: UnsignedPType>(buffer: &[T], indices: &[I]) -> Buffer<T> {
+pub(crate) fn take_scalar<T: Copy, I: UnsignedPType>(buffer: &[T], indices: &[I]) -> Buffer<T> {
     // NB: The simpler `indices.iter().map(|idx| buff1er[idx.as_()]).collect()` generates suboptimal
     // assembly where the buffer length is repeatedly loaded from the stack on each iteration.
 
