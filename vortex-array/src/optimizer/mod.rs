@@ -44,7 +44,7 @@ impl ArrayOptimizer {
     /// Optimize the given array by applying registered rewrite rules.
     pub fn optimize_array(&self, array: &ArrayRef) -> VortexResult<ArrayRef> {
         // To handle large and bushy plan trees, we implement iterative optimizer passes.
-        // We need to know how to do one step of optimizer here.
+        // We maintain a stack of jobs, which are array tree nodes that we will optimize.
 
         let mut job_id = 0;
         let mut make_job = |array: ArrayRef| {
@@ -71,7 +71,18 @@ impl ArrayOptimizer {
             dtype: DType,
         }
 
-        // mapping of results
+        impl OptimizerJob {
+            // Replace the target array of this job with the new array.
+            // This also causes all the children to be dropped.
+            fn replace(mut self, array: ArrayRef) -> Self {
+                self.child_tasks.clear();
+                self.unoptimized_children = array.children();
+                self.array = array;
+                self
+            }
+        }
+
+        // optimized array nodes
         let mut results: HashMap<usize, ArrayRef> = HashMap::new();
         let mut optimize_stack = VecDeque::new();
 
@@ -83,8 +94,8 @@ impl ArrayOptimizer {
         tracing::debug!("Starting array optimization\n{}", array.display_tree());
 
         while !optimize_stack.is_empty() {
-            // Pop off another job. This is an array which may have several children that need
-            // to be optimized before it can itself be optimized.
+            // Visit the next job. Jobs are array tree nodes, which may have several children that
+            // need optimization before it itself be optimized.
             let mut job = optimize_stack.pop_front().unwrap();
 
             if let Some(child) = job.unoptimized_children.pop() {
@@ -116,9 +127,7 @@ impl ArrayOptimizer {
 
             if let Some(new_array) = self.apply_reduce_rules(&array)? {
                 // Update the job with the same job ID, but new children and new array
-                job.unoptimized_children = new_array.children();
-                job.child_tasks.clear();
-                job.array = new_array;
+                let job = job.replace(new_array);
                 optimize_stack.push_front(job);
                 continue;
             }
