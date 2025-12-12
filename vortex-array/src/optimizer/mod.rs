@@ -64,8 +64,9 @@ impl ArrayOptimizer for ArrayRef {
 
         if any_optimizations {
             tracing::debug!(
-                "Optimized root-only array\n{}",
-                current_array.display_tree()
+                "Optimized root-only array\n{}\nFROM\n{}",
+                current_array.display_tree(),
+                self.display_tree()
             );
             Ok(Some(current_array))
         } else {

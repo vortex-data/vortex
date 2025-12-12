@@ -12,12 +12,14 @@ use vortex_dtype::DType;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
+use vortex_dtype::PTypeDowncastExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 
 use crate::Array;
-use crate::ToCanonical;
+use crate::LEGACY_SESSION;
+use crate::VectorExecutor;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinVTable;
 use crate::arrow::compute::ToArrowKernel;
@@ -82,7 +84,10 @@ fn to_arrow<O: IntegerPType + OffsetSizeTrait>(array: &VarBinArray) -> VortexRes
         array.offsets(),
         &DType::Primitive(O::PTYPE, Nullability::NonNullable),
     )?
-    .to_primitive();
+    .execute_vector(&LEGACY_SESSION)?
+    .into_primitive()
+    .downcast::<O>()
+    .into_buffer();
 
     let nulls = to_null_buffer(array.validity_mask());
     let data = array.bytes().clone();
@@ -91,14 +96,14 @@ fn to_arrow<O: IntegerPType + OffsetSizeTrait>(array: &VarBinArray) -> VortexRes
     Ok(match array.dtype() {
         DType::Binary(_) => Arc::new(unsafe {
             GenericBinaryArray::new_unchecked(
-                offsets.buffer::<O>().into_arrow_offset_buffer(),
+                offsets.into_arrow_offset_buffer(),
                 data.into_arrow_buffer(),
                 nulls,
             )
         }),
         DType::Utf8(_) => Arc::new(unsafe {
             GenericStringArray::new_unchecked(
-                offsets.buffer::<O>().into_arrow_offset_buffer(),
+                offsets.into_arrow_offset_buffer(),
                 data.into_arrow_buffer(),
                 nulls,
             )

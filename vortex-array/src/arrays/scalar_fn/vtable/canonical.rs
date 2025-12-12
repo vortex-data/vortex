@@ -5,7 +5,7 @@ use vortex_error::VortexExpect;
 
 use crate::Array;
 use crate::Canonical;
-use crate::arrays::LEGACY_SESSION;
+use crate::LEGACY_SESSION;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::executor::VectorExecutor;
