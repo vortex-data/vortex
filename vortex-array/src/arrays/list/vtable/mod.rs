@@ -5,9 +5,12 @@ use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 
+use crate::ArrayRef;
 use crate::ProstMetadata;
 use crate::arrays::ListArray;
 use crate::metadata::DeserializeMetadata;
@@ -109,6 +112,31 @@ impl VTable for ListVTable {
         )?;
 
         ListArray::try_new(elements, offsets, validity)
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() == 2 || children.len() == 3,
+            "ListArray expects 2 or 3 children, got {}",
+            children.len()
+        );
+
+        let mut iter = children.into_iter();
+        let elements = iter
+            .next()
+            .vortex_expect("children length already validated");
+        let offsets = iter
+            .next()
+            .vortex_expect("children length already validated");
+        let validity = if let Some(validity_array) = iter.next() {
+            Validity::Array(validity_array)
+        } else {
+            Validity::from(array.dtype.nullability())
+        };
+
+        let new_array = ListArray::try_new(elements, offsets, validity)?;
+        *array = new_array;
+        Ok(())
     }
 }
 

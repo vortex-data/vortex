@@ -1,7 +1,13 @@
 name: Minimize Fuzz Corpus
 
+concurrency:
+  # The group causes runs to queue instead of running in parallel.
+  group: minimize-corpus
+  # This prevents one run from overwriting another's minimization work (no compare-and-swap used).
+  cancel-in-progress: false
+
 on:
-  workflow_dispatch:
+  workflow_dispatch: { }
 
 jobs:
   io_fuzz_minimize:

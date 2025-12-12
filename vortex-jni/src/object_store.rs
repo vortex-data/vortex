@@ -23,6 +23,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::utils::aliases::hash_map::HashMap;
 
+#[expect(clippy::cognitive_complexity)]
 pub(crate) fn make_object_store(
     url: &Url,
     properties: &HashMap<String, String>,
@@ -47,11 +48,11 @@ pub(crate) fn make_object_store(
     // Configure extra properties on that scheme instead.
     let store: Arc<dyn ObjectStore> = match scheme {
         ObjectStoreScheme::Local => {
-            log::trace!("using LocalFileSystem object store");
+            tracing::trace!("using LocalFileSystem object store");
             Arc::new(LocalFileSystem::default())
         }
         ObjectStoreScheme::AmazonS3 => {
-            log::trace!("using AmazonS3 object store");
+            tracing::trace!("using AmazonS3 object store");
             let mut builder = AmazonS3Builder::new()
                 .with_url(url.to_string())
                 // Use generic S3 endpoint to avoid DNS resolution issues with region-specific endpoints
@@ -79,14 +80,14 @@ pub(crate) fn make_object_store(
                 if let Ok(config_key) = AmazonS3ConfigKey::from_str(key.as_str()) {
                     builder = builder.with_config(config_key, val);
                 } else {
-                    log::warn!("Skipping unknown Amazon S3 config key: {key}");
+                    tracing::warn!("Skipping unknown Amazon S3 config key: {key}");
                 }
             }
 
             Arc::new(builder.build()?)
         }
         ObjectStoreScheme::MicrosoftAzure => {
-            log::trace!("using MicrosoftAzure object store");
+            tracing::trace!("using MicrosoftAzure object store");
 
             // NOTE(aduffy): anecdotally Azure often times out after 30 seconds, this bumps us up
             //  to avoid that.
@@ -96,24 +97,24 @@ pub(crate) fn make_object_store(
                 .with_client_options(client_opts);
             for (key, val) in properties {
                 if let Ok(config_key) = AzureConfigKey::from_str(key.as_str()) {
-                    log::warn!("setting azure config {key:?} = {val}");
+                    tracing::warn!("setting azure config {key:?} = {val}");
                     builder = builder.with_config(config_key, val);
                 } else {
-                    log::warn!("Skipping unknown Azure config key: {key}");
+                    tracing::warn!("Skipping unknown Azure config key: {key}");
                 }
             }
 
             Arc::new(builder.build()?)
         }
         ObjectStoreScheme::GoogleCloudStorage => {
-            log::trace!("using GoogleCloudStorage object store");
+            tracing::trace!("using GoogleCloudStorage object store");
 
             let mut builder = GoogleCloudStorageBuilder::new().with_url(url.to_string());
             for (key, val) in properties {
                 if let Ok(config_key) = GoogleConfigKey::from_str(key.as_str()) {
                     builder = builder.with_config(config_key, val);
                 } else {
-                    log::warn!("Skipping unknown Google Cloud Storage config key: {key}");
+                    tracing::warn!("Skipping unknown Google Cloud Storage config key: {key}");
                 }
             }
 
@@ -129,8 +130,8 @@ pub(crate) fn make_object_store(
         // Guard dropped at close of scope.
     }
 
-    let duration = std::time::Instant::now().duration_since(start);
-    log::debug!("make_object_store latency = {duration:?}");
+    let duration = start.elapsed();
+    tracing::debug!("make_object_store latency = {duration:?}");
 
     Ok((store, scheme))
 }

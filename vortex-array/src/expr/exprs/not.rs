@@ -8,93 +8,91 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
 
 use crate::ArrayRef;
 use crate::compute::invert;
+use crate::expr::Arity;
 use crate::expr::ChildName;
+use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
-use crate::expr::ExpressionView;
-use crate::expr::ScalarFnExprExt;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::expr::functions::EmptyOptions;
-use crate::scalar_fns::not;
 
 /// Expression that logically inverts boolean values.
 pub struct Not;
 
 impl VTable for Not {
-    type Instance = ();
+    type Options = EmptyOptions;
 
     fn id(&self) -> ExprId {
-        ExprId::new_ref("vortex.not")
+        ExprId::from("vortex.not")
     }
 
-    fn serialize(&self, _instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
-        Ok(Some(()))
+    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Self::Options> {
+        Ok(EmptyOptions)
     }
 
-    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()> {
-        if expr.children().len() != 1 {
-            vortex_bail!(
-                "Not expression expects exactly one child, got {}",
-                expr.children().len()
-            );
-        }
-        Ok(())
+    fn arity(&self, _options: &Self::Options) -> Arity {
+        Arity::Exact(1)
     }
 
-    fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName {
+    fn child_name(&self, _options: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
             0 => ChildName::from("input"),
             _ => unreachable!("Invalid child index {} for Not expression", child_idx),
         }
     }
 
-    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(
+        &self,
+        _options: &Self::Options,
+        expr: &Expression,
+        f: &mut Formatter<'_>,
+    ) -> std::fmt::Result {
         write!(f, "not(")?;
         expr.child(0).fmt_sql(f)?;
         write!(f, ")")
     }
 
-    fn return_dtype(&self, expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
-        let child_dtype = expr.child(0).return_dtype(scope)?;
+    fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
+        let child_dtype = &arg_dtypes[0];
         if !matches!(child_dtype, DType::Bool(_)) {
             vortex_bail!(
                 "Not expression expects a boolean child, got: {}",
                 child_dtype
             );
         }
-        Ok(child_dtype)
+        Ok(child_dtype.clone())
     }
 
-    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(
+        &self,
+        _options: &Self::Options,
+        expr: &Expression,
+        scope: &ArrayRef,
+    ) -> VortexResult<ArrayRef> {
         let child_result = expr.child(0).evaluate(scope)?;
         invert(&child_result)
     }
 
-    fn execute(&self, _data: &Self::Instance, mut args: ExecutionArgs) -> VortexResult<Vector> {
-        let child = args.vectors.pop().vortex_expect("Missing input child");
+    fn execute(&self, _data: &Self::Options, mut args: ExecutionArgs) -> VortexResult<Datum> {
+        let child = args.datums.pop().vortex_expect("Missing input child");
         Ok(child.into_bool().not().into())
     }
 
-    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+    fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
         false
     }
 
-    fn is_fallible(&self, _instance: &Self::Instance) -> bool {
+    fn is_fallible(&self, _options: &Self::Options) -> bool {
         false
-    }
-
-    fn expr_v2(&self, view: &ExpressionView<Self>) -> VortexResult<Expression> {
-        ScalarFnExprExt::try_new_expr(&not::NotFn, EmptyOptions, view.children().clone())
     }
 }
 
@@ -107,7 +105,7 @@ impl VTable for Not {
 /// let expr = not(root());
 /// ```
 pub fn not(operand: Expression) -> Expression {
-    Not.new_expr((), vec![operand])
+    Not.new_expr(EmptyOptions, vec![operand])
 }
 
 #[cfg(test)]

@@ -16,11 +16,11 @@ pub mod rle_decompress;
 
 #[derive(Clone, Debug)]
 pub struct RLEArray {
-    dtype: DType,
+    pub(super) dtype: DType,
     /// Run value in the dictionary.
-    values: ArrayRef,
+    pub(super) values: ArrayRef,
     /// Chunk-local indices from all chunks. The start of each chunk is looked up in `values_idx_offsets`.
-    indices: ArrayRef,
+    pub(super) indices: ArrayRef,
     /// Index start positions of each value chunk.
     ///
     /// # Example
@@ -30,12 +30,12 @@ pub struct RLEArray {
     /// let values = [10, 20, 30, 40];           // Global values array
     /// let values_idx_offsets = [0, 2];         // Chunk 0 starts at index 0, Chunk 1 starts at index 2
     /// ```
-    values_idx_offsets: ArrayRef,
+    pub(super) values_idx_offsets: ArrayRef,
 
-    stats_set: ArrayStats,
+    pub(super) stats_set: ArrayStats,
     // Offset relative to the start of the chunk.
-    offset: usize,
-    length: usize,
+    pub(super) offset: usize,
+    pub(super) length: usize,
 }
 
 impl RLEArray {

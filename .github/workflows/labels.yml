@@ -1,8 +1,13 @@
 name: PR Labels
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
 on:
   pull_request:
-    types: [opened, reopened, synchronize, labeled, unlabeled]  # Trigger on these PR activities
+    # Trigger on these PR activities
+    types: [opened, reopened, synchronize, labeled, unlabeled]
 
 jobs:
   check_changelog_label:
@@ -34,6 +39,7 @@ jobs:
             "performance"
             "break"
             "wire-break"
+            "skip-changelog"
           )
           REQUIRED_LABELS_JSON=$(jq -n '$ARGS.positional' --args "${REQUIRED_LABELS[@]}")
           echo "Required Labels: $REQUIRED_LABELS_JSON"

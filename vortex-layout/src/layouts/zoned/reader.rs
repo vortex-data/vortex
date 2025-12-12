@@ -49,6 +49,7 @@ pub struct ZonedReader {
     layout: ZonedLayout,
     name: Arc<str>,
     lazy_children: LazyReaderChildren,
+    session: VortexSession,
 
     /// A cache of expr -> optional pruning result (applying the pruning expr to the zone map)
     pruning_result: LazyLock<DashMap<Expression, Option<SharedPruningResult>>>,
@@ -78,13 +79,14 @@ impl ZonedReader {
             dtypes,
             names,
             segment_source.clone(),
-            session,
+            session.clone(),
         );
 
         Ok(Self {
             layout,
             name,
             lazy_children,
+            session,
             pruning_result: Default::default(),
             zone_map: Default::default(),
             pruning_predicates: Default::default(),
@@ -152,28 +154,33 @@ impl ZonedReader {
             .entry(expr.clone())
             .or_insert_with(|| match self.pruning_predicate(expr.clone()) {
                 None => {
-                    log::debug!("No pruning predicate for expr: {expr}");
+                    tracing::debug!("No pruning predicate for expr: {expr}");
                     None
                 }
                 Some(predicate) => {
-                    log::debug!("Constructed pruning predicate for expr: {expr}: {predicate:?}");
+                    tracing::debug!(
+                        "Constructed pruning predicate for expr: {expr}: {predicate:?}"
+                    );
                     let zone_map = self.zone_map();
                     let dynamic_updates = DynamicExprUpdates::new(&expr);
+                    let session = self.session.clone();
 
                     Some(
                         async move {
                             let zone_map = zone_map.await?;
-                            let initial_mask = zone_map.prune(&predicate).map_err(|err| {
-                                err.with_context(format!(
-                                    "While evaluating pruning predicate {} (derived from {})",
-                                    predicate, expr
-                                ))
-                            })?;
+                            let initial_mask =
+                                zone_map.prune(&predicate, &session).map_err(|err| {
+                                    err.with_context(format!(
+                                        "While evaluating pruning predicate {} (derived from {})",
+                                        predicate, expr
+                                    ))
+                                })?;
                             Ok(Arc::new(PruningResult {
                                 zone_map,
                                 predicate,
                                 dynamic_updates,
                                 latest_result: RwLock::new((0, initial_mask)),
+                                session,
                             }))
                         }
                         .boxed()
@@ -231,13 +238,13 @@ impl LayoutReader for ZonedReader {
         expr: &Expression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
-        log::debug!("Stats pruning evaluation: {} - {}", &self.name, expr);
+        tracing::debug!("Stats pruning evaluation: {} - {}", &self.name, expr);
         let data_eval = self
             .data_child()?
             .pruning_evaluation(row_range, expr, mask.clone())?;
 
         let Some(pruning_mask_future) = self.pruning_mask_future(expr.clone()) else {
-            log::debug!("Stats pruning evaluation: not prune-able {expr}");
+            tracing::debug!("Stats pruning evaluation: not prune-able {expr}");
             return Ok(data_eval);
         };
 
@@ -264,7 +271,7 @@ impl LayoutReader for ZonedReader {
         let expr = expr.clone();
 
         Ok(MaskFuture::new(mask.len(), async move {
-            log::debug!("Invoking stats pruning evaluation {}: {}", name, expr);
+            tracing::debug!("Invoking stats pruning evaluation {}: {}", name, expr);
 
             let pruning_mask = pruning_mask_future.await?.mask()?;
 
@@ -285,7 +292,7 @@ impl LayoutReader for ZonedReader {
                 stats_mask = stats_mask.bitand(&data_mask);
             }
 
-            log::debug!(
+            tracing::debug!(
                 "Stats evaluation approx {} - {} (mask = {}) => {}",
                 name,
                 expr,
@@ -326,6 +333,7 @@ struct PruningResult {
     predicate: Expression,
     dynamic_updates: Option<DynamicExprUpdates>,
     latest_result: RwLock<(u64, Mask)>,
+    session: VortexSession,
 }
 
 impl PruningResult {
@@ -359,17 +367,20 @@ impl PruningResult {
             return Ok(guard.1.clone());
         }
 
-        log::debug!(
+        tracing::debug!(
             "Re-computing pruning mask for version {version} on {}",
             self.predicate
         );
 
-        let next_mask = self.zone_map.prune(&self.predicate).map_err(|err| {
-            err.with_context(format!(
-                "While evaluating pruning predicate {}",
-                self.predicate
-            ))
-        })?;
+        let next_mask = self
+            .zone_map
+            .prune(&self.predicate, &self.session)
+            .map_err(|err| {
+                err.with_context(format!(
+                    "While evaluating pruning predicate {}",
+                    self.predicate
+                ))
+            })?;
         *guard = (version, next_mask.clone());
 
         Ok(next_mask)

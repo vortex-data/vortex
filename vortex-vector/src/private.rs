@@ -7,6 +7,9 @@
 //! Sealing these traits prevents external crates from implementing them while still allowing public
 //! usage, which gives us the freedom to add new trait methods in the future without breaking
 //! backward compatibility.
+//!
+//! [`VectorOps`]: crate::VectorOps
+//! [`VectorMutOps`]: crate::VectorMutOps
 
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::NativePType;

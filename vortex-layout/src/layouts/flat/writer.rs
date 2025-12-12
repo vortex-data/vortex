@@ -17,8 +17,8 @@ use vortex_io::runtime::Handle;
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
-use crate::layouts::flat::FLAT_LAYOUT_INLINE_ARRAY_NODE;
 use crate::layouts::flat::FlatLayout;
+use crate::layouts::flat::flat_layout_inline_array_node;
 use crate::layouts::zoned::lower_bound;
 use crate::layouts::zoned::upper_bound;
 use crate::segments::SegmentSinkRef;
@@ -134,7 +134,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
         // there is at least the flatbuffer and the length
         assert!(buffers.len() >= 2);
         let array_node =
-            (*FLAT_LAYOUT_INLINE_ARRAY_NODE).then(|| buffers[buffers.len() - 2].clone());
+            flat_layout_inline_array_node().then(|| buffers[buffers.len() - 2].clone());
         let segment_id = segment_sink.write(sequence_id, buffers).await?;
 
         let None = stream.next().await else {

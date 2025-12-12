@@ -1,11 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use log::LevelFilter;
-use simplelog::ColorChoice;
-use simplelog::Config;
-use simplelog::TermLogger;
-use simplelog::TerminalMode;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::EnvFilter;
+
+static LOGGER_INIT: AtomicBool = AtomicBool::new(false);
+
+/// Convert a [`vx_log_level`] to a [`LevelFilter`].
+fn to_level_filter(level: vx_log_level) -> LevelFilter {
+    match level {
+        vx_log_level::LOG_LEVEL_OFF => LevelFilter::OFF,
+        vx_log_level::LOG_LEVEL_ERROR => LevelFilter::ERROR,
+        vx_log_level::LOG_LEVEL_WARN => LevelFilter::WARN,
+        vx_log_level::LOG_LEVEL_INFO => LevelFilter::INFO,
+        vx_log_level::LOG_LEVEL_DEBUG => LevelFilter::DEBUG,
+        vx_log_level::LOG_LEVEL_TRACE => LevelFilter::TRACE,
+    }
+}
 
 /// Log levels for the Vortex library.
 #[repr(C)]
@@ -27,28 +41,20 @@ pub enum vx_log_level {
 
 /// Set the stderr logger to output at the specified level.
 ///
-/// This function is optional, if it is not called then no logger will be installed.
+/// The logger will only be installed on the first call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_set_log_level(level: vx_log_level) {
-    let level = match level {
-        vx_log_level::LOG_LEVEL_OFF => LevelFilter::Off,
-        vx_log_level::LOG_LEVEL_ERROR => LevelFilter::Error,
-        vx_log_level::LOG_LEVEL_WARN => LevelFilter::Warn,
-        vx_log_level::LOG_LEVEL_INFO => LevelFilter::Info,
-        vx_log_level::LOG_LEVEL_DEBUG => LevelFilter::Debug,
-        vx_log_level::LOG_LEVEL_TRACE => LevelFilter::Trace,
-    };
+    if !LOGGER_INIT.fetch_or(true, Ordering::SeqCst) {
+        let filter = EnvFilter::builder()
+            .with_default_directive(to_level_filter(level).into())
+            .parse_lossy("");
 
-    // Attempt to initialize the TermLogger if it is not already initialized.
-    let _ = TermLogger::init(
-        level,
-        Config::default(),
-        TerminalMode::Stderr,
-        ColorChoice::Auto,
-    );
-
-    // In case the logger _was_ already initialized, we need to set the level again.
-    log::set_max_level(level);
+        tracing_subscriber::fmt()
+            .compact()
+            .with_writer(std::io::stderr)
+            .with_env_filter(filter)
+            .init();
+    }
 }
 
 #[cfg(test)]
@@ -57,29 +63,30 @@ mod tests {
 
     #[test]
     fn test_log_level_conversion() {
-        unsafe {
-            // Test all log levels
-            vx_set_log_level(vx_log_level::LOG_LEVEL_OFF);
-            assert_eq!(log::max_level(), LevelFilter::Off);
-
-            vx_set_log_level(vx_log_level::LOG_LEVEL_ERROR);
-            assert_eq!(log::max_level(), LevelFilter::Error);
-
-            vx_set_log_level(vx_log_level::LOG_LEVEL_WARN);
-            assert_eq!(log::max_level(), LevelFilter::Warn);
-
-            vx_set_log_level(vx_log_level::LOG_LEVEL_INFO);
-            assert_eq!(log::max_level(), LevelFilter::Info);
-
-            vx_set_log_level(vx_log_level::LOG_LEVEL_DEBUG);
-            assert_eq!(log::max_level(), LevelFilter::Debug);
-
-            vx_set_log_level(vx_log_level::LOG_LEVEL_TRACE);
-            assert_eq!(log::max_level(), LevelFilter::Trace);
-
-            // Reset to off
-            vx_set_log_level(vx_log_level::LOG_LEVEL_OFF);
-        }
+        assert_eq!(
+            to_level_filter(vx_log_level::LOG_LEVEL_OFF),
+            LevelFilter::OFF
+        );
+        assert_eq!(
+            to_level_filter(vx_log_level::LOG_LEVEL_ERROR),
+            LevelFilter::ERROR
+        );
+        assert_eq!(
+            to_level_filter(vx_log_level::LOG_LEVEL_WARN),
+            LevelFilter::WARN
+        );
+        assert_eq!(
+            to_level_filter(vx_log_level::LOG_LEVEL_INFO),
+            LevelFilter::INFO
+        );
+        assert_eq!(
+            to_level_filter(vx_log_level::LOG_LEVEL_DEBUG),
+            LevelFilter::DEBUG
+        );
+        assert_eq!(
+            to_level_filter(vx_log_level::LOG_LEVEL_TRACE),
+            LevelFilter::TRACE
+        );
     }
 
     #[test]

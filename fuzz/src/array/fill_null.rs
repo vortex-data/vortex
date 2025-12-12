@@ -80,7 +80,7 @@ fn fill_bool_array(
     }
 }
 
-#[allow(clippy::cognitive_complexity)]
+#[expect(clippy::cognitive_complexity)]
 fn fill_primitive_array(
     array: &PrimitiveArray,
     fill_value: &Scalar,
@@ -120,7 +120,6 @@ fn fill_primitive_array(
     })
 }
 
-#[allow(clippy::cognitive_complexity)]
 fn fill_decimal_array(
     array: &DecimalArray,
     fill_value: &Scalar,

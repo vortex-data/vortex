@@ -51,7 +51,6 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     Python::attach(|py| -> PyResult<()> {
         Logger::new(py, Caching::LoggersAndLevels)?
             .filter(LevelFilter::Info)
-            .filter_target("my_module::verbose_submodule".to_owned(), LevelFilter::Warn)
             .install()
             .map(|_| ())
             .map_err(|err| PyRuntimeError::new_err(format!("could not initialize logger {err}")))

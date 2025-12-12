@@ -69,7 +69,7 @@ impl ComputeFnVTable for Cast {
         }
 
         // Otherwise, we fall back to the canonical implementations.
-        log::debug!(
+        tracing::debug!(
             "Falling back to canonical cast for encoding {} and dtype {} to {}",
             array.encoding_id(),
             array.dtype(),

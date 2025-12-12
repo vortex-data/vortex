@@ -14,9 +14,11 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [features]
+arrow = ["dep:arrow-buffer"]
 serde = ["dep:serde", "vortex-buffer/serde"]
 
 [dependencies]
+arrow-buffer = { workspace = true, optional = true }
 itertools = { workspace = true }
 serde = { workspace = true, optional = true, features = ["rc"] }
 vortex-buffer = { workspace = true, features = ["arrow"] }

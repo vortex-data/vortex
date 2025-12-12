@@ -1,9 +1,16 @@
 name: Fuzz
 
+concurrency:
+  # The group causes runs to queue instead of running in parallel.
+  group: fuzz
+  # This ensures each run builds on the previous run's corpus discoveries rather than losing them to
+  # failed compare-and-swap uploads.
+  cancel-in-progress: false
+
 on:
   schedule:
     - cron: "0 */4 * * *"  # every 4 hours
-  workflow_dispatch:
+  workflow_dispatch: { }
 
 jobs:
   io_fuzz:
@@ -49,7 +56,7 @@ jobs:
       - name: Run fuzzing target
         id: fuzz
         run: |
-          RUST_BACKTRACE=1 cargo +nightly fuzz run --release --debug-assertions file_io -- -max_total_time=7200 2>&1 | tee fuzz_output.log
+          RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=1 cargo +nightly fuzz run --release --debug-assertions file_io -- -max_total_time=7200 2>&1 | tee fuzz_output.log
         continue-on-error: true
       - name: Check for crashes
         id: check
@@ -182,7 +189,7 @@ jobs:
       - name: Run fuzzing target
         id: fuzz
         run: |
-          RUST_BACKTRACE=1 cargo +nightly fuzz run --release --debug-assertions array_ops -- -max_total_time=7200 2>&1 | tee fuzz_output.log
+          RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=1 cargo +nightly fuzz run --release --debug-assertions array_ops -- -max_total_time=7200 2>&1 | tee fuzz_output.log
         continue-on-error: true
       - name: Check for crashes
         id: check

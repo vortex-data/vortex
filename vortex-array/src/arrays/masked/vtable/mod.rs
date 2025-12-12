@@ -8,16 +8,20 @@ mod validity;
 
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_vector::Vector;
+use vortex_error::vortex_ensure;
 use vortex_vector::VectorOps;
 
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
+use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::arrays::masked::MaskedArray;
-use crate::execution::ExecutionCtx;
+use crate::kernel::BindCtx;
+use crate::kernel::KernelRef;
+use crate::kernel::kernel;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -38,7 +42,7 @@ impl VisitorVTable<MaskedVTable> for MaskedVTable {
     fn visit_buffers(_array: &MaskedArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(array: &MaskedArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("child", array.child.as_ref());
+        visitor.visit_child("child", &array.child);
         visitor.visit_validity(&array.validity, array.child.len());
     }
 }
@@ -105,10 +109,37 @@ impl VTable for MaskedVTable {
         MaskedArray::try_new(child, validity)
     }
 
-    fn batch_execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        let mut vector = array.child().batch_execute(ctx)?;
-        vector.mask_validity(&array.validity_mask());
-        Ok(vector)
+    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
+        let child_kernel = array.child().bind_kernel(ctx)?;
+        let validity_mask = array.validity_mask();
+
+        Ok(kernel(move || {
+            let mut vector = child_kernel.execute()?;
+            vector.mask_validity(&validity_mask);
+            Ok(vector)
+        }))
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() == 1 || children.len() == 2,
+            "MaskedArray expects 1 or 2 children, got {}",
+            children.len()
+        );
+
+        let mut iter = children.into_iter();
+        let child = iter
+            .next()
+            .vortex_expect("children length already validated");
+        let validity = if let Some(validity_array) = iter.next() {
+            Validity::Array(validity_array)
+        } else {
+            Validity::from(array.dtype.nullability())
+        };
+
+        let new_array = MaskedArray::try_new(child, validity)?;
+        *array = new_array;
+        Ok(())
     }
 }
 

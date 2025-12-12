@@ -542,7 +542,7 @@ fn create_list_of_lists_nullable(data: OptVec<OptVec<OptVec<i32>>>) -> ListArray
 }
 
 #[test]
-#[allow(clippy::cognitive_complexity)]
+#[expect(clippy::cognitive_complexity)]
 fn test_list_of_lists() {
     let data = vec![
         Some(vec![Some(vec![Some(1), Some(2)]), Some(vec![Some(3)])]),

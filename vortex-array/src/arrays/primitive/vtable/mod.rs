@@ -7,14 +7,16 @@ use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_native_ptype;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_vector::Vector;
+use vortex_error::vortex_ensure;
 use vortex_vector::primitive::PVector;
 
+use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::arrays::PrimitiveArray;
-use crate::execution::ExecutionCtx;
+use crate::kernel::BindCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -32,6 +34,8 @@ mod visitor;
 
 pub use operator::PrimitiveMaskedValidityRule;
 
+use crate::kernel::KernelRef;
+use crate::kernel::ready;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
 
@@ -116,10 +120,26 @@ impl VTable for PrimitiveVTable {
         })
     }
 
-    fn batch_execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        Ok(match_each_native_ptype!(array.ptype(), |T| {
+    fn bind_kernel(array: &Self::Array, _ctx: &mut BindCtx) -> VortexResult<KernelRef> {
+        Ok(ready(match_each_native_ptype!(array.ptype(), |T| {
             PVector::new(array.buffer::<T>(), array.validity_mask()).into()
-        }))
+        })))
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() <= 1,
+            "PrimitiveArray can have at most 1 child (validity), got {}",
+            children.len()
+        );
+
+        array.validity = if children.is_empty() {
+            Validity::from(array.dtype().nullability())
+        } else {
+            Validity::Array(children.into_iter().next().vortex_expect("checked"))
+        };
+
+        Ok(())
     }
 }
 

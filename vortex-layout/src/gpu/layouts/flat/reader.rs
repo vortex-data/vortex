@@ -105,7 +105,7 @@ impl GpuLayoutReader for GpuFlatReader {
         let ctx = self.context.clone();
 
         Ok(async move {
-            log::debug!("Flat array evaluation {} - {}", name, expr);
+            tracing::debug!("Flat array evaluation {} - {}", name, expr);
 
             let array = array.clone().await?;
             let (gpu_result, _) = create_run_jit_kernel(&ctx, &array)?;

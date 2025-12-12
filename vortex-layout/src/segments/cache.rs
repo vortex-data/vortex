@@ -129,7 +129,7 @@ impl SegmentSource for SegmentCacheSourceAdapter {
 
         async move {
             if let Ok(Some(segment)) = cache.get(id).await {
-                log::debug!("Resolved segment {} from cache", id);
+                tracing::debug!("Resolved segment {} from cache", id);
                 return Ok(BufferHandle::Buffer(segment));
             }
             let result = delegate.await?;
@@ -137,7 +137,7 @@ impl SegmentSource for SegmentCacheSourceAdapter {
             if let BufferHandle::Buffer(ref buffer) = result
                 && let Err(e) = cache.put(id, buffer.clone()).await
             {
-                log::warn!("Failed to store segment {} in cache: {}", id, e);
+                tracing::warn!("Failed to store segment {} in cache: {}", id, e);
             }
             Ok(result)
         }

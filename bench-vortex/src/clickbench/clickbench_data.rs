@@ -26,7 +26,6 @@ use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
 use glob::Pattern;
-use log::trace;
 use rayon::prelude::IntoParallelIterator;
 use rayon::prelude::ParallelIterator;
 use reqwest::IntoUrl;
@@ -36,6 +35,7 @@ use tokio::fs::OpenOptions;
 use tokio::fs::create_dir_all;
 use tracing::Instrument;
 use tracing::info;
+use tracing::trace;
 use tracing::warn;
 use url::Url;
 use vortex::error::VortexExpect;
@@ -48,8 +48,8 @@ use crate::SESSION;
 use crate::conversions::parquet_to_vortex;
 #[cfg(feature = "lance")]
 use crate::utils;
-use crate::utils::file_utils::idempotent;
-use crate::utils::file_utils::idempotent_async;
+use crate::utils::file::idempotent;
+use crate::utils::file::idempotent_async;
 
 pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
     use DataType::*;
@@ -248,7 +248,7 @@ pub async fn convert_parquet_to_lance(input_path: &Path) -> anyhow::Result<()> {
 
     // Use the generic converter with no prefix filter (accepts all parquet files)
     // ClickBench also uses Utf8View columns that need conversion for Lance
-    utils::convert_parquet_to_lance(
+    utils::parquet::convert_parquet_to_lance(
         &parquet_dir,
         &lance_dir,
         "hits", // ClickBench uses "hits" as the dataset name

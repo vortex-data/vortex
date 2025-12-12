@@ -36,11 +36,12 @@ impl NodeVisitor<'_> for ReferenceCollector {
     type NodeTy = Expression;
 
     fn visit_up(&mut self, node: &Expression) -> VortexResult<TraversalOrder> {
-        if let Some(get_item) = node.as_opt::<GetItem>() {
-            self.fields.insert(get_item.data().clone());
+        if let Some(field_name) = node.as_opt::<GetItem>() {
+            self.fields.insert(field_name.clone());
         }
-        if let Some(sel) = node.as_opt::<Select>() {
-            self.fields.extend(sel.data().field_names().iter().cloned());
+        if let Some(field_selection) = node.as_opt::<Select>() {
+            self.fields
+                .extend(field_selection.field_names().iter().cloned());
         }
         Ok(TraversalOrder::Continue)
     }

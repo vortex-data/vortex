@@ -1,5 +1,10 @@
 name: Claude Code
 
+concurrency:
+  # We shouldn't have multiple instances of Claude running on the same PR.
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 on:
   issue_comment:
     types: [created]

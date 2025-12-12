@@ -791,6 +791,22 @@ class VortexScanner(pyarrow.dataset.Scanner):
     def schema(self):
         return self._dataset.schema
 
+    @property
+    @override
+    def dataset_schema(self) -> pyarrow.Schema:
+        return self._dataset.schema
+
+    @property
+    @override
+    def projected_schema(self) -> pyarrow.Schema:
+        if self._columns:
+            fields: list[pa.Field[pa.DataType]] = [
+                self._dataset.schema.field(c)  # pyright: ignore[reportUnknownMemberType]
+                for c in self._columns
+            ]
+            return pyarrow.schema(fields)
+        return self._dataset.schema
+
     @override
     def count_rows(self):
         return self._dataset.count_rows(

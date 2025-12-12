@@ -26,12 +26,14 @@ pub use visitor::*;
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_vector::Vector;
 
 use crate::Array;
+use crate::ArrayRef;
 use crate::IntoArray;
-use crate::execution::ExecutionCtx;
+use crate::VectorExecutor;
+use crate::kernel::BindCtx;
+use crate::kernel::KernelRef;
+use crate::kernel::kernel;
 use crate::serde::ArrayChildren;
 
 /// The array [`VTable`] encapsulates logic for an Array type within Vortex.
@@ -130,21 +132,29 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         children: &dyn ArrayChildren,
     ) -> VortexResult<Self::Array>;
 
-    /// Execute this array tree to return a canonical [`Vector`].
+    /// Replaces the children in `array` with `children`. The count must be the same and types
+    /// of children must be expected.
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()>;
+
+    /// Bind this array into a [`KernelRef`] for CPU execution.
     ///
-    /// The returned vector must be the appropriate one for the array's logical type (they are
-    /// one-to-one with Vortex `DType`s), and should respect the output nullability of the array.
+    /// The returned [`vortex_vector::Vector`] must be the appropriate one for the array's logical
+    /// type (they are one-to-one with Vortex `DType`s), and should respect the output nullability
+    /// of the array.
     ///
     /// Debug builds will panic if the returned vector is of the wrong type, wrong length, or
     /// incorrectly contains null values.
     ///
-    /// Implementations should recursively call [`Array::batch_execute`] on child
+    /// Implementations should recursively call [`Array::bind_kernel`] on child
     /// arrays as needed.
-    fn batch_execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        vortex_bail!(
-            "Array {} does not support vector execution",
-            Self::encoding(array).id()
-        )
+    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
+        // TODO(ngates): convert arrays to canonicalize over vectors.
+        let array = array.clone();
+        let session = ctx.session().clone();
+        Ok(kernel(move || {
+            let canonical = Self::CanonicalVTable::canonicalize(&array);
+            canonical.into_array().execute_vector(&session)
+        }))
     }
 }
 

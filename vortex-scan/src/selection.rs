@@ -37,7 +37,7 @@ impl Selection {
         let range_len = usize::try_from(range_diff).unwrap_or_else(|_| {
             // If the range is too large for usize, cap it at usize::MAX
             // This is a defensive measure; in practice, ranges should be reasonable
-            log::warn!(
+            tracing::warn!(
                 "Range length {} exceeds usize::MAX, capping at usize::MAX",
                 range_diff
             );

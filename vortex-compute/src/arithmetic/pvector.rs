@@ -161,7 +161,6 @@ where
 mod tests {
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
-    use vortex_vector::VectorOps;
     use vortex_vector::primitive::PVector;
 
     use crate::arithmetic::Arithmetic;
@@ -175,14 +174,16 @@ mod tests {
         let right = PVector::new(buffer![10u32, 20, 30, 40], Mask::new_true(4));
 
         let result = Arithmetic::<WrappingAdd, _>::eval(left, &right);
-        assert_eq!(result.elements(), &buffer![11u32, 22, 33, 44]);
+        let expected = PVector::from(buffer![11u32, 22, 33, 44]);
+        assert_eq!(result, expected);
     }
 
     #[test]
     fn test_add_scalar() {
         let vec = PVector::new(buffer![1u32, 2, 3, 4], Mask::new_true(4));
         let result = Arithmetic::<WrappingAdd, _>::eval(vec, &10);
-        assert_eq!(result.elements(), &buffer![11u32, 12, 13, 14]);
+        let expected = PVector::from(buffer![11u32, 12, 13, 14]);
+        assert_eq!(result, expected);
     }
 
     #[test]
@@ -192,8 +193,8 @@ mod tests {
 
         let result = Arithmetic::<WrappingAdd, _>::eval(left, &right);
         // Validity is AND'd, so if either side is null, result is null
-        assert_eq!(result.validity(), &Mask::from_iter([true, false, true]));
-        assert_eq!(result.elements(), &buffer![11u32, 22, 33]);
+        let expected = PVector::new(buffer![11u32, 22, 33], Mask::from_iter([true, false, true]));
+        assert_eq!(result, expected);
     }
 
     #[test]
@@ -202,14 +203,16 @@ mod tests {
         let right = PVector::new(buffer![1u32, 2, 3, 4], Mask::new_true(4));
 
         let result = Arithmetic::<WrappingSub, _>::eval(left, &right);
-        assert_eq!(result.elements(), &buffer![9u32, 18, 27, 36]);
+        let expected = PVector::from(buffer![9u32, 18, 27, 36]);
+        assert_eq!(result, expected);
     }
 
     #[test]
     fn test_sub_scalar() {
         let vec = PVector::new(buffer![10u32, 20, 30, 40], Mask::new_true(4));
         let result = Arithmetic::<WrappingSub, _>::eval(vec, &5);
-        assert_eq!(result.elements(), &buffer![5u32, 15, 25, 35]);
+        let expected = PVector::from(buffer![5u32, 15, 25, 35]);
+        assert_eq!(result, expected);
     }
 
     #[test]
@@ -218,22 +221,23 @@ mod tests {
         let right = PVector::new(buffer![10u32, 20, 30, 40], Mask::new_true(4));
 
         let result = Arithmetic::<WrappingMul, _>::eval(left, &right);
-        assert_eq!(result.elements(), &buffer![20u32, 60, 120, 200]);
+        let expected = PVector::from(buffer![20u32, 60, 120, 200]);
+        assert_eq!(result, expected);
     }
 
     #[test]
     fn test_mul_scalar() {
         let vec = PVector::new(buffer![1u32, 2, 3, 4], Mask::new_true(4));
         let result = Arithmetic::<WrappingMul, _>::eval(vec, &10);
-        assert_eq!(result.elements(), &buffer![10u32, 20, 30, 40]);
+        let expected = PVector::from(buffer![10u32, 20, 30, 40]);
+        assert_eq!(result, expected);
     }
 
     #[test]
     fn test_scalar_preserves_validity() {
         let vec = PVector::new(buffer![1u32, 2, 3], Mask::from_iter([true, false, true]));
         let result = Arithmetic::<WrappingAdd, _>::eval(vec, &10);
-
-        assert_eq!(result.validity(), &Mask::from_iter([true, false, true]));
-        assert_eq!(result.elements(), &buffer![11u32, 12, 13]);
+        let expected = PVector::new(buffer![11u32, 12, 13], Mask::from_iter([true, false, true]));
+        assert_eq!(result, expected);
     }
 }

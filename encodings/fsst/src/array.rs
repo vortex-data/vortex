@@ -44,6 +44,7 @@ use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::fsst_compress;
@@ -145,6 +146,37 @@ impl VTable for FSSTVTable {
             codes,
             uncompressed_lengths,
         )
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() == 2,
+            "FSSTArray expects 2 children, got {}",
+            children.len()
+        );
+
+        let mut children_iter = children.into_iter();
+        let codes = children_iter
+            .next()
+            .ok_or_else(|| vortex_err!("FSSTArray with_children missing codes"))?;
+
+        let codes = codes
+            .as_opt::<VarBinVTable>()
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Expected VarBinArray for codes, got {}",
+                    codes.encoding_id()
+                )
+            })?
+            .clone();
+        let uncompressed_lengths = children_iter
+            .next()
+            .ok_or_else(|| vortex_err!("FSSTArray with_children missing uncompressed_lengths"))?;
+
+        array.codes = codes;
+        array.uncompressed_lengths = uncompressed_lengths;
+
+        Ok(())
     }
 }
 
@@ -363,7 +395,7 @@ impl VisitorVTable<FSSTVTable> for FSSTVTable {
     }
 
     fn visit_children(array: &FSSTArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("codes", array.codes().as_ref());
+        visitor.visit_child("codes", &array.codes().to_array());
         visitor.visit_child("uncompressed_lengths", array.uncompressed_lengths());
     }
 }

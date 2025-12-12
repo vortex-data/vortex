@@ -18,14 +18,12 @@ all-features = true
 
 [dependencies]
 arcref = { workspace = true }
-arrow-buffer = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "executor"] }
 itertools = { workspace = true }
 kanal = { workspace = true }
-log = { workspace = true }
 moka = { workspace = true, features = ["future"] }
 once_cell = { workspace = true, features = ["parking_lot"] }
 oneshot = { workspace = true }
@@ -37,6 +35,7 @@ prost = { workspace = true }
 rustc-hash = { workspace = true }
 termtree = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
+tracing = { workspace = true }
 uuid = { workspace = true }
 vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }
@@ -53,6 +52,7 @@ vortex-scalar = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
+vortex-vector = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
@@ -61,6 +61,7 @@ rstest = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 vortex-array = { path = "../vortex-array", features = ["test-harness"] }
 vortex-io = { path = "../vortex-io", features = ["tokio"] }
+vortex-utils = { workspace = true, features = ["test-harness"] }
 
 [features]
 test-harness = []
@@ -69,3 +70,6 @@ zstd = ["dep:vortex-zstd"]
 
 [lints]
 workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["uuid"]

@@ -4,15 +4,15 @@
 use std::fmt::Formatter;
 use std::ops::Not;
 
-use is_null::IsNullFn;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_mask::Mask;
-use vortex_vector::Vector;
+use vortex_vector::Datum;
+use vortex_vector::ScalarOps;
 use vortex_vector::VectorOps;
+use vortex_vector::bool::BoolScalar;
 use vortex_vector::bool::BoolVector;
 
 use crate::Array;
@@ -20,67 +20,69 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
+use crate::expr::Arity;
 use crate::expr::ChildName;
+use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
-use crate::expr::ExpressionView;
-use crate::expr::ScalarFnExprExt;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::expr::exprs::binary::eq;
 use crate::expr::exprs::literal::lit;
-use crate::expr::functions::EmptyOptions;
 use crate::expr::stats::Stat;
-use crate::scalar_fns::is_null;
 
 /// Expression that checks for null values.
 pub struct IsNull;
 
 impl VTable for IsNull {
-    type Instance = ();
+    type Options = EmptyOptions;
 
     fn id(&self) -> ExprId {
         ExprId::new_ref("is_null")
     }
 
-    fn serialize(&self, _instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, _instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
-        Ok(Some(()))
+    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Self::Options> {
+        Ok(EmptyOptions)
     }
 
-    fn validate(&self, expr: &ExpressionView<Self>) -> VortexResult<()> {
-        if expr.children().len() != 1 {
-            vortex_bail!(
-                "IsNull expression expects exactly one child, got {}",
-                expr.children().len()
-            );
-        }
-        Ok(())
+    fn arity(&self, _options: &Self::Options) -> Arity {
+        Arity::Exact(1)
     }
 
-    fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName {
+    fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
             0 => ChildName::from("input"),
             _ => unreachable!("Invalid child index {} for IsNull expression", child_idx),
         }
     }
 
-    fn fmt_sql(&self, expr: &ExpressionView<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(
+        &self,
+        _options: &Self::Options,
+        expr: &Expression,
+        f: &mut Formatter<'_>,
+    ) -> std::fmt::Result {
         write!(f, "is_null(")?;
         expr.child(0).fmt_sql(f)?;
         write!(f, ")")
     }
 
-    fn return_dtype(&self, _expr: &ExpressionView<Self>, _scope: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, _options: &Self::Options, _arg_dtypes: &[DType]) -> VortexResult<DType> {
         Ok(DType::Bool(Nullability::NonNullable))
     }
 
-    fn evaluate(&self, expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(
+        &self,
+        _options: &Self::Options,
+        expr: &Expression,
+        scope: &ArrayRef,
+    ) -> VortexResult<ArrayRef> {
         let array = expr.child(0).evaluate(scope)?;
         match array.validity_mask() {
             Mask::AllTrue(len) => Ok(ConstantArray::new(false, len).into_array()),
@@ -89,34 +91,32 @@ impl VTable for IsNull {
         }
     }
 
+    fn execute(&self, _data: &Self::Options, mut args: ExecutionArgs) -> VortexResult<Datum> {
+        let child = args.datums.pop().vortex_expect("Missing input child");
+        Ok(match child {
+            Datum::Scalar(s) => Datum::Scalar(BoolScalar::new(Some(s.is_null())).into()),
+            Datum::Vector(v) => Datum::Vector(
+                BoolVector::new(v.validity().to_bit_buffer().not(), Mask::new_true(v.len())).into(),
+            ),
+        })
+    }
+
     fn stat_falsification(
         &self,
-        expr: &ExpressionView<Self>,
+        _options: &Self::Options,
+        expr: &Expression,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         let null_count_expr = expr.child(0).stat_expression(Stat::NullCount, catalog)?;
         Some(eq(null_count_expr, lit(0u64)))
     }
 
-    fn execute(&self, _data: &Self::Instance, mut args: ExecutionArgs) -> VortexResult<Vector> {
-        let child = args.vectors.pop().vortex_expect("Missing input child");
-        Ok(BoolVector::new(
-            child.validity().to_bit_buffer().not(),
-            Mask::new_true(child.len()),
-        )
-        .into())
-    }
-
-    fn is_null_sensitive(&self, _instance: &Self::Instance) -> bool {
+    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
         true
     }
 
-    fn is_fallible(&self, _instance: &Self::Instance) -> bool {
+    fn is_fallible(&self, _instance: &Self::Options) -> bool {
         false
-    }
-
-    fn expr_v2(&self, view: &ExpressionView<Self>) -> VortexResult<Expression> {
-        ScalarFnExprExt::try_new_expr(&IsNullFn, EmptyOptions, view.children().clone())
     }
 }
 
@@ -129,7 +129,7 @@ impl VTable for IsNull {
 /// let expr = is_null(root());
 /// ```
 pub fn is_null(child: Expression) -> Expression {
-    IsNull.new_expr((), vec![child])
+    IsNull.new_expr(EmptyOptions, vec![child])
 }
 
 #[cfg(test)]
@@ -279,6 +279,6 @@ mod tests {
     #[test]
     fn test_is_null_sensitive() {
         // is_null itself is null-sensitive
-        assert!(is_null(col("a")).is_null_sensitive());
+        assert!(is_null(col("a")).signature().is_null_sensitive());
     }
 }

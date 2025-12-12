@@ -94,7 +94,7 @@ impl IntCompressor {
         if output.nbytes() < array.nbytes() {
             Ok(output)
         } else {
-            log::debug!("resulting tree too large: {}", output.display_tree());
+            tracing::debug!("resulting tree too large: {}", output.display_tree());
             Ok(array.to_array())
         }
     }
@@ -383,7 +383,7 @@ impl Scheme for ZigZagScheme {
         let compressed =
             IntCompressor::compress(&encoded, is_sample, allowed_cascading - 1, &new_excludes)?;
 
-        log::debug!("zigzag output: {}", compressed.display_tree());
+        tracing::debug!("zigzag output: {}", compressed.display_tree());
 
         Ok(ZigZagArray::try_new(compressed)?.into_array())
     }
@@ -768,7 +768,6 @@ mod tests {
     use std::iter;
 
     use itertools::Itertools;
-    use log::LevelFilter;
     use rand::RngCore;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
@@ -783,10 +782,8 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::BufferMut;
     use vortex_buffer::buffer;
-    use vortex_buffer::buffer_mut;
     use vortex_sequence::SequenceVTable;
     use vortex_sparse::SparseVTable;
-    use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::Compressor;
     use crate::CompressorStats;
@@ -834,32 +831,6 @@ mod tests {
         let primitive = codes.freeze().into_array().to_primitive();
         let compressed = IntCompressor::compress(&primitive, false, 3, &[]).unwrap();
         assert!(compressed.is::<DictVTable>());
-    }
-
-    #[test]
-    fn test_window_name() {
-        env_logger::builder()
-            .filter(None, LevelFilter::Debug)
-            .try_init()
-            .ok();
-
-        // A test that's meant to mirror the WindowName column from ClickBench.
-        let mut values = buffer_mut![-1i32; 1_000_000];
-        let mut visited = HashSet::new();
-        let mut rng = StdRng::seed_from_u64(1u64);
-        while visited.len() < 223 {
-            let random = (rng.next_u32() as usize) % 1_000_000;
-            if visited.contains(&random) {
-                continue;
-            }
-            visited.insert(random);
-            // Pick 100 random values to insert.
-            values[random] = 5 * (rng.next_u64() % 100) as i32;
-        }
-
-        let array = values.freeze().into_array().to_primitive();
-        let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
-        log::info!("WindowName compressed: {}", compressed.display_tree());
     }
 
     #[test]

@@ -13,11 +13,11 @@ use anyhow::anyhow;
 use datafusion::prelude::SessionContext;
 use ddb::DuckDBCtx;
 use glob::Pattern;
-use log::info;
-use log::warn;
 use similar::ChangeTag;
 use similar::TextDiff;
 use tokio::runtime::Runtime;
+use tracing::info;
+use tracing::warn;
 use url::Url;
 
 use crate::BenchmarkDataset;
@@ -44,6 +44,7 @@ use crate::tpch::schema::SUPPLIER;
 use crate::tpch::tpch_queries;
 use crate::tpch::tpchgen;
 use crate::tpch::tpchgen::TpchGenOptions;
+
 #[cfg(feature = "lance")]
 #[rustfmt::skip]
 use crate::{
@@ -378,7 +379,7 @@ pub async fn convert_all_tpch_to_lance(parquet_dir: &Path, lance_dir: &Path) -> 
     for table in &tables {
         // Use table_ prefix to avoid matching similar names (e.g., part vs partsupp)
         let file_prefix = format!("{}_", table);
-        utils::convert_parquet_to_lance(
+        utils::parquet::convert_parquet_to_lance(
             parquet_dir,
             lance_dir,
             table,              // Dataset name is the table name

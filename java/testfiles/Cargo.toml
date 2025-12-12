@@ -8,5 +8,4 @@ repository = "https://github.com/vortex-data/vortex"
 edition = "2024"
 
 [dependencies]
-futures = "0.3"
 vortex = { path = "../../vortex", features = ["files"] }

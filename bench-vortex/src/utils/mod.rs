@@ -2,13 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod constants;
-pub mod file_utils;
+pub mod file;
 pub mod logging;
-pub mod parquet_utils;
+#[cfg(feature = "lance")]
+pub mod parquet;
 pub mod runtime;
 
-pub use constants::*;
-pub use file_utils::*;
-pub use logging::*;
-pub use parquet_utils::*;
 pub use runtime::*;

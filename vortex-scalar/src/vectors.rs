@@ -3,18 +3,25 @@
 
 //! Conversion logic from this "legacy" scalar crate to Vortex Vector scalars.
 
+use std::ops::Deref;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_dtype::DecimalType;
+use vortex_dtype::NativeDecimalType;
+use vortex_dtype::PTypeDowncastExt;
 use vortex_dtype::PrecisionScale;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 use vortex_vector::VectorMut;
 use vortex_vector::VectorMutOps;
+use vortex_vector::VectorOps;
 use vortex_vector::binaryview::BinaryScalar;
 use vortex_vector::binaryview::StringScalar;
 use vortex_vector::bool::BoolScalar;
@@ -30,6 +37,7 @@ use vortex_vector::primitive::PVector;
 use vortex_vector::struct_::StructScalar;
 use vortex_vector::struct_::StructVector;
 
+use crate::DecimalValue;
 use crate::Scalar;
 
 impl Scalar {
@@ -150,12 +158,123 @@ impl Scalar {
                                 field_vec.freeze()
                             })
                             .collect();
-                        StructScalar::new(StructVector::new(Arc::new(fields), Mask::new_false(1)))
+                        StructScalar::new(StructVector::new(Arc::new(fields), Mask::new_true(1)))
                             .into()
                     }
                 }
             }
             DType::Extension(_) => self.as_extension().storage().to_vector_scalar(),
         }
+    }
+
+    /// Convert a `vortex-vector` [`vortex_vector::Scalar`] into a `vortex-scalar` [`Scalar`].
+    pub fn from_vector_scalar(scalar: vortex_vector::Scalar, dtype: &DType) -> VortexResult<Self> {
+        Ok(match dtype {
+            DType::Null => Scalar::null(DType::Null),
+            DType::Bool(n) => match scalar.as_bool().value() {
+                None => {
+                    vortex_ensure!(
+                        n.is_nullable(),
+                        "Cannot create null scalar for non-nullable dtype"
+                    );
+                    Scalar::null(dtype.clone())
+                }
+                Some(b) => Scalar::bool(b, *n),
+            },
+            DType::Primitive(ptype, n) => {
+                match_each_native_ptype!(ptype, |T| {
+                    let pscalar = scalar.into_primitive().downcast::<T>();
+                    match pscalar.value() {
+                        None => {
+                            vortex_ensure!(
+                                n.is_nullable(),
+                                "Cannot create null scalar for non-nullable dtype"
+                            );
+                            Scalar::null(dtype.clone())
+                        }
+                        Some(v) => Scalar::primitive(v, *n),
+                    }
+                })
+            }
+            DType::Decimal(dec_type, n) => {
+                let dec_scalar = scalar.into_decimal();
+                match_each_decimal_value_type!(
+                    DecimalType::smallest_decimal_value_type(dec_type),
+                    |D| {
+                        let dscalar = <D as NativeDecimalType>::downcast(dec_scalar);
+                        match dscalar.value() {
+                            None => {
+                                vortex_ensure!(
+                                    n.is_nullable(),
+                                    "Cannot create null scalar for non-nullable dtype"
+                                );
+                                Scalar::null(dtype.clone())
+                            }
+                            Some(v) => Scalar::decimal(DecimalValue::from(v), *dec_type, *n),
+                        }
+                    }
+                )
+            }
+            DType::Utf8(n) => match scalar.as_string().value() {
+                None => {
+                    vortex_ensure!(
+                        n.is_nullable(),
+                        "Cannot create null scalar for non-nullable dtype"
+                    );
+                    Scalar::null(dtype.clone())
+                }
+                Some(s) => Scalar::utf8(s.clone(), *n),
+            },
+            DType::Binary(n) => match scalar.as_binary().value() {
+                None => {
+                    vortex_ensure!(
+                        n.is_nullable(),
+                        "Cannot create null scalar for non-nullable dtype"
+                    );
+                    Scalar::null(dtype.clone())
+                }
+                Some(b) => Scalar::binary(b.clone(), *n),
+            },
+            DType::List(elem_dtype, n) => {
+                let elements = scalar.as_list().value().elements();
+                Scalar::list(
+                    elem_dtype.clone(),
+                    (0..elements.len())
+                        .map(|idx| elements.scalar_at(idx))
+                        .map(|scalar| Scalar::from_vector_scalar(scalar, elem_dtype.deref()))
+                        .try_collect()?,
+                    *n,
+                )
+            }
+            DType::FixedSizeList(elem_dtype, size, n) => {
+                let scalar = scalar.into_fixed_size_list();
+                let elements = scalar.value().elements();
+                vortex_ensure!(scalar.value().list_size() == *size);
+
+                Scalar::fixed_size_list(
+                    DType::FixedSizeList(elem_dtype.clone(), *size, *n),
+                    (0..*size as usize)
+                        .map(|idx| {
+                            Scalar::from_vector_scalar(elements.scalar_at(idx), elem_dtype.deref())
+                        })
+                        .try_collect()?,
+                    *n,
+                )
+            }
+            DType::Struct(fields, n) => Scalar::struct_(
+                DType::Struct(fields.clone(), *n),
+                fields
+                    .fields()
+                    .zip(scalar.into_struct().fields())
+                    .map(|(field_dtype, field_scalar)| {
+                        Scalar::from_vector_scalar(field_scalar, &field_dtype)
+                    })
+                    .try_collect()?,
+            ),
+            DType::Extension(ext_dtype) => Scalar::extension(
+                ext_dtype.clone(),
+                Scalar::from_vector_scalar(scalar, ext_dtype.storage_dtype())?,
+            ),
+        })
     }
 }

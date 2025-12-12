@@ -132,7 +132,7 @@ impl ComputeFnVTable for Filter {
         }
 
         // Fallback: implement using Arrow kernels.
-        log::debug!("No filter implementation found for {}", array.encoding_id(),);
+        tracing::debug!("No filter implementation found for {}", array.encoding_id(),);
 
         if !array.is_canonical() {
             let canonical = array.to_canonical().into_array();
@@ -222,7 +222,7 @@ impl<V: VTable + FilterKernel> Kernel for FilterKernelAdapter<V> {
         let Some(array) = inputs.array.as_opt::<V>() else {
             return Ok(None);
         };
-        let filtered = V::filter(&self.0, array, inputs.mask)?;
+        let filtered = <V as FilterKernel>::filter(&self.0, array, inputs.mask)?;
         Ok(Some(filtered.into()))
     }
 }

@@ -4,10 +4,11 @@
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::Array;
-use crate::ArrayVisitor;
 use crate::array::ArrayRef;
 use crate::optimizer::rules::AnyArray;
 use crate::optimizer::rules::ArrayParentReduceRule;
@@ -37,124 +38,113 @@ pub struct ArrayOptimizer {
 }
 
 impl ArrayOptimizer {
-    /// Optimize the given array by applying registered rewrite rules.
+    /// Optimize only the top-level array by applying registered rewrite rules.
     ///
-    /// This performs two passes following the ExprSession pattern:
-    /// 1. Apply parent rules - bottom-up traversal checking parent-child relationships
-    /// 2. Apply reduce rules - bottom-up traversal applying transformations to each node
-    pub fn optimize_array(&self, array: ArrayRef) -> VortexResult<ArrayRef> {
-        // First pass: apply parent rules
-        let array = self.apply_parent_rules(array)?;
-
-        // Second pass: apply reduce rules
-        let array = self.apply_reduce_rules(array)?;
-
-        Ok(array)
+    /// This is useful when it is assumed that the children are already optimized, and we have
+    /// simply wrapped them up in a new array, such as applying an expression.
+    pub fn optimize_root(&self, array: ArrayRef) -> VortexResult<ArrayRef> {
+        Ok(self.try_optimize_root(array.clone())?.unwrap_or(array))
     }
 
-    /// Apply parent rules in a bottom-up traversal.
+    /// Try to optimize only the top-level array by applying registered rewrite rules.
     ///
-    /// For each array, recursively process children first, then check if any parent
-    /// rules apply to transform children based on their parent context.
-    fn apply_parent_rules(&self, array: ArrayRef) -> VortexResult<ArrayRef> {
-        // First, recursively apply parent rules to all children
-        let children = array.children();
-        if children.is_empty() {
-            return Ok(array);
-        }
+    /// Returns `Ok(None)` if no optimizations were applied, otherwise returns the optimized array.
+    ///
+    /// This is useful when it is assumed that the children are already optimized, and we have
+    /// simply wrapped them up in a new array, such as applying an expression.
+    #[allow(clippy::cognitive_complexity)]
+    pub fn try_optimize_root(&self, array: ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        tracing::debug!(
+            "Starting root-only array optimization\n{}",
+            array.display_tree()
+        );
+        let mut current_array = array;
+        let mut any_optimizations = false;
 
-        let mut optimized_children = Vec::with_capacity(children.len());
-        let mut children_changed = false;
-
-        for child in children.iter() {
-            let optimized_child = self.apply_parent_rules(child.clone())?;
-            children_changed |= !Arc::ptr_eq(&optimized_child, child);
-            optimized_children.push(optimized_child);
-        }
-
-        // Reconstruct array with optimized children if any changed
-        let array = if children_changed {
-            array.with_children(&optimized_children)?
-        } else {
-            array
-        };
-
-        // Now try to apply parent rules to each optimized child in the context of this array
-        // Use the optimized_children list directly instead of re-fetching from array.children()
-        // let mut transformed_children = Vec::with_capacity(optimized_children.len());
-
-        for (idx, child) in optimized_children.iter().enumerate() {
-            let result = self.with_parent_rules(
-                child,
-                Some(&array),
-                |rules| -> VortexResult<Option<ArrayRef>> {
-                    for rule in rules {
-                        if let Some(new_array) = rule.reduce_parent(child, &array, idx)? {
-                            return Ok(Some(new_array));
-                        }
-                    }
-                    Ok(None)
-                },
-            )?;
-
-            if let Some(transformed) = result {
-                return Ok(transformed);
+        // Apply reduction rules to the current array until no more rules apply.
+        let mut loop_counter = 0;
+        loop {
+            if loop_counter > 100 {
+                vortex_bail!("Exceeded maximum optimization iterations (possible infinite loop)");
             }
-        }
+            loop_counter += 1;
 
-        // Reconstruct array with transformed children if any rules matched
-        Ok(array)
-    }
-
-    /// Apply reduce rules in a bottom-up traversal.
-    ///
-    /// For each array, recursively process children first, then try to apply
-    /// reduce rules to transform the array itself.
-    fn apply_reduce_rules(&self, array: ArrayRef) -> VortexResult<ArrayRef> {
-        // First, recursively apply reduce rules to all children
-        let children = array.children();
-        if !children.is_empty() {
-            let mut new_children = Vec::with_capacity(children.len());
-            let mut changed = false;
-
-            for child in children.iter() {
-                let optimized_child = self.apply_reduce_rules(child.clone())?;
-                changed |= !Arc::ptr_eq(&optimized_child, child);
-                new_children.push(optimized_child);
+            if let Some(new_array) = self.apply_reduce_rules(&current_array)? {
+                current_array = new_array;
+                any_optimizations = true;
+                continue;
             }
 
-            // Reconstruct array with optimized children if any changed
-            let array = if changed {
-                array.with_children(&new_children)?
-            } else {
-                array
-            };
-
-            // Now try to apply reduce rules to this array
-            self.try_reduce(array)
-        } else {
-            // Leaf node - just try to reduce
-            self.try_reduce(array)
-        }
-    }
-
-    /// Try to apply reduce rules to a single array, recursively if a rule matches.
-    fn try_reduce(&self, array: ArrayRef) -> VortexResult<ArrayRef> {
-        let result = self.with_reduce_rules(&array, |rules| -> VortexResult<Option<ArrayRef>> {
-            for rule in rules {
-                if let Some(new_array) = rule.reduce(&array)? {
-                    return Ok(Some(new_array));
+            // Apply parent reduction rules to each child in the context of the current array.
+            let mut replaced = false;
+            for (idx, child) in current_array.children().iter().enumerate() {
+                if let Some(new_array) = self.apply_parent_rules(child, &current_array, idx)? {
+                    // If the parent was replaced, then we start over with the new parent
+                    current_array = new_array;
+                    any_optimizations = true;
+                    replaced = true;
+                    break;
                 }
             }
-            Ok(None)
-        })?;
 
-        if let Some(transformed) = result {
-            // Rule matched - recursively try to reduce the result
-            // self.try_reduce(transformed)
-            Ok(transformed)
+            if !replaced {
+                break;
+            }
+        }
+
+        if any_optimizations {
+            tracing::debug!(
+                "Optimized root-only array\n{}",
+                current_array.display_tree()
+            );
+            Ok(Some(current_array))
         } else {
-            Ok(array)
+            tracing::debug!("No optimizations applied to root array");
+            Ok(None)
+        }
+    }
+
+    /// Optimize the given array by applying registered rewrite rules recursively over all nodes.
+    ///
+    /// This can be quite an expensive traversal, so prefer [`ArrayOptimizer::optimize_root`]
+    /// where possible, running it each time a new array is constructed.
+    pub fn optimize_recursive(&self, array: ArrayRef) -> VortexResult<ArrayRef> {
+        Ok(self.try_optimize_recursive(array.clone())?.unwrap_or(array))
+    }
+
+    /// Optimize the given array by applying registered rewrite rules recursively over all nodes.
+    ///
+    /// This can be quite an expensive traversal, so prefer [`ArrayOptimizer::optimize_root`]
+    /// where possible, running it each time a new array is constructed.
+    pub fn try_optimize_recursive(&self, array: ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        let mut current_array = array;
+        let mut any_optimizations = false;
+
+        if let Some(new_array) = self.try_optimize_root(current_array.clone())? {
+            current_array = new_array;
+            any_optimizations = true;
+        }
+
+        let mut new_children = Vec::with_capacity(current_array.nchildren());
+        let mut any_child_optimized = false;
+        for child in current_array.children() {
+            if let Some(new_child) = self.try_optimize_recursive(child.clone())? {
+                new_children.push(new_child);
+                any_child_optimized = true;
+            } else {
+                new_children.push(child.clone());
+            }
+        }
+
+        if any_child_optimized {
+            current_array = current_array.with_children(new_children)?;
+            any_optimizations = true;
+        }
+
+        if any_optimizations {
+            Ok(Some(current_array))
+        } else {
+            Ok(None)
         }
     }
 
@@ -202,45 +192,86 @@ impl ArrayOptimizer {
     }
 
     /// Execute a callback with all reduce rules for a given encoding ID.
-    pub(crate) fn with_reduce_rules<F, R>(&self, array: &ArrayRef, f: F) -> R
-    where
-        F: FnOnce(&mut dyn Iterator<Item = &dyn DynArrayReduceRule>) -> R,
-    {
+    pub(crate) fn apply_reduce_rules(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let exact = self.reduce_rules.get(&MatchKey::Array(array.encoding_id()));
         let any = self.reduce_rules.get(&MatchKey::Any);
-        f(&mut exact
+
+        let rules = exact
             .iter()
             .chain(any.iter())
             .flat_map(|v| v.iter())
-            .map(|v| v.as_ref()))
+            .map(|v| v.as_ref());
+
+        for rule in rules {
+            if let Some(new_array) = rule.reduce(array)? {
+                vortex_ensure!(
+                    new_array.len() == array.len(),
+                    "Parent reduction rule produced array of incorrect length: expected {}, got {}",
+                    array.len(),
+                    new_array.len()
+                );
+                #[cfg(debug_assertions)]
+                vortex_ensure!(
+                    new_array.dtype() == array.dtype(),
+                    "Parent reduction rule produced array of incorrect dtype: expected {}, got {}",
+                    array.dtype(),
+                    new_array.dtype()
+                );
+                return Ok(Some(new_array));
+            }
+        }
+
+        Ok(None)
     }
 
     /// Execute a callback with all parent reduce rules for a given child and parent encoding ID.
     ///
     /// Returns rules from both specific parent rules (if parent_id provided) and "any parent" wildcard rules.
-    pub(crate) fn with_parent_rules<F, R>(
+    pub(crate) fn apply_parent_rules(
         &self,
         child: &ArrayRef,
-        parent: Option<&ArrayRef>,
-        f: F,
-    ) -> R
-    where
-        F: FnOnce(&mut dyn Iterator<Item = &dyn DynArrayParentReduceRule>) -> R,
-    {
-        let exact = parent.and_then(|parent| {
-            self.parent_rules.get(&(
-                MatchKey::Array(child.encoding_id()),
-                MatchKey::Array(parent.encoding_id()),
-            ))
-        });
-        let any = self
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let exact_parent = self.parent_rules.get(&(
+            MatchKey::Array(child.encoding_id()),
+            MatchKey::Array(parent.encoding_id()),
+        ));
+        let any_parent = self
             .parent_rules
             .get(&(MatchKey::Array(child.encoding_id()), MatchKey::Any));
+        let any_child = self
+            .parent_rules
+            .get(&(MatchKey::Any, MatchKey::Array(parent.encoding_id())));
+        let any_both = self.parent_rules.get(&(MatchKey::Any, MatchKey::Any));
 
-        f(&mut exact
+        let rules = exact_parent
             .iter()
-            .chain(any.iter())
+            .chain(any_parent.iter())
+            .chain(any_child.iter())
+            .chain(any_both.iter())
             .flat_map(|v| v.iter())
-            .map(|arc| arc.as_ref()))
+            .map(|arc| arc.as_ref());
+
+        for rule in rules {
+            if let Some(new_array) = rule.reduce_parent(child, parent, child_idx)? {
+                vortex_ensure!(
+                    new_array.len() == parent.len(),
+                    "Parent reduction rule produced array of incorrect length: expected {}, got {}",
+                    parent.len(),
+                    new_array.len()
+                );
+                #[cfg(debug_assertions)]
+                vortex_ensure!(
+                    new_array.dtype() == parent.dtype(),
+                    "Parent reduction rule produced array of incorrect dtype: expected {}, got {}",
+                    parent.dtype(),
+                    new_array.dtype()
+                );
+                return Ok(Some(new_array));
+            }
+        }
+
+        Ok(None)
     }
 }

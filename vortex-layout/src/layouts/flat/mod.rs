@@ -6,7 +6,6 @@ pub mod writer;
 
 use std::env;
 use std::sync::Arc;
-use std::sync::LazyLock;
 
 use vortex_array::ArrayContext;
 use vortex_array::DeserializeMetadata;
@@ -30,8 +29,11 @@ use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 use crate::vtable;
 
-static FLAT_LAYOUT_INLINE_ARRAY_NODE: LazyLock<bool> =
-    LazyLock::new(|| env::var("FLAT_LAYOUT_INLINE_ARRAY_NODE").is_ok());
+/// Check if inline array node is enabled.
+/// This checks the env var each time to allow tests to toggle the behavior.
+pub(super) fn flat_layout_inline_array_node() -> bool {
+    env::var("FLAT_LAYOUT_INLINE_ARRAY_NODE").is_ok()
+}
 
 vtable!(Flat);
 
@@ -82,12 +84,13 @@ impl VTable for FlatVTable {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(FlatReader::new(
             layout.clone(),
             name,
             segment_source,
+            session.clone(),
         )))
     }
 
@@ -128,6 +131,13 @@ impl VTable for FlatVTable {
                 .as_ref()
                 .map(|v| ByteBuffer::from(v.clone())),
         ))
+    }
+
+    fn with_children(_layout: &mut Self::Layout, children: Vec<LayoutRef>) -> VortexResult<()> {
+        if !children.is_empty() {
+            vortex_bail!("Flat layout has no children, got {}", children.len());
+        }
+        Ok(())
     }
 }
 

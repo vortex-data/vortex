@@ -159,9 +159,8 @@ mod tests {
         type Result = i32;
 
         fn visit_down(&mut self, node: &'_ Self::NodeTy) -> VortexResult<FoldDown<Self::Result>> {
-            if let Some(lit) = node.as_opt::<Literal>() {
-                let v = lit
-                    .data()
+            if let Some(scalar) = node.as_opt::<Literal>() {
+                let v = scalar
                     .as_primitive()
                     .typed_value::<i32>()
                     .vortex_expect("i32");
@@ -171,8 +170,8 @@ mod tests {
                 }
             }
 
-            if let Some(binary) = node.as_opt::<Binary>()
-                && binary.operator() == Operator::Gt
+            if let Some(operator) = node.as_opt::<Binary>()
+                && *operator == Operator::Gt
             {
                 return Ok(FoldDown::Skip(0));
             }
@@ -185,15 +184,14 @@ mod tests {
             node: Self::NodeTy,
             children: Vec<Self::Result>,
         ) -> VortexResult<FoldUp<Self::Result>> {
-            if let Some(lit) = node.as_opt::<Literal>() {
-                let v = lit
-                    .data()
+            if let Some(scalar) = node.as_opt::<Literal>() {
+                let v = scalar
                     .as_primitive()
                     .typed_value::<i32>()
                     .vortex_expect("i32");
                 Ok(FoldUp::Continue(v))
-            } else if let Some(binary) = node.as_opt::<Binary>() {
-                if binary.operator() == Operator::Add {
+            } else if let Some(operator) = node.as_opt::<Binary>() {
+                if *operator == Operator::Add {
                     Ok(FoldUp::Continue(children[0] + children[1]))
                 } else {
                     vortex_bail!("not a valid operator")

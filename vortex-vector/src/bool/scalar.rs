@@ -8,7 +8,7 @@ use crate::VectorMutOps;
 use crate::bool::BoolVectorMut;
 
 /// A scalar value for boolean types.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BoolScalar(Option<bool>);
 
 impl BoolScalar {
@@ -20,6 +20,16 @@ impl BoolScalar {
     /// Returns the value of the bool scalar, or `None` if the scalar is null.
     pub fn value(&self) -> Option<bool> {
         self.0
+    }
+
+    /// Creates a zero (false) bool scalar.
+    pub fn zero() -> Self {
+        Self::new(Some(false))
+    }
+
+    /// Creates a null bool scalar.
+    pub fn null() -> Self {
+        Self::new(None)
     }
 }
 

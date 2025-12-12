@@ -50,11 +50,11 @@ impl ClickBenchBenchmark {
             }
             Some(remote_data_dir) => {
                 if !remote_data_dir.ends_with("/") {
-                    log::warn!(
+                    tracing::warn!(
                         "Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev-eu/parquet/"
                     );
                 }
-                log::info!(
+                tracing::info!(
                     concat!(
                         "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\\n",
                         "If it does not, you should kill this command, locally generate the files (by running without\\n",

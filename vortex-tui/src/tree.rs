@@ -28,7 +28,7 @@ pub enum TreeMode {
     Layout {
         /// Path to the Vortex file
         file: PathBuf,
-        /// Show additional metadata information
+        /// Show additional metadata information including buffer sizes (requires fetching segments)
         #[arg(short, long)]
         verbose: bool,
     },
@@ -60,9 +60,19 @@ async fn exec_array_tree(file: &Path) -> VortexResult<()> {
 
 async fn exec_layout_tree(file: &Path, verbose: bool) -> VortexResult<()> {
     let vxf = SESSION.open_options().open(file).await?;
-    let footer = vxf.footer();
 
-    println!("{}", footer.layout().display_tree_verbose(verbose));
+    if verbose {
+        // In verbose mode, fetch segments to display buffer sizes
+        let output = vxf
+            .footer()
+            .layout()
+            .display_tree_with_segments(vxf.segment_source())
+            .await?;
+        println!("{}", output);
+    } else {
+        // In non-verbose mode, just display layout tree without fetching segments
+        println!("{}", vxf.footer().layout().display_tree());
+    }
 
     Ok(())
 }

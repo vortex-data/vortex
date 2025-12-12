@@ -1,7 +1,13 @@
 name: WASM Fuzz
 
+concurrency:
+  # The group causes runs to queue instead of running in parallel.
+  group: wasm-fuzz
+  # This lets long-running fuzz tests complete to maximize coverage.
+  cancel-in-progress: false
+
 on:
-  workflow_dispatch:
+  workflow_dispatch: { }
   schedule:
     # Run daily at 2 AM UTC
     - cron: "0 2 * * *"

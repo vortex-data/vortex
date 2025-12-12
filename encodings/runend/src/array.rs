@@ -118,6 +118,20 @@ impl VTable for RunEndVTable {
             len,
         )
     }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() == 2,
+            "RunEndArray expects 2 children, got {}",
+            children.len()
+        );
+
+        let mut children_iter = children.into_iter();
+        array.ends = children_iter.next().vortex_expect("ends child");
+        array.values = children_iter.next().vortex_expect("values child");
+
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug)]

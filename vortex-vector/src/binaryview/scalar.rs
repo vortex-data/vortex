@@ -3,6 +3,7 @@
 
 use crate::Scalar;
 use crate::ScalarOps;
+use crate::VectorMut;
 use crate::VectorMutOps;
 use crate::binaryview::BinaryType;
 use crate::binaryview::BinaryViewType;
@@ -11,7 +12,7 @@ use crate::binaryview::BinaryViewVectorMut;
 use crate::binaryview::StringType;
 
 /// A scalar value for types that implement [`BinaryViewType`].
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BinaryViewScalar<T: BinaryViewType>(Option<T::Scalar>);
 
 impl<T: BinaryViewType> BinaryViewScalar<T> {
@@ -22,9 +23,19 @@ impl<T: BinaryViewType> BinaryViewScalar<T> {
 }
 
 impl<T: BinaryViewType> BinaryViewScalar<T> {
-    /// Returns the scalar value as [`BinaryViewType::Scalar`], or `None` if the scalar is null.
+    /// Returns the scalar value as [`BinaryViewType::Scalar`], or [`None`] if the scalar is null.
     pub fn value(&self) -> Option<&T::Scalar> {
         self.0.as_ref()
+    }
+
+    /// Creates a zero (empty) binary view scalar.
+    pub fn zero() -> Self {
+        Self::new(Some(T::empty_scalar()))
+    }
+
+    /// Creates a null binary view scalar.
+    pub fn null() -> Self {
+        Self::new(None)
     }
 }
 
@@ -39,7 +50,7 @@ impl<T: BinaryViewType> ScalarOps for BinaryViewScalar<T> {
         }
     }
 
-    fn repeat(&self, n: usize) -> crate::VectorMut {
+    fn repeat(&self, n: usize) -> VectorMut {
         let mut vec = BinaryViewVectorMut::<T>::with_capacity(n);
         match self.value() {
             None => vec.append_nulls(n),

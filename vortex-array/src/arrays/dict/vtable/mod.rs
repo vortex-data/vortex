@@ -2,18 +2,24 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BufferHandle;
+use vortex_compute::take::Take;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use super::DictArray;
 use super::DictMetadata;
+use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
+use crate::kernel::BindCtx;
+use crate::kernel::KernelRef;
+use crate::kernel::kernel;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
@@ -107,5 +113,31 @@ impl VTable for DictVTable {
         Ok(unsafe {
             DictArray::new_unchecked(codes, values).set_all_values_referenced(all_values_referenced)
         })
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() == 2,
+            "DictArray expects exactly 2 children (codes, values), got {}",
+            children.len()
+        );
+        let [codes, values]: [ArrayRef; 2] = children
+            .try_into()
+            .map_err(|_| vortex_err!("Failed to convert children to array"))?;
+        array.codes = codes;
+        array.values = values;
+        Ok(())
+    }
+
+    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
+        let values_kernel = array.values().bind_kernel(ctx)?;
+        let codes_kernel = array.codes().bind_kernel(ctx)?;
+
+        Ok(kernel(move || {
+            let values = values_kernel.execute()?;
+            let codes = codes_kernel.execute()?.into_primitive();
+
+            Ok(values.take(&codes))
+        }))
     }
 }

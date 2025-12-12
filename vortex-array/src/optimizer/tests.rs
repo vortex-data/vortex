@@ -11,13 +11,10 @@ use crate::array::ArrayRef;
 use crate::array::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
-use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
 use crate::optimizer::ArrayOptimizer;
-use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::Exact;
 use crate::validity::Validity;
@@ -96,7 +93,9 @@ fn test_reduce_rules_traverse_whole_tree() -> VortexResult<()> {
         Validity::NonNullable,
     )?;
 
-    let optimized = optimizer.optimize_array(outer_struct.into_array())?;
+    println!("PRE: {}", outer_struct.display_tree());
+    let optimized = optimizer.optimize_recursive(outer_struct.into_array())?;
+    println!("POS: {}", optimized.display_tree());
 
     let optimized_outer = optimized.as_opt::<StructVTable>().unwrap();
     let optimized_inner_struct = optimized_outer.field_by_name("inner_struct")?;
@@ -110,107 +109,5 @@ fn test_reduce_rules_traverse_whole_tree() -> VortexResult<()> {
 
     assert!(Arc::ptr_eq(&inner_field1, optimized_field1));
     assert!(Arc::ptr_eq(&inner_field2, optimized_field2));
-    Ok(())
-}
-
-// Odd rule for testing
-#[derive(Debug, Default)]
-struct ConstantInStructRule;
-
-impl ArrayParentReduceRule<Exact<ConstantVTable>, Exact<StructVTable>> for ConstantInStructRule {
-    fn child(&self) -> Exact<ConstantVTable> {
-        Exact::from(&ConstantVTable)
-    }
-
-    fn parent(&self) -> Exact<StructVTable> {
-        Exact::from(&StructVTable)
-    }
-
-    fn reduce_parent(
-        &self,
-        array: &ConstantArray,
-        parent: &StructArray,
-        _child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        StructArray::try_from_iter(
-            parent
-                .names()
-                .iter()
-                .zip(parent.fields().iter())
-                .enumerate()
-                .map(|(idx, (name, field))| {
-                    if field.is::<ConstantVTable>() {
-                        (
-                            name,
-                            ConstantArray::new(
-                                i32::try_from(idx).vortex_expect("must fit"),
-                                array.len(),
-                            )
-                            .into_array(),
-                        )
-                    } else {
-                        (name, field.clone())
-                    }
-                }),
-        )
-        .map(|s| Some(s.to_array()))
-    }
-}
-
-#[test]
-fn test_parent_rules_traverse_whole_tree() -> VortexResult<()> {
-    let mut optimizer = ArrayOptimizer::default();
-
-    optimizer.register_parent_rule(ConstantInStructRule);
-
-    let deep_field1 = ConstantArray::new(100i32, 5);
-    let deep_field2 = ConstantArray::new(200i32, 5);
-
-    let inner_struct = StructArray::try_new(
-        FieldNames::from(["deep_field1", "deep_field2"]),
-        vec![deep_field1.into_array(), deep_field2.into_array()],
-        5,
-        Validity::NonNullable,
-    )?;
-
-    let outer_field = ConstantArray::new(999i32, 5);
-
-    let outer_struct = StructArray::from_fields(&[
-        ("inner_struct", inner_struct.into_array()),
-        ("outer_field", outer_field.into_array()),
-    ])?
-    .into_array();
-
-    let optimized = optimizer.optimize_array(outer_struct.clone())?;
-
-    let optimized_outer = optimized.as_opt::<StructVTable>().unwrap();
-    let inner_struct = optimized_outer.field_by_name("inner_struct")?;
-    let outer_field = optimized_outer.field_by_name("outer_field")?;
-
-    let outer_field_const = outer_field.as_constant().vortex_expect("is constant");
-    assert_eq!(
-        i32::try_from(outer_field_const)?,
-        1,
-        "outer_field at depth 1 should have child_idx=1 from parent rule"
-    );
-
-    let inner_struct_view = inner_struct.as_opt::<StructVTable>().unwrap();
-    let deep_field1 = inner_struct_view.field_by_name("deep_field1")?;
-    let deep_field2 = inner_struct_view.field_by_name("deep_field2")?;
-
-    let deep_field1_const = deep_field1.as_constant().vortex_expect("is constant");
-    let deep_field2_const = deep_field2.as_constant().vortex_expect("is constant");
-
-    assert_eq!(
-        i32::try_from(deep_field1_const)?,
-        0,
-        "deep_field1 at depth 2 should have child_idx=0 from parent rule"
-    );
-    assert_eq!(
-        i32::try_from(deep_field2_const)?,
-        1,
-        "deep_field2 at depth 2 should have child_idx=1 from parent rule"
-    );
-
     Ok(())
 }

@@ -12,13 +12,17 @@ use vortex_array::MaskFuture;
 use vortex_array::arrays::StructArray;
 use vortex_array::expr::Expression;
 use vortex_array::expr::transform::PartitionedExpr;
+use vortex_array::mask::MaskExecutor;
+use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::ArrayFuture;
+use crate::layouts::USE_VORTEX_OPERATORS;
 
 pub trait PartitionedExprEval<P> {
     fn into_mask_future(
@@ -26,12 +30,14 @@ pub trait PartitionedExprEval<P> {
         mask: MaskFuture,
         mask_fn: impl Fn(&P, &Expression, MaskFuture) -> VortexResult<MaskFuture>,
         array_fn: impl Fn(&P, &Expression, MaskFuture) -> VortexResult<ArrayFuture>,
+        session: VortexSession,
     ) -> VortexResult<MaskFuture>;
 
     fn into_array_future(
         self: Arc<Self>,
         mask: MaskFuture,
         array_fn: impl Fn(&P, &Expression, MaskFuture) -> VortexResult<ArrayFuture>,
+        session: VortexSession,
     ) -> VortexResult<ArrayFuture>;
 }
 
@@ -41,6 +47,7 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
         mask: MaskFuture,
         mask_fn: impl Fn(&P, &Expression, MaskFuture) -> VortexResult<MaskFuture>,
         array_fn: impl Fn(&P, &Expression, MaskFuture) -> VortexResult<ArrayFuture>,
+        session: VortexSession,
     ) -> VortexResult<MaskFuture> {
         // Construct evaluations for each child.
         let field_evals: Vec<_> = self
@@ -84,10 +91,16 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
             )?
             .into_array();
 
-            let root_mask = self
-                .root
-                .evaluate(&root_scope)?
-                .try_to_mask_fill_null_false()?;
+            let root_mask = if *USE_VORTEX_OPERATORS {
+                root_scope
+                    .apply(&self.root, session.arrays().optimizer())?
+                    .execute_mask(&session)?
+            } else {
+                self.root
+                    .evaluate(&root_scope)?
+                    .try_to_mask_fill_null_false()?
+            };
+
             let mask = mask.bitand(&root_mask);
 
             Ok(mask)
@@ -98,6 +111,7 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
         self: Arc<Self>,
         mask: MaskFuture,
         array_fn: impl Fn(&P, &Expression, MaskFuture) -> VortexResult<ArrayFuture>,
+        session: VortexSession,
     ) -> VortexResult<ArrayFuture> {
         // Construct evaluations for each child.
         let field_evals: Vec<_> = self
@@ -120,7 +134,11 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
             )?
             .into_array();
 
-            self.root.evaluate(&root_scope)
+            if *USE_VORTEX_OPERATORS {
+                root_scope.apply(&self.root, session.arrays().optimizer())
+            } else {
+                self.root.evaluate(&root_scope)
+            }
         }))
     }
 }

@@ -161,7 +161,7 @@ impl ComputeFnVTable for Boolean {
             return Ok(output);
         }
 
-        log::debug!(
+        tracing::debug!(
             "No boolean implementation found for LHS {}, RHS {}, and operator {:?} (or inverse)",
             rhs.encoding_id(),
             lhs.encoding_id(),

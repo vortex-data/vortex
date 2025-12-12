@@ -1,9 +1,13 @@
 name: Vortex Docs
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [develop]
-  workflow_dispatch: {}
+  workflow_dispatch: { }
 
 permissions:
   contents: read

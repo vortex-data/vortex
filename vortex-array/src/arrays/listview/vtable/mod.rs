@@ -7,17 +7,20 @@ use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_vector::Vector;
 use vortex_vector::listview::ListViewVector;
 
+use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::ListViewArray;
-use crate::execution::ExecutionCtx;
+use crate::kernel::BindCtx;
+use crate::kernel::KernelRef;
+use crate::kernel::kernel;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -140,15 +143,53 @@ impl VTable for ListViewVTable {
         ListViewArray::try_new(elements, offsets, sizes, validity)
     }
 
-    fn batch_execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        Ok(unsafe {
-            ListViewVector::new_unchecked(
-                Arc::new(array.elements().batch_execute(ctx)?),
-                array.offsets().batch_execute(ctx)?.into_primitive(),
-                array.sizes().batch_execute(ctx)?.into_primitive(),
-                array.validity_mask(),
-            )
-        }
-        .into())
+    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
+        let elements_kernel = array.elements().bind_kernel(ctx)?;
+        let offsets_kernel = array.offsets().bind_kernel(ctx)?;
+        let sizes_kernel = array.sizes().bind_kernel(ctx)?;
+        let validity_mask = array.validity_mask();
+
+        Ok(kernel(move || {
+            let elements = elements_kernel.execute()?;
+            let offsets = offsets_kernel.execute()?;
+            let sizes = sizes_kernel.execute()?;
+            Ok(unsafe {
+                ListViewVector::new_unchecked(
+                    Arc::new(elements),
+                    offsets.into_primitive(),
+                    sizes.into_primitive(),
+                    validity_mask,
+                )
+            }
+            .into())
+        }))
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() == 3 || children.len() == 4,
+            "ListViewArray expects 3 or 4 children, got {}",
+            children.len()
+        );
+
+        let mut iter = children.into_iter();
+        let elements = iter
+            .next()
+            .vortex_expect("children length already validated");
+        let offsets = iter
+            .next()
+            .vortex_expect("children length already validated");
+        let sizes = iter
+            .next()
+            .vortex_expect("children length already validated");
+        let validity = if let Some(validity_array) = iter.next() {
+            Validity::Array(validity_array)
+        } else {
+            Validity::from(array.dtype.nullability())
+        };
+
+        let new_array = ListViewArray::try_new(elements, offsets, sizes, validity)?;
+        *array = new_array;
+        Ok(())
     }
 }

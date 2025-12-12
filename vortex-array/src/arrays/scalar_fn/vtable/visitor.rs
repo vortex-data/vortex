@@ -12,8 +12,8 @@ impl VisitorVTable<ScalarFnVTable> for ScalarFnVTable {
 
     fn visit_children(array: &ScalarFnArray, visitor: &mut dyn ArrayChildVisitor) {
         for (idx, child) in array.children.iter().enumerate() {
-            let name = array.scalar_fn.signature().arg_name(idx);
-            visitor.visit_child(name.as_ref(), child.as_ref())
+            let name = array.scalar_fn.signature().child_name(idx);
+            visitor.visit_child(name.as_ref(), child)
         }
     }
 }

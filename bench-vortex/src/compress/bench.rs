@@ -22,8 +22,8 @@ use vortex::utils::aliases::hash_map::HashMap;
 use {
     super::lance::*,
     crate::bench_run::run_with_setup,
-    crate::utils::convert_utf8view_batch,
-    crate::utils::convert_utf8view_schema,
+    crate::utils::parquet::convert_utf8view_batch,
+    crate::utils::parquet::convert_utf8view_schema,
     arrow_array::RecordBatch,
     parking_lot::Mutex,
     std::fs,
