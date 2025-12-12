@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "bench-vortex",
+#    "bench-vortex",
     "encodings/*",
     "fuzz",
     "vortex",
@@ -11,7 +11,7 @@ members = [
     "vortex-cxx",
     "vortex-datafusion",
     "vortex-dtype",
-    "vortex-duckdb",
+#    "vortex-duckdb",
     "vortex-error",
     "vortex-ffi",
     "vortex-file",
@@ -339,3 +339,18 @@ lto = false
 [profile.bench_assert]
 debug-assertions = true
 inherits = "bench"
+
+[patch.crates-io]
+datafusion = { git = "https://github.com/apache/datafusion", rev = "86011519b5a" }
+datafusion-catalog = { git = "https://github.com/apache/datafusion", rev = "86011519b5a" }
+datafusion-common = { git = "https://github.com/apache/datafusion", rev = "86011519b5a" }
+datafusion-common-runtime = { git = "https://github.com/apache/datafusion", rev = "86011519b5a" }
+datafusion-datasource = { git = "https://github.com/apache/datafusion", rev = "86011519b5a" }
+datafusion-execution = { git = "https://github.com/apache/datafusion", rev = "86011519b5a" }
+datafusion-expr = { git = "https://github.com/apache/datafusion", rev = "86011519b5a" }
+datafusion-functions = { git = "https://github.com/apache/datafusion", rev = "86011519b5a" }
+datafusion-physical-expr = { git = "https://github.com/apache/datafusion", rev = "86011519b5a" }
+datafusion-physical-expr-adapter = { git = "https://github.com/apache/datafusion", rev = "86011519b5a" }
+datafusion-physical-expr-common = { git = "https://github.com/apache/datafusion", rev = "86011519b5a" }
+datafusion-physical-plan = { git = "https://github.com/apache/datafusion", rev = "86011519b5a" }
+datafusion-pruning = { git = "https://github.com/apache/datafusion", rev = "86011519b5a" }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::Weak;
@@ -9,9 +10,9 @@ use arrow_schema::ArrowError;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::SchemaRef;
-use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::arrow::array::RecordBatch;
+use datafusion_common::{DataFusionError, ScalarValue};
 use datafusion_datasource::FileRange;
 use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::TableSchema;
@@ -21,7 +22,7 @@ use datafusion_datasource::schema_adapter::SchemaAdapterFactory;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
 use datafusion_physical_expr::split_conjunction;
-use datafusion_physical_expr_adapter::PhysicalExprAdapterFactory;
+use datafusion_physical_expr_adapter::{PhysicalExprAdapterFactory, replace_columns_with_literals};
 use datafusion_physical_expr_common::physical_expr::is_dynamic_physical_expr;
 use datafusion_physical_plan::metrics::Count;
 use datafusion_pruning::FilePruner;
@@ -181,6 +182,18 @@ impl FileOpener for VortexOpener {
             .schema_adapter_factory
             .create(projected_schema, table_schema.table_schema().clone());
 
+        // Update partition column access in the filter to use literals instead
+        let partition_values: HashMap<&str, &ScalarValue> = self
+            .table_schema
+            .table_partition_cols()
+            .iter()
+            .zip(file.partition_values.iter())
+            .map(|(field, value)| (field.name().as_str(), value))
+            .collect();
+        filter = filter
+            .map(|expr| replace_columns_with_literals(expr, &partition_values))
+            .transpose()?;
+
         Ok(async move {
             // Create FilePruner when we have a predicate and either dynamic expressions
             // or file statistics available. The pruner can eliminate files without
@@ -188,23 +201,19 @@ impl FileOpener for VortexOpener {
             // - Partition column values (e.g., date=2024-01-01)
             // - File-level statistics (min/max values per column)
             let mut file_pruner = file_pruning_predicate
-                .map(|predicate| {
+                .filter(|p| {
                     // Only create pruner if we have dynamic expressions or file statistics
                     // to work with. Static predicates without stats won't benefit from pruning.
-                    Ok::<_, DataFusionError>(
-                        (is_dynamic_physical_expr(&predicate) | file.has_statistics()).then_some(
-                            FilePruner::new(
-                                predicate.clone(),
-                                table_schema.file_schema(),
-                                table_schema.table_partition_cols().clone(),
-                                file.clone(),
-                                Count::default(),
-                            )?,
-                        ),
-                    )
+                    is_dynamic_physical_expr(p) || file.has_statistics()
                 })
-                .transpose()?
-                .flatten();
+                .and_then(|predicate| {
+                    FilePruner::try_new(
+                        predicate.clone(),
+                        table_schema.file_schema(),
+                        &file,
+                        Count::default(),
+                    )
+                });
 
             // Check if this file should be pruned based on statistics/partition values.
             // Returns empty stream if file can be skipped entirely.
@@ -231,12 +240,7 @@ impl FileOpener for VortexOpener {
                 compute_logical_file_schema(&physical_file_schema, table_schema.file_schema());
 
             if let Some(expr_adapter_factory) = expr_adapter_factory {
-                let partition_values = table_schema
-                    .table_partition_cols()
-                    .iter()
-                    .cloned()
-                    .zip(file.partition_values)
-                    .collect::<Vec<_>>();
+                // Replace column access for partition columns with literals
 
                 // The adapter rewrites the expression to the local file schema, allowing
                 // for schema evolution and divergence between the table's schema and individual files.
@@ -244,7 +248,6 @@ impl FileOpener for VortexOpener {
                     .map(|filter| {
                         let expr = expr_adapter_factory
                             .create(logical_file_schema.clone(), physical_file_schema.clone())
-                            .with_partition_values(partition_values)
                             .rewrite(filter)?;
 
                         // Expression might now reference columns that don't exist in the file, so we can give it

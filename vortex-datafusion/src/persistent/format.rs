@@ -10,16 +10,16 @@ use arrow_schema::Schema;
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
 use datafusion_catalog::Session;
-use datafusion_common::ColumnStatistics;
-use datafusion_common::DataFusionError;
-use datafusion_common::GetExt;
-use datafusion_common::Result as DFResult;
-use datafusion_common::Statistics;
 use datafusion_common::config::ConfigField;
 use datafusion_common::config_namespace;
 use datafusion_common::not_impl_err;
 use datafusion_common::parsers::CompressionTypeVariant;
 use datafusion_common::stats::Precision;
+use datafusion_common::DataFusionError;
+use datafusion_common::GetExt;
+use datafusion_common::Result as DFResult;
+use datafusion_common::Statistics;
+use datafusion_common::{internal_datafusion_err, ColumnStatistics};
 use datafusion_common_runtime::SpawnedTask;
 use datafusion_datasource::file::FileSource;
 use datafusion_datasource::file_compression_type::FileCompressionType;
@@ -30,36 +30,37 @@ use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
 use datafusion_datasource::file_sink_config::FileSinkConfig;
 use datafusion_datasource::sink::DataSinkExec;
 use datafusion_datasource::source::DataSourceExec;
+use datafusion_datasource::TableSchema;
 use datafusion_expr::dml::InsertOp;
 use datafusion_physical_expr::LexRequirement;
 use datafusion_physical_plan::ExecutionPlan;
+use futures::stream;
 use futures::FutureExt;
 use futures::StreamExt as _;
 use futures::TryStreamExt as _;
-use futures::stream;
 use itertools::Itertools;
 use object_store::ObjectMeta;
 use object_store::ObjectStore;
-use vortex::VortexSessionDefault;
 use vortex::array::stats::StatsSet;
+use vortex::dtype::arrow::FromArrowType;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
-use vortex::dtype::arrow::FromArrowType;
+use vortex::error::vortex_err;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
-use vortex::error::vortex_err;
 use vortex::expr::stats;
 use vortex::expr::stats::Stat;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
+use vortex::VortexSessionDefault;
 
 use super::cache::VortexFileCache;
 use super::sink::VortexSink;
 use super::source::VortexSource;
-use crate::PrecisionExt as _;
 use crate::convert::TryToDataFusion;
+use crate::PrecisionExt as _;
 
 /// Vortex implementation of a DataFusion [`FileFormat`].
 pub struct VortexFormat {
@@ -349,10 +350,16 @@ impl FileFormat for VortexFormat {
                         .transpose()
                     });
 
+                    let uncompressed_size = stats_set.get_as::<usize>(
+                        Stat::UncompressedSizeInBytes,
+                        &DType::Primitive(PType::U64, Nullability::Nullable),
+                    );
+
                     ColumnStatistics {
                         null_count: null_count.to_df(),
                         max_value: max.to_df(),
                         min_value: min.to_df(),
+                        byte_size: uncompressed_size.to_df(),
                         sum_value: Precision::Absent,
                         distinct_count: stats_set
                             .get_as::<bool>(
@@ -386,12 +393,20 @@ impl FileFormat for VortexFormat {
         _state: &dyn Session,
         file_scan_config: FileScanConfig,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
-        let source = VortexSource::new(self.session.clone(), self.file_cache.clone());
-        let source = Arc::new(source);
+        let mut source = file_scan_config
+            .file_source()
+            .as_any()
+            .downcast_ref::<VortexSource>()
+            .cloned()
+            .ok_or_else(|| internal_datafusion_err!("Expected VortexSource"))?;
+
+        // Make sure session and file caches are attached to the source
+        source.session = self.session.clone();
+        source.file_cache = self.file_cache.clone();
 
         Ok(DataSourceExec::from_data_source(
             FileScanConfigBuilder::from(file_scan_config)
-                .with_source(source)
+                .with_source(Arc::new(source))
                 .build(),
         ))
     }
@@ -413,8 +428,9 @@ impl FileFormat for VortexFormat {
         Ok(Arc::new(DataSinkExec::new(input, sink, order_requirements)) as _)
     }
 
-    fn file_source(&self) -> Arc<dyn FileSource> {
+    fn file_source(&self, table_schema: TableSchema) -> Arc<dyn FileSource> {
         Arc::new(VortexSource::new(
+            table_schema,
             self.session.clone(),
             self.file_cache.clone(),
         ))
