@@ -7,18 +7,15 @@
 
 use std::mem::MaybeUninit;
 use std::mem::size_of;
-use std::mem::transmute;
 use std::simd;
+use std::simd::cmp::SimdPartialOrd;
 use std::simd::num::SimdUint;
 
 use multiversion::multiversion;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_dtype::NativePType;
-use vortex_dtype::PType;
 use vortex_dtype::UnsignedPType;
-use vortex_dtype::match_each_native_simd_ptype;
 use vortex_dtype::match_each_unsigned_integer_ptype;
 
 /// SIMD types larger than the SIMD register size are beneficial for
@@ -27,38 +24,49 @@ pub const SIMD_WIDTH: usize = 64;
 
 /// Takes the specified indices into a new [`Buffer`] using portable SIMD.
 ///
-/// This function handles the type matching required to satisfy `SimdElement` bounds.
-/// For `f16` values, it reinterprets them as `u16` since `f16` doesn't implement `SimdElement`.
+/// This function handles the type matching required to satisfy `SimdElement` bounds by casting
+/// to unsigned integers of the same size. Falls back to scalar implementation for unsupported
+/// type sizes.
 #[inline]
-pub fn take_portable<T: NativePType, I: UnsignedPType>(buffer: &[T], indices: &[I]) -> Buffer<T> {
-    if T::PTYPE == PType::F16 {
-        assert_eq!(size_of::<half::f16>(), size_of::<T>());
-
-        // Since Rust does not actually support 16-bit floats, we first reinterpret the data as
-        // `u16` integers.
-        // SAFETY: We know that f16 has the same bit pattern as u16, so this transmute is fine to
-        // make.
-        let u16_slice: &[u16] =
-            unsafe { std::slice::from_raw_parts(buffer.as_ptr() as *const u16, buffer.len()) };
-        return take_with_indices(u16_slice, indices).cast_into::<T>();
+pub fn take_portable<T: Copy, I: UnsignedPType>(buffer: &[T], indices: &[I]) -> Buffer<T> {
+    // SIMD gather operations only care about bit patterns, not semantic type. We cast to unsigned
+    // integers which implement `SimdElement` and then cast back.
+    //
+    // SAFETY: The pointer casts below are safe because:
+    // - `T` and the target type have the same size (matched by `size_of::<T>()`).
+    // - The alignment of unsigned integers is always <= their size, and `buffer` came from a valid
+    //   `&[T]` which guarantees proper alignment for types of the same size.
+    match size_of::<T>() {
+        1 => {
+            let buffer: &[u8] =
+                unsafe { std::slice::from_raw_parts(buffer.as_ptr() as *const u8, buffer.len()) };
+            take_with_indices(buffer, indices).cast_into::<T>()
+        }
+        2 => {
+            let buffer: &[u16] =
+                unsafe { std::slice::from_raw_parts(buffer.as_ptr() as *const u16, buffer.len()) };
+            take_with_indices(buffer, indices).cast_into::<T>()
+        }
+        4 => {
+            let buffer: &[u32] =
+                unsafe { std::slice::from_raw_parts(buffer.as_ptr() as *const u32, buffer.len()) };
+            take_with_indices(buffer, indices).cast_into::<T>()
+        }
+        8 => {
+            let buffer: &[u64] =
+                unsafe { std::slice::from_raw_parts(buffer.as_ptr() as *const u64, buffer.len()) };
+            take_with_indices(buffer, indices).cast_into::<T>()
+        }
+        // Fall back to scalar implementation for unsupported type sizes.
+        _ => super::take_scalar(buffer, indices),
     }
-
-    match_each_native_simd_ptype!(T::PTYPE, |TC| {
-        assert_eq!(size_of::<TC>(), size_of::<T>());
-
-        // SAFETY: This is essentially a no-op that tricks the compiler into adding the
-        // `simd::SimdElement` bound we need to call `take_with_indices`.
-        let buffer: &[TC] =
-            unsafe { std::slice::from_raw_parts(buffer.as_ptr() as *const TC, buffer.len()) };
-        take_with_indices(buffer, indices).cast_into::<T>()
-    })
 }
 
 /// Helper that matches on index type and calls `take_portable_simd`.
 ///
 /// We separate this code out from above to add the [`simd::SimdElement`] constraint.
 #[inline]
-fn take_with_indices<T: NativePType + simd::SimdElement, I: UnsignedPType>(
+fn take_with_indices<T: Copy + Default + simd::SimdElement, I: UnsignedPType>(
     buffer: &[T],
     indices: &[I],
 ) -> Buffer<T> {
@@ -75,10 +83,14 @@ fn take_with_indices<T: NativePType + simd::SimdElement, I: UnsignedPType>(
 /// buffer. Uses SIMD instructions to process `LANE_COUNT` indices in parallel.
 ///
 /// Returns a `Buffer<T>` where each element corresponds to `values[indices[i]]`.
+///
+/// # Panics
+///
+/// Panics if any index is out of bounds for `values`.
 #[multiversion(targets("x86_64+avx2", "x86_64+avx", "aarch64+neon"))]
 pub fn take_portable_simd<T, I, const LANE_COUNT: usize>(values: &[T], indices: &[I]) -> Buffer<T>
 where
-    T: NativePType + simd::SimdElement,
+    T: Copy + Default + simd::SimdElement,
     I: UnsignedPType + simd::SimdElement,
     simd::LaneCount<LANE_COUNT>: simd::SupportedLaneCount,
     simd::Simd<I, LANE_COUNT>: SimdUint<Cast<usize> = simd::Simd<usize, LANE_COUNT>>,
@@ -92,27 +104,57 @@ where
 
     let buf_slice = buffer.spare_capacity_mut();
 
+    // Set up a vector that we can SIMD compare against for out-of-bounds indices.
+    let len_vec = simd::Simd::<usize, LANE_COUNT>::splat(values.len());
+    let mut all_valid = simd::Mask::<isize, LANE_COUNT>::splat(true);
+
     for chunk_idx in 0..(indices_len / LANE_COUNT) {
         let offset = chunk_idx * LANE_COUNT;
-        let mask = simd::Mask::from_bitmask(u64::MAX);
         let codes_chunk = simd::Simd::<I, LANE_COUNT>::from_slice(&indices[offset..]);
+        let codes_usize = codes_chunk.cast::<usize>();
 
-        let selection = simd::Simd::gather_select(
-            values,
-            mask,
-            codes_chunk.cast::<usize>(),
-            simd::Simd::<T, LANE_COUNT>::default(),
-        );
+        // Accumulate validity and use as gather mask. An out-of-bounds index will turn a bit off.
+        all_valid &= codes_usize.simd_lt(len_vec);
 
+        // SAFETY: We use `all_valid` to mask the gather, preventing OOB memory access. If any
+        // index is OOB, `all_valid` will have those bits turned off, masking out the invalid
+        // indices.
+        // Note that this may also mask out valid indices in subsequent iterations. This is fine
+        // because we will panic after the loop if **any** index was OOB, so we do not care if the
+        // resulting gathered data is correct or not.
+        let selection = unsafe {
+            simd::Simd::gather_select_unchecked(
+                values,
+                all_valid,
+                codes_usize,
+                simd::Simd::<T, LANE_COUNT>::default(),
+            )
+        };
+
+        // SAFETY: `MaybeUninit<T>` has the same layout as `T`, and we are about to initialize these
+        // elements with the store.
+        let uninit = unsafe {
+            std::mem::transmute::<&mut [MaybeUninit<T>], &mut [T]>(
+                &mut buf_slice[offset..][..LANE_COUNT],
+            )
+        };
+
+        // SAFETY: The slice `buf_slice[offset..][..LANE_COUNT]` is guaranteed to have exactly
+        // `LANE_COUNT` elements since `offset` is a multiple of `LANE_COUNT` and we only iterate
+        // while `offset + LANE_COUNT <= indices_len`.
         unsafe {
-            selection.store_select_unchecked(
-                transmute::<&mut [MaybeUninit<T>], &mut [T]>(&mut buf_slice[offset..][..64]),
-                mask.cast(),
-            );
+            selection.store_select_unchecked(uninit, simd::Mask::splat(true));
         }
     }
 
+    // Check accumulated validity after hot loop. If there are any 0's, then there was an
+    // out-of-bounds index.
+    assert!(all_valid.all(), "index out of bounds in SIMD take");
+
+    // Fall back to scalar iteration for the remainder.
     for idx in ((indices_len / LANE_COUNT) * LANE_COUNT)..indices_len {
+        // SAFETY: `idx` is in bounds for `buf_slice` since `idx < indices_len == buf_slice.len()`.
+        // Note that the `values[...]` access is already bounds-checked and will panic if OOB.
         unsafe {
             buf_slice
                 .get_unchecked_mut(idx)
@@ -120,24 +162,25 @@ where
         }
     }
 
-    unsafe {
-        buffer.set_len(indices_len);
-    }
+    // SAFETY: All elements have been initialized: the SIMD loop handles `0..chunks * LANE_COUNT`
+    // and the scalar loop handles the remainder up to `indices_len`.
+    unsafe { buffer.set_len(indices_len) };
 
     buffer.freeze()
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
 mod tests {
     use super::take_portable_simd;
 
     #[test]
+    #[should_panic(expected = "index out of bounds")]
     fn test_take_out_of_bounds() {
         let indices = vec![2_000_000u32; 64];
         let values = vec![1i32];
 
-        let result = take_portable_simd::<i32, u32, 64>(&values, &indices);
-        assert_eq!(result.as_slice(), [0i32; 64]);
+        drop(take_portable_simd::<i32, u32, 64>(&values, &indices));
     }
 
     /// Tests SIMD gather with a mix of sequential, strided, and repeated indices. This exercises
@@ -159,7 +202,7 @@ mod tests {
         // Strided by 4: 0, 4, 8, ..., 252.
         indices.extend((0u32..64).map(|i| i * 4));
         // Repeated: index 42 repeated 32 times.
-        indices.extend(std::iter::repeat(42u32).take(32));
+        indices.extend(std::iter::repeat_n(42u32, 32));
         // Reverse: 255, 254, ..., 216.
         indices.extend((216u32..256).rev());
 

@@ -17,13 +17,14 @@ impl<T: Copy, I: UnsignedPType> Take<[I]> for &[T] {
     type Output = Buffer<T>;
 
     fn take(self, indices: &[I]) -> Buffer<T> {
-        // TODO(connor): Make the SIMD implementations bound by `Copy` instead of `NativePType`.
-        /*
-
         #[cfg(vortex_nightly)]
         {
             return portable::take_portable(self, indices);
         }
+
+        // TODO(connor): Make the SIMD implementations bound by `Copy` instead of `NativePType`.
+
+        /*
 
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         {
@@ -40,10 +41,6 @@ impl<T: Copy, I: UnsignedPType> Take<[I]> for &[T] {
     }
 }
 
-#[allow(
-    unused,
-    reason = "Compiler may see this as unused based on enabled features"
-)]
 fn take_scalar<T: Copy, I: UnsignedPType>(buffer: &[T], indices: &[I]) -> Buffer<T> {
     // NB: The simpler `indices.iter().map(|idx| buff1er[idx.as_()]).collect()` generates suboptimal
     // assembly where the buffer length is repeatedly loaded from the stack on each iteration.

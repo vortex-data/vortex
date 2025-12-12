@@ -120,7 +120,6 @@ fn test_null_vector_take() {
     assert!(result.validity().all_false());
 }
 
-#[ignore = "TODO(connor): Implement `DecimalVector::take`."]
 #[test]
 fn test_dvector_take() {
     use vortex_buffer::buffer;
@@ -154,7 +153,6 @@ fn test_dvector_take() {
     assert_eq!(validity, vec![true, false, true, false]);
 }
 
-#[ignore = "TODO(connor): Implement `DecimalVector::take`."]
 #[test]
 fn test_decimal_vector_take() {
     use vortex_buffer::buffer;
