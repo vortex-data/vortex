@@ -568,12 +568,7 @@ mod tests {
         assert_eq!(v1, v3, "Invalid list's elements should be ignored");
 
         // Element at position 0 is used by valid list 0 - should NOT be equal
-        let v4 = make_listview(
-            vec![99, 2, 3, 4, 5],
-            vec![0, 2, 3],
-            vec![2, 1, 2],
-            validity,
-        );
+        let v4 = make_listview(vec![99, 2, 3, 4, 5], vec![0, 2, 3], vec![2, 1, 2], validity);
         assert_ne!(v1, v4, "Valid list's elements must match");
     }
 
