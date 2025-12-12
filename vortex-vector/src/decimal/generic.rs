@@ -73,13 +73,13 @@ impl<D: NativeDecimalType> DVector<D> {
         }
 
         // We assert that each element is within bounds for the given precision/scale.
-        // if !elements.iter().all(|e| ps.is_valid(*e)) {
-        //     vortex_bail!(
-        //         "One or more elements are out of bounds for precision {} and scale {}",
-        //         ps.precision(),
-        //         ps.scale()
-        //     );
-        // }
+        if !elements.iter().all(|e| ps.is_valid(*e)) {
+            vortex_bail!(
+                "One or more elements are out of bounds for precision {} and scale {}",
+                ps.precision(),
+                ps.scale()
+            );
+        }
 
         Ok(Self {
             ps,
