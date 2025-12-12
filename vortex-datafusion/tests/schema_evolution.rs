@@ -335,7 +335,7 @@ async fn test_filter_schema_evolution_struct_fields() {
     let table = ListingTable::try_new(
         ListingTableConfig::new(table_url)
             .with_listing_options(list_opts)
-            .with_schema(read_schema.clone()),
+            .with_schema(read_schema.clone()), // .with_expr_adapter_factory(Arc::new(DF52PhysicalExprAdapterFactory)),
     )
     .unwrap();
 

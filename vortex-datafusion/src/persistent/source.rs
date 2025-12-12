@@ -17,7 +17,6 @@ use datafusion_datasource::schema_adapter::DefaultSchemaAdapterFactory;
 use datafusion_datasource::schema_adapter::SchemaAdapterFactory;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::conjunction;
-use datafusion_physical_expr_adapter::DefaultPhysicalExprAdapterFactory;
 use datafusion_physical_expr_adapter::PhysicalExprAdapterFactory;
 use datafusion_physical_expr_common::physical_expr::fmt_sql;
 use datafusion_physical_plan::DisplayFormatType;
@@ -39,6 +38,7 @@ use super::cache::VortexFileCache;
 use super::metrics::PARTITION_LABEL;
 use super::opener::VortexOpener;
 use crate::convert::exprs::can_be_pushed_down;
+use crate::vendor::schema_rewriter::DF52PhysicalExprAdapterFactory;
 
 /// Execution plan for reading one or more Vortex files, intended to be consumed by [`DataSourceExec`].
 ///
@@ -81,19 +81,6 @@ impl VortexSource {
             layout_readers: Arc::new(DashMap::default()),
         }
     }
-
-    /// Sets a [`PhysicalExprAdapterFactory`] for the [`VortexSource`].
-    /// Currently, this must be provided in order to filter columns in files that have a different data type from the unified table schema.
-    ///
-    /// This factory will take precedence when opening files over instances provided by the [`FileScanConfig`].
-    pub fn with_expr_adapter_factory(
-        &self,
-        expr_adapter_factory: Arc<dyn PhysicalExprAdapterFactory>,
-    ) -> Arc<dyn FileSource> {
-        let mut source = self.clone();
-        source.expr_adapter_factory = Some(expr_adapter_factory);
-        Arc::new(source)
-    }
 }
 
 impl FileSource for VortexSource {
@@ -116,6 +103,13 @@ impl FileSource for VortexSource {
             .expr_adapter_factory
             .as_ref()
             .or(base_config.expr_adapter_factory.as_ref());
+
+        if expr_adapter.is_some() {
+            tracing::warn!(
+                "Schema evolution with VortexSource may not work as expected if you override the adapter."
+            );
+        }
+
         let schema_adapter = self.schema_adapter_factory.as_ref();
 
         // This match is here to support the behavior defined by [`ListingTable`], see https://github.com/apache/datafusion/issues/16800 for more details.
@@ -132,7 +126,7 @@ impl FileSource for VortexSource {
                 (None, schema_adapter.clone())
             }
             (None, None) => (
-                Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _),
+                Some(Arc::new(DF52PhysicalExprAdapterFactory) as _),
                 Arc::new(DefaultSchemaAdapterFactory) as _,
             ),
         };

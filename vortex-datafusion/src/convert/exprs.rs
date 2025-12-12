@@ -312,14 +312,10 @@ mod tests {
 
     use arrow_schema::DataType;
     use arrow_schema::Field;
-    use arrow_schema::Fields;
     use arrow_schema::Schema;
     use arrow_schema::TimeUnit as ArrowTimeUnit;
-    use datafusion::functions::core::getfield::GetFieldFunc;
     use datafusion_common::ScalarValue;
-    use datafusion_common::config::ConfigOptions;
     use datafusion_expr::Operator as DFOperator;
-    use datafusion_expr::ScalarUDF;
     use datafusion_physical_expr::PhysicalExpr;
     use datafusion_physical_plan::expressions as df_expr;
     use insta::assert_snapshot;
@@ -619,56 +615,5 @@ mod tests {
             Arc::new(df_expr::LikeExpr::new(false, false, expr, pattern)) as Arc<dyn PhysicalExpr>;
 
         assert!(!can_be_pushed_down(&like_expr, &test_schema));
-    }
-
-    #[test]
-    fn test_expr_from_df_get_field() {
-        let struct_col = Arc::new(df_expr::Column::new("my_struct", 0)) as Arc<dyn PhysicalExpr>;
-        let field_name = Arc::new(df_expr::Literal::new(ScalarValue::Utf8(Some(
-            "field1".to_string(),
-        )))) as Arc<dyn PhysicalExpr>;
-        let get_field_expr = ScalarFunctionExpr::new(
-            "get_field",
-            Arc::new(ScalarUDF::from(GetFieldFunc::new())),
-            vec![struct_col, field_name],
-            Arc::new(Field::new("field1", DataType::Utf8, true)),
-            Arc::new(ConfigOptions::new()),
-        );
-        let result = Expression::try_from_df(&get_field_expr).unwrap();
-        assert_snapshot!(result.display_tree().to_string(), @r"
-        vortex.get_item(field1)
-        └── input: vortex.get_item(my_struct)
-            └── input: vortex.root()
-        ");
-    }
-
-    #[rstest]
-    #[case::valid_field("field1", true)]
-    #[case::missing_field("nonexistent_field", false)]
-    fn test_can_be_pushed_down_get_field(#[case] field_name: &str, #[case] expected: bool) {
-        let struct_fields = Fields::from(vec![
-            Field::new("field1", DataType::Utf8, true),
-            Field::new("field2", DataType::Int32, true),
-        ]);
-        let schema = Schema::new(vec![Field::new(
-            "my_struct",
-            DataType::Struct(struct_fields),
-            true,
-        )]);
-
-        let struct_col = Arc::new(df_expr::Column::new("my_struct", 0)) as Arc<dyn PhysicalExpr>;
-        let field_name_lit = Arc::new(df_expr::Literal::new(ScalarValue::Utf8(Some(
-            field_name.to_string(),
-        )))) as Arc<dyn PhysicalExpr>;
-
-        let get_field_expr = Arc::new(ScalarFunctionExpr::new(
-            "get_field",
-            Arc::new(ScalarUDF::from(GetFieldFunc::new())),
-            vec![struct_col, field_name_lit],
-            Arc::new(Field::new(field_name, DataType::Utf8, true)),
-            Arc::new(ConfigOptions::new()),
-        )) as Arc<dyn PhysicalExpr>;
-
-        assert_eq!(can_be_pushed_down(&get_field_expr, &schema), expected);
     }
 }

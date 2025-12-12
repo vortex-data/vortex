@@ -10,6 +10,7 @@ use vortex::expr::stats::Precision;
 
 mod convert;
 mod persistent;
+pub mod vendor;
 
 pub use persistent::*;
 
