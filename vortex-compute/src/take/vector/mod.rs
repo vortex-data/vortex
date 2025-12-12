@@ -13,6 +13,9 @@ use crate::take::Take;
 mod binaryview;
 mod bool;
 mod decimal;
+
+pub use self::bool::default_take;
+pub use self::bool::optimized_take;
 mod dvector;
 mod fixed_size_list;
 mod listview;

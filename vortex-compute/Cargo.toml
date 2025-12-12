@@ -49,3 +49,7 @@ harness = false
 [[bench]]
 name = "expand_buffer"
 harness = false
+
+[[bench]]
+name = "bool_take"
+harness = false

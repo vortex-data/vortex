@@ -59,7 +59,7 @@ impl<I: UnsignedPType> Take<[I]> for &BoolVector {
 }
 
 /// Default element-wise take from a slice of indices.
-fn default_take<I: UnsignedPType>(values: &BoolVector, indices: &[I]) -> BoolVector {
+pub fn default_take<I: UnsignedPType>(values: &BoolVector, indices: &[I]) -> BoolVector {
     let taken_bits = values.bits().take(indices);
     let taken_validity = values.validity().take(indices);
 
@@ -123,7 +123,7 @@ fn broadcast_index_comparison<I: UnsignedPType>(indices: &[I], target: usize) ->
 ///
 /// The `compute_validity` closure computes the output validity mask, allowing callers to handle
 /// nullable vs non-nullable indices differently.
-fn optimized_take<I: UnsignedPType>(
+pub fn optimized_take<I: UnsignedPType>(
     values: &BoolVector,
     indices: &[I],
     compute_validity: impl FnOnce() -> Mask,
