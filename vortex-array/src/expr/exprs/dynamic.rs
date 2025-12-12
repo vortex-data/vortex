@@ -120,21 +120,15 @@ impl VTable for DynamicComparison {
     }
 
     fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
-        let [lhs]: [Datum; _] = args
-            .datums
-            .try_into()
-            .map_err(|_| vortex_error::vortex_err!("Wrong arg count for DynamicComparison"))?;
-
         if let Some(scalar) = data.rhs.scalar() {
-            // Convert the vortex_scalar::Scalar to vortex_vector::Scalar
+            let [lhs]: [Datum; _] = args
+                .datums
+                .try_into()
+                .map_err(|_| vortex_error::vortex_err!("Wrong arg count for DynamicComparison"))?;
             let rhs_vector_scalar = scalar.to_vector_scalar();
             let rhs = Datum::Scalar(rhs_vector_scalar);
 
-            // Convert compute::Operator to expr::Operator
-            let expr_op: ExprOperator = data.operator.into();
-
-            // Use Binary to execute the comparison
-            return Binary.bind(expr_op).execute(ExecutionArgs {
+            return Binary.bind(data.operator.into()).execute(ExecutionArgs {
                 datums: vec![lhs, rhs],
                 dtypes: args.dtypes,
                 row_count: args.row_count,
@@ -142,7 +136,6 @@ impl VTable for DynamicComparison {
             });
         }
 
-        // Otherwise, return the default value
         Ok(Datum::Scalar(VectorScalar::Bool(BoolScalar::new(Some(
             data.default,
         )))))
