@@ -34,8 +34,10 @@ use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 vtable!(DateTimeParts);
@@ -141,6 +143,21 @@ impl VTable for DateTimePartsVTable {
         )?;
 
         DateTimePartsArray::try_new(dtype.clone(), days, seconds, subseconds)
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() == 3,
+            "DateTimePartsArray expects exactly 3 children (days, seconds, subseconds), got {}",
+            children.len()
+        );
+
+        let mut children_iter = children.into_iter();
+        array.days = children_iter.next().vortex_expect("checked");
+        array.seconds = children_iter.next().vortex_expect("checked");
+        array.subseconds = children_iter.next().vortex_expect("checked");
+
+        Ok(())
     }
 }
 

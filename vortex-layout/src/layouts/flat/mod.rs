@@ -84,12 +84,13 @@ impl VTable for FlatVTable {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(FlatReader::new(
             layout.clone(),
             name,
             segment_source,
+            session.clone(),
         )))
     }
 
@@ -130,6 +131,13 @@ impl VTable for FlatVTable {
                 .as_ref()
                 .map(|v| ByteBuffer::from(v.clone())),
         ))
+    }
+
+    fn with_children(_layout: &mut Self::Layout, children: Vec<LayoutRef>) -> VortexResult<()> {
+        if !children.is_empty() {
+            vortex_bail!("Flat layout has no children, got {}", children.len());
+        }
+        Ok(())
     }
 }
 

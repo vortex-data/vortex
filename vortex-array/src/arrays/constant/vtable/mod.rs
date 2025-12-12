@@ -1,19 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Debug;
+
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
+use vortex_vector::ScalarOps;
 use vortex_vector::Vector;
 use vortex_vector::VectorMutOps;
 
+use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::arrays::ConstantArray;
-use crate::arrays::constant::vector::to_vector;
-use crate::execution::ExecutionCtx;
+use crate::kernel::BindCtx;
+use crate::kernel::Kernel;
+use crate::kernel::KernelRef;
+use crate::kernel::PushDownResult;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
@@ -85,7 +93,39 @@ impl VTable for ConstantVTable {
         Ok(ConstantArray::new(scalar, len))
     }
 
-    fn batch_execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        Ok(to_vector(array.scalar().clone(), array.len()).freeze())
+    fn bind_kernel(array: &Self::Array, _ctx: &mut BindCtx) -> VortexResult<KernelRef> {
+        Ok(Box::new(ConstantKernel {
+            value: array.scalar.to_vector_scalar(),
+            len: array.len,
+        }))
+    }
+
+    fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.is_empty(),
+            "ConstantArray has no children, got {}",
+            children.len()
+        );
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+struct ConstantKernel {
+    value: vortex_vector::Scalar,
+    len: usize,
+}
+
+impl Kernel for ConstantKernel {
+    fn execute(self: Box<Self>) -> VortexResult<Vector> {
+        Ok(self.value.repeat(self.len).freeze())
+    }
+
+    fn push_down_filter(self: Box<Self>, selection: &Mask) -> VortexResult<PushDownResult> {
+        vortex_ensure!(self.len == selection.len());
+        Ok(PushDownResult::Pushed(Box::new(ConstantKernel {
+            value: self.value,
+            len: selection.true_count(),
+        })))
     }
 }

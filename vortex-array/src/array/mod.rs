@@ -17,14 +17,10 @@ use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
-use vortex_session::VortexSession;
-use vortex_vector::Vector;
-use vortex_vector::VectorOps;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -34,7 +30,9 @@ use crate::DynArrayHash;
 use crate::arrays::BoolVTable;
 use crate::arrays::ConstantVTable;
 use crate::arrays::DecimalVTable;
+use crate::arrays::DictArray;
 use crate::arrays::ExtensionVTable;
+use crate::arrays::FilterArray;
 use crate::arrays::FixedSizeListVTable;
 use crate::arrays::ListViewVTable;
 use crate::arrays::NullVTable;
@@ -49,12 +47,13 @@ use crate::compute::InvocationArgs;
 use crate::compute::IsConstantOpts;
 use crate::compute::Output;
 use crate::compute::is_constant_opts;
-use crate::execution::ExecutionCtx;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
 use crate::hash;
-use crate::serde::ArrayChildren;
+use crate::kernel::BindCtx;
+use crate::kernel::KernelRef;
+use crate::kernel::ValidateKernel;
 use crate::stats::StatsSetRef;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
@@ -95,6 +94,12 @@ pub trait Array:
 
     /// Performs a constant-time slice of the array.
     fn slice(&self, range: Range<usize>) -> ArrayRef;
+
+    /// Wraps the array in a [`FilterArray`] such that it is logically filtered by the given mask.
+    fn filter(&self, mask: Mask) -> VortexResult<ArrayRef>;
+
+    /// Wraps the array in a [`DictArray`] such that it is logically taken by the given indices.
+    fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef>;
 
     /// Fetch the scalar at the given index.
     ///
@@ -168,7 +173,7 @@ pub trait Array:
     fn statistics(&self) -> StatsSetRef<'_>;
 
     /// Replaces the children of the array with the given array references.
-    fn with_children(&self, children: &[ArrayRef]) -> VortexResult<ArrayRef>;
+    fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
 
     /// Optionally invoke a kernel for the given compute function.
     ///
@@ -190,7 +195,7 @@ pub trait Array:
     -> VortexResult<Option<Output>>;
 
     /// Invoke the batch execution function for the array to produce a canonical vector.
-    fn batch_execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector>;
+    fn bind_kernel(&self, ctx: &mut BindCtx) -> VortexResult<KernelRef>;
 }
 
 impl Array for Arc<dyn Array> {
@@ -227,6 +232,14 @@ impl Array for Arc<dyn Array> {
     #[inline]
     fn slice(&self, range: Range<usize>) -> ArrayRef {
         self.as_ref().slice(range)
+    }
+
+    fn filter(&self, mask: Mask) -> VortexResult<ArrayRef> {
+        self.as_ref().filter(mask)
+    }
+
+    fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
+        self.as_ref().take(indices)
     }
 
     #[inline]
@@ -281,8 +294,7 @@ impl Array for Arc<dyn Array> {
         self.as_ref().statistics()
     }
 
-    // TODO(ngates): take a Vec<ArrayRef> to avoid clones
-    fn with_children(&self, children: &[ArrayRef]) -> VortexResult<ArrayRef> {
+    fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
         self.as_ref().with_children(children)
     }
 
@@ -294,8 +306,8 @@ impl Array for Arc<dyn Array> {
         self.as_ref().invoke(compute_fn, args)
     }
 
-    fn batch_execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        self.as_ref().batch_execute(ctx)
+    fn bind_kernel(&self, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
+        self.as_ref().bind_kernel(ctx)
     }
 }
 
@@ -361,14 +373,6 @@ impl dyn Array + '_ {
             }
         }
         nbytes
-    }
-
-    /// Execute the array and return the resulting vector.
-    ///
-    /// This entry-point function will choose an appropriate CPU-based execution strategy.
-    pub fn execute(&self, session: &VortexSession) -> VortexResult<Vector> {
-        let mut ctx = ExecutionCtx::new(session.clone());
-        self.batch_execute(&mut ctx)
     }
 }
 
@@ -506,6 +510,15 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         sliced
     }
 
+    fn filter(&self, mask: Mask) -> VortexResult<ArrayRef> {
+        vortex_ensure!(self.len() == mask.len(), "Filter mask length mismatch");
+        Ok(FilterArray::new(self.to_array(), mask).into_array())
+    }
+
+    fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
+        Ok(DictArray::try_new(indices, self.to_array())?.into_array())
+    }
+
     fn scalar_at(&self, index: usize) -> Scalar {
         assert!(index < self.len(), "index {index} out of bounds");
         if self.is_invalid(index) {
@@ -621,42 +634,8 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         <V::ArrayVTable as BaseArrayVTable<V>>::stats(&self.0)
     }
 
-    fn with_children(&self, children: &[ArrayRef]) -> VortexResult<ArrayRef> {
-        struct ReplacementChildren<'a> {
-            children: &'a [ArrayRef],
-        }
-
-        impl ArrayChildren for ReplacementChildren<'_> {
-            fn get(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<ArrayRef> {
-                if index >= self.children.len() {
-                    vortex_bail!(OutOfBounds: index, 0, self.children.len());
-                }
-                let child = &self.children[index];
-                if child.len() != len {
-                    vortex_bail!(
-                        "Child length mismatch: expected {}, got {}",
-                        len,
-                        child.len()
-                    );
-                }
-                if child.dtype() != dtype {
-                    vortex_bail!(
-                        "Child dtype mismatch: expected {}, got {}",
-                        dtype,
-                        child.dtype()
-                    );
-                }
-                Ok(child.clone())
-            }
-
-            fn len(&self) -> usize {
-                self.children.len()
-            }
-        }
-
-        // Replace the children of the array by re-building the array from parts.
-        self.encoding()
-            .with_children(self, &ReplacementChildren { children })
+    fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
+        self.encoding().with_children(self, children)
     }
 
     fn invoke(
@@ -667,18 +646,17 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         <V::ComputeVTable as ComputeVTable<V>>::invoke(&self.0, compute_fn, args)
     }
 
-    fn batch_execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        let result = V::batch_execute(&self.0, ctx)?;
-
-        // This check is so cheap we always run it. Whereas DType checks we only do in debug builds.
-        vortex_ensure!(result.len() == self.len(), "Result length mismatch");
-        #[cfg(debug_assertions)]
-        vortex_ensure!(
-            vortex_vector::vector_matches_dtype(&result, self.dtype()),
-            "Executed vector dtype mismatch",
-        );
-
-        Ok(result)
+    fn bind_kernel(&self, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
+        let kernel = V::bind_kernel(&self.0, ctx)?;
+        if cfg!(debug_assertions) {
+            Ok(Box::new(ValidateKernel::new(
+                kernel,
+                self.dtype().clone(),
+                self.len(),
+            )))
+        } else {
+            Ok(kernel)
+        }
     }
 }
 

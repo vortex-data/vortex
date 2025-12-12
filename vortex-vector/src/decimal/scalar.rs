@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_dtype::DecimalDType;
+use vortex_dtype::DecimalType;
+use vortex_dtype::DecimalTypeDowncast;
 use vortex_dtype::DecimalTypeUpcast;
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::PrecisionScale;
 use vortex_dtype::i256;
+use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexExpect;
+use vortex_error::vortex_panic;
 
 use crate::Scalar;
 use crate::ScalarOps;
@@ -53,6 +58,22 @@ impl DecimalScalar {
             DecimalScalar::D128(v) => v.ps.scale(),
             DecimalScalar::D256(v) => v.ps.scale(),
         }
+    }
+
+    /// Creates a zero decimal scalar of the given [`DecimalDType`].
+    pub fn zero(decimal_dtype: &DecimalDType) -> Self {
+        let decimal_type = DecimalType::smallest_decimal_value_type(decimal_dtype);
+        match_each_decimal_value_type!(decimal_type, |D| {
+            DScalar::<D>::zero(decimal_dtype).into()
+        })
+    }
+
+    /// Creates a null decimal scalar of the given [`DecimalDType`].
+    pub fn null(decimal_dtype: &DecimalDType) -> Self {
+        let decimal_type = DecimalType::smallest_decimal_value_type(decimal_dtype);
+        match_each_decimal_value_type!(decimal_type, |D| {
+            DScalar::<D>::null(decimal_dtype).into()
+        })
     }
 }
 
@@ -133,6 +154,20 @@ impl<D: NativeDecimalType> DScalar<D> {
     pub fn value(&self) -> Option<D> {
         self.value
     }
+
+    /// Creates a zero decimal scalar of the given [`DecimalDType`].
+    pub fn zero(decimal_dtype: &DecimalDType) -> Self {
+        let ps = PrecisionScale::<D>::new(decimal_dtype.precision(), decimal_dtype.scale());
+        // SAFETY: Zero (default) is always valid for any precision/scale.
+        unsafe { DScalar::<D>::new_unchecked(ps, Some(D::default())) }
+    }
+
+    /// Creates a null decimal scalar of the given [`DecimalDType`].
+    pub fn null(decimal_dtype: &DecimalDType) -> Self {
+        let ps = PrecisionScale::<D>::new(decimal_dtype.precision(), decimal_dtype.scale());
+        // SAFETY: None is always valid for any precision/scale.
+        unsafe { DScalar::<D>::new_unchecked(ps, None) }
+    }
 }
 
 impl<D: NativeDecimalType> ScalarOps for DScalar<D> {
@@ -193,5 +228,51 @@ impl DecimalTypeUpcast for DecimalScalar {
 
     fn from_i256(input: Self::Input<i256>) -> Self {
         DecimalScalar::D256(input)
+    }
+}
+
+impl DecimalTypeDowncast for DecimalScalar {
+    type Output<T: NativeDecimalType> = DScalar<T>;
+
+    fn into_i8(self) -> Self::Output<i8> {
+        if let Self::D8(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected DecimalScalar::D8, got {self:?}");
+    }
+
+    fn into_i16(self) -> Self::Output<i16> {
+        if let Self::D16(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected DecimalScalar::D16, got {self:?}");
+    }
+
+    fn into_i32(self) -> Self::Output<i32> {
+        if let Self::D32(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected DecimalScalar::D32, got {self:?}");
+    }
+
+    fn into_i64(self) -> Self::Output<i64> {
+        if let Self::D64(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected DecimalScalar::D64, got {self:?}");
+    }
+
+    fn into_i128(self) -> Self::Output<i128> {
+        if let Self::D128(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected DecimalScalar::D128, got {self:?}");
+    }
+
+    fn into_i256(self) -> Self::Output<i256> {
+        if let Self::D256(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected DecimalScalar::D256, got {self:?}");
     }
 }

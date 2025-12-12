@@ -7,10 +7,12 @@ use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use super::DictArray;
 use super::DictMetadata;
+use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
@@ -107,5 +109,19 @@ impl VTable for DictVTable {
         Ok(unsafe {
             DictArray::new_unchecked(codes, values).set_all_values_referenced(all_values_referenced)
         })
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() == 2,
+            "DictArray expects exactly 2 children (codes, values), got {}",
+            children.len()
+        );
+        let [codes, values]: [ArrayRef; 2] = children
+            .try_into()
+            .map_err(|_| vortex_err!("Failed to convert children to array"))?;
+        array.codes = codes;
+        array.values = values;
+        Ok(())
     }
 }

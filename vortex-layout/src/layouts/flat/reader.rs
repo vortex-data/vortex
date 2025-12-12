@@ -13,7 +13,8 @@ use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
 use vortex_array::compute::filter;
 use vortex_array::expr::Expression;
-use vortex_array::expr::is_root;
+use vortex_array::expr::Root;
+use vortex_array::mask::MaskExecutor;
 use vortex_array::serde::ArrayParts;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
@@ -21,9 +22,11 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::VortexUnwrap as _;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
 use crate::LayoutReader;
 use crate::layouts::SharedArrayFuture;
+use crate::layouts::USE_VORTEX_OPERATORS;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentSource;
 
@@ -38,6 +41,7 @@ pub struct FlatReader {
     layout: FlatLayout,
     name: Arc<str>,
     segment_source: Arc<dyn SegmentSource>,
+    session: VortexSession,
 }
 
 impl FlatReader {
@@ -45,11 +49,13 @@ impl FlatReader {
         layout: FlatLayout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        session: VortexSession,
     ) -> Self {
         Self {
             layout,
             name,
             segment_source,
+            session,
         }
     }
 
@@ -126,6 +132,7 @@ impl LayoutReader for FlatReader {
         let name = self.name.clone();
         let array = self.array_future();
         let expr = expr.clone();
+        let session = self.session.clone();
 
         Ok(MaskFuture::new(mask.len(), async move {
             // TODO(ngates): if the mask density is low enough, or if the mask is dense within a range
@@ -139,29 +146,39 @@ impl LayoutReader for FlatReader {
                 array = array.slice(row_range.clone());
             }
 
-            // TODO(ngates): the mask may actually be dense within a range, as is often the case when
-            //  we have approximate mask results from a zone map. In which case we could look at
-            //  the true_count between the mask's first and last true positions.
-            // TODO(ngates): we could also track runtime statistics about whether it's worth selecting
-            //   or not.
-            let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
-                // Evaluate only the selected rows of the mask.
-                array = filter(&array, &mask)?;
-                // TODO(joe): fixme casting null to false is *VERY* unsound, if the expression in the filter
-                // can inspect nulls (e.g. `is_null`).
-                // you will need to call the array evaluation instead of the mask evaluation.
-                let array_mask = expr
-                    .evaluate(&array)
-                    .map_err(|err| err.with_context(format!("While evaluating filter {}", expr)))?
-                    .try_to_mask_fill_null_false()?;
-                mask.intersect_by_rank(&array_mask)
-            } else {
-                // Evaluate all rows, avoiding the more expensive rank intersection.
-                array = expr
-                    .evaluate(&array)
-                    .map_err(|err| err.with_context(format!("While evaluating filter {}", expr)))?;
-                let array_mask = array.try_to_mask_fill_null_false()?;
+            let array_mask = if *USE_VORTEX_OPERATORS {
+                // Apply the expression to the array.
+                let array = array.apply(&expr)?;
+                // Evaluate the array into a mask.
+                let array_mask = array.execute_mask_optimized(&session)?;
                 mask.bitand(&array_mask)
+            } else {
+                // TODO(ngates): the mask may actually be dense within a range, as is often the case when
+                //  we have approximate mask results from a zone map. In which case we could look at
+                //  the true_count between the mask's first and last true positions.
+                // TODO(ngates): we could also track runtime statistics about whether it's worth selecting
+                //   or not.
+                if mask.density() < EXPR_EVAL_THRESHOLD {
+                    // Evaluate only the selected rows of the mask.
+                    array = filter(&array, &mask)?;
+                    // TODO(joe): fixme casting null to false is *VERY* unsound, if the expression in the filter
+                    // can inspect nulls (e.g. `is_null`).
+                    // you will need to call the array evaluation instead of the mask evaluation.
+                    let array_mask = expr
+                        .evaluate(&array)
+                        .map_err(|err| {
+                            err.with_context(format!("While evaluating filter {}", expr))
+                        })?
+                        .try_to_mask_fill_null_false()?;
+                    mask.intersect_by_rank(&array_mask)
+                } else {
+                    // Evaluate all rows, avoiding the more expensive rank intersection.
+                    array = expr.evaluate(&array).map_err(|err| {
+                        err.with_context(format!("While evaluating filter {}", expr))
+                    })?;
+                    let array_mask = array.try_to_mask_fill_null_false()?;
+                    mask.bitand(&array_mask)
+                }
             };
 
             tracing::debug!(
@@ -201,19 +218,30 @@ impl LayoutReader for FlatReader {
                 array = array.slice(row_range.clone());
             }
 
-            // Filter the array based on the row mask.
-            if !mask.all_true() {
-                array = filter(&array, &mask)?;
-            }
+            Ok(if *USE_VORTEX_OPERATORS {
+                // Evaluate the projection expression.
+                array = array.apply(&expr)?;
 
-            // Evaluate the projection expression.
-            if !is_root(&expr) {
-                array = expr.evaluate(&array).map_err(|err| {
-                    err.with_context(format!("While evaluating projection {}", expr))
-                })?;
-            }
+                // Filter the array based on the row mask.
+                if !mask.all_true() {
+                    array = array.filter(mask)?;
+                }
 
-            Ok(array)
+                array
+            } else {
+                // Filter the array based on the row mask.
+                if !mask.all_true() {
+                    array = filter(&array, &mask)?;
+                }
+
+                // Evaluate the projection expression.
+                if !expr.is::<Root>() {
+                    array = expr.evaluate(&array).map_err(|err| {
+                        err.with_context(format!("While evaluating projection {}", expr))
+                    })?;
+                }
+                array
+            })
         }
         .boxed())
     }

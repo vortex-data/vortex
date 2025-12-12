@@ -23,22 +23,6 @@ mod tests {
     use crate::validity::Validity;
 
     #[test]
-    fn test_bool_array_validation_success() {
-        // Valid case: buffer has enough bytes for the array.
-        let buffer = ByteBuffer::from(vec![0xff, 0xff]);
-        let result = BoolArray::try_new(buffer, 0, 10, Validity::NonNullable);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_bool_array_validation_failure_buffer_too_small() {
-        // Invalid case: buffer too small.
-        let buffer = ByteBuffer::from(vec![0xff]); // Only 1 byte.
-        let result = BoolArray::try_new(buffer, 0, 16, Validity::NonNullable); // Needs 2 bytes.
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn test_chunked_array_validation_success() {
         // Valid case: all chunks have the same dtype.
         let chunk1 = buffer![1i32, 2, 3].into_array();

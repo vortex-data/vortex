@@ -21,6 +21,16 @@ impl BoolScalar {
     pub fn value(&self) -> Option<bool> {
         self.0
     }
+
+    /// Creates a zero (false) bool scalar.
+    pub fn zero() -> Self {
+        Self::new(Some(false))
+    }
+
+    /// Creates a null bool scalar.
+    pub fn null() -> Self {
+        Self::new(None)
+    }
 }
 
 impl ScalarOps for BoolScalar {

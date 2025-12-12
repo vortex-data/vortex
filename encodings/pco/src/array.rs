@@ -55,6 +55,7 @@ use vortex_dtype::DType;
 use vortex_dtype::PType;
 use vortex_dtype::half;
 use vortex_error::VortexError;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::VortexUnwrap;
 use vortex_error::vortex_bail;
@@ -164,6 +165,23 @@ impl VTable for PcoVTable {
             len,
             validity,
         ))
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() <= 1,
+            "PcoArray expects 0 or 1 children, got {}",
+            children.len()
+        );
+
+        if children.is_empty() {
+            array.unsliced_validity = Validity::from(array.dtype.nullability());
+        } else {
+            array.unsliced_validity =
+                Validity::Array(children.into_iter().next().vortex_expect("validity child"));
+        }
+
+        Ok(())
     }
 }
 

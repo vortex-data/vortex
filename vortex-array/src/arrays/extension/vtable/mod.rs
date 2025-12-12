@@ -9,13 +9,16 @@ mod visitor;
 
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_vector::Vector;
+use vortex_error::vortex_ensure;
 
+use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::arrays::extension::ExtensionArray;
-use crate::execution::ExecutionCtx;
+use crate::kernel::BindCtx;
+use crate::kernel::KernelRef;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
@@ -78,8 +81,21 @@ impl VTable for ExtensionVTable {
         Ok(ExtensionArray::new(ext_dtype.clone(), storage))
     }
 
-    fn batch_execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        array.storage().batch_execute(ctx)
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() == 1,
+            "ExtensionArray expects exactly 1 child (storage), got {}",
+            children.len()
+        );
+        array.storage = children
+            .into_iter()
+            .next()
+            .vortex_expect("children length already validated");
+        Ok(())
+    }
+
+    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
+        array.storage().bind_kernel(ctx)
     }
 }
 

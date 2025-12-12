@@ -3,7 +3,10 @@
 
 use fastlanes::FastLanes;
 use prost::Message;
+use vortex_array::ArrayRef;
 use vortex_array::ProstMetadata;
+use vortex_array::kernel::BindCtx;
+use vortex_array::kernel::KernelRef;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
@@ -17,12 +20,15 @@ use vortex_dtype::DType;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
+use self::kernel::DeltaKernel;
 use crate::DeltaArray;
 
 mod array;
 mod canonical;
+mod kernel;
 mod operations;
 mod validity;
 mod visitor;
@@ -57,6 +63,23 @@ impl VTable for DeltaVTable {
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
         DeltaVTable.as_vtable()
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        // DeltaArray children order (from visit_children):
+        // 1. bases
+        // 2. deltas
+
+        vortex_ensure!(
+            children.len() == 2,
+            "Expected 2 children for Delta encoding, got {}",
+            children.len()
+        );
+
+        array.bases = children[0].clone();
+        array.deltas = children[1].clone();
+
+        Ok(())
     }
 
     fn metadata(array: &DeltaArray) -> VortexResult<Self::Metadata> {
@@ -97,6 +120,24 @@ impl VTable for DeltaVTable {
         let deltas = children.get(1, dtype, deltas_len)?;
 
         DeltaArray::try_new(bases, deltas, metadata.0.offset as usize, len)
+    }
+
+    fn bind_kernel(array: &DeltaArray, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
+        let bases_kernel = array.bases().bind_kernel(ctx)?;
+        let deltas_kernel = array.deltas().bind_kernel(ctx)?;
+
+        let start = array.offset();
+        let end = start + array.len();
+
+        let validity = array.deltas().validity_mask().slice(start..end);
+
+        Ok(Box::new(DeltaKernel {
+            bases_kernel,
+            deltas_kernel,
+            start,
+            end,
+            validity,
+        }))
     }
 }
 

@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
@@ -251,6 +253,22 @@ impl<'a> TryFrom<&InvocationArgs<'a>> for BetweenArgs<'a> {
 pub struct BetweenOptions {
     pub lower_strict: StrictComparison,
     pub upper_strict: StrictComparison,
+}
+
+impl Display for BetweenOptions {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let lower_op = if self.lower_strict.is_strict() {
+            "<"
+        } else {
+            "<="
+        };
+        let upper_op = if self.upper_strict.is_strict() {
+            "<"
+        } else {
+            "<="
+        };
+        write!(f, "lower_strict: {}, upper_strict: {}", lower_op, upper_op)
+    }
 }
 
 impl Options for BetweenOptions {

@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 use std::fmt::Formatter;
 
+use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::serde::ArrayChildren;
@@ -18,6 +19,7 @@ use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
 
@@ -51,6 +53,21 @@ impl VTable for FoRVTable {
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
         FoRVTable.as_vtable()
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        // FoRArray children order (from visit_children):
+        // 1. encoded
+
+        vortex_ensure!(
+            children.len() == 1,
+            "Expected 1 child for FoR encoding, got {}",
+            children.len()
+        );
+
+        array.encoded = children[0].clone();
+
+        Ok(())
     }
 
     fn metadata(array: &FoRArray) -> VortexResult<Self::Metadata> {

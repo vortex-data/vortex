@@ -420,8 +420,6 @@ macro_rules! match_each_pscalar {
 ///
 /// This macro matches two primitive scalars when they have the same underlying type.
 /// For type mismatches, the `$else` block is executed.
-///
-/// [`PrimitiveScalar`]: crate::primitive::PrimitiveScalar
 #[macro_export]
 macro_rules! match_each_pscalar_pair {
     (($left:expr, $right:expr), | $l:ident, $r:ident | $body:block, $else:block) => {{

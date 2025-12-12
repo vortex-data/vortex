@@ -8,16 +8,22 @@ use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_vector::Vector;
 use vortex_vector::VectorMut;
 use vortex_vector::VectorMutOps;
 
+use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ToCanonical;
 use crate::arrays::ChunkedArray;
 use crate::arrays::PrimitiveArray;
-use crate::execution::ExecutionCtx;
+use crate::kernel::BindCtx;
+use crate::kernel::Kernel;
+use crate::kernel::KernelRef;
+use crate::kernel::PushDownResult;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -35,6 +41,9 @@ mod validity;
 mod visitor;
 
 vtable!(Chunked);
+
+#[derive(Debug)]
+pub struct ChunkedVTable;
 
 impl VTable for ChunkedVTable {
     type Array = ChunkedArray;
@@ -125,15 +134,66 @@ impl VTable for ChunkedVTable {
         })
     }
 
-    fn batch_execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        let mut vector = VectorMut::with_capacity(array.dtype(), 0);
-        for chunk in array.chunks() {
-            let chunk_vector = chunk.batch_execute(ctx)?;
-            vector.extend_from_vector(&chunk_vector);
-        }
-        Ok(vector.freeze())
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        // Children: chunk_offsets, then chunks...
+        vortex_ensure!(
+            !children.is_empty(),
+            "Chunked array needs at least one child"
+        );
+
+        let nchunks = children.len() - 1;
+        let chunk_offsets_array = children[0].to_primitive();
+        let chunk_offsets_buf = chunk_offsets_array.buffer::<u64>();
+
+        vortex_ensure!(
+            chunk_offsets_buf.len() == nchunks + 1,
+            "Expected {} chunk offsets, found {}",
+            nchunks + 1,
+            chunk_offsets_buf.len()
+        );
+
+        let chunks = children.into_iter().skip(1).collect();
+        array.chunk_offsets = PrimitiveArray::new(chunk_offsets_buf.clone(), Validity::NonNullable);
+        array.chunks = chunks;
+
+        let total_len = chunk_offsets_buf
+            .last()
+            .ok_or_else(|| vortex_err!("chunk_offsets must not be empty"))?;
+        array.len = usize::try_from(*total_len)
+            .map_err(|_| vortex_err!("total length {} exceeds usize range", total_len))?;
+
+        Ok(())
+    }
+
+    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
+        Ok(Box::new(ChunkedKernel {
+            chunks: array
+                .chunks
+                .iter()
+                .map(|c| c.bind_kernel(ctx))
+                .try_collect()?,
+            dtype: array.dtype.clone(),
+        }))
     }
 }
 
 #[derive(Debug)]
-pub struct ChunkedVTable;
+struct ChunkedKernel {
+    chunks: Vec<KernelRef>,
+    dtype: DType,
+}
+
+impl Kernel for ChunkedKernel {
+    fn execute(self: Box<Self>) -> VortexResult<Vector> {
+        let mut vector = VectorMut::with_capacity(&self.dtype, 0);
+        for chunk in self.chunks {
+            let chunk_vector = chunk.execute()?;
+            vector.extend_from_vector(&chunk_vector);
+        }
+        Ok(vector.freeze())
+    }
+
+    fn push_down_filter(self: Box<Self>, _selection: &Mask) -> VortexResult<PushDownResult> {
+        Ok(PushDownResult::NotPushed(self))
+    }
+}

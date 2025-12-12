@@ -411,7 +411,7 @@ impl VectorMutOps for ListViewVectorMut {
     }
 
     fn append_scalars(&mut self, scalar: &ListViewScalar, n: usize) {
-        if scalar.is_invalid() {
+        if scalar.is_null() {
             self.append_nulls(n);
             return;
         }

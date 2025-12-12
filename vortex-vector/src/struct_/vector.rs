@@ -183,8 +183,21 @@ impl VectorOps for StructVector {
         StructScalar::new(self.slice(index..index + 1))
     }
 
-    fn slice(&self, _range: impl RangeBounds<usize> + Clone + Debug) -> Self {
-        todo!()
+    fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self {
+        let sliced_fields: Box<[_]> = self
+            .fields
+            .iter()
+            .map(|field| field.slice(range.clone()))
+            .collect();
+
+        let sliced_validity = self.validity.slice(range);
+        let len = sliced_validity.len();
+
+        StructVector {
+            fields: Arc::new(sliced_fields),
+            validity: sliced_validity,
+            len,
+        }
     }
 
     fn clear(&mut self) {

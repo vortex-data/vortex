@@ -163,7 +163,7 @@ impl FixedSizeListVector {
     }
 
     /// Returns the element size of every list in the vector.
-    pub fn element_size(&self) -> u32 {
+    pub fn list_size(&self) -> u32 {
         self.list_size
     }
 
@@ -171,11 +171,6 @@ impl FixedSizeListVector {
     /// the `FixedSizeListVector`.
     pub fn elements(&self) -> &Arc<Vector> {
         &self.elements
-    }
-
-    /// Returns the size of every list in the vector.
-    pub fn list_size(&self) -> u32 {
-        self.list_size
     }
 }
 

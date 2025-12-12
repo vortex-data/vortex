@@ -19,11 +19,11 @@ pub fn conjuncts(expr: &Expression) -> Vec<Expression> {
 }
 
 fn conjuncts_impl(expr: &Expression, conjuncts: &mut Vec<Expression>) {
-    if let Some(expr) = expr.as_opt::<Binary>()
-        && expr.operator() == Operator::And
+    if let Some(operator) = expr.as_opt::<Binary>()
+        && *operator == Operator::And
     {
-        conjuncts_impl(expr.lhs(), conjuncts);
-        conjuncts_impl(expr.rhs(), conjuncts);
+        conjuncts_impl(expr.child(0), conjuncts);
+        conjuncts_impl(expr.child(1), conjuncts);
     } else {
         conjuncts.push(expr.clone())
     }
