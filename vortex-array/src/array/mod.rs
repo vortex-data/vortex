@@ -54,6 +54,7 @@ use crate::hash;
 use crate::kernel::BindCtx;
 use crate::kernel::KernelRef;
 use crate::kernel::ValidateKernel;
+use crate::optimizer::ArrayOptimizer;
 use crate::stats::StatsSetRef;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
@@ -526,11 +527,15 @@ impl<V: VTable> Array for ArrayAdapter<V> {
 
     fn filter(&self, mask: Mask) -> VortexResult<ArrayRef> {
         vortex_ensure!(self.len() == mask.len(), "Filter mask length mismatch");
-        Ok(FilterArray::new(self.to_array(), mask).into_array())
+        FilterArray::new(self.to_array(), mask)
+            .into_array()
+            .optimize()
     }
 
     fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
-        Ok(DictArray::try_new(indices, self.to_array())?.into_array())
+        DictArray::try_new(indices, self.to_array())?
+            .into_array()
+            .optimize()
     }
 
     fn scalar_at(&self, index: usize) -> Scalar {
