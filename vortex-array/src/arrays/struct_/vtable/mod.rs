@@ -15,6 +15,7 @@ use vortex_vector::struct_::StructVector;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::arrays::struct_::StructArray;
+use crate::arrays::struct_::rules::RULES;
 use crate::kernel::BindCtx;
 use crate::kernel::KernelRef;
 use crate::kernel::kernel;
@@ -154,6 +155,14 @@ impl VTable for StructVTable {
             let fields = fields.into_iter().map(|k| k.execute()).try_collect()?;
             Ok(unsafe { StructVector::new_unchecked(Arc::new(fields), validity_mask) }.into())
         }))
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
     }
 }
 

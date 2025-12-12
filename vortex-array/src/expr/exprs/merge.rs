@@ -27,11 +27,14 @@ use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
-use crate::expr::SimplifyCtx;
+use crate::expr::GetItem;
+use crate::expr::Pack;
+use crate::expr::PackOptions;
+use crate::expr::ReduceCtx;
+use crate::expr::ReduceNode;
+use crate::expr::ReduceNodeRef;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::expr::get_item;
-use crate::expr::pack;
 use crate::validity::Validity;
 
 /// Merge zero or more expressions that ALL return structs.
@@ -185,19 +188,19 @@ impl VTable for Merge {
         todo!()
     }
 
-    fn simplify(
+    fn reduce(
         &self,
         options: &Self::Options,
-        expr: &Expression,
-        ctx: &dyn SimplifyCtx,
-    ) -> VortexResult<Option<Expression>> {
-        let merge_dtype = ctx.return_dtype(expr)?;
-        let mut names = Vec::with_capacity(expr.children().len() * 2);
-        let mut children = Vec::with_capacity(expr.children().len() * 2);
+        node: &dyn ReduceNode,
+        ctx: &dyn ReduceCtx,
+    ) -> VortexResult<Option<ReduceNodeRef>> {
+        let merge_dtype = node.node_dtype()?;
+        let mut names = Vec::with_capacity(node.child_count() * 2);
+        let mut children = Vec::with_capacity(node.child_count() * 2);
         let mut duplicate_names = HashSet::<_>::new();
 
-        for child in expr.children().iter() {
-            let child_dtype = ctx.return_dtype(child)?;
+        for child in node.children() {
+            let child_dtype = child.node_dtype()?;
             if !child_dtype.is_struct() {
                 vortex_bail!(
                     "Merge child must return a non-nullable struct dtype, got {}",
@@ -227,15 +230,21 @@ impl VTable for Merge {
             }
         }
 
-        let expr = pack(
-            names
-                .into_iter()
-                .zip(children)
-                .map(|(name, child)| (name.clone(), get_item(name, child))),
-            merge_dtype.nullability(),
-        );
+        let pack_children: Vec<_> = names
+            .iter()
+            .zip(children)
+            .map(|(name, child)| ctx.new_node(GetItem.bind(name.clone()), &[child]))
+            .try_collect()?;
 
-        Ok(Some(expr))
+        let pack_expr = ctx.new_node(
+            Pack.bind(PackOptions {
+                names: FieldNames::from(names),
+                nullability: merge_dtype.nullability(),
+            }),
+            &pack_children,
+        )?;
+
+        Ok(Some(pack_expr))
     }
 
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
@@ -575,7 +584,7 @@ mod tests {
             DuplicateHandling::RightMost,
         );
 
-        let result = e.simplify(&dtype).unwrap();
+        let result = e.optimize(&dtype).unwrap();
 
         assert!(result.is::<Pack>());
         assert_eq!(

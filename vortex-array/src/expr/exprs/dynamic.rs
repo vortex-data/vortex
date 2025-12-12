@@ -231,7 +231,7 @@ impl Display for DynamicComparisonExpr {
             "{} {}",
             self.operator,
             self.scalar()
-                .map_or("<none>".to_string(), |v| v.to_string())
+                .map_or_else(|| "<none>".to_string(), |v| v.to_string())
         )
     }
 }

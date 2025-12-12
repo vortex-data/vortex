@@ -225,11 +225,11 @@ impl<A: 'static + Send> ScanBuilder<A> {
         ));
 
         // Normalize and simplify the expressions.
-        let projection = self.projection.simplify(layout_reader.dtype())?;
+        let projection = self.projection.optimize_recursive(layout_reader.dtype())?;
 
         let filter = self
             .filter
-            .map(|f| f.simplify(layout_reader.dtype()))
+            .map(|f| f.optimize_recursive(layout_reader.dtype()))
             .transpose()?;
 
         // Construct field masks and compute the row splits of the scan.

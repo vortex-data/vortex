@@ -27,12 +27,13 @@ use crate::vtable::ValidityVTableFromValidityHelper;
 mod array;
 mod canonical;
 mod operations;
-pub mod operator;
+pub mod rules;
 mod validity;
 mod visitor;
 
-pub use operator::BoolMaskedValidityRule;
+pub use rules::BoolMaskedValidityRule;
 
+use crate::arrays::bool::vtable::rules::RULES;
 use crate::kernel::KernelRef;
 use crate::kernel::ready;
 use crate::vtable::ArrayId;
@@ -112,12 +113,6 @@ impl VTable for BoolVTable {
         BoolArray::try_new(bits, validity)
     }
 
-    fn bind_kernel(array: &Self::Array, _ctx: &mut BindCtx) -> VortexResult<KernelRef> {
-        Ok(ready(
-            BoolVector::new(array.bit_buffer().clone(), array.validity_mask()).into(),
-        ))
-    }
-
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() <= 1,
@@ -132,6 +127,20 @@ impl VTable for BoolVTable {
         };
 
         Ok(())
+    }
+
+    fn bind_kernel(array: &Self::Array, _ctx: &mut BindCtx) -> VortexResult<KernelRef> {
+        Ok(ready(
+            BoolVector::new(array.bit_buffer().clone(), array.validity_mask()).into(),
+        ))
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
     }
 }
 

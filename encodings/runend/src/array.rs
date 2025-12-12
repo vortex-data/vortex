@@ -45,6 +45,7 @@ use vortex_scalar::PValue;
 use crate::compress::runend_decode_bools;
 use crate::compress::runend_decode_primitive;
 use crate::compress::runend_encode;
+use crate::rules::RULES;
 
 vtable!(RunEnd);
 
@@ -131,6 +132,14 @@ impl VTable for RunEndVTable {
         array.values = children_iter.next().vortex_expect("values child");
 
         Ok(())
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
     }
 }
 

@@ -364,6 +364,9 @@ impl Patches {
     ///   position in the patches array
     /// * [`SearchResult::NotFound(insertion_point)`] - If no patch exists, returns where
     ///   a patch at this index would be inserted to maintain sorted order
+    ///
+    /// [`SearchResult::Found(patch_idx)`]: SearchResult::Found
+    /// [`SearchResult::NotFound(insertion_point)`]: SearchResult::NotFound
     pub fn search_index(&self, index: usize) -> SearchResult {
         if self.chunk_offsets.is_some() {
             return self.search_index_chunked(index);

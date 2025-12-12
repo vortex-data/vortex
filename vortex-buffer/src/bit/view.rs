@@ -60,7 +60,7 @@ impl<'a, const NB: usize> BitView<'a, NB> {
     pub const N_WORDS: usize = NB * 8 / (usize::BITS as usize);
 
     const _ASSERT_MULTIPLE_OF_8: () = assert!(
-        NB % 8 == 0,
+        NB.is_multiple_of(8),
         "NB must be a multiple of 8 for N to be a multiple of 64"
     );
 
