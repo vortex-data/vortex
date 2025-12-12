@@ -284,7 +284,7 @@ mod tests {
 
         let split_a = partitioned.find_partition(&"a".into()).unwrap();
         assert_eq!(
-            &split_a.simplify(&dtype).unwrap(),
+            &split_a.optimize_recursive(&dtype).unwrap(),
             &pack(
                 [
                     ("a_0", get_item("x", get_item("a", root()))),
@@ -326,7 +326,7 @@ mod tests {
             get_item("y", get_item("a", root())),
             select(["a", "b"], root()),
         );
-        let expr = expr.simplify(&dtype).unwrap();
+        let expr = expr.optimize_recursive(&dtype).unwrap();
         let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
 
         // One for id.a and id.b

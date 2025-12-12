@@ -28,7 +28,6 @@ impl ArrayOptimizer for ArrayRef {
         Ok(self.clone().try_optimize()?.unwrap_or_else(|| self.clone()))
     }
 
-    #[expect(clippy::cognitive_complexity)]
     fn try_optimize(&self) -> VortexResult<Option<ArrayRef>> {
         let mut current_array = self.clone();
         let mut any_optimizations = false;

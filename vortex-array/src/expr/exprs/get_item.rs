@@ -329,7 +329,7 @@ mod tests {
         let get_item_expr = get_item("b", pack_expr);
 
         let result = get_item_expr
-            .simplify(&DType::Struct(StructFields::empty(), NonNullable))
+            .optimize_recursive(&DType::Struct(StructFields::empty(), NonNullable))
             .unwrap();
 
         assert_eq!(result, lit(2));
@@ -345,7 +345,7 @@ mod tests {
 
         let dtype = DType::Primitive(PType::I32, NonNullable);
 
-        let result = get_z.simplify(&dtype).unwrap();
+        let result = get_z.optimize_recursive(&dtype).unwrap();
         assert_eq!(result, lit(4));
     }
 
@@ -365,7 +365,7 @@ mod tests {
 
         let dtype = DType::Primitive(PType::I32, NonNullable);
 
-        let result = get_final.simplify(&dtype).unwrap();
+        let result = get_final.optimize_recursive(&dtype).unwrap();
         assert_eq!(result, lit(42));
     }
 
@@ -380,7 +380,7 @@ mod tests {
 
         let dtype = DType::Primitive(PType::I32, NonNullable);
 
-        let result = get_result.simplify(&dtype).unwrap();
+        let result = get_result.optimize_recursive(&dtype).unwrap();
         let expected = checked_add(lit(1), lit(10));
         assert_eq!(&result, &expected);
     }

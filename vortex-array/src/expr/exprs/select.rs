@@ -461,7 +461,7 @@ mod tests {
         );
         let e = select(["a", "b"], root());
 
-        let result = e.simplify(&dtype).unwrap();
+        let result = e.optimize_recursive(&dtype).unwrap();
 
         assert!(result.is::<Pack>());
         assert!(result.return_dtype(&dtype).unwrap().is_nullable());
@@ -480,7 +480,7 @@ mod tests {
         );
         let e = select_exclude(["c"], root());
 
-        let result = e.simplify(&dtype).unwrap();
+        let result = e.optimize_recursive(&dtype).unwrap();
 
         assert!(result.is::<Pack>());
 

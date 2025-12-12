@@ -28,15 +28,15 @@ impl Expression {
     /// 1. `simplify_untyped` - type-independent simplifications
     /// 2. `simplify` - type-aware simplifications
     /// 3. `reduce` - abstract reduction rules via `ReduceNode`/`ReduceCtx`
-    pub fn optimize_root(&self, scope: &DType) -> VortexResult<Expression> {
+    pub fn optimize(&self, scope: &DType) -> VortexResult<Expression> {
         Ok(self
             .clone()
-            .try_optimize_root(scope)?
+            .try_optimize(scope)?
             .unwrap_or_else(|| self.clone()))
     }
 
     /// Try to optimize the root expression node only, returning None if no optimizations applied.
-    pub fn try_optimize_root(&self, scope: &DType) -> VortexResult<Option<Expression>> {
+    pub fn try_optimize(&self, scope: &DType) -> VortexResult<Option<Expression>> {
         let cache = SimplifyCache {
             scope,
             dtype_cache: RefCell::new(HashMap::new()),
@@ -118,7 +118,7 @@ impl Expression {
         let mut any_optimizations = false;
 
         // First optimize the root
-        if let Some(optimized) = current.clone().try_optimize_root(scope)? {
+        if let Some(optimized) = current.clone().try_optimize(scope)? {
             current = optimized;
             any_optimizations = true;
         }
@@ -140,7 +140,7 @@ impl Expression {
             any_optimizations = true;
 
             // After updating children, try to optimize root again
-            if let Some(optimized) = current.clone().try_optimize_root(scope)? {
+            if let Some(optimized) = current.clone().try_optimize(scope)? {
                 current = optimized;
             }
         }
@@ -282,8 +282,9 @@ impl ReduceCtx for ExpressionReduceCtx {
                 .iter()
                 .map(|c| {
                     c.as_any()
-                        .downcast_ref::<Expression>()
-                        .vortex_expect("ReduceNode not an Expression")
+                        .downcast_ref::<ExpressionReduceNode>()
+                        .vortex_expect("ReduceNode not an ExpressionReduceNode")
+                        .expression
                         .clone()
                 })
                 .collect::<Vec<_>>(),
