@@ -825,33 +825,27 @@ mod tests {
             true,
         )])));
 
-        let opener = VortexOpener {
-            session: SESSION.clone(),
-            object_store: object_store.clone(),
-            projection: None,
-            filter: Some(logical2physical(
+        let opener = make_opener(
+            object_store.clone(),
+            table_schema.clone(),
+            // expression references my_struct column which has different fields in each
+            // field.
+            Some(logical2physical(
                 &col("my_struct").is_not_null(),
                 table_schema.table_schema(),
             )),
-            file_pruning_predicate: None,
-            expr_adapter_factory: Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _),
-            schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
-            file_cache: VortexFileCache::new(1, 1, SESSION.clone()),
-            table_schema: table_schema.clone(),
-            batch_size: 100,
-            limit: None,
-            metrics: Default::default(),
-            layout_readers: Default::default(),
-            has_output_ordering: false,
-        };
+            Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _),
+        );
 
         // The opener should be able to open the file with a filter on the
         // struct column.
         let data = opener
             .open(PartitionedFile::new(file_path.to_string(), data_size))?
-            .await?
+            .await
+            .unwrap()
             .try_collect::<Vec<_>>()
-            .await?;
+            .await
+            .unwrap();
 
         assert_eq!(data.len(), 1);
         assert_eq!(data[0].num_rows(), 3);
