@@ -14,7 +14,7 @@ use crate::VectorExecutor;
 use crate::arrow::null_buffer::to_null_buffer;
 
 pub(super) fn to_arrow_bool(
-    array: &ArrayRef,
+    array: ArrayRef,
     session: &VortexSession,
 ) -> VortexResult<ArrowArrayRef> {
     let bool_vector = array

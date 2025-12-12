@@ -14,7 +14,7 @@ use crate::ArrayRef;
 use crate::VectorExecutor;
 
 pub(super) fn to_arrow_null(
-    array: &ArrayRef,
+    array: ArrayRef,
     session: &VortexSession,
 ) -> VortexResult<ArrowArrayRef> {
     let null_vector = array

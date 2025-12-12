@@ -18,7 +18,7 @@ use crate::arrow::null_buffer::to_null_buffer;
 use crate::builtins::ArrayBuiltins;
 
 pub(super) fn to_arrow_struct(
-    array: &ArrayRef,
+    array: ArrayRef,
     fields: &Fields,
     session: &VortexSession,
 ) -> VortexResult<ArrowArrayRef> {

@@ -19,7 +19,7 @@ use crate::arrow::null_buffer::to_null_buffer;
 use crate::builtins::ArrayBuiltins;
 
 pub(super) fn to_arrow_primitive<T: ArrowPrimitiveType>(
-    array: &ArrayRef,
+    array: ArrayRef,
     session: &VortexSession,
 ) -> VortexResult<ArrowArrayRef>
 where

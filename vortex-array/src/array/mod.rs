@@ -4,10 +4,12 @@
 mod visitor;
 
 use std::any::Any;
+use std::any::type_name;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::ops::Deref;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -18,6 +20,7 @@ use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -72,6 +75,9 @@ pub trait Array:
 {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
+
+    /// Returns the array as an `Arc<dyn Any + Send + Sync>`.
+    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
 
     /// Returns the array as an [`ArrayRef`].
     fn to_array(&self) -> ArrayRef;
@@ -209,6 +215,10 @@ impl Array for Arc<dyn Array> {
     #[inline]
     fn as_any(&self) -> &dyn Any {
         self.as_ref().as_any()
+    }
+
+    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
+        self
     }
 
     #[inline]
@@ -350,6 +360,24 @@ impl dyn Array + '_ {
             .map(|array_adapter| &array_adapter.0)
     }
 
+    /// Returns the array downcast to the given `A` as an owned object.
+    pub fn try_into<V: VTable>(self: Arc<Self>) -> Result<V::Array, Arc<Self>> {
+        match self.is::<V>() {
+            true => {
+                let arc = self
+                    .as_any_arc()
+                    .downcast::<ArrayAdapter<V>>()
+                    .map_err(|_| vortex_err!("failed to downcast"))
+                    .vortex_expect("Failed to downcast");
+                Ok(match Arc::try_unwrap(arc) {
+                    Ok(array) => array.0,
+                    Err(arc) => arc.deref().0.clone(),
+                })
+            }
+            false => Err(self),
+        }
+    }
+
     /// Is self an array with encoding from vtable `V`.
     pub fn is<V: VTable>(&self) -> bool {
         self.as_opt::<V>().is_some()
@@ -440,6 +468,10 @@ impl<V: VTable> Debug for ArrayAdapter<V> {
 
 impl<V: VTable> Array for ArrayAdapter<V> {
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
         self
     }
 

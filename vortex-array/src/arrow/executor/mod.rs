@@ -2,9 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod bool;
+mod byte;
+mod byte_view;
 mod dictionary;
+mod list;
 mod null;
 mod primitive;
+mod run_end;
 mod struct_;
 mod temporal;
 
@@ -16,30 +20,35 @@ use arrow_schema::DataType;
 use arrow_schema::Schema;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::arrow::executor::bool::to_arrow_bool;
+use crate::arrow::executor::byte::to_arrow_byte_array;
+use crate::arrow::executor::byte_view::to_arrow_byte_view;
 use crate::arrow::executor::dictionary::to_arrow_dictionary;
+use crate::arrow::executor::list::to_arrow_list;
 use crate::arrow::executor::null::to_arrow_null;
 use crate::arrow::executor::primitive::to_arrow_primitive;
+use crate::arrow::executor::run_end::to_arrow_run_end;
 use crate::arrow::executor::struct_::to_arrow_struct;
 use crate::arrow::executor::temporal::to_arrow_temporal;
 
 /// Trait for executing a Vortex array to produce an Arrow array.
-pub trait ArrowArrayExecutor {
+pub trait ArrowArrayExecutor: Sized {
     /// Execute the array to produce an Arrow array.
     ///
     /// If a [`DataType`] is given, the array will be converted to the desired Arrow type.
     fn execute_arrow(
-        &self,
+        self,
         data_type: &DataType,
         session: &VortexSession,
     ) -> VortexResult<ArrowArrayRef>;
 
     /// Execute the array to produce an Arrow `RecordBatch` with the given schema.
     fn execute_record_batch(
-        &self,
+        self,
         schema: &Schema,
         session: &VortexSession,
     ) -> VortexResult<RecordBatch> {
@@ -50,7 +59,7 @@ pub trait ArrowArrayExecutor {
 
 impl ArrowArrayExecutor for ArrayRef {
     fn execute_arrow(
-        &self,
+        self,
         data_type: &DataType,
         session: &VortexSession,
     ) -> VortexResult<ArrowArrayRef> {
@@ -73,35 +82,15 @@ impl ArrowArrayExecutor for ArrayRef {
             | DataType::Date64
             | DataType::Time32(_)
             | DataType::Time64(_) => to_arrow_temporal(self, data_type, session),
-            DataType::Duration(_) => {
-                todo!()
-            }
-            DataType::Interval(_) => {
-                todo!()
-            }
-            DataType::Binary => {
-                todo!()
-            }
-            DataType::FixedSizeBinary(_) => {
-                todo!()
-            }
-            DataType::LargeBinary => {
-                todo!()
-            }
-            DataType::BinaryView => {
-                todo!()
-            }
-            DataType::Utf8 => {
-                todo!()
-            }
-            DataType::LargeUtf8 => {
-                todo!()
-            }
-            DataType::Utf8View => {
-                todo!()
-            }
-            DataType::List(_) => {
-                todo!()
+            DataType::Binary => to_arrow_byte_array::<BinaryType>(self, session),
+            DataType::LargeBinary => to_arrow_byte_array::<LargeBinaryType>(self, session),
+            DataType::Utf8 => to_arrow_byte_array::<Utf8Type>(self, session),
+            DataType::LargeUtf8 => to_arrow_byte_array::<LargeUtf8Type>(self, session),
+            DataType::BinaryView => to_arrow_byte_view::<BinaryViewType>(self, session),
+            DataType::Utf8View => to_arrow_byte_view::<StringViewType>(self, session),
+            DataType::List(elements_field) => to_arrow_list::<i32>(self, elements_field, session),
+            DataType::LargeList(elements_field) => {
+                to_arrow_list::<i64>(self, elements_field, session)
             }
             DataType::ListView(_) => {
                 todo!()
@@ -109,16 +98,12 @@ impl ArrowArrayExecutor for ArrayRef {
             DataType::FixedSizeList(..) => {
                 todo!()
             }
-            DataType::LargeList(_) => {
-                todo!()
-            }
+
             DataType::LargeListView(_) => {
                 todo!()
             }
             DataType::Struct(fields) => to_arrow_struct(self, fields, session),
-            DataType::Union(..) => {
-                todo!()
-            }
+
             DataType::Dictionary(codes_type, values_type) => {
                 to_arrow_dictionary(self, codes_type, values_type, session)
             }
@@ -134,11 +119,15 @@ impl ArrowArrayExecutor for ArrayRef {
             DataType::Decimal256(..) => {
                 todo!()
             }
-            DataType::Map(..) => {
-                todo!()
+            DataType::RunEndEncoded(ends_type, values_type) => {
+                to_arrow_run_end(self, ends_type.data_type(), &values_type, session)
             }
-            DataType::RunEndEncoded(..) => {
-                todo!()
+            DataType::FixedSizeBinary(_)
+            | DataType::Map(..)
+            | DataType::Duration(_)
+            | DataType::Interval(_)
+            | DataType::Union(..) => {
+                vortex_bail!("Conversion to Arrow type {data_type} is not supported");
             }
         }
     }

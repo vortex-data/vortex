@@ -36,7 +36,7 @@ use crate::VectorExecutor;
 use crate::arrow::null_buffer::to_null_buffer;
 
 pub(super) fn to_arrow_temporal(
-    array: &ArrayRef,
+    array: ArrayRef,
     data_type: &DataType,
     session: &VortexSession,
 ) -> VortexResult<ArrowArrayRef> {
