@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BufferHandle;
+use vortex_compute::take::Take;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -16,6 +17,9 @@ use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
+use crate::kernel::BindCtx;
+use crate::kernel::KernelRef;
+use crate::kernel::kernel;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
@@ -123,5 +127,17 @@ impl VTable for DictVTable {
         array.codes = codes;
         array.values = values;
         Ok(())
+    }
+
+    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
+        let values_kernel = array.values().bind_kernel(ctx)?;
+        let codes_kernel = array.codes().bind_kernel(ctx)?;
+
+        Ok(kernel(move || {
+            let values = values_kernel.execute()?;
+            let codes = codes_kernel.execute()?.into_primitive();
+
+            Ok(values.take(&codes))
+        }))
     }
 }
