@@ -332,8 +332,18 @@ impl VectorOps for ListViewVector {
         ListViewScalar::new(self.slice(index..index + 1))
     }
 
-    fn slice(&self, _range: impl RangeBounds<usize> + Clone + Debug) -> Self {
-        todo!()
+    fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self {
+        let offsets = self.offsets.slice(range.clone());
+        let sizes = self.sizes.slice(range);
+        // SAFETY: offsets/sizes combined still point at valid elements
+        unsafe {
+            Self::new_unchecked(
+                self.elements().clone(),
+                offsets,
+                sizes,
+                self.validity().clone(),
+            )
+        }
     }
 
     fn clear(&mut self) {

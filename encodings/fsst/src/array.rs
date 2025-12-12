@@ -42,7 +42,6 @@ use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -157,7 +156,10 @@ impl VTable for FSSTVTable {
         );
 
         let mut children_iter = children.into_iter();
-        let codes = children_iter.next().vortex_expect("codes child");
+        let codes = children_iter
+            .next()
+            .ok_or_else(|| vortex_err!("FSSTArray with_children missing codes"))?;
+
         let codes = codes
             .as_opt::<VarBinVTable>()
             .ok_or_else(|| {
@@ -169,7 +171,7 @@ impl VTable for FSSTVTable {
             .clone();
         let uncompressed_lengths = children_iter
             .next()
-            .vortex_expect("uncompressed_lengths child");
+            .ok_or_else(|| vortex_err!("FSSTArray with_children missing uncompressed_lengths"))?;
 
         array.codes = codes;
         array.uncompressed_lengths = uncompressed_lengths;

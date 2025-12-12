@@ -86,7 +86,9 @@ impl VectorMut {
             DType::Utf8(..) => StringVectorMut::with_capacity(capacity).into(),
             DType::Binary(..) => BinaryVectorMut::with_capacity(capacity).into(),
             DType::Extension(ext) => VectorMut::with_capacity(ext.storage_dtype(), capacity),
-            DType::List(..) => ListViewVectorMut::with_capacity(dtype, capacity).into(),
+            DType::List(elem, ..) => {
+                ListViewVectorMut::with_capacity(elem.as_ref(), capacity).into()
+            }
         }
     }
 }
