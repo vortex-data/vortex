@@ -12,7 +12,9 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::ToCanonical;
+use vortex_array::arrays::MaskedArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::ExactExpr;
 use vortex_array::expr::Expression;
 use vortex_array::expr::Merge;
@@ -24,6 +26,7 @@ use vortex_array::expr::transform::PartitionedExpr;
 use vortex_array::expr::transform::partition;
 use vortex_array::expr::transform::replace;
 use vortex_array::expr::transform::replace_root_fields;
+use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
@@ -343,7 +346,6 @@ impl LayoutReader for StructReader {
         Ok(Box::pin(async move {
             if let Some(validity_fut) = validity_fut {
                 let (array, validity) = try_join!(projected, validity_fut)?;
-                let mask = Mask::from_buffer(validity.to_bool().bit_buffer().not());
 
                 // If root expression was a pack, then we apply the validity to each child field
                 if is_pack_merge {
@@ -351,7 +353,7 @@ impl LayoutReader for StructReader {
                     let masked_fields: Vec<ArrayRef> = struct_array
                         .fields()
                         .iter()
-                        .map(|a| vortex_array::compute::mask(a.as_ref(), &mask))
+                        .map(|a| a.mask(&validity))
                         .try_collect()?;
 
                     Ok(StructArray::try_new(
@@ -364,7 +366,7 @@ impl LayoutReader for StructReader {
                 } else {
                     // If the root expression was not a pack or merge, e.g. if it's something like
                     // a get_item, then we apply the validity directly to the result
-                    vortex_array::compute::mask(array.as_ref(), &mask)
+                    array.mask(&validity)
                 }
             } else {
                 projected.await
