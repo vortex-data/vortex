@@ -35,7 +35,7 @@ use crate::arrays::ExtensionVTable;
 use crate::arrays::TemporalArray;
 use crate::arrow::array::ArrowArray;
 use crate::arrow::compute::to_arrow::ToArrowArgs;
-use crate::arrow::compute::to_arrow::null_buffer::to_null_buffer;
+use crate::arrow::null_buffer::to_null_buffer;
 use crate::compute::InvocationArgs;
 use crate::compute::Kernel;
 use crate::compute::Output;

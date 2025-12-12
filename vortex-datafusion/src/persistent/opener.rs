@@ -33,6 +33,7 @@ use object_store::ObjectStore;
 use object_store::path::Path;
 use tracing::Instrument;
 use vortex::array::ArrayRef;
+use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::dtype::FieldName;
 use vortex::error::VortexError;
 use vortex::expr::root;
@@ -304,7 +305,7 @@ impl FileOpener for VortexOpener {
                 }
             };
 
-            let mut scan_builder = ScanBuilder::new(session, layout_reader);
+            let mut scan_builder = ScanBuilder::new(session.clone(), layout_reader);
             if let Some(file_range) = file_meta.range {
                 scan_builder = apply_byte_range(
                     file_range,
@@ -332,12 +333,16 @@ impl FileOpener for VortexOpener {
                 scan_builder = scan_builder.with_limit(limit);
             }
 
+            let chunk_session = session.clone();
             let stream = scan_builder
                 .with_metrics(metrics)
                 .with_projection(projection_expr)
                 .with_some_filter(filter)
                 .with_ordered(has_output_ordering)
-                .map(|chunk| RecordBatch::try_from(chunk.as_ref()))
+                .map(move |chunk| {
+                    chunk.execute_record_batch(&logical_schema, &chunk_session)
+                    // RecordBatch::try_from(chunk.as_ref())
+                })
                 .into_stream()
                 .map_err(|e| {
                     DataFusionError::Execution(format!("Failed to create Vortex stream: {e}"))

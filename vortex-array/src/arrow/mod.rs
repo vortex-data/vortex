@@ -13,6 +13,7 @@ mod convert;
 mod datum;
 mod executor;
 mod iter;
+mod null_buffer;
 mod record_batch;
 
 pub use array::*;

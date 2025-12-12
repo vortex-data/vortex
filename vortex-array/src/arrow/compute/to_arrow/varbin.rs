@@ -22,7 +22,7 @@ use crate::arrays::VarBinArray;
 use crate::arrays::VarBinVTable;
 use crate::arrow::compute::ToArrowKernel;
 use crate::arrow::compute::ToArrowKernelAdapter;
-use crate::arrow::compute::to_arrow::null_buffer::to_null_buffer;
+use crate::arrow::null_buffer::to_null_buffer;
 use crate::compute::cast;
 use crate::register_kernel;
 
