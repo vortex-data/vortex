@@ -22,7 +22,6 @@ use vortex_array::compute::take;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
 use vortex_array::mask::MaskExecutor;
-use vortex_array::session::ArraySessionExt;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexError;
@@ -111,18 +110,10 @@ impl DictReader {
         self.values_evals
             .entry(expr.clone())
             .or_insert_with(|| {
-                let session = self.session.clone();
                 self.values_array()
                     .map(move |array| {
                         if *USE_VORTEX_OPERATORS {
-                            array?
-                                .apply(&expr, session.arrays().optimizer())
-                                .map_err(Arc::new)
-                            // session
-                            //     .arrays()
-                            //     .optimizer()
-                            //     .optimize_array(&array?.apply(&expr, ses)?)
-                            //     .map_err(Arc::new)
+                            array?.apply(&expr).map_err(Arc::new)
                         } else {
                             expr.evaluate(&array?).map_err(Arc::new)
                         }
@@ -240,7 +231,6 @@ impl LayoutReader for DictReader {
             .projection_evaluation(row_range, &root(), mask)
             .map_err(|err| err.with_context("While evaluating projection on codes"))?;
         let expr = expr.clone();
-        let session = self.session.clone();
 
         let all_values_referenced = self.layout.has_all_values_referenced();
         Ok(async move {
@@ -258,7 +248,7 @@ impl LayoutReader for DictReader {
             .to_array();
 
             if *USE_VORTEX_OPERATORS {
-                array.apply(&expr, session.arrays().optimizer())
+                array.apply(&expr)
             } else {
                 expr.evaluate(&array)
             }

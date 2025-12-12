@@ -16,9 +16,7 @@ use crate::optimizer::ArrayOptimizer;
 
 impl dyn Array + '_ {
     /// Apply the expression to this array, producing a new array in constant time.
-    ///
-    // TODO(ngates): move this to ArraySessionExt::evaluate(array, expr)
-    pub fn apply(&self, expr: &Expression, optimizer: &ArrayOptimizer) -> VortexResult<ArrayRef> {
+    pub fn apply(&self, expr: &Expression) -> VortexResult<ArrayRef> {
         // If the expression is a root, return self.
         if expr.is::<Root>() {
             return Ok(self.to_array());
@@ -33,7 +31,7 @@ impl dyn Array + '_ {
         let children: Vec<_> = expr
             .children()
             .iter()
-            .map(|e| self.apply(e, optimizer))
+            .map(|e| self.apply(e))
             .try_collect()?;
 
         // And wrap the scalar function up in an array.
@@ -41,6 +39,6 @@ impl dyn Array + '_ {
             ScalarFnArray::try_new(expr.scalar_fn().clone(), children, self.len())?.into_array();
 
         // Optimize the resulting array's root.
-        optimizer.optimize_root(array)
+        array.optimize()
     }
 }

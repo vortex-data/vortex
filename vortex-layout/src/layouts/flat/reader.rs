@@ -16,7 +16,6 @@ use vortex_array::expr::Expression;
 use vortex_array::expr::Root;
 use vortex_array::mask::MaskExecutor;
 use vortex_array::serde::ArrayParts;
-use vortex_array::session::ArraySessionExt;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexExpect;
@@ -149,7 +148,7 @@ impl LayoutReader for FlatReader {
 
             let array_mask = if *USE_VORTEX_OPERATORS {
                 // Apply the expression to the array.
-                let array = array.apply(&expr, session.arrays().optimizer())?;
+                let array = array.apply(&expr)?;
                 // Evaluate the array into a mask.
                 let array_mask = array.execute_mask(&session)?;
                 mask.bitand(&array_mask)
@@ -207,7 +206,6 @@ impl LayoutReader for FlatReader {
         let name = self.name.clone();
         let array = self.array_future();
         let expr = expr.clone();
-        let session = self.session.clone();
 
         Ok(async move {
             tracing::debug!("Flat array evaluation {} - {}", name, expr);
@@ -222,7 +220,7 @@ impl LayoutReader for FlatReader {
 
             Ok(if *USE_VORTEX_OPERATORS {
                 // Evaluate the projection expression.
-                array = array.apply(&expr, session.arrays().optimizer())?;
+                array = array.apply(&expr)?;
 
                 // Filter the array based on the row mask.
                 if !mask.all_true() {

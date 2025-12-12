@@ -28,12 +28,13 @@ use crate::vtable::ValidityVTableFromValidityHelper;
 mod array;
 mod canonical;
 mod operations;
-pub mod operator;
+pub mod rules;
 mod validity;
 mod visitor;
 
-pub use operator::PrimitiveMaskedValidityRule;
+pub use rules::PrimitiveMaskedValidityRule;
 
+use crate::arrays::primitive::vtable::rules::RULES;
 use crate::kernel::KernelRef;
 use crate::kernel::ready;
 use crate::vtable::ArrayId;
@@ -140,6 +141,14 @@ impl VTable for PrimitiveVTable {
         };
 
         Ok(())
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
     }
 }
 

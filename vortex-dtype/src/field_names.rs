@@ -222,6 +222,12 @@ impl FieldNames {
     pub fn get(&self, index: usize) -> Option<&FieldName> {
         self.0.get(index)
     }
+
+    /// Finds the index of a field name, or None if not found.
+    pub fn find(&self, name: impl AsRef<str>) -> Option<usize> {
+        let name_ref = name.as_ref();
+        self.iter().position(|n| n.as_ref() == name_ref)
+    }
 }
 
 impl AsRef<[FieldName]> for FieldNames {
