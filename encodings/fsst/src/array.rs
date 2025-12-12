@@ -21,7 +21,6 @@ use vortex_array::DeserializeMetadata;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::ToCanonical;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinVTable;
 use vortex_array::serde::ArrayChildren;
