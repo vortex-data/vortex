@@ -155,6 +155,21 @@ impl<D: NativeDecimalType> DScalar<D> {
         self.value
     }
 
+    /// Get the precision/scale of the decimal scalar.
+    pub fn precision_scale(&self) -> PrecisionScale<D> {
+        self.ps
+    }
+
+    /// Returns the precision of the decimal scalar.
+    pub fn precision(&self) -> u8 {
+        self.ps.precision()
+    }
+
+    /// Returns the scale of the decimal scalar.
+    pub fn scale(&self) -> i8 {
+        self.ps.scale()
+    }
+
     /// Creates a zero decimal scalar of the given [`DecimalDType`].
     pub fn zero(decimal_dtype: &DecimalDType) -> Self {
         let ps = PrecisionScale::<D>::new(decimal_dtype.precision(), decimal_dtype.scale());

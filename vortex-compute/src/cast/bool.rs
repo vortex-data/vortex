@@ -8,29 +8,33 @@ use vortex_dtype::DType;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_vector::Scalar;
+use vortex_vector::ScalarOps;
 use vortex_vector::Vector;
 use vortex_vector::VectorOps;
+use vortex_vector::bool::BoolScalar;
 use vortex_vector::bool::BoolVector;
-use vortex_vector::null::NullVector;
+use vortex_vector::primitive::PScalar;
 use vortex_vector::primitive::PVector;
 
 use crate::cast::Cast;
+use crate::cast::try_cast_scalar_common;
+use crate::cast::try_cast_vector_common;
 
 impl Cast for BoolVector {
     type Output = Vector;
 
-    fn cast(&self, dtype: &DType) -> VortexResult<Vector> {
-        match dtype {
-            DType::Null if self.validity().all_false() => {
-                // Can cast an all-null BoolVector to NullVector.
-                Ok(NullVector::new(self.len()).into())
-            }
+    /// Casts to Bool (identity) or Primitive (as 0/1).
+    fn cast(&self, target_dtype: &DType) -> VortexResult<Vector> {
+        if let Some(result) = try_cast_vector_common(self, target_dtype)? {
+            return Ok(result);
+        }
+
+        match target_dtype {
             DType::Bool(n) if n.is_nullable() || self.validity().all_true() => {
-                // If the target dtype is nullable, or if the source BoolVector has no nulls,
-                // we can cast directly to BoolVector.
                 Ok(self.clone().into())
             }
-            DType::Primitive(ptype, _) => {
+            DType::Primitive(ptype, n) if n.is_nullable() || self.validity().all_true() => {
                 match_each_native_ptype!(ptype, |T| {
                     Ok(PVector::<T>::new(
                         Buffer::<T>::from_trusted_len_iter(
@@ -43,9 +47,31 @@ impl Cast for BoolVector {
                     .into())
                 })
             }
-            DType::Extension(ext_dtype) => self.cast(ext_dtype.storage_dtype()),
             _ => {
-                vortex_bail!("Cannot cast BoolVector to type {}", dtype);
+                vortex_bail!("Cannot cast BoolVector to {}", target_dtype);
+            }
+        }
+    }
+}
+
+impl Cast for BoolScalar {
+    type Output = Scalar;
+
+    /// Casts to Bool (identity) or Primitive (as 0/1).
+    fn cast(&self, target_dtype: &DType) -> VortexResult<Scalar> {
+        if let Some(result) = try_cast_scalar_common(self, target_dtype)? {
+            return Ok(result);
+        }
+        match target_dtype {
+            DType::Bool(n) if n.is_nullable() || self.is_valid() => Ok(self.clone().into()),
+            DType::Primitive(ptype, n) if n.is_nullable() || self.is_valid() => {
+                match_each_native_ptype!(ptype, |T| {
+                    let value = self.value().map(|b| if b { T::one() } else { T::zero() });
+                    Ok(PScalar::<T>::new(value).into())
+                })
+            }
+            _ => {
+                vortex_bail!("Cannot cast BoolScalar to {}", target_dtype);
             }
         }
     }
