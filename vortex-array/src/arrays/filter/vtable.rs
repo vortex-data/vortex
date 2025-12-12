@@ -126,7 +126,7 @@ impl VTable for FilterVTable {
                     return Ok(new_k);
                 }
                 PushDownResult::NotPushed(child) => {
-                    tracing::warn!(
+                    tracing::debug!(
                         "Filter pushdown was cheaper but not supported by child array {}",
                         array.child.display_tree()
                     );

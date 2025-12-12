@@ -42,7 +42,7 @@ impl VisitorVTable<MaskedVTable> for MaskedVTable {
     fn visit_buffers(_array: &MaskedArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(array: &MaskedArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("child", array.child.as_ref());
+        visitor.visit_child("child", &array.child);
         visitor.visit_validity(&array.validity, array.child.len());
     }
 }

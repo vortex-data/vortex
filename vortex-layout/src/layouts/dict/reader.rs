@@ -115,11 +115,14 @@ impl DictReader {
                 self.values_array()
                     .map(move |array| {
                         if *USE_VORTEX_OPERATORS {
-                            session
-                                .arrays()
-                                .optimizer()
-                                .optimize_array(&array?.apply(&expr)?)
+                            array?
+                                .apply(&expr, session.arrays().optimizer())
                                 .map_err(Arc::new)
+                            // session
+                            //     .arrays()
+                            //     .optimizer()
+                            //     .optimize_array(&array?.apply(&expr, ses)?)
+                            //     .map_err(Arc::new)
                         } else {
                             expr.evaluate(&array?).map_err(Arc::new)
                         }
@@ -192,7 +195,7 @@ impl LayoutReader for DictReader {
             let mask = mask.await?;
 
             let dict_mask = if *USE_VORTEX_OPERATORS {
-                values.take(codes)?.execute_mask_optimized(&session)?
+                values.take(codes)?.execute_mask(&session)?
             } else {
                 // Short-circuit when the values are all true/false.
                 if values.all_valid()
@@ -237,6 +240,7 @@ impl LayoutReader for DictReader {
             .projection_evaluation(row_range, &root(), mask)
             .map_err(|err| err.with_context("While evaluating projection on codes"))?;
         let expr = expr.clone();
+        let session = self.session.clone();
 
         let all_values_referenced = self.layout.has_all_values_referenced();
         Ok(async move {
@@ -254,7 +258,7 @@ impl LayoutReader for DictReader {
             .to_array();
 
             if *USE_VORTEX_OPERATORS {
-                array.apply(&expr)
+                array.apply(&expr, session.arrays().optimizer())
             } else {
                 expr.evaluate(&array)
             }

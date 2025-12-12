@@ -11,6 +11,6 @@ impl VisitorVTable<ExtensionVTable> for ExtensionVTable {
     fn visit_buffers(_array: &ExtensionArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(array: &ExtensionArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("storage", array.storage.as_ref());
+        visitor.visit_child("storage", &array.storage);
     }
 }
