@@ -23,10 +23,15 @@ use crate::builtins::ExprBuiltins;
 use crate::compute::mask;
 use crate::expr::Arity;
 use crate::expr::ChildName;
+use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
+use crate::expr::Literal;
+use crate::expr::Mask;
 use crate::expr::Pack;
+use crate::expr::ReduceCtx;
+use crate::expr::ReduceNode;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
@@ -133,6 +138,33 @@ impl VTable for GetItem {
                 Ok(Datum::Vector(field))
             }
         }
+    }
+
+    fn reduce(
+        &self,
+        field_name: &FieldName,
+        node: &dyn ReduceNode,
+        ctx: &dyn ReduceCtx,
+    ) -> VortexResult<Option<Box<dyn ReduceNode>>> {
+        let child = node.child(0);
+        if let Some(child_fn) = child.scalar_fn()
+            && let Some(pack) = child_fn.as_opt::<Pack>()
+            && let Some(idx) = pack.names.find(field_name)
+        {
+            let mut field = child.child(idx);
+
+            // Possibly mask the field if the pack is nullable
+            if pack.nullability.is_nullable() {
+                field = ctx.create_node(
+                    Mask.bind(EmptyOptions),
+                    &[field, ctx.create_node(Literal.bind(true.into()), &[])?],
+                )?;
+            }
+
+            return Ok(Some(field));
+        }
+
+        Ok(None)
     }
 
     fn simplify_untyped(

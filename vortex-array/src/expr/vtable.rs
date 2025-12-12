@@ -101,6 +101,24 @@ pub trait VTable: 'static + Sized + Send + Sync {
         vortex_bail!("Expression {} does not support execution", self.id());
     }
 
+    /// Implement an abstract reduction rule over a tree of scalar functions.
+    ///
+    /// The [`ReduceNode`] can be used to traverse children, inspect their types, and
+    /// construct the result expression.
+    ///
+    /// Return `Ok(None)` if no reduction is possible.
+    fn reduce(
+        &self,
+        options: &Self::Options,
+        node: &dyn ReduceNode,
+        ctx: &dyn ReduceCtx,
+    ) -> VortexResult<Option<Box<dyn ReduceNode>>> {
+        _ = options;
+        _ = node;
+        _ = ctx;
+        Ok(None)
+    }
+
     /// Simplify the expression if possible.
     fn simplify(
         &self,
@@ -185,6 +203,31 @@ pub trait VTable: 'static + Sized + Send + Sync {
         _ = options;
         true
     }
+}
+
+/// Arguments for reduction rules.
+pub trait ReduceCtx {
+    /// Create a new reduction node from the given scalar function and children.
+    fn create_node(
+        &self,
+        scalar_fn: ScalarFn,
+        children: &[Box<dyn ReduceNode>],
+    ) -> VortexResult<Box<dyn ReduceNode>>;
+}
+
+/// A node used for implementing abstract reduction rules.
+pub trait ReduceNode: Send {
+    /// Downcast to Any.
+    fn as_any(&self) -> &dyn Any;
+
+    /// Return the data type of this node.
+    fn node_dtype(&self) -> VortexResult<DType>;
+
+    /// Return this node's scalar function if it is indeed a scalar fn.
+    fn scalar_fn(&self) -> Option<&ScalarFn>;
+
+    /// Descend to the child of this handle.
+    fn child(&self, idx: usize) -> Box<dyn ReduceNode>;
 }
 
 /// The arity (number of arguments) of a function.
@@ -315,6 +358,12 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     fn simplify_untyped(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
     fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<Datum>;
     fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef>;
+    fn reduce(
+        &self,
+        options: &dyn Any,
+        node: &dyn ReduceNode,
+        ctx: &dyn ReduceCtx,
+    ) -> VortexResult<Option<Box<dyn ReduceNode>>>;
 
     fn arity(&self, options: &dyn Any) -> Arity;
     fn child_name(&self, options: &dyn Any, child_idx: usize) -> ChildName;
@@ -456,6 +505,15 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
             expression,
             scope,
         )
+    }
+
+    fn reduce(
+        &self,
+        options: &dyn Any,
+        node: &dyn ReduceNode,
+        ctx: &dyn ReduceCtx,
+    ) -> VortexResult<Option<Box<dyn ReduceNode>>> {
+        V::reduce(&self.0, downcast::<V>(options), node, ctx)
     }
 
     fn arity(&self, options: &dyn Any) -> Arity {

@@ -83,6 +83,17 @@ impl<V: VTable> From<&'static V> for Exact<V> {
     }
 }
 
+/// A rewrite rule that transforms arrays based on their own content
+pub trait ArrayReduceRule<V: VTable>: Debug + Send + Sync + 'static {
+    /// Attempt to rewrite this array.
+    ///
+    /// Returns:
+    /// - `Ok(Some(new_array))` if the rule applied successfully
+    /// - `Ok(None)` if the rule doesn't apply
+    /// - `Err(e)` if an error occurred
+    fn reduce(&self, array: &V::Array) -> VortexResult<Option<ArrayRef>>;
+}
+
 /// A rewrite rule that transforms arrays based on parent context
 pub trait ArrayParentReduceRule<V: VTable>: Debug + Send + Sync + 'static {
     type Parent: Matcher;
@@ -148,6 +159,27 @@ impl<V: VTable, R: ArrayParentReduceRule<V>> DynArrayParentReduceRule<V>
             return Ok(None);
         };
         self.rule.reduce_parent(child, parent_view, child_idx)
+    }
+}
+
+pub struct ReduceRuleSet<V: VTable> {
+    rules: &'static [&'static dyn ArrayReduceRule<V>],
+}
+
+impl<V: VTable> ReduceRuleSet<V> {
+    /// Create a new reduction rule set with the given rules.
+    pub const fn new(rules: &'static [&'static dyn ArrayReduceRule<V>]) -> Self {
+        Self { rules }
+    }
+
+    /// Evaluate the reduction rules on the given array.
+    pub fn evaluate(&self, array: &V::Array) -> VortexResult<Option<ArrayRef>> {
+        for rule in self.rules.iter() {
+            if let Some(reduced) = rule.reduce(array)? {
+                return Ok(Some(reduced));
+            }
+        }
+        Ok(None)
     }
 }
 
