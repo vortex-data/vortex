@@ -28,6 +28,7 @@ impl ArrayOptimizer for ArrayRef {
         Ok(self.clone().try_optimize()?.unwrap_or(self))
     }
 
+    #[expect(clippy::cognitive_complexity)]
     fn try_optimize(self) -> VortexResult<Option<ArrayRef>> {
         tracing::debug!(
             "Starting root-only array optimization\n{}",

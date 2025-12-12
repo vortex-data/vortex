@@ -170,9 +170,10 @@ impl<V: VTable> ParentRuleSet<V> {
     ) -> &'static dyn DynArrayParentReduceRule<V> {
         // Assert that self is zero-sized
         const {
-            if size_of::<R>() != 0 {
-                panic!("Rule must be zero-sized to be lifted")
-            }
+            assert!(
+                !(size_of::<R>() != 0),
+                "Rule must be zero-sized to be lifted"
+            );
         }
         unsafe { &*(rule as *const R as *const ParentReduceRuleAdapter<V, R>) }
     }
@@ -185,10 +186,10 @@ impl<V: VTable> ParentRuleSet<V> {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         for rule in self.rules.iter() {
-            if let MatchKey::Array(id) = rule.parent_key() {
-                if parent.encoding_id() != id {
-                    continue;
-                }
+            if let MatchKey::Array(id) = rule.parent_key()
+                && parent.encoding_id() != id
+            {
+                continue;
             }
             if let Some(reduced) = rule.reduce_parent(child, parent, child_idx)? {
                 return Ok(Some(reduced));
