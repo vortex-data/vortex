@@ -16,17 +16,20 @@ use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Schema;
 use arrow_schema::SchemaRef;
+use datafusion::arrow::array::Array;
+use datafusion::arrow::array::ArrayRef as ArrowArrayRef;
+use datafusion::arrow::array::Int32Array;
 use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::array::StringViewArray;
-use datafusion::arrow::array::{Array, Int32Array};
-use datafusion::arrow::array::{ArrayRef as ArrowArrayRef, StructArray};
+use datafusion::arrow::array::StructArray;
 use datafusion::arrow::compute::concat_batches;
 use datafusion::datasource::listing::ListingOptions;
 use datafusion::datasource::listing::ListingTable;
 use datafusion::datasource::listing::ListingTableConfig;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::execution::context::SessionContext;
-use datafusion_common::{create_array, record_batch};
+use datafusion_common::create_array;
+use datafusion_common::record_batch;
 use datafusion_datasource::ListingTableUrl;
 use datafusion_expr::col;
 use datafusion_expr::lit;
@@ -35,8 +38,8 @@ use object_store::ObjectStore;
 use object_store::memory::InMemory;
 use object_store::path::Path;
 use url::Url;
-use vortex::array::ArrayRef;
 use vortex::VortexSessionDefault;
+use vortex::array::ArrayRef;
 use vortex::array::arrow::FromArrowArray;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::ObjectStoreWriter;
@@ -401,8 +404,12 @@ async fn test_filter_schema_evolution_struct_fields() {
     let expected = concat_batches(
         &table_schema,
         &[
-            make_metrics("host01", vec![1, 2, 3, 4], Some(vec![None; 4])),
-            make_metrics("host02", vec![10, 20], Some(vec![Some("c6i"), Some("c6i")])),
+            make_metrics("host01.local", vec![1, 2, 3, 4], Some(vec![None; 4])),
+            make_metrics(
+                "host02.local",
+                vec![10, 20],
+                Some(vec![Some("c6i"), Some("c6i")]),
+            ),
         ],
     )
     .unwrap();

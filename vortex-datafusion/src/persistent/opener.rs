@@ -7,12 +7,10 @@ use std::sync::Arc;
 use std::sync::Weak;
 
 use arrow_schema::ArrowError;
-use arrow_schema::DataType;
-use arrow_schema::Field;
-use arrow_schema::SchemaRef;
+use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
+use datafusion_common::ScalarValue;
 use datafusion_common::arrow::array::RecordBatch;
-use datafusion_common::{DataFusionError, ScalarValue};
 use datafusion_datasource::FileRange;
 use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::TableSchema;
@@ -22,7 +20,8 @@ use datafusion_datasource::schema_adapter::SchemaAdapterFactory;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
 use datafusion_physical_expr::split_conjunction;
-use datafusion_physical_expr_adapter::{PhysicalExprAdapterFactory, replace_columns_with_literals};
+use datafusion_physical_expr_adapter::PhysicalExprAdapterFactory;
+use datafusion_physical_expr_adapter::replace_columns_with_literals;
 use datafusion_physical_expr_common::physical_expr::is_dynamic_physical_expr;
 use datafusion_physical_plan::metrics::Count;
 use datafusion_pruning::FilePruner;
@@ -36,6 +35,8 @@ use tracing::Instrument;
 use vortex::array::ArrayRef;
 use vortex::dtype::FieldName;
 use vortex::error::VortexError;
+use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::layout::LayoutReader;
@@ -172,6 +173,7 @@ impl FileOpener for VortexOpener {
 
             if let Some(expr_adapter_factory) = expr_adapter_factory {
                 // Replace column access for partition columns with literals
+                println!("filter before simplify: {filter:?}");
 
                 // The adapter rewrites the expression to the local file schema, allowing
                 // for schema evolution and divergence between the table's schema and individual files.
@@ -179,10 +181,15 @@ impl FileOpener for VortexOpener {
                     .map(|filter| {
                         let expr = expr_adapter_factory
                             .create(
-                                table_schema.file_schema().clone(),
-                                physical_file_schema.clone(),
+                                Arc::clone(table_schema.file_schema()),
+                                Arc::clone(&physical_file_schema),
                             )
                             .rewrite(filter)?;
+
+                        println!(
+                            "expr adapter: from {:?} => to {physical_file_schema:?}",
+                            table_schema.file_schema()
+                        );
 
                         // Expression might now reference columns that don't exist in the file, so we can give it
                         // another simplification pass.
@@ -190,6 +197,8 @@ impl FileOpener for VortexOpener {
                     })
                     .transpose()?;
             }
+
+            println!("filter after simplify: {filter:?}");
 
             // Use the pre-created schema adapter to map logical_file_schema to projected_schema.
             // Since logical_file_schema has the same field names as logical_schema (which the adapter
@@ -244,15 +253,37 @@ impl FileOpener for VortexOpener {
 
             let filter = filter
                 .and_then(|f| {
-                    let exprs = split_conjunction(&f)
-                        .into_iter()
-                        .filter(|expr| can_be_pushed_down(expr, &physical_file_schema))
-                        .collect::<Vec<_>>();
+                    // Verify that all filters we've accepted from DataFusion get pushed down.
+                    // This will only fail if the user has not configured a suitable
+                    // PhysicalExprAdapterFactory on the file source to handle rewriting the
+                    // expression to handle missing/reordered columns in the Vortex file.
 
-                    make_vortex_predicate(&exprs).transpose()
+                    let (pushed, unpushed): (Vec<PhysicalExprRef>, Vec<PhysicalExprRef>) =
+                        split_conjunction(&f)
+                            .into_iter()
+                            .cloned()
+                            .partition(|expr| can_be_pushed_down(expr, &physical_file_schema));
+
+                    if !unpushed.is_empty() {
+                        return Some(VortexResult::Err(vortex_err!(
+                            r#"VortexSource accepted but failed to push {} filters.
+                            This should never happen if you have a properly configured
+                            PhysicalExprAdapterFactory configured on the source.
+
+                            Failed filters:
+
+                            {unpushed:#?}
+                            "#,
+                            unpushed.len()
+                        )));
+                    }
+
+                    make_vortex_predicate(&pushed).transpose()
                 })
                 .transpose()
                 .map_err(|e| DataFusionError::External(e.into()))?;
+
+            println!("pushing Vortex filter: {filter:?}");
 
             if let Some(limit) = limit
                 && filter.is_none()
@@ -339,6 +370,7 @@ fn byte_range_to_row_range(byte_range: Range<u64>, row_count: u64, total_size: u
 mod tests {
     use std::sync::LazyLock;
 
+    use arrow_schema::Field;
     use arrow_schema::Fields;
     use datafusion::arrow::array::RecordBatch;
     use datafusion::arrow::array::StringArray;
@@ -431,8 +463,9 @@ mod tests {
 
     #[rstest]
     #[case(Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _), (1, 3), (0, 0))]
-    // If we don't have a physical expr adapter, we just drop filters on partition values
-    #[case(None, (1, 3), (1, 3))]
+    // If no adapter is provided, we will fail at runtime due to not being able to merge
+    // schemas.
+    #[case(None, (1, 3), (0, 0))]
     #[tokio::test]
     async fn test_adapter_optimization_partition_column(
         #[case] expr_adapter_factory: Option<Arc<dyn PhysicalExprAdapterFactory>>,

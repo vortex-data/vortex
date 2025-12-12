@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::sync::Weak;
 
 use datafusion_common::Result as DFResult;
-use datafusion_common::Statistics;
 use datafusion_common::config::ConfigOptions;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file::FileSource;
