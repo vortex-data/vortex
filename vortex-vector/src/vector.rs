@@ -66,6 +66,28 @@ pub enum Vector {
     Struct(StructVector),
 }
 
+impl PartialEq for Vector {
+    fn eq(&self, other: &Self) -> bool {
+        // Validity patterns must match
+        if self.validity() != other.validity() {
+            return false;
+        }
+        // Delegate to the underlying vector type equality
+        match (self, other) {
+            (Vector::Null(a), Vector::Null(b)) => a == b,
+            (Vector::Bool(a), Vector::Bool(b)) => a == b,
+            (Vector::Decimal(a), Vector::Decimal(b)) => a == b,
+            (Vector::Primitive(a), Vector::Primitive(b)) => a == b,
+            (Vector::String(a), Vector::String(b)) => a == b,
+            (Vector::Binary(a), Vector::Binary(b)) => a == b,
+            (Vector::List(a), Vector::List(b)) => a == b,
+            (Vector::FixedSizeList(a), Vector::FixedSizeList(b)) => a == b,
+            (Vector::Struct(a), Vector::Struct(b)) => a == b,
+            _ => false, // Different variants are not equal
+        }
+    }
+}
+
 impl VectorOps for Vector {
     type Mutable = VectorMut;
     type Scalar = Scalar;

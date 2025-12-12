@@ -37,7 +37,7 @@ impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
             .scalar_fn
             .execute(ctx)
             .vortex_expect("Canonicalize should be fallible")
-            .ensure_vector(len);
+            .unwrap_into_vector(len);
 
         result_vector.into_array(&array.dtype).to_canonical()
     }

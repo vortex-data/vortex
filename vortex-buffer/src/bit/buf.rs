@@ -265,7 +265,7 @@ impl BitBuffer {
 
     /// Created a new BitBuffer with offset reset to 0
     pub fn sliced(&self) -> Self {
-        if self.offset % 8 == 0 {
+        if self.offset.is_multiple_of(8) {
             return Self::new(
                 self.buffer.slice(self.offset / 8..self.len.div_ceil(8)),
                 self.len,
@@ -601,7 +601,7 @@ mod tests {
 
         for (idx, is_set) in collected {
             // The bits should match the original buffer at positions offset + idx
-            assert_eq!(is_set, (offset + idx) % 2 == 0);
+            assert_eq!(is_set, (offset + idx).is_multiple_of(2));
         }
     }
 
@@ -627,7 +627,7 @@ mod tests {
         for (idx, is_set) in collected {
             let bit_position = offset + idx;
             let byte_index = bit_position / 8;
-            let expected_is_set = byte_index % 2 == 0;
+            let expected_is_set = byte_index.is_multiple_of(2);
 
             assert_eq!(
                 is_set, expected_is_set,

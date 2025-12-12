@@ -16,7 +16,9 @@ use vortex_vector::VectorMut;
 use vortex_vector::VectorMutOps;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::EmptyMetadata;
+use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::ChunkedArray;
 use crate::arrays::PrimitiveArray;
@@ -174,6 +176,14 @@ impl VTable for ChunkedVTable {
                 .try_collect()?,
             dtype: array.dtype.clone(),
         }))
+    }
+
+    fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
+        Ok(match array.chunks.len() {
+            0 => Some(Canonical::empty(array.dtype()).into_array()),
+            1 => Some(array.chunks[0].clone()),
+            _ => None,
+        })
     }
 }
 

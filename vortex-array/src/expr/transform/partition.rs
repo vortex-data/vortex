@@ -71,7 +71,7 @@ where
             Nullability::NonNullable,
         );
 
-        let expr = expr.simplify(scope)?;
+        let expr = expr.optimize_recursive(scope)?;
         let expr_dtype = expr.return_dtype(scope)?;
 
         partitions.push(expr);
@@ -89,7 +89,7 @@ where
     );
 
     Ok(PartitionedExpr {
-        root: root.simplify(&root_scope)?,
+        root: root.optimize_recursive(&root_scope)?,
         partitions: partitions.into_boxed_slice(),
         partition_names,
         partition_dtypes: partition_dtypes.into_boxed_slice(),
@@ -284,7 +284,7 @@ mod tests {
 
         let split_a = partitioned.find_partition(&"a".into()).unwrap();
         assert_eq!(
-            &split_a.simplify(&dtype).unwrap(),
+            &split_a.optimize_recursive(&dtype).unwrap(),
             &pack(
                 [
                     ("a_0", get_item("x", get_item("a", root()))),
@@ -326,7 +326,7 @@ mod tests {
             get_item("y", get_item("a", root())),
             select(["a", "b"], root()),
         );
-        let expr = expr.simplify(&dtype).unwrap();
+        let expr = expr.optimize_recursive(&dtype).unwrap();
         let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
 
         // One for id.a and id.b

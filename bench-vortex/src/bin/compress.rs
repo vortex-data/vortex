@@ -109,7 +109,7 @@ fn compress(
         .map(|f| Target::new(Engine::default(), *f))
         .collect_vec();
 
-    let structlistofints = vec![
+    let structlistofints = [
         StructListOfInts::new(100, 1000, 1),
         StructListOfInts::new(1000, 1000, 1),
         StructListOfInts::new(10000, 1000, 1),

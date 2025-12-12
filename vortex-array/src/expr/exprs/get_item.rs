@@ -23,10 +23,16 @@ use crate::builtins::ExprBuiltins;
 use crate::compute::mask;
 use crate::expr::Arity;
 use crate::expr::ChildName;
+use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
+use crate::expr::Literal;
+use crate::expr::Mask;
 use crate::expr::Pack;
+use crate::expr::ReduceCtx;
+use crate::expr::ReduceNode;
+use crate::expr::ReduceNodeRef;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
@@ -133,6 +139,33 @@ impl VTable for GetItem {
                 Ok(Datum::Vector(field))
             }
         }
+    }
+
+    fn reduce(
+        &self,
+        field_name: &FieldName,
+        node: &dyn ReduceNode,
+        ctx: &dyn ReduceCtx,
+    ) -> VortexResult<Option<ReduceNodeRef>> {
+        let child = node.child(0);
+        if let Some(child_fn) = child.scalar_fn()
+            && let Some(pack) = child_fn.as_opt::<Pack>()
+            && let Some(idx) = pack.names.find(field_name)
+        {
+            let mut field = child.child(idx);
+
+            // Possibly mask the field if the pack is nullable
+            if pack.nullability.is_nullable() {
+                field = ctx.new_node(
+                    Mask.bind(EmptyOptions),
+                    &[field, ctx.new_node(Literal.bind(true.into()), &[])?],
+                )?;
+            }
+
+            return Ok(Some(field));
+        }
+
+        Ok(None)
     }
 
     fn simplify_untyped(
@@ -296,7 +329,7 @@ mod tests {
         let get_item_expr = get_item("b", pack_expr);
 
         let result = get_item_expr
-            .simplify(&DType::Struct(StructFields::empty(), NonNullable))
+            .optimize_recursive(&DType::Struct(StructFields::empty(), NonNullable))
             .unwrap();
 
         assert_eq!(result, lit(2));
@@ -312,7 +345,7 @@ mod tests {
 
         let dtype = DType::Primitive(PType::I32, NonNullable);
 
-        let result = get_z.simplify(&dtype).unwrap();
+        let result = get_z.optimize_recursive(&dtype).unwrap();
         assert_eq!(result, lit(4));
     }
 
@@ -332,7 +365,7 @@ mod tests {
 
         let dtype = DType::Primitive(PType::I32, NonNullable);
 
-        let result = get_final.simplify(&dtype).unwrap();
+        let result = get_final.optimize_recursive(&dtype).unwrap();
         assert_eq!(result, lit(42));
     }
 
@@ -347,7 +380,7 @@ mod tests {
 
         let dtype = DType::Primitive(PType::I32, NonNullable);
 
-        let result = get_result.simplify(&dtype).unwrap();
+        let result = get_result.optimize_recursive(&dtype).unwrap();
         let expected = checked_add(lit(1), lit(10));
         assert_eq!(&result, &expected);
     }

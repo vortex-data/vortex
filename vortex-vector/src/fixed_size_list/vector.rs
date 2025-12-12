@@ -54,6 +54,35 @@ pub struct FixedSizeListVector {
     pub(super) len: usize,
 }
 
+impl PartialEq for FixedSizeListVector {
+    fn eq(&self, other: &Self) -> bool {
+        if self.len != other.len {
+            return false;
+        }
+        if self.list_size != other.list_size {
+            return false;
+        }
+        if self.validity != other.validity {
+            return false;
+        }
+        // Build element-level mask: repeat list validity for each element in the list
+        // If list i is invalid, ignore elements[i * list_size..(i+1) * list_size]
+        let list_size = self.list_size as usize;
+        let valid_slices: Vec<(usize, usize)> = (0..self.len)
+            .filter(|&i| self.validity.value(i))
+            .map(|i| (i * list_size, (i + 1) * list_size))
+            .collect();
+        let element_mask = Mask::from_slices(self.elements.len(), valid_slices);
+
+        let mut self_elements = self.elements.as_ref().clone();
+        let mut other_elements = other.elements.as_ref().clone();
+        self_elements.mask_validity(&element_mask);
+        other_elements.mask_validity(&element_mask);
+
+        self_elements == other_elements
+    }
+}
+
 impl FixedSizeListVector {
     /// Creates a new [`FixedSizeListVector`] from the given `elements` vector, size of each list,
     /// and validity mask.

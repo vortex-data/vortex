@@ -16,16 +16,17 @@ use crate::expr::EmptyOptions;
 use crate::expr::GetItem;
 use crate::expr::Mask;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::Exact;
+use crate::optimizer::rules::ParentRuleSet;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
+pub(super) const RULES: ParentRuleSet<StructVTable> =
+    ParentRuleSet::new(&[ParentRuleSet::lift(&StructGetItemRule)]);
+
 #[derive(Debug)]
 pub(crate) struct StructGetItemRule;
-impl ArrayParentReduceRule<Exact<StructVTable>, ExactScalarFn<GetItem>> for StructGetItemRule {
-    fn child(&self) -> Exact<StructVTable> {
-        Exact::from(&StructVTable)
-    }
+impl ArrayParentReduceRule<StructVTable> for StructGetItemRule {
+    type Parent = ExactScalarFn<GetItem>;
 
     fn parent(&self) -> ExactScalarFn<GetItem> {
         ExactScalarFn::from(&GetItem)

@@ -13,7 +13,6 @@ use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProvider;
 use vortex_array::mask::MaskExecutor;
-use vortex_array::session::ArraySessionExt;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;
 use vortex_dtype::DType;
@@ -155,7 +154,7 @@ impl ZoneMap {
         if *USE_VORTEX_OPERATORS {
             self.array
                 .to_array()
-                .apply(predicate, session.arrays().optimizer())?
+                .apply(predicate)?
                 .execute_mask(session)
         } else {
             predicate

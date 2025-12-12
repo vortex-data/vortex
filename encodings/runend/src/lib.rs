@@ -24,17 +24,14 @@ pub mod _benchmarking {
 use vortex_array::ArrayBufferVisitor;
 use vortex_array::ArrayChildVisitor;
 use vortex_array::Canonical;
-use vortex_array::session::ArraySession;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::EncodeVTable;
 use vortex_array::vtable::VisitorVTable;
 use vortex_error::VortexResult;
-use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 
 use crate::compress::runend_encode;
-use crate::rules::RunEndScalarFnRule;
 
 impl EncodeVTable<RunEndVTable> for RunEndVTable {
     fn encode(
@@ -69,10 +66,6 @@ impl VisitorVTable<RunEndVTable> for RunEndVTable {
 /// Initialize run-end encoding in the given session.
 pub fn initialize(session: &mut VortexSession) {
     session.arrays().register(RunEndVTable.as_vtable());
-    session
-        .get_mut::<ArraySession>()
-        .optimizer_mut()
-        .register_parent_rule(RunEndScalarFnRule);
 }
 
 #[cfg(test)]

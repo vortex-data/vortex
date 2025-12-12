@@ -54,7 +54,9 @@ pub fn create_sparse_pattern(len: usize, true_ratio: f64) -> Vec<bool> {
 }
 
 pub fn create_runs_pattern(len: usize, run_length: usize) -> Vec<bool> {
-    (0..len).map(|i| (i / run_length) % 2 == 0).collect()
+    (0..len)
+        .map(|i| (i / run_length).is_multiple_of(2))
+        .collect()
 }
 
 /// Tests that filtering with an all-true mask returns all elements unchanged

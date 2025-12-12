@@ -21,7 +21,7 @@ use crate::primitive::PrimitiveScalar;
 use crate::struct_::StructScalar;
 
 /// Represents a scalar value of any supported type.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Scalar {
     /// Null scalars are always null.
     Null(NullScalar),

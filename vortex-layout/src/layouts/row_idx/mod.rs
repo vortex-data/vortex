@@ -26,7 +26,6 @@ use vortex_array::expr::transform::PartitionedExpr;
 use vortex_array::expr::transform::partition;
 use vortex_array::expr::transform::replace;
 use vortex_array::mask::MaskExecutor;
-use vortex_array::session::ArraySessionExt;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
 use vortex_dtype::FieldName;
@@ -205,13 +204,9 @@ impl LayoutReader for RowIdxLayoutReader {
                     Partition::Child => self.child.filter_evaluation(row_range, expr, mask),
                 },
                 |annotation, expr, mask| match annotation {
-                    Partition::RowIdx => Ok(row_idx_array_future(
-                        self.row_offset,
-                        row_range,
-                        expr,
-                        mask,
-                        self.session.clone(),
-                    )),
+                    Partition::RowIdx => {
+                        Ok(row_idx_array_future(self.row_offset, row_range, expr, mask))
+                    }
                     Partition::Child => self.child.projection_evaluation(row_range, expr, mask),
                 },
                 self.session.clone(),
@@ -226,28 +221,19 @@ impl LayoutReader for RowIdxLayoutReader {
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         match &self.partition_expr(expr) {
-            Partitioning::RowIdx(expr) => Ok(row_idx_array_future(
-                self.row_offset,
-                row_range,
-                expr,
-                mask,
-                self.session.clone(),
-            )),
+            Partitioning::RowIdx(expr) => {
+                Ok(row_idx_array_future(self.row_offset, row_range, expr, mask))
+            }
             Partitioning::Child(expr) => self.child.projection_evaluation(row_range, expr, mask),
-            Partitioning::Partitioned(p) => p.clone().into_array_future(
-                mask,
-                |annotation, expr, mask| match annotation {
-                    Partition::RowIdx => Ok(row_idx_array_future(
-                        self.row_offset,
-                        row_range,
-                        expr,
-                        mask,
-                        self.session.clone(),
-                    )),
-                    Partition::Child => self.child.projection_evaluation(row_range, expr, mask),
-                },
-                self.session.clone(),
-            ),
+            Partitioning::Partitioned(p) => {
+                p.clone()
+                    .into_array_future(mask, |annotation, expr, mask| match annotation {
+                        Partition::RowIdx => {
+                            Ok(row_idx_array_future(self.row_offset, row_range, expr, mask))
+                        }
+                        Partition::Child => self.child.projection_evaluation(row_range, expr, mask),
+                    })
+            }
         }
     }
 }
@@ -278,9 +264,7 @@ fn row_idx_mask_future(
         let array = idx_array(row_offset, &row_range).into_array();
 
         let result_mask = if *USE_VORTEX_OPERATORS {
-            array
-                .apply(&expr, session.arrays().optimizer())?
-                .execute_mask(&session)
+            array.apply(&expr)?.execute_mask(&session)
         } else {
             expr.evaluate(&array)?.try_to_mask_fill_null_false()
         }?;
@@ -294,7 +278,6 @@ fn row_idx_array_future(
     row_range: &Range<u64>,
     expr: &Expression,
     mask: MaskFuture,
-    session: VortexSession,
 ) -> ArrayFuture {
     let row_range = row_range.clone();
     let expr = expr.clone();
@@ -302,7 +285,7 @@ fn row_idx_array_future(
         let array = idx_array(row_offset, &row_range).into_array();
         let array = filter(&array, &mask.await?)?;
         if *USE_VORTEX_OPERATORS {
-            array.apply(&expr, session.arrays().optimizer())
+            array.apply(&expr)
         } else {
             expr.evaluate(&array)
         }

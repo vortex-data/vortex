@@ -24,6 +24,7 @@ use {
     crate::bench_run::run_with_setup,
     crate::utils::parquet::convert_utf8view_batch,
     crate::utils::parquet::convert_utf8view_schema,
+    anyhow::Context,
     arrow_array::RecordBatch,
     parking_lot::Mutex,
     std::fs,
@@ -131,9 +132,7 @@ pub fn benchmark_vortex_decompress(
     bench_name: &str,
 ) -> Result<(Duration, CompressionTimingMeasurement)> {
     let mut buf = Vec::new();
-    runtime
-        .block_on(vortex_compress_write(uncompressed, &mut buf))
-        .expect("Failed to compress with vortex for decompression test");
+    runtime.block_on(vortex_compress_write(uncompressed, &mut buf))?;
     let buffer = Bytes::from(buf);
 
     // Run the benchmark and measure time.
@@ -255,7 +254,7 @@ pub fn benchmark_lance_compress(
         .collect::<Result<Vec<_>, _>>()?;
     let converted_schema = convert_utf8view_schema(&schema);
 
-    let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
+    let temp_dir = tempfile::tempdir().context("Failed to create temp dir")?;
     let iteration_paths: Arc<Mutex<Vec<PathBuf>>> = Arc::new(Mutex::new(Vec::new()));
     let iteration_counter = AtomicU64::new(0);
 
@@ -289,7 +288,7 @@ pub fn benchmark_lance_compress(
     // Calculate size from the last iteration.
     let paths = iteration_paths.lock();
     let lance_compressed_size_val = if let Some(last_path) = paths.last() {
-        calculate_lance_size(last_path).expect("Failed to calculate Lance size")
+        calculate_lance_size(last_path).context("Failed to calculate Lance size")?
     } else {
         0
     };
@@ -320,7 +319,7 @@ pub fn benchmark_lance_decompress(
     // NOTE: Lance requires filesystem access unlike Parquet/Vortex which use in-memory buffers.
     let chunked = uncompressed.as_::<ChunkedVTable>().clone();
     let (batches, schema) = chunked_to_vec_record_batch(chunked);
-    let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
+    let temp_dir = tempfile::tempdir().context("Failed to create temp dir")?;
 
     // Write the Lance dataset once for all iterations.
     let dataset_path = runtime.block_on(async {

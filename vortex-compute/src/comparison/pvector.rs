@@ -38,6 +38,7 @@ mod tests {
     use vortex_buffer::bitbuffer;
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
+    use vortex_vector::bool::BoolVector;
 
     use super::*;
     use crate::comparison::Equal;
@@ -53,7 +54,8 @@ mod tests {
         let right = PVector::new(buffer![1u32, 2, 5, 4], Mask::new_true(4));
 
         let result = Compare::<Equal>::compare(&left, &right);
-        assert_eq!(result.bits(), &bitbuffer![1 1 0 1]);
+        let expected = BoolVector::new(bitbuffer![1 1 0 1], Mask::new_true(4));
+        assert_eq!(result, expected);
     }
 
     #[test]
@@ -62,7 +64,8 @@ mod tests {
         let right = PVector::new(buffer![1u32, 2, 5, 4], Mask::new_true(4));
 
         let result = Compare::<NotEqual>::compare(&left, &right);
-        assert_eq!(result.bits(), &bitbuffer![0 0 1 0]);
+        let expected = BoolVector::new(bitbuffer![0 0 1 0], Mask::new_true(4));
+        assert_eq!(result, expected);
     }
 
     #[test]
@@ -71,7 +74,8 @@ mod tests {
         let right = PVector::new(buffer![2u32, 2, 1, 5], Mask::new_true(4));
 
         let result = Compare::<LessThan>::compare(&left, &right);
-        assert_eq!(result.bits(), &bitbuffer![1 0 0 1]);
+        let expected = BoolVector::new(bitbuffer![1 0 0 1], Mask::new_true(4));
+        assert_eq!(result, expected);
     }
 
     #[test]
@@ -80,7 +84,8 @@ mod tests {
         let right = PVector::new(buffer![2u32, 2, 1, 5], Mask::new_true(4));
 
         let result = Compare::<LessThanOrEqual>::compare(&left, &right);
-        assert_eq!(result.bits(), &bitbuffer![1 1 0 1]);
+        let expected = BoolVector::new(bitbuffer![1 1 0 1], Mask::new_true(4));
+        assert_eq!(result, expected);
     }
 
     #[test]
@@ -89,7 +94,8 @@ mod tests {
         let right = PVector::new(buffer![1u32, 2, 3, 4], Mask::new_true(4));
 
         let result = Compare::<GreaterThan>::compare(&left, &right);
-        assert_eq!(result.bits(), &bitbuffer![1 0 0 1]);
+        let expected = BoolVector::new(bitbuffer![1 0 0 1], Mask::new_true(4));
+        assert_eq!(result, expected);
     }
 
     #[test]
@@ -98,7 +104,8 @@ mod tests {
         let right = PVector::new(buffer![1u32, 2, 3, 4], Mask::new_true(4));
 
         let result = Compare::<GreaterThanOrEqual>::compare(&left, &right);
-        assert_eq!(result.bits(), &bitbuffer![1 1 0 1]);
+        let expected = BoolVector::new(bitbuffer![1 1 0 1], Mask::new_true(4));
+        assert_eq!(result, expected);
     }
 
     #[test]
@@ -108,7 +115,7 @@ mod tests {
 
         let result = Compare::<Equal>::compare(&left, &right);
         // Validity is AND'd, so if either side is null, result validity is null
-        assert_eq!(result.validity(), &Mask::from_iter([true, false, true]));
-        assert_eq!(result.bits(), &bitbuffer![1 1 1]);
+        let expected = BoolVector::new(bitbuffer![1 1 1], Mask::from_iter([true, false, true]));
+        assert_eq!(result, expected);
     }
 }
