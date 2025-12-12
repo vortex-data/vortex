@@ -3,9 +3,9 @@
 
 use vortex_buffer::ByteBuffer;
 
-use crate::Array;
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
+use crate::ArrayRef;
 use crate::vtable::VTable;
 
 pub trait VisitorVTable<V: VTable> {
@@ -35,7 +35,7 @@ pub trait VisitorVTable<V: VTable> {
         struct NChildren(usize);
 
         impl ArrayChildVisitor for NChildren {
-            fn visit_child(&mut self, _name: &str, _array: &dyn Array) {
+            fn visit_child(&mut self, _name: &str, _array: &ArrayRef) {
                 self.0 += 1;
             }
         }

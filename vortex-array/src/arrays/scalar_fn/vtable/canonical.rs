@@ -19,11 +19,9 @@ impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
 
         let mut child_datums = Vec::with_capacity(array.children.len());
         for child in array.children.iter() {
-            let datum = child
-                .execute_datum_optimized(&LEGACY_SESSION)
-                .vortex_expect(
-                    "Failed to execute child array during canonicalization of ScalarFnArray",
-                );
+            let datum = child.execute_datum(&LEGACY_SESSION).vortex_expect(
+                "Failed to execute child array during canonicalization of ScalarFnArray",
+            );
             child_datums.push(datum);
         }
 

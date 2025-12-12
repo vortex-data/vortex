@@ -680,8 +680,8 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
         }
 
         impl ArrayChildVisitor for ChildrenCollector {
-            fn visit_child(&mut self, _name: &str, array: &dyn Array) {
-                self.children.push(array.to_array());
+            fn visit_child(&mut self, _name: &str, array: &ArrayRef) {
+                self.children.push(array.clone());
             }
         }
 
@@ -702,7 +702,7 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
         }
 
         impl ArrayChildVisitor for ChildNameCollector {
-            fn visit_child(&mut self, name: &str, _array: &dyn Array) {
+            fn visit_child(&mut self, name: &str, _array: &ArrayRef) {
                 self.names.push(name.to_string());
             }
         }
@@ -718,7 +718,7 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
         }
 
         impl ArrayChildVisitor for NamedChildrenCollector {
-            fn visit_child(&mut self, name: &str, array: &dyn Array) {
+            fn visit_child(&mut self, name: &str, array: &ArrayRef) {
                 self.children.push((name.to_string(), array.to_array()));
             }
         }

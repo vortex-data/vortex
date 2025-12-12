@@ -3,14 +3,12 @@
 
 use std::sync::Arc;
 
-use itertools::Itertools;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::Array;
-use crate::ArrayVisitor;
-use crate::ArrayVisitorExt;
 use crate::array::ArrayRef;
 use crate::optimizer::rules::AnyArray;
 use crate::optimizer::rules::ArrayParentReduceRule;
@@ -40,58 +38,114 @@ pub struct ArrayOptimizer {
 }
 
 impl ArrayOptimizer {
-    /// Optimize the given array by applying registered rewrite rules.
+    /// Optimize only the top-level array by applying registered rewrite rules.
     ///
-    // TODO(ngates): this is slow, overly recursive, and will stack overflow if the rules end up
-    //  forming a cycle.
-    pub fn optimize_array(&self, array: &ArrayRef) -> VortexResult<ArrayRef> {
-        // Inner recursive function that tracks number of iterations to avoid infinite loops.
-        fn inner(
-            opt: &ArrayOptimizer,
-            array: &ArrayRef,
-            iterations: usize,
-        ) -> VortexResult<ArrayRef> {
-            if iterations == 0 {
-                // Prevent infinite recursion by limiting the number of iterations.
-                return Ok(array.clone());
+    /// This is useful when it is assumed that the children are already optimized, and we have
+    /// simply wrapped them up in a new array, such as applying an expression.
+    pub fn optimize_root(&self, array: ArrayRef) -> VortexResult<ArrayRef> {
+        Ok(self.try_optimize_root(array.clone())?.unwrap_or(array))
+    }
+
+    /// Try to optimize only the top-level array by applying registered rewrite rules.
+    ///
+    /// Returns `Ok(None)` if no optimizations were applied, otherwise returns the optimized array.
+    ///
+    /// This is useful when it is assumed that the children are already optimized, and we have
+    /// simply wrapped them up in a new array, such as applying an expression.
+    #[allow(clippy::cognitive_complexity)]
+    pub fn try_optimize_root(&self, array: ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        tracing::debug!(
+            "Starting root-only array optimization\n{}",
+            array.display_tree()
+        );
+        let mut current_array = array;
+        let mut any_optimizations = false;
+
+        // Apply reduction rules to the current array until no more rules apply.
+        let mut loop_counter = 0;
+        loop {
+            if loop_counter > 100 {
+                vortex_bail!("Exceeded maximum optimization iterations (possible infinite loop)");
             }
+            loop_counter += 1;
 
-            // TODO(ngates): we should reduce first on the way down?
-            let new_children: Vec<_> = array
-                .children()
-                .iter()
-                .map(|child| inner(opt, child, iterations - 1))
-                .try_collect()?;
-
-            // If any children changed, reconstruct the array
-            let array = array.with_children(new_children)?;
-
-            // Apply reduction rules to the current array until no more rules apply.
-            if let Some(new_array) = opt.apply_reduce_rules(&array)? {
-                // Start over
-                return inner(opt, &new_array, iterations - 1);
+            if let Some(new_array) = self.apply_reduce_rules(&current_array)? {
+                current_array = new_array;
+                any_optimizations = true;
+                continue;
             }
 
             // Apply parent reduction rules to each child in the context of the current array.
-            for (idx, child) in array.children().iter().enumerate() {
-                if let Some(new_array) = opt.apply_parent_rules(child, &array, idx)? {
+            let mut replaced = false;
+            for (idx, child) in current_array.children().iter().enumerate() {
+                if let Some(new_array) = self.apply_parent_rules(child, &current_array, idx)? {
                     // If the parent was replaced, then we start over with the new parent
-                    return inner(opt, &new_array, iterations - 1);
+                    current_array = new_array;
+                    any_optimizations = true;
+                    replaced = true;
+                    break;
                 }
             }
 
-            Ok(array)
+            if !replaced {
+                break;
+            }
         }
 
-        // The number of iterations we allow is the number of nodes in the array tree * 4.
-        // No real reason to pick 4.
-        let max_iterations = array.depth_first_traversal().count() * 4;
+        if any_optimizations {
+            tracing::debug!(
+                "Optimized root-only array\n{}",
+                current_array.display_tree()
+            );
+            Ok(Some(current_array))
+        } else {
+            tracing::debug!("No optimizations applied to root array");
+            Ok(None)
+        }
+    }
 
-        tracing::debug!("Starting array optimization\n{}", array.display_tree());
-        let array = inner(self, array, max_iterations)?;
-        tracing::debug!("Optimized array\n{}", array.display_tree());
+    /// Optimize the given array by applying registered rewrite rules recursively over all nodes.
+    ///
+    /// This can be quite an expensive traversal, so prefer [`ArrayOptimizer::optimize_root`]
+    /// where possible, running it each time a new array is constructed.
+    pub fn optimize_recursive(&self, array: ArrayRef) -> VortexResult<ArrayRef> {
+        Ok(self.try_optimize_recursive(array.clone())?.unwrap_or(array))
+    }
 
-        Ok(array)
+    /// Optimize the given array by applying registered rewrite rules recursively over all nodes.
+    ///
+    /// This can be quite an expensive traversal, so prefer [`ArrayOptimizer::optimize_root`]
+    /// where possible, running it each time a new array is constructed.
+    pub fn try_optimize_recursive(&self, array: ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        let mut current_array = array;
+        let mut any_optimizations = false;
+
+        if let Some(new_array) = self.try_optimize_root(current_array.clone())? {
+            current_array = new_array;
+            any_optimizations = true;
+        }
+
+        let mut new_children = Vec::with_capacity(current_array.nchildren());
+        let mut any_child_optimized = false;
+        for child in current_array.children() {
+            if let Some(new_child) = self.try_optimize_recursive(child.clone())? {
+                new_children.push(new_child);
+                any_child_optimized = true;
+            } else {
+                new_children.push(child.clone());
+            }
+        }
+
+        if any_child_optimized {
+            current_array = current_array.with_children(new_children)?;
+            any_optimizations = true;
+        }
+
+        if any_optimizations {
+            Ok(Some(current_array))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Register a reduce rule for a specific array encoding.

@@ -13,26 +13,14 @@ use vortex_vector::Datum;
 use crate::Array;
 use crate::ArrayRef;
 use crate::executor::VectorExecutor;
-use crate::session::ArraySessionExt;
 
 /// Executor for exporting a Vortex [`Mask`] from an [`ArrayRef`].
 pub trait MaskExecutor {
-    /// Execute the array to produce a mask, after first running the optimizer.
-    fn execute_mask_optimized(&self, session: &VortexSession) -> VortexResult<Mask>;
-
     /// Execute the array to produce a mask.
     fn execute_mask(&self, session: &VortexSession) -> VortexResult<Mask>;
 }
 
 impl MaskExecutor for ArrayRef {
-    fn execute_mask_optimized(&self, session: &VortexSession) -> VortexResult<Mask> {
-        session
-            .arrays()
-            .optimizer()
-            .optimize_array(self)?
-            .execute_mask(session)
-    }
-
     fn execute_mask(&self, session: &VortexSession) -> VortexResult<Mask> {
         if !matches!(self.dtype(), DType::Bool(_)) {
             vortex_bail!("Mask array must have boolean dtype, not {}", self.dtype());

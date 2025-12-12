@@ -7,6 +7,7 @@ use std::fmt::Debug;
 
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
+use vortex_dtype::DType;
 
 use crate::Vector;
 use crate::VectorMut;
@@ -60,9 +61,15 @@ pub trait BinaryViewType: Debug + Sized + Send + Sync + 'static + private::Seale
 
     /// Upcast a type-specific instance to a generic instance.
     fn upcast<V: BinaryViewTypeUpcast>(input: V::Input<Self>) -> V;
+
+    /// Returns an empty scalar value.
+    fn empty_scalar() -> Self::Scalar;
+
+    /// Returns true if the given dtype matches this binary view type.
+    fn matches_dtype(dtype: &DType) -> bool;
 }
 
-/// [`BinaryType`] for UTF-8 strings.
+/// [`BinaryViewType`] for UTF-8 strings.
 #[derive(Clone, Debug)]
 pub struct StringType;
 impl BinaryViewType for StringType {
@@ -82,7 +89,7 @@ impl BinaryViewType for StringType {
     }
 
     #[inline(always)]
-    unsafe fn scalar_from_buffer_unchecked(buffer: ByteBuffer) -> Self::Scalar {
+    unsafe fn scalar_from_buffer_unchecked(buffer: ByteBuffer) -> BufferString {
         unsafe { BufferString::new_unchecked(buffer) }
     }
 
@@ -93,9 +100,17 @@ impl BinaryViewType for StringType {
     fn upcast<V: BinaryViewTypeUpcast>(input: V::Input<Self>) -> V {
         V::from_string(input)
     }
+
+    fn empty_scalar() -> BufferString {
+        BufferString::empty()
+    }
+
+    fn matches_dtype(dtype: &DType) -> bool {
+        matches!(dtype, DType::Utf8(_))
+    }
 }
 
-/// [`BinaryType`] for raw binary data.
+/// [`BinaryViewType`] for raw binary data.
 #[derive(Clone, Debug)]
 pub struct BinaryType;
 impl BinaryViewType for BinaryType {
@@ -113,7 +128,7 @@ impl BinaryViewType for BinaryType {
     }
 
     #[inline(always)]
-    unsafe fn scalar_from_buffer_unchecked(buffer: ByteBuffer) -> Self::Scalar {
+    unsafe fn scalar_from_buffer_unchecked(buffer: ByteBuffer) -> ByteBuffer {
         buffer
     }
 
@@ -123,6 +138,14 @@ impl BinaryViewType for BinaryType {
 
     fn upcast<V: BinaryViewTypeUpcast>(input: V::Input<Self>) -> V {
         V::from_binary(input)
+    }
+
+    fn empty_scalar() -> ByteBuffer {
+        ByteBuffer::empty()
+    }
+
+    fn matches_dtype(dtype: &DType) -> bool {
+        matches!(dtype, DType::Binary(_))
     }
 }
 

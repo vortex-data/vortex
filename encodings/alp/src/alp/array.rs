@@ -709,7 +709,7 @@ mod tests {
         let slice_len = slice_end - slice_start;
         let sliced_encoded = encoded.slice(slice_start..slice_end);
 
-        let result_vector = sliced_encoded.execute_vector_optimized(&SESSION).unwrap();
+        let result_vector = sliced_encoded.execute_vector(&SESSION).unwrap();
         let result_primitive = result_vector.into_primitive().into_f64();
 
         for idx in 0..slice_len {
