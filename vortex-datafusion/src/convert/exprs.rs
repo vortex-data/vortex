@@ -40,7 +40,7 @@ use crate::convert::TryFromDataFusion;
 
 /// Tries to convert the expressions into a vortex conjunction. Will return Ok(None) iff the input conjunction is empty.
 pub(crate) fn make_vortex_predicate(
-    predicate: &[&Arc<dyn PhysicalExpr>],
+    predicate: &[Arc<dyn PhysicalExpr>],
 ) -> VortexResult<Option<Expression>> {
     let exprs = predicate
         .iter()
@@ -391,7 +391,7 @@ mod tests {
     #[test]
     fn test_make_vortex_predicate_single() {
         let col_expr = Arc::new(df_expr::Column::new("test", 0)) as Arc<dyn PhysicalExpr>;
-        let result = make_vortex_predicate(&[&col_expr]).unwrap();
+        let result = make_vortex_predicate(&[col_expr]).unwrap();
         assert!(result.is_some());
     }
 
@@ -399,7 +399,7 @@ mod tests {
     fn test_make_vortex_predicate_multiple() {
         let col1 = Arc::new(df_expr::Column::new("col1", 0)) as Arc<dyn PhysicalExpr>;
         let col2 = Arc::new(df_expr::Column::new("col2", 1)) as Arc<dyn PhysicalExpr>;
-        let result = make_vortex_predicate(&[&col1, &col2]).unwrap();
+        let result = make_vortex_predicate(&[col1, col2]).unwrap();
         assert!(result.is_some());
         // Result should be an AND expression combining the two columns
     }
