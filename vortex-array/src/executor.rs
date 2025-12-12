@@ -12,29 +12,16 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::arrays::ConstantVTable;
 use crate::kernel::BindCtx;
-use crate::session::ArraySessionExt;
 
 /// Executor for exporting a Vortex [`Vector`] or [`Datum`] from an [`ArrayRef`].
 pub trait VectorExecutor {
-    /// Execute the array and return the resulting datum after running the optimizer.
-    fn execute_datum_optimized(&self, session: &VortexSession) -> VortexResult<Datum>;
     /// Execute the array and return the resulting datum.
     fn execute_datum(&self, session: &VortexSession) -> VortexResult<Datum>;
-    /// Execute the array and return the resulting vector after running the optimizer.
-    fn execute_vector_optimized(&self, session: &VortexSession) -> VortexResult<Vector>;
     /// Execute the array and return the resulting vector.
     fn execute_vector(&self, session: &VortexSession) -> VortexResult<Vector>;
 }
 
 impl VectorExecutor for ArrayRef {
-    fn execute_datum_optimized(&self, session: &VortexSession) -> VortexResult<Datum> {
-        session
-            .arrays()
-            .optimizer()
-            .optimize_array(self)?
-            .execute_datum(session)
-    }
-
     fn execute_datum(&self, session: &VortexSession) -> VortexResult<Datum> {
         // Attempt to short-circuit constant arrays.
         if let Some(constant) = self.as_opt::<ConstantVTable>() {
@@ -64,14 +51,6 @@ impl VectorExecutor for ArrayRef {
         }
 
         Ok(Datum::Vector(result))
-    }
-
-    fn execute_vector_optimized(&self, session: &VortexSession) -> VortexResult<Vector> {
-        session
-            .arrays()
-            .optimizer()
-            .optimize_array(self)?
-            .execute_vector(session)
     }
 
     fn execute_vector(&self, session: &VortexSession) -> VortexResult<Vector> {

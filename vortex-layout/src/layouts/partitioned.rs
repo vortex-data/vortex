@@ -13,6 +13,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::expr::Expression;
 use vortex_array::expr::transform::PartitionedExpr;
 use vortex_array::mask::MaskExecutor;
+use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
@@ -36,6 +37,7 @@ pub trait PartitionedExprEval<P> {
         self: Arc<Self>,
         mask: MaskFuture,
         array_fn: impl Fn(&P, &Expression, MaskFuture) -> VortexResult<ArrayFuture>,
+        session: VortexSession,
     ) -> VortexResult<ArrayFuture>;
 }
 
@@ -91,8 +93,8 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
 
             let root_mask = if *USE_VORTEX_OPERATORS {
                 root_scope
-                    .apply(&self.root)?
-                    .execute_mask_optimized(&session)?
+                    .apply(&self.root, session.arrays().optimizer())?
+                    .execute_mask(&session)?
             } else {
                 self.root
                     .evaluate(&root_scope)?
@@ -109,6 +111,7 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
         self: Arc<Self>,
         mask: MaskFuture,
         array_fn: impl Fn(&P, &Expression, MaskFuture) -> VortexResult<ArrayFuture>,
+        session: VortexSession,
     ) -> VortexResult<ArrayFuture> {
         // Construct evaluations for each child.
         let field_evals: Vec<_> = self
@@ -132,7 +135,7 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
             .into_array();
 
             if *USE_VORTEX_OPERATORS {
-                root_scope.apply(&self.root)
+                root_scope.apply(&self.root, session.arrays().optimizer())
             } else {
                 self.root.evaluate(&root_scope)
             }

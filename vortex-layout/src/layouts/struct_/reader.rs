@@ -325,9 +325,9 @@ impl LayoutReader for StructReader {
             ),
 
             Partitioned::Multi(partitioned) => (
-                partitioned
-                    .clone()
-                    .into_array_future(mask_fut, |name, expr, mask| {
+                partitioned.clone().into_array_future(
+                    mask_fut,
+                    |name, expr, mask| {
                         self.field_reader(name)?
                             .projection_evaluation(row_range, expr, mask)
                             .map_err(|err| {
@@ -335,7 +335,9 @@ impl LayoutReader for StructReader {
                                     "While evaluating projection partition {name}"
                                 ))
                             })
-                    })?,
+                    },
+                    self.session.clone(),
+                )?,
                 partitioned.root.is::<Pack>() || partitioned.root.is::<Merge>(),
             ),
         };

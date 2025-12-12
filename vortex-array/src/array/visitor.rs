@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Formatter;
-use std::ops::Deref;
 use std::sync::Arc;
 
 use vortex_buffer::ByteBuffer;
@@ -10,6 +9,7 @@ use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::patches::Patches;
 use crate::validity::Validity;
@@ -118,7 +118,7 @@ pub trait ArrayBufferVisitor {
 
 pub trait ArrayChildVisitor {
     /// Visit a child of this array.
-    fn visit_child(&mut self, _name: &str, _array: &dyn Array);
+    fn visit_child(&mut self, _name: &str, _array: &ArrayRef);
 
     /// Utility for visiting Array validity.
     fn visit_validity(&mut self, validity: &Validity, len: usize) {
@@ -135,7 +135,7 @@ pub trait ArrayChildVisitor {
                 //  * is_nullable & has_validity => Validity::Array (or Validity::AllInvalid)
                 //  * is_nullable & !has_validity => Validity::AllValid
                 //  * !is_nullable => Validity::NonNullable
-                self.visit_child("validity", ConstantArray::new(false, len).deref())
+                self.visit_child("validity", &ConstantArray::new(false, len).into_array())
             }
             Validity::Array(array) => {
                 self.visit_child("validity", array);

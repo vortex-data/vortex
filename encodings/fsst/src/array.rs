@@ -393,7 +393,7 @@ impl VisitorVTable<FSSTVTable> for FSSTVTable {
     }
 
     fn visit_children(array: &FSSTArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("codes", array.codes().as_ref());
+        visitor.visit_child("codes", &array.codes().to_array());
         visitor.visit_child("uncompressed_lengths", array.uncompressed_lengths());
     }
 }
