@@ -73,6 +73,33 @@ impl FixedSizeListBuilder {
         }
     }
 
+    /// Appends an array as a single non-null list entry to the builder.
+    ///
+    /// The input `array` must have the same dtype as the element dtype of this list builder, and
+    /// its length must match the fixed list size.
+    ///
+    /// Note that the list entry will be non-null but the elements themselves are allowed to be null
+    /// (only if the elements [`DType`] is nullable, of course).
+    pub fn append_array_as_list(&mut self, array: &dyn Array) -> VortexResult<()> {
+        vortex_ensure!(
+            array.dtype() == self.element_dtype(),
+            "Array dtype {:?} does not match list element dtype {:?}",
+            array.dtype(),
+            self.element_dtype()
+        );
+        vortex_ensure!(
+            array.len() == self.list_size() as usize,
+            "Array length {} does not match fixed list size {}",
+            array.len(),
+            self.list_size()
+        );
+
+        self.elements_builder.extend_from_array(array);
+        self.nulls.append_non_null();
+
+        Ok(())
+    }
+
     /// Appends a fixed-size list `value` to the builder.
     ///
     /// Note that a [`ListScalar`] can represent both a [`ListArray`] scalar **and** a
@@ -769,5 +796,64 @@ mod tests {
         let mut builder = FixedSizeListBuilder::with_capacity(dtype, 2, NonNullable, 10);
         let wrong_scalar = Scalar::from(42i32);
         assert!(builder.append_scalar(&wrong_scalar).is_err());
+    }
+
+    #[test]
+    fn test_append_array_as_list() {
+        let dtype: Arc<DType> = Arc::new(I32.into());
+        let mut builder = FixedSizeListBuilder::with_capacity(dtype.clone(), 3, NonNullable, 10);
+
+        // Append a primitive array as a single list entry.
+        let arr1 = buffer![1i32, 2, 3].into_array();
+        builder.append_array_as_list(&arr1).unwrap();
+
+        // Interleave with a list scalar.
+        builder
+            .append_value(
+                Scalar::fixed_size_list(
+                    dtype.clone(),
+                    vec![10i32.into(), 11i32.into(), 12i32.into()],
+                    NonNullable,
+                )
+                .as_list(),
+            )
+            .unwrap();
+
+        // Append another primitive array as a single list entry.
+        let arr2 = buffer![4i32, 5, 6].into_array();
+        builder.append_array_as_list(&arr2).unwrap();
+
+        // Interleave with another list scalar.
+        builder
+            .append_value(
+                Scalar::fixed_size_list(
+                    dtype.clone(),
+                    vec![20i32.into(), 21i32.into(), 22i32.into()],
+                    NonNullable,
+                )
+                .as_list(),
+            )
+            .unwrap();
+
+        let fsl = builder.finish_into_fixed_size_list();
+        assert_eq!(fsl.len(), 4);
+        assert_eq!(fsl.list_size(), 3);
+
+        // Verify elements array: [1, 2, 3, 10, 11, 12, 4, 5, 6, 20, 21, 22].
+        let elements = fsl.elements().to_primitive();
+        assert_eq!(
+            elements.as_slice::<i32>(),
+            &[1, 2, 3, 10, 11, 12, 4, 5, 6, 20, 21, 22]
+        );
+
+        // Test dtype mismatch error.
+        let mut builder = FixedSizeListBuilder::with_capacity(dtype.clone(), 3, NonNullable, 10);
+        let wrong_dtype_arr = buffer![1i64, 2, 3].into_array();
+        assert!(builder.append_array_as_list(&wrong_dtype_arr).is_err());
+
+        // Test length mismatch error.
+        let mut builder = FixedSizeListBuilder::with_capacity(dtype, 3, NonNullable, 10);
+        let wrong_len_arr = buffer![1i32, 2].into_array();
+        assert!(builder.append_array_as_list(&wrong_len_arr).is_err());
     }
 }

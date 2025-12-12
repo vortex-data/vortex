@@ -87,6 +87,30 @@ impl<O: IntegerPType> ListBuilder<O> {
         }
     }
 
+    /// Appends an array as a single non-null list entry to the builder.
+    ///
+    /// The input `array` must have the same dtype as the element dtype of this list builder.
+    ///
+    /// Note that the list entry will be non-null but the elements themselves are allowed to be null
+    /// (only if the elements [`DType`] in nullable, of course).
+    pub fn append_array_as_list(&mut self, array: &dyn Array) -> VortexResult<()> {
+        vortex_ensure!(
+            array.dtype() == self.element_dtype(),
+            "Array dtype {:?} does not match list element dtype {:?}",
+            array.dtype(),
+            self.element_dtype()
+        );
+
+        self.elements_builder.extend_from_array(array);
+        self.nulls.append_non_null();
+        self.offsets_builder.append_value(
+            O::from_usize(self.elements_builder.len())
+                .vortex_expect("Failed to convert from usize to O"),
+        );
+
+        Ok(())
+    }
+
     /// Appends a list `value` to the builder.
     pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
         match value.elements() {
@@ -546,5 +570,52 @@ mod tests {
         let mut builder = ListBuilder::<u64>::with_capacity(dtype, NonNullable, 20, 10);
         let wrong_scalar = Scalar::from(42i32);
         assert!(builder.append_scalar(&wrong_scalar).is_err());
+    }
+
+    #[test]
+    fn test_append_array_as_list() {
+        let dtype: Arc<DType> = Arc::new(I32.into());
+        let mut builder = ListBuilder::<u32>::with_capacity(dtype.clone(), NonNullable, 20, 10);
+
+        // Append a primitive array as a single list entry.
+        let arr1 = buffer![1i32, 2, 3].into_array();
+        builder.append_array_as_list(&arr1).unwrap();
+
+        // Interleave with a list scalar.
+        builder
+            .append_value(
+                Scalar::list(dtype.clone(), vec![10i32.into(), 11i32.into()], NonNullable)
+                    .as_list(),
+            )
+            .unwrap();
+
+        // Append another primitive array as a single list entry.
+        let arr2 = buffer![4i32, 5].into_array();
+        builder.append_array_as_list(&arr2).unwrap();
+
+        // Append an empty array as a single list entry (empty list).
+        let arr3 = buffer![0i32; 0].into_array();
+        builder.append_array_as_list(&arr3).unwrap();
+
+        // Interleave with another list scalar (empty list).
+        builder
+            .append_value(Scalar::list_empty(dtype.clone(), NonNullable).as_list())
+            .unwrap();
+
+        let list = builder.finish_into_list();
+        assert_eq!(list.len(), 5);
+
+        // Verify elements array: [1, 2, 3, 10, 11, 4, 5].
+        let elements = list.elements().to_primitive();
+        assert_eq!(elements.as_slice::<i32>(), &[1, 2, 3, 10, 11, 4, 5]);
+
+        // Verify offsets array.
+        let offsets = list.offsets().to_primitive();
+        assert_eq!(offsets.as_slice::<u32>(), &[0, 3, 5, 7, 7, 7]);
+
+        // Test dtype mismatch error.
+        let mut builder = ListBuilder::<u32>::with_capacity(dtype, NonNullable, 20, 10);
+        let wrong_dtype_arr = buffer![1i64, 2, 3].into_array();
+        assert!(builder.append_array_as_list(&wrong_dtype_arr).is_err());
     }
 }

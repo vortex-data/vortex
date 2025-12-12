@@ -110,6 +110,43 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
         }
     }
 
+    /// Appends an array as a single non-null list entry to the builder.
+    ///
+    /// The input `array` must have the same dtype as the element dtype of this list builder.
+    ///
+    /// Note that the list entry will be non-null but the elements themselves are allowed to be null
+    /// (only if the elements [`DType`] is nullable, of course).
+    pub fn append_array_as_list(&mut self, array: &dyn Array) -> VortexResult<()> {
+        vortex_ensure!(
+            array.dtype() == self.element_dtype(),
+            "Array dtype {:?} does not match list element dtype {:?}",
+            array.dtype(),
+            self.element_dtype()
+        );
+
+        let curr_offset = self.elements_builder.len();
+        let num_elements = array.len();
+
+        // We must assert this even in release mode to ensure that the safety comment in
+        // `finish_into_listview` is correct.
+        assert!(
+            ((curr_offset + num_elements) as u64) < O::max_value_as_u64(),
+            "appending this list would cause an offset overflow"
+        );
+
+        self.elements_builder.extend_from_array(array);
+        self.nulls.append_non_null();
+
+        self.offsets_builder.append_value(
+            O::from_usize(curr_offset).vortex_expect("Failed to convert from usize to `O`"),
+        );
+        self.sizes_builder.append_value(
+            S::from_usize(num_elements).vortex_expect("Failed to convert from usize to `S`"),
+        );
+
+        Ok(())
+    }
+
     /// Append a list of values to the builder.
     ///
     /// This method extends the value builder with the provided values and records
@@ -632,5 +669,61 @@ mod tests {
                 .to_string()
                 .contains("null value to non-nullable")
         );
+    }
+
+    #[test]
+    fn test_append_array_as_list() {
+        use vortex_buffer::buffer;
+
+        use crate::ToCanonical;
+
+        let dtype: Arc<DType> = Arc::new(I32.into());
+        let mut builder =
+            ListViewBuilder::<u32, u32>::with_capacity(dtype.clone(), NonNullable, 20, 10);
+
+        // Append a primitive array as a single list entry.
+        let arr1 = buffer![1i32, 2, 3].into_array();
+        builder.append_array_as_list(&arr1).unwrap();
+
+        // Interleave with a list scalar.
+        builder
+            .append_value(
+                Scalar::list(dtype.clone(), vec![10i32.into(), 11i32.into()], NonNullable)
+                    .as_list(),
+            )
+            .unwrap();
+
+        // Append another primitive array as a single list entry.
+        let arr2 = buffer![4i32, 5].into_array();
+        builder.append_array_as_list(&arr2).unwrap();
+
+        // Append an empty array as a single list entry (empty list).
+        let arr3 = buffer![0i32; 0].into_array();
+        builder.append_array_as_list(&arr3).unwrap();
+
+        // Interleave with another list scalar.
+        builder
+            .append_value(Scalar::list_empty(dtype.clone(), NonNullable).as_list())
+            .unwrap();
+
+        let listview = builder.finish_into_listview();
+        assert_eq!(listview.len(), 5);
+
+        // Verify elements array: [1, 2, 3, 10, 11, 4, 5].
+        let elements = listview.elements().to_primitive();
+        assert_eq!(elements.as_slice::<i32>(), &[1, 2, 3, 10, 11, 4, 5]);
+
+        // Verify offsets array.
+        let offsets = listview.offsets().to_primitive();
+        assert_eq!(offsets.as_slice::<u32>(), &[0, 3, 5, 7, 7]);
+
+        // Verify sizes array.
+        let sizes = listview.sizes().to_primitive();
+        assert_eq!(sizes.as_slice::<u32>(), &[3, 2, 2, 0, 0]);
+
+        // Test dtype mismatch error.
+        let mut builder = ListViewBuilder::<u32, u32>::with_capacity(dtype, NonNullable, 20, 10);
+        let wrong_dtype_arr = buffer![1i64, 2, 3].into_array();
+        assert!(builder.append_array_as_list(&wrong_dtype_arr).is_err());
     }
 }
