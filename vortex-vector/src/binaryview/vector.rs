@@ -426,4 +426,150 @@ mod tests {
 
         assert!(shared_vec.try_into_mut().is_ok());
     }
+
+    #[test]
+    fn test_binaryview_eq_identical_inlined() {
+        // Test equality with inlined strings (<=12 bytes).
+        let mut v1 = StringVectorMut::with_capacity(3);
+        v1.append_values("hello", 1);
+        v1.append_values("world", 1);
+        v1.append_values("test", 1);
+        let v1 = v1.freeze();
+
+        let mut v2 = StringVectorMut::with_capacity(3);
+        v2.append_values("hello", 1);
+        v2.append_values("world", 1);
+        v2.append_values("test", 1);
+        let v2 = v2.freeze();
+
+        assert_eq!(v1, v2);
+    }
+
+    #[test]
+    fn test_binaryview_eq_identical_outlined() {
+        // Test equality with outlined strings (>12 bytes).
+        let mut v1 = StringVectorMut::with_capacity(2);
+        v1.append_values("this is a longer string that won't be inlined", 1);
+        v1.append_values("another long string for testing purposes", 1);
+        let v1 = v1.freeze();
+
+        let mut v2 = StringVectorMut::with_capacity(2);
+        v2.append_values("this is a longer string that won't be inlined", 1);
+        v2.append_values("another long string for testing purposes", 1);
+        let v2 = v2.freeze();
+
+        assert_eq!(v1, v2);
+    }
+
+    #[test]
+    fn test_binaryview_eq_different_length() {
+        let mut v1 = StringVectorMut::with_capacity(3);
+        v1.append_values("a", 1);
+        v1.append_values("b", 1);
+        v1.append_values("c", 1);
+        let v1 = v1.freeze();
+
+        let mut v2 = StringVectorMut::with_capacity(2);
+        v2.append_values("a", 1);
+        v2.append_values("b", 1);
+        let v2 = v2.freeze();
+
+        assert_ne!(v1, v2);
+    }
+
+    #[test]
+    fn test_binaryview_eq_different_validity() {
+        let mut v1 = StringVectorMut::with_capacity(3);
+        v1.append_values("a", 1);
+        v1.append_values("b", 1);
+        v1.append_values("c", 1);
+        let v1 = v1.freeze();
+
+        let mut v2 = StringVectorMut::with_capacity(3);
+        v2.append_values("a", 1);
+        v2.append_nulls(1);
+        v2.append_values("c", 1);
+        let v2 = v2.freeze();
+
+        assert_ne!(v1, v2);
+    }
+
+    #[test]
+    fn test_binaryview_eq_different_values() {
+        let mut v1 = StringVectorMut::with_capacity(3);
+        v1.append_values("hello", 1);
+        v1.append_values("world", 1);
+        v1.append_values("test", 1);
+        let v1 = v1.freeze();
+
+        let mut v2 = StringVectorMut::with_capacity(3);
+        v2.append_values("hello", 1);
+        v2.append_values("DIFFERENT", 1);
+        v2.append_values("test", 1);
+        let v2 = v2.freeze();
+
+        assert_ne!(v1, v2);
+    }
+
+    #[test]
+    fn test_binaryview_eq_ignores_invalid_positions_inlined() {
+        // Two vectors with different values at invalid positions should be equal.
+        let mut v1 = StringVectorMut::with_capacity(3);
+        v1.append_values("hello", 1);
+        v1.append_values("value_a", 1); // This will be masked as invalid
+        v1.append_values("test", 1);
+        let mut v1 = v1.freeze();
+        // Mask position 1 as invalid
+        v1.mask_validity(&Mask::from_iter([true, false, true]));
+
+        let mut v2 = StringVectorMut::with_capacity(3);
+        v2.append_values("hello", 1);
+        v2.append_values("value_b", 1); // Different value at invalid position
+        v2.append_values("test", 1);
+        let mut v2 = v2.freeze();
+        v2.mask_validity(&Mask::from_iter([true, false, true]));
+
+        assert_eq!(v1, v2);
+    }
+
+    #[test]
+    fn test_binaryview_eq_ignores_invalid_positions_outlined() {
+        // Test with outlined strings at invalid positions.
+        let mut v1 = StringVectorMut::with_capacity(3);
+        v1.append_values("this is a very long string that will be outlined", 1);
+        v1.append_values("another long value that differs between vectors A", 1);
+        v1.append_values("yet another long string for the test", 1);
+        let mut v1 = v1.freeze();
+        v1.mask_validity(&Mask::from_iter([true, false, true]));
+
+        let mut v2 = StringVectorMut::with_capacity(3);
+        v2.append_values("this is a very long string that will be outlined", 1);
+        v2.append_values("different long value at the invalid position B", 1);
+        v2.append_values("yet another long string for the test", 1);
+        let mut v2 = v2.freeze();
+        v2.mask_validity(&Mask::from_iter([true, false, true]));
+
+        assert_eq!(v1, v2);
+    }
+
+    #[test]
+    fn test_binaryview_eq_empty() {
+        let v1 = StringVectorMut::with_capacity(0).freeze();
+        let v2 = StringVectorMut::with_capacity(0).freeze();
+
+        assert_eq!(v1, v2);
+    }
+
+    #[test]
+    fn test_binaryview_eq_all_nulls() {
+        let mut v1 = StringVectorMut::with_capacity(3);
+        v1.append_nulls(3);
+        let v1 = v1.freeze();
+
+        let mut v2 = StringVectorMut::with_capacity(3);
+        v2.append_nulls(3);
+        let v2 = v2.freeze();
+
+        assert_eq!(v1, v2);
+    }
 }
