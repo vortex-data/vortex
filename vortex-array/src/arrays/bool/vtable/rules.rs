@@ -35,8 +35,12 @@ impl ArrayParentReduceRule<BoolVTable> for BoolMaskedValidityRule {
         &self,
         array: &BoolArray,
         parent: &MaskedArray,
-        _child_idx: usize,
+        child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
+        if child_idx > 0 {
+            return Ok(None);
+        }
+
         // Merge the parent's validity mask into the child's validity
         // TODO(joe): make this lazy
         Ok(Some(

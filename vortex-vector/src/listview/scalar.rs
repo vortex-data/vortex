@@ -19,7 +19,7 @@ use crate::listview::ListViewVectorMut;
 /// A scalar value for list view types.
 ///
 /// The inner value is a [`ListViewVector`] with length 1.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ListViewScalar(ListViewVector);
 
 impl ListViewScalar {

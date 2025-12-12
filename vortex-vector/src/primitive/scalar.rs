@@ -21,7 +21,7 @@ use crate::primitive::PVectorMut;
 use crate::primitive::PrimitiveVectorMut;
 
 /// Represents a primitive scalar value.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PrimitiveScalar {
     /// 8-bit signed integer scalar
     I8(PScalar<i8>),

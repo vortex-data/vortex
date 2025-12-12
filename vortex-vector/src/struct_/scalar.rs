@@ -17,7 +17,7 @@ use crate::struct_::StructVectorMut;
 /// Represents a struct scalar value.
 ///
 /// The inner value is a [`StructVector`] with length 1.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StructScalar(StructVector);
 
 impl StructScalar {

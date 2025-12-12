@@ -30,6 +30,26 @@ pub struct PVector<T> {
     pub(super) validity: Mask,
 }
 
+impl<T: NativePType + PartialEq> PartialEq for PVector<T> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.len() != other.len() {
+            return false;
+        }
+        // Validity patterns must match
+        if self.validity != other.validity {
+            return false;
+        }
+        // Compare all elements, OR with !validity to ignore invalid positions
+        self.elements
+            .iter()
+            .zip(other.elements.iter())
+            .enumerate()
+            .all(|(i, (a, b))| !self.validity.value(i) | (a == b))
+    }
+}
+
+impl<T: NativePType + Eq> Eq for PVector<T> {}
+
 impl<T> PVector<T> {
     /// Creates a new [`PVector<T>`] from the given elements buffer and validity mask.
     ///
@@ -96,6 +116,23 @@ impl<T> PVector<T> {
     /// Panics if the index is out of bounds.
     pub fn get(&self, index: usize) -> Option<&T> {
         self.validity.value(index).then(|| &self.elements[index])
+    }
+
+    /// Gets an element at the given index and converts it to type `U`.
+    ///
+    /// Returns `None` if:
+    /// - The element at the given index is null
+    /// - The conversion from `T` to `U` fails
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds.
+    pub fn get_as<U>(&self, index: usize) -> Option<U>
+    where
+        U: TryFrom<T>,
+        T: Copy,
+    {
+        self.get(index).and_then(|&v| U::try_from(v).ok())
     }
 
     /// Returns the internal [`Buffer`] of the [`PVector`].
@@ -184,5 +221,16 @@ impl<T: NativePType> VectorOps for PVector<T> {
         let validity = self.validity.into_mut();
 
         PVectorMut { elements, validity }
+    }
+}
+
+impl<T> From<Buffer<T>> for PVector<T> {
+    /// Creates a new [`PVector<T>`] from the given elements buffer, with an all valid validity.
+    fn from(value: Buffer<T>) -> Self {
+        let len = value.len();
+        Self {
+            elements: value,
+            validity: Mask::new_true(len),
+        }
     }
 }

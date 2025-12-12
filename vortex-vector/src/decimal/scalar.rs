@@ -19,7 +19,7 @@ use crate::VectorMutOps;
 use crate::decimal::DVectorMut;
 
 /// Represents a decimal scalar value.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DecimalScalar {
     /// 8-bit decimal scalar.
     D8(DScalar<i8>),
@@ -153,6 +153,21 @@ impl<D: NativeDecimalType> DScalar<D> {
     /// Returns the value of the decimal scalar, or `None` if the scalar is null.
     pub fn value(&self) -> Option<D> {
         self.value
+    }
+
+    /// Get the precision/scale of the decimal scalar.
+    pub fn precision_scale(&self) -> PrecisionScale<D> {
+        self.ps
+    }
+
+    /// Returns the precision of the decimal scalar.
+    pub fn precision(&self) -> u8 {
+        self.ps.precision()
+    }
+
+    /// Returns the scale of the decimal scalar.
+    pub fn scale(&self) -> i8 {
+        self.ps.scale()
     }
 
     /// Creates a zero decimal scalar of the given [`DecimalDType`].

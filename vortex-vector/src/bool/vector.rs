@@ -20,12 +20,42 @@ use crate::bool::BoolVectorMut;
 /// An immutable vector of boolean values.
 ///
 /// Internally, this `BoolVector` is a wrapper around a [`BitBuffer`] and a validity mask.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq)]
 pub struct BoolVector {
     /// The bits that we use to represent booleans.
     pub(super) bits: BitBuffer,
     /// The validity mask (where `true` represents an element is **not** null).
     pub(super) validity: Mask,
+}
+
+impl PartialEq for BoolVector {
+    fn eq(&self, other: &Self) -> bool {
+        if self.len() != other.len() {
+            return false;
+        }
+        // Validity patterns must match
+        if self.validity != other.validity {
+            return false;
+        }
+        // Use XNOR comparison: bits are equal where !(lhs ^ rhs) is true
+        let lhs_chunks = self.bits.chunks();
+        let rhs_chunks = other.bits.chunks();
+        let validity_bits = self.validity.to_bit_buffer();
+        let validity_chunks = validity_bits.chunks();
+
+        // For equality: check that !(lhs ^ rhs) & validity == validity at each chunk
+        for ((lhs, rhs), valid) in lhs_chunks
+            .iter_padded()
+            .zip(rhs_chunks.iter_padded())
+            .zip(validity_chunks.iter_padded())
+        {
+            let equal_bits = !(lhs ^ rhs); // XNOR: true where bits are equal
+            if (equal_bits & valid) != valid {
+                return false;
+            }
+        }
+        true
+    }
 }
 
 impl BoolVector {
@@ -162,5 +192,48 @@ impl VectorOps for BoolVector {
             bits: self.bits.into_mut(),
             validity: self.validity.into_mut(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::BitBuffer;
+    use vortex_mask::Mask;
+
+    use super::*;
+
+    #[test]
+    fn test_bool_vector_eq_with_validity_127() {
+        // Test with 127 elements (not a multiple of 64, tests edge cases)
+        let len = 127;
+
+        // Create bits: alternating true/false pattern
+        let bits1: Vec<bool> = (0..len).map(|i| i % 2 == 0).collect();
+        let mut bits2: Vec<bool> = bits1.clone();
+
+        // Create validity: every 3rd element is invalid
+        let validity_bools: Vec<bool> = (0..len).map(|i| i % 3 != 0).collect();
+        let validity = Mask::from_buffer(BitBuffer::from(validity_bools));
+
+        let v1 = BoolVector::new(BitBuffer::from(bits1.clone()), validity.clone());
+        let v2 = BoolVector::new(BitBuffer::from(bits2.clone()), validity.clone());
+
+        // Should be equal - same bits at valid positions
+        assert_eq!(v1, v2);
+
+        // Now modify bits2 at an INVALID position - should still be equal
+        bits2[0] = !bits2[0]; // Flip bit 0, which is invalid (0 % 3 == 0)
+        let v3 = BoolVector::new(BitBuffer::from(bits2.clone()), validity.clone());
+        assert_eq!(v1, v3);
+
+        // Now modify bits2 at a VALID position - should NOT be equal
+        bits2[1] = !bits2[1]; // Flip bit 1, which is valid (1 % 3 != 0)
+        let v4 = BoolVector::new(BitBuffer::from(bits2), validity);
+        assert_ne!(v1, v4);
+
+        // Test with different validity patterns - should NOT be equal
+        let validity2 = Mask::new_true(len);
+        let v5 = BoolVector::new(BitBuffer::from(bits1), validity2);
+        assert_ne!(v1, v5);
     }
 }

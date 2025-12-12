@@ -57,7 +57,10 @@ impl Kernel for ScalarFnKernel {
             return_dtype: self.return_dtype,
         };
 
-        Ok(self.scalar_fn.execute(args)?.ensure_vector(self.row_count))
+        Ok(self
+            .scalar_fn
+            .execute(args)?
+            .unwrap_into_vector(self.row_count))
     }
 
     fn push_down_filter(self: Box<Self>, selection: &Mask) -> VortexResult<PushDownResult> {

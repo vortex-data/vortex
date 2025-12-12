@@ -20,7 +20,9 @@ use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_vector::BoolDatum;
 use vortex_vector::Datum;
+use vortex_vector::ScalarOps;
 use vortex_vector::Vector;
+use vortex_vector::VectorMutOps;
 use vortex_vector::VectorOps;
 use vortex_vector::bool::BoolVector;
 use vortex_vector::listview::ListViewScalar;
@@ -128,14 +130,19 @@ impl VTable for ListContains {
 
         let matches = match (lhs.as_scalar().is_some(), rhs.as_scalar().is_some()) {
             (true, true) => {
-                todo!("Implement ListContains for two scalars")
+                let list = lhs.into_scalar().vortex_expect("scalar").into_list();
+                let needle = rhs.into_scalar().vortex_expect("scalar");
+                // Convert the needle scalar to a single-element vector and reuse
+                // constant_list_scalar_contains
+                let needle_vector = needle.repeat(1).freeze();
+                constant_list_scalar_contains(list, needle_vector)
             }
             (true, false) => constant_list_scalar_contains(
                 lhs.into_scalar().vortex_expect("scalar").into_list(),
                 rhs.into_vector().vortex_expect("vector"),
             ),
             (false, true) => list_contains_scalar(
-                lhs.ensure_vector(args.row_count).into_list(),
+                lhs.unwrap_into_vector(args.row_count).into_list(),
                 rhs.into_scalar().vortex_expect("scalar").into_list(),
             ),
             (false, false) => {
@@ -234,7 +241,7 @@ fn list_contains_scalar(list: ListViewVector, value: ListViewScalar) -> VortexRe
             row_count: elems.len(),
             return_dtype: DType::Bool(Nullability::Nullable),
         })?
-        .ensure_vector(elems.len())
+        .unwrap_into_vector(elems.len())
         .into_bool()
         .into_bits();
 
@@ -311,7 +318,7 @@ fn constant_list_scalar_contains(list: ListViewScalar, values: Vector) -> Vortex
             })?
             .into_bool();
         let compared = Datum::from(compared)
-            .ensure_vector(values.len())
+            .unwrap_into_vector(values.len())
             .into_bool();
 
         result = LogicalOr::or(&result, &compared);
