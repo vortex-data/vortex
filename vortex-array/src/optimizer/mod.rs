@@ -11,30 +11,26 @@ pub mod rules;
 
 pub trait ArrayOptimizer {
     /// Optimize the root array node only.
-    fn optimize(self) -> VortexResult<ArrayRef>;
+    fn optimize(&self) -> VortexResult<ArrayRef>;
 
     /// Try to optimize the root array node only, returning None if no optimizations were applied.
-    fn try_optimize(self) -> VortexResult<Option<ArrayRef>>;
+    fn try_optimize(&self) -> VortexResult<Option<ArrayRef>>;
 
     /// Optimize the entire array tree recursively.
-    fn optimize_recursive(self) -> VortexResult<ArrayRef>;
+    fn optimize_recursive(&self) -> VortexResult<ArrayRef>;
 
     /// Try to optimize the entire array tree recursively, returning None if no optimizations were applied.
-    fn try_optimize_recursive(self) -> VortexResult<Option<ArrayRef>>;
+    fn try_optimize_recursive(&self) -> VortexResult<Option<ArrayRef>>;
 }
 
 impl ArrayOptimizer for ArrayRef {
-    fn optimize(self) -> VortexResult<ArrayRef> {
-        Ok(self.clone().try_optimize()?.unwrap_or(self))
+    fn optimize(&self) -> VortexResult<ArrayRef> {
+        Ok(self.clone().try_optimize()?.unwrap_or_else(|| self.clone()))
     }
 
     #[expect(clippy::cognitive_complexity)]
-    fn try_optimize(self) -> VortexResult<Option<ArrayRef>> {
-        tracing::debug!(
-            "Starting root-only array optimization\n{}",
-            self.display_tree()
-        );
-        let mut current_array = self;
+    fn try_optimize(&self) -> VortexResult<Option<ArrayRef>> {
+        let mut current_array = self.clone();
         let mut any_optimizations = false;
 
         // Apply reduction rules to the current array until no more rules apply.
@@ -74,17 +70,20 @@ impl ArrayOptimizer for ArrayRef {
             );
             Ok(Some(current_array))
         } else {
-            tracing::debug!("No optimizations applied to root array");
+            tracing::debug!("No optimizations applied to array\n{}", self.display_tree());
             Ok(None)
         }
     }
 
-    fn optimize_recursive(self) -> VortexResult<ArrayRef> {
-        Ok(self.clone().try_optimize_recursive()?.unwrap_or(self))
+    fn optimize_recursive(&self) -> VortexResult<ArrayRef> {
+        Ok(self
+            .clone()
+            .try_optimize_recursive()?
+            .unwrap_or_else(|| self.clone()))
     }
 
-    fn try_optimize_recursive(self) -> VortexResult<Option<ArrayRef>> {
-        let mut current_array = self;
+    fn try_optimize_recursive(&self) -> VortexResult<Option<ArrayRef>> {
+        let mut current_array = self.clone();
         let mut any_optimizations = false;
 
         if let Some(new_array) = current_array.clone().try_optimize()? {

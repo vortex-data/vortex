@@ -159,7 +159,7 @@ impl StructReader {
                 // that partitioning works correctly.
                 let expr = replace(expr.clone(), &root(), self.expanded_root_expr.clone());
                 let expr = expr
-                    .simplify(self.dtype())
+                    .optimize_recursive(self.dtype())
                     .vortex_expect("We should not fail to simplify expression over struct fields");
 
                 // Partition the expression into expressions that can be evaluated over individual fields

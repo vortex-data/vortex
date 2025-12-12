@@ -112,7 +112,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
         options: &Self::Options,
         node: &dyn ReduceNode,
         ctx: &dyn ReduceCtx,
-    ) -> VortexResult<Option<Box<dyn ReduceNode>>> {
+    ) -> VortexResult<Option<ReduceNodeRef>> {
         _ = options;
         _ = node;
         _ = ctx;
@@ -208,15 +208,17 @@ pub trait VTable: 'static + Sized + Send + Sync {
 /// Arguments for reduction rules.
 pub trait ReduceCtx {
     /// Create a new reduction node from the given scalar function and children.
-    fn create_node(
+    fn new_node(
         &self,
         scalar_fn: ScalarFn,
-        children: &[Box<dyn ReduceNode>],
-    ) -> VortexResult<Box<dyn ReduceNode>>;
+        children: &[ReduceNodeRef],
+    ) -> VortexResult<ReduceNodeRef>;
 }
 
+pub type ReduceNodeRef = Arc<dyn ReduceNode>;
+
 /// A node used for implementing abstract reduction rules.
-pub trait ReduceNode: Send {
+pub trait ReduceNode {
     /// Downcast to Any.
     fn as_any(&self) -> &dyn Any;
 
@@ -227,7 +229,15 @@ pub trait ReduceNode: Send {
     fn scalar_fn(&self) -> Option<&ScalarFn>;
 
     /// Descend to the child of this handle.
-    fn child(&self, idx: usize) -> Box<dyn ReduceNode>;
+    fn child(&self, idx: usize) -> ReduceNodeRef;
+
+    /// Returns the number of children of this node.
+    fn child_count(&self) -> usize;
+
+    /// Returns the children of this node.
+    fn children(&self) -> Vec<ReduceNodeRef> {
+        (0..self.child_count()).map(|i| self.child(i)).collect()
+    }
 }
 
 /// The arity (number of arguments) of a function.
@@ -363,7 +373,7 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
         options: &dyn Any,
         node: &dyn ReduceNode,
         ctx: &dyn ReduceCtx,
-    ) -> VortexResult<Option<Box<dyn ReduceNode>>>;
+    ) -> VortexResult<Option<ReduceNodeRef>>;
 
     fn arity(&self, options: &dyn Any) -> Arity;
     fn child_name(&self, options: &dyn Any, child_idx: usize) -> ChildName;
@@ -512,7 +522,7 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         options: &dyn Any,
         node: &dyn ReduceNode,
         ctx: &dyn ReduceCtx,
-    ) -> VortexResult<Option<Box<dyn ReduceNode>>> {
+    ) -> VortexResult<Option<ReduceNodeRef>> {
         V::reduce(&self.0, downcast::<V>(options), node, ctx)
     }
 

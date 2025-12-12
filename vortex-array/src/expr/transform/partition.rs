@@ -71,7 +71,7 @@ where
             Nullability::NonNullable,
         );
 
-        let expr = expr.simplify(scope)?;
+        let expr = expr.optimize_recursive(scope)?;
         let expr_dtype = expr.return_dtype(scope)?;
 
         partitions.push(expr);
@@ -89,7 +89,7 @@ where
     );
 
     Ok(PartitionedExpr {
-        root: root.simplify(&root_scope)?,
+        root: root.optimize_recursive(&root_scope)?,
         partitions: partitions.into_boxed_slice(),
         partition_names,
         partition_dtypes: partition_dtypes.into_boxed_slice(),

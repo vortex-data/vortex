@@ -32,6 +32,7 @@ use crate::expr::Mask;
 use crate::expr::Pack;
 use crate::expr::ReduceCtx;
 use crate::expr::ReduceNode;
+use crate::expr::ReduceNodeRef;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
@@ -145,7 +146,7 @@ impl VTable for GetItem {
         field_name: &FieldName,
         node: &dyn ReduceNode,
         ctx: &dyn ReduceCtx,
-    ) -> VortexResult<Option<Box<dyn ReduceNode>>> {
+    ) -> VortexResult<Option<ReduceNodeRef>> {
         let child = node.child(0);
         if let Some(child_fn) = child.scalar_fn()
             && let Some(pack) = child_fn.as_opt::<Pack>()
@@ -155,9 +156,9 @@ impl VTable for GetItem {
 
             // Possibly mask the field if the pack is nullable
             if pack.nullability.is_nullable() {
-                field = ctx.create_node(
+                field = ctx.new_node(
                     Mask.bind(EmptyOptions),
-                    &[field, ctx.create_node(Literal.bind(true.into()), &[])?],
+                    &[field, ctx.new_node(Literal.bind(true.into()), &[])?],
                 )?;
             }
 

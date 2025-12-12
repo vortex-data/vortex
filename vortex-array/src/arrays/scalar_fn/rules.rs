@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::sync::Arc;
 
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
@@ -12,6 +13,7 @@ use vortex_vector::Datum;
 use vortex_vector::VectorOps;
 use vortex_vector::datum_matches_dtype;
 
+use crate::Array;
 use crate::ArrayRef;
 use crate::ArrayVisitor;
 use crate::IntoArray;
@@ -22,6 +24,7 @@ use crate::arrays::ScalarFnVTable;
 use crate::expr::ExecutionArgs;
 use crate::expr::ReduceCtx;
 use crate::expr::ReduceNode;
+use crate::expr::ReduceNodeRef;
 use crate::expr::ScalarFn;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ReduceRuleSet;
@@ -109,8 +112,12 @@ impl ReduceNode for ArrayRef {
         self.as_opt::<ScalarFnVTable>().map(|a| a.scalar_fn())
     }
 
-    fn child(&self, idx: usize) -> Box<dyn ReduceNode> {
-        Box::new(self.children()[idx].clone())
+    fn child(&self, idx: usize) -> ReduceNodeRef {
+        Arc::new(<dyn Array>::children(self)[idx].clone())
+    }
+
+    fn child_count(&self) -> usize {
+        self.nchildren()
     }
 }
 
@@ -119,12 +126,12 @@ struct ArrayReduceCtx {
     len: usize,
 }
 impl ReduceCtx for ArrayReduceCtx {
-    fn create_node(
+    fn new_node(
         &self,
         scalar_fn: ScalarFn,
-        children: &[Box<dyn ReduceNode>],
-    ) -> VortexResult<Box<dyn ReduceNode>> {
-        Ok(Box::new(
+        children: &[ReduceNodeRef],
+    ) -> VortexResult<ReduceNodeRef> {
+        Ok(Arc::new(
             ScalarFnArray::try_new(
                 scalar_fn,
                 children

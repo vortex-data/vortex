@@ -21,6 +21,7 @@ use crate::expr::ExprVTable;
 use crate::expr::Expression;
 use crate::expr::ReduceCtx;
 use crate::expr::ReduceNode;
+use crate::expr::ReduceNodeRef;
 use crate::expr::VTable;
 use crate::expr::options::ExpressionOptions;
 use crate::expr::signature::ExpressionSignature;
@@ -119,7 +120,7 @@ impl ScalarFn {
         &self,
         node: &dyn ReduceNode,
         ctx: &dyn ReduceCtx,
-    ) -> VortexResult<Option<Box<dyn ReduceNode>>> {
+    ) -> VortexResult<Option<ReduceNodeRef>> {
         self.vtable.as_dyn().reduce(self.options.deref(), node, ctx)
     }
 }
