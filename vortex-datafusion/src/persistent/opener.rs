@@ -272,6 +272,10 @@ impl FileOpener for VortexOpener {
                         )));
                     }
 
+                    for filter in pushed.iter() {
+                        println!("- pushing: {filter}");
+                    }
+
                     make_vortex_predicate(&pushed).transpose()
                 })
                 .transpose()

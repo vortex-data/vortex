@@ -15,19 +15,16 @@ use std::sync::LazyLock;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Schema;
-use arrow_schema::SchemaRef;
 use datafusion::arrow::array::Array;
 use datafusion::arrow::array::ArrayRef as ArrowArrayRef;
-use datafusion::arrow::array::Int32Array;
 use datafusion::arrow::array::RecordBatch;
-use datafusion::arrow::array::StringViewArray;
 use datafusion::arrow::array::StructArray;
-use datafusion::arrow::compute::concat_batches;
 use datafusion::datasource::listing::ListingOptions;
 use datafusion::datasource::listing::ListingTable;
 use datafusion::datasource::listing::ListingTableConfig;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::execution::context::SessionContext;
+use datafusion_common::assert_batches_eq;
 use datafusion_common::create_array;
 use datafusion_common::record_batch;
 use datafusion_datasource::ListingTableUrl;
@@ -146,29 +143,17 @@ async fn test_filter_with_schema_evolution() {
         .collect()
         .await
         .unwrap();
-    let table = concat_batches(&table_schema, result.iter()).unwrap();
 
-    // We read back the full table, with nulls filled in for missing fields
-    assert_eq!(
-        table,
-        record_batch(
-            &table_schema,
-            vec![
-                // a
-                Arc::new(StringViewArray::from(vec![
-                    Some("one"),
-                    Some("two"),
-                    Some("three"),
-                ])) as ArrowArrayRef,
-                // b
-                Arc::new(StringViewArray::from(vec![
-                    Option::<&str>::None,
-                    None,
-                    None
-                ])) as ArrowArrayRef,
-            ]
-        )
-    );
+    let expected = [
+        "+-------+---+",
+        "| a     | b |",
+        "+-------+---+",
+        "| one   |   |",
+        "| two   |   |",
+        "| three |   |",
+        "+-------+---+",
+    ];
+    assert_batches_eq!(expected, &result);
 }
 
 #[tokio::test]
@@ -236,19 +221,16 @@ async fn test_filter_schema_evolution_order() {
         .collect()
         .await
         .unwrap();
-    let result = concat_batches(&table_schema, result.iter()).unwrap();
 
-    assert_eq!(
-        result,
-        record_batch(
-            &table_schema,
-            vec![
-                // a
-                Arc::new(Int32Array::from(vec![Some(2)])) as ArrowArrayRef,
-                // b
-                Arc::new(StringViewArray::from(vec![Some("two"),])) as ArrowArrayRef,
-            ]
-        )
+    assert_batches_eq!(
+        &[
+            "+---+-----+",
+            "| a | b   |",
+            "+---+-----+",
+            "| 2 | two |",
+            "+---+-----+",
+        ],
+        &result
     );
 
     // Filter on the "a" column, which has different types for each file
@@ -260,26 +242,22 @@ async fn test_filter_schema_evolution_order() {
         .collect()
         .await
         .unwrap();
-    let table = concat_batches(&table_schema, result.iter()).unwrap();
+    // let table = concat_batches(&table_schema, result.iter()).unwrap();
 
-    // file1, then file2
-    assert_eq!(
-        table,
-        record_batch(
-            &table_schema,
-            vec![
-                // a field: present in both files
-                Arc::new(Int32Array::from(vec![Some(3), Some(5), Some(4), Some(6)]))
-                    as ArrowArrayRef,
-                // b field: only present in file2, file1 fills with nulls
-                Arc::new(StringViewArray::from(vec![
-                    None,
-                    None,
-                    Some("four"),
-                    Some("six")
-                ])) as ArrowArrayRef,
-            ]
-        )
+    // a field: present in both files
+    // b field: only present in file2, file1 fills with nulls
+    assert_batches_eq!(
+        &[
+            "+---+------+",
+            "| a | b    |",
+            "+---+------+",
+            "| 3 |      |",
+            "| 5 |      |",
+            "| 4 | four |",
+            "| 6 | six  |",
+            "+---+------+",
+        ],
+        &result
     );
 }
 
@@ -372,18 +350,24 @@ async fn test_filter_schema_evolution_struct_fields() {
 
     // Scan all the records, NULLs are filled in for nested optional fields.
     let full_scan = df.collect().await.unwrap();
-    let full_scan = concat_batches(&table_schema, full_scan.iter()).unwrap();
 
-    let expected = concat_batches(
-        &table_schema,
+    assert_batches_eq!(
         &[
-            // host01 with extra nulls for the payload.instance field
-            make_metrics("host01.local", vec![1, 2, 3, 4], Some(vec![None; 4])),
-            host02,
+            "+--------------+-----------------------------+",
+            "| hostname     | payload                     |",
+            "+--------------+-----------------------------+",
+            "| host01.local | {uptime: 1, instance: }     |",
+            "| host01.local | {uptime: 2, instance: }     |",
+            "| host01.local | {uptime: 3, instance: }     |",
+            "| host01.local | {uptime: 4, instance: }     |",
+            "| host02.local | {uptime: 10, instance: c6i} |",
+            "| host02.local | {uptime: 20, instance: c6i} |",
+            "| host02.local | {uptime: 30, instance: m5}  |",
+            "| host02.local | {uptime: 40, instance: r5}  |",
+            "+--------------+-----------------------------+",
         ],
-    )
-    .unwrap();
-    assert_eq!(full_scan, expected);
+        &full_scan
+    );
 
     // run a filter that touches both the payload.uptime AND the payload.instance nested fields
     let df = ctx.read_table(table.clone()).unwrap();
@@ -400,25 +384,20 @@ async fn test_filter_schema_evolution_struct_fields() {
         .collect()
         .await
         .unwrap();
-    let filtered_scan = concat_batches(&table_schema, filtered_scan.iter()).unwrap();
-    let expected = concat_batches(
-        &table_schema,
-        &[
-            make_metrics("host01.local", vec![1, 2, 3, 4], Some(vec![None; 4])),
-            make_metrics(
-                "host02.local",
-                vec![10, 20],
-                Some(vec![Some("c6i"), Some("c6i")]),
-            ),
-        ],
-    )
-    .unwrap();
-    assert_eq!(filtered_scan, expected);
-}
 
-fn record_batch(
-    schema: &SchemaRef,
-    fields: impl IntoIterator<Item = ArrowArrayRef>,
-) -> RecordBatch {
-    RecordBatch::try_new(schema.clone(), fields.into_iter().collect()).unwrap()
+    assert_batches_eq!(
+        &[
+            "+--------------+-----------------------------+",
+            "| hostname     | payload                     |",
+            "+--------------+-----------------------------+",
+            "| host01.local | {uptime: 1, instance: }     |",
+            "| host01.local | {uptime: 2, instance: }     |",
+            "| host01.local | {uptime: 3, instance: }     |",
+            "| host01.local | {uptime: 4, instance: }     |",
+            "| host02.local | {uptime: 10, instance: c6i} |",
+            "| host02.local | {uptime: 20, instance: c6i} |",
+            "+--------------+-----------------------------+",
+        ],
+        &filtered_scan
+    );
 }
