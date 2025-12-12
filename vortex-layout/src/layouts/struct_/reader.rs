@@ -201,7 +201,7 @@ impl StructReader {
 
 /// When partitioning an expression, in the case it only has a single partition we can avoid
 /// some cost and just delegate to the child reader directly.
-// TODO(joe): this is a duplicate of the Partitioned enum in arrays/expr/vtable/operator.rs
+// TODO(joe): this is a duplicate of the Partitioned enum in arrays/expr/vtable/rules
 #[derive(Clone)]
 enum Partitioned {
     /// An expression which only operates over a single field
@@ -325,9 +325,9 @@ impl LayoutReader for StructReader {
             ),
 
             Partitioned::Multi(partitioned) => (
-                partitioned.clone().into_array_future(
-                    mask_fut,
-                    |name, expr, mask| {
+                partitioned
+                    .clone()
+                    .into_array_future(mask_fut, |name, expr, mask| {
                         self.field_reader(name)?
                             .projection_evaluation(row_range, expr, mask)
                             .map_err(|err| {
@@ -335,9 +335,7 @@ impl LayoutReader for StructReader {
                                     "While evaluating projection partition {name}"
                                 ))
                             })
-                    },
-                    self.session.clone(),
-                )?,
+                    })?,
                 partitioned.root.is::<Pack>() || partitioned.root.is::<Merge>(),
             ),
         };

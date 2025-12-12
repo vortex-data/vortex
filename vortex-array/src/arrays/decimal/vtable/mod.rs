@@ -32,12 +32,13 @@ use crate::vtable::ValidityVTableFromValidityHelper;
 mod array;
 mod canonical;
 mod operations;
-pub mod operator;
+pub mod rules;
 mod validity;
 mod visitor;
 
-pub use operator::DecimalMaskedValidityRule;
+pub use rules::DecimalMaskedValidityRule;
 
+use crate::arrays::decimal::vtable::rules::RULES;
 use crate::kernel::KernelRef;
 use crate::kernel::kernel;
 use crate::vtable::ArrayId;
@@ -180,6 +181,14 @@ impl VTable for DecimalVTable {
                 }))
             })
         })
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
     }
 }
 

@@ -156,6 +156,29 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
             canonical.into_array().execute_vector(&session)
         }))
     }
+
+    /// Attempt to reduce the array to a more simple representation.
+    ///
+    /// Returns `Ok(None)` if no reduction is possible.
+    fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
+        _ = array;
+        Ok(None)
+    }
+
+    /// Attempt to perform a reduction of the parent of this array.
+    ///
+    /// This function allows arrays to plug in reduction rules to their parents, for example
+    /// run-end arrays can pull-down scalar functions and apply them only over their values.
+    ///
+    /// Returns `Ok(None)` if no reduction is possible.
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        _ = (array, parent, child_idx);
+        Ok(None)
+    }
 }
 
 /// Placeholder type used to indicate when a particular vtable is not supported by the encoding.

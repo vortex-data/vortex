@@ -4,7 +4,6 @@
 mod array;
 mod kernel;
 mod metadata;
-pub(crate) mod rules;
 mod vtable;
 
 pub use array::*;

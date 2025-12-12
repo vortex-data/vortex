@@ -83,29 +83,12 @@ impl<V: VTable> From<&'static V> for Exact<V> {
     }
 }
 
-/// A rewrite rule that transforms arrays based on the array itself and its children
-pub trait ArrayReduceRule<M: Matcher>: Debug + Send + Sync + 'static {
-    /// Returns the matcher for this rule
-    fn matcher(&self) -> M;
-
-    /// Attempt to rewrite this array.
-    ///
-    /// Returns:
-    /// - `Ok(Some(new_array))` if the rule applied successfully
-    /// - `Ok(None)` if the rule doesn't apply
-    /// - `Err(e)` if an error occurred
-    fn reduce(&self, array: M::View<'_>) -> VortexResult<Option<ArrayRef>>;
-}
-
 /// A rewrite rule that transforms arrays based on parent context
-pub trait ArrayParentReduceRule<Child: Matcher, Parent: Matcher>:
-    Debug + Send + Sync + 'static
-{
-    /// Returns the matcher for the child array
-    fn child(&self) -> Child;
+pub trait ArrayParentReduceRule<V: VTable>: Debug + Send + Sync + 'static {
+    type Parent: Matcher;
 
     /// Returns the matcher for the parent array
-    fn parent(&self) -> Parent;
+    fn parent(&self) -> Self::Parent;
 
     /// Attempt to rewrite this child array given information about its parent.
     ///
@@ -115,123 +98,102 @@ pub trait ArrayParentReduceRule<Child: Matcher, Parent: Matcher>:
     /// - `Err(e)` if an error occurred
     fn reduce_parent(
         &self,
-        child: Child::View<'_>,
-        parent: Parent::View<'_>,
+        child: &V::Array,
+        parent: <Self::Parent as Matcher>::View<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
-/// Dynamic trait for array reduce rules
-pub trait DynArrayReduceRule: Debug + Send + Sync {
-    fn key(&self) -> MatchKey;
-
-    fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
-}
-
 /// Dynamic trait for array parent reduce rules
-pub trait DynArrayParentReduceRule: Debug + Send + Sync {
-    fn child_key(&self) -> MatchKey;
-
+pub trait DynArrayParentReduceRule<V: VTable>: Debug + Send + Sync {
     fn parent_key(&self) -> MatchKey;
 
     fn reduce_parent(
         &self,
-        array: &ArrayRef,
+        array: &V::Array,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
-/// Adapter for ArrayReduceRule
-pub(crate) struct ReduceRuleAdapter<M, R> {
-    rule: R,
-    _phantom: PhantomData<M>,
-}
-
-impl<M, R> ReduceRuleAdapter<M, R> {
-    pub(crate) fn new(rule: R) -> Self {
-        Self {
-            rule,
-            _phantom: PhantomData,
-        }
-    }
-}
-
-impl<M: Matcher, R: ArrayReduceRule<M>> Debug for ReduceRuleAdapter<M, R> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ArrayReduceRuleAdapter")
-            .field("matcher", &type_name::<M>())
-            .field("rule", &self.rule)
-            .finish()
-    }
-}
-
 /// Adapter for ArrayParentReduceRule
-pub(crate) struct ParentReduceRuleAdapter<Child: Matcher, Parent: Matcher, R> {
+pub struct ParentReduceRuleAdapter<V, R> {
     rule: R,
-    _phantom: PhantomData<(Child, Parent)>,
+    _phantom: PhantomData<V>,
 }
 
-impl<Child: Matcher, Parent: Matcher, R> ParentReduceRuleAdapter<Child, Parent, R> {
-    pub(crate) fn new(rule: R) -> Self {
-        Self {
-            rule,
-            _phantom: PhantomData,
-        }
-    }
-}
-
-impl<Child: Matcher, Parent: Matcher, R: Debug> Debug
-    for ParentReduceRuleAdapter<Child, Parent, R>
-{
+impl<V: VTable, R: ArrayParentReduceRule<V>> Debug for ParentReduceRuleAdapter<V, R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ArrayParentReduceRuleAdapter")
-            .field("child", &type_name::<Child>())
-            .field("parent", &type_name::<Parent>())
+            .field("parent", &type_name::<R::Parent>())
             .field("rule", &self.rule)
             .finish()
     }
 }
 
-impl<M: Matcher, R: ArrayReduceRule<M>> DynArrayReduceRule for ReduceRuleAdapter<M, R> {
-    fn key(&self) -> MatchKey {
-        self.rule.matcher().key()
-    }
-
-    fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        let Some(view) = self.rule.matcher().try_match(array) else {
-            return Ok(None);
-        };
-        self.rule.reduce(view)
-    }
-}
-
-impl<Child, Parent, R> DynArrayParentReduceRule for ParentReduceRuleAdapter<Child, Parent, R>
-where
-    Child: Matcher,
-    Parent: Matcher,
-    R: ArrayParentReduceRule<Child, Parent>,
+impl<V: VTable, R: ArrayParentReduceRule<V>> DynArrayParentReduceRule<V>
+    for ParentReduceRuleAdapter<V, R>
 {
-    fn child_key(&self) -> MatchKey {
-        self.rule.child().key()
-    }
-
     fn parent_key(&self) -> MatchKey {
         self.rule.parent().key()
     }
 
     fn reduce_parent(
         &self,
-        child: &ArrayRef,
+        child: &V::Array,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(child_view) = self.rule.child().try_match(child) else {
-            return Ok(None);
-        };
         let Some(parent_view) = self.rule.parent().try_match(parent) else {
             return Ok(None);
         };
-        self.rule.reduce_parent(child_view, parent_view, child_idx)
+        self.rule.reduce_parent(child, parent_view, child_idx)
+    }
+}
+
+/// A set of parent reduction rules for a specific child array encoding.
+pub struct ParentRuleSet<V: VTable> {
+    rules: &'static [&'static dyn DynArrayParentReduceRule<V>],
+}
+
+impl<V: VTable> ParentRuleSet<V> {
+    /// Create a new parent rule set with the given rules.
+    ///
+    /// Use [`ParentRuleSet::lift`] to lift static rules into dynamic trait objects.
+    pub const fn new(rules: &'static [&'static dyn DynArrayParentReduceRule<V>]) -> Self {
+        Self { rules }
+    }
+
+    /// Lift the given rule into a dynamic trait object.
+    pub const fn lift<R: ArrayParentReduceRule<V>>(
+        rule: &'static R,
+    ) -> &'static dyn DynArrayParentReduceRule<V> {
+        // Assert that self is zero-sized
+        const {
+            if size_of::<R>() != 0 {
+                panic!("Rule must be zero-sized to be lifted")
+            }
+        }
+        unsafe { &*(rule as *const R as *const ParentReduceRuleAdapter<V, R>) }
+    }
+
+    /// Evaluate the parent reduction rules on the given child and parent arrays.
+    pub fn evaluate(
+        &self,
+        child: &V::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        for rule in self.rules.iter() {
+            if let MatchKey::Array(id) = rule.parent_key() {
+                if parent.encoding_id() != id {
+                    continue;
+                }
+            }
+            if let Some(reduced) = rule.reduce_parent(child, parent, child_idx)? {
+                return Ok(Some(reduced));
+            }
+        }
+        Ok(None)
     }
 }

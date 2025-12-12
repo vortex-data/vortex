@@ -16,16 +16,22 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_scalar::Scalar;
+use vortex_vector::Datum;
+use vortex_vector::VectorOps;
+use vortex_vector::datum_matches_dtype;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::kernel::KernelInput;
 use crate::arrays::scalar_fn::kernel::ScalarFnKernel;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
 use crate::expr;
+use crate::expr::ExecutionArgs;
 use crate::expr::ExprVTable;
 use crate::expr::ScalarFn;
 use crate::kernel::BindCtx;
@@ -161,6 +167,48 @@ impl VTable for ScalarFnVTable {
             row_count: array.len(),
             return_dtype: array.dtype().clone(),
         }))
+    }
+
+    fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
+        if !array.children.iter().all(|c| c.is::<ConstantVTable>()) {
+            return Ok(None);
+        }
+
+        let input_datums: Vec<_> = array
+            .children
+            .iter()
+            .map(|c| c.as_::<ConstantVTable>().scalar().to_vector_scalar())
+            .map(Datum::Scalar)
+            .collect();
+        let input_dtypes = array.children.iter().map(|c| c.dtype().clone()).collect();
+
+        let result = array.scalar_fn.execute(ExecutionArgs {
+            datums: input_datums,
+            dtypes: input_dtypes,
+            row_count: array.len,
+            return_dtype: array.dtype.clone(),
+        })?;
+        vortex_ensure!(
+            datum_matches_dtype(&result, &array.dtype),
+            "Scalar function {} result does not match expected dtype",
+            array.scalar_fn
+        );
+
+        let result = match result {
+            Datum::Scalar(s) => s,
+            Datum::Vector(v) => {
+                tracing::warn!(
+                    "Scalar function {} returned vector from execution over all scalar inputs",
+                    array.scalar_fn
+                );
+                v.scalar_at(0)
+            }
+        };
+
+        Ok(Some(
+            ConstantArray::new(Scalar::from_vector_scalar(result, &array.dtype)?, array.len)
+                .into_array(),
+        ))
     }
 }
 

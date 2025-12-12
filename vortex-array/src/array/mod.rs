@@ -196,6 +196,12 @@ pub trait Array:
 
     /// Invoke the batch execution function for the array to produce a canonical vector.
     fn bind_kernel(&self, ctx: &mut BindCtx) -> VortexResult<KernelRef>;
+
+    /// Reduce the array to a more simple representation, if possible.
+    fn reduce(&self) -> VortexResult<Option<ArrayRef>>;
+
+    /// Attempt to perform a reduction of the parent of this array.
+    fn reduce_parent(&self, parent: &ArrayRef, child_idx: usize) -> VortexResult<Option<ArrayRef>>;
 }
 
 impl Array for Arc<dyn Array> {
@@ -308,6 +314,14 @@ impl Array for Arc<dyn Array> {
 
     fn bind_kernel(&self, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
         self.as_ref().bind_kernel(ctx)
+    }
+
+    fn reduce(&self) -> VortexResult<Option<ArrayRef>> {
+        self.as_ref().reduce()
+    }
+
+    fn reduce_parent(&self, parent: &ArrayRef, child_idx: usize) -> VortexResult<Option<ArrayRef>> {
+        self.as_ref().reduce_parent(parent, child_idx)
     }
 }
 
@@ -657,6 +671,42 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         } else {
             Ok(kernel)
         }
+    }
+
+    fn reduce(&self) -> VortexResult<Option<ArrayRef>> {
+        let Some(reduced) = V::reduce(&self.0)? else {
+            return Ok(None);
+        };
+        vortex_ensure!(reduced.len() == self.len(), "Reduced array length mismatch");
+        vortex_ensure!(
+            reduced.dtype() == self.dtype(),
+            "Reduced array dtype mismatch"
+        );
+        Ok(Some(reduced))
+    }
+
+    fn reduce_parent(&self, parent: &ArrayRef, child_idx: usize) -> VortexResult<Option<ArrayRef>> {
+        #[cfg(debug_assertions)]
+        vortex_ensure!(
+            Arc::as_ptr(&parent.children()[child_idx]) == self,
+            "Parent array's child at index {} does not match self",
+            child_idx
+        );
+
+        let Some(reduced) = V::reduce_parent(&self.0, parent, child_idx)? else {
+            return Ok(None);
+        };
+
+        vortex_ensure!(
+            reduced.len() == parent.len(),
+            "Reduced array length mismatch"
+        );
+        vortex_ensure!(
+            reduced.dtype() == parent.dtype(),
+            "Reduced array dtype mismatch"
+        );
+
+        Ok(Some(reduced))
     }
 }
 
