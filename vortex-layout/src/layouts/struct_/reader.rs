@@ -12,7 +12,10 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::ToCanonical;
+use vortex_array::arrays::ScalarFnArray;
+use vortex_array::arrays::ScalarFnVTable;
 use vortex_array::arrays::StructArray;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::ExactExpr;
 use vortex_array::expr::Expression;
 use vortex_array::expr::Merge;
@@ -347,18 +350,17 @@ impl LayoutReader for StructReader {
 
                 // If root expression was a pack, then we apply the validity to each child field
                 if is_pack_merge {
-                    let struct_array = array.to_struct();
-                    let masked_fields: Vec<ArrayRef> = struct_array
-                        .fields()
-                        .iter()
-                        .map(|a| vortex_array::compute::mask(a.as_ref(), &mask))
+                    let array = array.as_::<ScalarFnVTable>();
+                    let masked_children: Vec<ArrayRef> = array
+                        .children()
+                        .into_iter()
+                        .map(|a| a.mask(&validity))
                         .try_collect()?;
 
-                    Ok(StructArray::try_new(
-                        struct_array.names().clone(),
-                        masked_fields,
-                        struct_array.len(),
-                        struct_array.validity().clone(),
+                    Ok(ScalarFnArray::try_new(
+                        array.scalar_fn().clone(),
+                        masked_children,
+                        array.len(),
                     )?
                     .into_array())
                 } else {
