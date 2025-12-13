@@ -8458,6 +8458,7 @@ dependencies = [
  "multiversion",
  "num-traits",
  "paste",
+ "rstest",
  "tracing",
  "vortex-buffer",
  "vortex-dtype",

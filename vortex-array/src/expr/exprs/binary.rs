@@ -7,6 +7,8 @@ use arrow_ord::cmp;
 use prost::Message;
 use vortex_compute::arrow::IntoArrow;
 use vortex_compute::arrow::IntoVector;
+use vortex_compute::logical::LogicalAndKleene;
+use vortex_compute::logical::LogicalOrKleene;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -136,36 +138,10 @@ impl VTable for Binary {
 
         match op {
             Operator::And => {
-                // FIXME(ngates): implement logical compute over datums
-                let lhs = lhs
-                    .unwrap_into_vector(args.row_count)
-                    .into_bool()
-                    .into_arrow()?;
-                let rhs = rhs
-                    .unwrap_into_vector(args.row_count)
-                    .into_bool()
-                    .into_arrow()?;
-                return Ok(Datum::Vector(
-                    arrow_arith::boolean::and_kleene(&lhs, &rhs)?
-                        .into_vector()?
-                        .into(),
-                ));
+                return Ok(LogicalAndKleene::and_kleene(&lhs.into_bool(), &rhs.into_bool()).into());
             }
             Operator::Or => {
-                // FIXME(ngates): implement logical compute over datums
-                let lhs = lhs
-                    .unwrap_into_vector(args.row_count)
-                    .into_bool()
-                    .into_arrow()?;
-                let rhs = rhs
-                    .unwrap_into_vector(args.row_count)
-                    .into_bool()
-                    .into_arrow()?;
-                return Ok(Datum::Vector(
-                    arrow_arith::boolean::or_kleene(&lhs, &rhs)?
-                        .into_vector()?
-                        .into(),
-                ));
+                return Ok(LogicalOrKleene::or_kleene(&lhs.into_bool(), &rhs.into_bool()).into());
             }
             _ => {}
         }
