@@ -23,6 +23,7 @@ pub(super) fn to_arrow_struct(
     fields: &Fields,
     session: &VortexSession,
 ) -> VortexResult<ArrowArrayRef> {
+    let len = array.len();
     let validity = array.validity_mask();
 
     let mut field_arrays = Vec::with_capacity(fields.len());
@@ -64,10 +65,11 @@ pub(super) fn to_arrow_struct(
     }
 
     Ok(Arc::new(unsafe {
-        StructArray::new_unchecked(
+        StructArray::new_unchecked_with_length(
             fields.clone(),
             field_arrays.into(),
             to_null_buffer(validity),
+            len,
         )
     }))
 }
