@@ -50,11 +50,6 @@ pub(super) fn to_arrow_struct(
             //
             // For now, we go with option 1. Although we really ought to figure out CSE for this.
             for field in fields.iter() {
-                println!(
-                    "Extracting field '{}' via get_item from\n{}",
-                    field.name(),
-                    array.display_tree()
-                );
                 let field_array = array
                     .get_item(field.name().as_str())?
                     .execute_arrow(field.data_type(), session)?;
