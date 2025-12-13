@@ -8,10 +8,10 @@ use std::sync::Weak;
 use arrow_schema::ArrowError;
 use arrow_schema::DataType;
 use arrow_schema::Field;
+use arrow_schema::Schema;
 use arrow_schema::SchemaRef;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
-use datafusion_common::arrow::array::RecordBatch;
 use datafusion_datasource::FileRange;
 use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::file_meta::FileMeta;
@@ -156,7 +156,7 @@ fn compute_logical_file_schema(
         })
         .collect();
 
-    Arc::new(arrow_schema::Schema::new(logical_fields))
+    Arc::new(Schema::new(logical_fields))
 }
 
 impl FileOpener for VortexOpener {
@@ -277,6 +277,13 @@ impl FileOpener for VortexOpener {
                 .collect::<Vec<_>>();
             let projection_expr = select(fields, root());
 
+            let projected_schema = Schema::new(
+                adapted_projections
+                    .iter()
+                    .map(|idx| logical_file_schema.field(*idx).clone())
+                    .collect::<Vec<_>>(),
+            );
+
             // We share our layout readers with others partitions in the scan, so we can only need to read each layout in each file once.
             let layout_reader = match layout_reader.entry(file_meta.object_meta.location.clone()) {
                 Entry::Occupied(mut occupied_entry) => {
@@ -340,7 +347,7 @@ impl FileOpener for VortexOpener {
                 .with_some_filter(filter)
                 .with_ordered(has_output_ordering)
                 .map(move |chunk| {
-                    chunk.execute_record_batch(&logical_schema, &chunk_session)
+                    chunk.execute_record_batch(&projected_schema, &chunk_session)
                     // RecordBatch::try_from(chunk.as_ref())
                 })
                 .into_stream()

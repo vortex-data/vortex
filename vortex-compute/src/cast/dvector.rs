@@ -26,7 +26,7 @@ impl<D: NativeDecimalType> Cast for DVector<D> {
         }
 
         match target_dtype {
-            // Identity cast: same precision, scale, and compatible nullability.
+            // Identity cast: same scale, equal or larger precision, and compatible nullability.
             DType::Decimal(ddt, n)
                 if ddt.precision() == self.precision()
                     && ddt.scale() == self.scale()

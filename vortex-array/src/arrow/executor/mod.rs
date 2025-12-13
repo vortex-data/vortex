@@ -4,6 +4,7 @@
 mod bool;
 mod byte;
 mod byte_view;
+mod decimal;
 mod dictionary;
 mod list;
 mod null;
@@ -27,6 +28,7 @@ use crate::ArrayRef;
 use crate::arrow::executor::bool::to_arrow_bool;
 use crate::arrow::executor::byte::to_arrow_byte_array;
 use crate::arrow::executor::byte_view::to_arrow_byte_view;
+use crate::arrow::executor::decimal::to_arrow_decimal;
 use crate::arrow::executor::dictionary::to_arrow_dictionary;
 use crate::arrow::executor::list::to_arrow_list;
 use crate::arrow::executor::null::to_arrow_null;
@@ -107,17 +109,17 @@ impl ArrowArrayExecutor for ArrayRef {
             DataType::Dictionary(codes_type, values_type) => {
                 to_arrow_dictionary(self, codes_type, values_type, session)
             }
-            DataType::Decimal32(..) => {
-                todo!()
+            DataType::Decimal32(p, s) => {
+                to_arrow_decimal::<Decimal32Type, i32>(self, *p, *s, session)
             }
-            DataType::Decimal64(..) => {
-                todo!()
+            DataType::Decimal64(p, s) => {
+                to_arrow_decimal::<Decimal64Type, i64>(self, *p, *s, session)
             }
-            DataType::Decimal128(..) => {
-                todo!()
+            DataType::Decimal128(p, s) => {
+                to_arrow_decimal::<Decimal128Type, i128>(self, *p, *s, session)
             }
-            DataType::Decimal256(..) => {
-                todo!()
+            DataType::Decimal256(p, s) => {
+                to_arrow_decimal::<Decimal256Type, vortex_dtype::i256>(self, *p, *s, session)
             }
             DataType::RunEndEncoded(ends_type, values_type) => {
                 to_arrow_run_end(self, ends_type.data_type(), &values_type, session)
