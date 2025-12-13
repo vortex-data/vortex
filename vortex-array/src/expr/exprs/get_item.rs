@@ -25,6 +25,7 @@ use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionCost;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::Literal;
@@ -139,6 +140,10 @@ impl VTable for GetItem {
                 Ok(Datum::Vector(field))
             }
         }
+    }
+
+    fn execution_cost(&self, _options: &Self::Options) -> ExecutionCost {
+        ExecutionCost::MetadataOnly
     }
 
     fn reduce(

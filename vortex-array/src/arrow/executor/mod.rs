@@ -12,6 +12,7 @@ mod primitive;
 mod run_end;
 mod struct_;
 mod temporal;
+mod validity;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::RecordBatch;

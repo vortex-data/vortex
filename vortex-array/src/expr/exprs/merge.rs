@@ -25,6 +25,7 @@ use crate::arrays::StructArray;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionCost;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::GetItem;
@@ -92,6 +93,9 @@ impl VTable for Merge {
             }
         }
         write!(f, ")")
+    }
+    fn execution_cost(&self, _options: &Self::Options) -> ExecutionCost {
+        ExecutionCost::MetadataOnly
     }
 
     fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {

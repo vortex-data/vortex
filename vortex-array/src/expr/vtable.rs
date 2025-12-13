@@ -101,6 +101,15 @@ pub trait VTable: 'static + Sized + Send + Sync {
         vortex_bail!("Expression {} does not support execution", self.id());
     }
 
+    /// Returns the approximate cost of executing this expression.
+    ///
+    // TODO(ngates): really, we just care if pushing down a filter is "free". In other words,
+    //  is this expression purely metadata manipulation, or does it require actual data access?
+    fn execution_cost(&self, options: &Self::Options) -> ExecutionCost {
+        _ = options;
+        ExecutionCost::Unknown
+    }
+
     /// Implement an abstract reduction rule over a tree of scalar functions.
     ///
     /// The [`ReduceNode`] can be used to traverse children, inspect their types, and
@@ -203,6 +212,15 @@ pub trait VTable: 'static + Sized + Send + Sync {
         _ = options;
         true
     }
+}
+
+/// The cost model for expression execution.
+///
+/// Instead of using an arbitrary unit-less float to represent abstract cost, we use a more
+/// descriptive enum to indicate how the cost scales with input / output data.
+pub enum ExecutionCost {
+    MetadataOnly,
+    Unknown,
 }
 
 /// Arguments for reduction rules.
@@ -367,6 +385,7 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     ) -> VortexResult<Option<Expression>>;
     fn simplify_untyped(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
     fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<Datum>;
+    fn execution_cost(&self, options: &dyn Any) -> ExecutionCost;
     fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef>;
     fn reduce(
         &self,
@@ -506,6 +525,10 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         }
 
         Ok(result)
+    }
+
+    fn execution_cost(&self, options: &dyn Any) -> ExecutionCost {
+        V::execution_cost(&self.0, downcast::<V>(options))
     }
 
     fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef> {

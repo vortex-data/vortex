@@ -4,6 +4,7 @@
 use std::any::Any;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -19,18 +20,27 @@ use crate::ArrayVisitor;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
+use crate::arrays::FilterArray;
+use crate::arrays::FilterVTable;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::ScalarFnVTable;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionCost;
 use crate::expr::ReduceCtx;
 use crate::expr::ReduceNode;
 use crate::expr::ReduceNodeRef;
 use crate::expr::ScalarFn;
+use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
+use crate::optimizer::rules::Exact;
+use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
 
 pub(super) const RULES: ReduceRuleSet<ScalarFnVTable> =
     ReduceRuleSet::new(&[&ScalarFnConstantRule, &ScalarFnAbstractReduceRule]);
+
+pub(super) const PARENT_RULES: ParentRuleSet<ScalarFnVTable> =
+    ParentRuleSet::new(&[ParentRuleSet::lift(&ScalarFnFilterPushDownRule)]);
 
 #[derive(Debug)]
 struct ScalarFnConstantRule;
@@ -147,5 +157,41 @@ impl ReduceCtx for ArrayReduceCtx {
             )?
             .into_array(),
         ))
+    }
+}
+
+#[derive(Debug)]
+struct ScalarFnFilterPushDownRule;
+impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnFilterPushDownRule {
+    type Parent = Exact<FilterVTable>;
+
+    fn parent(&self) -> Self::Parent {
+        Exact::from(&FilterVTable)
+    }
+
+    fn reduce_parent(
+        &self,
+        child: &ScalarFnArray,
+        parent: &FilterArray,
+        _child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        // For metadata-only scalar functions, we can push the filter down
+        if matches!(
+            child.scalar_fn.execution_cost(),
+            ExecutionCost::MetadataOnly
+        ) {
+            let new_children: Vec<_> = child
+                .children
+                .iter()
+                .map(|c| c.filter(parent.mask().clone()))
+                .try_collect()?;
+
+            let new_array =
+                ScalarFnArray::try_new(child.scalar_fn.clone(), new_children, parent.len())?;
+
+            return Ok(Some(new_array.into_array()));
+        }
+
+        Ok(None)
     }
 }

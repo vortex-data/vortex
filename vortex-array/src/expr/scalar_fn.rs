@@ -16,6 +16,7 @@ use vortex_vector::Datum;
 
 use crate::ArrayRef;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionCost;
 use crate::expr::ExprId;
 use crate::expr::ExprVTable;
 use crate::expr::Expression;
@@ -113,6 +114,11 @@ impl ScalarFn {
     /// Execute the expression given the input arguments.
     pub fn execute(&self, ctx: ExecutionArgs) -> VortexResult<Datum> {
         self.vtable.as_dyn().execute(self.options.deref(), ctx)
+    }
+
+    /// Get the execution cost of this scalar function.
+    pub fn execution_cost(&self) -> ExecutionCost {
+        self.vtable.as_dyn().execution_cost(self.options.deref())
     }
 
     /// Perform abstract reduction on this scalar function node.

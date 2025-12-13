@@ -25,6 +25,7 @@ use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::kernel::KernelInput;
 use crate::arrays::scalar_fn::kernel::ScalarFnKernel;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
+use crate::arrays::scalar_fn::rules::PARENT_RULES;
 use crate::arrays::scalar_fn::rules::RULES;
 use crate::expr;
 use crate::expr::ExprVTable;
@@ -166,6 +167,14 @@ impl VTable for ScalarFnVTable {
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array)
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }
 
