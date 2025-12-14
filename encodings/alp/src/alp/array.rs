@@ -17,7 +17,6 @@ use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::kernel::BindCtx;
 use vortex_array::kernel::KernelRef;
-use vortex_array::kernel::kernel;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
@@ -49,7 +48,8 @@ use crate::ALPFloat;
 use crate::alp::Exponents;
 use crate::alp::alp_encode;
 use crate::alp::decompress::decompress_into_array;
-use crate::alp::decompress::decompress_into_vector;
+use crate::alp::kernel::ALPKernel;
+use crate::alp::kernel::PatchKernels;
 use crate::match_each_alp_float_ptype;
 
 vtable!(ALP);
@@ -190,15 +190,15 @@ impl VTable for ALPVTable {
     fn bind_kernel(array: &ALPArray, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
         let encoded = array.encoded().bind_kernel(ctx)?;
         let patches_kernels = if let Some(patches) = array.patches() {
-            Some((
-                patches.indices().bind_kernel(ctx)?,
-                patches.values().bind_kernel(ctx)?,
-                patches
+            Some(PatchKernels {
+                indices: patches.indices().bind_kernel(ctx)?,
+                values: patches.values().bind_kernel(ctx)?,
+                chunk_offsets: patches
                     .chunk_offsets()
                     .as_ref()
                     .map(|co| co.bind_kernel(ctx))
                     .transpose()?,
-            ))
+            })
         } else {
             None
         };
@@ -207,24 +207,12 @@ impl VTable for ALPVTable {
         let exponents = array.exponents();
 
         match_each_alp_float_ptype!(array.dtype().as_ptype(), |T| {
-            Ok(kernel(move || {
-                let encoded_vector = encoded.execute()?;
-                let patches_vectors = match patches_kernels {
-                    Some((idx_kernel, val_kernel, co_kernel)) => Some((
-                        idx_kernel.execute()?,
-                        val_kernel.execute()?,
-                        co_kernel.map(|k| k.execute()).transpose()?,
-                    )),
-                    None => None,
-                };
-
-                decompress_into_vector::<T>(
-                    encoded_vector,
-                    exponents,
-                    patches_vectors,
-                    patches_offset,
-                )
-            }))
+            Ok(Box::new(ALPKernel::<T>::new(
+                exponents,
+                encoded,
+                patches_kernels,
+                patches_offset,
+            )))
         })
     }
 }

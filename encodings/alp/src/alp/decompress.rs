@@ -18,7 +18,9 @@ use vortex_error::VortexResult;
 use vortex_vector::Vector;
 use vortex_vector::VectorMutOps;
 use vortex_vector::VectorOps;
+use vortex_vector::primitive::PVector;
 use vortex_vector::primitive::PVectorMut;
+use vortex_vector::primitive::PrimitiveVector;
 
 use crate::ALPArray;
 use crate::ALPFloat;
@@ -53,13 +55,13 @@ pub fn decompress_into_array(array: ALPArray) -> PrimitiveArray {
 ///
 /// A `Vector` containing the decompressed floating-point values with all patches applied.
 pub fn decompress_into_vector<T: ALPFloat>(
-    encoded_vector: Vector,
+    encoded_vector: PVector<T::ALPInt>,
     exponents: Exponents,
-    patches_vectors: Option<(Vector, Vector, Option<Vector>)>,
+    patches_vectors: Option<(PrimitiveVector, PrimitiveVector, Option<PrimitiveVector>)>,
     patches_offset: usize,
 ) -> VortexResult<Vector> {
-    let encoded_primitive = encoded_vector.into_primitive().into_mut();
-    let (mut alp_buffer, mask) = T::ALPInt::downcast(encoded_primitive).into_parts();
+    // TODO(ngates): we should try_into_mut and fallback to decode _while_ copying.
+    let (mut alp_buffer, mask) = encoded_vector.into_mut().into_parts();
     <T>::decode_slice_inplace(alp_buffer.as_mut_slice(), exponents);
 
     // SAFETY: `Buffer<T::ALPInt> and `BufferMut<T>` have the same layout.
@@ -67,9 +69,6 @@ pub fn decompress_into_vector<T: ALPFloat>(
 
     // Apply patches if they exist.
     if let Some((patches_indices, patches_values, _)) = patches_vectors {
-        let patches_indices = patches_indices.into_primitive();
-        let patches_values = patches_values.into_primitive();
-
         let values_buffer = T::downcast(patches_values.into_mut()).into_parts().0;
         let values_slice = values_buffer.as_slice();
         let decoded_slice = decoded_buffer.as_mut_slice();

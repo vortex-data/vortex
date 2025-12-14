@@ -17,6 +17,7 @@ mod array;
 mod compress;
 mod compute;
 mod decompress;
+mod kernel;
 mod ops;
 
 #[cfg(test)]
