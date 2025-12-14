@@ -14,6 +14,7 @@ use vortex_dtype::UnsignedPType;
 
 use crate::take::Take;
 
+pub mod asm_stubs;
 pub mod avx2;
 pub mod portable;
 
@@ -22,17 +23,20 @@ impl<T: Copy, I: UnsignedPType> Take<[I]> for &[T] {
     type Output = Buffer<T>;
 
     fn take(self, indices: &[I]) -> Buffer<T> {
-        #[cfg(vortex_nightly)]
-        {
-            return portable::take_portable(self, indices);
-        }
-
+        // Prefer hand-tuned AVX2 on x86 - it's faster than portable SIMD because it uses
+        // native 32-bit index gathers (`vpgatherdd`) instead of extending to 64-bit.
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         {
             if is_x86_feature_detected!("avx2") {
-                // SAFETY: We just checked that the AVX2 feature in enabled.
+                // SAFETY: We just checked that the AVX2 feature is enabled.
                 return unsafe { avx2::take_avx2(self, indices) };
             }
+        }
+
+        // Fall back to portable SIMD on non-x86 platforms (ARM, RISC-V) or x86 without AVX2.
+        #[cfg(vortex_nightly)]
+        {
+            return portable::take_portable(self, indices);
         }
 
         #[allow(unreachable_code, reason = "`vortex_nightly` path returns early")]
