@@ -55,7 +55,7 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
         Err(a) => a,
     };
 
-    // TODO(ngates): we should do the slighly more expensive thing which is to verify ZCTL.
+    // TODO(ngates): we should do the slightly more expensive thing which is to verify ZCTL.
     //  In other words, check that offsets + sizes are monotonically increasing.
 
     // Otherwise, we execute the array to become a ListViewVector.
