@@ -19,8 +19,9 @@ use crate::ArrayRef;
 use crate::VectorExecutor;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinVTable;
-use crate::arrow::null_buffer::to_null_buffer;
+use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::builtins::ArrayBuiltins;
+use crate::vtable::ValidityHelper;
 
 /// Convert a Vortex array into an Arrow GenericBinaryArray.
 pub(super) fn to_arrow_byte_array<T: ByteArrayType>(
@@ -60,7 +61,7 @@ where
 
     let data = array.bytes().clone().into_arrow_buffer();
 
-    let null_buffer = to_null_buffer(array.validity_mask());
+    let null_buffer = to_arrow_null_buffer(array.validity(), array.len(), session)?;
 
     Ok(Arc::new(unsafe {
         GenericBinaryArray::<T::Offset>::new_unchecked(offsets, data, null_buffer)

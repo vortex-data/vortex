@@ -6,7 +6,9 @@ mod byte;
 mod byte_view;
 mod decimal;
 mod dictionary;
+mod fixed_list;
 mod list;
+mod list_view;
 mod null;
 mod primitive;
 mod run_end;
@@ -20,7 +22,6 @@ use arrow_array::cast::AsArray;
 use arrow_array::types::*;
 use arrow_schema::DataType;
 use arrow_schema::Schema;
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
@@ -31,7 +32,9 @@ use crate::arrow::executor::byte::to_arrow_byte_array;
 use crate::arrow::executor::byte_view::to_arrow_byte_view;
 use crate::arrow::executor::decimal::to_arrow_decimal;
 use crate::arrow::executor::dictionary::to_arrow_dictionary;
+use crate::arrow::executor::fixed_list::to_arrow_fixed_list;
 use crate::arrow::executor::list::to_arrow_list;
+use crate::arrow::executor::list_view::to_arrow_list_view;
 use crate::arrow::executor::null::to_arrow_null;
 use crate::arrow::executor::primitive::to_arrow_primitive;
 use crate::arrow::executor::run_end::to_arrow_run_end;
@@ -56,7 +59,7 @@ pub trait ArrowArrayExecutor: Sized {
         session: &VortexSession,
     ) -> VortexResult<RecordBatch> {
         let array = self.execute_arrow(&DataType::Struct(schema.fields.clone()), session)?;
-        RecordBatch::try_from(array.as_struct()).map_err(VortexError::from)
+        Ok(RecordBatch::from(array.as_struct()))
     }
 }
 
@@ -95,18 +98,16 @@ impl ArrowArrayExecutor for ArrayRef {
             DataType::LargeList(elements_field) => {
                 to_arrow_list::<i64>(self, elements_field, session)
             }
-            DataType::ListView(_) => {
-                todo!()
+            DataType::FixedSizeList(elements_field, list_size) => {
+                to_arrow_fixed_list(self, *list_size, elements_field, session)
             }
-            DataType::FixedSizeList(..) => {
-                todo!()
+            DataType::ListView(elements_field) => {
+                to_arrow_list_view::<i32>(self, elements_field, session)
             }
-
-            DataType::LargeListView(_) => {
-                todo!()
+            DataType::LargeListView(elements_field) => {
+                to_arrow_list_view::<i64>(self, elements_field, session)
             }
             DataType::Struct(fields) => to_arrow_struct(self, fields, session),
-
             DataType::Dictionary(codes_type, values_type) => {
                 to_arrow_dictionary(self, codes_type, values_type, session)
             }
@@ -123,7 +124,7 @@ impl ArrowArrayExecutor for ArrayRef {
                 to_arrow_decimal::<Decimal256Type, vortex_dtype::i256>(self, *p, *s, session)
             }
             DataType::RunEndEncoded(ends_type, values_type) => {
-                to_arrow_run_end(self, ends_type.data_type(), &values_type, session)
+                to_arrow_run_end(self, ends_type.data_type(), values_type, session)
             }
             DataType::FixedSizeBinary(_)
             | DataType::Map(..)

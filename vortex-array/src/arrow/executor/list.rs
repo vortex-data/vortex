@@ -29,8 +29,9 @@ use crate::arrays::ListVTable;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewVTable;
 use crate::arrow::ArrowArrayExecutor;
-use crate::arrow::null_buffer::to_null_buffer;
+use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::builtins::ArrayBuiltins;
+use crate::vtable::ValidityHelper;
 
 /// Convert a Vortex array into an Arrow GenericBinaryArray.
 pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
@@ -91,7 +92,7 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
         "Cannot convert to non-nullable Arrow array with null elements"
     );
 
-    let null_buffer = to_null_buffer(array.validity_mask());
+    let null_buffer = to_arrow_null_buffer(array.validity(), array.len(), session)?;
 
     // TODO(ngates): use new_unchecked when it is added to arrow-rs.
     Ok(Arc::new(GenericListArray::<O>::new(
@@ -143,13 +144,13 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
     });
 
     // Extract the elements array.
-    let elements = elements.execute_arrow(&elements_field.data_type(), session)?;
+    let elements = elements.execute_arrow(elements_field.data_type(), session)?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Cannot convert to non-nullable Arrow array with null elements"
     );
 
-    let null_buffer = to_null_buffer(validity.to_mask(sizes.len()));
+    let null_buffer = to_arrow_null_buffer(&validity, sizes.len(), session)?;
 
     Ok(Arc::new(GenericListArray::<O>::new(
         elements_field.clone(),

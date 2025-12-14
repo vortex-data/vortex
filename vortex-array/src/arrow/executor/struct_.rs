@@ -40,16 +40,16 @@ pub(super) fn to_arrow_struct(
     };
 
     // We can also short-circuit if the array is a `pack` scalar function:
-    if let Some(array) = array.as_opt::<ScalarFnVTable>() {
-        if let Some(_pack_options) = array.scalar_fn().as_opt::<Pack>() {
-            return create_from_fields(
-                fields,
-                array.children().to_vec(),
-                None, // Pack is never null,
-                len,
-                session,
-            );
-        }
+    if let Some(array) = array.as_opt::<ScalarFnVTable>()
+        && let Some(_pack_options) = array.scalar_fn().as_opt::<Pack>()
+    {
+        return create_from_fields(
+            fields,
+            array.children().to_vec(),
+            None, // Pack is never null,
+            len,
+            session,
+        );
     }
 
     // Otherwise, we have some options:
@@ -95,11 +95,6 @@ fn create_from_fields(
     }
 
     Ok(Arc::new(unsafe {
-        StructArray::new_unchecked_with_length(
-            fields.clone(),
-            arrow_fields.into(),
-            null_buffer,
-            len,
-        )
+        StructArray::new_unchecked_with_length(fields.clone(), arrow_fields, null_buffer, len)
     }))
 }
