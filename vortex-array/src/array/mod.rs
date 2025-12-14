@@ -722,13 +722,6 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn reduce_parent(&self, parent: &ArrayRef, child_idx: usize) -> VortexResult<Option<ArrayRef>> {
-        #[cfg(debug_assertions)]
-        vortex_ensure!(
-            Arc::as_ptr(&parent.children()[child_idx]) == self,
-            "Parent array's child at index {} does not match self",
-            child_idx
-        );
-
         let Some(reduced) = V::reduce_parent(&self.0, parent, child_idx)? else {
             return Ok(None);
         };
