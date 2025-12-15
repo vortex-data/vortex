@@ -135,9 +135,9 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// of children must be expected.
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()>;
 
-    /// Bind this array into a [`KernelRef`] for CPU execution.
+    /// Execute this array to produce a [`Vector`].
     ///
-    /// The returned [`vortex_vector::Vector`] must be the appropriate one for the array's logical
+    /// The returned [`Vector`] must be the appropriate one for the array's logical
     /// type (they are one-to-one with Vortex `DType`s), and should respect the output nullability
     /// of the array.
     ///
