@@ -156,6 +156,17 @@ impl<T> PVector<T> {
     pub fn elements(&self) -> &Buffer<T> {
         &self.elements
     }
+
+    /// Re-interpret cast this vector to another primitive type.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the underlying data representation of `T` is compatible with `U`.
+    pub unsafe fn reinterpret_cast<U: NativePType>(self) -> PVector<U> {
+        let (buffer, mask) = self.into_parts();
+        let buffer = unsafe { std::mem::transmute::<Buffer<T>, Buffer<U>>(buffer) };
+        PVector::new(buffer, mask)
+    }
 }
 
 impl<T: NativePType> AsRef<[T]> for PVector<T> {
