@@ -44,6 +44,7 @@ use vortex::file::VortexFile;
 use vortex::file::VortexOpenOptions;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::ThreadSafeIterator;
+use vortex::layout::layouts::USE_VORTEX_OPERATORS;
 use vortex::session::VortexSession;
 
 use crate::RUNTIME;
@@ -328,7 +329,11 @@ impl TableFunction for VortexTableFunction {
 
                 let (array_result, conversion_cache) = result?;
 
-                let array_result = array_result.optimize_recursive()?;
+                let array_result = if USE_VORTEX_OPERATORS {
+                    array_result.optimize_recursive()?
+                } else {
+                    array_result
+                };
 
                 local_state.exporter = Some(ArrayExporter::try_new(
                     &array_result.to_struct(),
