@@ -741,4 +741,16 @@ mod test {
         assert!(buff.is_aligned(Alignment::of::<i32>()));
         assert_eq!(vec, buff);
     }
+
+    #[test]
+    fn test_slice_unaligned_end_pos() {
+        let data = vec![0u8; 2];
+        // Overalign the u8 vector.
+        let aligned_buffer = Buffer::copy_from_aligned(&data, Alignment::new(8));
+        // Previously, `Buffer::slice` incorrectly asserted that the end position
+        // must be aligned. That assertion has been removed such that the end
+        // position can be arbitrary and only the beginning of the slice needs
+        // to be aligned.
+        aligned_buffer.slice(0..1);
+    }
 }
