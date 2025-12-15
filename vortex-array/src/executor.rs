@@ -33,6 +33,7 @@ impl VectorExecutor for ArrayRef {
         // NOTE(ngates): in the future we can choose a different mode of execution, or run
         // optimization here, etc.
         let kernel = self.bind_kernel(&mut ctx)?;
+        tracing::debug!("Executing kernel:\n{:#?}", kernel);
         let result = kernel.execute()?;
 
         vortex_ensure!(

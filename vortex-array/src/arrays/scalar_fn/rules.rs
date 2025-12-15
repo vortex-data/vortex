@@ -27,10 +27,13 @@ use crate::expr::ReduceNode;
 use crate::expr::ReduceNodeRef;
 use crate::expr::ScalarFn;
 use crate::optimizer::rules::ArrayReduceRule;
+use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
 
 pub(super) const RULES: ReduceRuleSet<ScalarFnVTable> =
     ReduceRuleSet::new(&[&ScalarFnConstantRule, &ScalarFnAbstractReduceRule]);
+
+pub(super) const PARENT_RULES: ParentRuleSet<ScalarFnVTable> = ParentRuleSet::new(&[]);
 
 #[derive(Debug)]
 struct ScalarFnConstantRule;

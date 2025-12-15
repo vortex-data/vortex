@@ -93,6 +93,19 @@ impl<T> PVector<T> {
         (self.elements, self.validity)
     }
 
+    /// Decomposes the primitive vector into its internal buffer, consuming the vector.
+    ///
+    /// # Panics
+    ///
+    /// Panics if there are any null values in the vector.
+    pub fn into_nonnull_buffer(self) -> Buffer<T> {
+        assert!(
+            self.validity.all_true(),
+            "Cannot convert to buffer: vector contains null values"
+        );
+        self.elements
+    }
+
     /// Decomposes the primitive vector into its constituent parts by mutable reference.
     ///
     /// # Safety
