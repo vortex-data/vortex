@@ -206,6 +206,14 @@ pub trait Array:
     /// To invoke the top-level execution, see [`crate::executor::VectorExecutor`].
     fn execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector>;
 
+    /// Attempt to execute the parent of this array.
+    fn execute_parent(
+        &self,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Vector>>;
+
     /// Reduce the array to a more simple representation, if possible.
     fn reduce(&self) -> VortexResult<Option<ArrayRef>>;
 
@@ -327,6 +335,15 @@ impl Array for Arc<dyn Array> {
 
     fn execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         self.as_ref().execute(ctx)
+    }
+
+    fn execute_parent(
+        &self,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Vector>> {
+        self.as_ref().execute_parent(parent, child_idx, ctx)
     }
 
     fn reduce(&self) -> VortexResult<Option<ArrayRef>> {
@@ -700,6 +717,11 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        // First we check to see if any children provide a parent execution override.
+        for (child_idx, child) in ArrayVisitor::children(self).iter().enumerate() {
+            child.execute()
+        }
+
         let result = V::execute(&self.0, ctx)?;
 
         if cfg!(debug_assertions) {
@@ -716,6 +738,28 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         }
 
         Ok(result)
+    }
+
+    fn execute_parent(
+        &self,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Vector>> {
+        let Some(result) = V::execute_parent(&self.0, parent, child_idx, ctx)? else {
+            return Ok(None);
+        };
+
+        vortex_ensure!(
+            result.len() == parent.len(),
+            "Executed parent vector length mismatch"
+        );
+        vortex_ensure!(
+            vector_matches_dtype(&result, parent.dtype()),
+            "Executed parent vector dtype mismatch"
+        );
+
+        Ok(Some(result))
     }
 
     fn reduce(&self) -> VortexResult<Option<ArrayRef>> {

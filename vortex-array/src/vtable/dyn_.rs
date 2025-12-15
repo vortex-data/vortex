@@ -26,7 +26,9 @@ use crate::vtable::VTable;
 
 /// ArrayId is a globally unique name for the array's vtable.
 pub type ArrayId = ArcRef<str>;
-pub type ArrayVTable = ArcRef<dyn DynVTable>;
+
+/// A reference-counted pointer to an array vtable.
+pub struct ArrayVTable(ArcRef<dyn DynVTable>);
 
 /// Dynamically typed trait for invoking array vtables.
 pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {

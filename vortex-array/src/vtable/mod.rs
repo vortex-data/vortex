@@ -152,6 +152,23 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         canonical.into_array().execute_vector(ctx.session())
     }
 
+    /// Attempt to execute the parent of this array to produce a [`Vector`].
+    ///
+    /// This function allows arrays to plug in specialized execution logic for their parent. For
+    /// example, strings compressed as FSST arrays can implement a custom equality comparison when
+    /// the comparing against a scalar string.
+    ///
+    /// Returns `Ok(None)` if no specialized execution is possible.
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Vector>> {
+        _ = (array, parent, child_idx, ctx);
+        Ok(None)
+    }
+
     /// Attempt to reduce the array to a more simple representation.
     ///
     /// Returns `Ok(None)` if no reduction is possible.
