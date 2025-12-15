@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex::array::IntoArray;
 use vortex::array::arrays::StructArray;
 use vortex::compute::mask;
 use vortex::error::VortexResult;
+use vortex::session::VortexSession;
 
 use crate::duckdb::Vector;
 use crate::exporter::ColumnExporter;
 use crate::exporter::ConversionCache;
 use crate::exporter::new_array_exporter;
+use crate::exporter::new_vector_array_exporter;
 use crate::exporter::validity;
 
 struct StructExporter {
@@ -50,6 +53,35 @@ impl ColumnExporter for StructExporter {
         }
         Ok(())
     }
+}
+
+pub(crate) fn new_vector_exporter(
+    array: StructArray,
+    cache: &ConversionCache,
+    session: &VortexSession,
+) -> VortexResult<Box<dyn ColumnExporter>> {
+    let validity = array.validity_mask();
+    // DuckDB requires that the validity of the child be a subset of the parent struct so we mask out children with
+    // parents nullability
+    let validity_for_mask = array.dtype().is_nullable().then(|| !&validity);
+
+    let children = array
+        .fields()
+        .iter()
+        .map(|child| {
+            if let Some(mv) = validity_for_mask.as_ref() {
+                new_vector_array_exporter(mask(child, mv)?.into_array(), cache, session)
+            } else {
+                new_vector_array_exporter(child.to_array(), cache, session)
+            }
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+    let struct_exporter = Box::new(StructExporter { children });
+    Ok(if array.dtype().is_nullable() {
+        validity::new_exporter(validity, struct_exporter)
+    } else {
+        struct_exporter
+    })
 }
 
 #[cfg(test)]

@@ -402,7 +402,7 @@ macro_rules! match_each_primitive_type {
                 let $type = <$crate::duckdb::Double as $crate::duckdb::PrimitiveType>::NATIVE;
                 $body
             }
-            _ => vortex_panic!(
+            _ => vortex::error::vortex_panic!(
                 "Unexpected type for match_each_primitive_type: {:?}",
                 $self.as_type_id()
             ),
