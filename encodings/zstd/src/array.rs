@@ -331,10 +331,6 @@ impl ZstdArray {
                 .copied()
                 .unwrap_or(value_bytes.len());
 
-            // Use slice_unaligned instead of slice to handle cases where frame boundaries
-            // don't align with the buffer's alignment requirements (e.g., 64-byte aligned
-            // buffers with 1-byte frame boundaries). ZSTD compression works on raw bytes
-            // and doesn't require memory alignment.
             let uncompressed = &value_bytes.slice(frame_byte_starts[i]..frame_byte_end);
             let compressed = compressor
                 .compress(uncompressed)
@@ -371,8 +367,12 @@ impl ZstdArray {
         };
 
         let value_bytes = values.byte_buffer();
+        // Align frames to buffer alignment. This is necessary for overaligned buffers.
+        let alignment = *value_bytes.alignment();
+        let step_width = (values_per_frame * byte_width).div_ceil(alignment) * alignment;
+
         let frame_byte_starts = (0..n_values * byte_width)
-            .step_by(values_per_frame * byte_width)
+            .step_by(step_width)
             .collect::<Vec<_>>();
         let Frames {
             dictionary,
