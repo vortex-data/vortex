@@ -14,6 +14,7 @@ use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::ConstantVTable;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::mask::MaskExecutor;
 use vortex::array::vectors::VectorIntoArray;
 use vortex::compute;
 use vortex::compute2::take::Take;
@@ -21,6 +22,9 @@ use vortex::dtype::IntegerPType;
 use vortex::dtype::PTypeDowncastExt;
 use vortex::dtype::match_each_integer_ptype;
 use vortex::error::VortexResult;
+use vortex::expr::is_null;
+use vortex::expr::not;
+use vortex::expr::root;
 use vortex::mask::Mask;
 use vortex::session::VortexSession;
 use vortex_vector::VectorOps;
@@ -186,7 +190,10 @@ pub(crate) fn new_vector_exporter_with_flatten(
     if let Some(constant) = values.as_opt::<ConstantVTable>() {
         return constant::new_exporter_with_mask(
             &ConstantArray::new(constant.scalar().clone(), array.codes().len()),
-            array.codes().validity_mask(),
+            array
+                .codes()
+                .apply(&not(is_null(root())))?
+                .execute_mask(session)?,
             cache,
         );
     }
@@ -299,12 +306,14 @@ impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictVectorExporter<I
 
 #[cfg(test)]
 mod tests {
+    use vortex::VortexSessionDefault;
     use vortex::array::IntoArray;
     use vortex::array::arrays::ConstantArray;
     use vortex::array::arrays::DictArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::buffer::Buffer;
     use vortex::error::VortexResult;
+    use vortex::session::VortexSession;
 
     use crate::cpp;
     use crate::duckdb::DataChunk;
@@ -312,6 +321,7 @@ mod tests {
     use crate::exporter::ColumnExporter;
     use crate::exporter::ConversionCache;
     use crate::exporter::dict::new_exporter_with_flatten;
+    use crate::exporter::dict::new_vector_exporter_with_flatten;
     use crate::exporter::new_array_exporter;
 
     pub(crate) fn new_exporter(
@@ -340,6 +350,54 @@ mod tests {
             format!("{}", String::try_from(&chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT INTEGER: 2 = [ NULL, 10]
+"#
+        );
+    }
+
+    #[test]
+    fn test_constant_dict_vector() {
+        let arr = DictArray::new(
+            PrimitiveArray::from_option_iter([None, Some(0u32)]).into_array(),
+            ConstantArray::new(10, 1).into_array(),
+        );
+
+        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+
+        let session = VortexSession::default();
+        new_vector_exporter_with_flatten(&arr, &ConversionCache::default(), &session, false)
+            .unwrap()
+            .export(0, 2, &mut chunk.get_vector(0))
+            .unwrap();
+        chunk.set_len(2);
+
+        assert_eq!(
+            format!("{}", String::try_from(&chunk).unwrap()),
+            r#"Chunk - [1 Columns]
+- FLAT INTEGER: 2 = [ NULL, 10]
+"#
+        );
+    }
+
+    #[test]
+    fn test_constant_dict_vector_null() {
+        let arr = DictArray::new(
+            PrimitiveArray::from_option_iter([None::<u32>, None]).into_array(),
+            ConstantArray::new(10, 1).into_array(),
+        );
+
+        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+
+        let session = VortexSession::default();
+        new_vector_exporter_with_flatten(&arr, &ConversionCache::default(), &session, false)
+            .unwrap()
+            .export(0, 2, &mut chunk.get_vector(0))
+            .unwrap();
+        chunk.set_len(2);
+
+        assert_eq!(
+            format!("{}", String::try_from(&chunk).unwrap()),
+            r#"Chunk - [1 Columns]
+- CONSTANT INTEGER: 2 = [ NULL]
 "#
         );
     }

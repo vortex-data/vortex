@@ -34,6 +34,7 @@ use vortex::array::arrays::DictVTable;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::TemporalArray;
 use vortex::array::iter::ArrayIterator;
+use vortex::array::vtable::ValidityHelper;
 use vortex::dtype::DType;
 use vortex::dtype::datetime::is_temporal_ext_type;
 use vortex::encodings::runend::RunEndVTable;
@@ -109,6 +110,7 @@ impl ArrayExporter {
         cache: &ConversionCache,
         session: &VortexSession,
     ) -> VortexResult<Self> {
+        assert!(array.validity().all_valid(array.len()));
         let fields = array
             .fields()
             .iter()

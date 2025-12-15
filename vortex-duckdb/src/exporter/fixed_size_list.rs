@@ -11,6 +11,8 @@
 use vortex::array::ArrayRef;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::FixedSizeListArray;
+use vortex::array::validity::Validity;
+use vortex::array::vtable::ValidityHelper;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 use vortex::session::VortexSession;
@@ -103,14 +105,14 @@ pub(crate) fn new_vector_exporter(
 
     let ltype: LogicalType = array.dtype().try_into()?;
 
-    let mask = array.validity_mask();
+    let mask = array.validity();
 
-    if let Mask::AllFalse(len) = mask {
-        return Ok(all_invalid::new_exporter(len, &ltype));
+    if let Validity::AllInvalid = mask {
+        return Ok(all_invalid::new_exporter(array.len(), &ltype));
     }
 
     Ok(Box::new(FixedSizeListExporter {
-        validity: mask,
+        validity: mask.to_mask(array.len()),
         elements_exporter,
         list_size: array.list_size(),
     }))
