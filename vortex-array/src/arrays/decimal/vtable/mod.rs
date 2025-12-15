@@ -20,7 +20,7 @@ use crate::DeserializeMetadata;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::DecimalArray;
-use crate::kernel::BindCtx;
+use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -37,10 +37,9 @@ mod validity;
 mod visitor;
 
 pub use rules::DecimalMaskedValidityRule;
+use vortex_vector::Vector;
 
 use crate::arrays::decimal::vtable::rules::RULES;
-use crate::kernel::KernelRef;
-use crate::kernel::kernel;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
 
@@ -147,7 +146,7 @@ impl VTable for DecimalVTable {
         Ok(())
     }
 
-    fn bind_kernel(array: &Self::Array, _ctx: &mut BindCtx) -> VortexResult<KernelRef> {
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         use vortex_dtype::BigCast;
 
         match_each_decimal_value_type!(array.values_type(), |D| {
@@ -159,26 +158,25 @@ impl VTable for DecimalVTable {
                 let buffer = array.buffer::<D>();
                 let validity_mask = array.validity_mask();
 
-                Ok(kernel(move || {
-                    // Copy from D to E, possibly widening, possibly narrowing
-                    let values =
-                        Buffer::<E>::from_trusted_len_iter(buffer.iter().map(|d| {
-                            <E as BigCast>::from(*d).vortex_expect("Decimal cast failed")
-                        }));
+                // Copy from D to E, possibly widening, possibly narrowing
+                let values = Buffer::<E>::from_trusted_len_iter(
+                    buffer
+                        .iter()
+                        .map(|d| <E as BigCast>::from(*d).vortex_expect("Decimal cast failed")),
+                );
 
-                    Ok(unsafe {
-                        DVector::<E>::new_unchecked(
-                            // TODO(ngates): this is too small?
-                            PrecisionScale::new_unchecked(
-                                decimal_dtype.precision(),
-                                decimal_dtype.scale(),
-                            ),
-                            values,
-                            validity_mask,
-                        )
-                    }
-                    .into())
-                }))
+                Ok(unsafe {
+                    DVector::<E>::new_unchecked(
+                        // TODO(ngates): this is too small?
+                        PrecisionScale::new_unchecked(
+                            decimal_dtype.precision(),
+                            decimal_dtype.scale(),
+                        ),
+                        values,
+                        validity_mask,
+                    )
+                }
+                .into())
             })
         })
     }

@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
+use vortex_vector::Vector;
 use vortex_vector::null::NullVector;
 
 use crate::ArrayBufferVisitor;
@@ -19,9 +20,7 @@ use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::Precision;
-use crate::kernel::BindCtx;
-use crate::kernel::KernelRef;
-use crate::kernel::ready;
+use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSetRef;
@@ -85,8 +84,8 @@ impl VTable for NullVTable {
         Ok(NullArray::new(len))
     }
 
-    fn bind_kernel(array: &Self::Array, _ctx: &mut BindCtx) -> VortexResult<KernelRef> {
-        Ok(ready(NullVector::new(array.len()).into()))
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        Ok(NullVector::new(array.len()).into())
     }
 
     fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

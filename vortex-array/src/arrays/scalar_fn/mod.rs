@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
-mod kernel;
 mod metadata;
 mod rules;
 mod vtable;

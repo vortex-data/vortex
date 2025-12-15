@@ -13,12 +13,12 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_vector::Vector;
 
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::arrays::extension::ExtensionArray;
-use crate::kernel::BindCtx;
-use crate::kernel::KernelRef;
+use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
@@ -94,8 +94,8 @@ impl VTable for ExtensionVTable {
         Ok(())
     }
 
-    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
-        array.storage().bind_kernel(ctx)
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        array.storage().execute(ctx)
     }
 }
 
