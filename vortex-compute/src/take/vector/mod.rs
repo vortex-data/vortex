@@ -59,16 +59,16 @@ impl<I: UnsignedPType> Take<[I]> for &Vector {
     }
 }
 
-impl Take<PrimitiveVector> for &Vector
+impl<T> Take<PrimitiveVector> for &T
 where
-    for<'a> &'a Vector: Take<PVector<u8>, Output = Vector>,
-    for<'a> &'a Vector: Take<PVector<u16>, Output = Vector>,
-    for<'a> &'a Vector: Take<PVector<u32>, Output = Vector>,
-    for<'a> &'a Vector: Take<PVector<u64>, Output = Vector>,
+    for<'a> &'a T: Take<PVector<u8>, Output = T>,
+    for<'a> &'a T: Take<PVector<u16>, Output = T>,
+    for<'a> &'a T: Take<PVector<u32>, Output = T>,
+    for<'a> &'a T: Take<PVector<u64>, Output = T>,
 {
-    type Output = Vector;
+    type Output = T;
 
-    fn take(self, indices: &PrimitiveVector) -> Vector {
+    fn take(self, indices: &PrimitiveVector) -> T {
         match_each_unsigned_pvector!(indices, |iv| { self.take(iv) })
     }
 }
