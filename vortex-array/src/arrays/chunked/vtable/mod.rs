@@ -10,7 +10,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_mask::Mask;
 use vortex_vector::Vector;
 use vortex_vector::VectorMut;
 use vortex_vector::VectorMutOps;
@@ -22,10 +21,7 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::ChunkedArray;
 use crate::arrays::PrimitiveArray;
-use crate::kernel::BindCtx;
-use crate::kernel::Kernel;
-use crate::kernel::KernelRef;
-use crate::kernel::PushDownResult;
+use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -167,15 +163,13 @@ impl VTable for ChunkedVTable {
         Ok(())
     }
 
-    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
-        Ok(Box::new(ChunkedKernel {
-            chunks: array
-                .chunks
-                .iter()
-                .map(|c| c.bind_kernel(ctx))
-                .try_collect()?,
-            dtype: array.dtype.clone(),
-        }))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        let mut vector = VectorMut::with_capacity(&array.dtype, array.len);
+        for chunk in &array.chunks {
+            let chunk_vector = chunk.execute(ctx)?;
+            vector.extend_from_vector(&chunk_vector);
+        }
+        Ok(vector.freeze())
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
@@ -184,26 +178,5 @@ impl VTable for ChunkedVTable {
             1 => Some(array.chunks[0].clone()),
             _ => None,
         })
-    }
-}
-
-#[derive(Debug)]
-struct ChunkedKernel {
-    chunks: Vec<KernelRef>,
-    dtype: DType,
-}
-
-impl Kernel for ChunkedKernel {
-    fn execute(self: Box<Self>) -> VortexResult<Vector> {
-        let mut vector = VectorMut::with_capacity(&self.dtype, 0);
-        for chunk in self.chunks {
-            let chunk_vector = chunk.execute()?;
-            vector.extend_from_vector(&chunk_vector);
-        }
-        Ok(vector.freeze())
-    }
-
-    fn push_down_filter(self: Box<Self>, _selection: &Mask) -> VortexResult<PushDownResult> {
-        Ok(PushDownResult::NotPushed(self))
     }
 }

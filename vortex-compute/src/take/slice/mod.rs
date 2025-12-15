@@ -4,6 +4,7 @@
 //! Take function implementations on slices.
 
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_dtype::UnsignedPType;
 
 use crate::take::Take;
@@ -43,7 +44,21 @@ impl<T: Copy, I: UnsignedPType> Take<[I]> for &[T] {
     unused,
     reason = "Compiler may see this as unused based on enabled features"
 )]
-#[inline]
 fn take_scalar<T: Copy, I: UnsignedPType>(buffer: &[T], indices: &[I]) -> Buffer<T> {
-    indices.iter().map(|idx| buffer[idx.as_()]).collect()
+    // NB: The simpler `indices.iter().map(|idx| buff1er[idx.as_()]).collect()` generates suboptimal
+    // assembly where the buffer length is repeatedly loaded from the stack on each iteration.
+
+    let mut result = BufferMut::with_capacity(indices.len());
+    let ptr = result.spare_capacity_mut().as_mut_ptr().cast::<T>();
+
+    // This explicit loop with pointer writes keeps the length in a register and avoids per-element
+    // capacity checks from `push()`.
+    for (i, idx) in indices.iter().enumerate() {
+        // SAFETY: We reserved `indices.len()` capacity, so `ptr.add(i)` is valid.
+        unsafe { ptr.add(i).write(buffer[idx.as_()]) };
+    }
+
+    // SAFETY: We just wrote exactly `indices.len()` elements.
+    unsafe { result.set_len(indices.len()) };
+    result.freeze()
 }

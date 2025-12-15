@@ -10,15 +10,14 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_vector::Vector;
 use vortex_vector::struct_::StructVector;
 
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::arrays::struct_::StructArray;
 use crate::arrays::struct_::rules::RULES;
-use crate::kernel::BindCtx;
-use crate::kernel::KernelRef;
-use crate::kernel::kernel;
+use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -142,19 +141,16 @@ impl VTable for StructVTable {
         Ok(())
     }
 
-    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         let fields: Box<[_]> = array
             .fields()
             .iter()
-            .map(|field| field.bind_kernel(ctx))
+            .map(|field| field.execute(ctx))
             .try_collect()?;
         let validity_mask = array.validity_mask();
 
-        Ok(kernel(move || {
-            // SAFETY: we know that all field lengths match the struct array length, and the validity
-            let fields = fields.into_iter().map(|k| k.execute()).try_collect()?;
-            Ok(unsafe { StructVector::new_unchecked(Arc::new(fields), validity_mask) }.into())
-        }))
+        // SAFETY: we know that all field lengths match the struct array length, and the validity
+        Ok(unsafe { StructVector::new_unchecked(Arc::new(fields), validity_mask) }.into())
     }
 
     fn reduce_parent(

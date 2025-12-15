@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_vector::Vector;
 
 use super::DictArray;
 use super::DictMetadata;
@@ -17,9 +18,7 @@ use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
-use crate::kernel::BindCtx;
-use crate::kernel::KernelRef;
-use crate::kernel::kernel;
+use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
@@ -129,15 +128,9 @@ impl VTable for DictVTable {
         Ok(())
     }
 
-    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
-        let values_kernel = array.values().bind_kernel(ctx)?;
-        let codes_kernel = array.codes().bind_kernel(ctx)?;
-
-        Ok(kernel(move || {
-            let values = values_kernel.execute()?;
-            let codes = codes_kernel.execute()?.into_primitive();
-
-            Ok(values.take(&codes))
-        }))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        let values = array.values().execute(ctx)?;
+        let codes = array.codes().execute(ctx)?.into_primitive();
+        Ok(values.take(&codes))
     }
 }

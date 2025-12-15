@@ -31,7 +31,8 @@ impl FilterArray {
         }
     }
 
-    pub fn mask(&self) -> &Mask {
+    /// The mask used to filter the child array.
+    pub fn filter_mask(&self) -> &Mask {
         &self.mask
     }
 }

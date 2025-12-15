@@ -23,6 +23,9 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
+use vortex_vector::Vector;
+use vortex_vector::VectorOps;
+use vortex_vector::vector_matches_dtype;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -49,13 +52,11 @@ use crate::compute::InvocationArgs;
 use crate::compute::IsConstantOpts;
 use crate::compute::Output;
 use crate::compute::is_constant_opts;
+use crate::executor::ExecutionCtx;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
 use crate::hash;
-use crate::kernel::BindCtx;
-use crate::kernel::KernelRef;
-use crate::kernel::ValidateKernel;
 use crate::optimizer::ArrayOptimizer;
 use crate::stats::StatsSetRef;
 use crate::vtable::ArrayId;
@@ -200,8 +201,10 @@ pub trait Array:
     fn invoke(&self, compute_fn: &ComputeFn, args: &InvocationArgs)
     -> VortexResult<Option<Output>>;
 
-    /// Invoke the batch execution function for the array to produce a canonical vector.
-    fn bind_kernel(&self, ctx: &mut BindCtx) -> VortexResult<KernelRef>;
+    /// Recursively execute an array using batch CPU execution.
+    ///
+    /// To invoke the top-level execution, see [`crate::executor::VectorExecutor`].
+    fn execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector>;
 
     /// Reduce the array to a more simple representation, if possible.
     fn reduce(&self) -> VortexResult<Option<ArrayRef>>;
@@ -322,8 +325,8 @@ impl Array for Arc<dyn Array> {
         self.as_ref().invoke(compute_fn, args)
     }
 
-    fn bind_kernel(&self, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
-        self.as_ref().bind_kernel(ctx)
+    fn execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        self.as_ref().execute(ctx)
     }
 
     fn reduce(&self) -> VortexResult<Option<ArrayRef>> {
@@ -696,17 +699,23 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         <V::ComputeVTable as ComputeVTable<V>>::invoke(&self.0, compute_fn, args)
     }
 
-    fn bind_kernel(&self, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
-        let kernel = V::bind_kernel(&self.0, ctx)?;
+    fn execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        let result = V::execute(&self.0, ctx)?;
+
         if cfg!(debug_assertions) {
-            Ok(Box::new(ValidateKernel::new(
-                kernel,
-                self.dtype().clone(),
-                self.len(),
-            )))
-        } else {
-            Ok(kernel)
+            vortex_ensure!(
+                result.len() == self.len(),
+                "Result length mismatch for {}",
+                self.encoding_id()
+            );
+            vortex_ensure!(
+                vector_matches_dtype(&result, self.dtype()),
+                "Executed vector dtype mismatch for {}",
+                self.encoding_id()
+            );
         }
+
+        Ok(result)
     }
 
     fn reduce(&self) -> VortexResult<Option<ArrayRef>> {
