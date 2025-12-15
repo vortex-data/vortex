@@ -23,6 +23,7 @@ use vortex_vector::Vector;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::VectorExecutor;
 use crate::arrays::ConstantVTable;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
