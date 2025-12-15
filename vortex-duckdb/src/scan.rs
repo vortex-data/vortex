@@ -26,6 +26,7 @@ use url::Url;
 use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::ToCanonical;
+use vortex::array::optimizer::ArrayOptimizer;
 use vortex::dtype::FieldNames;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -326,6 +327,8 @@ impl TableFunction for VortexTableFunction {
                 };
 
                 let (array_result, conversion_cache) = result?;
+
+                let array_result = array_result.optimize_recursive()?;
 
                 local_state.exporter = Some(ArrayExporter::try_new(
                     &array_result.to_struct(),
