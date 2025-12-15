@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod compute;
+mod rules;
 
 use std::hash::Hash;
 use std::ops::Range;
@@ -47,6 +48,8 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_scalar::DecimalValue;
 use vortex_scalar::Scalar;
+
+use crate::decimal_byte_parts::rules::PARENT_RULES;
 
 vtable!(DecimalByteParts);
 
@@ -126,6 +129,14 @@ impl VTable for DecimalBytePartsVTable {
         );
         array.msp = children.into_iter().next().vortex_expect("checked");
         Ok(())
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }
 

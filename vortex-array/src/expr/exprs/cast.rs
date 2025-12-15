@@ -18,6 +18,9 @@ use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
+use crate::expr::ReduceCtx;
+use crate::expr::ReduceNode;
+use crate::expr::ReduceNodeRef;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
@@ -95,6 +98,20 @@ impl VTable for Cast {
             .pop()
             .vortex_expect("missing input for Cast expression");
         vortex_compute::cast::Cast::cast(&input, target_dtype)
+    }
+
+    fn reduce(
+        &self,
+        target_dtype: &DType,
+        node: &dyn ReduceNode,
+        _ctx: &dyn ReduceCtx,
+    ) -> VortexResult<Option<ReduceNodeRef>> {
+        // Collapse node if child is already the target type
+        let child = node.child(0);
+        if &child.node_dtype()? == target_dtype {
+            return Ok(Some(child));
+        }
+        Ok(None)
     }
 
     fn stat_expression(

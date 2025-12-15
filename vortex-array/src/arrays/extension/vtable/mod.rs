@@ -17,6 +17,7 @@ use vortex_vector::Vector;
 
 use crate::ArrayRef;
 use crate::EmptyMetadata;
+use crate::VectorExecutor;
 use crate::arrays::extension::ExtensionArray;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;

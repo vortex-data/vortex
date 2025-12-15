@@ -9,6 +9,7 @@ use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::ProstMetadata;
+use vortex_array::VectorExecutor;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;

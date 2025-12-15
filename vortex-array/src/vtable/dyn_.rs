@@ -18,12 +18,16 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_vector::Vector;
+use vortex_vector::VectorOps;
+use vortex_vector::vector_matches_dtype;
 
 use crate::Array;
 use crate::ArrayAdapter;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
+use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::vtable::EncodeVTable;
 use crate::vtable::VTable;
@@ -59,6 +63,15 @@ pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>>;
+
+    fn execute(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Vector>;
+    fn execute_parent(
+        &self,
+        array: &ArrayRef,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Vector>>;
 }
 
 /// Adapter struct used to lift the [`VTable`] trait into an object-safe [`DynVTable`]
@@ -176,6 +189,48 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         );
 
         Ok(Some(reduced))
+    }
+
+    fn execute(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        let result = V::execute(downcast::<V>(array), ctx)?;
+
+        if cfg!(debug_assertions) {
+            vortex_ensure!(
+                result.len() == array.len(),
+                "Result length mismatch for {}",
+                self.id()
+            );
+            vortex_ensure!(
+                vector_matches_dtype(&result, array.dtype()),
+                "Executed vector dtype mismatch for {}",
+                self.id()
+            );
+        }
+
+        Ok(result)
+    }
+
+    fn execute_parent(
+        &self,
+        array: &ArrayRef,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Vector>> {
+        let Some(result) = V::execute_parent(downcast::<V>(array), parent, child_idx, ctx)? else {
+            return Ok(None);
+        };
+
+        vortex_ensure!(
+            result.len() == parent.len(),
+            "Executed parent vector length mismatch"
+        );
+        vortex_ensure!(
+            vector_matches_dtype(&result, parent.dtype()),
+            "Executed parent vector dtype mismatch"
+        );
+
+        Ok(Some(result))
     }
 }
 
