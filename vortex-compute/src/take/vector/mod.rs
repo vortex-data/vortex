@@ -27,6 +27,22 @@ mod struct_;
 #[cfg(test)]
 mod tests;
 
+impl<I: UnsignedPType> Take<PVector<I>> for Vector {
+    type Output = Vector;
+
+    fn take(self, indices: &PVector<I>) -> Vector {
+        (&self).take(indices)
+    }
+}
+
+impl<I: UnsignedPType> Take<[I]> for Vector {
+    type Output = Vector;
+
+    fn take(self, indices: &[I]) -> Vector {
+        (&self).take(indices)
+    }
+}
+
 impl<I: UnsignedPType> Take<PVector<I>> for &Vector {
     type Output = Vector;
 
@@ -43,16 +59,24 @@ impl<I: UnsignedPType> Take<[I]> for &Vector {
     }
 }
 
-impl<T> Take<PrimitiveVector> for &T
+impl Take<PrimitiveVector> for &Vector
 where
-    for<'a> &'a T: Take<PVector<u8>, Output = T>,
-    for<'a> &'a T: Take<PVector<u16>, Output = T>,
-    for<'a> &'a T: Take<PVector<u32>, Output = T>,
-    for<'a> &'a T: Take<PVector<u64>, Output = T>,
+    for<'a> &'a Vector: Take<PVector<u8>, Output = Vector>,
+    for<'a> &'a Vector: Take<PVector<u16>, Output = Vector>,
+    for<'a> &'a Vector: Take<PVector<u32>, Output = Vector>,
+    for<'a> &'a Vector: Take<PVector<u64>, Output = Vector>,
 {
-    type Output = T;
+    type Output = Vector;
 
-    fn take(self, indices: &PrimitiveVector) -> T {
+    fn take(self, indices: &PrimitiveVector) -> Vector {
         match_each_unsigned_pvector!(indices, |iv| { self.take(iv) })
+    }
+}
+
+impl Take<PrimitiveVector> for Vector {
+    type Output = Vector;
+
+    fn take(self, indices: &PrimitiveVector) -> Vector {
+        (&self).take(indices)
     }
 }

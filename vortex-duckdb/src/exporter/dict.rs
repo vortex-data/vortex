@@ -9,15 +9,22 @@ use num_traits::AsPrimitive;
 use parking_lot::Mutex;
 use vortex::array::Array;
 use vortex::array::ToCanonical;
+use vortex::array::VectorExecutor;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::ConstantVTable;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::vectors::VectorIntoArray;
 use vortex::compute;
+use vortex::compute2::take::Take;
 use vortex::dtype::IntegerPType;
+use vortex::dtype::PTypeDowncastExt;
 use vortex::dtype::match_each_integer_ptype;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
+use vortex::session::VortexSession;
+use vortex_vector::VectorOps;
+use vortex_vector::primitive::PVector;
 
 use crate::duckdb::LogicalType;
 use crate::duckdb::SelectionVector;
@@ -27,6 +34,7 @@ use crate::exporter::all_invalid;
 use crate::exporter::cache::ConversionCache;
 use crate::exporter::constant;
 use crate::exporter::new_array_exporter;
+use crate::exporter::new_vector_array_exporter;
 
 struct DictExporter<I: IntegerPType> {
     // Store the dictionary values once and export the same dictionary with each codes chunk.
@@ -129,6 +137,139 @@ impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
         let mut_sel_vec = unsafe { sel_vec.as_slice_mut(len) };
         for (dst, src) in mut_sel_vec.iter_mut().zip(
             self.codes.as_slice::<I>()[offset..offset + len]
+                .iter()
+                .map(|v| v.as_()),
+        ) {
+            *dst = src
+        }
+
+        // DuckDB requires the value vector which references the data to be
+        // unique. Otherwise, DuckDB races on the values vector passed to the
+        // dictionary.
+        let new_values_vector = {
+            let values_vector = self.values_vector.lock();
+            let mut new_values_vector = Vector::new(values_vector.logical_type());
+            // Shares the underlying data which determines the vectors length.
+            new_values_vector.reference(&values_vector);
+            new_values_vector
+        };
+
+        vector.dictionary(&new_values_vector, self.values_len as usize, &sel_vec, len);
+
+        // Use a unique id for each dictionary data array -- telling duckdb that
+        // the dict value vector is the same as reuse the hash in a join.
+        vector.set_dictionary_id(format!("{}-{}", self.cache_id, self.value_id));
+
+        Ok(())
+    }
+}
+
+struct DictVectorExporter<I: IntegerPType> {
+    // Store the dictionary values once and export the same dictionary with each codes chunk.
+    values_vector: Arc<Mutex<Vector>>, // NOTE(ngates): not actually flat...
+    values_len: u32,
+    codes: PVector<I>,
+    cache_id: u64,
+    value_id: usize,
+}
+
+pub(crate) fn new_vector_exporter_with_flatten(
+    array: &DictArray,
+    cache: &ConversionCache,
+    session: &VortexSession,
+    // Whether to return a duckdb flat vector or not.
+    mut flatten: bool,
+) -> VortexResult<Box<dyn ColumnExporter>> {
+    // Grab the cache dictionary values.
+    let values = array.values();
+    let values_type: LogicalType = values.dtype().try_into()?;
+    if let Some(constant) = values.as_opt::<ConstantVTable>() {
+        return constant::new_exporter_with_mask(
+            &ConstantArray::new(constant.scalar().clone(), array.codes().len()),
+            array.codes().validity_mask(),
+            cache,
+        );
+    }
+
+    let codes = array.codes().execute_vector(session)?.into_primitive();
+
+    match codes.validity() {
+        Mask::AllTrue(_) => {}
+        Mask::AllFalse(len) => {
+            return Ok(all_invalid::new_exporter(*len, &values_type));
+        }
+        Mask::Values(_) => {
+            // duckdb cannot have a dictionary with validity in the codes, so flatten the array and
+            // apply the validity mask there.
+            flatten = true;
+        }
+    }
+
+    let values_key = Arc::as_ptr(values).addr();
+
+    let exporter_values = if flatten {
+        let values = cache.vector_cache.get(&values_key);
+        let values = match values {
+            Some(c) => c.value().1.clone(),
+            None => {
+                let value_vector = array.values().execute_vector(session)?;
+                cache
+                    .vector_cache
+                    .insert(values_key, (array.values().clone(), value_vector.clone()));
+                value_vector
+            }
+        };
+        return new_vector_array_exporter(
+            Take::take(values, &codes).into_array(array.dtype()),
+            cache,
+            session,
+        );
+    } else {
+        // Check if we have a cached vector and extract it if we do.
+        let cached_vector = cache
+            .values_cache
+            .get(&values_key)
+            .map(|entry| entry.value().1.clone());
+
+        match cached_vector {
+            Some(vector) => vector,
+            None => {
+                // Create a new DuckDB vector for the values.
+                let mut vector = Vector::with_capacity(values.dtype().try_into()?, values.len());
+                new_vector_array_exporter(values.clone(), cache, session)?.export(
+                    0,
+                    values.len(),
+                    &mut vector,
+                )?;
+
+                let vector = Arc::new(Mutex::new(vector));
+                cache
+                    .values_cache
+                    .insert(values_key, (values.clone(), vector.clone()));
+
+                vector
+            }
+        }
+    };
+
+    match_each_integer_ptype!(codes.ptype(), |I| {
+        Ok(Box::new(DictVectorExporter {
+            values_vector: exporter_values,
+            values_len: values.len().as_u32(),
+            codes: codes.downcast::<I>(),
+            cache_id: cache.instance_id(),
+            value_id: values_key,
+        }))
+    })
+}
+
+impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictVectorExporter<I> {
+    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+        // Create a selection vector from the codes.
+        let mut sel_vec = SelectionVector::with_capacity(len);
+        let mut_sel_vec = unsafe { sel_vec.as_slice_mut(len) };
+        for (dst, src) in mut_sel_vec.iter_mut().zip(
+            self.codes.as_ref()[offset..offset + len]
                 .iter()
                 .map(|v| v.as_()),
         ) {

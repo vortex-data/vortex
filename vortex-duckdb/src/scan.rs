@@ -23,6 +23,7 @@ use futures::stream::SelectAll;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use url::Url;
+use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::ToCanonical;
 use vortex::dtype::FieldNames;
@@ -42,6 +43,7 @@ use vortex::file::VortexFile;
 use vortex::file::VortexOpenOptions;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::ThreadSafeIterator;
+use vortex::session::VortexSession;
 
 use crate::RUNTIME;
 use crate::SESSION;
@@ -102,6 +104,7 @@ impl Debug for VortexBindData {
 pub struct VortexGlobalData {
     iterator: ThreadSafeIterator<VortexResult<(ArrayRef, Arc<ConversionCache>)>>,
     batch_id: AtomicU64,
+    session: VortexSession,
 }
 
 pub struct VortexLocalData {
@@ -327,6 +330,7 @@ impl TableFunction for VortexTableFunction {
                 local_state.exporter = Some(ArrayExporter::try_new(
                     &array_result.to_struct(),
                     &conversion_cache,
+                    &global_state.session,
                 )?);
                 // Relaxed since there is no intra-instruction ordering required.
                 local_state.batch_id = Some(global_state.batch_id.fetch_add(1, Ordering::Relaxed));
@@ -430,6 +434,8 @@ impl TableFunction for VortexTableFunction {
                 max_concurrency: num_workers * 2,
             }),
             batch_id: AtomicU64::new(0),
+            // TODO(joe): fetch this from somewhere??.
+            session: VortexSession::default(),
         })
     }
 
