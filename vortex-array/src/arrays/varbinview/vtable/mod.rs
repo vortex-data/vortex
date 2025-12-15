@@ -11,6 +11,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_vector::Vector;
 use vortex_vector::binaryview::BinaryVector;
 use vortex_vector::binaryview::BinaryView;
 use vortex_vector::binaryview::StringVector;
@@ -18,9 +19,7 @@ use vortex_vector::binaryview::StringVector;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::arrays::varbinview::VarBinViewArray;
-use crate::kernel::BindCtx;
-use crate::kernel::KernelRef;
-use crate::kernel::ready;
+use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -127,24 +126,24 @@ impl VTable for VarBinViewVTable {
         Ok(())
     }
 
-    fn bind_kernel(array: &Self::Array, _ctx: &mut BindCtx) -> VortexResult<KernelRef> {
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(match array.dtype() {
-            DType::Utf8(_) => ready(unsafe {
+            DType::Utf8(_) => unsafe {
                 StringVector::new_unchecked(
                     array.views().clone(),
                     Arc::new(array.buffers().to_vec().into_boxed_slice()),
                     array.validity_mask(),
                 )
                 .into()
-            }),
-            DType::Binary(_) => ready(unsafe {
+            },
+            DType::Binary(_) => unsafe {
                 BinaryVector::new_unchecked(
                     array.views().clone(),
                     Arc::new(array.buffers().to_vec().into_boxed_slice()),
                     array.validity_mask(),
                 )
                 .into()
-            }),
+            },
             _ => unreachable!("VarBinViewArray must have Binary or Utf8 dtype"),
         })
     }

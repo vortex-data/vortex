@@ -15,7 +15,7 @@ use crate::DeserializeMetadata;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::BoolArray;
-use crate::kernel::BindCtx;
+use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -32,10 +32,9 @@ mod validity;
 mod visitor;
 
 pub use rules::BoolMaskedValidityRule;
+use vortex_vector::Vector;
 
 use crate::arrays::bool::vtable::rules::RULES;
-use crate::kernel::KernelRef;
-use crate::kernel::ready;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
 
@@ -129,10 +128,8 @@ impl VTable for BoolVTable {
         Ok(())
     }
 
-    fn bind_kernel(array: &Self::Array, _ctx: &mut BindCtx) -> VortexResult<KernelRef> {
-        Ok(ready(
-            BoolVector::new(array.bit_buffer().clone(), array.validity_mask()).into(),
-        ))
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        Ok(BoolVector::new(array.bit_buffer().clone(), array.validity_mask()).into())
     }
 
     fn reduce_parent(

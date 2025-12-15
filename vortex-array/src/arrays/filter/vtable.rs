@@ -13,6 +13,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
+use vortex_vector::Vector;
 
 use crate::Array;
 use crate::ArrayBufferVisitor;
@@ -25,10 +26,8 @@ use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::Precision;
 use crate::arrays::filter::array::FilterArray;
-use crate::arrays::filter::kernel::FilterKernel;
-use crate::kernel::BindCtx;
-use crate::kernel::KernelRef;
-use crate::kernel::PushDownResult;
+use crate::arrays::filter::rules::PARENT_RULES;
+use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::vectors::VectorIntoArray;
@@ -110,33 +109,17 @@ impl VTable for FilterVTable {
         Ok(())
     }
 
-    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
-        let mut child = array.child.bind_kernel(ctx)?;
-        let mask = array.mask.clone();
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        let child = array.child.execute(ctx)?;
+        Ok(Filter::filter(&child, &array.mask))
+    }
 
-        // NOTE(ngates): for now we keep the same behavior as develop where we push-down any
-        //  query with <20% true values.
-        let pushdown = array.mask.density() < 0.2;
-
-        if pushdown {
-            // Try to push down the filter to the child if it's cheaper.
-            child = match child.push_down_filter(&mask)? {
-                PushDownResult::Pushed(new_k) => {
-                    tracing::debug!("Filter push down kernel:\n{:?}", new_k);
-                    return Ok(new_k);
-                }
-                PushDownResult::NotPushed(child) => {
-                    tracing::debug!(
-                        "Filter pushdown was cheaper but not supported by child array {}",
-                        array.child.display_tree()
-                    );
-                    child
-                }
-            };
-        }
-
-        // Otherwise, wrap up the child in a filter kernel.
-        Ok(Box::new(FilterKernel::new(child, mask)))
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }
 
@@ -165,9 +148,7 @@ impl BaseArrayVTable<FilterVTable> for FilterVTable {
 
 impl CanonicalVTable<FilterVTable> for FilterVTable {
     fn canonicalize(array: &FilterArray) -> Canonical {
-        let vector = FilterVTable::bind_kernel(array, &mut BindCtx::new(LEGACY_SESSION.clone()))
-            .vortex_expect("Canonicalize should be fallible")
-            .execute()
+        let vector = FilterVTable::execute(array, &mut ExecutionCtx::new(LEGACY_SESSION.clone()))
             .vortex_expect("Canonicalize should be fallible");
         vector.into_array(array.dtype()).to_canonical()
     }
