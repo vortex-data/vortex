@@ -329,7 +329,7 @@ impl TableFunction for VortexTableFunction {
 
                 let (array_result, conversion_cache) = result?;
 
-                let array_result = if USE_VORTEX_OPERATORS {
+                let array_result = if *USE_VORTEX_OPERATORS {
                     array_result.optimize_recursive()?
                 } else {
                     array_result
