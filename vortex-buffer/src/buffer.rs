@@ -321,9 +321,6 @@ impl<T> Buffer<T> {
         if !begin_byte.is_multiple_of(*alignment) {
             vortex_panic!("range start must be aligned to {alignment:?}");
         }
-        if !end_byte.is_multiple_of(*alignment) {
-            vortex_panic!("range end must be aligned to {alignment:?}");
-        }
         if !alignment.is_aligned_to(Alignment::of::<T>()) {
             vortex_panic!("Slice alignment must at least align to type T")
         }
@@ -743,5 +740,17 @@ mod test {
         let buff = Buffer::from(vec.clone());
         assert!(buff.is_aligned(Alignment::of::<i32>()));
         assert_eq!(vec, buff);
+    }
+
+    #[test]
+    fn test_slice_unaligned_end_pos() {
+        let data = vec![0u8; 2];
+        // Overalign the u8 vector.
+        let aligned_buffer = Buffer::copy_from_aligned(&data, Alignment::new(8));
+        // Previously, `Buffer::slice` incorrectly asserted that the end position
+        // must be aligned. That assertion has been removed such that the end
+        // position can be arbitrary and only the beginning of the slice needs
+        // to be aligned.
+        aligned_buffer.slice(0..1);
     }
 }
