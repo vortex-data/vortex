@@ -8,7 +8,7 @@ use vortex_vector::ScalarOps;
 use vortex_vector::VectorOps;
 
 use crate::Array;
-use crate::arrays::LEGACY_SESSION;
+use crate::LEGACY_SESSION;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::executor::VectorExecutor;

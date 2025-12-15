@@ -341,3 +341,86 @@ impl Vector {
         vortex_panic!("Expected StructVector, got {self:?}");
     }
 }
+
+impl Vector {
+    /// Consumes `self` and returns the inner [`NullVector`] if `self` is of that variant.
+    pub fn into_null_opt(self) -> Option<NullVector> {
+        if let Vector::Null(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    /// Consumes `self` and returns the inner [`BoolVector`] if `self` is of that variant.
+    pub fn into_bool_opt(self) -> Option<BoolVector> {
+        if let Vector::Bool(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    /// Consumes `self` and returns the inner [`PrimitiveVector`] if `self` is of that variant.
+    pub fn into_primitive_opt(self) -> Option<PrimitiveVector> {
+        if let Vector::Primitive(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    /// Consumes `self` and returns the inner [`DecimalVector`] if `self` is of that variant.
+    pub fn into_decimal_opt(self) -> Option<DecimalVector> {
+        if let Vector::Decimal(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    /// Consumes `self` and returns the inner [`StringVector`] if `self` is of that variant.
+    pub fn into_string_opt(self) -> Option<StringVector> {
+        if let Vector::String(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    /// Consumes `self` and returns the inner [`BinaryVector`] if `self` is of that variant.
+    pub fn into_binary_opt(self) -> Option<BinaryVector> {
+        if let Vector::Binary(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    /// Consumes `self` and returns the inner [`ListViewVector`] if `self` is of that variant.
+    pub fn into_list_opt(self) -> Option<ListViewVector> {
+        if let Vector::List(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    /// Consumes `self` and returns the inner [`FixedSizeListVector`] if `self` is of that variant.
+    pub fn into_fixed_size_list_opt(self) -> Option<FixedSizeListVector> {
+        if let Vector::FixedSizeList(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    /// Consumes `self` and returns the inner [`StructVector`] if `self` is of that variant.
+    pub fn into_struct_opt(self) -> Option<StructVector> {
+        if let Vector::Struct(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+}
