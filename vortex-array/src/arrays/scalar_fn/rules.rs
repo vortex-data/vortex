@@ -19,6 +19,8 @@ use crate::ArrayVisitor;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
+use crate::arrays::FilterArray;
+use crate::arrays::FilterVTable;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::ScalarFnVTable;
 use crate::expr::ExecutionArgs;
@@ -26,14 +28,17 @@ use crate::expr::ReduceCtx;
 use crate::expr::ReduceNode;
 use crate::expr::ReduceNodeRef;
 use crate::expr::ScalarFn;
+use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
+use crate::optimizer::rules::Exact;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
 
 pub(super) const RULES: ReduceRuleSet<ScalarFnVTable> =
     ReduceRuleSet::new(&[&ScalarFnConstantRule, &ScalarFnAbstractReduceRule]);
 
-pub(super) const PARENT_RULES: ParentRuleSet<ScalarFnVTable> = ParentRuleSet::new(&[]);
+pub(super) const PARENT_RULES: ParentRuleSet<ScalarFnVTable> =
+    ParentRuleSet::new(&[ParentRuleSet::lift(&ScalarFnUnaryFilterPushDownRule)]);
 
 #[derive(Debug)]
 struct ScalarFnConstantRule;
@@ -150,5 +155,52 @@ impl ReduceCtx for ArrayReduceCtx {
             )?
             .into_array(),
         ))
+    }
+}
+
+#[derive(Debug)]
+struct ScalarFnUnaryFilterPushDownRule;
+
+impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnUnaryFilterPushDownRule {
+    type Parent = Exact<FilterVTable>;
+
+    fn parent(&self) -> Self::Parent {
+        Exact::from(&FilterVTable)
+    }
+
+    fn reduce_parent(
+        &self,
+        child: &ScalarFnArray,
+        parent: &FilterArray,
+        _child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        // If we only have one non-constant child, then it is _always_ cheaper to push down the
+        // filter over the children of the scalar function array.
+        if child
+            .children
+            .iter()
+            .filter(|c| !c.is::<ConstantVTable>())
+            .count()
+            == 1
+        {
+            let new_children: Vec<_> = child
+                .children
+                .iter()
+                .map(|c| match c.as_opt::<ConstantVTable>() {
+                    Some(array) => {
+                        ConstantArray::new(array.scalar().clone(), parent.len()).into_array()
+                    }
+                    None => FilterArray::new(c.clone(), parent.filter_mask().clone()).into_array(),
+                })
+                .collect();
+
+            let new_array =
+                ScalarFnArray::try_new(child.scalar_fn.clone(), new_children, parent.len())?
+                    .into_array();
+
+            return Ok(Some(new_array));
+        }
+
+        Ok(None)
     }
 }

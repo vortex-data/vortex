@@ -219,13 +219,16 @@ impl LayoutReader for FlatReader {
             }
 
             Ok(if *USE_VORTEX_OPERATORS {
-                // Evaluate the projection expression.
-                array = array.apply(&expr)?;
-
-                // Filter the array based on the row mask.
+                // First apply the filter to the array.
+                // NOTE(ngates): we *must* filter first before applying the expression, as the
+                // expression may depend on the filtered rows being removed e.g.
+                //  `CAST(a, u8) WHERE a < 256`
                 if !mask.all_true() {
                     array = array.filter(mask)?;
                 }
+
+                // Evaluate the projection expression.
+                array = array.apply(&expr)?;
 
                 array
             } else {
