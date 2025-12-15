@@ -6,15 +6,20 @@ use std::sync::Arc;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::StructArray;
 use arrow_buffer::NullBuffer;
+use arrow_schema::DataType;
 use arrow_schema::Fields;
-use itertools::Itertools;
+use vortex_compute::arrow::IntoArrow;
+use vortex_dtype::DType;
+use vortex_dtype::StructFields;
+use vortex_dtype::arrow::FromArrowType;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::VectorExecutor;
 use crate::arrays::ScalarFnVTable;
 use crate::arrays::StructVTable;
 use crate::arrow::ArrowArrayExecutor;
@@ -52,28 +57,19 @@ pub(super) fn to_arrow_struct(
         );
     }
 
-    // Otherwise, we have some options:
-    //  1. Use get_item expression to extract each field? This is a bit sad because get_item
-    //     will perform the validity masking again.
-    //  2. Execute a full struct vector. But this may do unnecessary work on fields that may
-    //    have a more direct conversion to the desired Arrow field type.
-    //  3. Something else?
-    //
-    // For now, we go with option 1. Although we really ought to figure out CSE for this.
-    let field_arrays = fields
-        .iter()
-        .map(|f| array.get_item(f.name().as_str()))
-        .try_collect()?;
+    // Otherwise, we fall back to executing the full struct vector.
+    // First we apply a cast to ensure we push down casting where possible into the struct fields.
+    let vx_fields = StructFields::from_arrow(fields);
+    let array = array.cast(DType::Struct(
+        vx_fields,
+        vortex_dtype::Nullability::Nullable,
+    ))?;
 
-    if !array.all_valid() {
-        // TODO(ngates): we should grab the nullability using the is_not_null expression.
-        vortex_bail!(
-            "Cannot convert nullable Struct array with nulls to Arrow\n{}",
-            array.display_tree()
-        );
-    }
+    let struct_array = array.execute_vector(session)?.into_struct().into_arrow()?;
 
-    create_from_fields(fields, field_arrays, None, len, session)
+    // Finally, we cast to Arrow to ensure any types not representable by Vortex (e.g. Dictionary)
+    // are properly converted.
+    arrow_cast::cast(&struct_array, &DataType::Struct(fields.clone())).map_err(VortexError::from)
 }
 
 fn create_from_fields(
