@@ -80,7 +80,7 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
         .execute_vector(session)?
         .into_primitive()
         .downcast::<O>()
-        .into_buffer()
+        .into_nonnull_buffer()
         .into_arrow_offset_buffer();
 
     let elements = array
@@ -126,7 +126,7 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
         .execute_vector(session)?
         .into_primitive()
         .downcast::<O>()
-        .into_buffer();
+        .into_nonnull_buffer();
 
     // List arrays need one extra element in the offsets buffer to signify the end of the last list.
     // If the offsets original came from a list, chances are there is already capacity for this!

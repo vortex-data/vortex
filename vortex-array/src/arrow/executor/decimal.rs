@@ -21,24 +21,30 @@ use crate::VectorExecutor;
 use crate::arrow::null_buffer::to_null_buffer;
 use crate::builtins::ArrayBuiltins;
 
-// TODO(ngates): our i256 is different from Arrow's. Therefore we need an explicit `N` type.
+// TODO(ngates): our i256 is different from Arrow's. Therefore we need an explicit `N` type
+//  representing the Vortex native type that is equivalent to the Arrow native type.
 pub(super) fn to_arrow_decimal<D: DecimalType, N: NativeDecimalType>(
     array: ArrayRef,
     precision: u8,
     scale: i8,
     session: &VortexSession,
 ) -> VortexResult<ArrowArrayRef> {
-    // Since Vortex doesn't have physical types, the vector execution will try to use the
-    // narrowest type that fits the precision + scale.
+    // Since Vortex doesn't have physical types, our DecimalDType only contains precision and scale.
+    // When calling execute_vector, Vortex may use any physical type >= the smallest type that can
+    // hold the requested precision.
     //
-    // We therefore fake the required precision such that the correct native type is used.
+    // We therefore create a fake precision that forces Vortex to use a native type that is at
+    // least as wide as the requested Arrow type. We cast the array into this type.
+    //
+    // NOTE(ngates): we assume that a cast operation will produce the narrowest possible type that
+    //  fits the requested precision.
     let fake_precision = precision.max(N::MAX_PRECISION);
     let array = array.cast(DType::Decimal(
         DecimalDType::new(fake_precision, scale),
         Nullability::Nullable,
     ))?;
 
-    // First we cast the array into the desired Decimal type before executing into a vector.
+    // Execute the array as a vector and downcast to our native type.
     let vector = array.execute_vector(session)?.into_decimal();
     vortex_ensure!(
         vector.decimal_type() == N::DECIMAL_TYPE,
@@ -50,7 +56,15 @@ pub(super) fn to_arrow_decimal<D: DecimalType, N: NativeDecimalType>(
     let (_ps, buffer, validity) = N::downcast(vector).into_parts();
     let nulls = to_null_buffer(validity);
 
-    // Again, because our i256 type is different from Arrow's, we need to special-case it.
+    assert_eq!(
+        size_of::<D::Native>(),
+        size_of::<N>(),
+        "Mismatched native sizes between Arrow decimal type and Vortex native decimal type"
+    );
+
+    // SAFETY: we just checked that size_of::<D::Native> == size_of<N>. We also know that we have
+    //  the same bit-representation as Arrow. We only need to transmute because we have different
+    //  i256 types.
     let buffer = unsafe { std::mem::transmute::<Buffer<N>, Buffer<D::Native>>(buffer) };
 
     Ok(Arc::new(

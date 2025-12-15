@@ -87,7 +87,7 @@ fn to_arrow<O: IntegerPType + OffsetSizeTrait>(array: &VarBinArray) -> VortexRes
     .execute_vector(&LEGACY_SESSION)?
     .into_primitive()
     .downcast::<O>()
-    .into_buffer();
+    .into_nonnull_buffer();
 
     let nulls = to_null_buffer(array.validity_mask());
     let data = array.bytes().clone();

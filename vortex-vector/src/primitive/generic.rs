@@ -98,7 +98,7 @@ impl<T> PVector<T> {
     /// # Panics
     ///
     /// Panics if there are any null values in the vector.
-    pub fn into_buffer(self) -> Buffer<T> {
+    pub fn into_nonnull_buffer(self) -> Buffer<T> {
         assert!(
             self.validity.all_true(),
             "Cannot convert to buffer: vector contains null values"

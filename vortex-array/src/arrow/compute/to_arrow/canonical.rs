@@ -563,7 +563,7 @@ fn to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
         .execute_vector(&LEGACY_SESSION)?
         .into_primitive()
         .downcast::<O>()
-        .into_buffer()
+        .into_nonnull_buffer()
         .into_arrow_offset_buffer();
     let nulls = to_null_buffer(list_array.validity_mask());
 
@@ -588,7 +588,7 @@ fn to_arrow_listview<O: IntegerPType + OffsetSizeTrait>(
         .execute_vector(&LEGACY_SESSION)?
         .into_primitive()
         .downcast::<O>()
-        .into_buffer()
+        .into_nonnull_buffer()
         .into_arrow_scalar_buffer();
     let sizes = array
         .sizes()
@@ -596,7 +596,7 @@ fn to_arrow_listview<O: IntegerPType + OffsetSizeTrait>(
         .execute_vector(&LEGACY_SESSION)?
         .into_primitive()
         .downcast::<O>()
-        .into_buffer()
+        .into_nonnull_buffer()
         .into_arrow_scalar_buffer();
 
     // Convert `offsets`, `sizes`, and `validity` to Arrow buffers.

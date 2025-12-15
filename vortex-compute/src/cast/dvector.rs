@@ -30,51 +30,48 @@ impl<D: NativeDecimalType> Cast for DVector<D> {
             return Ok(result);
         }
 
-        match target_dtype {
-            DType::Decimal(ddt, n) => {
-                // Check nullability compatibility
-                if !n.is_nullable() && !self.validity().all_true() {
-                    vortex_bail!(
-                        "Cannot cast nullable DVector to non-nullable {}",
-                        target_dtype
-                    );
-                }
+        let DType::Decimal(ddt, n) = target_dtype else {
+            vortex_bail!("Cannot cast DVector to {}", target_dtype);
+        };
 
-                // Scale changes require multiplication/division by powers of 10
-                if ddt.scale() != self.scale() {
-                    vortex_bail!(
-                        "Casting DVector with scale {} to scale {} not yet implemented",
-                        self.scale(),
-                        ddt.scale()
-                    );
-                }
-
-                // If the precision is the same, it's an identity cast
-                if ddt.precision() == self.precision() {
-                    return Ok(self.clone().into());
-                }
-
-                // If the precision is wider, we may need to upcast the underlying type
-                if ddt.precision() > self.precision() {
-                    // Need to upcast to a wider type
-                    let target_type = DecimalType::smallest_decimal_value_type(ddt);
-                    match_each_decimal_value_type!(target_type, |T| {
-                        return upcast_dvector::<D, T>(self, ddt.precision());
-                    })
-                }
-
-                // TODO(ngates): we need to rebuild the vector as that will validate all values
-                //  fit into the precision / scale.
-                vortex_bail!(
-                    "Downcasting DVector from precision {} to {} not yet implemented",
-                    self.precision(),
-                    ddt.precision()
-                );
-            }
-            _ => {
-                vortex_bail!("Cannot cast DVector to {}", target_dtype);
-            }
+        // Check nullability compatibility
+        if !n.is_nullable() && !self.validity().all_true() {
+            vortex_bail!(
+                "Cannot cast nullable DVector to non-nullable {}",
+                target_dtype
+            );
         }
+
+        // Scale changes require multiplication/division by powers of 10
+        if ddt.scale() != self.scale() {
+            vortex_bail!(
+                "Casting DVector with scale {} to scale {} not yet implemented",
+                self.scale(),
+                ddt.scale()
+            );
+        }
+
+        // If the precision is the same, it's an identity cast
+        if ddt.precision() == self.precision() {
+            return Ok(self.clone().into());
+        }
+
+        // If the precision is wider, we may need to upcast the underlying type
+        if ddt.precision() > self.precision() {
+            // Need to upcast to a wider type
+            let target_type = DecimalType::smallest_decimal_value_type(ddt);
+            match_each_decimal_value_type!(target_type, |T| {
+                return upcast_dvector::<D, T>(self, ddt.precision());
+            })
+        }
+
+        // TODO(ngates): we need to rebuild the vector as that will validate all values
+        //  fit into the precision / scale.
+        vortex_bail!(
+            "Downcasting DVector from precision {} to {} not yet implemented",
+            self.precision(),
+            ddt.precision()
+        );
     }
 }
 

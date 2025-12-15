@@ -56,7 +56,7 @@ where
         .execute_vector(session)?
         .into_primitive()
         .downcast::<T::Offset>()
-        .into_buffer()
+        .into_nonnull_buffer()
         .into_arrow_offset_buffer();
 
     let data = array.bytes().clone().into_arrow_buffer();

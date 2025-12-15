@@ -36,7 +36,9 @@ pub(super) fn to_arrow_fixed_list(
         .ok_or_else(|| vortex_err!("Failed to convert array to FixedSizeListArray"))?;
     vortex_ensure!(
         Ok(list_size) == i32::try_from(vector.list_size()),
-        "Mismatched list size when converting FixedSizeListVector to Arrow array"
+        "Cannot convert FixedSizeList with list size {} to Arrow array with list size {}",
+        vector.list_size(),
+        list_size
     );
 
     Ok(Arc::new(vector.into_arrow()?))
@@ -50,7 +52,9 @@ fn list_to_list(
 ) -> VortexResult<arrow_array::ArrayRef> {
     vortex_ensure!(
         Ok(list_size) == i32::try_from(array.list_size()),
-        "Mismatched list size when converting FixedSizeListArray to Arrow array"
+        "Cannot convert FixedSizeList with list size {} to Arrow array with list size {}",
+        array.list_size(),
+        list_size
     );
 
     let elements = array

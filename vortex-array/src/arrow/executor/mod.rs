@@ -6,7 +6,7 @@ mod byte;
 mod byte_view;
 mod decimal;
 mod dictionary;
-mod fixed_list;
+mod fixed_size_list;
 mod list;
 mod list_view;
 mod null;
@@ -32,7 +32,7 @@ use crate::arrow::executor::byte::to_arrow_byte_array;
 use crate::arrow::executor::byte_view::to_arrow_byte_view;
 use crate::arrow::executor::decimal::to_arrow_decimal;
 use crate::arrow::executor::dictionary::to_arrow_dictionary;
-use crate::arrow::executor::fixed_list::to_arrow_fixed_list;
+use crate::arrow::executor::fixed_size_list::to_arrow_fixed_list;
 use crate::arrow::executor::list::to_arrow_list;
 use crate::arrow::executor::list_view::to_arrow_list_view;
 use crate::arrow::executor::null::to_arrow_null;
@@ -72,14 +72,14 @@ impl ArrowArrayExecutor for ArrayRef {
         match data_type {
             DataType::Null => to_arrow_null(self, session),
             DataType::Boolean => to_arrow_bool(self, session),
-            DataType::Int8 => to_arrow_primitive::<UInt8Type>(self, session),
-            DataType::Int16 => to_arrow_primitive::<UInt16Type>(self, session),
-            DataType::Int32 => to_arrow_primitive::<UInt32Type>(self, session),
-            DataType::Int64 => to_arrow_primitive::<UInt64Type>(self, session),
-            DataType::UInt8 => to_arrow_primitive::<Int8Type>(self, session),
-            DataType::UInt16 => to_arrow_primitive::<Int16Type>(self, session),
-            DataType::UInt32 => to_arrow_primitive::<Int32Type>(self, session),
-            DataType::UInt64 => to_arrow_primitive::<Int64Type>(self, session),
+            DataType::Int8 => to_arrow_primitive::<Int8Type>(self, session),
+            DataType::Int16 => to_arrow_primitive::<Int16Type>(self, session),
+            DataType::Int32 => to_arrow_primitive::<Int32Type>(self, session),
+            DataType::Int64 => to_arrow_primitive::<Int64Type>(self, session),
+            DataType::UInt8 => to_arrow_primitive::<UInt8Type>(self, session),
+            DataType::UInt16 => to_arrow_primitive::<UInt16Type>(self, session),
+            DataType::UInt32 => to_arrow_primitive::<UInt32Type>(self, session),
+            DataType::UInt64 => to_arrow_primitive::<UInt64Type>(self, session),
             DataType::Float16 => to_arrow_primitive::<Float16Type>(self, session),
             DataType::Float32 => to_arrow_primitive::<Float32Type>(self, session),
             DataType::Float64 => to_arrow_primitive::<Float64Type>(self, session),

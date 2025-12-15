@@ -76,14 +76,14 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
         .execute_vector(session)?
         .into_primitive()
         .downcast::<O>()
-        .into_buffer()
+        .into_nonnull_buffer()
         .into_arrow_scalar_buffer();
     let sizes = sizes
         .cast(DType::Primitive(O::PTYPE, NonNullable))?
         .execute_vector(session)?
         .into_primitive()
         .downcast::<O>()
-        .into_buffer()
+        .into_nonnull_buffer()
         .into_arrow_scalar_buffer();
 
     let null_buffer = to_arrow_null_buffer(&validity, offsets.len(), session)?;

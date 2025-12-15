@@ -70,7 +70,7 @@ fn list_array_to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
         .execute_vector(&LEGACY_SESSION)?
         .into_primitive()
         .downcast::<O>()
-        .into_buffer();
+        .into_nonnull_buffer();
 
     // Convert `offsets` and `validity` to Arrow buffers.
     let arrow_offsets = offsets.into_arrow_offset_buffer();
