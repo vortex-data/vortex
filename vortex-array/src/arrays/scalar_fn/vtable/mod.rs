@@ -16,22 +16,22 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_vector::Datum;
+use vortex_vector::Vector;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantVTable;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
-use crate::arrays::scalar_fn::kernel::KernelInput;
-use crate::arrays::scalar_fn::kernel::ScalarFnKernel;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
 use crate::arrays::scalar_fn::rules::PARENT_RULES;
 use crate::arrays::scalar_fn::rules::RULES;
+use crate::executor::ExecutionCtx;
 use crate::expr;
+use crate::expr::ExecutionArgs;
 use crate::expr::ExprVTable;
 use crate::expr::ScalarFn;
-use crate::kernel::BindCtx;
-use crate::kernel::KernelRef;
 use crate::optimizer::rules::MatchKey;
 use crate::optimizer::rules::Matcher;
 use crate::serde::ArrayChildren;
@@ -137,16 +137,13 @@ impl VTable for ScalarFnVTable {
         Ok(())
     }
 
-    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
-        let inputs: Vec<_> = array
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        let datums: Vec<_> = array
             .children()
             .iter()
             .map(|child| match child.as_opt::<ConstantVTable>() {
-                None => child.bind_kernel(ctx).map(KernelInput::Vector),
-                Some(constant) => {
-                    let scalar = constant.scalar().to_vector_scalar();
-                    Ok(KernelInput::Scalar(scalar))
-                }
+                None => child.execute(ctx).map(Datum::Vector),
+                Some(constant) => Ok(Datum::Scalar(constant.scalar().to_vector_scalar())),
             })
             .try_collect()?;
 
@@ -156,13 +153,14 @@ impl VTable for ScalarFnVTable {
             .map(|child| child.dtype().clone())
             .collect();
 
-        Ok(Box::new(ScalarFnKernel {
-            scalar_fn: array.scalar_fn.clone(),
-            inputs,
-            input_dtypes,
-            row_count: array.len(),
-            return_dtype: array.dtype().clone(),
-        }))
+        let args = ExecutionArgs {
+            datums,
+            dtypes: input_dtypes,
+            row_count: array.len,
+            return_dtype: array.dtype.clone(),
+        };
+
+        Ok(array.scalar_fn.execute(args)?.unwrap_into_vector(array.len))
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {

@@ -12,12 +12,10 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
+use vortex_array::ExecutionCtx;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::kernel::BindCtx;
-use vortex_array::kernel::KernelRef;
-use vortex_array::kernel::kernel;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
@@ -44,6 +42,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_vector::Vector;
 
 use crate::ALPFloat;
 use crate::alp::Exponents;
@@ -187,16 +186,16 @@ impl VTable for ALPVTable {
         Ok(())
     }
 
-    fn bind_kernel(array: &ALPArray, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
-        let encoded = array.encoded().bind_kernel(ctx)?;
-        let patches_kernels = if let Some(patches) = array.patches() {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        let encoded = array.encoded().execute(ctx)?;
+        let patches = if let Some(patches) = array.patches() {
             Some((
-                patches.indices().bind_kernel(ctx)?,
-                patches.values().bind_kernel(ctx)?,
+                patches.indices().execute(ctx)?,
+                patches.values().execute(ctx)?,
                 patches
                     .chunk_offsets()
                     .as_ref()
-                    .map(|co| co.bind_kernel(ctx))
+                    .map(|co| co.execute(ctx))
                     .transpose()?,
             ))
         } else {
@@ -207,24 +206,7 @@ impl VTable for ALPVTable {
         let exponents = array.exponents();
 
         match_each_alp_float_ptype!(array.dtype().as_ptype(), |T| {
-            Ok(kernel(move || {
-                let encoded_vector = encoded.execute()?;
-                let patches_vectors = match patches_kernels {
-                    Some((idx_kernel, val_kernel, co_kernel)) => Some((
-                        idx_kernel.execute()?,
-                        val_kernel.execute()?,
-                        co_kernel.map(|k| k.execute()).transpose()?,
-                    )),
-                    None => None,
-                };
-
-                decompress_into_vector::<T>(
-                    encoded_vector,
-                    exponents,
-                    patches_vectors,
-                    patches_offset,
-                )
-            }))
+            decompress_into_vector::<T>(encoded, exponents, patches, patches_offset)
         })
     }
 }

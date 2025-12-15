@@ -12,6 +12,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_vector::Vector;
 use vortex_vector::VectorOps;
 
 use crate::ArrayBufferVisitor;
@@ -19,9 +20,7 @@ use crate::ArrayChildVisitor;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::arrays::masked::MaskedArray;
-use crate::kernel::BindCtx;
-use crate::kernel::KernelRef;
-use crate::kernel::kernel;
+use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -109,15 +108,12 @@ impl VTable for MaskedVTable {
         MaskedArray::try_new(child, validity)
     }
 
-    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
-        let child_kernel = array.child().bind_kernel(ctx)?;
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        let mut child = array.child().execute(ctx)?;
         let validity_mask = array.validity_mask();
 
-        Ok(kernel(move || {
-            let mut vector = child_kernel.execute()?;
-            vector.mask_validity(&validity_mask);
-            Ok(vector)
-        }))
+        child.mask_validity(&validity_mask);
+        Ok(child)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
