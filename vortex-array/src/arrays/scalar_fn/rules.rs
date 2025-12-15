@@ -28,9 +28,9 @@ use crate::expr::ReduceCtx;
 use crate::expr::ReduceNode;
 use crate::expr::ReduceNodeRef;
 use crate::expr::ScalarFn;
+use crate::matchers::Exact;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
-use crate::optimizer::rules::Exact;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
 

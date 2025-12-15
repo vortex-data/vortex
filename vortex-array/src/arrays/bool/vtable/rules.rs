@@ -9,8 +9,8 @@ use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
 use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
+use crate::matchers::Exact;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::Exact;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::vtable::ValidityHelper;
 

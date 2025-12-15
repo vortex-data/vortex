@@ -15,6 +15,7 @@ use vortex_vector::struct_::StructVector;
 
 use crate::ArrayRef;
 use crate::EmptyMetadata;
+use crate::VectorExecutor;
 use crate::arrays::struct_::StructArray;
 use crate::arrays::struct_::rules::RULES;
 use crate::executor::ExecutionCtx;

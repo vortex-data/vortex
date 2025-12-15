@@ -23,9 +23,6 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
-use vortex_vector::Vector;
-use vortex_vector::VectorOps;
-use vortex_vector::vector_matches_dtype;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -52,7 +49,6 @@ use crate::compute::InvocationArgs;
 use crate::compute::IsConstantOpts;
 use crate::compute::Output;
 use crate::compute::is_constant_opts;
-use crate::executor::ExecutionCtx;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
@@ -200,11 +196,6 @@ pub trait Array:
     /// call.
     fn invoke(&self, compute_fn: &ComputeFn, args: &InvocationArgs)
     -> VortexResult<Option<Output>>;
-
-    /// Recursively execute an array using batch CPU execution.
-    ///
-    /// To invoke the top-level execution, see [`crate::executor::VectorExecutor`].
-    fn execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector>;
 }
 
 impl Array for Arc<dyn Array> {
@@ -317,10 +308,6 @@ impl Array for Arc<dyn Array> {
         args: &InvocationArgs,
     ) -> VortexResult<Option<Output>> {
         self.as_ref().invoke(compute_fn, args)
-    }
-
-    fn execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        self.as_ref().execute(ctx)
     }
 }
 
@@ -678,25 +665,6 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         args: &InvocationArgs,
     ) -> VortexResult<Option<Output>> {
         <V::ComputeVTable as ComputeVTable<V>>::invoke(&self.0, compute_fn, args)
-    }
-
-    fn execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        let result = V::execute(&self.0, ctx)?;
-
-        if cfg!(debug_assertions) {
-            vortex_ensure!(
-                result.len() == self.len(),
-                "Result length mismatch for {}",
-                self.encoding_id()
-            );
-            vortex_ensure!(
-                vector_matches_dtype(&result, self.dtype()),
-                "Executed vector dtype mismatch for {}",
-                self.encoding_id()
-            );
-        }
-
-        Ok(result)
     }
 }
 

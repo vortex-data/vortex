@@ -9,8 +9,8 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::arrays::FilterArray;
 use crate::arrays::FilterVTable;
+use crate::matchers::Exact;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::Exact;
 use crate::optimizer::rules::ParentRuleSet;
 
 pub(super) const PARENT_RULES: ParentRuleSet<ConstantVTable> =
