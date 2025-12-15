@@ -50,7 +50,7 @@ impl<T: NativePType + PartialEq> PartialEq for PVector<T> {
 
 impl<T: NativePType + Eq> Eq for PVector<T> {}
 
-impl<T> PVector<T> {
+impl<T: NativePType> PVector<T> {
     /// Creates a new [`PVector<T>`] from the given elements buffer and validity mask.
     ///
     /// # Panics
@@ -156,6 +156,19 @@ impl<T> PVector<T> {
     pub fn elements(&self) -> &Buffer<T> {
         &self.elements
     }
+
+    /// Cast a `PVector<T>` into a `PVector<U>`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the type `U` does not have the same size and alignment as `T`.
+    pub fn cast_into<U: NativePType>(self) -> PVector<U> {
+        let (buffer, mask) = self.into_parts();
+
+        // This will panic if the types do not align.
+        let buffer = buffer.cast_into::<U>();
+        PVector::new(buffer, mask)
+    }
 }
 
 impl<T: NativePType> AsRef<[T]> for PVector<T> {
@@ -237,7 +250,7 @@ impl<T: NativePType> VectorOps for PVector<T> {
     }
 }
 
-impl<T> From<Buffer<T>> for PVector<T> {
+impl<T: NativePType> From<Buffer<T>> for PVector<T> {
     /// Creates a new [`PVector<T>`] from the given elements buffer, with an all valid validity.
     fn from(value: Buffer<T>) -> Self {
         let len = value.len();
