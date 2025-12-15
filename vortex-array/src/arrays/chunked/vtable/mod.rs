@@ -19,6 +19,7 @@ use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::ToCanonical;
+use crate::VectorExecutor;
 use crate::arrays::ChunkedArray;
 use crate::arrays::PrimitiveArray;
 use crate::executor::ExecutionCtx;

@@ -4,7 +4,6 @@
 use std::hash::Hash;
 use std::ops::Range;
 
-use num_traits::One;
 use num_traits::cast::FromPrimitive;
 use vortex_array::ArrayBufferVisitor;
 use vortex_array::ArrayChildVisitor;
@@ -15,6 +14,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
+use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
@@ -45,11 +45,14 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
 use vortex_vector::Vector;
+use vortex_vector::VectorMut;
+use vortex_vector::VectorMutOps;
 use vortex_vector::primitive::PVector;
 
 vtable!(Sequence);
@@ -285,20 +288,48 @@ impl VTable for SequenceVTable {
             let base = array.base().cast::<P>();
             let multiplier = array.multiplier().cast::<P>();
 
-            let values = if multiplier == <P>::one() {
-                BufferMut::from_iter(
-                    (0..array.len()).map(|i| base + <P>::from_usize(i).vortex_expect("must fit")),
-                )
-            } else {
-                BufferMut::from_iter(
-                    (0..array.len())
-                        .map(|i| base + <P>::from_usize(i).vortex_expect("must fit") * multiplier),
-                )
-            };
-
-            PVector::<P>::new(values.freeze(), Mask::new_true(array.len())).into()
+            execute_iter(base, multiplier, 0..array.len(), array.len()).into()
         }))
     }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        _child_idx: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Vector>> {
+        // Special-case filtered execution.
+        let Some(filter) = parent.as_opt::<FilterVTable>() else {
+            return Ok(None);
+        };
+
+        match filter.filter_mask().indices() {
+            AllOr::All => Ok(None),
+            AllOr::None => Ok(Some(VectorMut::with_capacity(array.dtype(), 0).freeze())),
+            AllOr::Some(indices) => Ok(Some(match_each_native_ptype!(array.ptype(), |P| {
+                let base = array.base().cast::<P>();
+                let multiplier = array.multiplier().cast::<P>();
+                execute_iter(base, multiplier, indices.iter().copied(), indices.len()).into()
+            }))),
+        }
+    }
+}
+
+fn execute_iter<P: NativePType, I: Iterator<Item = usize>>(
+    base: P,
+    multiplier: P,
+    iter: I,
+    len: usize,
+) -> PVector<P> {
+    let values = if multiplier == <P>::one() {
+        BufferMut::from_iter(iter.map(|i| base + <P>::from_usize(i).vortex_expect("must fit")))
+    } else {
+        BufferMut::from_iter(
+            iter.map(|i| base + <P>::from_usize(i).vortex_expect("must fit") * multiplier),
+        )
+    };
+
+    PVector::<P>::new(values.freeze(), Mask::new_true(len))
 }
 
 impl BaseArrayVTable<SequenceVTable> for SequenceVTable {

@@ -24,11 +24,13 @@ use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
 
 use crate::FoRArray;
+use crate::r#for::vtable::rules::PARENT_RULES;
 
 mod array;
 mod canonical;
 mod encode;
 mod operations;
+mod rules;
 mod validity;
 mod visitor;
 
@@ -103,6 +105,14 @@ impl VTable for FoRVTable {
         let reference = Scalar::new(dtype.clone(), metadata.0.clone());
 
         FoRArray::try_new(encoded, reference)
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }
 

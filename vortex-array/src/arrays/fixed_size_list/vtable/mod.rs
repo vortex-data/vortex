@@ -12,9 +12,9 @@ use vortex_error::vortex_ensure;
 use vortex_vector::Vector;
 use vortex_vector::fixed_size_list::FixedSizeListVector;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
+use crate::VectorExecutor;
 use crate::arrays::FixedSizeListArray;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;

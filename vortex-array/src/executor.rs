@@ -29,6 +29,9 @@ impl ExecutionCtx {
 
 /// Executor for exporting a Vortex [`Vector`] or [`Datum`] from an [`ArrayRef`].
 pub trait VectorExecutor {
+    /// Recursively execute the array.
+    fn execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector>;
+
     /// Execute the array and return the resulting datum.
     fn execute_datum(&self, session: &VortexSession) -> VortexResult<Datum>;
     /// Execute the array and return the resulting vector.
@@ -36,6 +39,27 @@ pub trait VectorExecutor {
 }
 
 impl VectorExecutor for ArrayRef {
+    fn execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        // Try and dispatch to a child that can optimize execution.
+        for (child_idx, child) in self.children().iter().enumerate() {
+            if let Some(result) = child
+                .encoding()
+                .as_dyn()
+                .execute_parent(child, self, child_idx, ctx)?
+            {
+                tracing::debug!(
+                    "Executed array {} via child {} optimization.",
+                    self.encoding_id(),
+                    child.encoding_id()
+                );
+                return Ok(result);
+            }
+        }
+
+        // Otherwise fall back to the default execution.
+        self.encoding().as_dyn().execute(self, ctx)
+    }
+
     fn execute_datum(&self, session: &VortexSession) -> VortexResult<Datum> {
         // Attempt to short-circuit constant arrays.
         if let Some(constant) = self.as_opt::<ConstantVTable>() {

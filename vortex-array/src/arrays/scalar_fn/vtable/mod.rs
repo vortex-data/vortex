@@ -13,6 +13,7 @@ use std::ops::Deref;
 use itertools::Itertools;
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -22,6 +23,7 @@ use vortex_vector::Vector;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::VectorExecutor;
 use crate::arrays::ConstantVTable;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
@@ -32,8 +34,8 @@ use crate::expr;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprVTable;
 use crate::expr::ScalarFn;
-use crate::optimizer::rules::MatchKey;
-use crate::optimizer::rules::Matcher;
+use crate::matchers::MatchKey;
+use crate::matchers::Matcher;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
@@ -252,17 +254,25 @@ impl<F: expr::VTable> Matcher for ExactScalarFn<F> {
     }
 
     fn try_match<'a>(&self, array: &'a ArrayRef) -> Option<Self::View<'a>> {
-        let scalar_fn_array = array.as_opt::<ScalarFnVTable>()?;
+        if array.encoding_id() != self.id {
+            return None;
+        }
+
+        let scalar_fn_array = array
+            .as_opt::<ScalarFnVTable>()
+            .vortex_expect("Array encoding ID matched but downcast to ScalarFnVTable failed");
         let scalar_fn_vtable = scalar_fn_array
             .scalar_fn
             .vtable()
             .as_any()
-            .downcast_ref::<F>()?;
+            .downcast_ref::<F>()
+            .vortex_expect("ScalarFn VTable type mismatch in ExactScalarFn matcher");
         let scalar_fn_options = scalar_fn_array
             .scalar_fn
             .options()
             .as_any()
-            .downcast_ref::<F::Options>()?;
+            .downcast_ref::<F::Options>()
+            .vortex_expect("ScalarFn options type mismatch in ExactScalarFn matcher");
         Some(ScalarFnArrayView {
             array,
             vtable: scalar_fn_vtable,

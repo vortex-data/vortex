@@ -144,12 +144,29 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Debug builds will panic if the returned vector is of the wrong type, wrong length, or
     /// incorrectly contains null values.
     ///
-    /// Implementations should recursively call [`Array::execute`] on child
-    /// arrays as needed.
+    /// Implementations should recursively call [`crate::executor::VectorExecutor::execute`] on
+    /// child arrays as needed.
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         // TODO(ngates): convert arrays to canonicalize over vectors.
         let canonical = Self::CanonicalVTable::canonicalize(array);
         canonical.into_array().execute_vector(ctx.session())
+    }
+
+    /// Attempt to execute the parent of this array to produce a [`Vector`].
+    ///
+    /// This function allows arrays to plug in specialized execution logic for their parent. For
+    /// example, strings compressed as FSST arrays can implement a custom equality comparison when
+    /// the comparing against a scalar string.
+    ///
+    /// Returns `Ok(None)` if no specialized execution is possible.
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Vector>> {
+        _ = (array, parent, child_idx, ctx);
+        Ok(None)
     }
 
     /// Attempt to reduce the array to a more simple representation.
