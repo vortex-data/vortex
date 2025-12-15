@@ -208,7 +208,7 @@ impl ArrayVTable {
         self.0.as_any()
     }
 
-    /// Creates a new [`ExprVTable`] from a vtable.
+    /// Creates a new [`ArrayVTable`] from a vtable.
     ///
     /// Prefer to use [`Self::new_static`] when possible.
     pub fn new<V: VTable>(vtable: V) -> Self {
