@@ -4,6 +4,7 @@
 use vortex::array::ToCanonical;
 use vortex::array::arrays::TemporalArray;
 use vortex::error::VortexResult;
+use vortex::session::VortexSession;
 
 use crate::duckdb::Vector;
 use crate::exporter::ColumnExporter;
@@ -25,6 +26,18 @@ impl ColumnExporter for TemporalExporter {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
         self.storage_type_exporter.export(offset, len, vector)
     }
+}
+
+pub(crate) fn new_vector_exporter(
+    array: TemporalArray,
+    session: &VortexSession,
+) -> VortexResult<Box<dyn ColumnExporter>> {
+    Ok(Box::new(TemporalExporter {
+        storage_type_exporter: primitive::new_vector_exporter(
+            array.temporal_values().clone(),
+            session,
+        )?,
+    }))
 }
 
 #[cfg(test)]

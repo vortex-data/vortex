@@ -4,6 +4,8 @@
 use std::marker::PhantomData;
 
 use num_traits::ToPrimitive;
+use vortex::array::ArrayRef;
+use vortex::array::VectorExecutor;
 use vortex::array::arrays::DecimalArray;
 use vortex::buffer::Buffer;
 use vortex::dtype::BigCast;
@@ -15,6 +17,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::mask::Mask;
 use vortex::scalar::DecimalType;
+use vortex::session::VortexSession;
 
 use crate::duckdb::Vector;
 use crate::duckdb::VectorBuffer;
@@ -56,18 +59,6 @@ pub(crate) fn new_exporter(array: &DecimalArray) -> VortexResult<Box<dyn ColumnE
                 dest_value_type: PhantomData::<N>,
             }))
         })
-    })
-}
-
-/// Maps a decimal precision into the small type that can represent it.
-/// see <https://duckdb.org/docs/stable/sql/data_types/numeric.html#fixed-point-decimals>
-pub fn precision_to_duckdb_storage_size(decimal_dtype: &DecimalDType) -> VortexResult<DecimalType> {
-    Ok(match decimal_dtype.precision() {
-        1..=4 => DecimalType::I16,
-        5..=9 => DecimalType::I32,
-        10..=18 => DecimalType::I64,
-        19..=38 => DecimalType::I128,
-        decimal_dtype => vortex_bail!("cannot represent decimal in ducdkb {decimal_dtype}"),
     })
 }
 
@@ -113,6 +104,112 @@ impl<D: NativeDecimalType> ColumnExporter for DecimalZeroCopyExporter<D> {
 
         Ok(())
     }
+}
+
+struct DecimalVectorExporter<D: NativeDecimalType, N: NativeDecimalType> {
+    values: Buffer<D>,
+    mask: Mask,
+    /// The DecimalType of the DuckDB column.
+    dest_value_type: PhantomData<N>,
+}
+
+struct DecimalVectorZeroCopyExporter<D: NativeDecimalType> {
+    len: usize,
+    begin: *const D,
+    shared_buffer: VectorBuffer,
+    mask: Mask,
+}
+
+pub(crate) fn new_vector_exporter(
+    array: ArrayRef,
+    session: &VortexSession,
+) -> VortexResult<Box<dyn ColumnExporter>> {
+    let vector = array.execute_vector(session)?.into_decimal();
+    let decimal_type = vector.decimal_type();
+
+    let dest_values_type =
+        precision_to_duckdb_storage_size(&DecimalDType::new(vector.precision(), vector.scale()))?;
+
+    if decimal_type == dest_values_type {
+        match_each_decimal_value_type!(decimal_type, |D| {
+            let vector = D::downcast(vector);
+            let (_, buffer, mask) = vector.into_parts();
+            return Ok(Box::new(DecimalVectorZeroCopyExporter {
+                len: buffer.len(),
+                begin: buffer.as_ptr(),
+                shared_buffer: VectorBuffer::new(buffer),
+                mask,
+            }));
+        })
+    }
+
+    match_each_decimal_value_type!(decimal_type, |D| {
+        match_each_decimal_value_type!(decimal_type, |N| {
+            let vector = D::downcast(vector);
+            let (_, buffer, mask) = vector.into_parts();
+            Ok(Box::new(DecimalVectorExporter {
+                values: buffer,
+                mask,
+                dest_value_type: PhantomData::<N>,
+            }))
+        })
+    })
+}
+
+impl<D: NativeDecimalType, N: NativeDecimalType> ColumnExporter for DecimalVectorExporter<D, N>
+where
+    D: ToPrimitive,
+    N: BigCast,
+{
+    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+        // Set validity if necessary.
+        if unsafe { vector.set_validity(&self.mask, offset, len) } {
+            // All values are null, so no point copying the data.
+            return Ok(());
+        }
+
+        // Copy the values from the Vortex array to the DuckDB vector.
+        for (src, dst) in self.values[offset..offset + len]
+            .iter()
+            .zip(unsafe { vector.as_slice_mut(len) })
+        {
+            *dst = <N as BigCast>::from(*src).vortex_expect(
+                "We know all decimals with this scale/precision fit into the target bit width",
+            );
+        }
+
+        Ok(())
+    }
+}
+
+impl<D: NativeDecimalType> ColumnExporter for DecimalVectorZeroCopyExporter<D> {
+    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+        if unsafe { vector.set_validity(&self.mask, offset, len) } {
+            // All values are null, so no point copying the data.
+            return Ok(());
+        }
+
+        assert!(self.len >= offset + len);
+
+        let pos = unsafe { self.begin.add(offset) };
+        unsafe { vector.set_vector_buffer(&self.shared_buffer) };
+        // While we are setting a *mut T this is an artifact of the C API, this is in fact const.
+        unsafe { vector.set_data_ptr(pos as *mut D) };
+
+        Ok(())
+    }
+}
+
+/// Maps a decimal precision into the small type that can represent it.
+/// see <https://duckdb.org/docs/stable/sql/data_types/numeric.html#fixed-point-decimals>
+pub fn precision_to_duckdb_storage_size(decimal_dtype: &DecimalDType) -> VortexResult<DecimalType> {
+    Ok(match decimal_dtype.precision() {
+        1..=4 => DecimalType::I16,
+        5..=9 => DecimalType::I32,
+        10..=18 => DecimalType::I64,
+        19..=38 => DecimalType::I128,
+        decimal_dtype => vortex_bail!("cannot represent decimal in ducdkb {decimal_dtype}"),
+    })
 }
 
 #[cfg(test)]

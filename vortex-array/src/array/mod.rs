@@ -205,12 +205,6 @@ pub trait Array:
     ///
     /// To invoke the top-level execution, see [`crate::executor::VectorExecutor`].
     fn execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector>;
-
-    /// Reduce the array to a more simple representation, if possible.
-    fn reduce(&self) -> VortexResult<Option<ArrayRef>>;
-
-    /// Attempt to perform a reduction of the parent of this array.
-    fn reduce_parent(&self, parent: &ArrayRef, child_idx: usize) -> VortexResult<Option<ArrayRef>>;
 }
 
 impl Array for Arc<dyn Array> {
@@ -327,14 +321,6 @@ impl Array for Arc<dyn Array> {
 
     fn execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         self.as_ref().execute(ctx)
-    }
-
-    fn reduce(&self) -> VortexResult<Option<ArrayRef>> {
-        self.as_ref().reduce()
-    }
-
-    fn reduce_parent(&self, parent: &ArrayRef, child_idx: usize) -> VortexResult<Option<ArrayRef>> {
-        self.as_ref().reduce_parent(parent, child_idx)
     }
 }
 
@@ -454,11 +440,6 @@ impl<V: VTable> ArrayAdapter<V> {
     /// Provide a reference to the underlying array held within the adapter.
     pub fn as_inner(&self) -> &V::Array {
         &self.0
-    }
-
-    /// Unwrap into the inner array type, consuming the adapter.
-    pub fn into_inner(self) -> V::Array {
-        self.0
     }
 }
 
@@ -688,7 +669,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
-        self.encoding().with_children(self, children)
+        self.encoding().as_dyn().with_children(self, children)
     }
 
     fn invoke(
@@ -716,35 +697,6 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         }
 
         Ok(result)
-    }
-
-    fn reduce(&self) -> VortexResult<Option<ArrayRef>> {
-        let Some(reduced) = V::reduce(&self.0)? else {
-            return Ok(None);
-        };
-        vortex_ensure!(reduced.len() == self.len(), "Reduced array length mismatch");
-        vortex_ensure!(
-            reduced.dtype() == self.dtype(),
-            "Reduced array dtype mismatch"
-        );
-        Ok(Some(reduced))
-    }
-
-    fn reduce_parent(&self, parent: &ArrayRef, child_idx: usize) -> VortexResult<Option<ArrayRef>> {
-        let Some(reduced) = V::reduce_parent(&self.0, parent, child_idx)? else {
-            return Ok(None);
-        };
-
-        vortex_ensure!(
-            reduced.len() == parent.len(),
-            "Reduced array length mismatch"
-        );
-        vortex_ensure!(
-            reduced.dtype() == parent.dtype(),
-            "Reduced array dtype mismatch"
-        );
-
-        Ok(Some(reduced))
     }
 }
 

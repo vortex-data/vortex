@@ -8277,6 +8277,7 @@ dependencies = [
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-bytebool",
+ "vortex-compute",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-dtype",
@@ -8299,6 +8300,7 @@ dependencies = [
  "vortex-session",
  "vortex-sparse",
  "vortex-utils",
+ "vortex-vector",
  "vortex-zigzag",
  "vortex-zstd",
 ]

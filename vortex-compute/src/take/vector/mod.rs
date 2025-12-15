@@ -27,6 +27,22 @@ mod struct_;
 #[cfg(test)]
 mod tests;
 
+impl<I: UnsignedPType> Take<PVector<I>> for Vector {
+    type Output = Vector;
+
+    fn take(self, indices: &PVector<I>) -> Vector {
+        (&self).take(indices)
+    }
+}
+
+impl<I: UnsignedPType> Take<[I]> for Vector {
+    type Output = Vector;
+
+    fn take(self, indices: &[I]) -> Vector {
+        (&self).take(indices)
+    }
+}
+
 impl<I: UnsignedPType> Take<PVector<I>> for &Vector {
     type Output = Vector;
 
@@ -54,5 +70,13 @@ where
 
     fn take(self, indices: &PrimitiveVector) -> T {
         match_each_unsigned_pvector!(indices, |iv| { self.take(iv) })
+    }
+}
+
+impl Take<PrimitiveVector> for Vector {
+    type Output = Vector;
+
+    fn take(self, indices: &PrimitiveVector) -> Vector {
+        (&self).take(indices)
     }
 }

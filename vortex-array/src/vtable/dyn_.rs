@@ -2,10 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
-use std::mem::transmute;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::Arc;
 
 use arcref::ArcRef;
@@ -14,9 +16,11 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::Array;
+use crate::ArrayAdapter;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
@@ -26,17 +30,16 @@ use crate::vtable::VTable;
 
 /// ArrayId is a globally unique name for the array's vtable.
 pub type ArrayId = ArcRef<str>;
-pub type ArrayVTable = ArcRef<dyn DynVTable>;
 
 /// Dynamically typed trait for invoking array vtables.
+///
+/// This trait contains the internal API for Vortex arrays, allowing us to expose things here
+/// that we do not want to be part of the public [`Array`] trait.
 pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
-    /// Downcast the encoding to [`Any`].
     fn as_any(&self) -> &dyn Any;
 
-    /// Returns the ID of the encoding.
     fn id(&self) -> ArrayId;
 
-    /// Build an array from its parts.
     fn build(
         &self,
         dtype: &DType,
@@ -45,16 +48,17 @@ pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ArrayRef>;
-
     fn with_children(&self, array: &dyn Array, children: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
-
-    /// Encode the canonical array into this encoding implementation.
-    /// Returns `None` if this encoding does not support the given canonical array, for example
-    /// if the data type is incompatible.
-    ///
-    /// Panics if `like` is encoded with a different encoding.
     fn encode(&self, input: &Canonical, like: Option<&dyn Array>)
     -> VortexResult<Option<ArrayRef>>;
+
+    fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
+    fn reduce_parent(
+        &self,
+        array: &ArrayRef,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>>;
 }
 
 /// Adapter struct used to lift the [`VTable`] trait into an object-safe [`DynVTable`]
@@ -65,7 +69,6 @@ pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
 /// [`AsRef`]. See the `vtable!` macro for more details.
 #[repr(transparent)]
 pub struct ArrayVTableAdapter<V: VTable>(V);
-
 impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
     fn as_any(&self) -> &dyn Any {
         self
@@ -137,34 +140,131 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
 
         Ok(Some(array.into_array()))
     }
+
+    fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        let Some(reduced) = V::reduce(downcast::<V>(array))? else {
+            return Ok(None);
+        };
+        vortex_ensure!(
+            reduced.len() == array.len(),
+            "Reduced array length mismatch"
+        );
+        vortex_ensure!(
+            reduced.dtype() == array.dtype(),
+            "Reduced array dtype mismatch"
+        );
+        Ok(Some(reduced))
+    }
+
+    fn reduce_parent(
+        &self,
+        array: &ArrayRef,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let Some(reduced) = V::reduce_parent(downcast::<V>(array), parent, child_idx)? else {
+            return Ok(None);
+        };
+
+        vortex_ensure!(
+            reduced.len() == parent.len(),
+            "Reduced array length mismatch"
+        );
+        vortex_ensure!(
+            reduced.dtype() == parent.dtype(),
+            "Reduced array dtype mismatch"
+        );
+
+        Ok(Some(reduced))
+    }
+}
+
+fn downcast<V: VTable>(array: &ArrayRef) -> &V::Array {
+    array
+        .as_any()
+        .downcast_ref::<ArrayAdapter<V>>()
+        .vortex_expect("Invalid options type for expression")
+        .as_inner()
 }
 
 impl<V: VTable> Debug for ArrayVTableAdapter<V> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Encoding").field("id", &self.id()).finish()
     }
 }
 
-impl Display for dyn DynVTable + '_ {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.id())
+/// Dynamically typed array vtable.
+#[derive(Clone)]
+pub struct ArrayVTable(ArcRef<dyn DynVTable>);
+
+impl ArrayVTable {
+    /// Returns the underlying vtable API, public only within the crate.
+    pub(crate) fn as_dyn(&self) -> &dyn DynVTable {
+        self.0.as_ref()
+    }
+
+    /// Return the vtable as an Any reference.
+    pub fn as_any(&self) -> &dyn Any {
+        self.0.as_any()
+    }
+
+    /// Creates a new [`ArrayVTable`] from a vtable.
+    ///
+    /// Prefer to use [`Self::new_static`] when possible.
+    pub fn new<V: VTable>(vtable: V) -> Self {
+        Self(ArcRef::new_arc(Arc::new(ArrayVTableAdapter(vtable))))
+    }
+
+    /// Creates a new [`ArrayVTable`] from a static reference to a vtable.
+    pub const fn new_static<V: VTable>(vtable: &'static V) -> Self {
+        // SAFETY: We can safely cast the vtable to a VTableAdapter since it has the same layout.
+        let adapted: &'static ArrayVTableAdapter<V> =
+            unsafe { &*(vtable as *const V as *const ArrayVTableAdapter<V>) };
+        Self(ArcRef::new_ref(adapted as &'static dyn DynVTable))
+    }
+
+    /// Returns the ID of this vtable.
+    pub fn id(&self) -> ArrayId {
+        self.0.id()
+    }
+
+    /// Returns whether this vtable is of a given type.
+    pub fn is<V: VTable>(&self) -> bool {
+        self.0.as_any().is::<V>()
+    }
+
+    /// Encode the canonical array like the given array.
+    pub fn encode(
+        &self,
+        input: &Canonical,
+        like: Option<&dyn Array>,
+    ) -> VortexResult<Option<ArrayRef>> {
+        self.as_dyn().encode(input, like)
     }
 }
 
-impl PartialEq for dyn DynVTable + '_ {
+impl PartialEq for ArrayVTable {
     fn eq(&self, other: &Self) -> bool {
-        self.id() == other.id()
+        self.0.id() == other.0.id()
+    }
+}
+impl Eq for ArrayVTable {}
+
+impl Hash for ArrayVTable {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.id().hash(state);
     }
 }
 
-impl Eq for dyn DynVTable + '_ {}
+impl Display for ArrayVTable {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_dyn().id())
+    }
+}
 
-impl dyn DynVTable + '_ {
-    pub fn as_<V: VTable>(&self) -> &V {
-        self.as_any()
-            .downcast_ref::<ArrayVTableAdapter<V>>()
-            .map(|e| &e.0)
-            .vortex_expect("Encoding is not of the expected type")
+impl Debug for ArrayVTable {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_dyn().id())
     }
 }
 
@@ -180,22 +280,22 @@ pub trait ArrayVTableExt {
         Self: Clone;
 }
 
+// TODO(ngates): deprecate these functions in favor of `ArrayVTable::new` and
+//  `ArrayVTable::new_static`.
 impl<V: VTable> ArrayVTableExt for V {
     fn as_vtable(&'static self) -> ArrayVTable {
-        let dyn_vtable: &'static ArrayVTableAdapter<V> =
-            unsafe { transmute::<&'static V, &'static ArrayVTableAdapter<V>>(self) };
-        ArrayVTable::new_ref(dyn_vtable)
+        ArrayVTable::new_static(self)
     }
 
     fn into_vtable(self) -> ArrayVTable {
-        ArrayVTable::new_arc(Arc::new(ArrayVTableAdapter(self)))
+        ArrayVTable::new(self)
     }
 
     fn to_vtable(&self) -> ArrayVTable
     where
         Self: Clone,
     {
-        ArrayVTable::new_arc(Arc::new(ArrayVTableAdapter(self.clone())))
+        ArrayVTable::new(self.clone())
     }
 }
 

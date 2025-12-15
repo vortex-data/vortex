@@ -16,6 +16,7 @@ mod struct_;
 mod temporal;
 mod validity;
 mod varbinview;
+mod vector;
 
 use std::sync::Arc;
 
@@ -25,6 +26,7 @@ pub use cache::ConversionCache;
 pub use decimal::precision_to_duckdb_storage_size;
 use itertools::Itertools;
 use vortex::array::Array;
+use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::ConstantVTable;
@@ -32,18 +34,19 @@ use vortex::array::arrays::DictVTable;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::TemporalArray;
 use vortex::array::iter::ArrayIterator;
+use vortex::dtype::DType;
 use vortex::dtype::datetime::is_temporal_ext_type;
 use vortex::encodings::runend::RunEndVTable;
 use vortex::encodings::sequence::SequenceVTable;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
-use vortex::mask::Mask;
+use vortex::layout::layouts::USE_VORTEX_OPERATORS;
+use vortex::session::VortexSession;
 
 use crate::cpp::DUCKDB_TYPE;
 use crate::duckdb::DUCKDB_STANDARD_VECTOR_SIZE;
 use crate::duckdb::DataChunk;
 use crate::duckdb::LogicalType;
-use crate::duckdb::Value;
 use crate::duckdb::Vector;
 
 /// DuckDB exporter for an [`ArrayIterator`], sharing state and caches.
@@ -51,14 +54,16 @@ pub struct ArrayIteratorExporter {
     iter: Box<dyn ArrayIterator>,
     cache: Arc<ConversionCache>,
     array_exporter: Option<ArrayExporter>,
+    session: VortexSession,
 }
 
 impl ArrayIteratorExporter {
-    pub fn new(iter: Box<dyn ArrayIterator>, id: u64) -> Self {
+    pub fn new(iter: Box<dyn ArrayIterator>, id: u64, session: &VortexSession) -> Self {
         Self {
             iter,
             cache: Arc::new(ConversionCache::new(id)),
             array_exporter: None,
+            session: session.clone(),
         }
     }
 
@@ -69,7 +74,8 @@ impl ArrayIteratorExporter {
                 if let Some(array) = self.iter.next() {
                     // Create a new array exporter for the current array.
                     let array = array?.to_struct();
-                    self.array_exporter = Some(ArrayExporter::try_new(&array, &self.cache)?);
+                    self.array_exporter =
+                        Some(ArrayExporter::try_new(&array, &self.cache, &self.session)?);
                 } else {
                     // No more arrays to export.
                     return Ok(false);
@@ -98,11 +104,22 @@ pub struct ArrayExporter {
 }
 
 impl ArrayExporter {
-    pub fn try_new(array: &StructArray, cache: &ConversionCache) -> VortexResult<Self> {
+    pub fn try_new(
+        array: &StructArray,
+        cache: &ConversionCache,
+        session: &VortexSession,
+    ) -> VortexResult<Self> {
         let fields = array
             .fields()
             .iter()
-            .map(|field| new_array_exporter(field.as_ref(), cache))
+            .map(|field| {
+                if *USE_VORTEX_OPERATORS {
+                    // TODO(joe): clone or ref?
+                    new_vector_array_exporter(field.clone(), cache, session)
+                } else {
+                    new_array_exporter(field.as_ref(), cache)
+                }
+            })
             .try_collect()?;
         Ok(Self {
             fields,
@@ -207,49 +224,59 @@ fn new_array_exporter_with_flatten(
     }
 }
 
-impl Vector {
-    unsafe fn set_validity(&mut self, mask: &Mask, offset: usize, len: usize) -> bool {
-        match mask {
-            Mask::AllTrue(_) => {
-                // We only need to blank out validity if there is already a slice allocated.
-                // SAFETY: Caller guaranteees this.
-                unsafe { self.set_all_true_validity(len) }
-                false
-            }
-            Mask::AllFalse(_) => {
-                // SAFETY: Caller guaranteees this.
-                self.set_all_false_validity();
-                true
-            }
-            Mask::Values(arr) => {
-                let true_count = arr.bit_buffer().true_count();
-                if true_count == len {
-                    unsafe { self.set_all_true_validity(len) }
-                } else if true_count == 0 {
-                    self.set_all_false_validity()
-                } else {
-                    let source = arr.bit_buffer().inner().as_slice();
-                    copy_from_slice(
-                        unsafe { self.ensure_validity_slice(len) },
-                        source,
-                        offset,
-                        len,
-                    );
-                }
+fn new_vector_array_exporter(
+    array: ArrayRef,
+    cache: &ConversionCache,
+    session: &VortexSession,
+) -> VortexResult<Box<dyn ColumnExporter>> {
+    new_array_vector_exporter_with_flatten(array, cache, session, false)
+}
 
-                true_count == 0
-            }
-        }
+/// Create a DuckDB exporter for the given Vortex array.
+fn new_array_vector_exporter_with_flatten(
+    array: ArrayRef,
+    cache: &ConversionCache,
+    session: &VortexSession,
+    flatten: bool,
+) -> VortexResult<Box<dyn ColumnExporter>> {
+    if let Some(array) = array.as_opt::<ConstantVTable>() {
+        return constant::new_exporter(array);
     }
 
-    unsafe fn set_all_true_validity(&mut self, len: usize) {
-        if let Some(validity) = unsafe { self.validity_bitslice_mut(len) } {
-            validity.fill(true);
-        }
+    if let Some(array) = array.as_opt::<SequenceVTable>() {
+        return sequence::new_exporter(array);
     }
 
-    fn set_all_false_validity(&mut self) {
-        self.reference_value(&Value::null(&self.logical_type()));
+    if let Some(array) = array.as_opt::<RunEndVTable>() {
+        return run_end::new_vector_exporter(array, cache, session);
+    }
+
+    if let Some(array) = array.as_opt::<DictVTable>() {
+        return dict::new_vector_exporter_with_flatten(array, cache, session, flatten);
+    }
+
+    // Otherwise, we fall back to canonical
+    match array.dtype() {
+        DType::Null => Ok(all_invalid::new_exporter(
+            array.len(),
+            &LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL),
+        )),
+        DType::Bool(..) => bool::new_vector_exporter(array, session),
+        DType::Primitive(..) => primitive::new_vector_exporter(array, session),
+        DType::Decimal(..) => decimal::new_vector_exporter(array, session),
+        DType::Binary(..) => varbinview::new_vector_exporter(array, session),
+        DType::Utf8(..) => varbinview::new_vector_exporter(array, session),
+        DType::List(..) => list::new_vector_exporter(array, cache, session),
+        DType::FixedSizeList(..) => fixed_size_list::new_vector_exporter(array, cache, session),
+        DType::Struct(..) => struct_::new_vector_exporter(array.to_struct(), cache, session),
+        DType::Extension(ext) => {
+            if is_temporal_ext_type(ext.id()) {
+                let temporal_array = TemporalArray::try_from(array.to_extension())
+                    .vortex_expect("id is a temporal array");
+                return temporal::new_vector_exporter(temporal_array, session);
+            }
+            todo!("no non-temporal extension exporter")
+        }
     }
 }
 
