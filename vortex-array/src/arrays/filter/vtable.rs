@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::hash::Hasher;
 use std::ops::Range;
 
@@ -51,7 +53,7 @@ pub struct FilterVTable;
 
 impl VTable for FilterVTable {
     type Array = FilterArray;
-    type Metadata = Mask;
+    type Metadata = FilterMetadata;
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
     type OperationsVTable = Self;
@@ -69,7 +71,7 @@ impl VTable for FilterVTable {
     }
 
     fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {
-        Ok(array.mask.clone())
+        Ok(FilterMetadata(array.mask.clone()))
     }
 
     fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
@@ -84,15 +86,15 @@ impl VTable for FilterVTable {
         &self,
         dtype: &DType,
         len: usize,
-        selection_mask: &Mask,
+        metadata: &FilterMetadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<Self::Array> {
-        assert_eq!(len, selection_mask.true_count());
-        let child = children.get(0, dtype, selection_mask.len())?;
+        assert_eq!(len, metadata.0.true_count());
+        let child = children.get(0, dtype, metadata.0.len())?;
         Ok(FilterArray {
             child,
-            mask: selection_mask.clone(),
+            mask: metadata.0.clone(),
             stats: Default::default(),
         })
     }
@@ -192,5 +194,19 @@ impl VisitorVTable<FilterVTable> for FilterVTable {
 
     fn visit_children(array: &FilterArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("child", &array.child);
+    }
+}
+
+pub struct FilterMetadata(pub(super) Mask);
+
+impl Debug for FilterMetadata {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} / {} => {}",
+            self.0.true_count(),
+            self.0.len(),
+            self.0.density()
+        )
     }
 }

@@ -8649,6 +8649,7 @@ dependencies = [
  "vortex-alp",
  "vortex-array",
  "vortex-buffer",
+ "vortex-compute",
  "vortex-dtype",
  "vortex-error",
  "vortex-fastlanes",

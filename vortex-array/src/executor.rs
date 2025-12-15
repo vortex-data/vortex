@@ -47,6 +47,11 @@ impl VectorExecutor for ArrayRef {
                 .as_dyn()
                 .execute_parent(child, self, child_idx, ctx)?
             {
+                tracing::debug!(
+                    "Executed array {} via child {} optimization.",
+                    self.encoding_id(),
+                    child.encoding_id()
+                );
                 return Ok(result);
             }
         }

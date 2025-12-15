@@ -11,8 +11,8 @@ use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::PrimitiveVTable;
+use crate::matchers::Exact;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::Exact;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::vtable::ValidityHelper;
 
