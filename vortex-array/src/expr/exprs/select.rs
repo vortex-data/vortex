@@ -27,7 +27,6 @@ use crate::ToCanonical;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
-use crate::expr::ExecutionCost;
 use crate::expr::ExprId;
 use crate::expr::SimplifyCtx;
 use crate::expr::VTable;
@@ -111,9 +110,6 @@ impl VTable for Select {
                 write!(f, "{{~ {}}}", DisplayFieldNames(fields))
             }
         }
-    }
-    fn execution_cost(&self, _options: &Self::Options) -> ExecutionCost {
-        ExecutionCost::MetadataOnly
     }
 
     fn return_dtype(
