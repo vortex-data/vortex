@@ -13,7 +13,7 @@ use crate::BitPackedArray;
 use crate::BitPackedVTable;
 
 #[derive(Debug)]
-struct BitPackingFilterKernel;
+pub(super) struct BitPackingFilterKernel;
 
 impl ExecuteParentKernel<BitPackedVTable> for BitPackingFilterKernel {
     type Parent = Exact<FilterVTable>;

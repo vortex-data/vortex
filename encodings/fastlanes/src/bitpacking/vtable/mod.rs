@@ -30,6 +30,7 @@ use vortex_vector::VectorMutOps;
 
 use crate::BitPackedArray;
 use crate::bitpack_decompress::unpack_to_primitive_vector;
+use crate::bitpacking::kernels::PARENT_KERNELS;
 
 mod array;
 mod canonical;
@@ -245,6 +246,15 @@ impl VTable for BitPackedVTable {
 
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(unpack_to_primitive_vector(array).freeze().into())
+    }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Vector>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 
