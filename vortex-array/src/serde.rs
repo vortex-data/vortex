@@ -304,7 +304,9 @@ impl ArrayParts {
 
         let children = ArrayPartsChildren { parts: self, ctx };
 
-        let decoded = vtable.build(dtype, len, self.metadata(), &buffers, &children)?;
+        let decoded = vtable
+            .as_dyn()
+            .build(dtype, len, self.metadata(), &buffers, &children)?;
 
         assert_eq!(
             decoded.len(),
