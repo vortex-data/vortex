@@ -30,4 +30,9 @@ impl FilterArray {
             stats: ArrayStats::default(),
         }
     }
+
+    /// The mask used to filter the child array.
+    pub fn filter_mask(&self) -> &Mask {
+        &self.mask
+    }
 }

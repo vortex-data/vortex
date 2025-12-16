@@ -52,6 +52,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
@@ -163,6 +164,22 @@ impl VTable for ZstdVTable {
             len,
             validity,
         ))
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() <= 1,
+            "ZstdArray expects at most 1 child (validity), got {}",
+            children.len()
+        );
+
+        array.unsliced_validity = if children.is_empty() {
+            Validity::from(array.dtype.nullability())
+        } else {
+            Validity::Array(children.into_iter().next().vortex_expect("checked"))
+        };
+
+        Ok(())
     }
 }
 
@@ -313,6 +330,7 @@ impl ZstdArray {
                 .get(i + 1)
                 .copied()
                 .unwrap_or(value_bytes.len());
+
             let uncompressed = &value_bytes.slice(frame_byte_starts[i]..frame_byte_end);
             let compressed = compressor
                 .compress(uncompressed)
@@ -349,8 +367,12 @@ impl ZstdArray {
         };
 
         let value_bytes = values.byte_buffer();
+        // Align frames to buffer alignment. This is necessary for overaligned buffers.
+        let alignment = *value_bytes.alignment();
+        let step_width = (values_per_frame * byte_width).div_ceil(alignment) * alignment;
+
         let frame_byte_starts = (0..n_values * byte_width)
-            .step_by(values_per_frame * byte_width)
+            .step_by(step_width)
             .collect::<Vec<_>>();
         let Frames {
             dictionary,

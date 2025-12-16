@@ -19,6 +19,9 @@ use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::ExprVTable;
 use crate::expr::Expression;
+use crate::expr::ReduceCtx;
+use crate::expr::ReduceNode;
+use crate::expr::ReduceNodeRef;
 use crate::expr::VTable;
 use crate::expr::options::ExpressionOptions;
 use crate::expr::signature::ExpressionSignature;
@@ -74,6 +77,16 @@ impl ScalarFn {
         }
     }
 
+    /// Returns whether the scalar function is of the given vtable type.
+    pub fn is<V: VTable>(&self) -> bool {
+        self.vtable.is::<V>()
+    }
+
+    /// Returns the typed options for this expression if it matches the given vtable type.
+    pub fn as_opt<V: VTable>(&self) -> Option<&V::Options> {
+        self.options().as_any().downcast_ref::<V::Options>()
+    }
+
     /// Signature information for this expression.
     pub fn signature(&self) -> ExpressionSignature<'_> {
         ExpressionSignature {
@@ -100,6 +113,15 @@ impl ScalarFn {
     /// Execute the expression given the input arguments.
     pub fn execute(&self, ctx: ExecutionArgs) -> VortexResult<Datum> {
         self.vtable.as_dyn().execute(self.options.deref(), ctx)
+    }
+
+    /// Perform abstract reduction on this scalar function node.
+    pub fn reduce(
+        &self,
+        node: &dyn ReduceNode,
+        ctx: &dyn ReduceCtx,
+    ) -> VortexResult<Option<ReduceNodeRef>> {
+        self.vtable.as_dyn().reduce(self.options.deref(), node, ctx)
     }
 }
 

@@ -53,6 +53,7 @@ use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::PType;
+use vortex_dtype::PTypeDowncastExt;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -62,7 +63,8 @@ use vortex_scalar::DecimalType;
 use crate::Array as _;
 use crate::Canonical;
 use crate::IntoArray;
-use crate::ToCanonical;
+use crate::LEGACY_SESSION;
+use crate::VectorExecutor;
 use crate::arrays::BoolArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::FixedSizeListArray;
@@ -75,11 +77,11 @@ use crate::arrays::list_from_list_view;
 use crate::arrow::IntoArrowArray;
 use crate::arrow::array::ArrowArray;
 use crate::arrow::compute::ToArrowArgs;
-use crate::arrow::compute::to_arrow::null_buffer::to_null_buffer;
+use crate::arrow::null_buffer::to_null_buffer;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::InvocationArgs;
 use crate::compute::Kernel;
 use crate::compute::Output;
-use crate::compute::cast;
 
 /// Implementation of `ToArrow` kernel for canonical Vortex arrays.
 #[derive(Debug)]
@@ -555,9 +557,13 @@ fn to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
     };
 
     // Convert the child `offsets` and `validity` array to Arrow.
-    let offsets = cast(list_array.offsets().as_ref(), &DType::from(O::PTYPE))?
-        .to_primitive()
-        .buffer::<O>()
+    let offsets = list_array
+        .offsets()
+        .cast(DType::from(O::PTYPE))?
+        .execute_vector(&LEGACY_SESSION)?
+        .into_primitive()
+        .downcast::<O>()
+        .into_nonnull_buffer()
         .into_arrow_offset_buffer();
     let nulls = to_null_buffer(list_array.validity_mask());
 
@@ -576,16 +582,24 @@ fn to_arrow_listview<O: IntegerPType + OffsetSizeTrait>(
 ) -> VortexResult<ArrowArrayRef> {
     // First we cast the offsets and sizes into the specified width (determined by `O::PTYPE`).
     let offsets_dtype = DType::Primitive(O::PTYPE, array.dtype().nullability());
-    let offsets = cast(array.offsets(), &offsets_dtype)
-        .map_err(|err| err.with_context(format!("Failed to cast offsets to {offsets_dtype}")))?
-        .to_primitive();
-    let sizes = cast(array.sizes(), &offsets_dtype)
-        .map_err(|err| err.with_context(format!("Failed to cast sizes to {offsets_dtype}")))?
-        .to_primitive();
+    let offsets = array
+        .offsets()
+        .cast(offsets_dtype.clone())?
+        .execute_vector(&LEGACY_SESSION)?
+        .into_primitive()
+        .downcast::<O>()
+        .into_nonnull_buffer()
+        .into_arrow_scalar_buffer();
+    let sizes = array
+        .sizes()
+        .cast(offsets_dtype)?
+        .execute_vector(&LEGACY_SESSION)?
+        .into_primitive()
+        .downcast::<O>()
+        .into_nonnull_buffer()
+        .into_arrow_scalar_buffer();
 
     // Convert `offsets`, `sizes`, and `validity` to Arrow buffers.
-    let arrow_offsets = offsets.buffer::<O>().into_arrow_scalar_buffer();
-    let arrow_sizes = sizes.buffer::<O>().into_arrow_scalar_buffer();
     let nulls = to_null_buffer(array.validity_mask());
 
     // Convert the child `elements` array to Arrow.
@@ -609,8 +623,8 @@ fn to_arrow_listview<O: IntegerPType + OffsetSizeTrait>(
 
     Ok(Arc::new(GenericListViewArray::new(
         element_field,
-        arrow_offsets,
-        arrow_sizes,
+        offsets,
+        sizes,
         elements,
         nulls,
     )))

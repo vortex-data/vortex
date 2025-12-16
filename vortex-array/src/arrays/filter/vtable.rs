@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::hash::Hasher;
 use std::ops::Range;
 
@@ -10,8 +12,10 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
+use vortex_vector::Vector;
 
 use crate::Array;
 use crate::ArrayBufferVisitor;
@@ -21,13 +25,12 @@ use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::Precision;
-use crate::arrays::LEGACY_SESSION;
+use crate::VectorExecutor;
 use crate::arrays::filter::array::FilterArray;
-use crate::arrays::filter::kernel::FilterKernel;
-use crate::kernel::BindCtx;
-use crate::kernel::KernelRef;
-use crate::kernel::PushDownResult;
+use crate::arrays::filter::rules::PARENT_RULES;
+use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::vectors::VectorIntoArray;
@@ -50,7 +53,7 @@ pub struct FilterVTable;
 
 impl VTable for FilterVTable {
     type Array = FilterArray;
-    type Metadata = Mask;
+    type Metadata = FilterMetadata;
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
     type OperationsVTable = Self;
@@ -68,7 +71,7 @@ impl VTable for FilterVTable {
     }
 
     fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {
-        Ok(array.mask.clone())
+        Ok(FilterMetadata(array.mask.clone()))
     }
 
     fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
@@ -83,46 +86,43 @@ impl VTable for FilterVTable {
         &self,
         dtype: &DType,
         len: usize,
-        selection_mask: &Mask,
+        metadata: &FilterMetadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<Self::Array> {
-        assert_eq!(len, selection_mask.true_count());
-        let child = children.get(0, dtype, selection_mask.len())?;
+        assert_eq!(len, metadata.0.true_count());
+        let child = children.get(0, dtype, metadata.0.len())?;
         Ok(FilterArray {
             child,
-            mask: selection_mask.clone(),
+            mask: metadata.0.clone(),
             stats: Default::default(),
         })
     }
 
-    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
-        let mut child = array.child.bind_kernel(ctx)?;
-        let mask = array.mask.clone();
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() == 1,
+            "FilterArray expects exactly 1 child, got {}",
+            children.len()
+        );
+        array.child = children
+            .into_iter()
+            .next()
+            .vortex_expect("children length already validated");
+        Ok(())
+    }
 
-        // NOTE(ngates): for now we keep the same behavior as develop where we push-down any
-        //  query with <20% true values.
-        let pushdown = array.mask.density() < 0.2;
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        let child = array.child.execute(ctx)?;
+        Ok(Filter::filter(&child, &array.mask))
+    }
 
-        if pushdown {
-            // Try to push down the filter to the child if it's cheaper.
-            child = match child.push_down_filter(&mask)? {
-                PushDownResult::Pushed(new_k) => {
-                    tracing::debug!("Filter push down kernel:\n{:?}", new_k);
-                    return Ok(new_k);
-                }
-                PushDownResult::NotPushed(child) => {
-                    tracing::warn!(
-                        "Filter pushdown was cheaper but not supported by child array {}",
-                        array.child.display_tree()
-                    );
-                    child
-                }
-            };
-        }
-
-        // Otherwise, wrap up the child in a filter kernel.
-        Ok(Box::new(FilterKernel::new(child, mask)))
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }
 
@@ -151,9 +151,7 @@ impl BaseArrayVTable<FilterVTable> for FilterVTable {
 
 impl CanonicalVTable<FilterVTable> for FilterVTable {
     fn canonicalize(array: &FilterArray) -> Canonical {
-        let vector = FilterVTable::bind_kernel(array, &mut BindCtx::new(LEGACY_SESSION.clone()))
-            .vortex_expect("Canonicalize should be fallible")
-            .execute()
+        let vector = FilterVTable::execute(array, &mut ExecutionCtx::new(LEGACY_SESSION.clone()))
             .vortex_expect("Canonicalize should be fallible");
         vector.into_array(array.dtype()).to_canonical()
     }
@@ -196,5 +194,19 @@ impl VisitorVTable<FilterVTable> for FilterVTable {
 
     fn visit_children(array: &FilterArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("child", &array.child);
+    }
+}
+
+pub struct FilterMetadata(pub(super) Mask);
+
+impl Debug for FilterMetadata {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} / {} => {}",
+            self.0.true_count(),
+            self.0.len(),
+            self.0.density()
+        )
     }
 }

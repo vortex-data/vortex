@@ -54,6 +54,30 @@ pub enum PrimitiveVector {
     F64(PVector<f64>),
 }
 
+impl PartialEq for PrimitiveVector {
+    fn eq(&self, other: &Self) -> bool {
+        // Validity patterns must match
+        if self.validity() != other.validity() {
+            return false;
+        }
+        // Delegate to the underlying PVector equality
+        match (self, other) {
+            (PrimitiveVector::U8(a), PrimitiveVector::U8(b)) => a == b,
+            (PrimitiveVector::U16(a), PrimitiveVector::U16(b)) => a == b,
+            (PrimitiveVector::U32(a), PrimitiveVector::U32(b)) => a == b,
+            (PrimitiveVector::U64(a), PrimitiveVector::U64(b)) => a == b,
+            (PrimitiveVector::I8(a), PrimitiveVector::I8(b)) => a == b,
+            (PrimitiveVector::I16(a), PrimitiveVector::I16(b)) => a == b,
+            (PrimitiveVector::I32(a), PrimitiveVector::I32(b)) => a == b,
+            (PrimitiveVector::I64(a), PrimitiveVector::I64(b)) => a == b,
+            (PrimitiveVector::F16(a), PrimitiveVector::F16(b)) => a == b,
+            (PrimitiveVector::F32(a), PrimitiveVector::F32(b)) => a == b,
+            (PrimitiveVector::F64(a), PrimitiveVector::F64(b)) => a == b,
+            _ => false, // Different variants are not equal
+        }
+    }
+}
+
 impl PrimitiveVector {
     /// Returns the [`PType`] of this [`PrimitiveVector`].
     pub fn ptype(&self) -> PType {

@@ -8,14 +8,19 @@
 //! lists have the same number of elements.
 //!
 //! [`DType::FixedSizeList`]: vortex_dtype::DType::FixedSizeList
-
+use vortex::array::ArrayRef;
+use vortex::array::ToCanonical;
 use vortex::array::arrays::FixedSizeListArray;
+use vortex::array::validity::Validity;
+use vortex::array::vtable::ValidityHelper;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
+use vortex::session::VortexSession;
 
 use super::ConversionCache;
 use super::all_invalid;
 use super::new_array_exporter_with_flatten;
+use super::new_array_vector_exporter_with_flatten;
 use crate::duckdb::LogicalType;
 use crate::duckdb::Vector;
 use crate::exporter::ColumnExporter;
@@ -86,6 +91,31 @@ impl ColumnExporter for FixedSizeListExporter {
 
         Ok(())
     }
+}
+
+/// Creates a new exporter for converting a [`FixedSizeListArray`] to DuckDB ARRAY format.
+pub(crate) fn new_vector_exporter(
+    array: ArrayRef,
+    cache: &ConversionCache,
+    session: &VortexSession,
+) -> VortexResult<Box<dyn ColumnExporter>> {
+    let array = array.to_fixed_size_list();
+    let elements_exporter =
+        new_array_vector_exporter_with_flatten(array.elements().clone(), cache, session, true)?;
+
+    let ltype: LogicalType = array.dtype().try_into()?;
+
+    let mask = array.validity();
+
+    if matches!(mask, Validity::AllInvalid) {
+        return Ok(all_invalid::new_exporter(array.len(), &ltype));
+    }
+
+    Ok(Box::new(FixedSizeListExporter {
+        validity: mask.to_mask(array.len()),
+        elements_exporter,
+        list_size: array.list_size(),
+    }))
 }
 
 #[cfg(test)]

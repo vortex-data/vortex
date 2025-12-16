@@ -36,7 +36,7 @@ object_store = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "fs"] }
 tokio-stream = { workspace = true }
 tracing = { workspace = true, features = ["std", "attributes"] }
-vortex = { workspace = true, features = ["object_store", "tokio"] }
+vortex = { workspace = true, features = ["object_store", "tokio", "files"] }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 
 [dev-dependencies]

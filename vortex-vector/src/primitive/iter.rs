@@ -6,7 +6,9 @@
 use vortex_dtype::NativePType;
 
 use crate::VectorMutOps;
+use crate::primitive::PVector;
 use crate::primitive::PVectorMut;
+use crate::primitive::PrimitiveVector;
 
 impl<T: NativePType> Extend<Option<T>> for PVectorMut<T> {
     /// Extends the vector from an iterator of optional values.
@@ -110,6 +112,30 @@ impl<T: NativePType> FromIterator<T> for PVectorMut<T> {
         vec.extend(iter);
 
         vec
+    }
+}
+
+impl<T: NativePType> FromIterator<T> for PVector<T> {
+    /// Creates a new [`PVector<T>`] from an iterator of `T` values.
+    fn from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+    {
+        let vec_mut: PVectorMut<T> = iter.into_iter().collect();
+
+        vec_mut.freeze()
+    }
+}
+
+impl<T: NativePType> FromIterator<T> for PrimitiveVector {
+    /// Creates a new [`PVector<T>`] from an iterator of `T` values.
+    fn from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+    {
+        let vec_mut: PVectorMut<T> = iter.into_iter().collect();
+
+        PrimitiveVector::from(vec_mut.freeze())
     }
 }
 

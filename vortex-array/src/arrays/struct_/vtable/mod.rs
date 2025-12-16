@@ -9,13 +9,16 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_vector::Vector;
 use vortex_vector::struct_::StructVector;
 
+use crate::ArrayRef;
 use crate::EmptyMetadata;
+use crate::VectorExecutor;
 use crate::arrays::struct_::StructArray;
-use crate::kernel::BindCtx;
-use crate::kernel::KernelRef;
-use crate::kernel::kernel;
+use crate::arrays::struct_::rules::RULES;
+use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -107,19 +110,56 @@ impl VTable for StructVTable {
         StructArray::try_new_with_dtype(children, struct_dtype.clone(), len, validity)
     }
 
-    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        let DType::Struct(struct_dtype, _nullability) = &array.dtype else {
+            vortex_bail!("Expected struct dtype, found {:?}", array.dtype)
+        };
+
+        // First child is validity (if present), followed by fields
+        let (validity, non_data_children) = if children.len() == struct_dtype.nfields() {
+            (array.validity.clone(), 0_usize)
+        } else if children.len() == struct_dtype.nfields() + 1 {
+            (Validity::Array(children[0].clone()), 1_usize)
+        } else {
+            vortex_bail!(
+                "Expected {} or {} children, found {}",
+                struct_dtype.nfields(),
+                struct_dtype.nfields() + 1,
+                children.len()
+            );
+        };
+
+        let fields: Arc<[ArrayRef]> = children.into_iter().skip(non_data_children).collect();
+        vortex_ensure!(
+            fields.len() == struct_dtype.nfields(),
+            "Expected {} field children, found {}",
+            struct_dtype.nfields(),
+            fields.len()
+        );
+
+        array.fields = fields;
+        array.validity = validity;
+        Ok(())
+    }
+
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         let fields: Box<[_]> = array
             .fields()
             .iter()
-            .map(|field| field.bind_kernel(ctx))
+            .map(|field| field.execute(ctx))
             .try_collect()?;
         let validity_mask = array.validity_mask();
 
-        Ok(kernel(move || {
-            // SAFETY: we know that all field lengths match the struct array length, and the validity
-            let fields = fields.into_iter().map(|k| k.execute()).try_collect()?;
-            Ok(unsafe { StructVector::new_unchecked(Arc::new(fields), validity_mask) }.into())
-        }))
+        // SAFETY: we know that all field lengths match the struct array length, and the validity
+        Ok(unsafe { StructVector::new_unchecked(Arc::new(fields), validity_mask) }.into())
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
     }
 }
 

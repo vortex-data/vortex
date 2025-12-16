@@ -49,4 +49,9 @@ impl ScalarFnArray {
     pub fn scalar_fn(&self) -> &ScalarFn {
         &self.scalar_fn
     }
+
+    /// Get the children arrays of this scalar function array.
+    pub fn children(&self) -> &[ArrayRef] {
+        &self.children
+    }
 }

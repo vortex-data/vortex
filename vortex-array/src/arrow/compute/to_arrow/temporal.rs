@@ -21,6 +21,7 @@ use arrow_schema::DataType;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
 use vortex_dtype::DType;
 use vortex_dtype::NativePType;
+use vortex_dtype::PTypeDowncastExt;
 use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::datetime::is_temporal_ext_type;
@@ -28,18 +29,18 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::Array as _;
 use crate::IntoArray;
-use crate::ToCanonical;
+use crate::LEGACY_SESSION;
+use crate::VectorExecutor;
 use crate::arrays::ExtensionVTable;
 use crate::arrays::TemporalArray;
 use crate::arrow::array::ArrowArray;
 use crate::arrow::compute::to_arrow::ToArrowArgs;
-use crate::arrow::compute::to_arrow::null_buffer::to_null_buffer;
+use crate::arrow::null_buffer::to_null_buffer;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::InvocationArgs;
 use crate::compute::Kernel;
 use crate::compute::Output;
-use crate::compute::cast;
 
 /// Implementation of `ToArrow` kernel for canonical Vortex arrays.
 #[derive(Debug)]
@@ -127,11 +128,17 @@ where
     T::Native: NativePType,
 {
     let values_dtype = DType::Primitive(T::Native::PTYPE, array.dtype().nullability());
-    let values = cast(array.temporal_values(), &values_dtype)?
-        .to_primitive()
-        .into_buffer()
-        .into_arrow_scalar_buffer();
-    let nulls = to_null_buffer(array.temporal_values().validity_mask());
+    let values = array
+        .temporal_values()
+        .cast(values_dtype)?
+        .execute_vector(&LEGACY_SESSION)?
+        .into_primitive()
+        .downcast::<T::Native>();
+
+    let (buffer, validity) = values.into_parts();
+    let values = buffer.into_arrow_scalar_buffer();
+    let nulls = to_null_buffer(validity);
+
     Ok(ArrowPrimitiveArray::<T>::new(values, nulls))
 }
 

@@ -12,6 +12,7 @@ use crate::arrays::ScalarFnArray;
 use crate::expr::Expression;
 use crate::expr::Literal;
 use crate::expr::Root;
+use crate::optimizer::ArrayOptimizer;
 
 impl dyn Array + '_ {
     /// Apply the expression to this array, producing a new array in constant time.
@@ -34,6 +35,10 @@ impl dyn Array + '_ {
             .try_collect()?;
 
         // And wrap the scalar function up in an array.
-        Ok(ScalarFnArray::try_new(expr.scalar_fn().clone(), children, self.len())?.into_array())
+        let array =
+            ScalarFnArray::try_new(expr.scalar_fn().clone(), children, self.len())?.into_array();
+
+        // Optimize the resulting array's root.
+        array.optimize()
     }
 }

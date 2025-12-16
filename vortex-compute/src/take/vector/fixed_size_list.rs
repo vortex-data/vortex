@@ -49,7 +49,7 @@ impl<I: UnsignedPType> Take<[I]> for &FixedSizeListVector {
         }
 
         let element_indices = expand_indices(indices, self.list_size());
-        let taken_elements = self.elements().take(element_indices.as_slice());
+        let taken_elements = self.elements().as_ref().take(element_indices.as_slice());
 
         debug_assert_eq!(taken_elements.len(), indices.len() * list_size);
         debug_assert_eq!(taken_validity.len(), indices.len());
@@ -92,7 +92,10 @@ fn take_nullable<I: UnsignedPType>(
     }
 
     let expanded_nullable_indices = expand_nullable_indices(indices, list_size);
-    let taken_elements = fsl.elements().take(expanded_nullable_indices.as_slice());
+    let taken_elements = fsl
+        .elements()
+        .as_ref()
+        .take(expanded_nullable_indices.as_slice());
 
     debug_assert_eq!(taken_elements.len(), indices.len() * list_size);
     debug_assert_eq!(taken_validity.len(), indices.len());

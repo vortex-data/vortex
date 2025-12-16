@@ -12,12 +12,11 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
+use vortex_array::ExecutionCtx;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::kernel::BindCtx;
-use vortex_array::kernel::KernelRef;
-use vortex_array::kernel::kernel;
+use vortex_array::VectorExecutor;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
@@ -43,6 +42,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
+use vortex_vector::Vector;
 
 use crate::ALPFloat;
 use crate::alp::Exponents;
@@ -141,16 +142,61 @@ impl VTable for ALPVTable {
         )
     }
 
-    fn bind_kernel(array: &ALPArray, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
-        let encoded = array.encoded().bind_kernel(ctx)?;
-        let patches_kernels = if let Some(patches) = array.patches() {
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        // Children: encoded, patches (if present): indices, values, chunk_offsets (optional)
+        let patches_info = array
+            .patches
+            .as_ref()
+            .map(|p| (p.array_len(), p.offset(), p.chunk_offsets().is_some()));
+
+        let expected_children = match &patches_info {
+            Some((_, _, has_chunk_offsets)) => 1 + 2 + if *has_chunk_offsets { 1 } else { 0 },
+            None => 1,
+        };
+
+        vortex_ensure!(
+            children.len() == expected_children,
+            "ALPArray expects {} children, got {}",
+            expected_children,
+            children.len()
+        );
+
+        let mut children_iter = children.into_iter();
+        array.encoded = children_iter
+            .next()
+            .ok_or_else(|| vortex_err!("Expected encoded child"))?;
+
+        if let Some((array_len, offset, _has_chunk_offsets)) = patches_info {
+            let indices = children_iter
+                .next()
+                .ok_or_else(|| vortex_err!("Expected patch indices child"))?;
+            let values = children_iter
+                .next()
+                .ok_or_else(|| vortex_err!("Expected patch values child"))?;
+            let chunk_offsets = children_iter.next();
+
+            array.patches = Some(Patches::new(
+                array_len,
+                offset,
+                indices,
+                values,
+                chunk_offsets,
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        let encoded = array.encoded().execute(ctx)?;
+        let patches = if let Some(patches) = array.patches() {
             Some((
-                patches.indices().bind_kernel(ctx)?,
-                patches.values().bind_kernel(ctx)?,
+                patches.indices().execute(ctx)?,
+                patches.values().execute(ctx)?,
                 patches
                     .chunk_offsets()
                     .as_ref()
-                    .map(|co| co.bind_kernel(ctx))
+                    .map(|co| co.execute(ctx))
                     .transpose()?,
             ))
         } else {
@@ -161,24 +207,7 @@ impl VTable for ALPVTable {
         let exponents = array.exponents();
 
         match_each_alp_float_ptype!(array.dtype().as_ptype(), |T| {
-            Ok(kernel(move || {
-                let encoded_vector = encoded.execute()?;
-                let patches_vectors = match patches_kernels {
-                    Some((idx_kernel, val_kernel, co_kernel)) => Some((
-                        idx_kernel.execute()?,
-                        val_kernel.execute()?,
-                        co_kernel.map(|k| k.execute()).transpose()?,
-                    )),
-                    None => None,
-                };
-
-                decompress_into_vector::<T>(
-                    encoded_vector,
-                    exponents,
-                    patches_vectors,
-                    patches_offset,
-                )
-            }))
+            decompress_into_vector::<T>(encoded, exponents, patches, patches_offset)
         })
     }
 }
@@ -663,7 +692,7 @@ mod tests {
         let slice_len = slice_end - slice_start;
         let sliced_encoded = encoded.slice(slice_start..slice_end);
 
-        let result_vector = sliced_encoded.execute_vector_optimized(&SESSION).unwrap();
+        let result_vector = sliced_encoded.execute_vector(&SESSION).unwrap();
         let result_primitive = result_vector.into_primitive().into_f64();
 
         for idx in 0..slice_len {

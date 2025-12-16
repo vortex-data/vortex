@@ -90,9 +90,7 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
             .into_array();
 
             let root_mask = if *USE_VORTEX_OPERATORS {
-                root_scope
-                    .apply(&self.root)?
-                    .execute_mask_optimized(&session)?
+                root_scope.apply(&self.root)?.execute_mask(&session)?
             } else {
                 self.root
                     .evaluate(&root_scope)?

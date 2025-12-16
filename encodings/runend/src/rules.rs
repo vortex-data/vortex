@@ -8,12 +8,15 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ConstantVTable;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
-use vortex_array::optimizer::rules::Exact;
+use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::RunEndArray;
 use crate::RunEndVTable;
+
+pub(super) const RULES: ParentRuleSet<RunEndVTable> =
+    ParentRuleSet::new(&[ParentRuleSet::lift(&RunEndScalarFnRule)]);
 
 /// A rule to push down scalar functions through run-end encoding into the values array.
 ///
@@ -21,10 +24,8 @@ use crate::RunEndVTable;
 #[derive(Debug)]
 pub(crate) struct RunEndScalarFnRule;
 
-impl ArrayParentReduceRule<Exact<RunEndVTable>, AnyScalarFn> for RunEndScalarFnRule {
-    fn child(&self) -> Exact<RunEndVTable> {
-        Exact::from(&RunEndVTable)
-    }
+impl ArrayParentReduceRule<RunEndVTable> for RunEndScalarFnRule {
+    type Parent = AnyScalarFn;
 
     fn parent(&self) -> AnyScalarFn {
         AnyScalarFn
@@ -54,7 +55,7 @@ impl ArrayParentReduceRule<Exact<RunEndVTable>, AnyScalarFn> for RunEndScalarFnR
         }
 
         let values_len = run_end.values().len();
-        let mut new_children = parent.children();
+        let mut new_children: Vec<ArrayRef> = parent.children().to_vec();
         for (idx, child) in new_children.iter_mut().enumerate() {
             if idx == child_idx {
                 // Replace ourselves with run end values
@@ -73,12 +74,14 @@ impl ArrayParentReduceRule<Exact<RunEndVTable>, AnyScalarFn> for RunEndScalarFnR
                 .into_array();
 
         Ok(Some(
-            RunEndArray::try_new_offset_length(
-                run_end.ends().clone(),
-                new_values,
-                run_end.offset(),
-                run_end.len(),
-            )?
+            unsafe {
+                RunEndArray::new_unchecked(
+                    run_end.ends().clone(),
+                    new_values,
+                    run_end.offset(),
+                    run_end.len(),
+                )
+            }
             .into_array(),
         ))
     }

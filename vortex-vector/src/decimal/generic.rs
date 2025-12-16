@@ -36,6 +36,30 @@ pub struct DVector<D> {
     pub(super) validity: Mask,
 }
 
+impl<D: NativeDecimalType + PartialEq> PartialEq for DVector<D> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.elements.len() != other.elements.len() {
+            return false;
+        }
+        // Precision and scale must match
+        if self.ps != other.ps {
+            return false;
+        }
+        // Validity patterns must match
+        if self.validity != other.validity {
+            return false;
+        }
+        // Compare all elements, OR with !validity to ignore invalid positions
+        self.elements
+            .iter()
+            .zip(other.elements.iter())
+            .enumerate()
+            .all(|(i, (a, b))| !self.validity.value(i) | (a == b))
+    }
+}
+
+impl<D: NativeDecimalType + Eq> Eq for DVector<D> {}
+
 impl<D: NativeDecimalType> DVector<D> {
     /// Creates a new [`DVector<D>`] from the given [`PrecisionScale`], elements buffer, and
     /// validity mask.
@@ -72,13 +96,17 @@ impl<D: NativeDecimalType> DVector<D> {
             );
         }
 
-        // We assert that each element is within bounds for the given precision/scale.
-        if !elements.iter().all(|e| ps.is_valid(*e)) {
-            vortex_bail!(
-                "One or more elements are out of bounds for precision {} and scale {}",
-                ps.precision(),
-                ps.scale()
-            );
+        // TODO(0ax1): iteration based on mask density via threshold_iter
+
+        // We assert that each non-null element is within bounds for the given precision/scale.
+        for (element, is_valid) in elements.iter().zip(validity.to_bit_buffer().iter()) {
+            if is_valid && !ps.is_valid(*element) {
+                vortex_bail!(
+                    "One or more elements (e.g. {element}) are out of bounds for precision {} and scale {}",
+                    ps.precision(),
+                    ps.scale(),
+                );
+            }
         }
 
         Ok(Self {

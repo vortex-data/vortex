@@ -264,7 +264,7 @@ fn row_idx_mask_future(
         let array = idx_array(row_offset, &row_range).into_array();
 
         let result_mask = if *USE_VORTEX_OPERATORS {
-            array.apply(&expr)?.execute_mask_optimized(&session)
+            array.apply(&expr)?.execute_mask(&session)
         } else {
             expr.evaluate(&array)?.try_to_mask_fill_null_false()
         }?;

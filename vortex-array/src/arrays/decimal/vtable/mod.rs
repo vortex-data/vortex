@@ -15,11 +15,12 @@ use vortex_error::vortex_ensure;
 use vortex_scalar::DecimalType;
 use vortex_vector::decimal::DVector;
 
+use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::DecimalArray;
-use crate::kernel::BindCtx;
+use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -31,14 +32,14 @@ use crate::vtable::ValidityVTableFromValidityHelper;
 mod array;
 mod canonical;
 mod operations;
-pub mod operator;
+pub mod rules;
 mod validity;
 mod visitor;
 
-pub use operator::DecimalMaskedValidityRule;
+pub use rules::DecimalMaskedValidityRule;
+use vortex_vector::Vector;
 
-use crate::kernel::KernelRef;
-use crate::kernel::kernel;
+use crate::arrays::decimal::vtable::rules::RULES;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
 
@@ -125,7 +126,27 @@ impl VTable for DecimalVTable {
         })
     }
 
-    fn bind_kernel(array: &Self::Array, _ctx: &mut BindCtx) -> VortexResult<KernelRef> {
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() <= 1,
+            "DecimalArray expects 0 or 1 child (validity), got {}",
+            children.len()
+        );
+
+        if children.is_empty() {
+            array.validity = Validity::from(array.dtype.nullability());
+        } else {
+            array.validity = Validity::Array(
+                children
+                    .into_iter()
+                    .next()
+                    .vortex_expect("children length already validated"),
+            );
+        }
+        Ok(())
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         use vortex_dtype::BigCast;
 
         match_each_decimal_value_type!(array.values_type(), |D| {
@@ -137,28 +158,35 @@ impl VTable for DecimalVTable {
                 let buffer = array.buffer::<D>();
                 let validity_mask = array.validity_mask();
 
-                Ok(kernel(move || {
-                    // Copy from D to E, possibly widening, possibly narrowing
-                    let values =
-                        Buffer::<E>::from_trusted_len_iter(buffer.iter().map(|d| {
-                            <E as BigCast>::from(*d).vortex_expect("Decimal cast failed")
-                        }));
+                // Copy from D to E, possibly widening, possibly narrowing
+                let values = Buffer::<E>::from_trusted_len_iter(
+                    buffer
+                        .iter()
+                        .map(|d| <E as BigCast>::from(*d).vortex_expect("Decimal cast failed")),
+                );
 
-                    Ok(unsafe {
-                        DVector::<E>::new_unchecked(
-                            // TODO(ngates): this is too small?
-                            PrecisionScale::new_unchecked(
-                                decimal_dtype.precision(),
-                                decimal_dtype.scale(),
-                            ),
-                            values,
-                            validity_mask,
-                        )
-                    }
-                    .into())
-                }))
+                Ok(unsafe {
+                    DVector::<E>::new_unchecked(
+                        // TODO(ngates): this is too small?
+                        PrecisionScale::new_unchecked(
+                            decimal_dtype.precision(),
+                            decimal_dtype.scale(),
+                        ),
+                        values,
+                        validity_mask,
+                    )
+                }
+                .into())
             })
         })
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
     }
 }
 

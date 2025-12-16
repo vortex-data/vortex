@@ -19,13 +19,21 @@ use crate::null::NullVectorMut;
 /// single `length` counter.
 ///
 /// The mutable equivalent of this type is [`NullVectorMut`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq)]
 pub struct NullVector {
     /// The total number of nulls.
     pub(super) len: usize,
     /// The validity mask. We only store this in order to implement the
     /// [`validity()`](Self::validity) method.
     pub(super) validity: Mask,
+}
+
+impl PartialEq for NullVector {
+    fn eq(&self, other: &Self) -> bool {
+        // NullVectors are equal if they have the same length.
+        // All elements are null, so there's nothing to compare at valid positions.
+        self.len == other.len
+    }
 }
 
 impl NullVector {

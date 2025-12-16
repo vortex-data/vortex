@@ -30,6 +30,26 @@ pub struct PVector<T> {
     pub(super) validity: Mask,
 }
 
+impl<T: NativePType + PartialEq> PartialEq for PVector<T> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.len() != other.len() {
+            return false;
+        }
+        // Validity patterns must match
+        if self.validity != other.validity {
+            return false;
+        }
+        // Compare all elements, OR with !validity to ignore invalid positions
+        self.elements
+            .iter()
+            .zip(other.elements.iter())
+            .enumerate()
+            .all(|(i, (a, b))| !self.validity.value(i) | (a == b))
+    }
+}
+
+impl<T: NativePType + Eq> Eq for PVector<T> {}
+
 impl<T> PVector<T> {
     /// Creates a new [`PVector<T>`] from the given elements buffer and validity mask.
     ///
@@ -73,6 +93,19 @@ impl<T> PVector<T> {
         (self.elements, self.validity)
     }
 
+    /// Decomposes the primitive vector into its internal buffer, consuming the vector.
+    ///
+    /// # Panics
+    ///
+    /// Panics if there are any null values in the vector.
+    pub fn into_nonnull_buffer(self) -> Buffer<T> {
+        assert!(
+            self.validity.all_true(),
+            "Cannot convert to buffer: vector contains null values"
+        );
+        self.elements
+    }
+
     /// Decomposes the primitive vector into its constituent parts by mutable reference.
     ///
     /// # Safety
@@ -98,6 +131,23 @@ impl<T> PVector<T> {
         self.validity.value(index).then(|| &self.elements[index])
     }
 
+    /// Gets an element at the given index and converts it to type `U`.
+    ///
+    /// Returns `None` if:
+    /// - The element at the given index is null
+    /// - The conversion from `T` to `U` fails
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds.
+    pub fn get_as<U>(&self, index: usize) -> Option<U>
+    where
+        U: TryFrom<T>,
+        T: Copy,
+    {
+        self.get(index).and_then(|&v| U::try_from(v).ok())
+    }
+
     /// Returns the internal [`Buffer`] of the [`PVector`].
     ///
     /// Note that the internal buffer may hold garbage data in place of nulls. That information is
@@ -105,6 +155,25 @@ impl<T> PVector<T> {
     #[inline]
     pub fn elements(&self) -> &Buffer<T> {
         &self.elements
+    }
+
+    /// Transmute a `PVector<T>` into a `PVector<U>`.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that all values of type `T` in this vector are valid as type `U`.
+    /// See [`std::mem::transmute`] for more details.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the type `U` does not have the same size and alignment as `T`.
+    pub unsafe fn transmute<U: NativePType>(self) -> PVector<U> {
+        let (buffer, mask) = self.into_parts();
+
+        // SAFETY: same guarantees as this function.
+        let buffer = unsafe { buffer.transmute::<U>() };
+
+        PVector::new(buffer, mask)
     }
 }
 
@@ -184,5 +253,16 @@ impl<T: NativePType> VectorOps for PVector<T> {
         let validity = self.validity.into_mut();
 
         PVectorMut { elements, validity }
+    }
+}
+
+impl<T: NativePType> From<Buffer<T>> for PVector<T> {
+    /// Creates a new [`PVector<T>`] from the given elements buffer, with an all valid validity.
+    fn from(value: Buffer<T>) -> Self {
+        let len = value.len();
+        Self {
+            elements: value,
+            validity: Mask::new_true(len),
+        }
     }
 }

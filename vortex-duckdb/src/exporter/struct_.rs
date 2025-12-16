@@ -2,13 +2,20 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex::array::arrays::StructArray;
+use vortex::array::optimizer::ArrayOptimizer;
+use vortex::array::vtable::ValidityHelper;
 use vortex::compute::mask;
 use vortex::error::VortexResult;
+use vortex::mask::Mask;
+use vortex::session::VortexSession;
 
+use crate::LogicalType;
 use crate::duckdb::Vector;
 use crate::exporter::ColumnExporter;
 use crate::exporter::ConversionCache;
+use crate::exporter::all_invalid;
 use crate::exporter::new_array_exporter;
+use crate::exporter::new_vector_array_exporter;
 use crate::exporter::validity;
 
 struct StructExporter {
@@ -50,6 +57,39 @@ impl ColumnExporter for StructExporter {
         }
         Ok(())
     }
+}
+
+pub(crate) fn new_vector_exporter(
+    array: StructArray,
+    cache: &ConversionCache,
+    session: &VortexSession,
+) -> VortexResult<Box<dyn ColumnExporter>> {
+    let validity = array.validity().to_mask(array.len());
+
+    if validity.all_false() {
+        return Ok(all_invalid::new_exporter(
+            array.len(),
+            &LogicalType::try_from(array.dtype())?,
+        ));
+    }
+
+    let children = array
+        .fields()
+        .iter()
+        .map(|child| {
+            if matches!(validity, Mask::Values(_)) {
+                new_vector_array_exporter(mask(child, &validity)?.optimize()?, cache, session)
+            } else {
+                new_vector_array_exporter(child.clone(), cache, session)
+            }
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+    let struct_exporter = Box::new(StructExporter { children });
+    Ok(if array.dtype().is_nullable() {
+        validity::new_exporter(validity, struct_exporter)
+    } else {
+        struct_exporter
+    })
 }
 
 #[cfg(test)]

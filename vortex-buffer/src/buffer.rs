@@ -181,7 +181,7 @@ impl<T> Buffer<T> {
                 alignment,
             );
         }
-        if bytes.len() % size_of::<T>() != 0 {
+        if !bytes.len().is_multiple_of(size_of::<T>()) {
             vortex_panic!(
                 "Bytes length {} must be a multiple of the scalar type's size {}",
                 bytes.len(),
@@ -321,9 +321,6 @@ impl<T> Buffer<T> {
         if !begin_byte.is_multiple_of(*alignment) {
             vortex_panic!("range start must be aligned to {alignment:?}");
         }
-        if !end_byte.is_multiple_of(*alignment) {
-            vortex_panic!("range end must be aligned to {alignment:?}");
-        }
         if !alignment.is_aligned_to(Alignment::of::<T>()) {
             vortex_panic!("Slice alignment must at least align to type T")
         }
@@ -412,27 +409,6 @@ impl<T> Buffer<T> {
         }
     }
 
-    /// Cast a `Buffer<T>` into a `Buffer<U>`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the type `U` does not have the same size and alignment as `T`.
-    pub fn cast_into<U>(self) -> Buffer<U> {
-        assert_eq!(size_of::<T>(), size_of::<U>(), "Buffer type size mismatch");
-        assert_eq!(
-            align_of::<T>(),
-            align_of::<U>(),
-            "Buffer type alignment mismatch"
-        );
-
-        Buffer {
-            bytes: self.bytes,
-            length: self.length,
-            alignment: self.alignment,
-            _marker: PhantomData,
-        }
-    }
-
     /// Try to convert self into `BufferMut<T>` if there is only a single strong reference.
     pub fn try_into_mut(self) -> Result<BufferMut<T>, Self> {
         self.bytes
@@ -486,6 +462,35 @@ impl<T> Buffer<T> {
             self
         } else {
             vortex_panic!("Buffer is not aligned to requested alignment {}", alignment)
+        }
+    }
+}
+
+impl<T> Buffer<T> {
+    /// Transmute a `Buffer<T>` into a `Buffer<U>`.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that all possible bit representations of type `T` are valid when
+    /// interpreted as type `U`.
+    /// See [`std::mem::transmute`] for more details.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the type `U` does not have the same size and alignment as `T`.
+    pub unsafe fn transmute<U>(self) -> Buffer<U> {
+        assert_eq!(size_of::<T>(), size_of::<U>(), "Buffer type size mismatch");
+        assert_eq!(
+            align_of::<T>(),
+            align_of::<U>(),
+            "Buffer type alignment mismatch"
+        );
+
+        Buffer {
+            bytes: self.bytes,
+            length: self.length,
+            alignment: self.alignment,
+            _marker: PhantomData,
         }
     }
 }
@@ -743,5 +748,17 @@ mod test {
         let buff = Buffer::from(vec.clone());
         assert!(buff.is_aligned(Alignment::of::<i32>()));
         assert_eq!(vec, buff);
+    }
+
+    #[test]
+    fn test_slice_unaligned_end_pos() {
+        let data = vec![0u8; 2];
+        // Overalign the u8 vector.
+        let aligned_buffer = Buffer::copy_from_aligned(&data, Alignment::new(8));
+        // Previously, `Buffer::slice` incorrectly asserted that the end position
+        // must be aligned. That assertion has been removed such that the end
+        // position can be arbitrary and only the beginning of the slice needs
+        // to be aligned.
+        aligned_buffer.slice(0..1);
     }
 }

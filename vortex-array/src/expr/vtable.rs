@@ -101,6 +101,24 @@ pub trait VTable: 'static + Sized + Send + Sync {
         vortex_bail!("Expression {} does not support execution", self.id());
     }
 
+    /// Implement an abstract reduction rule over a tree of scalar functions.
+    ///
+    /// The [`ReduceNode`] can be used to traverse children, inspect their types, and
+    /// construct the result expression.
+    ///
+    /// Return `Ok(None)` if no reduction is possible.
+    fn reduce(
+        &self,
+        options: &Self::Options,
+        node: &dyn ReduceNode,
+        ctx: &dyn ReduceCtx,
+    ) -> VortexResult<Option<ReduceNodeRef>> {
+        _ = options;
+        _ = node;
+        _ = ctx;
+        Ok(None)
+    }
+
     /// Simplify the expression if possible.
     fn simplify(
         &self,
@@ -159,16 +177,16 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// An expression is null-sensitive if it directly operates on null values,
     /// such as `is_null`. Most expressions are not null-sensitive.
     ///
-    /// The property we are interested in is if the expression (e) distributes over
-    /// mask.
+    /// The property we are interested in is if the expression (e) distributes over `mask`.
     /// Define a `mask(a, m)` expression that applies the boolean array `m` to the validity of the
     /// array `a`.
-    /// An unary expression `e` to be null-sensitive iff forall arrays `a` and masks `m`.
+    ///
+    /// A unary expression `e` is not null-sensitive iff forall arrays `a` and masks `m`,
     /// `e(mask(a, m)) == mask(e(a), m)`.
+    ///
     /// This can be extended to an n-ary expression.
     ///
-    /// This method only checks the expression itself, not its children. To check
-    /// if an expression or any of its descendants are null-sensitive.
+    /// This method only checks the expression itself, not its children.
     fn is_null_sensitive(&self, options: &Self::Options) -> bool {
         _ = options;
         true
@@ -184,6 +202,41 @@ pub trait VTable: 'static + Sized + Send + Sync {
     fn is_fallible(&self, options: &Self::Options) -> bool {
         _ = options;
         true
+    }
+}
+
+/// Arguments for reduction rules.
+pub trait ReduceCtx {
+    /// Create a new reduction node from the given scalar function and children.
+    fn new_node(
+        &self,
+        scalar_fn: ScalarFn,
+        children: &[ReduceNodeRef],
+    ) -> VortexResult<ReduceNodeRef>;
+}
+
+pub type ReduceNodeRef = Arc<dyn ReduceNode>;
+
+/// A node used for implementing abstract reduction rules.
+pub trait ReduceNode {
+    /// Downcast to Any.
+    fn as_any(&self) -> &dyn Any;
+
+    /// Return the data type of this node.
+    fn node_dtype(&self) -> VortexResult<DType>;
+
+    /// Return this node's scalar function if it is indeed a scalar fn.
+    fn scalar_fn(&self) -> Option<&ScalarFn>;
+
+    /// Descend to the child of this handle.
+    fn child(&self, idx: usize) -> ReduceNodeRef;
+
+    /// Returns the number of children of this node.
+    fn child_count(&self) -> usize;
+
+    /// Returns the children of this node.
+    fn children(&self) -> Vec<ReduceNodeRef> {
+        (0..self.child_count()).map(|i| self.child(i)).collect()
     }
 }
 
@@ -315,6 +368,12 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     fn simplify_untyped(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
     fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<Datum>;
     fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef>;
+    fn reduce(
+        &self,
+        options: &dyn Any,
+        node: &dyn ReduceNode,
+        ctx: &dyn ReduceCtx,
+    ) -> VortexResult<Option<ReduceNodeRef>>;
 
     fn arity(&self, options: &dyn Any) -> Arity;
     fn child_name(&self, options: &dyn Any, child_idx: usize) -> ChildName;
@@ -456,6 +515,15 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
             expression,
             scope,
         )
+    }
+
+    fn reduce(
+        &self,
+        options: &dyn Any,
+        node: &dyn ReduceNode,
+        ctx: &dyn ReduceCtx,
+    ) -> VortexResult<Option<ReduceNodeRef>> {
+        V::reduce(&self.0, downcast::<V>(options), node, ctx)
     }
 
     fn arity(&self, options: &dyn Any) -> Arity {

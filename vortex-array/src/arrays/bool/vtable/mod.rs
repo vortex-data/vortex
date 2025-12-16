@@ -7,13 +7,15 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_vector::bool::BoolVector;
 
+use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::BoolArray;
-use crate::kernel::BindCtx;
+use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -25,14 +27,14 @@ use crate::vtable::ValidityVTableFromValidityHelper;
 mod array;
 mod canonical;
 mod operations;
-pub mod operator;
+pub mod rules;
 mod validity;
 mod visitor;
 
-pub use operator::BoolMaskedValidityRule;
+pub use rules::BoolMaskedValidityRule;
+use vortex_vector::Vector;
 
-use crate::kernel::KernelRef;
-use crate::kernel::ready;
+use crate::arrays::bool::vtable::rules::RULES;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
 
@@ -110,10 +112,32 @@ impl VTable for BoolVTable {
         BoolArray::try_new(bits, validity)
     }
 
-    fn bind_kernel(array: &Self::Array, _ctx: &mut BindCtx) -> VortexResult<KernelRef> {
-        Ok(ready(
-            BoolVector::new(array.bit_buffer().clone(), array.validity_mask()).into(),
-        ))
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() <= 1,
+            "BoolArray can have at most 1 child (validity), got {}",
+            children.len()
+        );
+
+        array.validity = if children.is_empty() {
+            Validity::from(array.dtype().nullability())
+        } else {
+            Validity::Array(children.into_iter().next().vortex_expect("checked"))
+        };
+
+        Ok(())
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        Ok(BoolVector::new(array.bit_buffer().clone(), array.validity_mask()).into())
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
     }
 }
 

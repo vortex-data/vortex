@@ -344,6 +344,10 @@ impl StructArray {
         Ok(unsafe { Self::new_unchecked(fields, dtype, length, validity) })
     }
 
+    pub fn into_fields(self) -> Vec<ArrayRef> {
+        self.fields.to_vec()
+    }
+
     pub fn from_fields<N: AsRef<str>>(items: &[(N, ArrayRef)]) -> VortexResult<Self> {
         Self::try_from_iter(items.iter().map(|(a, b)| (a, b.to_array())))
     }

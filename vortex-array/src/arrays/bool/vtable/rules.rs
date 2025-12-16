@@ -9,9 +9,13 @@ use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
 use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
+use crate::matchers::Exact;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::Exact;
+use crate::optimizer::rules::ParentRuleSet;
 use crate::vtable::ValidityHelper;
+
+pub(super) const RULES: ParentRuleSet<BoolVTable> =
+    ParentRuleSet::new(&[ParentRuleSet::lift(&BoolMaskedValidityRule)]);
 
 /// Rule to push down validity masking from MaskedArray parent into BoolArray child.
 ///
@@ -20,10 +24,8 @@ use crate::vtable::ValidityHelper;
 #[derive(Default, Debug)]
 pub struct BoolMaskedValidityRule;
 
-impl ArrayParentReduceRule<Exact<BoolVTable>, Exact<MaskedVTable>> for BoolMaskedValidityRule {
-    fn child(&self) -> Exact<BoolVTable> {
-        Exact::from(&BoolVTable)
-    }
+impl ArrayParentReduceRule<BoolVTable> for BoolMaskedValidityRule {
+    type Parent = Exact<MaskedVTable>;
 
     fn parent(&self) -> Exact<MaskedVTable> {
         Exact::from(&MaskedVTable)
@@ -33,8 +35,12 @@ impl ArrayParentReduceRule<Exact<BoolVTable>, Exact<MaskedVTable>> for BoolMaske
         &self,
         array: &BoolArray,
         parent: &MaskedArray,
-        _child_idx: usize,
+        child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
+        if child_idx > 0 {
+            return Ok(None);
+        }
+
         // Merge the parent's validity mask into the child's validity
         // TODO(joe): make this lazy
         Ok(Some(
