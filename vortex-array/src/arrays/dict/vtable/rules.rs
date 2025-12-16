@@ -14,6 +14,7 @@ use crate::arrays::ConstantVTable;
 use crate::arrays::DictArray;
 use crate::arrays::DictVTable;
 use crate::arrays::ScalarFnArray;
+use crate::builtins::ArrayBuiltins;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
@@ -94,10 +95,19 @@ impl ArrayParentReduceRule<DictVTable> for DictionaryScalarFnValuesPushDownRule 
                 .into_array()
                 .optimize()?;
 
-        let new_dict =
-            unsafe { DictArray::new_unchecked(array.codes().clone(), new_values) }.into_array();
+        // We can only push down null-sensitive functions when we have all-valid codes.
+        // In these cases, we cannot have the codes influence the nullability of the output DType.
+        // Therefore, we cast the codes to be non-nullable and then cast the dictionary output
+        // back to nullable if needed.
+        if sig.is_null_sensitive() && array.codes().dtype().is_nullable() {
+            let new_codes = array.codes().cast(array.codes().dtype().as_nonnullable())?;
+            let new_dict = unsafe { DictArray::new_unchecked(new_codes, new_values) }.into_array();
+            return Ok(Some(new_dict.cast(parent.dtype().clone())?));
+        }
 
-        Ok(Some(new_dict))
+        Ok(Some(
+            unsafe { DictArray::new_unchecked(array.codes().clone(), new_values) }.into_array(),
+        ))
     }
 }
 
@@ -117,13 +127,27 @@ impl ArrayParentReduceRule<DictVTable> for DictionaryScalarFnCodesPullUpRule {
         parent: &ScalarFnArray,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Check that all siblings are dictionaries with the same codes as us.
+        // Don't attempt to pull up if there are less than 2 siblings.
+        if parent.children().len() < 2 {
+            return Ok(None);
+        }
+
+        // Check that all siblings are dictionaries, and have the same number of values as us.
+        // This is a cheap first loop.
         if !parent.children().iter().enumerate().all(|(idx, c)| {
             idx == child_idx
-                || c.as_opt::<DictVTable>().is_some_and(|c| {
-                    c.values().len() == array.values().len()
-                        && c.codes().array_eq(array.codes(), Precision::Value)
-                })
+                || c.as_opt::<DictVTable>()
+                    .is_some_and(|c| c.values().len() == array.values().len())
+        }) {
+            return Ok(None);
+        }
+
+        // Now run the slightly more expensive check that all siblings have the same codes as us.
+        // We use the cheaper Precision::Ptr to avoid doing data comparisons.
+        if !parent.children().iter().enumerate().all(|(idx, c)| {
+            idx == child_idx
+                || c.as_opt::<DictVTable>()
+                    .is_some_and(|c| c.codes().array_eq(array.codes(), Precision::Value))
         }) {
             return Ok(None);
         }

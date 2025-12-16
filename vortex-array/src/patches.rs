@@ -15,8 +15,10 @@ use vortex_dtype::IntegerPType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::PType;
+use vortex_dtype::PTypeDowncastExt;
 use vortex_dtype::UnsignedPType;
 use vortex_dtype::match_each_integer_ptype;
+use vortex_dtype::match_each_native_ptype;
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
@@ -31,6 +33,7 @@ use vortex_scalar::PValue;
 use vortex_scalar::Scalar;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_vector::primitive::PVectorMut;
+use vortex_vector::primitive::PrimitiveVectorMut;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -821,6 +824,13 @@ impl Patches {
             chunk_offsets: None,
             offset_within_chunk: self.offset_within_chunk,
         }))
+    }
+
+    /// Applies patches to a primitive vector, returning the patched vector.
+    pub fn apply_to_primitive_vector(&self, vector: PrimitiveVectorMut) -> PrimitiveVectorMut {
+        match_each_native_ptype!(vector.ptype(), |T| {
+            self.apply_to_pvector(vector.downcast::<T>()).into()
+        })
     }
 
     /// Applies patches to a [`PVectorMut<T>`], returning the patched vector.
