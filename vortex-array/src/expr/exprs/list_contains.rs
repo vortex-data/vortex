@@ -199,6 +199,10 @@ impl VTable for ListContains {
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
         true
     }
+
+    fn is_fallible(&self, _options: &Self::Options) -> bool {
+        false
+    }
 }
 
 /// Creates an expression that checks if a value is contained in a list.

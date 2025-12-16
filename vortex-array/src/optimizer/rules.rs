@@ -38,7 +38,7 @@ pub trait ArrayParentReduceRule<V: VTable>: Debug + Send + Sync + 'static {
     /// - `Err(e)` if an error occurred
     fn reduce_parent(
         &self,
-        child: &V::Array,
+        array: &V::Array,
         parent: <Self::Parent as Matcher>::View<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>>;

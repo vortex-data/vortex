@@ -15,6 +15,7 @@ use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
+use vortex_array::VectorExecutor;
 use vortex_array::arrays::DictArray;
 use vortex_array::compute::MinMaxResult;
 use vortex_array::compute::min_max;
@@ -22,6 +23,8 @@ use vortex_array::compute::take;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
 use vortex_array::mask::MaskExecutor;
+use vortex_array::optimizer::ArrayOptimizer;
+use vortex_array::vectors::VectorIntoArray;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexError;
@@ -107,13 +110,16 @@ impl DictReader {
     }
 
     fn values_eval(&self, expr: Expression) -> SharedArrayFuture {
+        let session = self.session.clone();
         self.values_evals
             .entry(expr.clone())
             .or_insert_with(|| {
                 self.values_array()
                     .map(move |array| {
                         if *USE_VORTEX_OPERATORS {
-                            array?.apply(&expr).map_err(Arc::new)
+                            let array = array?.apply(&expr)?;
+                            // We execute the array to avoid re-evaluating for every split.
+                            Ok(array.execute_vector(&session)?.into_array(array.dtype()))
                         } else {
                             expr.evaluate(&array?).map_err(Arc::new)
                         }
@@ -245,7 +251,8 @@ impl LayoutReader for DictReader {
                 DictArray::new_unchecked(codes, values)
                     .set_all_values_referenced(all_values_referenced)
             }
-            .to_array();
+            .to_array()
+            .optimize()?;
 
             if *USE_VORTEX_OPERATORS {
                 array.apply(&expr)

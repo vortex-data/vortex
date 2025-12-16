@@ -140,20 +140,16 @@ impl VTable for ScalarFnVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        let datums: Vec<_> = array
-            .children()
-            .iter()
-            .map(|child| match child.as_opt::<ConstantVTable>() {
-                None => child.execute(ctx).map(Datum::Vector),
-                Some(constant) => Ok(Datum::Scalar(constant.scalar().to_vector_scalar())),
-            })
-            .try_collect()?;
-
-        let input_dtypes: Vec<_> = array
-            .children()
-            .iter()
-            .map(|child| child.dtype().clone())
-            .collect();
+        // NOTE: we don't use iterators here to make the profiles easier to read!
+        let mut datums = Vec::with_capacity(array.children.len());
+        let mut input_dtypes = Vec::with_capacity(array.children.len());
+        for child in array.children.iter() {
+            match child.as_opt::<ConstantVTable>() {
+                None => datums.push(child.execute(ctx).map(Datum::Vector)?),
+                Some(constant) => datums.push(Datum::Scalar(constant.scalar().to_vector_scalar())),
+            }
+            input_dtypes.push(child.dtype().clone());
+        }
 
         let args = ExecutionArgs {
             datums,

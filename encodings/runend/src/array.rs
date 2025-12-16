@@ -283,6 +283,10 @@ impl RunEndArray {
             ends.scalar_at(ends.len() - 1).as_ref().try_into()?
         };
 
+        if values.len() == 1 {
+            vortex_panic!("RunEndArray CONSTANT");
+        }
+
         Self::try_new_offset_length(ends, values, 0, length)
     }
 
@@ -296,6 +300,10 @@ impl RunEndArray {
         length: usize,
     ) -> VortexResult<Self> {
         Self::validate(&ends, &values, offset, length)?;
+
+        if values.len() == 1 {
+            vortex_panic!("RunEndArray CONSTANT");
+        }
 
         Ok(Self {
             ends,
@@ -320,6 +328,9 @@ impl RunEndArray {
         offset: usize,
         length: usize,
     ) -> Self {
+        if values.len() == 1 {
+            vortex_panic!("RunEndArray CONSTANT");
+        }
         Self {
             ends,
             values,

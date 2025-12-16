@@ -19,6 +19,7 @@ use crate::DeserializeMetadata;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::VectorExecutor;
+use crate::arrays::vtable::rules::PARENT_RULES;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::vtable;
@@ -32,6 +33,7 @@ mod array;
 mod canonical;
 mod encode;
 mod operations;
+mod rules;
 mod validity;
 mod visitor;
 
@@ -133,5 +135,13 @@ impl VTable for DictVTable {
         let values = array.values().execute(ctx)?;
         let codes = array.codes().execute(ctx)?.into_primitive();
         Ok(values.take(&codes))
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }
