@@ -444,12 +444,7 @@ fn byte_range_to_row_range(byte_range: Range<u64>, row_count: u64, total_size: u
 fn get_selection_from_extensions(
     extensions: Option<Arc<dyn std::any::Any + Send + Sync>>,
 ) -> Option<Selection> {
-    if let Some(extensions) = extensions
-        && let Some(selection) = extensions.downcast_ref::<Selection>()
-    {
-        return Some(selection.clone());
-    }
-    None
+    extensions?.downcast_ref::<Selection>().cloned()
 }
 
 #[cfg(test)]
@@ -487,6 +482,30 @@ mod tests {
     use super::*;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
+
+    fn make_test_opener(
+        object_store: Arc<dyn ObjectStore>,
+        schema: SchemaRef,
+        projection: Option<Arc<[usize]>>,
+    ) -> VortexOpener {
+        VortexOpener {
+            session: SESSION.clone(),
+            object_store,
+            projection,
+            filter: None,
+            file_pruning_predicate: None,
+            expr_adapter_factory: Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _),
+            schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
+            partition_fields: vec![],
+            file_cache: VortexFileCache::new(1, 1, SESSION.clone()),
+            logical_schema: schema,
+            batch_size: 100,
+            limit: None,
+            metrics: Default::default(),
+            layout_readers: Default::default(),
+            has_output_ordering: false,
+        }
+    }
 
     #[rstest]
     #[case(0..100, 100, 100, 0..100)]
@@ -991,23 +1010,11 @@ mod tests {
             vec![1, 3, 5, 7],
         ))));
 
-        let opener = VortexOpener {
-            session: SESSION.clone(),
-            object_store: object_store.clone(),
-            projection: Some(vec![0, 1].into()),
-            filter: None,
-            file_pruning_predicate: None,
-            expr_adapter_factory: Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _),
-            schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
-            partition_fields: vec![],
-            file_cache: VortexFileCache::new(1, 1, SESSION.clone()),
-            logical_schema: table_schema.clone(),
-            batch_size: 100,
-            limit: None,
-            metrics: Default::default(),
-            layout_readers: Default::default(),
-            has_output_ordering: false,
-        };
+        let opener = make_test_opener(
+            object_store.clone(),
+            table_schema.clone(),
+            Some(vec![0, 1].into()),
+        );
 
         let stream = opener.open(file_meta, file)?.await?;
         let data = stream.try_collect::<Vec<_>>().await?;
@@ -1047,23 +1054,11 @@ mod tests {
             vec![0, 2, 4, 6, 8],
         ))));
 
-        let opener = VortexOpener {
-            session: SESSION.clone(),
-            object_store: object_store.clone(),
-            projection: Some(vec![0, 1].into()),
-            filter: None,
-            file_pruning_predicate: None,
-            expr_adapter_factory: Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _),
-            schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
-            partition_fields: vec![],
-            file_cache: VortexFileCache::new(1, 1, SESSION.clone()),
-            logical_schema: table_schema.clone(),
-            batch_size: 100,
-            limit: None,
-            metrics: Default::default(),
-            layout_readers: Default::default(),
-            has_output_ordering: false,
-        };
+        let opener = make_test_opener(
+            object_store.clone(),
+            table_schema.clone(),
+            Some(vec![0, 1].into()),
+        );
 
         let stream = opener.open(file_meta, file)?.await?;
         let data = stream.try_collect::<Vec<_>>().await?;
@@ -1100,23 +1095,11 @@ mod tests {
         let mut file = PartitionedFile::new(file_path.to_string(), data_size);
         file.extensions = Some(Arc::new(Selection::All));
 
-        let opener = VortexOpener {
-            session: SESSION.clone(),
-            object_store: object_store.clone(),
-            projection: Some(vec![0].into()),
-            filter: None,
-            file_pruning_predicate: None,
-            expr_adapter_factory: Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _),
-            schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
-            partition_fields: vec![],
-            file_cache: VortexFileCache::new(1, 1, SESSION.clone()),
-            logical_schema: table_schema.clone(),
-            batch_size: 100,
-            limit: None,
-            metrics: Default::default(),
-            layout_readers: Default::default(),
-            has_output_ordering: false,
-        };
+        let opener = make_test_opener(
+            object_store.clone(),
+            table_schema.clone(),
+            Some(vec![0].into()),
+        );
 
         let stream = opener.open(file_meta, file)?.await?;
         let data = stream.try_collect::<Vec<_>>().await?;
@@ -1142,23 +1125,11 @@ mod tests {
         let file = PartitionedFile::new(file_path.to_string(), data_size);
         // file.extensions is None by default
 
-        let opener = VortexOpener {
-            session: SESSION.clone(),
-            object_store: object_store.clone(),
-            projection: Some(vec![0].into()),
-            filter: None,
-            file_pruning_predicate: None,
-            expr_adapter_factory: Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _),
-            schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
-            partition_fields: vec![],
-            file_cache: VortexFileCache::new(1, 1, SESSION.clone()),
-            logical_schema: table_schema.clone(),
-            batch_size: 100,
-            limit: None,
-            metrics: Default::default(),
-            layout_readers: Default::default(),
-            has_output_ordering: false,
-        };
+        let opener = make_test_opener(
+            object_store.clone(),
+            table_schema.clone(),
+            Some(vec![0].into()),
+        );
 
         let stream = opener.open(file_meta, file)?.await?;
         let data = stream.try_collect::<Vec<_>>().await?;
