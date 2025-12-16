@@ -28,7 +28,6 @@ use vortex::array::Array;
 use vortex::array::ArrayRef;
 use vortex::array::ToCanonical;
 use vortex::array::VectorExecutor;
-use vortex::array::arrays::ScalarFnArray;
 use vortex::array::arrays::ScalarFnVTable;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::StructVTable;
