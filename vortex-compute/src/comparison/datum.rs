@@ -6,7 +6,10 @@ use vortex_vector::BoolDatum;
 use vortex_vector::Datum;
 use vortex_vector::DecimalDatum;
 use vortex_vector::PrimitiveDatum;
+use vortex_vector::ScalarOps;
 use vortex_vector::TypedDatum;
+use vortex_vector::VectorMutOps;
+use vortex_vector::VectorOps;
 use vortex_vector::binaryview::BinaryType;
 use vortex_vector::binaryview::BinaryViewScalar;
 use vortex_vector::binaryview::BinaryViewType;
@@ -53,8 +56,17 @@ where
     fn compare(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
             (BoolDatum::Scalar(sc1), BoolDatum::Scalar(sc2)) => BoolDatum::Scalar(sc1.compare(sc2)),
-            (BoolDatum::Vector(sc1), BoolDatum::Vector(sc2)) => BoolDatum::Vector(sc1.compare(sc2)),
-            _ => unreachable!(""),
+            (BoolDatum::Vector(vec), BoolDatum::Scalar(sc)) => {
+                let repeated: BoolVector = sc.repeat(vec.len()).into_bool().freeze();
+                BoolDatum::Vector(vec.compare(repeated))
+            }
+            (BoolDatum::Scalar(sc), BoolDatum::Vector(vec)) => {
+                let repeated: BoolVector = sc.repeat(vec.len()).into_bool().freeze();
+                BoolDatum::Vector(repeated.compare(vec))
+            }
+            (BoolDatum::Vector(vec1), BoolDatum::Vector(vec2)) => {
+                BoolDatum::Vector(vec1.compare(vec2))
+            }
         }
     }
 }
@@ -71,10 +83,17 @@ where
             (PrimitiveDatum::Scalar(sc1), PrimitiveDatum::Scalar(sc2)) => {
                 BoolDatum::Scalar(sc1.compare(sc2))
             }
-            (PrimitiveDatum::Vector(sc1), PrimitiveDatum::Vector(sc2)) => {
-                BoolDatum::Vector(sc1.compare(sc2))
+            (PrimitiveDatum::Vector(vec), PrimitiveDatum::Scalar(sc)) => {
+                let repeated: PrimitiveVector = sc.repeat(vec.len()).into_primitive().freeze();
+                BoolDatum::Vector(vec.compare(repeated))
             }
-            _ => unreachable!(""),
+            (PrimitiveDatum::Scalar(sc), PrimitiveDatum::Vector(vec)) => {
+                let repeated: PrimitiveVector = sc.repeat(vec.len()).into_primitive().freeze();
+                BoolDatum::Vector(repeated.compare(vec))
+            }
+            (PrimitiveDatum::Vector(vec1), PrimitiveDatum::Vector(vec2)) => {
+                BoolDatum::Vector(vec1.compare(vec2))
+            }
         }
     }
 }
@@ -91,10 +110,17 @@ where
             (DecimalDatum::Scalar(sc1), DecimalDatum::Scalar(sc2)) => {
                 BoolDatum::Scalar(sc1.compare(sc2))
             }
-            (DecimalDatum::Vector(sc1), DecimalDatum::Vector(sc2)) => {
-                BoolDatum::Vector(sc1.compare(sc2))
+            (DecimalDatum::Vector(vec), DecimalDatum::Scalar(sc)) => {
+                let repeated = sc.repeat(vec.len()).into_decimal().freeze();
+                BoolDatum::Vector(vec.compare(repeated))
             }
-            _ => unreachable!(""),
+            (DecimalDatum::Scalar(sc), DecimalDatum::Vector(vec)) => {
+                let repeated = sc.repeat(vec.len()).into_decimal().freeze();
+                BoolDatum::Vector(repeated.compare(vec))
+            }
+            (DecimalDatum::Vector(vec1), DecimalDatum::Vector(vec2)) => {
+                BoolDatum::Vector(vec1.compare(vec2))
+            }
         }
     }
 }
@@ -112,10 +138,17 @@ where
             (BinaryViewDatum::Scalar(sc1), BinaryViewDatum::Scalar(sc2)) => {
                 BoolDatum::Scalar(sc1.compare(sc2))
             }
-            (BinaryViewDatum::Vector(sc1), BinaryViewDatum::Vector(sc2)) => {
-                BoolDatum::Vector(sc1.compare(sc2))
+            (BinaryViewDatum::Vector(vec), BinaryViewDatum::Scalar(sc)) => {
+                let repeated = T::downcast(sc.repeat(vec.len())).freeze();
+                BoolDatum::Vector(vec.compare(repeated))
             }
-            _ => unreachable!(""),
+            (BinaryViewDatum::Scalar(sc), BinaryViewDatum::Vector(vec)) => {
+                let repeated = T::downcast(sc.repeat(vec.len())).freeze();
+                BoolDatum::Vector(repeated.compare(vec))
+            }
+            (BinaryViewDatum::Vector(vec1), BinaryViewDatum::Vector(vec2)) => {
+                BoolDatum::Vector(vec1.compare(vec2))
+            }
         }
     }
 }
