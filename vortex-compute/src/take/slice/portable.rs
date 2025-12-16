@@ -5,9 +5,9 @@
 
 #![cfg(vortex_nightly)]
 
+use std::mem::MaybeUninit;
 use std::mem::size_of;
 use std::mem::transmute;
-use std::mem::MaybeUninit;
 use std::simd;
 use std::simd::num::SimdUint;
 
@@ -15,11 +15,11 @@ use multiversion::multiversion;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_dtype::match_each_native_simd_ptype;
-use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 use vortex_dtype::UnsignedPType;
+use vortex_dtype::match_each_native_simd_ptype;
+use vortex_dtype::match_each_unsigned_integer_ptype;
 
 /// SIMD types larger than the SIMD register size are beneficial for
 /// performance as this leads to better instruction level parallelism.
