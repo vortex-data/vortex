@@ -319,11 +319,12 @@ impl FSSTArray {
     /// this array.
     ///
     /// This is private to the crate to avoid leaking `fsst-rs` types as part of the public API.
-    pub(crate) fn decompressor(&self) -> Decompressor<'_> {
+    pub fn decompressor(&self) -> Decompressor<'_> {
         Decompressor::new(self.symbols().as_slice(), self.symbol_lengths().as_slice())
     }
 
-    pub(crate) fn compressor(&self) -> &Compressor {
+    /// Retrieves the FSST compressor.
+    pub fn compressor(&self) -> &Compressor {
         self.compressor.as_ref()
     }
 }
