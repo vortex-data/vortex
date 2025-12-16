@@ -37,6 +37,16 @@ use crate::segments::SegmentSource;
 //  actual expression? Perhaps all expressions are given a selection mask to decide for themselves?
 const EXPR_EVAL_THRESHOLD: f64 = 0.2;
 
+/// Below this mask density we will propagate filters one by one. In other words, we filter an
+/// array using a mask prior to running a filter expression, and then have to perform a more
+/// expensive rank intersection on the result. This threshold exists because filtering has a
+/// non-trivial cost, and often that cost outweighs evaluating the filter expression over a few
+/// more rows that are already known to be false.
+///
+/// TODO(ngates): this threshold should really be estimated based on the cost of the filter + the
+///  the cost of the expression itself.
+const FILTER_OF_FILTER_THRESHOLD: f64 = 0.8;
+
 pub struct FlatReader {
     layout: FlatLayout,
     name: Arc<str>,
@@ -147,7 +157,7 @@ impl LayoutReader for FlatReader {
             }
 
             let array_mask = if *USE_VORTEX_OPERATORS {
-                if mask.density() < EXPR_EVAL_THRESHOLD {
+                if mask.density() < FILTER_OF_FILTER_THRESHOLD {
                     // Run only over the pre-filtered rows.
                     let array = array.filter(mask.clone())?;
                     let array = array.apply(&expr)?;
