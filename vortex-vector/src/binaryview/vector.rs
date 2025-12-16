@@ -232,6 +232,8 @@ impl<T: BinaryViewType> BinaryViewVector<T> {
 
     /// Get the `index` item from the vector as a [u8]
     ///
+    /// ## SAFETY
+    ///
     /// This function is unsafe since the validity of the vector is ignored.
     pub unsafe fn get_ref_unchecked(&self, index: usize) -> &[u8] {
         let view = &self.views[index];
