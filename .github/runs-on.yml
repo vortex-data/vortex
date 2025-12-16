@@ -9,3 +9,20 @@ images:
     arch: "arm64"
     name: "vortex-ci-*"
     owner: "375504701696"
+
+pools:
+  # Windows pool - covers UK (8am-6pm GMT) and US-East (8am-6pm EST)
+  # Combined in UK timezone: 8am-11pm (UK 8-6 + NYC 8-6 = UK 8-11pm)
+  # Stopped instances only (~20-30s boot vs 2-3min cold-start)
+  # Cost: ~$5/month (2 × $2.40 EBS storage)
+  windows-x64:
+    runner: family=m7i/cpu=8/image=windows22-full-x64/tag=rust-test-windows
+    timezone: "Europe/London"
+    schedule:
+      - name: working-hours
+        match:
+          day: ["monday", "tuesday", "wednesday", "thursday", "friday"]
+          time: ["08:00", "23:00"]
+        stopped: 2
+      - name: default
+        stopped: 1
