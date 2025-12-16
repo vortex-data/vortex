@@ -823,7 +823,7 @@ impl Patches {
         }))
     }
 
-    /// Applies patches to a [`PVector<T>`], returning the patched vector.
+    /// Applies patches to a [`PVectorMut<T>`], returning the patched vector.
     ///
     /// This function modifies the elements buffer in-place at the positions specified by the patch
     /// indices. It also updates the validity mask to reflect the nullability of patch values.
