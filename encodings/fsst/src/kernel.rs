@@ -13,12 +13,14 @@ use vortex_array::arrays::FilterVTable;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
+use vortex_array::mask::MaskExecutor;
 use vortex_array::matchers::Exact;
+use vortex_array::validity::Validity;
+use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
-use vortex_compute::filter::Filter;
 use vortex_dtype::DType;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::Nullability;
@@ -69,7 +71,13 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
             .into_primitive();
 
         // Extract the filtered validity
-        let validity = array.codes().validity_mask().filter(parent.filter_mask());
+        let validity = match array.codes().validity().filter(parent.filter_mask())? {
+            Validity::NonNullable | Validity::AllValid => {
+                Mask::new_true(parent.filter_mask().true_count())
+            }
+            Validity::AllInvalid => Mask::new_false(parent.filter_mask().true_count()),
+            Validity::Array(a) => a.execute_mask(ctx.session())?,
+        };
 
         // First we unpack the codes VarBinArray to get access to the raw data.
         let codes_data = array.codes().bytes();
