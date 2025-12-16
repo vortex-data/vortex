@@ -3,10 +3,19 @@
 
 use std::fmt::Formatter;
 
-use arrow_ord::cmp;
 use prost::Message;
-use vortex_compute::arrow::IntoArrow;
-use vortex_compute::arrow::IntoVector;
+use vortex_compute::arithmetic::Add as AddOp;
+use vortex_compute::arithmetic::Arithmetic;
+use vortex_compute::arithmetic::Div as DivOp;
+use vortex_compute::arithmetic::Mul as MulOp;
+use vortex_compute::arithmetic::Sub as SubOp;
+use vortex_compute::comparison::Compare;
+use vortex_compute::comparison::Equal;
+use vortex_compute::comparison::GreaterThan;
+use vortex_compute::comparison::GreaterThanOrEqual;
+use vortex_compute::comparison::LessThan;
+use vortex_compute::comparison::LessThanOrEqual;
+use vortex_compute::comparison::NotEqual;
 use vortex_compute::logical::LogicalAndKleene;
 use vortex_compute::logical::LogicalOrKleene;
 use vortex_dtype::DType;
@@ -16,7 +25,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_vector::Datum;
-use vortex_vector::VectorOps;
 
 use crate::ArrayRef;
 use crate::compute;
@@ -136,54 +144,38 @@ impl VTable for Binary {
             .try_into()
             .map_err(|_| vortex_err!("Wrong arg count"))?;
 
-        match op {
+        // Use native Vortex compute operations directly on Datums
+        let result: Datum = match op {
+            // Comparison operations
+            Operator::Eq => Compare::<Equal>::compare(lhs, rhs).into(),
+            Operator::NotEq => Compare::<NotEqual>::compare(lhs, rhs).into(),
+            Operator::Lt => Compare::<LessThan>::compare(lhs, rhs).into(),
+            Operator::Lte => Compare::<LessThanOrEqual>::compare(lhs, rhs).into(),
+            Operator::Gt => Compare::<GreaterThan>::compare(lhs, rhs).into(),
+            Operator::Gte => Compare::<GreaterThanOrEqual>::compare(lhs, rhs).into(),
+
+            // Logical operations
             Operator::And => {
-                return Ok(LogicalAndKleene::and_kleene(&lhs.into_bool(), &rhs.into_bool()).into());
+                LogicalAndKleene::and_kleene(&lhs.into_bool(), &rhs.into_bool()).into()
             }
-            Operator::Or => {
-                return Ok(LogicalOrKleene::or_kleene(&lhs.into_bool(), &rhs.into_bool()).into());
-            }
-            _ => {}
-        }
+            Operator::Or => LogicalOrKleene::or_kleene(&lhs.into_bool(), &rhs.into_bool()).into(),
 
-        let lhs = lhs.into_arrow()?;
-        let rhs = rhs.into_arrow()?;
-
-        let vector = match op {
-            Operator::Eq => cmp::eq(lhs.as_ref(), rhs.as_ref())?.into_vector()?.into(),
-            Operator::NotEq => cmp::neq(lhs.as_ref(), rhs.as_ref())?.into_vector()?.into(),
-            Operator::Gt => cmp::gt(lhs.as_ref(), rhs.as_ref())?.into_vector()?.into(),
-            Operator::Gte => cmp::gt_eq(lhs.as_ref(), rhs.as_ref())?
-                .into_vector()?
-                .into(),
-            Operator::Lt => cmp::lt(lhs.as_ref(), rhs.as_ref())?.into_vector()?.into(),
-            Operator::Lte => cmp::lt_eq(lhs.as_ref(), rhs.as_ref())?
-                .into_vector()?
-                .into(),
-
+            // Arithmetic operations
             Operator::Add => {
-                arrow_arith::numeric::add(lhs.as_ref(), rhs.as_ref())?.into_vector()?
+                Arithmetic::<AddOp, _>::eval(lhs.into_primitive(), rhs.into_primitive()).into()
             }
             Operator::Sub => {
-                arrow_arith::numeric::sub(lhs.as_ref(), rhs.as_ref())?.into_vector()?
+                Arithmetic::<SubOp, _>::eval(lhs.into_primitive(), rhs.into_primitive()).into()
             }
             Operator::Mul => {
-                arrow_arith::numeric::mul(lhs.as_ref(), rhs.as_ref())?.into_vector()?
+                Arithmetic::<MulOp, _>::eval(lhs.into_primitive(), rhs.into_primitive()).into()
             }
             Operator::Div => {
-                arrow_arith::numeric::div(lhs.as_ref(), rhs.as_ref())?.into_vector()?
-            }
-            Operator::And | Operator::Or => {
-                unreachable!("Already dealt with above")
+                Arithmetic::<DivOp, _>::eval(lhs.into_primitive(), rhs.into_primitive()).into()
             }
         };
 
-        // Arrow computed over scalar datums
-        if vector.len() == 1 && args.row_count != 1 {
-            return Ok(Datum::Scalar(vector.scalar_at(0)));
-        }
-
-        Ok(Datum::Vector(vector))
+        Ok(result)
     }
 
     fn stat_falsification(
