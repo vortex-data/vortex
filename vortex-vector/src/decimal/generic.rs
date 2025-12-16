@@ -96,13 +96,17 @@ impl<D: NativeDecimalType> DVector<D> {
             );
         }
 
-        // We assert that each element is within bounds for the given precision/scale.
-        if let Some(invalid) = elements.iter().find(|e| !ps.is_valid(**e)) {
-            vortex_bail!(
-                "One or more elements (e.g. {invalid}) are out of bounds for precision {} and scale {}",
-                ps.precision(),
-                ps.scale(),
-            );
+        // TODO(0ax1): iteration based on mask density via threshold_iter
+
+        // We assert that each non-null element is within bounds for the given precision/scale.
+        for (element, is_valid) in elements.iter().zip(validity.to_bit_buffer().iter()) {
+            if is_valid && !ps.is_valid(*element) {
+                vortex_bail!(
+                    "One or more elements (e.g. {element}) are out of bounds for precision {} and scale {}",
+                    ps.precision(),
+                    ps.scale(),
+                );
+            }
         }
 
         Ok(Self {

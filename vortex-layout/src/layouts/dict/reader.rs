@@ -110,6 +110,10 @@ impl DictReader {
     }
 
     fn values_eval(&self, expr: Expression) -> SharedArrayFuture {
+        // This is unsound since we cannot be sure that all the values are referenced in the query
+        // after applying the filter, so if the expression is fallible this might fail when it
+        // shouldn't.
+        // TODO(joe): fixme
         let session = self.session.clone();
         self.values_evals
             .entry(expr.clone())
@@ -172,7 +176,7 @@ impl LayoutReader for DictReader {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
-        // TODO: fix up expr partitioning with fallible & null sensitive annotations
+        // TODO(joe): fix up expr partitioning with fallible & null sensitive annotations
         let values_eval = self.values_eval(expr.clone());
 
         // We register interest on the entire codes row_range for now, there
