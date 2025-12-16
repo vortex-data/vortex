@@ -275,7 +275,38 @@ mod test {
             .await
             .unwrap();
 
-        let result = reader.read_all().await.unwrap();
-        assert_eq!(result.len(), 10);
+        let result = reader.read_all().await.unwrap().to_primitive();
+        assert_eq!(
+            &[1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            result.as_slice::<i32>()
+        );
+    }
+
+    /// Test with 1-byte chunks to stress-test partial read handling.
+    #[tokio::test]
+    async fn test_async_stream_single_byte_chunks() {
+        let session = ArraySession::default();
+        let array = buffer![42i64, -1, 0, i64::MAX, i64::MIN].into_array();
+        let ipc_buffer = array
+            .to_array_stream()
+            .into_ipc()
+            .collect_to_buffer()
+            .await
+            .unwrap();
+
+        let chunked = ChunkedReader {
+            inner: Cursor::new(ipc_buffer),
+            chunk_size: 1,
+        };
+
+        let reader = AsyncIPCReader::try_new(chunked, session.registry().clone())
+            .await
+            .unwrap();
+
+        let result = reader.read_all().await.unwrap().to_primitive();
+        assert_eq!(
+            &[42i64, -1, 0, i64::MAX, i64::MIN],
+            result.as_slice::<i64>()
+        );
     }
 }
