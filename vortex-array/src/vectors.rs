@@ -38,23 +38,23 @@ use crate::arrays::VarBinViewArray;
 use crate::validity::Validity;
 
 /// Trait for converting vector types into arrays.
-pub trait VectorIntoArray {
+pub trait VectorIntoArray<T> {
     /// Converts the vector into an array of the specified data type.
-    fn into_array(self, dtype: &DType) -> ArrayRef;
+    fn into_array(self, dtype: &DType) -> T;
 }
 
-impl VectorIntoArray for Vector {
+impl VectorIntoArray<ArrayRef> for Vector {
     fn into_array(self, dtype: &DType) -> ArrayRef {
         match dtype {
-            DType::Null => self.into_null().into_array(dtype),
-            DType::Bool(_) => self.into_bool().into_array(dtype),
-            DType::Primitive(..) => self.into_primitive().into_array(dtype),
-            DType::Decimal(..) => self.into_decimal().into_array(dtype),
-            DType::Utf8(_) => self.into_string().into_array(dtype),
-            DType::Binary(_) => self.into_binary().into_array(dtype),
-            DType::List(..) => self.into_list().into_array(dtype),
-            DType::FixedSizeList(..) => self.into_fixed_size_list().into_array(dtype),
-            DType::Struct(..) => self.into_struct().into_array(dtype),
+            DType::Null => self.into_null().into_array(dtype).into_array(),
+            DType::Bool(_) => self.into_bool().into_array(dtype).into_array(),
+            DType::Primitive(..) => self.into_primitive().into_array(dtype).into_array(),
+            DType::Decimal(..) => self.into_decimal().into_array(dtype).into_array(),
+            DType::Utf8(_) => self.into_string().into_array(dtype).into_array(),
+            DType::Binary(_) => self.into_binary().into_array(dtype).into_array(),
+            DType::List(..) => self.into_list().into_array(dtype).into_array(),
+            DType::FixedSizeList(..) => self.into_fixed_size_list().into_array(dtype).into_array(),
+            DType::Struct(..) => self.into_struct().into_array(dtype).into_array(),
             DType::Extension(ext_dtype) => {
                 let storage = self.into_array(ext_dtype.storage_dtype());
                 ExtensionArray::new(ext_dtype.clone(), storage).into_array()
@@ -63,33 +63,32 @@ impl VectorIntoArray for Vector {
     }
 }
 
-impl VectorIntoArray for NullVector {
-    fn into_array(self, dtype: &DType) -> ArrayRef {
+impl VectorIntoArray<NullArray> for NullVector {
+    fn into_array(self, dtype: &DType) -> NullArray {
         assert!(matches!(dtype, DType::Null));
-        NullArray::new(self.len()).into_array()
+        NullArray::new(self.len())
     }
 }
 
-impl VectorIntoArray for BoolVector {
-    fn into_array(self, dtype: &DType) -> ArrayRef {
+impl VectorIntoArray<BoolArray> for BoolVector {
+    fn into_array(self, dtype: &DType) -> BoolArray {
         assert!(matches!(dtype, DType::Bool(_)));
 
         let (bits, validity) = self.into_parts();
         BoolArray::from_bit_buffer(bits, Validity::from_mask(validity, dtype.nullability()))
-            .into_array()
     }
 }
 
-impl VectorIntoArray for PrimitiveVector {
-    fn into_array(self, dtype: &DType) -> ArrayRef {
+impl VectorIntoArray<PrimitiveArray> for PrimitiveVector {
+    fn into_array(self, dtype: &DType) -> PrimitiveArray {
         match_each_native_ptype!(self.ptype(), |T| {
             <T as NativePType>::downcast(self).into_array(dtype)
         })
     }
 }
 
-impl<T: NativePType> VectorIntoArray for PVector<T> {
-    fn into_array(self, dtype: &DType) -> ArrayRef {
+impl<T: NativePType> VectorIntoArray<PrimitiveArray> for PVector<T> {
+    fn into_array(self, dtype: &DType) -> PrimitiveArray {
         assert!(matches!(dtype, DType::Primitive(_, _)));
         assert_eq!(T::PTYPE, dtype.as_ptype());
 
@@ -101,20 +100,19 @@ impl<T: NativePType> VectorIntoArray for PVector<T> {
                 Validity::from_mask(validity, dtype.nullability()),
             )
         }
-        .into_array()
     }
 }
 
-impl VectorIntoArray for DecimalVector {
-    fn into_array(self, dtype: &DType) -> ArrayRef {
+impl VectorIntoArray<DecimalArray> for DecimalVector {
+    fn into_array(self, dtype: &DType) -> DecimalArray {
         match_each_decimal_value_type!(self.decimal_type(), |D| {
             <D as NativeDecimalType>::downcast(self).into_array(dtype)
         })
     }
 }
 
-impl<D: NativeDecimalType> VectorIntoArray for DVector<D> {
-    fn into_array(self, dtype: &DType) -> ArrayRef {
+impl<D: NativeDecimalType> VectorIntoArray<DecimalArray> for DVector<D> {
+    fn into_array(self, dtype: &DType) -> DecimalArray {
         assert!(matches!(dtype, DType::Decimal(_, _)));
 
         let nullability = dtype.nullability();
@@ -133,12 +131,11 @@ impl<D: NativeDecimalType> VectorIntoArray for DVector<D> {
                 Validity::from_mask(validity, nullability),
             )
         }
-        .into_array()
     }
 }
 
-impl<T: BinaryViewType> VectorIntoArray for BinaryViewVector<T> {
-    fn into_array(self, dtype: &DType) -> ArrayRef {
+impl<T: BinaryViewType> VectorIntoArray<VarBinViewArray> for BinaryViewVector<T> {
+    fn into_array(self, dtype: &DType) -> VarBinViewArray {
         assert!(matches!(dtype, DType::Utf8(_)));
 
         let (views, buffers, validity) = self.into_parts();
@@ -155,12 +152,11 @@ impl<T: BinaryViewType> VectorIntoArray for BinaryViewVector<T> {
                 validity,
             )
         }
-        .into_array()
     }
 }
 
-impl VectorIntoArray for ListViewVector {
-    fn into_array(self, dtype: &DType) -> ArrayRef {
+impl VectorIntoArray<ListViewArray> for ListViewVector {
+    fn into_array(self, dtype: &DType) -> ListViewArray {
         assert!(matches!(dtype, DType::List(_, _)));
 
         let (elements, offsets, sizes, validity) = self.into_parts();
@@ -178,12 +174,19 @@ impl VectorIntoArray for ListViewVector {
         let sizes = sizes.into_array(&sizes_dtype);
 
         // SAFETY: vectors maintain all invariants required for array creation
-        unsafe { ListViewArray::new_unchecked(elements, offsets, sizes, validity) }.into_array()
+        unsafe {
+            ListViewArray::new_unchecked(
+                elements,
+                offsets.into_array(),
+                sizes.into_array(),
+                validity,
+            )
+        }
     }
 }
 
-impl VectorIntoArray for FixedSizeListVector {
-    fn into_array(self, dtype: &DType) -> ArrayRef {
+impl VectorIntoArray<FixedSizeListArray> for FixedSizeListVector {
+    fn into_array(self, dtype: &DType) -> FixedSizeListArray {
         assert!(matches!(dtype, DType::FixedSizeList(_, _, _)));
 
         let len = self.len();
@@ -198,12 +201,12 @@ impl VectorIntoArray for FixedSizeListVector {
             .into_array(elements_dtype);
 
         // SAFETY: vectors maintain all invariants required for array creation
-        unsafe { FixedSizeListArray::new_unchecked(elements, size, validity, len) }.into_array()
+        unsafe { FixedSizeListArray::new_unchecked(elements, size, validity, len) }
     }
 }
 
-impl VectorIntoArray for StructVector {
-    fn into_array(self, dtype: &DType) -> ArrayRef {
+impl VectorIntoArray<StructArray> for StructVector {
+    fn into_array(self, dtype: &DType) -> StructArray {
         assert!(matches!(dtype, DType::Struct(_, _)));
 
         let len = self.len();
@@ -222,6 +225,5 @@ impl VectorIntoArray for StructVector {
 
         // SAFETY: vectors maintain all invariants required for array creation
         unsafe { StructArray::new_unchecked(field_arrays, struct_fields.clone(), len, validity) }
-            .into_array()
     }
 }
