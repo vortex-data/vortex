@@ -444,6 +444,33 @@ impl<T> BufferMut<T> {
             Self::copy_from_aligned(self, alignment)
         }
     }
+
+    /// Transmute a `Buffer<T>` into a `Buffer<U>`.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that all possible bit representations of type `T` are valid when
+    /// interpreted as type `U`.
+    /// See [`std::mem::transmute`] for more details.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the type `U` does not have the same size and alignment as `T`.
+    pub unsafe fn transmute<U>(self) -> BufferMut<U> {
+        assert_eq!(size_of::<T>(), size_of::<U>(), "Buffer type size mismatch");
+        assert_eq!(
+            align_of::<T>(),
+            align_of::<U>(),
+            "Buffer type alignment mismatch"
+        );
+
+        BufferMut {
+            bytes: self.bytes,
+            length: self.length,
+            alignment: self.alignment,
+            _marker: std::marker::PhantomData,
+        }
+    }
 }
 
 impl<T> Clone for BufferMut<T> {

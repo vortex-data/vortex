@@ -67,7 +67,7 @@ impl VectorExecutor for ArrayRef {
         }
 
         let mut ctx = ExecutionCtx::new(session.clone());
-        tracing::debug!("Executing array:\n{}", self.display_tree());
+        tracing::debug!("Executing array {}:\n{}", self, self.display_tree());
         Ok(Datum::Vector(self.execute(&mut ctx)?))
     }
 
