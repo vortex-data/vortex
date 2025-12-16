@@ -155,7 +155,7 @@ jobs:
             ### Reproduction
 
             ```bash
-            cargo +nightly fuzz run --sanitizer=none $FUZZ_TARGET $FUZZ_TARGET/$CRASH_FILE
+            cargo +nightly fuzz run -D --sanitizer=none $FUZZ_TARGET $FUZZ_TARGET/$CRASH_FILE -- -rss_limit_mb=0
             ```
 
             ---
@@ -219,12 +219,12 @@ jobs:
             2. Reproduce locally:
             ```bash
             # The artifact contains $FUZZ_TARGET/$CRASH_FILE
-            cargo +nightly fuzz run --sanitizer=none $FUZZ_TARGET $FUZZ_TARGET/$CRASH_FILE
+            cargo +nightly fuzz run -D --sanitizer=none $FUZZ_TARGET $FUZZ_TARGET/$CRASH_FILE -- -rss_limit_mb=0
             ```
 
             3. Get full backtrace:
             ```bash
-            RUST_BACKTRACE=full cargo +nightly fuzz run --sanitizer=none $FUZZ_TARGET $FUZZ_TARGET/$CRASH_FILE
+            RUST_BACKTRACE=full cargo +nightly fuzz run -D --sanitizer=none $FUZZ_TARGET $FUZZ_TARGET/$CRASH_FILE -- -rss_limit_mb=0
             ```
 
             ---
