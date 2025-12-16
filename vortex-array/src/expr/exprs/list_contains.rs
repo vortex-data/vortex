@@ -132,26 +132,25 @@ impl VTable for ListContains {
             (true, true) => {
                 let list = lhs.into_scalar().vortex_expect("scalar").into_list();
                 let needle = rhs.into_scalar().vortex_expect("scalar");
-                // Convert the needle scalar to a single-element vector and reuse
-                // constant_list_scalar_contains
-                let needle_vector = needle.repeat(1).freeze();
-                constant_list_scalar_contains(list, needle_vector)
+                // Convert the needle scalar to a vector with row_count
+                // elements and reuse constant_list_scalar_contains
+                let needle_vector = needle.repeat(args.row_count).freeze();
+                constant_list_scalar_contains(list, needle_vector)?
             }
             (true, false) => constant_list_scalar_contains(
                 lhs.into_scalar().vortex_expect("scalar").into_list(),
                 rhs.into_vector().vortex_expect("vector"),
-            ),
+            )?,
             (false, true) => list_contains_scalar(
                 lhs.unwrap_into_vector(args.row_count).into_list(),
                 rhs.into_scalar().vortex_expect("scalar").into_list(),
-            ),
+            )?,
             (false, false) => {
                 vortex_bail!(
                     "ListContains currently only supports constant needle (RHS) or constant list (LHS)"
                 )
             }
-        }?;
-
+        };
         Ok(Datum::Vector(matches.into()))
     }
 
