@@ -25,9 +25,12 @@ use stream::StreamExt;
 use vortex::array::Array;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
+use vortex::array::VectorExecutor;
 use vortex::array::stream::ArrayStreamExt;
+use vortex::array::vectors::VectorIntoArray;
 use vortex::buffer::Buffer;
 use vortex::file::OpenOptionsSessionExt;
+use vortex::layout::layouts::USE_VORTEX_OPERATORS;
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::SESSION;
@@ -43,7 +46,7 @@ pub async fn take_vortex_tokio(
 }
 
 async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> anyhow::Result<ArrayRef> {
-    Ok(SESSION
+    let array = SESSION
         .open_options()
         .open(reader.as_ref())
         .await?
@@ -51,10 +54,14 @@ async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> anyhow::
         .with_row_indices(indices)
         .into_array_stream()?
         .read_all()
-        .await?
-        // We canonicalize / decompress for equivalence to Arrow's `RecordBatch`es.
-        .to_canonical()
-        .into_array())
+        .await?;
+
+    // We canonicalize / decompress for equivalence to Arrow's `RecordBatch`es.
+    Ok(if *USE_VORTEX_OPERATORS {
+        array.execute_vector(&SESSION)?.into_array(array.dtype())
+    } else {
+        array.to_canonical().into_array()
+    })
 }
 
 pub async fn take_parquet(path: &Path, indices: Buffer<u64>) -> anyhow::Result<RecordBatch> {
