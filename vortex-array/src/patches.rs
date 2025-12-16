@@ -30,8 +30,7 @@ use vortex_mask::MaskMut;
 use vortex_scalar::PValue;
 use vortex_scalar::Scalar;
 use vortex_utils::aliases::hash_map::HashMap;
-use vortex_vector::VectorOps;
-use vortex_vector::primitive::PVector;
+use vortex_vector::primitive::PVectorMut;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -824,6 +823,21 @@ impl Patches {
         }))
     }
 
+    /// Applies patches to a [`PVector<T>`], returning the patched vector.
+    ///
+    /// This function modifies the elements buffer in-place at the positions specified by the patch
+    /// indices. It also updates the validity mask to reflect the nullability of patch values.
+    pub fn apply_to_pvector<T: NativePType>(&self, pvector: PVectorMut<T>) -> PVectorMut<T> {
+        let (mut elements, mut validity) = pvector.into_parts();
+
+        // SAFETY: We maintain the invariant that elements and validity have the same length, and all
+        // patch indices are valid after offset adjustment (guaranteed by `Patches`).
+        unsafe { self.apply_to_buffer(elements.as_mut_slice(), &mut validity) };
+
+        // SAFETY: We have not modified the length of elements or validity.
+        unsafe { PVectorMut::new_unchecked(elements, validity) }
+    }
+
     /// Apply patches to a mutable buffer and validity mask.
     ///
     /// This method applies the patch values to the given buffer at the positions specified by the
@@ -883,20 +897,6 @@ impl Patches {
             offset_within_chunk: self.offset_within_chunk,
         })
     }
-}
-
-/// Applies patches to a [`PVector<T>`], returning the patched vector.
-///
-/// This function modifies the elements buffer in-place at the positions specified by the patch
-/// indices. It also updates the validity mask to reflect the nullability of patch values.
-pub fn patch_pvector<T: NativePType>(pvector: PVector<T>, patches: &Patches) -> PVector<T> {
-    let (mut elements, mut validity) = pvector.into_mut().into_parts();
-
-    // SAFETY: We maintain the invariant that elements and validity have the same length, and all
-    // patch indices are valid after offset adjustment (guaranteed by `Patches`).
-    unsafe { patches.apply_to_buffer(elements.as_mut_slice(), &mut validity) };
-
-    PVector::new(elements.freeze(), validity.freeze())
 }
 
 /// Helper function to apply patches to a buffer.

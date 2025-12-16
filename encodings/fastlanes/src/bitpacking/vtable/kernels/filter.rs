@@ -2,36 +2,37 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::mem::MaybeUninit;
+use std::sync::Arc;
 
 use fastlanes::BitPacking;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::VectorExecutor;
 use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::FilterVTable;
 use vortex_array::kernel::ExecuteParentKernel;
+use vortex_array::kernel::ParentKernelSet;
 use vortex_array::matchers::Exact;
-use vortex_array::patches::patch_pvector;
-use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_compute::filter::Filter;
 use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 use vortex_dtype::UnsignedPType;
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_mask::MaskValues;
 use vortex_vector::Vector;
-use vortex_vector::VectorMut;
 use vortex_vector::VectorMutOps;
 use vortex_vector::primitive::PVector;
+use vortex_vector::primitive::PVectorMut;
 use vortex_vector::primitive::PrimitiveVector;
 
 use crate::BitPackedArray;
 use crate::BitPackedVTable;
-use crate::bitpacking::kernels::UNPACK_CHUNK_THRESHOLD;
-use crate::bitpacking::kernels::chunked_indices;
+use crate::bitpacking::vtable::kernels::UNPACK_CHUNK_THRESHOLD;
+use crate::bitpacking::vtable::kernels::chunked_indices;
+
+pub(crate) const PARENT_KERNELS: ParentKernelSet<BitPackedVTable> =
+    ParentKernelSet::new(&[ParentKernelSet::lift(&BitPackingFilterKernel)]);
 
 /// The threshold over which it is faster to fully unpack the entire [`BitPackedArray`] and then
 /// filter the result than to unpack only specific bitpacked values into the output buffer.
@@ -48,6 +49,7 @@ pub const fn unpack_then_filter_threshold<T>() -> f64 {
     }
 }
 
+/// Kernel to execute filtering directly on a bit-packed array.
 #[derive(Debug)]
 struct BitPackingFilterKernel;
 
@@ -63,50 +65,47 @@ impl ExecuteParentKernel<BitPackedVTable> for BitPackingFilterKernel {
         array: &BitPackedArray,
         parent: &FilterArray,
         _child_idx: usize,
-        ctx: &mut ExecutionCtx,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Vector>> {
-        let selection = parent.filter_mask();
-
-        let true_count = selection.true_count();
-        if true_count == 0 {
-            // Fast-path for an empty mask.
-            return Ok(Some(VectorMut::with_capacity(array.dtype(), 0).freeze()));
-        } else if true_count == selection.len() {
-            // Fast-path for a full mask.
-            return Ok(Some(array.to_array().execute(ctx)?));
-        }
+        let values = match parent.filter_mask() {
+            Mask::AllTrue(_) | Mask::AllFalse(_) => {
+                // No optimization for full or empty mask
+                return Ok(None);
+            }
+            Mask::Values(values) => values,
+        };
 
         match_each_integer_ptype!(array.ptype(), |I| {
             // If the density is high enough, then we would rather decompress the whole array and then apply
             // a filter over decompressing values one by one.
-            if selection.density() > unpack_then_filter_threshold::<I>() {
+            if values.density() > unpack_then_filter_threshold::<I>() {
                 return Ok(None);
             }
         });
 
         let primitive_vector: PrimitiveVector = match array.ptype() {
-            PType::U8 => filter_primitive::<u8>(array, selection)?.into(),
-            PType::U16 => filter_primitive::<u16>(array, selection)?.into(),
-            PType::U32 => filter_primitive::<u32>(array, selection)?.into(),
-            PType::U64 => filter_primitive::<u64>(array, selection)?.into(),
+            PType::U8 => filter_primitive::<u8>(array, values)?.into(),
+            PType::U16 => filter_primitive::<u16>(array, values)?.into(),
+            PType::U32 => filter_primitive::<u32>(array, values)?.into(),
+            PType::U64 => filter_primitive::<u64>(array, values)?.into(),
 
             // Since the fastlanes crate only supports unsigned integers, and since we know that all
             // numbers are going to be non-negative, we can safely "cast" to unsigned and back.
             PType::I8 => {
-                let pvector = filter_primitive::<u8>(array, selection)?;
-                pvector.cast_into::<i8>().into()
+                let pvector = filter_primitive::<u8>(array, values)?;
+                unsafe { pvector.transmute::<i8>() }.into()
             }
             PType::I16 => {
-                let pvector = filter_primitive::<u16>(array, selection)?;
-                pvector.cast_into::<i16>().into()
+                let pvector = filter_primitive::<u16>(array, values)?;
+                unsafe { pvector.transmute::<i16>() }.into()
             }
             PType::I32 => {
-                let pvector = filter_primitive::<u32>(array, selection)?;
-                pvector.cast_into::<i32>().into()
+                let pvector = filter_primitive::<u32>(array, values)?;
+                unsafe { pvector.transmute::<i32>() }.into()
             }
             PType::I64 => {
-                let pvector = filter_primitive::<u64>(array, selection)?;
-                pvector.cast_into::<i64>().into()
+                let pvector = filter_primitive::<u64>(array, values)?;
+                unsafe { pvector.transmute::<i64>() }.into()
             }
             other => {
                 unreachable!("Unsupported ptype {other} for bitpacking, we also checked this above")
@@ -128,16 +127,13 @@ impl ExecuteParentKernel<BitPackedVTable> for BitPackingFilterKernel {
 /// elements is relatively slow.
 fn filter_primitive<U: UnsignedPType + BitPacking>(
     array: &BitPackedArray,
-    selection: &Mask,
+    selection: &Arc<MaskValues>,
 ) -> VortexResult<PVector<U>> {
-    let values = filter_with_indices(
-        array,
-        selection
-            .values()
-            .vortex_expect("AllTrue and AllFalse handled by filter fn")
-            .indices(),
-    );
-    let validity = array.validity_mask().filter(selection);
+    let values = filter_with_indices(array, selection.indices());
+    let validity = array
+        .validity_mask()
+        .filter(&Mask::Values(selection.clone()))
+        .into_mut();
 
     debug_assert_eq!(
         values.len(),
@@ -145,25 +141,25 @@ fn filter_primitive<U: UnsignedPType + BitPacking>(
         "`filter_with_indices` was somehow incorrect"
     );
 
-    let mut pvector = unsafe { PVector::new_unchecked(values, validity) };
+    let mut pvector = unsafe { PVectorMut::new_unchecked(values, validity) };
 
     // TODO(connor): We want a `PatchesArray` or patching compute functions instead of this.
     let patches = array
         .patches()
-        .map(|patches| patches.filter(selection))
+        .map(|patches| patches.filter(&Mask::Values(selection.clone())))
         .transpose()?
         .flatten();
     if let Some(patches) = patches {
-        pvector = patch_pvector(pvector, &patches);
+        pvector = patches.apply_to_pvector(pvector);
     }
 
-    Ok(pvector)
+    Ok(pvector.freeze())
 }
 
 fn filter_with_indices<T: NativePType + BitPacking>(
     array: &BitPackedArray,
     indices: &[usize],
-) -> Buffer<T> {
+) -> BufferMut<T> {
     let offset = array.offset() as usize;
     let bit_width = array.bit_width() as usize;
     let mut values = BufferMut::with_capacity(indices.len());
@@ -209,5 +205,5 @@ fn filter_with_indices<T: NativePType + BitPacking>(
         }
     });
 
-    values.freeze()
+    values
 }

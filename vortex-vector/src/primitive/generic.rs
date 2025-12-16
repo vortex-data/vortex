@@ -50,7 +50,7 @@ impl<T: NativePType + PartialEq> PartialEq for PVector<T> {
 
 impl<T: NativePType + Eq> Eq for PVector<T> {}
 
-impl<T: NativePType> PVector<T> {
+impl<T> PVector<T> {
     /// Creates a new [`PVector<T>`] from the given elements buffer and validity mask.
     ///
     /// # Panics
@@ -157,16 +157,22 @@ impl<T: NativePType> PVector<T> {
         &self.elements
     }
 
-    /// Cast a `PVector<T>` into a `PVector<U>`.
+    /// Transmute a `PVector<T>` into a `PVector<U>`.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that all values of type `T` in this vector are valid as type `U`.
+    /// See [`std::mem::transmute`] for more details.
     ///
     /// # Panics
     ///
     /// Panics if the type `U` does not have the same size and alignment as `T`.
-    pub fn cast_into<U: NativePType>(self) -> PVector<U> {
+    pub unsafe fn transmute<U: NativePType>(self) -> PVector<U> {
         let (buffer, mask) = self.into_parts();
 
-        // This will panic if the types do not align.
-        let buffer = buffer.cast_into::<U>();
+        // SAFETY: same guarantees as this function.
+        let buffer = unsafe { buffer.transmute::<U>() };
+
         PVector::new(buffer, mask)
     }
 }

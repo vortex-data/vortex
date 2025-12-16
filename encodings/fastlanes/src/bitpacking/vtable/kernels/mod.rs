@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod filter;
+pub(crate) mod filter;
 
 /// Assuming the buffer is already allocated (which will happen at most once), then unpacking all
 /// 1024 elements takes ~8.8x as long as unpacking a single element on an M2 Macbook Air.

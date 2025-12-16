@@ -642,6 +642,12 @@ impl MaskValues {
         self.buffer.is_empty()
     }
 
+    /// Returns the density of the mask.
+    #[inline]
+    pub fn density(&self) -> f64 {
+        self.density
+    }
+
     /// Returns the true count of the mask.
     #[inline]
     pub fn true_count(&self) -> usize {
