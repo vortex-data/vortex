@@ -18,6 +18,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
+use vortex_array::ExecutionCtx;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
@@ -46,9 +47,11 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_vector::Vector;
 
 use crate::fsst_compress;
 use crate::fsst_train_compressor;
+use crate::kernel::PARENT_KERNELS;
 
 vtable!(FSST);
 
@@ -177,6 +180,15 @@ impl VTable for FSSTVTable {
         array.uncompressed_lengths = uncompressed_lengths;
 
         Ok(())
+    }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Vector>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 
