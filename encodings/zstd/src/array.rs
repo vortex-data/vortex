@@ -330,6 +330,7 @@ impl ZstdArray {
                 .get(i + 1)
                 .copied()
                 .unwrap_or(value_bytes.len());
+
             let uncompressed = &value_bytes.slice(frame_byte_starts[i]..frame_byte_end);
             let compressed = compressor
                 .compress(uncompressed)
@@ -366,8 +367,12 @@ impl ZstdArray {
         };
 
         let value_bytes = values.byte_buffer();
+        // Align frames to buffer alignment. This is necessary for overaligned buffers.
+        let alignment = *value_bytes.alignment();
+        let step_width = (values_per_frame * byte_width).div_ceil(alignment) * alignment;
+
         let frame_byte_starts = (0..n_values * byte_width)
-            .step_by(values_per_frame * byte_width)
+            .step_by(step_width)
             .collect::<Vec<_>>();
         let Frames {
             dictionary,

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::FilterArray;
@@ -34,8 +35,7 @@ impl ArrayParentReduceRule<FoRVTable> for FoRFilterPushDownRule {
     ) -> VortexResult<Option<ArrayRef>> {
         let new_array = unsafe {
             FoRArray::new_unchecked(
-                FilterArray::new(child.encoded().clone(), parent.filter_mask().clone())
-                    .into_array(),
+                child.encoded.filter(parent.filter_mask().clone())?,
                 child.reference.clone(),
             )
         };

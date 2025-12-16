@@ -125,6 +125,25 @@ impl<T> PVectorMut<T> {
         self.elements.push_n(value, n);
         self.validity.append_n(true, n);
     }
+
+    /// Transmute a `PVectorMut<T>` into a `PVectorMut<U>`.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that all values of type `T` in this vector are valid as type `U`.
+    /// See [`std::mem::transmute`] for more details.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the type `U` does not have the same size and alignment as `T`.
+    pub unsafe fn transmute<U: NativePType>(self) -> PVectorMut<U> {
+        let (buffer, mask) = self.into_parts();
+
+        // SAFETY: same guarantees as this function.
+        let buffer = unsafe { buffer.transmute::<U>() };
+
+        PVectorMut::new(buffer, mask)
+    }
 }
 
 impl<T: NativePType> VectorMutOps for PVectorMut<T> {

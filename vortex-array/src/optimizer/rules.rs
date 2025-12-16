@@ -38,7 +38,7 @@ pub trait ArrayParentReduceRule<V: VTable>: Debug + Send + Sync + 'static {
     /// - `Err(e)` if an error occurred
     fn reduce_parent(
         &self,
-        child: &V::Array,
+        array: &V::Array,
         parent: <Self::Parent as Matcher>::View<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>>;
@@ -153,6 +153,25 @@ impl<V: VTable> ParentRuleSet<V> {
                 continue;
             }
             if let Some(reduced) = rule.reduce_parent(child, parent, child_idx)? {
+                // Debug assertions because these checks are already run elsewhere.
+                #[cfg(debug_assertions)]
+                {
+                    vortex_error::vortex_ensure!(
+                        reduced.len() == parent.len(),
+                        "Reduced array length mismatch from {:?}\nFrom:\n{}\nTo:\n{}",
+                        rule,
+                        parent.display_tree(),
+                        reduced.display_tree()
+                    );
+                    vortex_error::vortex_ensure!(
+                        reduced.dtype() == parent.dtype(),
+                        "Reduced array dtype mismatch from {:?}\nFrom:\n{}\nTo:\n{}",
+                        rule,
+                        parent.display_tree(),
+                        reduced.display_tree()
+                    );
+                }
+
                 return Ok(Some(reduced));
             }
         }

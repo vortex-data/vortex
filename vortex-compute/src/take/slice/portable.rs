@@ -40,7 +40,7 @@ pub fn take_portable<T: NativePType, I: UnsignedPType>(buffer: &[T], indices: &[
         // make.
         let u16_slice: &[u16] =
             unsafe { std::slice::from_raw_parts(buffer.as_ptr() as *const u16, buffer.len()) };
-        return take_with_indices(u16_slice, indices).cast_into::<T>();
+        return unsafe { take_with_indices(u16_slice, indices).transmute::<T>() };
     }
 
     match_each_native_simd_ptype!(T::PTYPE, |TC| {
@@ -50,7 +50,7 @@ pub fn take_portable<T: NativePType, I: UnsignedPType>(buffer: &[T], indices: &[
         // `simd::SimdElement` bound we need to call `take_with_indices`.
         let buffer: &[TC] =
             unsafe { std::slice::from_raw_parts(buffer.as_ptr() as *const TC, buffer.len()) };
-        take_with_indices(buffer, indices).cast_into::<T>()
+        unsafe { take_with_indices(buffer, indices).transmute::<T>() }
     })
 }
 
