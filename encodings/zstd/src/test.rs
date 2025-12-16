@@ -9,6 +9,7 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
+use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
@@ -201,4 +202,17 @@ fn test_sliced_array_children() {
         ZstdArray::from_primitive(&PrimitiveArray::from_option_iter(data), 0, 100).unwrap();
     let sliced = compressed.slice(0..4);
     sliced.children();
+}
+
+/// Tests that each beginning of a frame in ZSTD matches
+/// the buffer alignment when compressing primitive arrays.
+#[test]
+fn test_zstd_frame_start_buffer_alignment() {
+    let data = vec![0u8; 2];
+    let aligned_buffer = Buffer::copy_from_aligned(&data, Alignment::new(8));
+    // u8 array now has a 8-byte alignment.
+    let array = PrimitiveArray::new(aligned_buffer, Validity::NonNullable);
+    let compressed = ZstdArray::from_primitive(&array, 0, 1);
+
+    assert!(compressed.is_ok());
 }
