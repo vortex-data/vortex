@@ -10,6 +10,7 @@ use vortex::array::ToCanonical;
 use vortex::array::VectorExecutor;
 use vortex::array::arrays::ListViewArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::vtable::ValidityHelper;
 use vortex::dtype::IntegerPType;
 use vortex::dtype::PTypeDowncastExt;
 use vortex::dtype::match_each_integer_ptype;
@@ -210,7 +211,7 @@ pub(crate) fn new_vector_exporter(
     let boxed = match_each_integer_ptype!(offsets.ptype(), |O| {
         match_each_integer_ptype!(sizes.ptype(), |S| {
             Box::new(ListVectorExporter {
-                validity: array.validity_mask(),
+                validity: array.validity().to_mask(array.len()),
                 duckdb_elements: shared_elements,
                 offsets: offsets.downcast::<O>(),
                 sizes: sizes.downcast::<O>(),
