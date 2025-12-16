@@ -147,20 +147,20 @@ impl LayoutReader for FlatReader {
             }
 
             let array_mask = if *USE_VORTEX_OPERATORS {
-                // if mask.density() < EXPR_EVAL_THRESHOLD {
-                // Run only over the pre-filtered rows.
-                let array = array.filter(mask.clone())?;
-                let array = array.apply(&expr)?;
-                let array_mask = array.execute_mask(&session)?;
+                if mask.density() < EXPR_EVAL_THRESHOLD {
+                    // Run only over the pre-filtered rows.
+                    let array = array.filter(mask.clone())?;
+                    let array = array.apply(&expr)?;
+                    let array_mask = array.execute_mask(&session)?;
 
-                mask.intersect_by_rank(&array_mask)
-                // } else {
-                //     Run over the full array, with a simpler bitand at the end.
-                // let array = array.apply(&expr)?;
-                // let array_mask = array.execute_mask(&session)?;
-                //
-                // mask.bitand(&array_mask)
-                // }
+                    mask.intersect_by_rank(&array_mask)
+                } else {
+                    // Run over the full array, with a simpler bitand at the end.
+                    let array = array.apply(&expr)?;
+                    let array_mask = array.execute_mask(&session)?;
+
+                    mask.bitand(&array_mask)
+                }
             } else {
                 // TODO(ngates): the mask may actually be dense within a range, as is often the case when
                 //  we have approximate mask results from a zone map. In which case we could look at
