@@ -14,6 +14,7 @@ use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::ConstantVTable;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::mask::MaskExecutor;
 use vortex::array::vectors::VectorIntoArray;
 use vortex::compute;
@@ -190,10 +191,7 @@ pub(crate) fn new_vector_exporter_with_flatten(
     if let Some(constant) = values.as_opt::<ConstantVTable>() {
         return constant::new_exporter_with_mask(
             &ConstantArray::new(constant.scalar().clone(), array.codes().len()),
-            array
-                .codes()
-                .apply(&not(is_null(root())))?
-                .execute_mask(session)?,
+            array.codes().is_null()?.not()?.execute_mask(session)?,
             cache,
         );
     }

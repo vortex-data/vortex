@@ -107,7 +107,7 @@ pub(crate) fn new_vector_exporter(
 
     let mask = array.validity();
 
-    if let Validity::AllInvalid = mask {
+    if matches!(mask, Validity::AllInvalid) {
         return Ok(all_invalid::new_exporter(array.len(), &ltype));
     }
 
