@@ -71,9 +71,9 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnConstantRule {
         let result = match result {
             Datum::Scalar(s) => s,
             Datum::Vector(v) => {
-                tracing::warn!(
+                tracing::info!(
                     "Scalar function {} returned vector from execution over all scalar inputs",
-                    array.scalar_fn
+                    array.scalar_fn,
                 );
                 v.scalar_at(0)
             }

@@ -154,11 +154,12 @@ fn fsst_decode<S: IntegerPType + AsPrimitive<usize> + AsPrimitive<u32>>(
             return (Buffer::empty(), uncompressed.freeze());
         }
         Mask::Values(values) => {
-            for (idx, is_valid) in filter_mask
+            for (filtered_idx, (idx, is_valid)) in filter_mask
                 .indices()
                 .iter()
                 .copied()
                 .zip(values.bit_buffer().iter())
+                .enumerate()
             {
                 if is_valid {
                     let start = codes_offsets[idx] as usize;
@@ -171,19 +172,10 @@ fn fsst_decode<S: IntegerPType + AsPrimitive<usize> + AsPrimitive<u32>>(
                 } else {
                     // We advance the output buffer to make it faster to assemble views below.
                     spare_capacity =
-                        &mut spare_capacity[filtered_uncompressed_lengths[idx].as_()..];
+                        &mut spare_capacity[filtered_uncompressed_lengths[filtered_idx].as_()..];
                 }
             }
         }
-    }
-
-    for &idx in filter_mask.indices() {
-        let start = codes_offsets[idx] as usize;
-        let end = codes_offsets[idx + 1] as usize;
-        let compressed_slice = &codes_data[start..end];
-
-        let uncompressed_len = decompressor.decompress_into(compressed_slice, spare_capacity);
-        spare_capacity = &mut spare_capacity[uncompressed_len..];
     }
 
     unsafe { uncompressed.set_len(total_uncompressed_size) };
