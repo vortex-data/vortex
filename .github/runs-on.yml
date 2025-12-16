@@ -16,7 +16,7 @@ pools:
   # Stopped instances only (~20-30s boot vs 2-3min cold-start)
   # Cost: ~$5/month (2 × $2.40 EBS storage)
   windows-x64:
-    runner: family=m7i/cpu=8/image=windows22-full-x64/tag=rust-test-windows
+    runner: family=m7i/cpu=8/image=windows22-full-x64
     timezone: "Europe/London"
     schedule:
       - name: working-hours
