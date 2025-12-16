@@ -36,6 +36,8 @@ fn download_duckdb_lib_archive() -> Result<PathBuf, Box<dyn std::error::Error>> 
         "x86_64-apple-darwin" => ("osx", "universal"),
         "x86_64-unknown-linux-gnu" => ("linux", "amd64"),
         "aarch64-unknown-linux-gnu" => ("linux", "arm64"),
+        "x86_64-pc-windows-msvc" => ("windows", "amd64"),
+        "aarch64-pc-windows-msvc" => ("windows", "arm64"),
         _ => return Err(format!("Unsupported target: {target}").into()),
     };
 
@@ -71,9 +73,11 @@ fn extract_duckdb_libraries(archive_path: PathBuf) -> Result<PathBuf, Box<dyn st
         .ok_or("Invalid archive path")?
         .to_path_buf();
 
-    // Check if already extracted. The archive for Linux only contains a .so library, macOS only .dylib.
+    // Check if already extracted. The archive for Linux contains
+    // a .so library, macOS .dylib and Windows a .dll file.
     if duckdb_lib_dir.join("libduckdb.dylib").exists()
         || duckdb_lib_dir.join("libduckdb.so").exists()
+        || duckdb_lib_dir.join("duckdb.dll").exists()
     {
         println!("DuckDB libraries already extracted, skipping extraction");
         return Ok(duckdb_lib_dir);
@@ -204,7 +208,7 @@ fn build_duckdb(duckdb_source_root: &Path) -> Result<PathBuf, Box<dyn std::error
     }
     fs::create_dir_all(&duckdb_library_dir)?;
 
-    // Copy .dylib and .so files (macOS and Linux).
+    // Copy .dylib, .so, and .dll files (macOS, Linux, and Windows).
     for entry in fs::read_dir(build_dir.join("src"))? {
         let entry = entry?;
         let path = entry.path();
@@ -233,7 +237,12 @@ fn main() {
     let zip_source_path = download_duckdb_source_archive().unwrap();
     let extracted_source_path = extract_duckdb_source(zip_source_path).unwrap();
     drop(fs::remove_dir_all(&duckdb_repo));
+
+    #[cfg(unix)]
     std::os::unix::fs::symlink(&extracted_source_path, &duckdb_repo).unwrap();
+
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_dir(&extracted_source_path, &duckdb_repo).unwrap();
 
     let library_path =
         // DuckDB debug build is linked in case of `VX_DUCKDB_DEBUG=1`.
@@ -293,6 +302,8 @@ fn main() {
     println!("cargo:rerun-if-env-changed=VX_DUCKDB_SAN");
     println!("cargo:rustc-link-search=native={}", library_path.display());
     println!("cargo:rustc-link-lib=dylib=duckdb");
+
+    #[cfg(unix)]
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", library_path.display());
 
     // Compile our C++ code that exposes additional DuckDB functionality.
