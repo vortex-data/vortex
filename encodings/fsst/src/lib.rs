@@ -15,6 +15,7 @@ mod array;
 mod canonical;
 mod compress;
 mod compute;
+mod kernel;
 mod ops;
 #[cfg(feature = "test-harness")]
 pub mod test_utils;
