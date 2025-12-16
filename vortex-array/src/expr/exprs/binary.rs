@@ -144,23 +144,17 @@ impl VTable for Binary {
             .try_into()
             .map_err(|_| vortex_err!("Wrong arg count"))?;
 
-        // Use native Vortex compute operations directly on Datums
         let result: Datum = match op {
-            // Comparison operations
             Operator::Eq => Compare::<Equal>::compare(lhs, rhs).into(),
             Operator::NotEq => Compare::<NotEqual>::compare(lhs, rhs).into(),
             Operator::Lt => Compare::<LessThan>::compare(lhs, rhs).into(),
             Operator::Lte => Compare::<LessThanOrEqual>::compare(lhs, rhs).into(),
             Operator::Gt => Compare::<GreaterThan>::compare(lhs, rhs).into(),
             Operator::Gte => Compare::<GreaterThanOrEqual>::compare(lhs, rhs).into(),
-
-            // Logical operations
             Operator::And => {
                 LogicalAndKleene::and_kleene(&lhs.into_bool(), &rhs.into_bool()).into()
             }
             Operator::Or => LogicalOrKleene::or_kleene(&lhs.into_bool(), &rhs.into_bool()).into(),
-
-            // Arithmetic operations
             Operator::Add => {
                 Arithmetic::<AddOp, _>::eval(lhs.into_primitive(), rhs.into_primitive()).into()
             }
