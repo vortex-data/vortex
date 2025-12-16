@@ -26,6 +26,16 @@ pub mod buffer {
     pub use vortex_buffer::*;
 }
 
+pub mod compute2 {
+    pub use vortex_compute::*;
+}
+
+pub mod compressor {
+    pub use vortex_btrblocks::BtrBlocksCompressor;
+    #[cfg(feature = "zstd")]
+    pub use vortex_layout::layouts::compact::CompactCompressor;
+}
+
 pub mod dtype {
     pub use vortex_dtype::*;
 }
@@ -82,10 +92,8 @@ pub mod utils {
     pub use vortex_utils::*;
 }
 
-pub mod compressor {
-    pub use vortex_btrblocks::BtrBlocksCompressor;
-    #[cfg(feature = "zstd")]
-    pub use vortex_layout::layouts::compact::CompactCompressor;
+pub mod vector {
+    pub use vortex_vector::*;
 }
 
 pub mod encodings {

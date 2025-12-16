@@ -24,6 +24,7 @@ use crate::expr::IsNull;
 use crate::expr::Mask;
 use crate::expr::Not;
 use crate::expr::VTableExt;
+use crate::optimizer::ArrayOptimizer;
 
 /// A collection of built-in scalar functions that can be applied to expressions or arrays.
 pub trait ExprBuiltins: Sized {
@@ -88,22 +89,29 @@ pub trait ArrayBuiltins: Sized {
 
 impl ArrayBuiltins for ArrayRef {
     fn cast(&self, dtype: DType) -> VortexResult<ArrayRef> {
-        Cast.try_new_array(self.len(), dtype, [self.clone()])
+        Cast.try_new_array(self.len(), dtype, [self.clone()])?
+            .optimize()
     }
 
     fn get_item(&self, field_name: impl Into<FieldName>) -> VortexResult<ArrayRef> {
-        GetItem.try_new_array(self.len(), field_name.into(), [self.clone()])
+        GetItem
+            .try_new_array(self.len(), field_name.into(), [self.clone()])?
+            .optimize()
     }
 
     fn is_null(&self) -> VortexResult<ArrayRef> {
-        IsNull.try_new_array(self.len(), EmptyOptions, [self.clone()])
+        IsNull
+            .try_new_array(self.len(), EmptyOptions, [self.clone()])?
+            .optimize()
     }
 
     fn mask(&self, mask: &ArrayRef) -> VortexResult<ArrayRef> {
-        Mask.try_new_array(self.len(), EmptyOptions, [self.clone(), mask.clone()])
+        Mask.try_new_array(self.len(), EmptyOptions, [self.clone(), mask.clone()])?
+            .optimize()
     }
 
     fn not(&self) -> VortexResult<ArrayRef> {
-        Not.try_new_array(self.len(), EmptyOptions, [self.clone()])
+        Not.try_new_array(self.len(), EmptyOptions, [self.clone()])?
+            .optimize()
     }
 }

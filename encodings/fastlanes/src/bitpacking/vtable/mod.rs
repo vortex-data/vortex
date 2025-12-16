@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
+use vortex_array::ExecutionCtx;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::kernel::BindCtx;
-use vortex_array::kernel::KernelRef;
-use vortex_array::kernel::kernel;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
@@ -24,15 +23,19 @@ use vortex_dtype::PType;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_vector::Vector;
 use vortex_vector::VectorMutOps;
 
 use crate::BitPackedArray;
 use crate::bitpack_decompress::unpack_to_primitive_vector;
+use crate::bitpacking::vtable::kernels::filter::PARENT_KERNELS;
 
 mod array;
 mod canonical;
 mod encode;
+mod kernels;
 mod operations;
 mod validity;
 mod visitor;
@@ -68,6 +71,75 @@ impl VTable for BitPackedVTable {
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
         BitPackedVTable.as_vtable()
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        // Children: patches (if present): indices, values, chunk_offsets; then validity (if present)
+        let patches_info = array
+            .patches()
+            .map(|p| (p.offset(), p.chunk_offsets().is_some()));
+
+        let mut child_idx = 0;
+        let patches = if let Some((patch_offset, has_chunk_offsets)) = patches_info {
+            let patch_indices = children
+                .get(child_idx)
+                .ok_or_else(|| vortex_err!("Expected patch_indices child at index {}", child_idx))?
+                .clone();
+            child_idx += 1;
+
+            let patch_values = children
+                .get(child_idx)
+                .ok_or_else(|| vortex_err!("Expected patch_values child at index {}", child_idx))?
+                .clone();
+            child_idx += 1;
+
+            let patch_chunk_offsets = if has_chunk_offsets {
+                let offsets = children
+                    .get(child_idx)
+                    .ok_or_else(|| {
+                        vortex_err!("Expected patch_chunk_offsets child at index {}", child_idx)
+                    })?
+                    .clone();
+                child_idx += 1;
+                Some(offsets)
+            } else {
+                None
+            };
+
+            Some(Patches::new(
+                array.len(),
+                patch_offset,
+                patch_indices,
+                patch_values,
+                patch_chunk_offsets,
+            ))
+        } else {
+            None
+        };
+
+        let validity = if child_idx < children.len() {
+            Validity::Array(children[child_idx].clone())
+        } else {
+            Validity::from(array.dtype().nullability())
+        };
+
+        let expected_children = child_idx
+            + if matches!(validity, Validity::Array(_)) {
+                1
+            } else {
+                0
+            };
+        vortex_ensure!(
+            children.len() == expected_children,
+            "Expected {} children, got {}",
+            expected_children,
+            children.len()
+        );
+
+        array.patches = patches;
+        array.validity = validity;
+
+        Ok(())
     }
 
     fn metadata(array: &BitPackedArray) -> VortexResult<Self::Metadata> {
@@ -173,11 +245,17 @@ impl VTable for BitPackedVTable {
         )
     }
 
-    fn bind_kernel(array: &BitPackedArray, _ctx: &mut BindCtx) -> VortexResult<KernelRef> {
-        let array = array.clone();
-        Ok(kernel(move || {
-            Ok(unpack_to_primitive_vector(&array).freeze().into())
-        }))
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        Ok(unpack_to_primitive_vector(array).freeze().into())
+    }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Vector>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 

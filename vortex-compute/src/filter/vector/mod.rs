@@ -30,6 +30,10 @@
 //! the recursive trait bounds (e.g. from [`StructVector`] requiring `Vector: Filter<M>` for its
 //! fields) by manually implementing [`Filter`] for [`Vector`] and [`VectorMut`] for each concrete
 //! mask type in this file.
+//!
+//! [`VectorOps::try_into_mut`]: vortex_vector::VectorOps::try_into_mut
+//! [`VectorMutOps::freeze`]: vortex_vector::VectorMutOps::freeze
+//! [`StructVector`]: vortex_vector::struct_::StructVector
 
 use vortex_buffer::BitView;
 use vortex_mask::Mask;

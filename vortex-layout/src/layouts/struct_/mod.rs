@@ -168,6 +168,24 @@ impl VTable for StructVTable {
             children: children.to_arc(),
         })
     }
+
+    fn with_children(layout: &mut Self::Layout, children: Vec<LayoutRef>) -> VortexResult<()> {
+        let struct_dt = layout
+            .dtype
+            .as_struct_fields_opt()
+            .ok_or_else(|| vortex_err!("Expected struct dtype"))?;
+
+        let expected_children = struct_dt.nfields() + (layout.dtype.is_nullable() as usize);
+        vortex_ensure!(
+            children.len() == expected_children,
+            "StructLayout expects {} children, got {}",
+            expected_children,
+            children.len()
+        );
+
+        layout.children = OwnedLayoutChildren::layout_children(children);
+        Ok(())
+    }
 }
 
 #[derive(Debug)]

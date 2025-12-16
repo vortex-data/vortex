@@ -160,7 +160,7 @@ impl VortexFile {
 
         Ok(if *USE_VORTEX_OPERATORS {
             file_stats
-                .execute_datum_optimized(&self.session)?
+                .execute_datum(&self.session)?
                 .into_scalar()
                 .is_some_and(|s| s.as_bool().value() == Some(true))
         } else {

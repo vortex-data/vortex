@@ -16,6 +16,8 @@ use vortex_dtype::PType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -131,6 +133,22 @@ impl VTable for DictVTable {
             DictLayout::new(values, codes)
                 .set_all_values_referenced(metadata.all_values_referenced.unwrap_or(false))
         })
+    }
+
+    fn with_children(layout: &mut Self::Layout, children: Vec<LayoutRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() == 2,
+            "DictLayout expects exactly 2 children (values, codes), got {}",
+            children.len()
+        );
+        let mut children_iter = children.into_iter();
+        layout.values = children_iter
+            .next()
+            .ok_or_else(|| vortex_err!("Missing values child"))?;
+        layout.codes = children_iter
+            .next()
+            .ok_or_else(|| vortex_err!("Missing codes child"))?;
+        Ok(())
     }
 }
 

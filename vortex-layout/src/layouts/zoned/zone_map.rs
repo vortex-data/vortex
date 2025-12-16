@@ -155,7 +155,7 @@ impl ZoneMap {
             self.array
                 .to_array()
                 .apply(predicate)?
-                .execute_mask_optimized(session)
+                .execute_mask(session)
         } else {
             predicate
                 .evaluate(&self.array.to_array())?

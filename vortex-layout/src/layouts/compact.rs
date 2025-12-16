@@ -221,7 +221,7 @@ mod tests {
         let compressor = CompactCompressor::default();
 
         // Create a struct array containing various types
-        let columns = vec![
+        let columns = [
             // Pco types
             PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0, 4.0, 5.0], Validity::NonNullable),
             PrimitiveArray::new(buffer![10i32, 20, 30, 40, 50], Validity::NonNullable),

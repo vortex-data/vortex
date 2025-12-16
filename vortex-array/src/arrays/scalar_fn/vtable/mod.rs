@@ -13,25 +13,29 @@ use std::ops::Deref;
 use itertools::Itertools;
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_vector::Datum;
+use vortex_vector::Vector;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::VectorExecutor;
 use crate::arrays::ConstantVTable;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
-use crate::arrays::scalar_fn::kernel::KernelInput;
-use crate::arrays::scalar_fn::kernel::ScalarFnKernel;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
+use crate::arrays::scalar_fn::rules::PARENT_RULES;
+use crate::arrays::scalar_fn::rules::RULES;
+use crate::executor::ExecutionCtx;
 use crate::expr;
+use crate::expr::ExecutionArgs;
 use crate::expr::ExprVTable;
 use crate::expr::ScalarFn;
-use crate::kernel::BindCtx;
-use crate::kernel::KernelRef;
-use crate::optimizer::rules::MatchKey;
-use crate::optimizer::rules::Matcher;
+use crate::matchers::MatchKey;
+use crate::matchers::Matcher;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
@@ -124,32 +128,49 @@ impl VTable for ScalarFnVTable {
         })
     }
 
-    fn bind_kernel(array: &Self::Array, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
-        let inputs: Vec<_> = array
-            .children()
-            .iter()
-            .map(|child| match child.as_opt::<ConstantVTable>() {
-                None => child.bind_kernel(ctx).map(KernelInput::Vector),
-                Some(constant) => {
-                    let scalar = constant.scalar().to_vector_scalar();
-                    Ok(KernelInput::Scalar(scalar))
-                }
-            })
-            .try_collect()?;
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() == array.children.len(),
+            "ScalarFnArray expects {} children, got {}",
+            array.children.len(),
+            children.len()
+        );
+        array.children = children;
+        Ok(())
+    }
 
-        let input_dtypes: Vec<_> = array
-            .children()
-            .iter()
-            .map(|child| child.dtype().clone())
-            .collect();
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+        // NOTE: we don't use iterators here to make the profiles easier to read!
+        let mut datums = Vec::with_capacity(array.children.len());
+        let mut input_dtypes = Vec::with_capacity(array.children.len());
+        for child in array.children.iter() {
+            match child.as_opt::<ConstantVTable>() {
+                None => datums.push(child.execute(ctx).map(Datum::Vector)?),
+                Some(constant) => datums.push(Datum::Scalar(constant.scalar().to_vector_scalar())),
+            }
+            input_dtypes.push(child.dtype().clone());
+        }
 
-        Ok(Box::new(ScalarFnKernel {
-            scalar_fn: array.scalar_fn.clone(),
-            inputs,
-            input_dtypes,
-            row_count: array.len(),
-            return_dtype: array.dtype().clone(),
-        }))
+        let args = ExecutionArgs {
+            datums,
+            dtypes: input_dtypes,
+            row_count: array.len,
+            return_dtype: array.dtype.clone(),
+        };
+
+        Ok(array.scalar_fn.execute(args)?.unwrap_into_vector(array.len))
+    }
+
+    fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array)
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }
 
@@ -229,17 +250,25 @@ impl<F: expr::VTable> Matcher for ExactScalarFn<F> {
     }
 
     fn try_match<'a>(&self, array: &'a ArrayRef) -> Option<Self::View<'a>> {
-        let scalar_fn_array = array.as_opt::<ScalarFnVTable>()?;
+        if array.encoding_id() != self.id {
+            return None;
+        }
+
+        let scalar_fn_array = array
+            .as_opt::<ScalarFnVTable>()
+            .vortex_expect("Array encoding ID matched but downcast to ScalarFnVTable failed");
         let scalar_fn_vtable = scalar_fn_array
             .scalar_fn
             .vtable()
             .as_any()
-            .downcast_ref::<F>()?;
+            .downcast_ref::<F>()
+            .vortex_expect("ScalarFn VTable type mismatch in ExactScalarFn matcher");
         let scalar_fn_options = scalar_fn_array
             .scalar_fn
             .options()
             .as_any()
-            .downcast_ref::<F::Options>()?;
+            .downcast_ref::<F::Options>()
+            .vortex_expect("ScalarFn options type mismatch in ExactScalarFn matcher");
         Some(ScalarFnArrayView {
             array,
             vtable: scalar_fn_vtable,

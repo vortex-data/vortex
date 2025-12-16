@@ -12,7 +12,7 @@ use crate::binaryview::BinaryViewVectorMut;
 use crate::binaryview::StringType;
 
 /// A scalar value for types that implement [`BinaryViewType`].
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BinaryViewScalar<T: BinaryViewType>(Option<T::Scalar>);
 
 impl<T: BinaryViewType> BinaryViewScalar<T> {
@@ -23,9 +23,19 @@ impl<T: BinaryViewType> BinaryViewScalar<T> {
 }
 
 impl<T: BinaryViewType> BinaryViewScalar<T> {
-    /// Returns the scalar value as [`BinaryViewType::Scalar`], or `None` if the scalar is null.
+    /// Returns the scalar value as [`BinaryViewType::Scalar`], or [`None`] if the scalar is null.
     pub fn value(&self) -> Option<&T::Scalar> {
         self.0.as_ref()
+    }
+
+    /// Creates a zero (empty) binary view scalar.
+    pub fn zero() -> Self {
+        Self::new(Some(T::empty_scalar()))
+    }
+
+    /// Creates a null binary view scalar.
+    pub fn null() -> Self {
+        Self::new(None)
     }
 }
 

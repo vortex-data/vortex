@@ -21,7 +21,7 @@ use crate::decimal::DecimalVectorMut;
 use crate::match_each_dvector;
 
 /// An enum over all supported decimal mutable vector types.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq)]
 pub enum DecimalVector {
     /// A decimal vector with 8-bit integer representation.
     D8(DVector<i8>),
@@ -35,6 +35,20 @@ pub enum DecimalVector {
     D128(DVector<i128>),
     /// A decimal vector with 256-bit integer representation.
     D256(DVector<i256>),
+}
+
+impl PartialEq for DecimalVector {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (DecimalVector::D8(a), DecimalVector::D8(b)) => a == b,
+            (DecimalVector::D16(a), DecimalVector::D16(b)) => a == b,
+            (DecimalVector::D32(a), DecimalVector::D32(b)) => a == b,
+            (DecimalVector::D64(a), DecimalVector::D64(b)) => a == b,
+            (DecimalVector::D128(a), DecimalVector::D128(b)) => a == b,
+            (DecimalVector::D256(a), DecimalVector::D256(b)) => a == b,
+            _ => false,
+        }
+    }
 }
 
 impl DecimalVector {

@@ -21,7 +21,7 @@ mod tests {
     use vortex_buffer::BitBuffer;
     use vortex_mask::Mask;
 
-    use crate::arrow::compute::to_arrow::null_buffer::to_null_buffer;
+    use crate::arrow::null_buffer::to_null_buffer;
 
     #[test]
     fn test_mask_to_null_buffer() {

@@ -319,6 +319,10 @@ impl ListViewArray {
         .is_ok()
     }
 
+    pub fn into_parts(self) -> (ArrayRef, ArrayRef, ArrayRef, Validity) {
+        (self.elements, self.offsets, self.sizes, self.validity)
+    }
+
     /// Returns the offset at the given index.
     ///
     /// Note that it is possible the corresponding list view is null (which is only defined by the

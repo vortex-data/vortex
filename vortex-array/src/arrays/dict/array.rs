@@ -114,6 +114,10 @@ impl DictArray {
         Ok(unsafe { Self::new_unchecked(codes, values) })
     }
 
+    pub fn into_parts(self) -> (ArrayRef, ArrayRef) {
+        (self.codes, self.values)
+    }
+
     #[inline]
     pub fn codes(&self) -> &ArrayRef {
         &self.codes

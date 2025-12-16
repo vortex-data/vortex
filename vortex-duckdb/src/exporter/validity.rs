@@ -16,7 +16,11 @@ pub(crate) fn new_exporter(
     mask: Mask,
     exporter: Box<dyn ColumnExporter>,
 ) -> Box<dyn ColumnExporter> {
-    Box::new(ValidityExporter { mask, exporter })
+    if mask.all_true() {
+        exporter
+    } else {
+        Box::new(ValidityExporter { mask, exporter })
+    }
 }
 
 impl ColumnExporter for ValidityExporter {

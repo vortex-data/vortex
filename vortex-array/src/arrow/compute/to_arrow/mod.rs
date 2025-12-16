@@ -3,7 +3,6 @@
 
 mod canonical;
 mod list;
-mod null_buffer;
 mod temporal;
 mod varbin;
 
@@ -13,6 +12,7 @@ use std::sync::LazyLock;
 use arcref::ArcRef;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
+use vortex_compute::arrow::IntoArrow;
 use vortex_dtype::DType;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_error::VortexError;
@@ -22,6 +22,9 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::Array;
+use crate::LEGACY_SESSION;
+use crate::USE_VORTEX_OPERATORS;
+use crate::VectorExecutor;
 use crate::arrow::array::ArrowArray;
 use crate::arrow::array::ArrowVTable;
 use crate::compute::ComputeFn;
@@ -125,15 +128,23 @@ impl ComputeFnVTable for ToArrow {
             return Ok(output);
         }
 
-        // Fall back to canonicalizing and then converting.
         if !array.is_canonical() {
-            let canonical_array = array.to_canonical();
-            let arrow_array = to_arrow_opts(
-                canonical_array.as_ref(),
-                &ToArrowOptions {
-                    arrow_type: arrow_type.cloned(),
-                },
-            )?;
+            let arrow_array = if *USE_VORTEX_OPERATORS {
+                array
+                    .to_array()
+                    .execute_vector(&LEGACY_SESSION)?
+                    .into_arrow()?
+            } else {
+                // Fall back to canonicalizing and then converting.
+                let canonical_array = array.to_canonical();
+                to_arrow_opts(
+                    canonical_array.as_ref(),
+                    &ToArrowOptions {
+                        arrow_type: arrow_type.cloned(),
+                    },
+                )?
+            };
+
             return Ok(ArrowArray::new(arrow_array, array.dtype().nullability())
                 .to_array()
                 .into());

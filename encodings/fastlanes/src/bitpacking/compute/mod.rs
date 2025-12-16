@@ -7,6 +7,7 @@ mod filter;
 mod is_constant;
 mod take;
 
+// TODO(connor): This is duplicated in `encodings/fastlanes/src/bitpacking/kernels/mod.rs`.
 fn chunked_indices<F: FnMut(usize, &[usize])>(
     mut indices: impl Iterator<Item = usize>,
     offset: usize,

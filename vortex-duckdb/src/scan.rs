@@ -23,8 +23,10 @@ use futures::stream::SelectAll;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use url::Url;
+use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::ToCanonical;
+use vortex::array::optimizer::ArrayOptimizer;
 use vortex::dtype::FieldNames;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -42,6 +44,8 @@ use vortex::file::VortexFile;
 use vortex::file::VortexOpenOptions;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::ThreadSafeIterator;
+use vortex::layout::layouts::USE_VORTEX_OPERATORS;
+use vortex::session::VortexSession;
 
 use crate::RUNTIME;
 use crate::SESSION;
@@ -102,6 +106,7 @@ impl Debug for VortexBindData {
 pub struct VortexGlobalData {
     iterator: ThreadSafeIterator<VortexResult<(ArrayRef, Arc<ConversionCache>)>>,
     batch_id: AtomicU64,
+    session: VortexSession,
 }
 
 pub struct VortexLocalData {
@@ -324,9 +329,16 @@ impl TableFunction for VortexTableFunction {
 
                 let (array_result, conversion_cache) = result?;
 
+                let array_result = if *USE_VORTEX_OPERATORS {
+                    array_result.optimize_recursive()?
+                } else {
+                    array_result
+                };
+
                 local_state.exporter = Some(ArrayExporter::try_new(
                     &array_result.to_struct(),
                     &conversion_cache,
+                    &global_state.session,
                 )?);
                 // Relaxed since there is no intra-instruction ordering required.
                 local_state.batch_id = Some(global_state.batch_id.fetch_add(1, Ordering::Relaxed));
@@ -363,7 +375,7 @@ impl TableFunction for VortexTableFunction {
             &projection_expr,
             filter_expr
                 .as_ref()
-                .map_or("true".to_string(), |f| f.to_string())
+                .map_or_else(|| "true".to_string(), |f| f.to_string())
         );
 
         // Use the max_threads from bind_data (read from vortex_max_threads setting)
@@ -430,6 +442,8 @@ impl TableFunction for VortexTableFunction {
                 max_concurrency: num_workers * 2,
             }),
             batch_id: AtomicU64::new(0),
+            // TODO(joe): fetch this from somewhere??.
+            session: VortexSession::default(),
         })
     }
 

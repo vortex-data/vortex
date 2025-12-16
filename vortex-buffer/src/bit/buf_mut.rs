@@ -514,7 +514,7 @@ impl BitBufferMut {
         // If we are splitting on a byte boundary, we can just slice the buffer
         // Or if `at > self.len`, then the tail is empty anyway and we can just return as much
         // of the existing capacity as possible.
-        if at > self.len() || ((self.offset + at) % 8 == 0) {
+        if at > self.len() || (self.offset + at).is_multiple_of(8) {
             let tail_buffer = self.buffer.split_off(byte_pos);
             self.len = self.len.min(at);
 
@@ -546,7 +546,7 @@ impl BitBufferMut {
     ///
     /// Otherwise, this method degenerates to self.append_buffer(&other).
     pub fn unsplit(&mut self, other: Self) {
-        if (self.offset + self.len) % 8 == 0 && other.offset == 0 {
+        if (self.offset + self.len).is_multiple_of(8) && other.offset == 0 {
             // We are aligned and can just append the buffers
             self.buffer.unsplit(other.buffer);
             self.len += other.len;

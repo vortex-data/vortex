@@ -3,10 +3,13 @@
 
 //! Iterator implementations for [`BoolVectorMut`].
 
+use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
+use vortex_mask::Mask;
 use vortex_mask::MaskMut;
 
 use crate::VectorMutOps;
+use crate::bool::BoolVector;
 use crate::bool::BoolVectorMut;
 
 impl FromIterator<Option<bool>> for BoolVectorMut {
@@ -76,6 +79,22 @@ impl FromIterator<bool> for BoolVectorMut {
         let validity = MaskMut::new_true(buffer.len());
 
         BoolVectorMut {
+            bits: buffer,
+            validity,
+        }
+    }
+}
+
+impl FromIterator<bool> for BoolVector {
+    /// Creates a new [`BoolVector`] from an iterator of `bool` values.
+    fn from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = bool>,
+    {
+        let buffer = BitBuffer::from_iter(iter);
+        let validity = Mask::new_true(buffer.len());
+
+        BoolVector {
             bits: buffer,
             validity,
         }

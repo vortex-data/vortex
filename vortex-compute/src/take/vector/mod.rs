@@ -13,6 +13,9 @@ use crate::take::Take;
 mod binaryview;
 mod bool;
 mod decimal;
+
+pub use self::bool::default_take;
+pub use self::bool::optimized_take;
 mod dvector;
 mod fixed_size_list;
 mod listview;
@@ -23,6 +26,22 @@ mod struct_;
 
 #[cfg(test)]
 mod tests;
+
+impl<I: UnsignedPType> Take<PVector<I>> for Vector {
+    type Output = Vector;
+
+    fn take(self, indices: &PVector<I>) -> Vector {
+        (&self).take(indices)
+    }
+}
+
+impl<I: UnsignedPType> Take<[I]> for Vector {
+    type Output = Vector;
+
+    fn take(self, indices: &[I]) -> Vector {
+        (&self).take(indices)
+    }
+}
 
 impl<I: UnsignedPType> Take<PVector<I>> for &Vector {
     type Output = Vector;
@@ -51,5 +70,13 @@ where
 
     fn take(self, indices: &PrimitiveVector) -> T {
         match_each_unsigned_pvector!(indices, |iv| { self.take(iv) })
+    }
+}
+
+impl Take<PrimitiveVector> for Vector {
+    type Output = Vector;
+
+    fn take(self, indices: &PrimitiveVector) -> Vector {
+        (&self).take(indices)
     }
 }

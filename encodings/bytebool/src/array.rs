@@ -35,8 +35,10 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferHandle;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
 
@@ -98,6 +100,22 @@ impl VTable for ByteBoolVTable {
         let buffer = buffers[0].clone().try_to_bytes()?;
 
         Ok(ByteBoolArray::new(buffer, validity))
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() <= 1,
+            "ByteBoolArray expects at most 1 child (validity), got {}",
+            children.len()
+        );
+
+        array.validity = if children.is_empty() {
+            Validity::from(array.dtype.nullability())
+        } else {
+            Validity::Array(children.into_iter().next().vortex_expect("checked"))
+        };
+
+        Ok(())
     }
 }
 

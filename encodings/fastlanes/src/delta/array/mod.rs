@@ -55,12 +55,12 @@ pub mod delta_decompress;
 /// Note the validity is stored in the deltas array.
 #[derive(Clone, Debug)]
 pub struct DeltaArray {
-    offset: usize,
-    len: usize,
-    dtype: DType,
-    bases: ArrayRef,
-    deltas: ArrayRef,
-    stats_set: ArrayStats,
+    pub(super) offset: usize,
+    pub(super) len: usize,
+    pub(super) dtype: DType,
+    pub(super) bases: ArrayRef,
+    pub(super) deltas: ArrayRef,
+    pub(super) stats_set: ArrayStats,
 }
 
 impl DeltaArray {
@@ -122,7 +122,7 @@ impl DeltaArray {
 
         let lanes = lane_count(ptype);
 
-        if (deltas.len() % 1024 == 0) != (bases.len() % lanes == 0) {
+        if deltas.len().is_multiple_of(1024) != bases.len().is_multiple_of(lanes) {
             vortex_bail!(
                 "deltas length ({}) is a multiple of 1024 iff bases length ({}) is a multiple of LANES ({})",
                 deltas.len(),

@@ -45,6 +45,7 @@ use vortex_scalar::PValue;
 use crate::compress::runend_decode_bools;
 use crate::compress::runend_decode_primitive;
 use crate::compress::runend_encode;
+use crate::rules::RULES;
 
 vtable!(RunEnd);
 
@@ -117,6 +118,28 @@ impl VTable for RunEndVTable {
             usize::try_from(metadata.offset).vortex_expect("Offset must be a valid usize"),
             len,
         )
+    }
+
+    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        vortex_ensure!(
+            children.len() == 2,
+            "RunEndArray expects 2 children, got {}",
+            children.len()
+        );
+
+        let mut children_iter = children.into_iter();
+        array.ends = children_iter.next().vortex_expect("ends child");
+        array.values = children_iter.next().vortex_expect("values child");
+
+        Ok(())
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
     }
 }
 

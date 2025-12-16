@@ -8,6 +8,7 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::ops::Deref;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -17,8 +18,8 @@ use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -52,10 +53,7 @@ use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
 use crate::hash;
-use crate::kernel::BindCtx;
-use crate::kernel::KernelRef;
-use crate::kernel::ValidateKernel;
-use crate::serde::ArrayChildren;
+use crate::optimizer::ArrayOptimizer;
 use crate::stats::StatsSetRef;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
@@ -73,6 +71,9 @@ pub trait Array:
 {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
+
+    /// Returns the array as an `Arc<dyn Any + Send + Sync>`.
+    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
 
     /// Returns the array as an [`ArrayRef`].
     fn to_array(&self) -> ArrayRef;
@@ -175,7 +176,7 @@ pub trait Array:
     fn statistics(&self) -> StatsSetRef<'_>;
 
     /// Replaces the children of the array with the given array references.
-    fn with_children(&self, children: &[ArrayRef]) -> VortexResult<ArrayRef>;
+    fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
 
     /// Optionally invoke a kernel for the given compute function.
     ///
@@ -195,15 +196,16 @@ pub trait Array:
     /// call.
     fn invoke(&self, compute_fn: &ComputeFn, args: &InvocationArgs)
     -> VortexResult<Option<Output>>;
-
-    /// Invoke the batch execution function for the array to produce a canonical vector.
-    fn bind_kernel(&self, ctx: &mut BindCtx) -> VortexResult<KernelRef>;
 }
 
 impl Array for Arc<dyn Array> {
     #[inline]
     fn as_any(&self) -> &dyn Any {
         self.as_ref().as_any()
+    }
+
+    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
+        self
     }
 
     #[inline]
@@ -296,8 +298,7 @@ impl Array for Arc<dyn Array> {
         self.as_ref().statistics()
     }
 
-    // TODO(ngates): take a Vec<ArrayRef> to avoid clones
-    fn with_children(&self, children: &[ArrayRef]) -> VortexResult<ArrayRef> {
+    fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
         self.as_ref().with_children(children)
     }
 
@@ -307,10 +308,6 @@ impl Array for Arc<dyn Array> {
         args: &InvocationArgs,
     ) -> VortexResult<Option<Output>> {
         self.as_ref().invoke(compute_fn, args)
-    }
-
-    fn bind_kernel(&self, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
-        self.as_ref().bind_kernel(ctx)
     }
 }
 
@@ -336,6 +333,24 @@ impl dyn Array + '_ {
         self.as_any()
             .downcast_ref::<ArrayAdapter<V>>()
             .map(|array_adapter| &array_adapter.0)
+    }
+
+    /// Returns the array downcast to the given `A` as an owned object.
+    pub fn try_into<V: VTable>(self: Arc<Self>) -> Result<V::Array, Arc<Self>> {
+        match self.is::<V>() {
+            true => {
+                let arc = self
+                    .as_any_arc()
+                    .downcast::<ArrayAdapter<V>>()
+                    .map_err(|_| vortex_err!("failed to downcast"))
+                    .vortex_expect("Failed to downcast");
+                Ok(match Arc::try_unwrap(arc) {
+                    Ok(array) => array.0,
+                    Err(arc) => arc.deref().0.clone(),
+                })
+            }
+            false => Err(self),
+        }
     }
 
     /// Is self an array with encoding from vtable `V`.
@@ -413,11 +428,6 @@ impl<V: VTable> ArrayAdapter<V> {
     pub fn as_inner(&self) -> &V::Array {
         &self.0
     }
-
-    /// Unwrap into the inner array type, consuming the adapter.
-    pub fn into_inner(self) -> V::Array {
-        self.0
-    }
 }
 
 impl<V: VTable> Debug for ArrayAdapter<V> {
@@ -428,6 +438,10 @@ impl<V: VTable> Debug for ArrayAdapter<V> {
 
 impl<V: VTable> Array for ArrayAdapter<V> {
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
         self
     }
 
@@ -515,11 +529,15 @@ impl<V: VTable> Array for ArrayAdapter<V> {
 
     fn filter(&self, mask: Mask) -> VortexResult<ArrayRef> {
         vortex_ensure!(self.len() == mask.len(), "Filter mask length mismatch");
-        Ok(FilterArray::new(self.to_array(), mask).into_array())
+        FilterArray::new(self.to_array(), mask)
+            .into_array()
+            .optimize()
     }
 
     fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
-        Ok(DictArray::try_new(indices, self.to_array())?.into_array())
+        DictArray::try_new(indices, self.to_array())?
+            .into_array()
+            .optimize()
     }
 
     fn scalar_at(&self, index: usize) -> Scalar {
@@ -637,42 +655,8 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         <V::ArrayVTable as BaseArrayVTable<V>>::stats(&self.0)
     }
 
-    fn with_children(&self, children: &[ArrayRef]) -> VortexResult<ArrayRef> {
-        struct ReplacementChildren<'a> {
-            children: &'a [ArrayRef],
-        }
-
-        impl ArrayChildren for ReplacementChildren<'_> {
-            fn get(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<ArrayRef> {
-                if index >= self.children.len() {
-                    vortex_bail!(OutOfBounds: index, 0, self.children.len());
-                }
-                let child = &self.children[index];
-                if child.len() != len {
-                    vortex_bail!(
-                        "Child length mismatch: expected {}, got {}",
-                        len,
-                        child.len()
-                    );
-                }
-                if child.dtype() != dtype {
-                    vortex_bail!(
-                        "Child dtype mismatch: expected {}, got {}",
-                        dtype,
-                        child.dtype()
-                    );
-                }
-                Ok(child.clone())
-            }
-
-            fn len(&self) -> usize {
-                self.children.len()
-            }
-        }
-
-        // Replace the children of the array by re-building the array from parts.
-        self.encoding()
-            .with_children(self, &ReplacementChildren { children })
+    fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
+        self.encoding().as_dyn().with_children(self, children)
     }
 
     fn invoke(
@@ -681,19 +665,6 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         args: &InvocationArgs,
     ) -> VortexResult<Option<Output>> {
         <V::ComputeVTable as ComputeVTable<V>>::invoke(&self.0, compute_fn, args)
-    }
-
-    fn bind_kernel(&self, ctx: &mut BindCtx) -> VortexResult<KernelRef> {
-        let kernel = V::bind_kernel(&self.0, ctx)?;
-        if cfg!(debug_assertions) {
-            Ok(Box::new(ValidateKernel::new(
-                kernel,
-                self.dtype().clone(),
-                self.len(),
-            )))
-        } else {
-            Ok(kernel)
-        }
     }
 }
 
@@ -717,8 +688,8 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
         }
 
         impl ArrayChildVisitor for ChildrenCollector {
-            fn visit_child(&mut self, _name: &str, array: &dyn Array) {
-                self.children.push(array.to_array());
+            fn visit_child(&mut self, _name: &str, array: &ArrayRef) {
+                self.children.push(array.clone());
             }
         }
 
@@ -739,7 +710,7 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
         }
 
         impl ArrayChildVisitor for ChildNameCollector {
-            fn visit_child(&mut self, name: &str, _array: &dyn Array) {
+            fn visit_child(&mut self, name: &str, _array: &ArrayRef) {
                 self.names.push(name.to_string());
             }
         }
@@ -755,7 +726,7 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
         }
 
         impl ArrayChildVisitor for NamedChildrenCollector {
-            fn visit_child(&mut self, name: &str, array: &dyn Array) {
+            fn visit_child(&mut self, name: &str, array: &ArrayRef) {
                 self.children.push((name.to_string(), array.to_array()));
             }
         }

@@ -136,41 +136,6 @@ impl VTable for Select {
         Ok(DType::Struct(projected, child_dtype.nullability()))
     }
 
-    fn simplify(
-        &self,
-        options: &Self::Options,
-        expr: &Expression,
-        ctx: &dyn SimplifyCtx,
-    ) -> VortexResult<Option<Expression>> {
-        let child = expr.child(0);
-        let child_dtype = ctx.return_dtype(child)?;
-        let child_nullability = child_dtype.nullability();
-
-        let child_dtype = child_dtype.as_struct_fields_opt().ok_or_else(|| {
-            vortex_err!(
-                "Select child must return a struct dtype, however it was a {}",
-                child_dtype
-            )
-        })?;
-
-        let expr = pack(
-            options
-                .as_include_names(child_dtype.names())
-                .map_err(|e| {
-                    e.with_context(format!(
-                        "Select fields {:?} must be a subset of child fields {:?}",
-                        options,
-                        child_dtype.names()
-                    ))
-                })?
-                .iter()
-                .map(|name| (name.clone(), get_item(name.clone(), child.clone()))),
-            child_nullability,
-        );
-
-        Ok(Some(expr))
-    }
-
     fn evaluate(
         &self,
         selection: &FieldSelection,
@@ -236,6 +201,41 @@ impl VTable for Select {
             }
         }
         .into())
+    }
+
+    fn simplify(
+        &self,
+        options: &Self::Options,
+        expr: &Expression,
+        ctx: &dyn SimplifyCtx,
+    ) -> VortexResult<Option<Expression>> {
+        let child = expr.child(0);
+        let child_dtype = ctx.return_dtype(child)?;
+        let child_nullability = child_dtype.nullability();
+
+        let child_dtype = child_dtype.as_struct_fields_opt().ok_or_else(|| {
+            vortex_err!(
+                "Select child must return a struct dtype, however it was a {}",
+                child_dtype
+            )
+        })?;
+
+        let expr = pack(
+            options
+                .as_include_names(child_dtype.names())
+                .map_err(|e| {
+                    e.with_context(format!(
+                        "Select fields {:?} must be a subset of child fields {:?}",
+                        options,
+                        child_dtype.names()
+                    ))
+                })?
+                .iter()
+                .map(|name| (name.clone(), get_item(name.clone(), child.clone()))),
+            child_nullability,
+        );
+
+        Ok(Some(expr))
     }
 
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
@@ -461,7 +461,7 @@ mod tests {
         );
         let e = select(["a", "b"], root());
 
-        let result = e.simplify(&dtype).unwrap();
+        let result = e.optimize_recursive(&dtype).unwrap();
 
         assert!(result.is::<Pack>());
         assert!(result.return_dtype(&dtype).unwrap().is_nullable());
@@ -480,7 +480,7 @@ mod tests {
         );
         let e = select_exclude(["c"], root());
 
-        let result = e.simplify(&dtype).unwrap();
+        let result = e.optimize_recursive(&dtype).unwrap();
 
         assert!(result.is::<Pack>());
 

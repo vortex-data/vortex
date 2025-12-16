@@ -57,7 +57,7 @@ impl From<Vector> for Datum {
 
 impl Datum {
     /// Ensure the datum is a vector by repeating the scalar value if necessary.
-    pub fn ensure_vector(self, len: usize) -> Vector {
+    pub fn unwrap_into_vector(self, len: usize) -> Vector {
         match self {
             Datum::Scalar(scalar) => scalar.repeat(len).freeze(),
             Datum::Vector(vector) => {
