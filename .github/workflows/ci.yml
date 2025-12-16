@@ -493,12 +493,7 @@ jobs:
       matrix:
         include:
           - os: windows-x64
-            runner:
-              - runs-on=${{ github.run_id }}
-              - family=m7i
-              - cpu=8
-              - image=windows22-full-x64
-              - tag=rust-test-windows
+            runner: runs-on=${{ github.run_id }}/pool=windows-x64
           - os: linux-arm64
             runner:
               - runs-on=${{ github.run_id }}
