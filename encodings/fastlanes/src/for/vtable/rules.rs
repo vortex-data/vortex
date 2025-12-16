@@ -3,16 +3,10 @@
 
 use vortex_array::Array;
 use vortex_array::ArrayRef;
-use vortex_array::ArrayVisitor;
 use vortex_array::IntoArray;
-use vortex_array::arrays::ConstantVTable;
-use vortex_array::arrays::ExactScalarFn;
 use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::FilterVTable;
-use vortex_array::arrays::ScalarFnArrayView;
-use vortex_array::expr::Binary;
 use vortex_array::matchers::Exact;
-use vortex_array::matchers::Matcher;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_error::VortexResult;
