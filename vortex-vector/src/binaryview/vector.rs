@@ -230,6 +230,32 @@ impl<T: BinaryViewType> BinaryViewVector<T> {
         }
     }
 
+    /// Get the `index` item from the vector as a [u8]
+    ///
+    /// This function is unsafe since the validity of the vector is ignored.
+    pub unsafe fn get_ref_unchecked(&self, index: usize) -> &[u8] {
+        let view = &self.views[index];
+        if view.is_inlined() {
+            let view = view.as_inlined();
+            // SAFETY: validation that the string data contained in this vector is performed
+            //  at construction time, either in the constructor for safe construction, or by
+            //  the caller (when using the unchecked constructor).
+            &view.data[..view.size as usize]
+        } else {
+            // Get a pointer into the buffer range
+            let view_ref = view.as_view();
+            let buffer = &self.buffers[view_ref.buffer_index as usize];
+
+            let start = view_ref.offset as usize;
+            let length = view_ref.size as usize;
+
+            // SAFETY: validation that the string data contained in this vector is performed
+            //  at construction time, either in the constructor for safe construction, or by
+            //  the caller (when using the unchecked constructor).
+            &buffer.as_bytes()[start..start + length]
+        }
+    }
+
     /// Buffers
     pub fn buffers(&self) -> &Arc<Box<[ByteBuffer]>> {
         &self.buffers
