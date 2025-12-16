@@ -150,10 +150,9 @@ impl BitBuffer {
 
         let chunks_count = len / 64;
         let remainder = len % 64;
-        let mut chunks_iter = self.chunks().iter_padded();
+        let chunks = self.chunks();
 
-        for chunk_idx in 0..chunks_count {
-            let src_chunk = chunks_iter.next().unwrap_or(0);
+        for (chunk_idx, src_chunk) in chunks.iter().enumerate() {
             let mut packed = 0u64;
             for bit_idx in 0..64 {
                 let i = bit_idx + chunk_idx * 64;
@@ -166,7 +165,7 @@ impl BitBuffer {
         }
 
         if remainder != 0 {
-            let src_chunk = chunks_iter.next().unwrap_or(0);
+            let src_chunk = chunks.remainder_bits();
             let mut packed = 0u64;
             for bit_idx in 0..remainder {
                 let i = bit_idx + chunks_count * 64;
