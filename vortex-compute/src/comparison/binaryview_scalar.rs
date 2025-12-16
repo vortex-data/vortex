@@ -15,20 +15,30 @@ use crate::comparison::LessThan;
 use crate::comparison::LessThanOrEqual;
 use crate::comparison::NotEqual;
 
-fn scalar_to_bytes<T: BinaryViewType>(s: &T::Scalar) -> &[u8] {
-    AsRef::<T::Slice>::as_ref(s).as_ref()
+/// Compare two BinaryViewScalars using the provided comparison function.
+fn compare_binaryview_scalar<T: BinaryViewType, F>(
+    lhs: BinaryViewScalar<T>,
+    rhs: BinaryViewScalar<T>,
+    cmp: F,
+) -> BoolScalar
+where
+    F: Fn(&[u8], &[u8]) -> bool,
+{
+    match (lhs.value(), rhs.value()) {
+        (Some(l), Some(r)) => {
+            let l_bytes: &[u8] = AsRef::<T::Slice>::as_ref(l).as_ref();
+            let r_bytes: &[u8] = AsRef::<T::Slice>::as_ref(r).as_ref();
+            BoolScalar::new(Some(cmp(l_bytes, r_bytes)))
+        }
+        _ => BoolScalar::new(None),
+    }
 }
 
 impl<T: BinaryViewType> Compare<Equal> for BinaryViewScalar<T> {
     type Output = BoolScalar;
 
     fn compare(self, rhs: Self) -> Self::Output {
-        match (self.value(), rhs.value()) {
-            (Some(l), Some(r)) => {
-                BoolScalar::new(Some(scalar_to_bytes::<T>(l) == scalar_to_bytes::<T>(r)))
-            }
-            _ => BoolScalar::new(None),
-        }
+        compare_binaryview_scalar(self, rhs, |l, r| l == r)
     }
 }
 
@@ -36,12 +46,7 @@ impl<T: BinaryViewType> Compare<NotEqual> for BinaryViewScalar<T> {
     type Output = BoolScalar;
 
     fn compare(self, rhs: Self) -> Self::Output {
-        match (self.value(), rhs.value()) {
-            (Some(l), Some(r)) => {
-                BoolScalar::new(Some(scalar_to_bytes::<T>(l) != scalar_to_bytes::<T>(r)))
-            }
-            _ => BoolScalar::new(None),
-        }
+        compare_binaryview_scalar(self, rhs, |l, r| l != r)
     }
 }
 
@@ -49,12 +54,7 @@ impl<T: BinaryViewType> Compare<LessThan> for BinaryViewScalar<T> {
     type Output = BoolScalar;
 
     fn compare(self, rhs: Self) -> Self::Output {
-        match (self.value(), rhs.value()) {
-            (Some(l), Some(r)) => {
-                BoolScalar::new(Some(scalar_to_bytes::<T>(l) < scalar_to_bytes::<T>(r)))
-            }
-            _ => BoolScalar::new(None),
-        }
+        compare_binaryview_scalar(self, rhs, |l, r| l < r)
     }
 }
 
@@ -62,12 +62,7 @@ impl<T: BinaryViewType> Compare<LessThanOrEqual> for BinaryViewScalar<T> {
     type Output = BoolScalar;
 
     fn compare(self, rhs: Self) -> Self::Output {
-        match (self.value(), rhs.value()) {
-            (Some(l), Some(r)) => {
-                BoolScalar::new(Some(scalar_to_bytes::<T>(l) <= scalar_to_bytes::<T>(r)))
-            }
-            _ => BoolScalar::new(None),
-        }
+        compare_binaryview_scalar(self, rhs, |l, r| l <= r)
     }
 }
 
@@ -75,12 +70,7 @@ impl<T: BinaryViewType> Compare<GreaterThan> for BinaryViewScalar<T> {
     type Output = BoolScalar;
 
     fn compare(self, rhs: Self) -> Self::Output {
-        match (self.value(), rhs.value()) {
-            (Some(l), Some(r)) => {
-                BoolScalar::new(Some(scalar_to_bytes::<T>(l) > scalar_to_bytes::<T>(r)))
-            }
-            _ => BoolScalar::new(None),
-        }
+        compare_binaryview_scalar(self, rhs, |l, r| l > r)
     }
 }
 
@@ -88,12 +78,7 @@ impl<T: BinaryViewType> Compare<GreaterThanOrEqual> for BinaryViewScalar<T> {
     type Output = BoolScalar;
 
     fn compare(self, rhs: Self) -> Self::Output {
-        match (self.value(), rhs.value()) {
-            (Some(l), Some(r)) => {
-                BoolScalar::new(Some(scalar_to_bytes::<T>(l) >= scalar_to_bytes::<T>(r)))
-            }
-            _ => BoolScalar::new(None),
-        }
+        compare_binaryview_scalar(self, rhs, |l, r| l >= r)
     }
 }
 

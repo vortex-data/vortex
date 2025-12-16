@@ -5,7 +5,6 @@
 
 use std::ops::BitAnd;
 
-use vortex_error::VortexExpect;
 use vortex_vector::VectorOps;
 use vortex_vector::binaryview::BinaryViewType;
 use vortex_vector::binaryview::BinaryViewVector;
