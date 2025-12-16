@@ -307,20 +307,32 @@ fn main() {
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", library_path.display());
 
     // Compile our C++ code that exposes additional DuckDB functionality.
-    cc::Build::new()
-        .std("c++17")
-        // Enable compiler warnings.
-        .flag("-Wall")
-        .flag("-Wextra")
-        .flag("-Wpedantic")
-        // Allow C++20 designator syntax even with C++17 std
-        .flag("-Wno-c++20-designator")
-        // Enable C++20 extensions
-        .flag("-Wno-c++20-extensions")
-        // Unused parameter warnings are disabled as we include DuckDB
-        // headers with implementations that have unused parameters.
-        .flag("-Wno-unused-parameter")
-        .cpp(true)
+    let mut builder = cc::Build::new();
+    builder.std("c++17").cpp(true);
+
+    #[cfg(target_os = "windows")]
+    {
+        builder
+            // Enable C++ exception handling
+            .flag("/EHsc");
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        builder
+            .flag("-Wall")
+            .flag("-Wextra")
+            .flag("-Wpedantic")
+            // Allow C++20 designator syntax even with C++17 std
+            .flag("-Wno-c++20-designator")
+            // Enable C++20 extensions
+            .flag("-Wno-c++20-extensions")
+            // Unused parameter warnings are disabled as we include DuckDB
+            // headers with implementations that have unused parameters.
+            .flag("-Wno-unused-parameter");
+    }
+
+    builder
         // We include DuckDB headers from the DuckDB extension submodule.
         .include(duckdb_repo.join(format!("duckdb-{}/src/include", DUCKDB_VERSION.as_str())))
         .include("cpp/include")
