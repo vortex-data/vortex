@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::FilterArray;
@@ -38,8 +39,7 @@ impl ArrayParentReduceRule<DecimalBytePartsVTable> for DecimalBytePartsFilterPus
             return Ok(None);
         }
 
-        let new_msp =
-            FilterArray::new(child.msp.clone(), parent.filter_mask().clone()).into_array();
+        let new_msp = child.msp.filter(parent.filter_mask().clone())?;
         let new_child =
             DecimalBytePartsArray::try_new(new_msp, *child.decimal_dtype())?.into_array();
         Ok(Some(new_child))

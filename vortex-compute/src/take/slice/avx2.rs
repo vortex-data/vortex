@@ -72,7 +72,7 @@ pub unsafe fn take_avx2<V: NativePType, I: UnsignedPType>(
             let values = unsafe { std::mem::transmute::<&[V], &[$cast]>(buffer) };
 
             let result = exec_take::<$cast, $indices, AVX2Gather>(values, indices);
-            result.cast_into::<V>()
+            unsafe { result.transmute::<V>() }
         }};
     }
 

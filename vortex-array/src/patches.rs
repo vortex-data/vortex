@@ -30,6 +30,7 @@ use vortex_mask::MaskMut;
 use vortex_scalar::PValue;
 use vortex_scalar::Scalar;
 use vortex_utils::aliases::hash_map::HashMap;
+use vortex_vector::primitive::PVectorMut;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -820,6 +821,21 @@ impl Patches {
             chunk_offsets: None,
             offset_within_chunk: self.offset_within_chunk,
         }))
+    }
+
+    /// Applies patches to a [`PVectorMut<T>`], returning the patched vector.
+    ///
+    /// This function modifies the elements buffer in-place at the positions specified by the patch
+    /// indices. It also updates the validity mask to reflect the nullability of patch values.
+    pub fn apply_to_pvector<T: NativePType>(&self, pvector: PVectorMut<T>) -> PVectorMut<T> {
+        let (mut elements, mut validity) = pvector.into_parts();
+
+        // SAFETY: We maintain the invariant that elements and validity have the same length, and all
+        // patch indices are valid after offset adjustment (guaranteed by `Patches`).
+        unsafe { self.apply_to_buffer(elements.as_mut_slice(), &mut validity) };
+
+        // SAFETY: We have not modified the length of elements or validity.
+        unsafe { PVectorMut::new_unchecked(elements, validity) }
     }
 
     /// Apply patches to a mutable buffer and validity mask.

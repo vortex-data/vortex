@@ -156,6 +156,25 @@ impl<T> PVector<T> {
     pub fn elements(&self) -> &Buffer<T> {
         &self.elements
     }
+
+    /// Transmute a `PVector<T>` into a `PVector<U>`.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that all values of type `T` in this vector are valid as type `U`.
+    /// See [`std::mem::transmute`] for more details.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the type `U` does not have the same size and alignment as `T`.
+    pub unsafe fn transmute<U: NativePType>(self) -> PVector<U> {
+        let (buffer, mask) = self.into_parts();
+
+        // SAFETY: same guarantees as this function.
+        let buffer = unsafe { buffer.transmute::<U>() };
+
+        PVector::new(buffer, mask)
+    }
 }
 
 impl<T: NativePType> AsRef<[T]> for PVector<T> {
@@ -237,7 +256,7 @@ impl<T: NativePType> VectorOps for PVector<T> {
     }
 }
 
-impl<T> From<Buffer<T>> for PVector<T> {
+impl<T: NativePType> From<Buffer<T>> for PVector<T> {
     /// Creates a new [`PVector<T>`] from the given elements buffer, with an all valid validity.
     fn from(value: Buffer<T>) -> Self {
         let len = value.len();
