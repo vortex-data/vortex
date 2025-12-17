@@ -204,6 +204,8 @@ pub trait VTable: 'static + Sized + Send + Sync {
         true
     }
 
+    /// Returns whether this expression itself is_structural -- meaning this is add or removes a e.g. contains
+    /// e.g. list or struct.
     fn is_structural(&self, options: &Self::Options) -> bool;
 }
 
