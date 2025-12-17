@@ -96,38 +96,6 @@ class BenchmarkReporter:
 
         return table
 
-    def to_markdown(
-        self,
-        base_label: str = "base",
-        target_label: str = "target",
-    ) -> str:
-        """Generate markdown table (GitHub-compatible)."""
-        lines = []
-
-        # Header
-        lines.append(f"| Query | {base_label} | {target_label} | Ratio |")
-        lines.append("|-------|---------|--------|-------|")
-
-        for _, row in self.df.iterrows():
-            name = str(row.get("name", ""))
-            if "/" in name:
-                name = name.split("/")[0]
-
-            base_val = row.get("value_base", float("nan"))
-            target_val = row.get("value_target", float("nan"))
-            ratio = row.get("ratio", float("nan"))
-
-            ratio_str = f"{ratio:.3f}x" if not pd.isna(ratio) else "N/A"
-            if not pd.isna(ratio):
-                if ratio < (1.0 - self.threshold):
-                    ratio_str += " \U0001f680"  # Rocket
-                elif ratio > (1.0 + self.threshold):
-                    ratio_str += " \U0001f6a8"  # Alarm
-
-            lines.append(f"| {name} | {_format_time_ns(base_val)} | {_format_time_ns(target_val)} | {ratio_str} |")
-
-        return "\n".join(lines)
-
     def summary(self) -> str:
         """Generate summary statistics."""
         lines = ["## Summary", ""]

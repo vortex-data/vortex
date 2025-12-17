@@ -81,8 +81,8 @@ class RunContext:
         # Mark as partial if there was an exception
         if exc_type is not None:
             self.metadata.partial = True
-        else:
-            self.metadata.completed_at = datetime.now()
+
+        self.metadata.completed_at = datetime.now()
 
         # Write metadata
         with open(self.run_dir / "metadata.json", "w") as f:
@@ -146,7 +146,6 @@ class ResultStore:
             env_triple=env_triple,
             rustflags=build_config.rustflags,
             profile=build_config.profile,
-            partial=True,  # Will be set to False on successful completion
         )
 
         ctx = RunContext(run_dir, metadata)

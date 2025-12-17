@@ -76,7 +76,7 @@ def run(
     exclude_list = parse_queries(exclude_queries)
 
     # Build options dict
-    options = {}
+    options: dict[str, str] = {}
     if scale_factor:
         options["scale_factor"] = scale_factor
 
@@ -170,7 +170,6 @@ def compare(
         typer.Option("--runs", "-r", help="Two runs to compare (comma-separated)"),
     ] = None,
     threshold: Annotated[float, typer.Option("--threshold", help="Significance threshold (default 10%)")] = 0.10,
-    markdown: Annotated[bool, typer.Option("--markdown", "-m", help="Output as markdown")] = False,
 ) -> None:
     """Compare benchmark results."""
     store = ResultStore()
@@ -244,18 +243,13 @@ def compare(
 
     reporter = BenchmarkReporter(comparison, stats, threshold)
 
-    if markdown:
-        console.print(reporter.summary())
-        console.print()
-        console.print(reporter.to_markdown(base_label, target_label))
-    else:
-        table = reporter.to_rich_table(
-            title="Benchmark Comparison",
-            base_label=base_label,
-            target_label=target_label,
-        )
-        console.print(table)
-        reporter.print_summary()
+    table = reporter.to_rich_table(
+        title="Benchmark Comparison",
+        base_label=base_label,
+        target_label=target_label,
+    )
+    console.print(table)
+    reporter.print_summary()
 
 
 @app.command("list")
@@ -288,7 +282,7 @@ def list_runs(
         return
 
     table = Table(title="Benchmark Runs")
-    table.add_column("Run ID", style="cyan")
+    table.add_column("Run ID", style="cyan", no_wrap=True)
     table.add_column("Label", style="green")
     table.add_column("Benchmark")
     table.add_column("Engines")
@@ -298,7 +292,7 @@ def list_runs(
     for run in runs:
         status = "[yellow]partial[/yellow]" if run.partial else "[green]complete[/green]"
         table.add_row(
-            run.run_id[:30] + "..." if len(run.run_id) > 30 else run.run_id,
+            run.run_id,
             run.label or "-",
             run.benchmark,
             ", ".join(run.engines),

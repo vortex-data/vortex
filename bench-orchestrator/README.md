@@ -65,7 +65,6 @@ vx-bench compare [options]
 - `--base, -b`: Base reference (`engine:format@run`)
 - `--target, -t`: Target reference (`engine:format@run`)
 - `--threshold`: Significance threshold (default: 0.10 = 10%)
-- `--markdown, -m`: Output as GitHub-compatible markdown
 
 ### `list` - List Benchmark Runs
 
@@ -129,7 +128,7 @@ git checkout feature/my-optimization
 vx-bench run tpch -e datafusion -f parquet,vortex -l feature
 
 # Compare the runs
-vx-bench compare --runs baseline,feature --markdown
+vx-bench compare --runs baseline,feature
 ```
 
 ### 2. Quick Regression Check
@@ -172,25 +171,9 @@ vx-bench run tpch \
 vx-bench compare \
   --base "datafusion:parquet@format-analysis" \
   --target "datafusion:vortex@format-analysis" \
-  --markdown
 ```
 
-### 5. CI/CD Integration
-
-Generate markdown output for pull request comments:
-
-```bash
-# Run benchmarks
-vx-bench run tpch -e datafusion -f parquet,vortex -l "pr-$PR_NUMBER"
-
-# Generate comparison for PR comment
-vx-bench compare \
-  --base "datafusion:parquet@main" \
-  --target "datafusion:parquet@pr-$PR_NUMBER" \
-  --markdown > benchmark-report.md
-```
-
-### 6. Memory Usage Analysis
+### 5. Memory Usage Analysis
 
 Track memory usage alongside performance:
 
@@ -204,7 +187,7 @@ vx-bench run tpch \
 vx-bench show memory-profiling
 ```
 
-### 7. Scale Factor Testing
+### 6. Scale Factor Testing
 
 Test performance at different data scales:
 
@@ -219,7 +202,7 @@ vx-bench run tpch -s 10 -l sf10
 vx-bench compare --runs sf1,sf10
 ```
 
-### 8. Excluding Problematic Queries
+### 7. Excluding Problematic Queries
 
 Skip queries that are known to fail or take too long:
 
@@ -228,7 +211,7 @@ Skip queries that are known to fail or take too long:
 vx-bench run tpch --exclude-queries 15,21 -l partial-run
 ```
 
-### 9. Historical Analysis
+### 8. Historical Analysis
 
 Find runs from the past week and compare trends:
 
@@ -240,7 +223,7 @@ vx-bench list --since "7 days" --benchmark tpch
 vx-bench compare --runs <run-id-1>,<run-id-2>
 ```
 
-### 10. Cleanup Old Results
+### 9. Cleanup Old Results
 
 Keep your results directory manageable:
 
@@ -290,17 +273,6 @@ Default output uses rich formatting with color-coded ratios:
 - Green (with up arrow): Improvement (>10% faster)
 - Red (with down arrow): Regression (>10% slower)
 - Yellow: Neutral (within 10%)
-
-### Markdown Output
-
-Use `--markdown` for GitHub-compatible tables suitable for PR comments:
-
-```markdown
-| Query | base | target | Ratio |
-|-------|------|--------|-------|
-| q1    | 1.2s | 0.9s   | 0.750x |
-| q2    | 2.5s | 2.6s   | 1.040x |
-```
 
 ## Data Storage
 
