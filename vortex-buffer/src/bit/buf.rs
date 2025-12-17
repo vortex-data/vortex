@@ -11,6 +11,7 @@ use std::ops::RangeBounds;
 use crate::Alignment;
 use crate::BitBufferMut;
 use crate::Buffer;
+use crate::BufferMut;
 use crate::ByteBuffer;
 use crate::bit::BitChunks;
 use crate::bit::BitIndexIterator;
@@ -134,6 +135,55 @@ impl BitBuffer {
     /// Invokes `f` with indexes `0..len` collecting the boolean results into a new [`BitBuffer`].
     pub fn collect_bool<F: FnMut(usize) -> bool>(len: usize, f: F) -> Self {
         BitBufferMut::collect_bool(len, f).freeze()
+    }
+
+    /// Maps over each bit in this buffer, calling `f(index, bit_value)` and collecting results.
+    ///
+    /// This is more efficient than `collect_bool` when you need to read the current bit value,
+    /// as it unpacks each u64 chunk only once rather than doing random access for each bit.
+    pub fn map_cmp<F>(&self, mut f: F) -> Self
+    where
+        F: FnMut(usize, bool) -> bool,
+    {
+        let len = self.len;
+        let mut buffer: BufferMut<u64> = BufferMut::with_capacity(len.div_ceil(64));
+
+        let chunks_count = len / 64;
+        let remainder = len % 64;
+        let chunks = self.chunks();
+
+        for (chunk_idx, src_chunk) in chunks.iter().enumerate() {
+            let mut packed = 0u64;
+            for bit_idx in 0..64 {
+                let i = bit_idx + chunk_idx * 64;
+                let bit_value = (src_chunk >> bit_idx) & 1 == 1;
+                packed |= (f(i, bit_value) as u64) << bit_idx;
+            }
+
+            // SAFETY: Already allocated sufficient capacity
+            unsafe { buffer.push_unchecked(packed) }
+        }
+
+        if remainder != 0 {
+            let src_chunk = chunks.remainder_bits();
+            let mut packed = 0u64;
+            for bit_idx in 0..remainder {
+                let i = bit_idx + chunks_count * 64;
+                let bit_value = (src_chunk >> bit_idx) & 1 == 1;
+                packed |= (f(i, bit_value) as u64) << bit_idx;
+            }
+
+            // SAFETY: Already allocated sufficient capacity
+            unsafe { buffer.push_unchecked(packed) }
+        }
+
+        buffer.truncate(len.div_ceil(8));
+
+        Self {
+            buffer: buffer.freeze().into_byte_buffer(),
+            offset: 0,
+            len,
+        }
     }
 
     /// Clear all bits in the buffer, preserving existing capacity.
@@ -634,6 +684,57 @@ mod tests {
                 "Bit mismatch at index {}: expected {} got {}",
                 bit_position, expected_is_set, is_set
             );
+        }
+    }
+
+    #[rstest]
+    #[case(5)]
+    #[case(8)]
+    #[case(10)]
+    #[case(64)]
+    #[case(65)]
+    #[case(100)]
+    #[case(128)]
+    fn test_map_cmp_identity(#[case] len: usize) {
+        // map_cmp with identity function should return the same buffer
+        let buf = BitBuffer::collect_bool(len, |i| i % 3 == 0);
+        let mapped = buf.map_cmp(|_idx, bit| bit);
+
+        assert_eq!(buf.len(), mapped.len());
+        for i in 0..len {
+            assert_eq!(buf.value(i), mapped.value(i), "Mismatch at index {}", i);
+        }
+    }
+
+    #[rstest]
+    #[case(5)]
+    #[case(8)]
+    #[case(64)]
+    #[case(65)]
+    #[case(100)]
+    fn test_map_cmp_negate(#[case] len: usize) {
+        // map_cmp negating all bits
+        let buf = BitBuffer::collect_bool(len, |i| i % 2 == 0);
+        let mapped = buf.map_cmp(|_idx, bit| !bit);
+
+        assert_eq!(buf.len(), mapped.len());
+        for i in 0..len {
+            assert_eq!(!buf.value(i), mapped.value(i), "Mismatch at index {}", i);
+        }
+    }
+
+    #[test]
+    fn test_map_cmp_conditional() {
+        // map_cmp with conditional logic based on index and bit value
+        let len = 100;
+        let buf = BitBuffer::collect_bool(len, |i| i % 2 == 0);
+
+        // Only keep bits that are set AND at even index divisible by 4
+        let mapped = buf.map_cmp(|idx, bit| bit && idx % 4 == 0);
+
+        for i in 0..len {
+            let expected = (i % 2 == 0) && (i % 4 == 0);
+            assert_eq!(mapped.value(i), expected, "Mismatch at index {}", i);
         }
     }
 }
