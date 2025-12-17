@@ -66,7 +66,6 @@ pub use crate::temporal::compress_temporal;
 mod decimal;
 mod float;
 mod integer;
-mod list;
 mod patches;
 mod rle;
 mod sample;
