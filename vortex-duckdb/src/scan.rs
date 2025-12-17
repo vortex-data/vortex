@@ -40,10 +40,8 @@ use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::Pack;
-use vortex::expr::and;
 use vortex::expr::and_collect;
 use vortex::expr::col;
-use vortex::expr::lit;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
@@ -199,7 +197,7 @@ fn extract_table_filter_expr(
                 )
             })
             .collect::<VortexResult<Option<HashSet<_>>>>()?
-            .unwrap_or(HashSet::new())
+            .unwrap_or_else(|| HashSet::new())
     } else {
         HashSet::new()
     };
