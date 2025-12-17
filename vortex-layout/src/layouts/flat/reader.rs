@@ -156,8 +156,20 @@ impl LayoutReader for FlatReader {
                 array = array.slice(row_range.clone());
             }
 
+            let use_filter = |dtype: &DType| match dtype {
+                DType::Primitive(ptype, _) => {
+                    let threshold = match ptype.byte_width() {
+                        1 | 2 => 0.03,
+                        4 => 0.075,
+                        _ => 0.09,
+                    };
+                    mask.density() < threshold
+                }
+                _ => mask.density() < FILTER_OF_FILTER_THRESHOLD,
+            };
+
             let array_mask = if *USE_VORTEX_OPERATORS {
-                if mask.density() < FILTER_OF_FILTER_THRESHOLD {
+                if use_filter(array.dtype()) {
                     // Run only over the pre-filtered rows.
                     let array = array.filter(mask.clone())?;
                     let array = array.apply(&expr)?;
