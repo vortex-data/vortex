@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::vortex_panic;
 use vortex_vector::BinaryViewDatum;
 use vortex_vector::BoolDatum;
 use vortex_vector::Datum;
@@ -41,7 +42,7 @@ where
             (TypedDatum::Decimal(d1), TypedDatum::Decimal(d2)) => d1.compare(d2),
             (TypedDatum::String(d1), TypedDatum::String(d2)) => d1.compare(d2),
             (TypedDatum::Binary(d1), TypedDatum::Binary(d2)) => d1.compare(d2),
-            _ => unreachable!(""),
+            _ => vortex_panic!("cannot compare different typed datums."),
         }
     }
 }
