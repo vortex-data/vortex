@@ -312,6 +312,10 @@ impl VTable for Binary {
 
         !infallible
     }
+
+    fn is_structural(&self, _options: &Self::Options) -> bool {
+        false
+    }
 }
 
 /// Create a new [`Binary`] using the [`Eq`](crate::expr::exprs::operators::Operator::Eq) operator.

@@ -188,6 +188,10 @@ impl VTable for DynamicComparison {
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
         false
     }
+
+    fn is_structural(&self, _options: &Self::Options) -> bool {
+        false
+    }
 }
 
 pub fn dynamic(

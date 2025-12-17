@@ -37,10 +37,8 @@ use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
-use vortex_array::ToCanonical;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
-use vortex_array::arrays::ListArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::list_from_list_view;
@@ -59,6 +57,8 @@ pub use crate::float::dictionary::dictionary_encode as float_dictionary_encode;
 pub use crate::integer::IntCompressor;
 pub use crate::integer::IntegerStats;
 pub use crate::integer::dictionary::dictionary_encode as integer_dictionary_encode;
+pub use crate::list::ListCompressor;
+pub use crate::list::ListStats;
 pub use crate::string::StringCompressor;
 pub use crate::string::StringStats;
 pub use crate::temporal::compress_temporal;
@@ -66,6 +66,7 @@ pub use crate::temporal::compress_temporal;
 mod decimal;
 mod float;
 mod integer;
+mod list;
 mod patches;
 mod rle;
 mod sample;
@@ -423,30 +424,8 @@ impl BtrBlocksCompressor {
                 // list and list view.
                 let list_array = list_from_list_view(list_view_array);
 
-                // Reset the offsets to remove garbage data that might prevent us from narrowing our
-                // offsets (there could be a large amount of trailing garbage data that the current
-                // views do not reference at all).
-                let list_array = list_array.reset_offsets(true)?;
-
-                let compressed_elems = self.compress(list_array.elements())?;
-
-                // Note that since the type of our offsets are not encoded in our `DType`, and since
-                // we guarantee above that all elements are referenced by offsets, we may narrow the
-                // widths.
-
-                let compressed_offsets = IntCompressor::compress_no_dict(
-                    &list_array.offsets().to_primitive().narrow()?,
-                    false,
-                    MAX_CASCADE,
-                    &[],
-                )?;
-
-                Ok(ListArray::try_new(
-                    compressed_elems,
-                    compressed_offsets,
-                    list_array.validity().clone(),
-                )?
-                .into_array())
+                // Use the ListCompressor which supports dictionary encoding for repeated lists.
+                ListCompressor::compress(&list_array, false, MAX_CASCADE, &[])
             }
             Canonical::FixedSizeList(fsl_array) => {
                 let compressed_elems = self.compress(fsl_array.elements())?;

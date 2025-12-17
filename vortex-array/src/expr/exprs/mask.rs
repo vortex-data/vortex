@@ -74,6 +74,10 @@ impl VTable for Mask {
         Ok(arg_dtypes[0].as_nullable())
     }
 
+    fn is_structural(&self, _options: &Self::Options) -> bool {
+        false
+    }
+
     fn evaluate(
         &self,
         _options: &Self::Options,

@@ -35,4 +35,9 @@ impl ExpressionSignature<'_> {
     pub fn is_fallible(&self) -> bool {
         self.vtable.as_dyn().is_fallible(self.options)
     }
+
+    /// Return if the expression add or remove a structural wrapper e.g. struct or list.
+    pub fn is_structural(&self) -> bool {
+        self.vtable.as_dyn().is_structural(self.options)
+    }
 }

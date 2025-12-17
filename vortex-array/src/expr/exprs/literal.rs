@@ -139,6 +139,10 @@ impl VTable for Literal {
     fn is_fallible(&self, _instance: &Self::Options) -> bool {
         false
     }
+
+    fn is_structural(&self, _options: &Self::Options) -> bool {
+        false
+    }
 }
 
 /// Create a new `Literal` expression from a type that coerces to `Scalar`.

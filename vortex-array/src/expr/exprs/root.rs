@@ -95,6 +95,10 @@ impl VTable for Root {
     fn is_fallible(&self, _options: &Self::Options) -> bool {
         false
     }
+
+    fn is_structural(&self, _options: &Self::Options) -> bool {
+        false
+    }
 }
 
 /// Creates an expression that references the root scope.

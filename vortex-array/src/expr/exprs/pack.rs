@@ -184,6 +184,10 @@ impl VTable for Pack {
     fn is_fallible(&self, _instance: &Self::Options) -> bool {
         false
     }
+
+    fn is_structural(&self, _options: &Self::Options) -> bool {
+        true
+    }
 }
 
 /// Creates an expression that packs values into a struct with named fields.

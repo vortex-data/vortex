@@ -94,6 +94,10 @@ impl VTable for Not {
     fn is_fallible(&self, _options: &Self::Options) -> bool {
         false
     }
+
+    fn is_structural(&self, _options: &Self::Options) -> bool {
+        false
+    }
 }
 
 /// Creates an expression that logically inverts boolean values.

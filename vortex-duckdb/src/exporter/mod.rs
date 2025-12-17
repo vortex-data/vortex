@@ -241,6 +241,7 @@ fn new_array_vector_exporter_with_flatten(
     session: &VortexSession,
     flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
+    println!("array {}", array.display_tree());
     if let Some(array) = array.as_opt::<ConstantVTable>() {
         return constant::new_exporter(array);
     }

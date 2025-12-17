@@ -254,6 +254,10 @@ impl VTable for Merge {
     fn is_fallible(&self, instance: &Self::Options) -> bool {
         matches!(instance, DuplicateHandling::Error)
     }
+
+    fn is_structural(&self, _options: &Self::Options) -> bool {
+        false
+    }
 }
 
 /// What to do when merged structs share a field name.

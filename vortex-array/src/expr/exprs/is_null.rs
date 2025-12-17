@@ -118,6 +118,10 @@ impl VTable for IsNull {
     fn is_fallible(&self, _instance: &Self::Options) -> bool {
         false
     }
+
+    fn is_structural(&self, _options: &Self::Options) -> bool {
+        false
+    }
 }
 
 /// Creates an expression that checks for null values.

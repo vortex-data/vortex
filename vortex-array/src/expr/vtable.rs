@@ -203,6 +203,8 @@ pub trait VTable: 'static + Sized + Send + Sync {
         _ = options;
         true
     }
+
+    fn is_structural(&self, options: &Self::Options) -> bool;
 }
 
 /// Arguments for reduction rules.
@@ -390,6 +392,7 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     ) -> Option<Expression>;
     fn is_null_sensitive(&self, options: &dyn Any) -> bool;
     fn is_fallible(&self, options: &dyn Any) -> bool;
+    fn is_structural(&self, options: &dyn Any) -> bool;
 }
 
 #[repr(transparent)]
@@ -568,6 +571,10 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
 
     fn is_fallible(&self, options: &dyn Any) -> bool {
         V::is_fallible(&self.0, downcast::<V>(options))
+    }
+
+    fn is_structural(&self, options: &dyn Any) -> bool {
+        V::is_structural(&self.0, downcast::<V>(options))
     }
 }
 
