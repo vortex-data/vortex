@@ -9,10 +9,13 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_vector::Vector;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::ProstMetadata;
 use crate::arrays::ListArray;
+use crate::arrays::list::vtable::kernel::PARENT_KERNELS;
 use crate::metadata::DeserializeMetadata;
 use crate::metadata::SerializeMetadata;
 use crate::serde::ArrayChildren;
@@ -27,6 +30,7 @@ use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
 mod canonical;
+mod kernel;
 mod operations;
 mod validity;
 mod visitor;
@@ -137,6 +141,15 @@ impl VTable for ListVTable {
         let new_array = ListArray::try_new(elements, offsets, validity)?;
         *array = new_array;
         Ok(())
+    }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Vector>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 
