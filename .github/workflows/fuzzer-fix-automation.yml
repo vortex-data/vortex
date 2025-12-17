@@ -187,7 +187,7 @@ jobs:
           echo "Attempting to reproduce crash with fuzzer (debug mode)..."
 
           # Run fuzzer with crash file (debug mode, no sanitizer, full backtrace)
-          RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=full timeout 30s cargo +nightly fuzz run --dev --sanitizer=none "${{ steps.extract.outputs.target }}" "${{ steps.download.outputs.crash_file_path }}" -- -runs=1 2>&1 | tee crash_reproduction.log
+          RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=full timeout 30s cargo +nightly fuzz run --dev --sanitizer=none "${{ steps.extract.outputs.target }}" "${{ steps.download.outputs.crash_file_path }}" -- -runs=1 -rss_limit_mb=0 2>&1 | tee crash_reproduction.log
 
           FUZZ_EXIT_CODE=${PIPESTATUS[0]}
 
@@ -216,7 +216,7 @@ jobs:
 
           I ran:
           \`\`\`bash
-          cargo +nightly fuzz run --sanitizer=none ${{ steps.extract.outputs.target }} ${{ steps.download.outputs.crash_file_path }} -- -runs=1
+          cargo +nightly fuzz run --sanitizer=none ${{ steps.extract.outputs.target }} ${{ steps.download.outputs.crash_file_path }} -- -runs=1 -rss_limit_mb=0
           \`\`\`
 
           The fuzzer exited with code 0 (success).
@@ -275,7 +275,7 @@ jobs:
             - This ensures your work is visible and reviewable even if you hit the turn limit
             - Keep fixes minimal - only fix the specific bug
             - Follow CLAUDE.md code style guidelines
-            - **Use `--dev` flag** for faster builds: `cargo +nightly fuzz run --dev --sanitizer=none`
+            - **Use `--dev` flag** for faster builds: `cargo +nightly fuzz run --dev --sanitizer=none <target> <crash_file> -- -rss_limit_mb=0`
 
             ## Fixability Guidelines
 

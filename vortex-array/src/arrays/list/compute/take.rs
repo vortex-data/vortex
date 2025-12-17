@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::BitBufferMut;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::Nullability;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_dtype::match_smallest_offset_type;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -22,7 +20,6 @@ use crate::compute::TakeKernel;
 use crate::compute::TakeKernelAdapter;
 use crate::compute::take;
 use crate::register_kernel;
-use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 // TODO(connor)[ListView]: Re-revert to the version where we simply convert to a `ListView` and call
@@ -37,21 +34,13 @@ impl TakeKernel for ListVTable {
     #[expect(clippy::cognitive_complexity)]
     fn take(&self, array: &ListArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive();
-        let offsets = array.offsets().to_primitive();
         // This is an over-approximation of the total number of elements in the resulting array.
         let total_approx = array.elements().len().saturating_mul(indices.len());
 
-        match_each_integer_ptype!(offsets.dtype().as_ptype(), |O| {
-            let offsets_slice = offsets.as_slice::<O>();
+        match_each_integer_ptype!(array.offsets().dtype().as_ptype(), |O| {
             match_each_integer_ptype!(indices.ptype(), |I| {
                 match_smallest_offset_type!(total_approx, |OutputOffsetType| {
-                    _take::<I, O, OutputOffsetType>(
-                        array,
-                        offsets_slice,
-                        &indices,
-                        array.validity_mask(),
-                        indices.validity_mask(),
-                    )
+                    _take::<I, O, OutputOffsetType>(array, &indices)
                 })
             })
         })
@@ -62,22 +51,18 @@ register_kernel!(TakeKernelAdapter(ListVTable).lift());
 
 fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     array: &ListArray,
-    offsets: &[O],
     indices_array: &PrimitiveArray,
-    data_validity: Mask,
-    indices_validity_mask: Mask,
 ) -> VortexResult<ArrayRef> {
-    let indices: &[I] = indices_array.as_slice::<I>();
+    let data_validity = array.validity_mask();
+    let indices_validity = indices_array.validity_mask();
 
-    if !indices_validity_mask.all_true() || !data_validity.all_true() {
-        return _take_nullable::<I, O, OutputOffsetType>(
-            array,
-            offsets,
-            indices,
-            data_validity,
-            indices_validity_mask,
-        );
+    if !indices_validity.all_true() || !data_validity.all_true() {
+        return _take_nullable::<I, O, OutputOffsetType>(array, indices_array);
     }
+
+    let offsets_array = array.offsets().to_primitive();
+    let offsets: &[O] = offsets_array.as_slice();
+    let indices: &[I] = indices_array.as_slice();
 
     let mut new_offsets = PrimitiveBuilder::<OutputOffsetType>::with_capacity(
         Nullability::NonNullable,
@@ -120,21 +105,21 @@ fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     Ok(ListArray::try_new(
         new_elements,
         new_offsets,
-        indices_array
-            .validity()
-            .clone()
-            .and(array.validity().clone()),
+        array.validity().clone().take(indices_array.as_ref())?,
     )?
     .to_array())
 }
 
 fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     array: &ListArray,
-    offsets: &[O],
-    indices: &[I],
-    data_validity: Mask,
-    indices_validity: Mask,
+    indices_array: &PrimitiveArray,
 ) -> VortexResult<ArrayRef> {
+    let offsets_array = array.offsets().to_primitive();
+    let offsets: &[O] = offsets_array.as_slice();
+    let indices: &[I] = indices_array.as_slice();
+    let data_validity = array.validity_mask();
+    let indices_validity = indices_array.validity_mask();
+
     let mut new_offsets = PrimitiveBuilder::<OutputOffsetType>::with_capacity(
         Nullability::NonNullable,
         indices.len(),
@@ -153,13 +138,9 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPTy
     let mut current_offset = OutputOffsetType::zero();
     new_offsets.append_zero();
 
-    // Set all bits to invalid and selectively set which values are valid.
-    let mut new_validity = BitBufferMut::new_unset(indices.len());
-
     for (idx, data_idx) in indices.iter().enumerate() {
         if !indices_validity.value(idx) {
             new_offsets.append_value(current_offset);
-            // Bit buffer already has this set to invalid.
             continue;
         }
 
@@ -167,14 +148,13 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPTy
 
         if !data_validity.value(data_idx) {
             new_offsets.append_value(current_offset);
-            // Bit buffer already has this set to invalid.
             continue;
         }
 
         let start = offsets[data_idx];
         let stop = offsets[data_idx + 1];
 
-        // See the note it the `take` on the reasoning
+        // See the note in `_take` on the reasoning.
         let additional: usize = (stop - start).as_();
 
         elements_to_take.reserve_exact(additional);
@@ -184,17 +164,18 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPTy
         current_offset +=
             OutputOffsetType::from_usize((stop - start).as_()).vortex_expect("offset conversion");
         new_offsets.append_value(current_offset);
-        new_validity.set(idx);
     }
 
     let elements_to_take = elements_to_take.finish();
     let new_offsets = new_offsets.finish();
     let new_elements = take(array.elements(), elements_to_take.as_ref())?;
 
-    let new_validity = Validity::from(new_validity.freeze());
-    // data are indexes are nullable, so the final result is also nullable.
-
-    Ok(ListArray::try_new(new_elements, new_offsets, new_validity)?.to_array())
+    Ok(ListArray::try_new(
+        new_elements,
+        new_offsets,
+        array.validity().clone().take(indices_array.as_ref())?,
+    )?
+    .to_array())
 }
 
 #[cfg(test)]
@@ -459,5 +440,28 @@ mod test {
         assert!(result_view.is_valid(0));
         assert!(result_view.is_invalid(1));
         assert!(result_view.is_valid(2));
+    }
+
+    /// Regression test for validity length mismatch bug.
+    ///
+    /// When source array has `Validity::Array(...)` and indices are non-nullable,
+    /// the result validity must have length equal to indices.len(), not source.len().
+    #[test]
+    fn test_take_validity_length_mismatch_regression() {
+        // Source array with explicit validity array (length 2).
+        let list = ListArray::try_new(
+            buffer![1i32, 2, 3, 4].into_array(),
+            buffer![0, 2, 4].into_array(),
+            Validity::Array(BoolArray::from_iter(vec![true, true]).to_array()),
+        )
+        .unwrap()
+        .to_array();
+
+        // Take more indices than source length (4 vs 2) with non-nullable indices.
+        let idx = buffer![0u32, 1, 0, 1].into_array();
+
+        // This should not panic - result should have length 4.
+        let result = take(&list, &idx).unwrap();
+        assert_eq!(result.len(), 4);
     }
 }

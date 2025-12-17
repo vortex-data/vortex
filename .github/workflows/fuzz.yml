@@ -56,7 +56,7 @@ jobs:
       - name: Run fuzzing target
         id: fuzz
         run: |
-          RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=1 cargo +nightly fuzz run --release --debug-assertions file_io -- -max_total_time=7200 2>&1 | tee fuzz_output.log
+          RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=1 cargo +nightly fuzz run --release --debug-assertions file_io -- -max_total_time=7200 -rss_limit_mb=0 2>&1 | tee fuzz_output.log
         continue-on-error: true
       - name: Check for crashes
         id: check
@@ -189,7 +189,7 @@ jobs:
       - name: Run fuzzing target
         id: fuzz
         run: |
-          RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=1 cargo +nightly fuzz run --release --debug-assertions array_ops -- -max_total_time=7200 2>&1 | tee fuzz_output.log
+          RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=1 cargo +nightly fuzz run --release --debug-assertions array_ops -- -max_total_time=7200 -rss_limit_mb=0 2>&1 | tee fuzz_output.log
         continue-on-error: true
       - name: Check for crashes
         id: check

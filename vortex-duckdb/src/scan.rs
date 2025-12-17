@@ -24,15 +24,22 @@ use itertools::Itertools;
 use num_traits::AsPrimitive;
 use url::Url;
 use vortex::VortexSessionDefault;
+use vortex::array::Array;
 use vortex::array::ArrayRef;
 use vortex::array::ToCanonical;
+use vortex::array::VectorExecutor;
+use vortex::array::arrays::ScalarFnVTable;
+use vortex::array::arrays::StructArray;
+use vortex::array::arrays::StructVTable;
 use vortex::array::optimizer::ArrayOptimizer;
+use vortex::array::vectors::VectorIntoArray;
 use vortex::dtype::FieldNames;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
+use vortex::expr::Pack;
 use vortex::expr::and;
 use vortex::expr::and_collect;
 use vortex::expr::col;
@@ -330,13 +337,30 @@ impl TableFunction for VortexTableFunction {
                 let (array_result, conversion_cache) = result?;
 
                 let array_result = if *USE_VORTEX_OPERATORS {
-                    array_result.optimize_recursive()?
+                    let array_result = array_result.optimize_recursive()?;
+                    if let Some(array) = array_result.as_opt::<StructVTable>() {
+                        array.clone()
+                    } else if let Some(array) = array_result.as_opt::<ScalarFnVTable>()
+                        && let Some(pack_options) = array.scalar_fn().as_opt::<Pack>()
+                    {
+                        StructArray::new(
+                            pack_options.names.clone(),
+                            array.children(),
+                            array.len(),
+                            pack_options.nullability.into(),
+                        )
+                    } else {
+                        array_result
+                            .execute_vector(&global_state.session)?
+                            .into_struct()
+                            .into_array(array_result.dtype())
+                    }
                 } else {
-                    array_result
+                    array_result.to_struct()
                 };
 
                 local_state.exporter = Some(ArrayExporter::try_new(
-                    &array_result.to_struct(),
+                    &array_result,
                     &conversion_cache,
                     &global_state.session,
                 )?);
