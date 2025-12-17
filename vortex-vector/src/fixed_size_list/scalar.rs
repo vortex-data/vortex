@@ -104,17 +104,15 @@ impl ScalarOps for FixedSizeListScalar {
 
         let list_size = self.0.list_size();
 
-        // Get the elements from the scalar's inner length-1 vector and repeat them
-        // Clone the inner Vector from the Arc
         let scalar_elements = self.0.elements();
-
         let mut elements = scalar_elements.as_ref().clone();
+        // ensure we don't allocate a vector with the wrong size.
         elements.clear();
         let mut elements = elements.into_mut();
-        elements.reserve((n - 1) * list_size as usize);
+        elements.reserve(n * list_size as usize);
 
         if self.is_null() {
-            elements.append_zeros((n - 1) * list_size as usize);
+            elements.append_zeros(n * list_size as usize);
             let validity = MaskMut::new_false(n);
             return unsafe {
                 VectorMut::FixedSizeList(FixedSizeListVectorMut::new_unchecked(
@@ -126,7 +124,7 @@ impl ScalarOps for FixedSizeListScalar {
         }
 
         // Repeat the elements n-1 more times (we already have 1 copy)
-        for _ in 1..n {
+        for _ in 0..n {
             elements.extend_from_vector(scalar_elements.as_ref());
         }
 
