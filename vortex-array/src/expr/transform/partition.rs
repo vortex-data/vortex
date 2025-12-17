@@ -71,7 +71,7 @@ where
             Nullability::NonNullable,
         );
 
-        let expr = expr.optimize_recursive(scope)?;
+        // let expr = expr.optimize_recursive(scope)?;
         let expr_dtype = expr.return_dtype(scope)?;
 
         partitions.push(expr);

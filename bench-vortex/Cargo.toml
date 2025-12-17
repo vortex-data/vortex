@@ -73,7 +73,7 @@ tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 tpchgen = { workspace = true }
 tpchgen-arrow = { workspace = true }
-tracing = { workspace = true, features = ["max_level_debug"] }
+tracing = { workspace = true, features = ["max_level_trace"] }
 tracing-perfetto = { workspace = true }
 tracing-subscriber = { workspace = true, features = [
     "env-filter",
