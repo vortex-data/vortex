@@ -30,10 +30,8 @@ runs:
         DEFAULT_VERSION=$(grep channel rust-toolchain.toml | awk -F'"' '{print $2}')
         TOOLCHAIN="${TOOLCHAIN_OVERRIDE:-$DEFAULT_VERSION}"
         echo "toolchain=$TOOLCHAIN" >> $GITHUB_OUTPUT
-        echo "targets=$TARGETS" >> $GITHUB_OUTPUT
       env:
         TOOLCHAIN_OVERRIDE: ${{ inputs.toolchain }}
-        TARGETS: ${{ inputs.targets }}
 
     - name: Install Mold
       if: runner.os == 'Linux'
@@ -45,14 +43,14 @@ runs:
       if: steps.rustup-cache.outputs.cache-hit != 'true'
       with:
         toolchain: "${{ steps.toolchain-config.outputs.toolchain }}"
-        targets: "${{ steps.toolchain-config.outputs.targets }}"
+        targets: "${{ inputs.targets }}"
         components: "${{ inputs.components || 'clippy, rustfmt' }}"
 
     - name: Rust Dependency Cache
       uses: Swatinem/rust-cache@v2
       with:
         save-if: ${{ github.ref_name == 'develop' }}
-        shared-key: "rust-cache-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-${{ steps.toolchain-config.outputs.toolchain }}-${{ steps.toolchain-config.outputs.targets }}${{ inputs.cache-suffix && format('-{0}', inputs.cache-suffix) || '' }}"
+        shared-key: "rust-cache-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-${{ steps.rust-toolchain.outputs.cachekey }}-${{ inputs.targets }}${{ inputs.cache-suffix && format('-{0}', inputs.cache-suffix) || '' }}"
 
     - name: Rust Compile Cache
       uses: mozilla-actions/sccache-action@v0.0.9
