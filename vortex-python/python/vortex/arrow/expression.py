@@ -28,9 +28,26 @@ def ensure_vortex_expression(expression: pc.Expression | Expr | None, *, schema:
     return expression
 
 
+def _schema_for_substrait(schema: pa.Schema) -> pa.Schema:
+    # PyArrow's to_substrait doesn't support view types; map to string/binary.
+    # This is safe because Vortex handles both equivalently.
+    # If/When PyArrow to_substrait supports view types, revert. 
+    # Workaround for: https://github.com/vortex-data/vortex/issues/5759
+    fields = []
+    for field in schema:
+        if field.type == pa.string_view():
+            fields.append(field.with_type(pa.string()))
+        elif field.type == pa.binary_view():
+            fields.append(field.with_type(pa.binary()))
+        else:
+            fields.append(field)
+    return pa.schema(fields)
+
+
 def arrow_to_vortex(arrow_expression: pc.Expression, schema: pa.Schema) -> Expr:
+    compat_schema = _schema_for_substrait(schema)
     substrait_object = ExtendedExpression()  # pyright: ignore[reportUnknownVariableType]
-    substrait_object.ParseFromString(arrow_expression.to_substrait(schema))  # pyright: ignore[reportUnknownMemberType]
+    substrait_object.ParseFromString(arrow_expression.to_substrait(compat_schema))  # pyright: ignore[reportUnknownMemberType]
 
     expressions = extended_expression(substrait_object)  # pyright: ignore[reportUnknownArgumentType]
 
