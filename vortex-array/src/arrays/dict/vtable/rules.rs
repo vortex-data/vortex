@@ -45,7 +45,7 @@ impl ArrayParentReduceRule<DictVTable> for DictionaryScalarFnValuesPushDownRule 
         // Check that the scalar function can actually be pushed down.
         let sig = parent.scalar_fn().signature();
 
-        // Don't push down structual expressions since we might want to unpack them in exporters
+        // Don't push down structural expressions since we might want to unpack them in exporters
         // later.
         if sig.is_structural() {
             return Ok(None);
