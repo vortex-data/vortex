@@ -15,7 +15,6 @@ use crate::arrays::DictArray;
 use crate::arrays::DictVTable;
 use crate::arrays::ScalarFnArray;
 use crate::builtins::ArrayBuiltins;
-use crate::expr::Pack;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
