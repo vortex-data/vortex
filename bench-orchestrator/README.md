@@ -51,7 +51,6 @@ vx-bench run <benchmark> [options]
 - `--exclude-queries`: Queries to skip
 - `--iterations, -i`: Iterations per query (default: 5)
 - `--label, -l`: Label for this run (useful for later reference)
-- `--scale-factor, -s`: Scale factor for TPC benchmarks
 - `--track-memory`: Enable memory usage tracking
 - `--build/--no-build`: Build binaries before running (default: build)
 

@@ -67,7 +67,7 @@ struct Args {
     datasets: Option<String>,
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
-    #[arg(short)]
+    #[arg(short, long)]
     output_path: Option<PathBuf>,
     #[arg(long)]
     tracing: bool,

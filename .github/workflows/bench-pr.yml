@@ -90,7 +90,7 @@ jobs:
         env:
           RUST_BACKTRACE: full
         run: |
-          target/release_debug/${{ matrix.benchmark.id }} -d gh-json
+          target/release_debug/${{ matrix.benchmark.id }} -d gh-json -o results.json
 
       - name: Setup AWS CLI
         if: github.event.pull_request.head.repo.fork == false
@@ -124,7 +124,7 @@ jobs:
 
           echo '# Benchmarks: ${{ matrix.benchmark.name }}' > comment.md
           echo '' >> comment.md
-          uv run --no-project scripts/compare-benchmark-jsons.py base.json target/vortex-bench/${{ matrix.benchmark.id }}/results.json "${{ matrix.benchmark.name }}" \
+          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ matrix.benchmark.name }}" \
             >> comment.md
 
       - name: Comment PR

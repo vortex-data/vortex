@@ -289,7 +289,7 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
         }
         BenchmarkArg::PublicBi => {
             let dataset = opts.get_as::<PBIDataset>("dataset").ok_or_else(|| {
-                anyhow::anyhow!("public-bi benchmark requires --options dataset=<name>")
+                anyhow::anyhow!("public-bi benchmark requires --opt dataset=<name>")
             })?;
             let benchmark = PublicBiBenchmark::new(dataset)?;
             Ok(Box::new(benchmark) as _)

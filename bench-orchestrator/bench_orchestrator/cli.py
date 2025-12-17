@@ -67,23 +67,25 @@ def run(
     exclude_queries: Annotated[str | None, typer.Option("--exclude-queries", help="Queries to skip")] = None,
     iterations: Annotated[int, typer.Option("--iterations", "-i", help="Iterations per query")] = 5,
     label: Annotated[str | None, typer.Option("--label", "-l", help="Label for this run")] = None,
-    scale_factor: Annotated[
-        str | None, typer.Option("--scale-factor", "-s", help="Scale factor for TPC benchmarks")
-    ] = None,
     track_memory: Annotated[bool, typer.Option("--track-memory", help="Track memory usage")] = False,
     build: Annotated[bool, typer.Option("--build/--no-build", help="Build binaries before running")] = True,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Log underlying commands")] = False,
+    options: Annotated[list[str] | None, typer.Option("--opt", help="Engine or benchmark specific options")] = None,
 ) -> None:
     """Run benchmarks with specified configuration."""
     engines = parse_engines(engine)
     formats = parse_formats(format)
     query_list = parse_queries(queries)
     exclude_list = parse_queries(exclude_queries)
-
+    bench_opts = {}
     # Build options dict
-    options: dict[str, str] = {}
-    if scale_factor:
-        options["scale_factor"] = scale_factor
+    if options:
+        for opt in options:
+            for s in opt.split(","):
+                k, v, *rest = s.split("=")
+                if rest:
+                    raise RuntimeError("Options must be key-value pairs separated by =")
+                bench_opts[k] = v
 
     config = RunConfig(
         benchmark=benchmark,
@@ -93,7 +95,7 @@ def run(
         exclude_queries=exclude_list,
         iterations=iterations,
         label=label,
-        options=options,
+        options=bench_opts,
         track_memory=track_memory,
     )
 

@@ -72,7 +72,7 @@ class BenchmarkExecutor:
             cmd.append("--track-memory")
         if options:
             for k, v in options.items():
-                cmd.extend(["--options", f"{k}={v}"])
+                cmd.extend(["--opt", f"{k}={v}"])
 
         if self.verbose:
             console.print(f"[dim]$ {' '.join(cmd)}[/dim]")

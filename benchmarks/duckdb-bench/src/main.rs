@@ -65,7 +65,7 @@ struct Args {
     #[arg(long, value_delimiter = ',', value_parser = value_parser!(Format))]
     formats: Vec<Format>,
 
-    #[arg(long, value_delimiter = ',', value_parser = value_parser!(Opt))]
+    #[arg(long = "opt", value_delimiter = ',', value_parser = value_parser!(Opt))]
     options: Vec<Opt>,
 }
 
