@@ -16,20 +16,24 @@ This installs the `vx-bench` command.
 
 ```bash
 # Run TPC-H benchmarks with DataFusion and DuckDB
+# A comparison table is automatically displayed after the run
 vx-bench run tpch --engine datafusion,duckdb --format parquet,vortex
 
 # List recent benchmark runs
 vx-bench list
 
-# Compare the two most recent runs
-vx-bench compare --runs latest,<previous-run-id>
+# Compare engine:format combinations within a single run
+vx-bench compare --run latest
+
+# Compare multiple runs (2 or more)
+vx-bench compare --runs run1,run2,run3
 ```
 
 ## Commands
 
 ### `run` - Execute Benchmarks
 
-Run benchmark suites across multiple engines and formats.
+Run benchmark suites across multiple engines and formats. After completion, a comparison table is automatically displayed if there are multiple engine:format combinations.
 
 ```bash
 vx-bench run <benchmark> [options]
@@ -53,7 +57,7 @@ vx-bench run <benchmark> [options]
 
 ### `compare` - Compare Results
 
-Compare benchmark results between runs or specific configurations.
+Compare benchmark results within a run or across multiple runs. Results are displayed in a pivot table format.
 
 ```bash
 vx-bench compare [options]
@@ -61,10 +65,16 @@ vx-bench compare [options]
 
 **Options:**
 
-- `--runs, -r`: Two run IDs to compare, comma-separated
-- `--base, -b`: Base reference (`engine:format@run`)
-- `--target, -t`: Target reference (`engine:format@run`)
+- `--run`: Single run for within-run comparison (compares different engine:format combinations)
+- `--runs, -r`: Multiple runs to compare, comma-separated (2 or more)
+- `--baseline`: Baseline for comparison (engine:format for within-run, or run label for multi-run)
+- `--engine`: Filter results to a specific engine
+- `--format`: Filter results to a specific format
 - `--threshold`: Significance threshold (default: 0.10 = 10%)
+
+**Within-run comparison** (`--run`): Compares different engine:format combinations within a single run. Output shows one row per query, with columns for each engine:format combo.
+
+**Multi-run comparison** (`--runs`): Compares the same benchmarks across multiple runs. Output shows one row per (query, engine, format) combination, with columns for each run.
 
 ### `list` - List Benchmark Runs
 
@@ -149,10 +159,11 @@ Compare performance across different query engines:
 
 ```bash
 # Run all engines on the same data
+# Comparison table is displayed automatically after the run
 vx-bench run tpch -e datafusion,duckdb -f parquet -l engine-comparison
 
-# View results
-vx-bench show latest
+# Or compare within the run later
+vx-bench compare --run engine-comparison
 ```
 
 ### 4. Format Performance Analysis
@@ -167,10 +178,11 @@ vx-bench run tpch \
   -i 10 \
   -l format-analysis
 
-# Compare specific format pairs
-vx-bench compare \
-  --base "datafusion:parquet@format-analysis" \
-  --target "datafusion:vortex@format-analysis" \
+# Compare within the run (table shown automatically after run too)
+vx-bench compare --run format-analysis
+
+# Use a specific baseline
+vx-bench compare --run format-analysis --baseline datafusion:parquet
 ```
 
 ### 5. Memory Usage Analysis
@@ -246,33 +258,34 @@ vx-bench clean --older-than "30 days" --no-keep-labeled
 | duckdb     | parquet, vortex, vortex-compact, duckdb   |
 | lance      | lance                                      |
 
-## Target Reference Syntax
+## Output Format
 
-When using `--base` and `--target` options, use this format:
+Comparison results are displayed in a pivot table format:
 
+**Within-run comparison** (`--run`):
 ```
-engine:format@run
+┌───────┬──────────────────────┬────────────────────────┐
+│ Query │ duckdb:parquet (base)│ duckdb:vortex          │
+├───────┼──────────────────────┼────────────────────────┤
+│     1 │ 100.5ms              │ 80.2ms (0.80x)         │
+│     2 │ 200.1ms              │ 150.0ms (0.75x)        │
+└───────┴──────────────────────┴────────────────────────┘
 ```
 
-- `engine`: Engine name (`datafusion`, `duckdb`, `lance`) or `*` for wildcard
-- `format`: Format name (`parquet`, `vortex`, etc.) or `*` for wildcard
-- `run`: Run ID, label, or `latest`
+**Multi-run comparison** (`--runs`):
+```
+┌───────┬────────┬─────────┬──────────────┬──────────────────┐
+│ Query │ Engine │ Format  │ run1 (base)  │ run2             │
+├───────┼────────┼─────────┼──────────────┼──────────────────┤
+│     1 │ duckdb │ parquet │ 100ms        │ 95ms (0.95x)     │
+│     1 │ duckdb │ vortex  │ 80ms         │ 75ms (0.94x)     │
+└───────┴────────┴─────────┴──────────────┴──────────────────┘
+```
 
-Examples:
-
-- `duckdb:parquet@latest` - DuckDB with Parquet from the latest run
-- `*:vortex@baseline` - All engines with Vortex from the "baseline" run
-- `datafusion:*@2025-01-15` - All formats with DataFusion from a specific run
-
-## Output Formats
-
-### Terminal Output
-
-Default output uses rich formatting with color-coded ratios:
-
-- Green (with up arrow): Improvement (>10% faster)
-- Red (with down arrow): Regression (>10% slower)
-- Yellow: Neutral (within 10%)
+Ratios are color-coded:
+- **Green**: Improvement (>10% faster, ratio < 0.9)
+- **Red**: Regression (>10% slower, ratio > 1.1)
+- **Yellow**: Neutral (within 10%)
 
 ## Data Storage
 

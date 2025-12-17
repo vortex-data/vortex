@@ -3,12 +3,15 @@
 
 """Output formatting for benchmark comparisons."""
 
-from typing import Any
+from typing import TYPE_CHECKING
 
 import pandas as pd
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
+
+if TYPE_CHECKING:
+    from .analyzer import PivotComparison
 
 console = Console()
 
@@ -24,22 +27,6 @@ def _ratio_to_color(ratio: float, threshold: float = 0.10) -> str:
     return "yellow"
 
 
-def _format_ratio(ratio: float, threshold: float = 0.10) -> Text:
-    """Format ratio with color coding."""
-    if pd.isna(ratio):
-        return Text("N/A", style="dim")
-
-    color = _ratio_to_color(ratio, threshold)
-    text = f"{ratio:.3f}x"
-
-    if ratio < (1.0 - threshold):
-        text += " \u2191"  # Up arrow (faster)
-    elif ratio > (1.0 + threshold):
-        text += " \u2193"  # Down arrow (slower)
-
-    return Text(text, style=color)
-
-
 def _format_time_ns(value: float) -> str:
     """Format nanoseconds in a human-readable way."""
     if pd.isna(value):
@@ -53,101 +40,60 @@ def _format_time_ns(value: float) -> str:
     return f"{value / 1_000_000_000:.2f}s"
 
 
-class BenchmarkReporter:
-    """Formats comparison results for output."""
+def pivot_comparison_table(
+    pivot: "PivotComparison",
+    threshold: float = 0.10,
+    row_keys: list[str] | str = "query",
+) -> Table:
+    """Generate a rich table for pivot comparison."""
+    table = Table()
 
-    def __init__(
-        self,
-        comparison_df: pd.DataFrame,
-        stats: dict[str, Any] | None = None,
-        threshold: float = 0.10,
-    ):
-        self.df = comparison_df
-        self.stats = stats or {}
-        self.threshold = threshold
+    # Normalize row_keys to list
+    if isinstance(row_keys, str):
+        row_keys = [row_keys]
 
-    def to_rich_table(
-        self,
-        title: str | None = None,
-        base_label: str = "base",
-        target_label: str = "target",
-    ) -> Table:
-        """Generate a rich table for terminal output."""
-        table = Table(title=title or "Benchmark Comparison")
+    # Row key columns
+    for key in row_keys:
+        table.add_column(key.replace("_", " ").title(), style="cyan")
 
-        table.add_column("Query", style="cyan")
-        table.add_column(base_label, justify="right")
-        table.add_column(target_label, justify="right")
-        table.add_column("Ratio", justify="right")
+    # Add column for each comparison target
+    for col in pivot.columns:
+        if col == pivot.baseline:
+            table.add_column(f"{col} (base)", justify="right")
+        else:
+            table.add_column(col, justify="right")
 
-        for _, row in self.df.iterrows():
-            query = str(row.get("query", ""))
+    # Add rows
+    for _, row in pivot.df.iterrows():
+        cells: list[str | Text] = []
 
-            base_val = row.get("value_base", float("nan"))
-            target_val = row.get("value_target", float("nan"))
-            ratio = row.get("ratio", float("nan"))
-
-            table.add_row(
-                query,
-                _format_time_ns(base_val),
-                _format_time_ns(target_val),
-                _format_ratio(ratio, self.threshold),
-            )
-
-        return table
-
-    def summary(self) -> str:
-        """Generate summary statistics."""
-        lines = ["## Summary", ""]
-
-        geomean = self.stats.get("geomean", float("nan"))
-        if not pd.isna(geomean):
-            if geomean < (1.0 - self.threshold):
-                emoji = "\u2705"  # Green check
-            elif geomean > (1.0 + self.threshold):
-                emoji = "\u274c"  # Red X
+        # Add row key values
+        for key in row_keys:
+            val = row.get(key, "")
+            if key == "query" and val != "":
+                cells.append(str(int(val)))
             else:
-                emoji = "\u2796"  # Neutral
-            lines.append(f"- **Overall**: {geomean:.3f}x {emoji}")
+                cells.append(str(val))
 
-        improvements = self.stats.get("improvements", 0)
-        regressions = self.stats.get("regressions", 0)
-        lines.append(f"- **Improvements**: {improvements}")
-        lines.append(f"- **Regressions**: {regressions}")
+        for col in pivot.columns:
+            value = row.get(col, float("nan"))
+            ratio = row.get(f"{col}_ratio", float("nan"))
 
-        best_name = self.stats.get("best_name")
-        best_ratio = self.stats.get("best_ratio")
-        if best_name and not pd.isna(best_ratio):
-            lines.append(f"- **Best**: {best_name} ({best_ratio:.3f}x)")
+            if pd.isna(value):
+                cells.append(Text("N/A", style="dim"))
+            elif col == pivot.baseline:
+                # Baseline: just show time
+                cells.append(_format_time_ns(value))
+            else:
+                # Non-baseline: show time and ratio
+                time_str = _format_time_ns(value)
+                if pd.isna(ratio):
+                    cells.append(Text(f"{time_str}", style="dim"))
+                else:
+                    color = _ratio_to_color(ratio, threshold)
+                    ratio_str = f"{ratio:.2f}x"
+                    cells.append(Text(f"{time_str} ({ratio_str})", style=color))
 
-        worst_name = self.stats.get("worst_name")
-        worst_ratio = self.stats.get("worst_ratio")
-        if worst_name and not pd.isna(worst_ratio):
-            lines.append(f"- **Worst**: {worst_name} ({worst_ratio:.3f}x)")
+        table.add_row(*cells)
 
-        return "\n".join(lines)
-
-    def print_summary(self) -> None:
-        """Print summary to console with rich formatting."""
-        geomean = self.stats.get("geomean", float("nan"))
-        improvements = self.stats.get("improvements", 0)
-        regressions = self.stats.get("regressions", 0)
-
-        console.print("\n[bold]Summary[/bold]")
-
-        if not pd.isna(geomean):
-            color = _ratio_to_color(geomean, self.threshold)
-            console.print(f"  Overall: [{color}]{geomean:.3f}x[/{color}]")
-
-        console.print(f"  Improvements: [green]{improvements}[/green]")
-        console.print(f"  Regressions: [red]{regressions}[/red]")
-
-        best_name = self.stats.get("best_name")
-        best_ratio = self.stats.get("best_ratio")
-        if best_name and not pd.isna(best_ratio):
-            console.print(f"  Best: {best_name} ([green]{best_ratio:.3f}x[/green])")
-
-        worst_name = self.stats.get("worst_name")
-        worst_ratio = self.stats.get("worst_ratio")
-        if worst_name and not pd.isna(worst_ratio):
-            console.print(f"  Worst: {worst_name} ([red]{worst_ratio:.3f}x[/red])")
+    return table

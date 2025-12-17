@@ -164,7 +164,7 @@ class ResultStore:
         self,
         benchmark: str | None = None,
         since: datetime | None = None,
-        limit: int = 50,
+        limit: int | None = 50,
     ) -> list[RunSummary]:
         """List runs matching criteria, sorted by timestamp descending."""
         if not self.base_dir.exists():
@@ -203,7 +203,10 @@ class ResultStore:
 
         # Sort by timestamp descending
         summaries.sort(key=lambda s: s.timestamp, reverse=True)
-        return summaries[:limit]
+        if limit:
+            return summaries[:limit]
+        else:
+            return summaries
 
     def get_run(self, run_id_or_label: str) -> RunMetadata | None:
         """Get a run by ID, label, or 'latest'."""

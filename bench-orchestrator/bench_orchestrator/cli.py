@@ -6,12 +6,13 @@
 from datetime import datetime, timedelta
 from typing import Annotated
 
+import pandas as pd
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from .comparison.analyzer import BenchmarkAnalyzer, TargetRef
-from .comparison.reporter import BenchmarkReporter
+from .comparison import analyzer
+from .comparison.reporter import pivot_comparison_table
 from .config import (
     ENGINE_FORMATS,
     Benchmark,
@@ -47,6 +48,10 @@ def parse_queries(value: str | None) -> list[int] | None:
     if not value:
         return None
     return [int(q.strip()) for q in value.split(",")]
+
+
+def run_ref_auto_complete() -> list[str]:
+    return list(map(lambda x: x.run_id, ResultStore().list_runs(limit=None)))
 
 
 @app.command()
@@ -154,102 +159,123 @@ def run(
 
     console.print(f"\n[green]Results saved to run: {ctx.metadata.run_id}[/green]")
 
+    # Show comparison table if we have multiple engine:format combinations
+    df = store.load_results(ctx.metadata.run_id)
+    if not df.empty:
+        try:
+            pivot = analyzer.compare_within_run(df)
+            table = pivot_comparison_table(pivot)
+            console.print()
+            console.print(table)
+        except ValueError:
+            # Not enough combinations to compare
+            pass
+
 
 @app.command()
 def compare(
-    base: Annotated[
-        str | None,
-        typer.Option("--base", "-b", help="Base reference (engine:format@run)"),
-    ] = None,
-    target: Annotated[
-        str | None,
-        typer.Option("--target", "-t", help="Target reference (engine:format@run)"),
-    ] = None,
     runs: Annotated[
         str | None,
-        typer.Option("--runs", "-r", help="Two runs to compare (comma-separated)"),
+        typer.Option("--runs", "-r", help="Runs to compare (comma-separated, 2 or more)"),
+    ] = None,
+    run: Annotated[
+        str | None,
+        typer.Option("--run", help="Single run for within-run comparison", autocompletion=run_ref_auto_complete),
+    ] = None,
+    baseline: Annotated[
+        str | None,
+        typer.Option("--baseline", help="Baseline engine:format for within-run comparison"),
     ] = None,
     threshold: Annotated[float, typer.Option("--threshold", help="Significance threshold (default 10%)")] = 0.10,
+    filter_engine: Annotated[
+        str | None, typer.Option("--engine", help="Filter only for results that use a specific engine")
+    ] = None,
+    filter_format: Annotated[
+        str | None, typer.Option("--format", help="Filter only for results that use a specific file format")
+    ] = None,
 ) -> None:
     """Compare benchmark results."""
     store = ResultStore()
 
-    if runs:
-        # Compare two full runs
+    if run:
+        # Within-run comparison
+        run_meta = store.get_run(run)
+        if not run_meta:
+            console.print(f"[red]Run not found: {run}[/red]")
+            raise typer.Exit(1)
+
+        df = store.load_results(run_meta.run_id)
+
+        if df.empty:
+            console.print("[red]No results found[/red]")
+            raise typer.Exit(1)
+
+        # Parse baseline if provided
+        baseline_engine = None
+        baseline_format = None
+        if baseline:
+            if ":" in baseline:
+                baseline_engine, baseline_format = baseline.split(":", 1)
+            else:
+                console.print("[red]--baseline must be engine:format[/red]")
+                raise typer.Exit(1)
+
+        try:
+            pivot = analyzer.compare_within_run(df, baseline_engine, baseline_format, filter_engine, filter_format)
+        except ValueError as e:
+            console.print(f"[red]{e}[/red]")
+            raise typer.Exit(1)
+
+        table = pivot_comparison_table(pivot, threshold)
+        console.print(table)
+        return
+
+    elif runs:
+        # Compare multiple runs (2 or more)
         run_refs = [r.strip() for r in runs.split(",")]
-        if len(run_refs) != 2:
-            console.print("[red]--runs requires exactly two run references[/red]")
+        if len(run_refs) < 2:
+            console.print("[red]--runs requires at least two run references[/red]")
             raise typer.Exit(1)
 
-        base_run = store.get_run(run_refs[0])
-        target_run = store.get_run(run_refs[1])
+        # Load all runs
+        run_data: list[tuple[str, pd.DataFrame]] = []
+        for ref in run_refs:
+            run_meta = store.get_run(ref)
+            if not run_meta:
+                console.print(f"[red]Run not found: {ref}[/red]")
+                raise typer.Exit(1)
+            label = run_meta.label or run_meta.run_id[:16]
+            df = store.load_results(run_meta.run_id)
+            if df.empty:
+                console.print(f"[red]No results for run: {ref}[/red]")
+                raise typer.Exit(1)
+            run_data.append((label, df))
 
-        if not base_run:
-            console.print(f"[red]Run not found: {run_refs[0]}[/red]")
+        # Use baseline option if provided, otherwise first run
+        baseline_label = None
+        if baseline:
+            # Find matching label
+            for label, _ in run_data:
+                if baseline in label:
+                    baseline_label = label
+                    break
+            if baseline_label is None:
+                console.print(f"[red]Baseline not found: {baseline}[/red]")
+                raise typer.Exit(1)
+
+        try:
+            pivot = analyzer.compare_runs(run_data, baseline_label, filter_engine, filter_format)
+        except ValueError as e:
+            console.print(f"[red]{e}[/red]")
             raise typer.Exit(1)
-        if not target_run:
-            console.print(f"[red]Run not found: {run_refs[1]}[/red]")
-            raise typer.Exit(1)
 
-        base_df = store.load_results(base_run.run_id)
-        target_df = store.load_results(target_run.run_id)
-
-        base_label = base_run.label or base_run.run_id[:20]
-        target_label = target_run.label or target_run.run_id[:20]
-
-    elif base and target:
-        # Compare specific configurations
-        base_ref = TargetRef.parse(base)
-        target_ref = TargetRef.parse(target)
-
-        base_run = store.get_run(base_ref.run)
-        target_run = store.get_run(target_ref.run)
-
-        if not base_run:
-            console.print(f"[red]Run not found: {base_ref.run}[/red]")
-            raise typer.Exit(1)
-        if not target_run:
-            console.print(f"[red]Run not found: {target_ref.run}[/red]")
-            raise typer.Exit(1)
-
-        base_df = store.load_results(base_run.run_id)
-        target_df = store.load_results(target_run.run_id)
-
-        # Apply filters
-        base_analyzer = BenchmarkAnalyzer(base_df)
-        target_analyzer = BenchmarkAnalyzer(target_df)
-
-        base_df = base_analyzer.filter_by_ref(base_ref)
-        target_df = target_analyzer.filter_by_ref(target_ref)
-
-        base_label = base
-        target_label = target
+        table = pivot_comparison_table(pivot, threshold, row_keys=["query", "engine", "format"])
+        console.print(table)
+        return
 
     else:
-        console.print("[red]Must specify either --runs or --base/--target[/red]")
+        console.print("[red]Must specify either --runs or --run[/red]")
         raise typer.Exit(1)
-
-    if base_df.empty:
-        console.print("[red]No results found for base[/red]")
-        raise typer.Exit(1)
-    if target_df.empty:
-        console.print("[red]No results found for target[/red]")
-        raise typer.Exit(1)
-
-    # Perform comparison
-    analyzer = BenchmarkAnalyzer(base_df)
-    comparison = analyzer.compare(base_df, target_df)
-    stats = analyzer.summary_stats(comparison)
-
-    reporter = BenchmarkReporter(comparison, stats, threshold)
-
-    table = reporter.to_rich_table(
-        title="Benchmark Comparison",
-        base_label=base_label,
-        target_label=target_label,
-    )
-    console.print(table)
-    reporter.print_summary()
 
 
 @app.command("list")
@@ -305,7 +331,7 @@ def list_runs(
 
 @app.command()
 def show(
-    run_ref: Annotated[str, typer.Argument(help="Run ID, label, or 'latest'")],
+    run_ref: Annotated[str, typer.Argument(help="Run ID, label, or 'latest'", autocompletion=run_ref_auto_complete)],
 ) -> None:
     """Show details of a specific run."""
     store = ResultStore()
