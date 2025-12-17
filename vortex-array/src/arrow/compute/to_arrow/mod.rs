@@ -12,7 +12,6 @@ use std::sync::LazyLock;
 use arcref::ArcRef;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
-use vortex_compute::arrow::IntoArrow;
 use vortex_dtype::DType;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_error::VortexError;
@@ -24,7 +23,7 @@ use vortex_error::vortex_err;
 use crate::Array;
 use crate::LEGACY_SESSION;
 use crate::USE_VORTEX_OPERATORS;
-use crate::VectorExecutor;
+use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::array::ArrowArray;
 use crate::arrow::array::ArrowVTable;
 use crate::compute::ComputeFn;
@@ -130,10 +129,13 @@ impl ComputeFnVTable for ToArrow {
 
         if !array.is_canonical() {
             let arrow_array = if *USE_VORTEX_OPERATORS {
+                let arrow_type = arrow_type
+                    .cloned()
+                    .map(Ok)
+                    .unwrap_or_else(|| array.dtype().to_arrow_dtype())?;
                 array
                     .to_array()
-                    .execute_vector(&LEGACY_SESSION)?
-                    .into_arrow()?
+                    .execute_arrow(&arrow_type, &LEGACY_SESSION)?
             } else {
                 // Fall back to canonicalizing and then converting.
                 let canonical_array = array.to_canonical();

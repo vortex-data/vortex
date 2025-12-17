@@ -4,6 +4,7 @@
 use std::any::Any;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -71,9 +72,9 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnConstantRule {
         let result = match result {
             Datum::Scalar(s) => s,
             Datum::Vector(v) => {
-                tracing::warn!(
+                tracing::info!(
                     "Scalar function {} returned vector from execution over all scalar inputs",
-                    array.scalar_fn
+                    array.scalar_fn,
                 );
                 v.scalar_at(0)
             }
@@ -188,11 +189,11 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnUnaryFilterPushDownRule {
                 .iter()
                 .map(|c| match c.as_opt::<ConstantVTable>() {
                     Some(array) => {
-                        ConstantArray::new(array.scalar().clone(), parent.len()).into_array()
+                        Ok(ConstantArray::new(array.scalar().clone(), parent.len()).into_array())
                     }
-                    None => FilterArray::new(c.clone(), parent.filter_mask().clone()).into_array(),
+                    None => c.filter(parent.filter_mask().clone()),
                 })
-                .collect();
+                .try_collect()?;
 
             let new_array =
                 ScalarFnArray::try_new(child.scalar_fn.clone(), new_children, parent.len())?

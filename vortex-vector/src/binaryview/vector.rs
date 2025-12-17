@@ -208,13 +208,22 @@ impl<T: BinaryViewType> BinaryViewVector<T> {
             return None;
         }
 
+        Some(unsafe { T::from_bytes_unchecked(self.get_ref_unchecked(index)) })
+    }
+
+    /// Get the `index` item from the vector as a [u8]
+    ///
+    /// ## SAFETY
+    ///
+    /// This function is unsafe since the validity of the vector is ignored.
+    pub unsafe fn get_ref_unchecked(&self, index: usize) -> &[u8] {
         let view = &self.views[index];
         if view.is_inlined() {
             let view = view.as_inlined();
             // SAFETY: validation that the string data contained in this vector is performed
             //  at construction time, either in the constructor for safe construction, or by
             //  the caller (when using the unchecked constructor).
-            Some(unsafe { T::from_bytes_unchecked(&view.data[..view.size as usize]) })
+            &view.data[..view.size as usize]
         } else {
             // Get a pointer into the buffer range
             let view_ref = view.as_view();
@@ -226,7 +235,7 @@ impl<T: BinaryViewType> BinaryViewVector<T> {
             // SAFETY: validation that the string data contained in this vector is performed
             //  at construction time, either in the constructor for safe construction, or by
             //  the caller (when using the unchecked constructor).
-            Some(unsafe { T::from_bytes_unchecked(&buffer.as_bytes()[start..start + length]) })
+            &buffer.as_bytes()[start..start + length]
         }
     }
 

@@ -8,6 +8,7 @@ use std::ops::BitAnd;
 use std::ops::RangeBounds;
 use std::sync::Arc;
 
+use std::ops::Bound;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -195,8 +196,36 @@ impl VectorOps for FixedSizeListVector {
         FixedSizeListScalar::new(self.slice(index..index + 1))
     }
 
-    fn slice(&self, _range: impl RangeBounds<usize> + Clone + Debug) -> Self {
-        todo!()
+    fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self {
+        let start = match range.start_bound() {
+            Bound::Included(&s) => s,
+            Bound::Excluded(&s) => s + 1,
+            Bound::Unbounded => 0,
+        };
+
+        let end = match range.end_bound() {
+            Bound::Included(&e) => e + 1,
+            Bound::Excluded(&e) => e,
+            Bound::Unbounded => self.len,
+        };
+
+        assert!(
+            start <= end && end <= self.len,
+            "Range {:?} out of bounds for length {}",
+            range,
+            self.len
+        );
+
+        let list_size = self.list_size as usize;
+        let elem_start = start * list_size;
+        let elem_end = end * list_size;
+
+        let sliced_elements = self.elements.slice(elem_start..elem_end);
+        let sliced_validity = self.validity.slice(range);
+
+        // SAFETY: We're slicing the elements by the corresponding list_size factor,
+        // so the invariant `elements.len() == validity.len() * list_size` holds.
+        unsafe { Self::new_unchecked(Arc::new(sliced_elements), self.list_size, sliced_validity) }
     }
 
     fn clear(&mut self) {

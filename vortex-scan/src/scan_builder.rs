@@ -180,6 +180,11 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self.projection.return_dtype(self.layout_reader.dtype())
     }
 
+    /// The session used by the scan.
+    pub fn session(&self) -> &VortexSession {
+        &self.session
+    }
+
     /// Map each split of the scan. The function will be run on the spawned task.
     pub fn map<B: 'static>(
         self,
