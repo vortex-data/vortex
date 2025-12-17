@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! UI rendering components for the TUI browser.
+
 mod layouts;
 mod segments;
 
@@ -17,6 +19,12 @@ use super::app::KeyMode;
 use super::app::Tab;
 use crate::browse::ui::segments::segments_ui;
 
+/// Render the complete TUI application to the given frame.
+///
+/// This is the main entry point for rendering. It draws:
+/// - The outer border with title and help text
+/// - The tab bar showing available views
+/// - The content area for the currently selected tab
 pub fn render_app(app: &mut AppState<'_>, frame: &mut Frame<'_>) {
     // Render the outer tab view, then render the inner frame view.
     let bottom_text = if app.key_mode == KeyMode::Search {
