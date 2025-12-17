@@ -256,7 +256,7 @@ impl VTable for Merge {
     }
 
     fn is_structural(&self, _options: &Self::Options) -> bool {
-        false
+        true
     }
 }
 
