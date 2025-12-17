@@ -117,26 +117,3 @@ The plan is that at write-time, a minimum supported reader version is declared. 
 reader version can then be embedded into the file with WebAssembly decompression logic. Old readers are able to decompress new
 data (slower than native code, but still with SIMD acceleration) and read the file. New readers are able to make the best use of
 these encodings with native decompression logic and additional push-down compute functions (which also provides an incentive to upgrade).
-
-## File Determinism and Reproducibility
-
-### Encoding Order Indeterminism
-
-When writing Vortex files, each array segment references its encoding via an integer index into the footer's `array_specs`
-list. During serialization, encodings are registered in the order they are first encountered via calls to
-`ArrayContext::encoding_idx()`. With concurrent writes, this encounter order depends on thread scheduling and lock
-acquisition timing, making the ordering in the footer non-deterministic between runs.
-
-This affects the `encoding` field in each serialized array segment. The same encoding might receive index 0 in one run and
-index 1 in another, changing the integer value stored in each array segment that uses that encoding. FlatBuffers optimize
-storage by omitting fields with default values (such as 0), so when an encoding index is 0, the field may be omitted from
-the serialized representation. This saves approximately 2 bytes per affected array segment, and with alignment adjustments,
-can result in up to 4 bytes difference per array segment between runs.
-
-:::{note}
-Despite this non-determinism, the practical impact is minimal:
-
-- File size may vary by up to 4 bytes per affected array segment
-- All file contents remain semantically identical and fully readable
-- Segment ordering (the actual data layout) remains deterministic and consistent across writes
-:::

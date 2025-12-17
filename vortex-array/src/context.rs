@@ -26,6 +26,15 @@ impl<T: Clone + Eq> VTableContext<T> {
         Self(Arc::new(RwLock::new(encodings)))
     }
 
+    pub fn from_registry_sorted(registry: &Registry<T>) -> Self
+    where
+        T: Display,
+    {
+        let mut encodings: Vec<T> = registry.items().collect();
+        encodings.sort_by_key(|a| a.to_string());
+        Self::new(encodings)
+    }
+
     pub fn try_from_registry<'a>(
         registry: &Registry<T>,
         ids: impl IntoIterator<Item = &'a str>,

@@ -19,6 +19,7 @@ use vortex_array::ArrayRef;
 use vortex_array::expr::stats::Stat;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorExt;
+use vortex_array::session::ArraySessionExt;
 use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
@@ -138,8 +139,12 @@ impl VortexWriteOptions {
         mut write: W,
         stream: SendableArrayStream,
     ) -> VortexResult<WriteSummary> {
-        // Set up a Context to capture the encodings used in the file.
-        let ctx = ArrayContext::empty();
+        // NOTE(os): Setup an array context that already has all known encodings pre-populated.
+        // This is preferred for now over having an empty context here, because only the
+        // serialised array order is deterministic. The serialisation of arrays are done
+        // parallel and with an empty context they can register their encodings to the context
+        // in different order, changing the written bytes from run to run.
+        let ctx = ArrayContext::from_registry_sorted(self.session.arrays().registry());
         let dtype = stream.dtype().clone();
 
         let (mut ptr, eof) = SequenceId::root().split();
