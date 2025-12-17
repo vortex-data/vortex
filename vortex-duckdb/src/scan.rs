@@ -197,7 +197,7 @@ fn extract_table_filter_expr(
                 )
             })
             .collect::<VortexResult<Option<HashSet<_>>>>()?
-            .unwrap_or_else(|| HashSet::new())
+            .unwrap_or_else(HashSet::new)
     } else {
         HashSet::new()
     };
