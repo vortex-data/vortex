@@ -257,8 +257,10 @@ impl<O: IntegerPType> ColumnExporter for ListVectorExporter<O> {
 #[cfg(test)]
 mod tests {
     use vortex::array::IntoArray as _;
+    use vortex::array::arrays::VarBinArray;
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
+    use vortex::buffer::buffer;
     use vortex::error::VortexUnwrap;
 
     use super::*;
@@ -291,6 +293,40 @@ mod tests {
             format!("{}", String::try_from(&chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT INTEGER[]: 0 = [ ]
+"#
+        );
+    }
+
+    #[test]
+    fn test_export_non_empty_list_of_strings() {
+        let list = unsafe {
+            ListArray::new_unchecked(
+                <VarBinArray as FromIterator<_>>::from_iter([
+                    Some("abc"),
+                    Some("def"),
+                    None,
+                    Some("ghi"),
+                ])
+                .into_array(),
+                buffer![0u8, 1, 2, 3, 4].into_array(),
+                Validity::from_iter([true, true, false, true]),
+            )
+        }
+        .into_array();
+
+        let list_type = LogicalType::list_type(LogicalType::varchar()).vortex_unwrap();
+        let mut chunk = DataChunk::new([list_type]);
+
+        new_array_exporter(&list, &ConversionCache::default())
+            .unwrap()
+            .export(0, 4, &mut chunk.get_vector(0))
+            .unwrap();
+        chunk.set_len(4);
+
+        assert_eq!(
+            format!("{}", String::try_from(&chunk).unwrap()),
+            r#"Chunk - [1 Columns]
+- FLAT VARCHAR[]: 4 = [ [abc], [def], NULL, [ghi]]
 "#
         );
     }
