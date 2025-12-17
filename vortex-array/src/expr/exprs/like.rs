@@ -141,10 +141,6 @@ impl VTable for Like {
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
         false
     }
-
-    fn is_structural(&self, _options: &Self::Options) -> bool {
-        false
-    }
 }
 
 pub fn like(child: Expression, pattern: Expression) -> Expression {

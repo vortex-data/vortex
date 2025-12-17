@@ -65,11 +65,6 @@ impl VTable for RowIdx {
             "RowIdxExpr should not be eecuted directly, use it in the context of a Vortex scan and it will be substituted for a row index array"
         );
     }
-
-    fn is_structural(&self, options: &Self::Options) -> bool {
-        _ = options;
-        false
-    }
 }
 
 pub fn row_idx() -> Expression {

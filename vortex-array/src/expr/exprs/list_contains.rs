@@ -202,10 +202,6 @@ impl VTable for ListContains {
     fn is_fallible(&self, _options: &Self::Options) -> bool {
         false
     }
-
-    fn is_structural(&self, _options: &Self::Options) -> bool {
-        false
-    }
 }
 
 /// Creates an expression that checks if a value is contained in a list.

@@ -233,10 +233,6 @@ impl VTable for GetItem {
         // If this type-checks its infallible.
         false
     }
-
-    fn is_structural(&self, _options: &Self::Options) -> bool {
-        false
-    }
 }
 
 /// Creates an expression that accesses a field from the root array.

@@ -151,10 +151,6 @@ impl VTable for Cast {
     fn is_null_sensitive(&self, _instance: &DType) -> bool {
         true
     }
-
-    fn is_structural(&self, _options: &Self::Options) -> bool {
-        false
-    }
 }
 
 /// Creates an expression that casts values to a target data type.

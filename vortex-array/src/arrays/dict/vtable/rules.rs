@@ -15,6 +15,7 @@ use crate::arrays::DictArray;
 use crate::arrays::DictVTable;
 use crate::arrays::ScalarFnArray;
 use crate::builtins::ArrayBuiltins;
+use crate::expr::Pack;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
@@ -44,9 +45,9 @@ impl ArrayParentReduceRule<DictVTable> for DictionaryScalarFnValuesPushDownRule 
         // Check that the scalar function can actually be pushed down.
         let sig = parent.scalar_fn().signature();
 
-        // Don't push down structural expressions since we might want to unpack them in exporters
+        // Don't push down pack expressions since we might want to unpack them in exporters
         // later.
-        if sig.is_structural() {
+        if parent.scalar_fn().is::<Pack>() {
             return Ok(None);
         }
 

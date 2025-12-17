@@ -246,10 +246,6 @@ impl VTable for Select {
         // If this type-checks its infallible.
         false
     }
-
-    fn is_structural(&self, _options: &Self::Options) -> bool {
-        false
-    }
 }
 
 fn select_from_struct_vector(

@@ -209,10 +209,6 @@ impl VTable for Between {
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
         false
     }
-
-    fn is_structural(&self, _options: &Self::Options) -> bool {
-        false
-    }
 }
 
 /// Creates an expression that checks if values are between two bounds.
