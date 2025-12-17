@@ -40,10 +40,8 @@ use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::Pack;
-use vortex::expr::and;
 use vortex::expr::and_collect;
 use vortex::expr::col;
-use vortex::expr::lit;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
@@ -53,6 +51,7 @@ use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::ThreadSafeIterator;
 use vortex::layout::layouts::USE_VORTEX_OPERATORS;
 use vortex::session::VortexSession;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::RUNTIME;
 use crate::SESSION;
@@ -179,38 +178,32 @@ fn extract_table_filter_expr(
     init: &TableInitInput<VortexTableFunction>,
     column_ids: &[u64],
 ) -> VortexResult<Option<Expression>> {
-    let table_filter_expr = init
-        .table_filter_set()
-        .and_then(|filter| {
-            filter
-                .into_iter()
-                .map(|(idx, ex)| {
-                    let idx_u: usize = idx.as_();
-                    let col_idx: usize = column_ids[idx_u].as_();
-                    let name = init
-                        .bind_data()
-                        .column_names
-                        .get(col_idx)
-                        .vortex_expect("exists");
-                    try_from_table_filter(
-                        &ex,
-                        &col(name.as_str()),
-                        init.bind_data().first_file.dtype(),
-                    )
-                })
-                .reduce(|l, r| l?.zip(r?).map(|(l, r)| Ok(and(l, r))).transpose())
-        })
-        .transpose()?
-        .flatten();
+    let mut table_filter_exprs: HashSet<Expression> = if let Some(filter) = init.table_filter_set()
+    {
+        filter
+            .into_iter()
+            .map(|(idx, ex)| {
+                let idx_u: usize = idx.as_();
+                let col_idx: usize = column_ids[idx_u].as_();
+                let name = init
+                    .bind_data()
+                    .column_names
+                    .get(col_idx)
+                    .vortex_expect("exists");
+                try_from_table_filter(
+                    &ex,
+                    &col(name.as_str()),
+                    init.bind_data().first_file.dtype(),
+                )
+            })
+            .collect::<VortexResult<Option<HashSet<_>>>>()?
+            .unwrap_or_else(HashSet::new)
+    } else {
+        HashSet::new()
+    };
 
-    let complex_filter_expr = and_collect(init.bind_data().filter_exprs.clone());
-    let filter_expr = complex_filter_expr
-        .into_iter()
-        .chain(table_filter_expr)
-        .reduce(and)
-        .unwrap_or_else(|| lit(true));
-
-    Ok(Some(filter_expr))
+    table_filter_exprs.extend(init.bind_data().filter_exprs.clone());
+    Ok(and_collect(table_filter_exprs.into_iter().collect_vec()))
 }
 
 /// Helper function to open a Vortex file from either a local or S3 URL
