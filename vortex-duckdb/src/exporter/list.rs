@@ -214,7 +214,7 @@ pub(crate) fn new_vector_exporter(
                 validity: array.validity().to_mask(array.len()),
                 duckdb_elements: shared_elements,
                 offsets: offsets.downcast::<O>(),
-                sizes: sizes.downcast::<O>(),
+                sizes: sizes.downcast::<S>(),
                 num_elements,
             }) as Box<dyn ColumnExporter>
         })

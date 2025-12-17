@@ -4,10 +4,16 @@
 //! Comparison operations for Vortex vectors.
 
 use vortex_dtype::half::f16;
+use vortex_dtype::i256;
 
+mod binaryview_scalar;
+mod binaryview_vector;
 mod bool;
 mod collection;
 mod datum;
+mod decimal_scalar;
+mod decimal_vector;
+mod dvector;
 mod primitive_scalar;
 mod primitive_vector;
 mod pvector;
@@ -111,6 +117,7 @@ impl_integer!(u16);
 impl_integer!(u32);
 impl_integer!(u64);
 impl_integer!(u128);
+impl_integer!(i256);
 
 macro_rules! impl_float {
     ($T:ty) => {
