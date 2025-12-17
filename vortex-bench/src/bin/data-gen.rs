@@ -4,7 +4,7 @@
 //! Benchmark data generation binary.
 //!
 //! This binary generates benchmark data for all formats needed, consolidating
-//! data generation that was previously duplicated across df-bench and ddb-bench.
+//! data generation that was previously duplicated across datafusion-bench and duckdb-bench.
 
 use std::path::Path;
 use std::process::Command;

@@ -399,8 +399,8 @@ jobs:
         if: ${{ matrix.suite == 'tpc-h' }}
         # We use i2 to ensure that restarting the duckdb connection succeeds
         run: |
-          cargo run --bin df-bench -- tpch -i2 --formats "vortex,vortex-compact" --options scale-factor=0.1
-          cargo run --bin ddb-bench -- tpch -i2 --formats "vortex,vortex-compact" --options scale-factor=0.1
+          cargo run --bin datafusion-bench -- tpch -i2 --formats "vortex,vortex-compact" --options scale-factor=0.1
+          cargo run --bin duckdb-bench -- tpch -i2 --formats "vortex,vortex-compact" --options scale-factor=0.1
       - name: Run FFI Example
         if: ${{ matrix.suite == 'ffi' }}
         run: |

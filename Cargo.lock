@@ -2067,6 +2067,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "datafusion-bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow-ipc",
+ "clap",
+ "datafusion",
+ "datafusion-common",
+ "datafusion-physical-plan",
+ "futures",
+ "get_dir",
+ "itertools 0.14.0",
+ "object_store",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
+ "tokio",
+ "url",
+ "vortex-bench",
+ "vortex-datafusion",
+]
+
+[[package]]
 name = "datafusion-catalog"
 version = "50.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2644,22 +2667,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ddb-bench"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "get_dir",
- "similar",
- "tokio",
- "tracing",
- "url",
- "vortex",
- "vortex-bench",
- "vortex-duckdb",
-]
-
-[[package]]
 name = "deepsize"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2736,29 +2743,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.106",
-]
-
-[[package]]
-name = "df-bench"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arrow-ipc",
- "clap",
- "datafusion",
- "datafusion-common",
- "datafusion-physical-plan",
- "futures",
- "get_dir",
- "itertools 0.14.0",
- "object_store",
- "opentelemetry",
- "opentelemetry-otlp",
- "opentelemetry_sdk",
- "tokio",
- "url",
- "vortex-bench",
- "vortex-datafusion",
 ]
 
 [[package]]
@@ -2845,6 +2829,22 @@ name = "dtype_dispatch"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3a5ccdfd6c5e7e2fea9c5cf256f2a08216047fab19c621c3da64e9ae4a1462d"
+
+[[package]]
+name = "duckdb-bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "get_dir",
+ "similar",
+ "tokio",
+ "tracing",
+ "url",
+ "vortex",
+ "vortex-bench",
+ "vortex-duckdb",
+]
 
 [[package]]
 name = "dunce"

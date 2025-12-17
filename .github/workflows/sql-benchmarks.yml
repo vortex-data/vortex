@@ -129,7 +129,7 @@ jobs:
         env:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
-          packages="--bin data-gen --bin df-bench --bin ddb-bench"
+          packages="--bin data-gen --bin datafusion-bench --bin duckdb-bench"
           if [ "${{ matrix.build_lance }}" = "true" ]; then
             packages="$packages --bin lance-bench"
           fi
@@ -203,9 +203,9 @@ jobs:
 
           touch results.json
 
-          # Run df-bench
+          # Run datafusion-bench
           if [ -n "$df_formats" ]; then
-            target/release_debug/df-bench ${{ matrix.subcommand }} \
+            target/release_debug/datafusion-bench ${{ matrix.subcommand }} \
               -d gh-json \
               --formats "$df_formats" \
               $opts \
@@ -214,9 +214,9 @@ jobs:
             cat df-results.json >> results.json
           fi
 
-          # Run ddb-bench
+          # Run duckdb-bench
           if [ -n "$ddb_formats" ]; then
-            target/release_debug/ddb-bench ${{ matrix.subcommand }} \
+            target/release_debug/duckdb-bench ${{ matrix.subcommand }} \
               -d gh-json \
               --formats "$ddb_formats" \
               $opts \
@@ -259,9 +259,9 @@ jobs:
 
           touch results.json
 
-          # Run df-bench with remote storage
+          # Run datafusion-bench with remote storage
           if [ -n "$df_formats" ]; then
-            target/release_debug/df-bench ${{ matrix.subcommand }} \
+            target/release_debug/datafusion-bench ${{ matrix.subcommand }} \
               -d gh-json \
               --formats "$df_formats" \
               $opts \
@@ -270,9 +270,9 @@ jobs:
             cat df-results.json >> results.json
           fi
 
-          # Run ddb-bench with remote storage
+          # Run duckdb-bench with remote storage
           if [ -n "$ddb_formats" ]; then
-            target/release_debug/ddb-bench ${{ matrix.subcommand }} \
+            target/release_debug/duckdb-bench ${{ matrix.subcommand }} \
               -d gh-json \
               --formats "$ddb_formats" \
               $opts \

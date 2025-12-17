@@ -1,5 +1,5 @@
 [package]
-name = "df-bench"
+name = "datafusion-bench"
 description = "Datafusion benchmarks"
 authors = { workspace = true }
 categories = { workspace = true }

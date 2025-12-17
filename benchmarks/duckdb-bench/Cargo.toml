@@ -1,5 +1,5 @@
 [package]
-name = "ddb-bench"
+name = "duckdb-bench"
 description = "DuckDB benchmarks tool"
 authors.workspace = true
 categories.workspace = true

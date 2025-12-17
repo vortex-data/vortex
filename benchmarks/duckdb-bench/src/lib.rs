@@ -119,7 +119,7 @@ impl DuckClient {
 
     pub fn new_in_memory() -> Result<Self> {
         let dir = std::env::temp_dir()
-            .join("vortex-ddb-bench")
+            .join("vortex-duckdb-bench")
             .join("in-memory");
         std::fs::create_dir_all(&dir)?;
         let db_path = dir.join("duckdb.db");

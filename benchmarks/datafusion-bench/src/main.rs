@@ -14,8 +14,8 @@ use datafusion::datasource::listing::ListingTableConfig;
 use datafusion::datasource::listing::ListingTableUrl;
 use datafusion::parquet::arrow::ParquetRecordBatchStreamBuilder;
 use datafusion::prelude::SessionContext;
+use datafusion_bench::format_to_df_format;
 use datafusion_physical_plan::ExecutionPlan;
-use df_bench::format_to_df_format;
 use futures::StreamExt;
 use tokio::fs::File;
 use vortex_bench::Benchmark;
@@ -146,8 +146,8 @@ async fn main() -> anyhow::Result<()> {
             |format| {
                 let benchmark = &*benchmark;
                 async move {
-                    let session = df_bench::get_session_context();
-                    df_bench::make_object_store(&session, benchmark.data_url())?;
+                    let session = datafusion_bench::get_session_context();
+                    datafusion_bench::make_object_store(&session, benchmark.data_url())?;
                     register_benchmark_tables(&session, benchmark, format).await?;
                     Ok(session)
                 }

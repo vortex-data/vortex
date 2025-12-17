@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use clap::value_parser;
-use ddb_bench::DuckClient;
+use duckdb_bench::DuckClient;
 use tokio::runtime::Runtime;
 use vortex_bench::BenchmarkArg;
 use vortex_bench::CompactionStrategy;

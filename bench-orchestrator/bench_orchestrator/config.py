@@ -19,8 +19,8 @@ class Engine(str, Enum):
     def binary_name(self) -> str:
         """Return the cargo binary name for this engine."""
         return {
-            Engine.DUCKDB: "ddb-bench",
-            Engine.DATAFUSION: "df-bench",
+            Engine.DUCKDB: "duckdb-bench",
+            Engine.DATAFUSION: "datafusion-bench",
             Engine.LANCE: "lance-bench",
         }[self]
 

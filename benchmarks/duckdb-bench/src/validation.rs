@@ -8,7 +8,7 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 
-use ddb_bench::DuckClient;
+use duckdb_bench::DuckClient;
 use similar::ChangeTag;
 use similar::TextDiff;
 use vortex_bench::Format;
