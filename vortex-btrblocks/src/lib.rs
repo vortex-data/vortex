@@ -477,13 +477,9 @@ impl BtrBlocksCompressor {
                 if let Ok(temporal_array) = TemporalArray::try_from(ext_array.to_array())
                     && let TemporalMetadata::Timestamp(..) = temporal_array.temporal_metadata()
                 {
-                    let temporal_array_ref = temporal_array.clone().into_array();
-                    if temporal_array_ref
-                        .as_ref()
-                        .is_constant_opts(Cost::Canonicalize)
-                    {
+                    if temporal_array.as_ref().is_constant_opts(Cost::Canonicalize) {
                         return Ok(ConstantArray::new(
-                            temporal_array_ref.scalar_at(0),
+                            temporal_array.as_ref().scalar_at(0),
                             ext_array.len(),
                         )
                         .into_array());
