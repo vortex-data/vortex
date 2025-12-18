@@ -17,6 +17,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_vector::Datum;
 use vortex_vector::VectorOps;
+use vortex_vector::bool::BoolScalar;
 
 use crate::ArrayRef;
 use crate::expr::ExprId;
@@ -101,6 +102,40 @@ pub trait VTable: 'static + Sized + Send + Sync {
         vortex_bail!("Expression {} does not support execution", self.id());
     }
 
+    /// Execute only the validity portion of the expression, returning the result validity.
+    ///
+    /// All inputs are passed as non-nullable boolean vectors representing the validity masks of
+    /// the inputs.
+    fn execute_validity(
+        &self,
+        options: &Self::Options,
+        args: ExecutionArgs,
+    ) -> VortexResult<Datum> {
+        Ok(match self.null_handling(options) {
+            NullHandling::NeverNull => Datum::Scalar(BoolScalar::new(Some(true)).into()),
+            NullHandling::AnyNull => args.datums.iter().fold(
+                Datum::Scalar(BoolScalar::new(Some(true)).into()),
+                |a, b| {
+                    vortex_compute::logical::LogicalAnd::and(&a.into_bool(), &b.clone().into_bool())
+                        .into()
+                },
+            ),
+            NullHandling::AllNull => args.datums.iter().fold(
+                Datum::Scalar(BoolScalar::new(Some(false)).into()),
+                |a, b| {
+                    vortex_compute::logical::LogicalOr::or(&a.into_bool(), &b.clone().into_bool())
+                        .into()
+                },
+            ),
+            NullHandling::Custom => {
+                vortex_bail!(
+                    "Expression {} with custom null handling must implement execute_validity",
+                    self.id()
+                );
+            }
+        })
+    }
+
     /// Implement an abstract reduction rule over a tree of scalar functions.
     ///
     /// The [`ReduceNode`] can be used to traverse children, inspect their types, and
@@ -172,6 +207,12 @@ pub trait VTable: 'static + Sized + Send + Sync {
         None
     }
 
+    /// Describes the null-handling behavior of this expression.
+    ///
+    /// If [`NullHandling::Custom`] is returned, the expression must also implement the
+    /// `execute_nulls` method to handle null inputs correctly.
+    fn null_handling(&self, options: &Self::Options) -> NullHandling;
+
     /// Returns whether this expression itself is null-sensitive. Conservatively default to *true*.
     ///
     /// An expression is null-sensitive if it directly operates on null values,
@@ -185,8 +226,6 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// `e(mask(a, m)) == mask(e(a), m)`.
     ///
     /// This can be extended to an n-ary expression.
-    ///
-    /// This method only checks the expression itself, not its children.
     fn is_null_sensitive(&self, options: &Self::Options) -> bool {
         _ = options;
         true
@@ -203,6 +242,18 @@ pub trait VTable: 'static + Sized + Send + Sync {
         _ = options;
         true
     }
+}
+
+/// Enum describing the null-handling behavior of an expression.
+pub enum NullHandling {
+    /// This expression never produces null values.
+    NeverNull,
+    /// This expression produces null values if any of its inputs are null.
+    AnyNull,
+    /// This expression produces null values only if all of its inputs are null.
+    AllNull,
+    /// This expression has custom null-handling behavior.
+    Custom,
 }
 
 /// Arguments for reduction rules.

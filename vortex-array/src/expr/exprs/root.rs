@@ -16,6 +16,7 @@ use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
+use crate::expr::NullHandling;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
@@ -86,6 +87,10 @@ impl VTable for Root {
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         catalog.stats_ref(&FieldPath::root(), stat)
+    }
+
+    fn null_handling(&self, _options: &Self::Options) -> NullHandling {
+        NullHandling::Custom
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {

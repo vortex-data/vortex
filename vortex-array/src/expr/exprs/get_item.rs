@@ -29,6 +29,7 @@ use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::Literal;
 use crate::expr::Mask;
+use crate::expr::NullHandling;
 use crate::expr::Pack;
 use crate::expr::ReduceCtx;
 use crate::expr::ReduceNode;
@@ -222,6 +223,10 @@ impl VTable for GetItem {
         //  name as a field in the root struct. This should be resolved with upcoming change to
         //  falsify expressions, but for now I'm preserving the existing buggy behavior.
         catalog.stats_ref(&FieldPath::from_name(field_name.clone()), stat)
+    }
+
+    fn null_handling(&self, _options: &Self::Options) -> NullHandling {
+        NullHandling::Custom
     }
 
     // This will apply struct nullability field. We could add a dtype??

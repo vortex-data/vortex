@@ -28,6 +28,7 @@ use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::GetItem;
+use crate::expr::NullHandling;
 use crate::expr::Pack;
 use crate::expr::PackOptions;
 use crate::expr::ReduceCtx;
@@ -245,6 +246,10 @@ impl VTable for Merge {
         )?;
 
         Ok(Some(pack_expr))
+    }
+
+    fn null_handling(&self, _options: &Self::Options) -> NullHandling {
+        NullHandling::Custom
     }
 
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {

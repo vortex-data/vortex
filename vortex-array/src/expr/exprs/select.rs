@@ -28,6 +28,7 @@ use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
+use crate::expr::NullHandling;
 use crate::expr::SimplifyCtx;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
@@ -236,6 +237,10 @@ impl VTable for Select {
         );
 
         Ok(Some(expr))
+    }
+
+    fn null_handling(&self, _options: &Self::Options) -> NullHandling {
+        NullHandling::AnyNull
     }
 
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {

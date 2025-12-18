@@ -26,6 +26,7 @@ use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
+use crate::expr::NullHandling;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
@@ -109,6 +110,10 @@ impl VTable for IsNull {
     ) -> Option<Expression> {
         let null_count_expr = expr.child(0).stat_expression(Stat::NullCount, catalog)?;
         Some(eq(null_count_expr, lit(0u64)))
+    }
+
+    fn null_handling(&self, _options: &Self::Options) -> NullHandling {
+        NullHandling::NeverNull
     }
 
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {

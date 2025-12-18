@@ -18,6 +18,7 @@ use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
+use crate::expr::NullHandling;
 use crate::expr::ReduceCtx;
 use crate::expr::ReduceNode;
 use crate::expr::ReduceNodeRef;
@@ -144,6 +145,14 @@ impl VTable for Cast {
                 // }
                 None
             }
+        }
+    }
+
+    fn null_handling(&self, target_dtype: &DType) -> NullHandling {
+        if target_dtype.is_nullable() {
+            NullHandling::AnyNull
+        } else {
+            NullHandling::NeverNull
         }
     }
 

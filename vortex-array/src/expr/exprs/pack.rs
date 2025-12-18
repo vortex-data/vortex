@@ -31,6 +31,7 @@ use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
+use crate::expr::NullHandling;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::validity::Validity;
@@ -174,6 +175,10 @@ impl VTable for Pack {
             .collect();
         let vector = StructVector::new(Arc::new(fields), Mask::new_true(1));
         Ok(Datum::Scalar(vector.scalar_at(0).into()))
+    }
+
+    fn null_handling(&self, _options: &Self::Options) -> NullHandling {
+        NullHandling::NeverNull
     }
 
     // This applies a nullability

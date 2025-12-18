@@ -18,6 +18,7 @@ use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
+use crate::expr::NullHandling;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 
@@ -85,6 +86,10 @@ impl VTable for Not {
     fn execute(&self, _data: &Self::Options, mut args: ExecutionArgs) -> VortexResult<Datum> {
         let child = args.datums.pop().vortex_expect("Missing input child");
         Ok(child.into_bool().not().into())
+    }
+
+    fn null_handling(&self, _options: &Self::Options) -> NullHandling {
+        NullHandling::AnyNull
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {

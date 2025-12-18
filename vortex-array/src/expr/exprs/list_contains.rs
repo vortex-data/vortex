@@ -38,6 +38,7 @@ use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
+use crate::expr::NullHandling;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
@@ -192,6 +193,9 @@ impl VTable for ListContains {
         }
 
         None
+    }
+    fn null_handling(&self, _options: &Self::Options) -> NullHandling {
+        NullHandling::AnyNull
     }
 
     // Nullability matters for contains([], x) where x is false.

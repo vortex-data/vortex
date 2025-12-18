@@ -11,6 +11,7 @@ use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 use vortex_vector::Datum;
+use vortex_vector::bool::BoolScalar;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -21,6 +22,7 @@ use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
+use crate::expr::NullHandling;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
@@ -88,6 +90,12 @@ impl VTable for Literal {
         Ok(Datum::Scalar(vector_scalar))
     }
 
+    fn execute_validity(&self, scalar: &Scalar, args: ExecutionArgs) -> VortexResult<Datum> {
+        Ok(Datum::Scalar(
+            BoolScalar::new(Some(scalar.is_valid())).into(),
+        ))
+    }
+
     fn stat_expression(
         &self,
         scalar: &Scalar,
@@ -130,6 +138,10 @@ impl VTable for Literal {
                 None
             }
         }
+    }
+
+    fn null_handling(&self, _options: &Self::Options) -> NullHandling {
+        NullHandling::Custom
     }
 
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {

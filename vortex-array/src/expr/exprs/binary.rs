@@ -31,6 +31,7 @@ use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
+use crate::expr::NullHandling;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
@@ -289,6 +290,10 @@ impl VTable for Binary {
             )),
             Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => None,
         }
+    }
+
+    fn null_handling(&self, _options: &Self::Options) -> NullHandling {
+        NullHandling::Custom
     }
 
     fn is_null_sensitive(&self, _operator: &Operator) -> bool {
