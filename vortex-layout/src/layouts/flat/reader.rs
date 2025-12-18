@@ -165,6 +165,13 @@ impl LayoutReader for FlatReader {
                     };
                     mask.density() < threshold
                 }
+
+                DType::Utf8(_)
+                | DType::Binary(_)
+                | DType::List(..)
+                | DType::FixedSizeList(..)
+                | DType::Struct(..)
+                | DType::Extension(_) => true,
                 _ => mask.density() < FILTER_OF_FILTER_THRESHOLD,
             };
 
