@@ -8,7 +8,6 @@ use ::vortex::array::arrays::recursive_list_from_list_view;
 use arrow_array::RecordBatch;
 use arrow_schema::Schema;
 
-pub mod bench;
 pub mod parquet;
 pub mod vortex;
 

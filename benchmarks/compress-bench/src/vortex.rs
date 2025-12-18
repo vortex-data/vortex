@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::io::Cursor;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
@@ -11,13 +12,12 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures::StreamExt;
 use futures::pin_mut;
-use vortex::array::Array;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
-
-use crate::bench::Compressor;
+use vortex_bench::compress::Compressor;
+use vortex_bench::conversions::parquet_to_vortex;
 
 /// Compressor implementation for Vortex format.
 pub struct VortexCompressor;
@@ -28,15 +28,34 @@ impl Compressor for VortexCompressor {
         Format::OnDiskVortex
     }
 
-    async fn compress(&self, array: &dyn Array) -> Result<(Bytes, Duration)> {
+    async fn compress(&self, parquet_path: &Path) -> Result<(u64, Duration)> {
+        // Read the parquet file as an array stream
+        let array_stream = parquet_to_vortex(parquet_path.to_path_buf())?;
+
         let mut buf = Vec::new();
         let start = Instant::now();
-        vortex_compress_write(array, &mut buf).await?;
+        let mut cursor = Cursor::new(&mut buf);
+        SESSION
+            .write_options()
+            .write(&mut cursor, array_stream)
+            .await?;
         let elapsed = start.elapsed();
-        Ok((Bytes::from(buf), elapsed))
+
+        Ok((buf.len() as u64, elapsed))
     }
 
-    async fn decompress(&self, data: Bytes) -> Result<usize> {
+    async fn decompress(&self, parquet_path: &Path) -> Result<usize> {
+        // First compress to get the bytes we'll decompress
+        let array_stream = parquet_to_vortex(parquet_path.to_path_buf())?;
+        let mut buf = Vec::new();
+        let mut cursor = Cursor::new(&mut buf);
+        SESSION
+            .write_options()
+            .write(&mut cursor, array_stream)
+            .await?;
+
+        // Now decompress
+        let data = Bytes::from(buf);
         let scan = SESSION.open_options().open_buffer(data)?.scan()?;
         let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
 
@@ -49,14 +68,4 @@ impl Compressor for VortexCompressor {
         }
         Ok(nbytes)
     }
-}
-
-#[inline(never)]
-pub async fn vortex_compress_write(array: &dyn Array, buf: &mut Vec<u8>) -> Result<u64> {
-    let mut cursor = Cursor::new(buf);
-    SESSION
-        .write_options()
-        .write(&mut cursor, array.to_array_stream())
-        .await?;
-    Ok(cursor.position())
 }

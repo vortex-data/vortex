@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fs::File;
 use std::io::Cursor;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
@@ -15,12 +17,8 @@ use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::basic::Compression;
 use parquet::basic::ZstdLevel;
 use parquet::file::properties::WriterProperties;
-use vortex::array::Array;
-use vortex::array::arrays::ChunkedVTable;
 use vortex_bench::Format;
-
-use crate::bench::Compressor;
-use crate::chunked_to_vec_record_batch;
+use vortex_bench::compress::Compressor;
 
 /// Compressor implementation for Parquet format with ZSTD compression.
 pub struct ParquetCompressor {
@@ -51,19 +49,35 @@ impl Compressor for ParquetCompressor {
         Format::Parquet
     }
 
-    async fn compress(&self, array: &dyn Array) -> anyhow::Result<(Bytes, Duration)> {
-        let chunked = array.as_::<ChunkedVTable>().clone();
-        let (batches, schema) = chunked_to_vec_record_batch(chunked)?;
+    async fn compress(&self, parquet_path: &Path) -> anyhow::Result<(u64, Duration)> {
+        // Read the input parquet file
+        let file = File::open(parquet_path)?;
+        let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
+        let schema = builder.schema().clone();
+        let reader = builder.build()?;
+        let batches: Vec<RecordBatch> = reader.collect::<Result<Vec<_>, _>>()?;
 
+        // Compress with our compression settings
         let mut buf = Vec::new();
         let start = Instant::now();
-        parquet_compress_write(batches, schema, self.compression, &mut buf)?;
+        let size = parquet_compress_write(batches, schema, self.compression, &mut buf)?;
         let elapsed = start.elapsed();
-        Ok((Bytes::from(buf), elapsed))
+        Ok((size as u64, elapsed))
     }
 
-    async fn decompress(&self, data: Bytes) -> anyhow::Result<usize> {
-        parquet_decompress_read(data)
+    async fn decompress(&self, parquet_path: &Path) -> anyhow::Result<usize> {
+        // First compress to get the bytes we'll decompress
+        let file = File::open(parquet_path)?;
+        let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
+        let schema = builder.schema().clone();
+        let reader = builder.build()?;
+        let batches: Vec<RecordBatch> = reader.collect::<Result<Vec<_>, _>>()?;
+
+        let mut buf = Vec::new();
+        parquet_compress_write(batches, schema, self.compression, &mut buf)?;
+
+        // Now decompress
+        parquet_decompress_read(Bytes::from(buf))
     }
 }
 

@@ -1542,6 +1542,7 @@ dependencies = [
  "futures",
  "indicatif",
  "itertools 0.14.0",
+ "lance-bench",
  "parquet",
  "regex",
  "serde",
@@ -4152,7 +4153,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arrow-cast",
- "arrow-schema",
  "async-trait",
  "clap",
  "futures",

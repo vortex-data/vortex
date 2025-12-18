@@ -31,6 +31,10 @@ impl Dataset for TaxiData {
     async fn to_vortex_array(&self) -> Result<ArrayRef> {
         fetch_taxi_data().await
     }
+
+    async fn to_parquet_path(&self) -> Result<PathBuf> {
+        taxi_data_parquet().await
+    }
 }
 
 pub async fn taxi_data_parquet() -> Result<PathBuf> {

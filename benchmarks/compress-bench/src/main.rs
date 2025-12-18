@@ -5,26 +5,22 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use clap::Parser;
-use compress_bench::bench::CompressMeasurements;
-use compress_bench::bench::CompressOp;
-use compress_bench::bench::Compressor;
-use compress_bench::bench::benchmark_compress;
-use compress_bench::bench::benchmark_decompress;
-use compress_bench::bench::calculate_ratios;
 use compress_bench::parquet::ParquetCompressor;
 use compress_bench::vortex::VortexCompressor;
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use regex::Regex;
-use vortex::array::IntoArray;
-use vortex::array::arrays::ChunkedArray;
-use vortex::array::arrays::ChunkedVTable;
-use vortex::array::builders::builder_with_capacity;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_bench::BenchmarkOutput;
 use vortex_bench::Engine;
 use vortex_bench::Format;
 use vortex_bench::Target;
+use vortex_bench::compress::CompressMeasurements;
+use vortex_bench::compress::CompressOp;
+use vortex_bench::compress::Compressor;
+use vortex_bench::compress::benchmark_compress;
+use vortex_bench::compress::benchmark_decompress;
+use vortex_bench::compress::calculate_ratios;
 use vortex_bench::datasets::Dataset;
 use vortex_bench::datasets::struct_list_of_ints::StructListOfInts;
 use vortex_bench::datasets::taxi_data::TaxiData;
@@ -95,6 +91,8 @@ fn get_compressor(format: Format) -> Box<dyn Compressor> {
     match format {
         Format::OnDiskVortex => Box::new(VortexCompressor),
         Format::Parquet => Box::new(ParquetCompressor::new()),
+        #[cfg(feature = "lance")]
+        Format::Lance => todo!(),
         _ => unimplemented!("Compress bench not implemented for {format}"),
     }
 }
@@ -202,19 +200,8 @@ async fn run_benchmark_for_dataset(
     let bench_name = dataset_handle.name();
     tracing::info!("Running {bench_name} benchmark");
 
-    let vx_array = dataset_handle.to_vortex_array().await?;
-    let uncompressed = ChunkedArray::from_iter(
-        vx_array
-            .as_::<ChunkedVTable>()
-            .chunks()
-            .iter()
-            .map(|chunk| {
-                let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());
-                chunk.append_to_builder(builder.as_mut());
-                builder.finish()
-            }),
-    )
-    .into_array();
+    // Get the parquet file path for this dataset
+    let parquet_path = dataset_handle.to_parquet_path().await?;
 
     let mut ratios = Vec::new();
     let mut timings = Vec::new();
@@ -229,7 +216,7 @@ async fn run_benchmark_for_dataset(
                 CompressOp::Compress => {
                     let result = benchmark_compress(
                         compressor.as_ref(),
-                        &uncompressed,
+                        &parquet_path,
                         iterations,
                         bench_name,
                     )
@@ -242,7 +229,7 @@ async fn run_benchmark_for_dataset(
                 CompressOp::Decompress => {
                     let result = benchmark_decompress(
                         compressor.as_ref(),
-                        &uncompressed,
+                        &parquet_path,
                         iterations,
                         bench_name,
                     )

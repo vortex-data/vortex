@@ -34,6 +34,7 @@ use vortex::utils::aliases::hash_map::HashMap;
 
 pub mod benchmark;
 pub mod clickbench;
+pub mod compress;
 pub mod conversions;
 pub mod datasets;
 pub mod display;

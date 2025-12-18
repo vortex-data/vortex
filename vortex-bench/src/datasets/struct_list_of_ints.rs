@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fs::File;
+use std::path::PathBuf;
+
 use anyhow::Result;
+use arrow_array::RecordBatch;
 use async_trait::async_trait;
+use parquet::arrow::ArrowWriter;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -12,10 +17,13 @@ use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrays::ListArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
+use vortex::array::arrays::recursive_list_from_list_view;
 use vortex::array::validity::Validity;
 use vortex::dtype::FieldNames;
 
+use crate::IdempotentPath;
 use crate::datasets::Dataset;
+use crate::idempotent_async;
 
 /// Creates a randomly generated struct array, where each field is a list of
 /// i64 of size one.
@@ -34,6 +42,15 @@ impl StructListOfInts {
             chunk_count,
             name: format!("wide table cols={num_columns} chunks={chunk_count} rows={row_count}"),
         }
+    }
+}
+
+impl StructListOfInts {
+    fn parquet_filename(&self) -> String {
+        format!(
+            "struct_list_of_ints_cols{}_chunks{}_rows{}.parquet",
+            self.num_columns, self.chunk_count, self.row_count
+        )
     }
 }
 
@@ -87,5 +104,43 @@ impl Dataset for StructListOfInts {
 
         let chunks = chunks?;
         Ok(ChunkedArray::from_iter(chunks).into_array())
+    }
+
+    async fn to_parquet_path(&self) -> Result<PathBuf> {
+        let parquet_path =
+            format!("struct_list_of_ints/{}", self.parquet_filename()).to_data_path();
+
+        idempotent_async(&parquet_path, |temp_path| async move {
+            // Generate the data
+            let array = self.to_vortex_array().await?;
+
+            // Convert to Arrow RecordBatches and write to parquet
+            let chunked = array.as_::<vortex::array::arrays::ChunkedVTable>();
+            let chunks = chunked.chunks();
+
+            let file = File::create(&temp_path)?;
+            let mut writer: Option<ArrowWriter<File>> = None;
+
+            for chunk in chunks.iter() {
+                let converted = recursive_list_from_list_view(chunk.clone());
+                let batch = RecordBatch::try_from(converted.as_ref())?;
+
+                if writer.is_none() {
+                    writer = Some(ArrowWriter::try_new(
+                        file.try_clone()?,
+                        batch.schema(),
+                        None,
+                    )?);
+                }
+                writer.as_mut().unwrap().write(&batch)?;
+            }
+
+            if let Some(w) = writer {
+                w.close()?;
+            }
+
+            Ok(())
+        })
+        .await
     }
 }

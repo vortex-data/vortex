@@ -3,19 +3,19 @@
 
 use std::borrow::Cow;
 use std::fmt;
+use std::path::Path;
 use std::time::Duration;
 use std::time::Instant;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use bytes::Bytes;
 use clap::ValueEnum;
 use serde::Serialize;
-use vortex::array::Array;
 use vortex::utils::aliases::hash_map::HashMap;
-use vortex_bench::Format;
-use vortex_bench::measurements::CompressionTimingMeasurement;
-use vortex_bench::measurements::CustomUnitMeasurement;
+
+use crate::Format;
+use crate::measurements::CompressionTimingMeasurement;
+use crate::measurements::CustomUnitMeasurement;
 
 #[derive(Default)]
 pub struct CompressMeasurements {
@@ -79,16 +79,25 @@ pub struct DecompressResult {
 /// Implementations handle the actual compression logic for a specific format
 /// (e.g., Vortex, Parquet, Lance). The benchmark functions use this trait
 /// to run timing measurements.
+///
+/// The input data is provided as a path to a Parquet file, which implementations
+/// read and convert as needed for their target format.
 #[async_trait]
 pub trait Compressor: Send + Sync {
     /// The format this compressor handles.
     fn format(&self) -> Format;
 
-    /// Compress the array data, returning the compressed bytes.
-    async fn compress(&self, array: &dyn Array) -> Result<(Bytes, Duration)>;
+    /// Compress data from a Parquet file, returning the compressed size in bytes and elapsed time.
+    ///
+    /// The implementation should read the Parquet file and compress it
+    /// to the target format.
+    async fn compress(&self, parquet_path: &Path) -> Result<(u64, Duration)>;
 
-    /// Decompress the data, returning the decompressed size in bytes.
-    async fn decompress(&self, data: Bytes) -> Result<usize>;
+    /// Decompress data from the Parquet file (after compressing), returning the decompressed size.
+    ///
+    /// This method first compresses the data to the target format, then decompresses it.
+    /// The timing returned should only measure the decompression phase.
+    async fn decompress(&self, parquet_path: &Path) -> Result<usize>;
 }
 
 /// Run a compression benchmark for the given compressor.
@@ -96,7 +105,7 @@ pub trait Compressor: Send + Sync {
 /// Executes compression `iterations` times and returns timing statistics.
 pub async fn benchmark_compress(
     compressor: &dyn Compressor,
-    uncompressed: &dyn Array,
+    parquet_path: &Path,
     iterations: usize,
     bench_name: &str,
 ) -> Result<CompressResult> {
@@ -105,9 +114,9 @@ pub async fn benchmark_compress(
     let mut compressed_size = 0u64;
 
     for _ in 0..iterations {
-        let (compressed, elapsed) = compressor.compress(uncompressed).await?;
+        let (size, elapsed) = compressor.compress(parquet_path).await?;
 
-        compressed_size = compressed.len() as u64;
+        compressed_size = size;
         fastest = fastest.min(elapsed);
     }
 
@@ -134,24 +143,19 @@ pub async fn benchmark_compress(
 
 /// Run a decompression benchmark for the given compressor.
 ///
-/// First compresses the data to get compressed bytes, then benchmarks
-/// decompression `iterations` times.
+/// Benchmarks decompression `iterations` times.
 pub async fn benchmark_decompress(
     compressor: &dyn Compressor,
-    uncompressed: &dyn Array,
+    parquet_path: &Path,
     iterations: usize,
     bench_name: &str,
 ) -> Result<DecompressResult> {
     let format = compressor.format();
-
-    // First compress to get the bytes we'll decompress
-    let (compressed, _) = compressor.compress(uncompressed).await?;
-
     let mut fastest = Duration::MAX;
 
     for _ in 0..iterations {
         let start = Instant::now();
-        let _ = compressor.decompress(compressed.clone()).await?;
+        let _ = compressor.decompress(parquet_path).await?;
         let elapsed = start.elapsed();
 
         fastest = fastest.min(elapsed);

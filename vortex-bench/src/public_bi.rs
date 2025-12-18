@@ -472,6 +472,16 @@ impl Dataset for PBIBenchmark {
             .read_all()
             .await?)
     }
+
+    async fn to_parquet_path(&self) -> anyhow::Result<PathBuf> {
+        let dataset = self.dataset()?;
+        dataset.write_as_parquet().await?;
+        dataset
+            .list_files(FileType::Parquet)
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow!("must have at least one parquet file"))
+    }
 }
 
 /// Public BI benchmark implementation that conforms to the `Benchmark` trait.

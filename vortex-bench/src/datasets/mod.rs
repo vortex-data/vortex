@@ -16,11 +16,19 @@ pub mod struct_list_of_ints;
 pub mod taxi_data;
 pub mod tpch_l_comment;
 
+use std::path::PathBuf;
+
 #[async_trait]
 pub trait Dataset {
     fn name(&self) -> &str;
 
     async fn to_vortex_array(&self) -> Result<ArrayRef>;
+
+    /// Get the path to the parquet file for this dataset.
+    ///
+    /// This method ensures the parquet file exists (downloading if necessary)
+    /// and returns the path to it.
+    async fn to_parquet_path(&self) -> Result<PathBuf>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

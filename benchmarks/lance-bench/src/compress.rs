@@ -1,47 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-// Lance Benchmark Implementation
-//
-// Unlike Parquet and Vortex which write to in-memory buffers, Lance requires filesystem access.
-// We attempted using Lance's `memory://` protocol but it doesn't seem to persist data between
-// write and read.
-//
-// Therefore, Lance benchmarks include filesystem I/O that the other formats don't have. This is
-// probably fine because everything should be cached in the OS.
-
 use std::fs;
+use std::fs::File;
 use std::path::Path;
-use std::sync::Arc;
+use std::time::Duration;
+use std::time::Instant;
 
 use anyhow::anyhow;
-use arrow_schema::Schema;
+use async_trait::async_trait;
 use futures::StreamExt;
 use lance::dataset::Dataset;
 use lance::dataset::WriteParams;
 use lance::deps::arrow_array::RecordBatch;
 use lance::deps::arrow_array::RecordBatchIterator;
 use lance_encoding::version::LanceFileVersion;
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use tempfile::TempDir;
+use vortex_bench::Format;
+use vortex_bench::compress::Compressor;
 
 use crate::convert::convert_utf8view_batch;
 use crate::convert::convert_utf8view_schema;
-
-/// Write pre-converted [`RecordBatch`]es to Lance format.
-pub async fn lance_compress_write_only(
-    batches: Vec<RecordBatch>,
-    schema: Arc<Schema>,
-    dataset_path: &Path,
-) -> anyhow::Result<()> {
-    let path = dataset_path
-        .to_str()
-        .ok_or_else(|| anyhow!("Failed to convert path to str"))?;
-    let reader = RecordBatchIterator::new(batches.into_iter().map(Ok), schema);
-    // Lance v2.1 fails on CMSProvider dataset.
-    let write_params = WriteParams::with_storage_version(LanceFileVersion::V2_0);
-    Dataset::write(reader, path, Some(write_params)).await?;
-    Ok(())
-}
 
 /// Read a Lance dataset and decompress it back into RecordBatches.
 pub async fn lance_decompress_read(path: &str) -> anyhow::Result<usize> {
@@ -96,31 +76,87 @@ pub fn calculate_lance_size(dataset_path: &Path) -> anyhow::Result<u64> {
     Ok(total_size)
 }
 
-/// Helper function for decompression benchmark setup.
-/// Includes Utf8View conversion and creates dataset at a fixed path.
-pub async fn lance_compress_write(
-    batches: Vec<RecordBatch>,
-    schema: Arc<Schema>,
-    temp_dir: &TempDir,
-) -> anyhow::Result<String> {
-    // Convert Utf8View columns to Utf8 (Lance doesn't support Utf8View).
-    let converted_batches: Vec<RecordBatch> = batches
-        .into_iter()
-        .map(convert_utf8view_batch)
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    let converted_schema = convert_utf8view_schema(&schema);
+/// Compressor implementation for Lance format.
+///
+/// Lance writes to the filesystem rather than in-memory buffers, so this implementation
+/// uses temp directories. The compress method returns the total size of Lance files on disk.
+pub struct LanceCompressor;
 
-    // Create a fixed subdirectory for decompression testing.
-    let dataset_dir = temp_dir.path().join("dataset");
-    fs::create_dir_all(&dataset_dir)?;
-    let path = dataset_dir
-        .to_str()
-        .ok_or_else(|| anyhow!("Failed to convert path to str"))?;
+#[async_trait]
+impl Compressor for LanceCompressor {
+    fn format(&self) -> Format {
+        Format::Lance
+    }
 
-    let reader = RecordBatchIterator::new(converted_batches.into_iter().map(Ok), converted_schema);
-    // Lance v2.1 fails on CMSProvider dataset.
-    let write_params = WriteParams::with_storage_version(LanceFileVersion::V2_0);
-    Dataset::write(reader, path, Some(write_params)).await?;
+    async fn compress(&self, parquet_path: &Path) -> anyhow::Result<(u64, Duration)> {
+        // Read the input parquet file
+        let file = File::open(parquet_path)?;
+        let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
+        let schema = builder.schema().clone();
+        let reader = builder.build()?;
+        let batches: Vec<RecordBatch> = reader.collect::<Result<Vec<_>, _>>()?;
 
-    Ok(path.to_string())
+        // Convert Utf8View columns to Utf8 (Lance doesn't support Utf8View)
+        let converted_batches: Vec<RecordBatch> = batches
+            .into_iter()
+            .map(convert_utf8view_batch)
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let converted_schema = convert_utf8view_schema(&schema);
+
+        // Create temp directory for Lance dataset
+        let temp_dir = TempDir::new()?;
+        let dataset_path = temp_dir.path().join("dataset");
+        fs::create_dir_all(&dataset_path)?;
+
+        let start = Instant::now();
+
+        // Write to Lance format
+        let path_str = dataset_path
+            .to_str()
+            .ok_or_else(|| anyhow!("Failed to convert path to str"))?;
+        let reader_iter =
+            RecordBatchIterator::new(converted_batches.into_iter().map(Ok), converted_schema);
+        let write_params = WriteParams::with_storage_version(LanceFileVersion::V2_0);
+        Dataset::write(reader_iter, path_str, Some(write_params)).await?;
+
+        let elapsed = start.elapsed();
+
+        // Calculate size of Lance files on disk
+        let size = calculate_lance_size(&dataset_path)?;
+
+        Ok((size, elapsed))
+    }
+
+    async fn decompress(&self, parquet_path: &Path) -> anyhow::Result<usize> {
+        // First compress to get the Lance dataset
+        let file = File::open(parquet_path)?;
+        let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
+        let schema = builder.schema().clone();
+        let reader = builder.build()?;
+        let batches: Vec<RecordBatch> = reader.collect::<Result<Vec<_>, _>>()?;
+
+        // Convert Utf8View columns to Utf8 (Lance doesn't support Utf8View)
+        let converted_batches: Vec<RecordBatch> = batches
+            .into_iter()
+            .map(convert_utf8view_batch)
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let converted_schema = convert_utf8view_schema(&schema);
+
+        // Create temp directory for Lance dataset
+        let temp_dir = TempDir::new()?;
+        let dataset_path = temp_dir.path().join("dataset");
+        fs::create_dir_all(&dataset_path)?;
+
+        // Write to Lance format
+        let path_str = dataset_path
+            .to_str()
+            .ok_or_else(|| anyhow!("Failed to convert path to str"))?;
+        let reader_iter =
+            RecordBatchIterator::new(converted_batches.into_iter().map(Ok), converted_schema);
+        let write_params = WriteParams::with_storage_version(LanceFileVersion::V2_0);
+        Dataset::write(reader_iter, path_str, Some(write_params)).await?;
+
+        // Now decompress
+        lance_decompress_read(path_str).await
+    }
 }

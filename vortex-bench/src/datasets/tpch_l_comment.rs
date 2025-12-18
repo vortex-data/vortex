@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::path::PathBuf;
+
 use anyhow::Result;
 use async_trait::async_trait;
 use futures::TryStreamExt;
@@ -23,6 +25,26 @@ use crate::tpch::tpchgen::TpchGenOptions;
 use crate::tpch::tpchgen::generate_tpch_tables;
 
 pub struct TPCHLCommentChunked;
+
+async fn ensure_tpch_parquet() -> Result<PathBuf> {
+    let base_path = "tpch".to_data_path();
+    let scale_factor_dir = base_path.join("1.0");
+    let data_dir = scale_factor_dir.join(Format::Parquet.name());
+
+    // Generate TPC-H parquet data if it doesn't exist
+    if !data_dir.exists() {
+        let options =
+            TpchGenOptions::new("1.0".to_string(), scale_factor_dir).with_format(Format::Parquet);
+        generate_tpch_tables(options).await?;
+    }
+
+    // Return the first lineitem parquet file
+    let pattern = data_dir.join("lineitem_*.parquet");
+    glob(pattern.to_string_lossy().as_ref())?
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("No lineitem parquet files found"))?
+        .map_err(Into::into)
+}
 
 #[async_trait]
 impl Dataset for TPCHLCommentChunked {
@@ -64,6 +86,10 @@ impl Dataset for TPCHLCommentChunked {
 
         Ok(ChunkedArray::from_iter(chunks).into_array())
     }
+
+    async fn to_parquet_path(&self) -> Result<PathBuf> {
+        ensure_tpch_parquet().await
+    }
 }
 
 pub struct TPCHLCommentCanonical;
@@ -81,5 +107,9 @@ impl Dataset for TPCHLCommentCanonical {
             .to_struct()
             .into_array();
         Ok(ChunkedArray::from_iter([comments_canonical]).into_array())
+    }
+
+    async fn to_parquet_path(&self) -> Result<PathBuf> {
+        ensure_tpch_parquet().await
     }
 }

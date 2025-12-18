@@ -45,6 +45,8 @@ impl DownloadableDataset {
     }
 }
 
+use std::path::PathBuf;
+
 #[async_trait]
 impl Dataset for DownloadableDataset {
     fn name(&self) -> &str {
@@ -55,10 +57,9 @@ impl Dataset for DownloadableDataset {
     }
 
     async fn to_vortex_array(&self) -> anyhow::Result<ArrayRef> {
+        let parquet = self.to_parquet_path().await?;
         let dir = format!("{}/", self.name()).to_data_path();
-        let parquet = dir.join(format!("{}.parquet", self.name()));
         let vortex = dir.join(format!("{}.vortex", self.name()));
-        download_data(parquet.clone(), self.parquet_url()).await?;
         idempotent_async(&vortex, async |path| -> anyhow::Result<()> {
             SESSION
                 .write_options()
@@ -82,5 +83,12 @@ impl Dataset for DownloadableDataset {
             .into_array_stream()?
             .read_all()
             .await?)
+    }
+
+    async fn to_parquet_path(&self) -> anyhow::Result<PathBuf> {
+        let dir = format!("{}/", self.name()).to_data_path();
+        let parquet = dir.join(format!("{}.parquet", self.name()));
+        download_data(parquet.clone(), self.parquet_url()).await?;
+        Ok(parquet)
     }
 }
