@@ -114,17 +114,17 @@ fn generate_duckdb(base_path: &Path, benchmark: &dyn Benchmark) -> anyhow::Resul
         "TABLE",
     );
 
-    info!("Creating DuckDB database at {}", db_path.display());
+    for stmt in sql.into_iter() {
+        let output = Command::new("duckdb")
+            .arg(&db_path)
+            .arg("-c")
+            .arg(&stmt)
+            .output()?;
 
-    let output = Command::new("duckdb")
-        .arg(&db_path)
-        .arg("-c")
-        .arg(&sql)
-        .output()?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("DuckDB CLI failed: {}", stderr);
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("DuckDB CLI failed: {}", stderr);
+        }
     }
 
     Ok(())

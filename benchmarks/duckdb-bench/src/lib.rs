@@ -46,6 +46,9 @@ impl DuckClient {
         let dir = base_path.join(format.name());
         std::fs::create_dir_all(&dir)?;
         let db_path = dir.join("duckdb.db");
+
+        tracing::info!(db_path = %db_path.display(), "Opening DuckDB");
+
         if delete_database && db_path.exists() {
             std::fs::remove_file(&db_path)?;
         }
@@ -182,9 +185,9 @@ impl DuckClient {
         let commands =
             generate_duckdb_registration_sql(benchmark, base_dir, load_format, object_type);
 
-        trace!("Executing table registration commands: {commands}");
-
-        self.execute_query(&commands)?;
+        for stmt in commands {
+            self.execute_query(&stmt)?;
+        }
 
         Ok(())
     }

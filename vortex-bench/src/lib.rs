@@ -377,26 +377,33 @@ pub fn generate_duckdb_registration_sql<B>(
     base_dir: &str,
     load_format: Format,
     object_type: &str,
-) -> String
+) -> Vec<String>
 where
     B: Benchmark + ?Sized,
 {
     let extension = load_format.ext();
-    let mut sql = String::new();
+    let mut sql_statements = Vec::new();
 
     for table_spec in benchmark.table_specs() {
+        let name = table_spec.name;
         let pattern = benchmark
-            .pattern(table_spec.name, load_format)
+            .pattern(name, load_format)
             .map(|p| p.to_string())
             .unwrap_or_else(|| format!("*.{}", extension));
 
-        let table_path = format!("{base_dir}/{pattern}");
+        tracing::info!(
+            name,
+            base_dir,
+            pattern,
+            format = load_format.name(),
+            "Registering DuckDB {}",
+            object_type.to_lowercase()
+        );
 
-        sql.push_str(&format!(
-            "CREATE {} IF NOT EXISTS {} AS SELECT * FROM read_{}('{}');\n",
-            object_type, table_spec.name, extension, table_path
+        sql_statements.push(format!(
+            "CREATE {object_type} IF NOT EXISTS {name} AS SELECT * FROM read_{extension}('{base_dir}/{pattern}');\n",
         ));
     }
 
-    sql
+    sql_statements
 }

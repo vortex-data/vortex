@@ -118,8 +118,10 @@ pub async fn generate_tpch_tables(options: TpchGenOptions) -> Result<()> {
         .iter()
         .map(|(table_name, generator)| {
             info!(
-                "Generating {} table for scale factor {} in format: {:?}",
-                table_name, options.scale_factor, options.format
+                scale_factor = options.scale_factor,
+                format = %options.format,
+                table = table_name,
+                "Generating TPC-H table",
             );
             let table_name = table_name.to_string();
 
