@@ -15,7 +15,6 @@ permissions:
   id-token: write  # enables AWS-GitHub OIDC
   actions: read
   contents: write
-  deployments: write
 
 jobs:
   sql:
