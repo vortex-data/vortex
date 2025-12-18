@@ -20,6 +20,8 @@ use crate::DateTimePartsVTable;
 pub(crate) const PARENT_RULES: ParentRuleSet<DateTimePartsVTable> =
     ParentRuleSet::new(&[ParentRuleSet::lift(&DTPFilterPushDownRule)]);
 
+/// Push the filter into the days column of a date time parts, we could extend this to other fields
+/// but its less clear if that is beneficial.
 #[derive(Debug)]
 struct DTPFilterPushDownRule;
 
