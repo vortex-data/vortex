@@ -20,7 +20,6 @@ all-features = true
 workspace = true
 
 [dependencies]
-fastlanes = { workspace = true }
 rand = { workspace = true }
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
