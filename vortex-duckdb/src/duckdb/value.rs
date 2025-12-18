@@ -197,6 +197,14 @@ impl Value {
         }
     }
 
+    pub fn new_timestamp_tz(micros: i64) -> Self {
+        unsafe {
+            Self::own(cpp::duckdb_create_timestamp_tz(cpp::duckdb_timestamp {
+                micros,
+            }))
+        }
+    }
+
     pub fn new_timestamp_ns(nanos: i64) -> Self {
         unsafe {
             Self::own(cpp::duckdb_create_timestamp_ns(cpp::duckdb_timestamp_ns {
