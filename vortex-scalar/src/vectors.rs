@@ -72,7 +72,7 @@ impl Scalar {
                 let lscalar = self.as_list();
                 match lscalar.elements() {
                     None => {
-                        let mut list_view = ListViewVectorMut::with_capacity(elems_dtype, 1);
+                        let mut list_view = ListViewVectorMut::with_capacity(elems_dtype, 1, 0);
                         list_view.append_nulls(1);
                         ListViewScalar::new(list_view.freeze()).into()
                     }

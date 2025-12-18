@@ -2,16 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::NumCast;
-use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
 use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_mask::AllOr;
-use vortex_mask::Mask;
 use vortex_vector::Scalar;
 use vortex_vector::ScalarOps;
 use vortex_vector::Vector;
@@ -20,6 +16,7 @@ use vortex_vector::primitive::PScalar;
 use vortex_vector::primitive::PVector;
 use vortex_vector::primitive::PrimitiveScalar;
 use vortex_vector::primitive::PrimitiveVector;
+use vortex_vector::primitive::cast;
 
 use crate::cast::Cast;
 use crate::cast::try_cast_scalar_common;
@@ -44,55 +41,13 @@ impl<T: NativePType> Cast for PVector<T> {
             // We can possibly convert to the target `PType` and we have compatible nullability.
             DType::Primitive(target_ptype, n) if n.is_nullable() || self.validity().all_true() => {
                 match_each_native_ptype!(*target_ptype, |Dst| {
-                    let result = cast_pvector::<T, Dst>(self)?;
+                    let result = cast::cast_pvector::<T, Dst>(self)?;
                     Ok(PrimitiveVector::from(result).into())
                 })
             }
             _ => {
                 vortex_bail!("Cannot cast PVector<{}> to {}", T::PTYPE, target_dtype);
             }
-        }
-    }
-}
-
-/// Cast a [`PVector<F>`] to a [`PVector<T>`] by converting each element.
-///
-/// Returns an error if any valid element cannot be converted (e.g., overflow).
-fn cast_pvector<Src: NativePType, Dst: NativePType>(
-    src: &PVector<Src>,
-) -> VortexResult<PVector<Dst>> {
-    let elements: &[Src] = src.as_ref();
-    match src.validity().bit_buffer() {
-        AllOr::All => {
-            let mut buffer = BufferMut::with_capacity(elements.len());
-            for &item in elements {
-                let converted = <Dst as NumCast>::from(item).ok_or_else(
-                    || vortex_err!(ComputeError: "Failed to cast {} to {:?}", item, Dst::PTYPE),
-                )?;
-                // SAFETY: We pre-allocated the required capacity.
-                unsafe { buffer.push_unchecked(converted) }
-            }
-            Ok(PVector::from(buffer.freeze()))
-        }
-        AllOr::None => Ok(PVector::new(
-            Buffer::zeroed(elements.len()),
-            Mask::new_false(elements.len()),
-        )),
-        AllOr::Some(bit_buffer) => {
-            let mut buffer = BufferMut::with_capacity(elements.len());
-            for (&item, valid) in elements.iter().zip(bit_buffer.iter()) {
-                if valid {
-                    let converted = <Dst as NumCast>::from(item).ok_or_else(
-                        || vortex_err!(ComputeError: "Failed to cast {} to {:?}", item, Dst::PTYPE),
-                    )?;
-                    // SAFETY: We pre-allocated the required capacity.
-                    unsafe { buffer.push_unchecked(converted) }
-                } else {
-                    // SAFETY: We pre-allocated the required capacity.
-                    unsafe { buffer.push_unchecked(Dst::default()) }
-                }
-            }
-            Ok(PVector::new(buffer.freeze(), src.validity().clone()))
         }
     }
 }
