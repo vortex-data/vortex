@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
@@ -8,7 +9,6 @@ use vortex_array::arrays::ConstantVTable;
 use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::FilterVTable;
 use vortex_array::matchers::Exact;
-use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_error::VortexExpect;
@@ -38,9 +38,7 @@ impl ArrayParentReduceRule<DateTimePartsVTable> for DTPFilterPushDownRule {
         parent: &FilterArray,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        if child_idx != 0 {
-            return Ok(None);
-        }
+        debug_assert_eq!(child_idx, 0);
 
         if !child.seconds().is::<ConstantVTable>() || !child.subseconds().is::<ConstantVTable>() {
             return Ok(None);
@@ -48,9 +46,7 @@ impl ArrayParentReduceRule<DateTimePartsVTable> for DTPFilterPushDownRule {
 
         DateTimePartsArray::try_new(
             child.dtype().clone(),
-            FilterArray::new(child.days().clone(), parent.filter_mask().clone())
-                .into_array()
-                .optimize()?,
+            child.days().clone().filter(parent.filter_mask().clone())?,
             ConstantArray::new(
                 child.seconds().as_constant().vortex_expect("constant"),
                 parent.filter_mask().true_count(),

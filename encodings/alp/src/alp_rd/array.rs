@@ -368,7 +368,7 @@ impl ALPRDArray {
 }
 
 impl ValidityChild<ALPRDVTable> for ALPRDVTable {
-    fn validity_child(array: &ALPRDArray) -> &dyn Array {
+    fn validity_child(array: &ALPRDArray) -> &ArrayRef {
         array.left_parts()
     }
 }

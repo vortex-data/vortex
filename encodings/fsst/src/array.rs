@@ -198,6 +198,8 @@ pub struct FSSTArray {
     symbols: Buffer<Symbol>,
     symbol_lengths: Buffer<u8>,
     codes: VarBinArray,
+    /// NOTE(ngates): this === codes, but is stored as an ArrayRef so we can return &ArrayRef!
+    codes_array: ArrayRef,
     /// Lengths of the original values before compression, can be compressed.
     uncompressed_lengths: ArrayRef,
     stats_set: ArrayStats,
@@ -283,12 +285,14 @@ impl FSSTArray {
             Compressor::rebuild_from(symbols2.as_slice(), symbol_lengths2.as_slice())
         })
             as Box<dyn Fn() -> Compressor + Send>));
+        let codes_array = codes.to_array();
 
         Self {
             dtype,
             symbols,
             symbol_lengths,
             codes,
+            codes_array,
             uncompressed_lengths,
             stats_set: Default::default(),
             compressor,
@@ -329,8 +333,6 @@ impl FSSTArray {
 
     /// Build a [`Decompressor`][fsst::Decompressor] that can be used to decompress values from
     /// this array.
-    ///
-    /// This is private to the crate to avoid leaking `fsst-rs` types as part of the public API.
     pub fn decompressor(&self) -> Decompressor<'_> {
         Decompressor::new(self.symbols().as_slice(), self.symbol_lengths().as_slice())
     }
@@ -379,8 +381,8 @@ impl BaseArrayVTable<FSSTVTable> for FSSTVTable {
 }
 
 impl ValidityChild<FSSTVTable> for FSSTVTable {
-    fn validity_child(array: &FSSTArray) -> &dyn Array {
-        array.codes().as_ref()
+    fn validity_child(array: &FSSTArray) -> &ArrayRef {
+        &array.codes_array
     }
 }
 

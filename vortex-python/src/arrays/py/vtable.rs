@@ -20,6 +20,7 @@ use vortex::array::RawMetadata;
 use vortex::array::SerializeMetadata;
 use vortex::array::serde::ArrayChildren;
 use vortex::array::stats::StatsSetRef;
+use vortex::array::validity::Validity;
 use vortex::array::vtable;
 use vortex::array::vtable::ArrayId;
 use vortex::array::vtable::ArrayVTable;
@@ -203,6 +204,10 @@ impl ValidityVTable<PythonVTable> for PythonVTable {
     }
 
     fn all_invalid(_array: &PythonArray) -> bool {
+        todo!()
+    }
+
+    fn validity(_array: &PythonArray) -> VortexResult<Validity> {
         todo!()
     }
 

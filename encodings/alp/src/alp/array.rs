@@ -432,7 +432,7 @@ impl ALPArray {
 }
 
 impl ValidityChild<ALPVTable> for ALPVTable {
-    fn validity_child(array: &ALPArray) -> &dyn Array {
+    fn validity_child(array: &ALPArray) -> &ArrayRef {
         array.encoded()
     }
 }

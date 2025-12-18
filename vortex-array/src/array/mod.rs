@@ -55,6 +55,7 @@ use crate::expr::stats::StatsProviderExt;
 use crate::hash;
 use crate::optimizer::ArrayOptimizer;
 use crate::stats::StatsSetRef;
+use crate::validity::Validity;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
 use crate::vtable::BaseArrayVTable;
@@ -159,6 +160,9 @@ pub trait Array:
 
     /// Returns the number of invalid elements in the array.
     fn invalid_count(&self) -> usize;
+
+    /// Returns the [`Validity`] of the array.
+    fn validity(&self) -> VortexResult<Validity>;
 
     /// Returns the canonical validity mask for the array.
     fn validity_mask(&self) -> Mask;
@@ -279,6 +283,11 @@ impl Array for Arc<dyn Array> {
     #[inline]
     fn invalid_count(&self) -> usize {
         self.as_ref().invalid_count()
+    }
+
+    #[inline]
+    fn validity(&self) -> VortexResult<Validity> {
+        self.as_ref().validity()
     }
 
     #[inline]
@@ -599,6 +608,14 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             .set(Stat::NullCount, Precision::exact(count));
 
         count
+    }
+
+    fn validity(&self) -> VortexResult<Validity> {
+        if self.dtype().is_nullable() {
+            <V::ValidityVTable as ValidityVTable<V>>::validity(&self.0)
+        } else {
+            Ok(Validity::NonNullable)
+        }
     }
 
     fn validity_mask(&self) -> Mask {
