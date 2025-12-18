@@ -19,6 +19,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
+use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::ArrayVTable;
@@ -411,6 +412,10 @@ impl ValidityVTable<SequenceVTable> for SequenceVTable {
 
     fn all_invalid(_array: &SequenceArray) -> bool {
         false
+    }
+
+    fn validity(_array: &SequenceArray) -> VortexResult<Validity> {
+        Ok(Validity::AllValid)
     }
 
     fn validity_mask(array: &SequenceArray) -> Mask {

@@ -6,6 +6,7 @@ use std::hash::Hash;
 use std::ops::Range;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
+use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
@@ -25,10 +26,12 @@ use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::Precision;
+use crate::arrays::BoolArray;
 use crate::arrow::FromArrowArray;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSetRef;
+use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
@@ -181,6 +184,23 @@ impl ValidityVTable<ArrowVTable> for ArrowVTable {
 
     fn all_invalid(array: &ArrowArray) -> bool {
         array.inner.logical_null_count() == array.inner.len()
+    }
+
+    fn validity(array: &ArrowArray) -> VortexResult<Validity> {
+        Ok(match array.inner.logical_nulls() {
+            None => Validity::AllValid,
+            Some(null_buffer) => match null_buffer.null_count() {
+                0 => Validity::AllValid,
+                n if n == array.inner.len() => Validity::AllInvalid,
+                _ => Validity::Array(
+                    BoolArray::new(
+                        BitBuffer::from(null_buffer.inner().clone()),
+                        Validity::NonNullable,
+                    )
+                    .into_array(),
+                ),
+            },
+        })
     }
 
     fn validity_mask(array: &ArrowArray) -> Mask {
