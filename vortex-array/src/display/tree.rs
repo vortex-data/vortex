@@ -39,13 +39,25 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
         } else {
             100_f64 * nbytes as f64 / total_size as f64
         };
+        // Compute validity status string
+        let validity_str = if !array.dtype().is_nullable() {
+            ""
+        } else if array.all_valid() {
+            " all_valid"
+        } else if array.all_invalid() {
+            " all_invalid"
+        } else {
+            ""
+        };
+
         writeln!(
             self,
-            "{}: {} nbytes={} ({:.2}%)",
+            "{}: {} nbytes={} ({:.2}%){}",
             name,
             array.display_as(DisplayOptions::MetadataOnly),
             format_size(nbytes, DECIMAL),
-            percent
+            percent,
+            validity_str
         )?;
 
         self.indent(|i| {
