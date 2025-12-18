@@ -144,9 +144,6 @@ impl ArrayParentReduceRule<DateTimePartsVTable> for DTPComparisonPushDownRule {
     }
 }
 
-/// Check if the scalar function is a comparison operation we can push down.
-fn is_comparison_op(parent: &ScalarFnArray) -> bool {}
-
 /// Try to extract the days value from a constant timestamp.
 /// Returns None if the constant is not a timestamp or has non-zero seconds/subseconds.
 fn try_extract_days_constant(array: &ArrayRef) -> Option<i64> {
