@@ -1,0 +1,115 @@
+name: AMI Prebuild
+
+# Schedule to run every 15 days to keep runner agent up to date
+# GitHub stops routing jobs to runners with agents older than 30 days
+on:
+  # TODO: Remove push trigger after testing
+  push:
+    branches: [ji/ami-prebuild]
+    paths:
+      - ".github/workflows/ami-prebuild.yml"
+      - ".github/actions/build-ami/**"
+  schedule:
+    # Run at 00:00 UTC on the 1st and 16th of each month (~15 days apart)
+    - cron: "0 0 1,16 * *"
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: "Architecture to build (leave empty for both)"
+        required: false
+        type: choice
+        options:
+          - ""
+          - x64
+          - arm64
+      retention-days:
+        description: "Days until AMI deprecation"
+        required: false
+        type: number
+        default: 30
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  build-x64:
+    name: "Build AMI (x64)"
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.arch == '' || github.event.inputs.arch == 'x64' }}
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=4
+      - image=ubuntu24-full-x64
+      - tag=ami-prebuild-x64
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build AMI
+        id: build
+        uses: ./.github/actions/build-ami
+        with:
+          arch: x64
+          aws-region: ${{ env.AWS_REGION }}
+          retention-days: ${{ inputs.retention-days || '30' }}
+
+      - name: Summary
+        run: |
+          echo "## AMI Build Complete (x64)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **AMI ID:** ${{ steps.build.outputs.ami-id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **AMI Name:** ${{ steps.build.outputs.ami-name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deprecation:** ${{ inputs.retention-days || '30' }} days" >> $GITHUB_STEP_SUMMARY
+
+  build-arm64:
+    name: "Build AMI (arm64)"
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.arch == '' || github.event.inputs.arch == 'arm64' }}
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7g
+      - cpu=4
+      - image=ubuntu24-full-arm64
+      - tag=ami-prebuild-arm64
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build AMI
+        id: build
+        uses: ./.github/actions/build-ami
+        with:
+          arch: arm64
+          aws-region: ${{ env.AWS_REGION }}
+          retention-days: ${{ inputs.retention-days || '30' }}
+
+      - name: Summary
+        run: |
+          echo "## AMI Build Complete (arm64)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **AMI ID:** ${{ steps.build.outputs.ami-id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **AMI Name:** ${{ steps.build.outputs.ami-name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deprecation:** ${{ inputs.retention-days || '30' }} days" >> $GITHUB_STEP_SUMMARY
