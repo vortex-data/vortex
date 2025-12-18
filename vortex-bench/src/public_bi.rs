@@ -5,7 +5,6 @@ use std::borrow::Cow;
 use std::fmt::Display;
 use std::fmt::{self};
 use std::fs;
-use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
@@ -343,7 +342,7 @@ impl PBIData {
                     public_bi_csv_to_parquet_file(table, csv, &output_path).await
                 })
                 .await?;
-                let pq_size = parquet_file.metadata().unwrap().size();
+                let pq_size = parquet_file.metadata().unwrap().len();
                 info!(
                     "Parquet size: {}, {}B",
                     format_size(pq_size, DECIMAL),
