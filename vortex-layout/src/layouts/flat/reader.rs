@@ -158,9 +158,11 @@ impl LayoutReader for FlatReader {
 
             let array_mask = if *USE_VORTEX_OPERATORS {
                 if mask.density() < FILTER_OF_FILTER_THRESHOLD {
-                    // Run only over the pre-filtered rows.
-                    let array = array.filter(mask.clone())?;
+                    // We have the choice to apply the filter or the expression first, we apply the
+                    // expression first so that it can try pushing down itself and then the filter
+                    // after this.
                     let array = array.apply(&expr)?;
+                    let array = array.filter(mask.clone())?;
                     let array_mask = array.execute_mask(&session)?;
 
                     mask.intersect_by_rank(&array_mask)
