@@ -38,8 +38,9 @@ impl ArrayParentReduceRule<ExtensionVTable> for ExtensionFilterPushDownRule {
         &self,
         child: &ExtensionArray,
         parent: &FilterArray,
-        _child_idx: usize,
+        child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
+        debug_assert_eq!(child_idx, 0);
         let filtered_storage = child
             .storage()
             .clone()
