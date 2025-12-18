@@ -3,8 +3,7 @@
 import pyarrow as pa
 import pyarrow.compute as pc
 import pytest
-
-from vortex.arrow.expression import arrow_to_vortex, _schema_for_substrait
+from vortex.arrow.expression import _schema_for_substrait, arrow_to_vortex
 
 
 class TestSchemaForSubstrait:
@@ -21,29 +20,35 @@ class TestSchemaForSubstrait:
         assert result.field("col").type == pa.binary()
 
     def test_other_types_unchanged(self):
-        schema = pa.schema([
-            ("int_col", pa.int64()),
-            ("str_col", pa.string()),
-            ("bin_col", pa.binary()),
-            ("float_col", pa.float64()),
-        ])
+        schema = pa.schema(
+            [
+                ("int_col", pa.int64()),
+                ("str_col", pa.string()),
+                ("bin_col", pa.binary()),
+                ("float_col", pa.float64()),
+            ]
+        )
         result = _schema_for_substrait(schema)
         assert result == schema
 
     def test_mixed_schema(self):
-        schema = pa.schema([
-            ("sv", pa.string_view()),
-            ("bv", pa.binary_view()),
-            ("s", pa.string()),
-            ("i", pa.int64()),
-        ])
+        schema = pa.schema(
+            [
+                ("sv", pa.string_view()),
+                ("bv", pa.binary_view()),
+                ("s", pa.string()),
+                ("i", pa.int64()),
+            ]
+        )
         result = _schema_for_substrait(schema)
-        expected = pa.schema([
-            ("sv", pa.string()),
-            ("bv", pa.binary()),
-            ("s", pa.string()),
-            ("i", pa.int64()),
-        ])
+        expected = pa.schema(
+            [
+                ("sv", pa.string()),
+                ("bv", pa.binary()),
+                ("s", pa.string()),
+                ("i", pa.int64()),
+            ]
+        )
         assert result == expected
 
 
@@ -69,19 +74,24 @@ class TestArrowToVortexWithViews:
         assert vortex_expr is not None
 
     def test_mixed_view_and_regular_types(self):
-        schema = pa.schema([
-            ("id", pa.int64()),
-            ("name", pa.string_view()),
-            ("data", pa.binary_view()),
-        ])
+        schema = pa.schema(
+            [
+                ("id", pa.int64()),
+                ("name", pa.string_view()),
+                ("data", pa.binary_view()),
+            ]
+        )
         expr = (pc.field("id") > 10) & (pc.field("name") == "test")
         vortex_expr = arrow_to_vortex(expr, schema)
         assert vortex_expr is not None
 
-    @pytest.mark.parametrize("view_type,value", [
-        (pa.string_view(), "test"),
-        (pa.binary_view(), b"test"),
-    ])
+    @pytest.mark.parametrize(
+        "view_type,value",
+        [
+            (pa.string_view(), "test"),
+            (pa.binary_view(), b"test"),
+        ],
+    )
     def test_view_types_parametrized(self, view_type, value):
         schema = pa.schema([("col", view_type)])
         expr = pc.field("col") == value
