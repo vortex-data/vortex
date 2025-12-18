@@ -84,18 +84,10 @@ impl ArrayParentReduceRule<ExtensionVTable> for ExtensionScalarFnConstantPushDow
                 return Ok(None);
             };
 
+            // ExtDType::eq_ignore_nullability checks id, metadata, and storage dtype
             if !ext_scalar
                 .ext_dtype()
                 .eq_ignore_nullability(child.ext_dtype())
-            {
-                return Ok(None);
-            }
-
-            // The storage dtype must match.
-            if !ext_scalar
-                .ext_dtype()
-                .storage_dtype()
-                .eq_ignore_nullability(child.ext_dtype().storage_dtype())
             {
                 return Ok(None);
             }
