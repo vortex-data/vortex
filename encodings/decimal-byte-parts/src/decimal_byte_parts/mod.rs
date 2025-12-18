@@ -269,9 +269,9 @@ impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 }
 
 impl ValidityChild<DecimalBytePartsVTable> for DecimalBytePartsVTable {
-    fn validity_child(array: &DecimalBytePartsArray) -> &dyn Array {
+    fn validity_child(array: &DecimalBytePartsArray) -> &ArrayRef {
         // validity stored in 0th child
-        array.msp.as_ref()
+        &array.msp
     }
 }
 

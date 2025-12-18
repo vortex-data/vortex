@@ -29,6 +29,7 @@ use crate::arrow::FromArrowArray;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSetRef;
+use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
@@ -181,6 +182,13 @@ impl ValidityVTable<ArrowVTable> for ArrowVTable {
 
     fn all_invalid(array: &ArrowArray) -> bool {
         array.inner.logical_null_count() == array.inner.len()
+    }
+
+    fn validity(array: &ArrowArray) -> VortexResult<Validity> {
+        Ok(Validity::from_mask(
+            Self::validity_mask(array),
+            Nullability::Nullable,
+        ))
     }
 
     fn validity_mask(array: &ArrowArray) -> Mask {

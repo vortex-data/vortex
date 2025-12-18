@@ -29,6 +29,7 @@ use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
+use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::ArrayVTable;
@@ -408,6 +409,14 @@ impl ValidityVTable<SparseVTable> for SparseVTable {
         }
 
         array.patches().values().all_invalid()
+    }
+
+    fn validity(array: &SparseArray) -> VortexResult<Validity> {
+        // TODO(ngates): should this be able to execute arrays?
+        Ok(Validity::from_mask(
+            Self::validity_mask(array),
+            Nullability::Nullable,
+        ))
     }
 
     fn validity_mask(array: &SparseArray) -> Mask {

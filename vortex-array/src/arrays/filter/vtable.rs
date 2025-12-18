@@ -33,6 +33,7 @@ use crate::arrays::filter::rules::PARENT_RULES;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
+use crate::validity::Validity;
 use crate::vectors::VectorIntoArray;
 use crate::vtable;
 use crate::vtable::ArrayId;
@@ -182,6 +183,10 @@ impl ValidityVTable<FilterVTable> for FilterVTable {
     fn all_invalid(array: &FilterArray) -> bool {
         // An over-approximation: if the child is all invalid, then the filtered array is all invalid.
         array.child.all_invalid()
+    }
+
+    fn validity(array: &FilterArray) -> VortexResult<Validity> {
+        array.child.validity()?.filter(&array.mask)
     }
 
     fn validity_mask(array: &FilterArray) -> Mask {

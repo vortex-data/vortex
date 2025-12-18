@@ -278,7 +278,7 @@ impl BaseArrayVTable<DateTimePartsVTable> for DateTimePartsVTable {
 }
 
 impl ValidityChild<DateTimePartsVTable> for DateTimePartsVTable {
-    fn validity_child(array: &DateTimePartsArray) -> &dyn Array {
+    fn validity_child(array: &DateTimePartsArray) -> &ArrayRef {
         array.days()
     }
 }
