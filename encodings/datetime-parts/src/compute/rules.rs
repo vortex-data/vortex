@@ -100,10 +100,9 @@ impl ArrayParentReduceRule<DateTimePartsVTable> for DTPComparisonPushDownRule {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // Only handle comparison operations (Binary comparisons or Between)
-        if !parent
+        if parent
             .scalar_fn()
-            .as_opt::<Binary>()
-            .is_some_and(|c| c.maybe_cmp_operator().is_some())
+            .as_opt::<Binary>().is_none_or(|c| c.maybe_cmp_operator().is_none())
             && !parent.scalar_fn().is::<Between>()
         {
             return Ok(None);
