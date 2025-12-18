@@ -178,8 +178,8 @@ impl VTable for Binary {
             }
         };
 
-        // Arrow computed over scalar datums
-        if vector.len() == 1 && args.row_count != 1 {
+        // If both inputs are scalars, return a scalar datum.
+        if lhs.get().1 && rhs.get().1 {
             return Ok(Datum::Scalar(vector.scalar_at(0)));
         }
 
