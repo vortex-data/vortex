@@ -412,10 +412,24 @@ impl ValidityVTable<SparseVTable> for SparseVTable {
     }
 
     fn validity(array: &SparseArray) -> VortexResult<Validity> {
-        // TODO(ngates): should this be able to execute arrays?
-        Ok(Validity::from_mask(
-            Self::validity_mask(array),
-            Nullability::Nullable,
+        let patches = unsafe {
+            Patches::new_unchecked(
+                array.patches.array_len(),
+                array.patches.offset().clone(),
+                array.patches.indices().clone(),
+                array
+                    .patches
+                    .values()
+                    .validity()?
+                    .to_array(array.patches.values().len()),
+                array.patches.chunk_offsets().clone(),
+                array.patches.offset_within_chunk(),
+            )
+        };
+
+        Ok(Validity::Array(
+            unsafe { SparseArray::new_unchecked(patches, array.fill_value.is_valid().into()) }
+                .into_array(),
         ))
     }
 
