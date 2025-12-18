@@ -87,7 +87,9 @@ impl VectorMut {
             DType::Binary(..) => BinaryVectorMut::with_capacity(capacity).into(),
             DType::Extension(ext) => VectorMut::with_capacity(ext.storage_dtype(), capacity),
             DType::List(elem, ..) => {
-                ListViewVectorMut::with_capacity(elem.as_ref(), capacity).into()
+                // We arbitrarily choose 2 times the number of list scalars for the capacity of the
+                // elements since we cannot know this ahead of time.
+                ListViewVectorMut::with_capacity(elem.as_ref(), capacity, 2 * capacity).into()
             }
         }
     }

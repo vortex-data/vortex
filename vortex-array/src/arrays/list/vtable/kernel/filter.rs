@@ -63,6 +63,7 @@ impl ExecuteParentKernel<ListVTable> for ListFilterKernel {
                 let mut vec = ListViewVectorMut::with_capacity(
                     array.elements().dtype(),
                     selection.true_count(),
+                    0,
                 );
                 vec.append_nulls(selection.true_count());
                 return Ok(Some(vec.freeze().into()));
