@@ -169,10 +169,6 @@ pub async fn benchmark_decompress(
     })
 }
 
-// ============================================================================
-// Ratio calculations
-// ============================================================================
-
 /// Calculate cross-format comparison ratios.
 pub fn calculate_ratios(
     measurements: &HashMap<(Format, CompressOp), Duration>,

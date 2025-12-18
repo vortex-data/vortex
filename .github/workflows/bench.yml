@@ -85,7 +85,7 @@ jobs:
         env:
           RUST_BACKTRACE: full
         run: |
-          target/release_debug/${{ matrix.benchmark.id }} -d gh-json --formats parquet,lance,vortex
+          target/release_debug/${{ matrix.benchmark.id }} --formats parquet,lance,vortex -o results.json
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v5
@@ -96,7 +96,7 @@ jobs:
       - name: Upload Benchmark Results
         shell: bash
         run: |
-          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json.gz target/vortex-bench/${{ matrix.benchmark.id }}/results.json
+          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json.gz results.json
 
   sql:
     uses: ./.github/workflows/sql-benchmarks.yml

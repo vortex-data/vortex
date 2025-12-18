@@ -32,10 +32,6 @@ use crate::Format;
 use crate::SESSION;
 use crate::random_access::RandomAccessor;
 
-// ============================================================================
-// Vortex RandomAccessor
-// ============================================================================
-
 /// Random accessor for Vortex format files.
 pub struct VortexRandomAccessor {
     path: PathBuf,
@@ -86,15 +82,11 @@ impl RandomAccessor for VortexRandomAccessor {
         &self.path
     }
 
-    async fn take(&self, indices: Buffer<u64>) -> anyhow::Result<usize> {
-        let result = take_vortex(&self.path, indices).await?;
+    async fn take(&self, indices: Vec<u64>) -> anyhow::Result<usize> {
+        let result = take_vortex(&self.path, indices.into()).await?;
         Ok(result.len())
     }
 }
-
-// ============================================================================
-// Parquet RandomAccessor
-// ============================================================================
 
 /// Random accessor for Parquet format files.
 pub struct ParquetRandomAccessor {
@@ -134,15 +126,11 @@ impl RandomAccessor for ParquetRandomAccessor {
         &self.path
     }
 
-    async fn take(&self, indices: Buffer<u64>) -> anyhow::Result<usize> {
+    async fn take(&self, indices: Vec<u64>) -> anyhow::Result<usize> {
         let result = take_parquet(&self.path, indices).await?;
         Ok(result.num_rows())
     }
 }
-
-// ============================================================================
-// Low-level take functions (kept for backwards compatibility)
-// ============================================================================
 
 async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> anyhow::Result<ArrayRef> {
     let array = SESSION
@@ -163,7 +151,7 @@ async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> anyhow::
     })
 }
 
-pub async fn take_parquet(path: &Path, indices: Buffer<u64>) -> anyhow::Result<RecordBatch> {
+pub async fn take_parquet(path: &Path, indices: Vec<u64>) -> anyhow::Result<RecordBatch> {
     let file = tokio::fs::File::open(path).await?;
 
     let builder = ParquetRecordBatchStreamBuilder::new_with_options(

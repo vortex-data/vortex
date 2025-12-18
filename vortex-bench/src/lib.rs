@@ -220,10 +220,6 @@ impl CompactionStrategy {
     }
 }
 
-// ============================================================================
-// Benchmark CLI types
-// ============================================================================
-
 /// CLI argument for selecting which benchmark to run.
 #[derive(clap::ValueEnum, Clone, Copy)]
 pub enum BenchmarkArg {

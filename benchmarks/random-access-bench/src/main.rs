@@ -7,8 +7,6 @@ use std::time::Instant;
 
 use clap::Parser;
 use indicatif::ProgressBar;
-use vortex::buffer::Buffer;
-use vortex::buffer::buffer;
 use vortex_bench::BenchmarkOutput;
 use vortex_bench::Engine;
 use vortex_bench::Format;
@@ -54,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
     setup_logging_and_tracing(args.verbose, args.tracing)?;
 
     // Row count of the dataset is 3,339,715.
-    let indices = buffer![10u64, 11, 12, 13, 100_000, 3_000_000];
+    let indices = vec![10u64, 11, 12, 13, 100_000, 3_000_000];
 
     run_random_access(
         args.formats,
@@ -81,6 +79,14 @@ async fn get_accessor(format: Format) -> anyhow::Result<Box<dyn RandomAccessor>>
             let path = taxi_data_parquet().await?;
             Ok(Box::new(ParquetRandomAccessor::new(path)))
         }
+        #[cfg(feature = "lance")]
+        Format::Lance => {
+            use lance_bench::random_access::LanceRandomAccessor;
+            use lance_bench::random_access::taxi_data_lance;
+
+            let path = taxi_data_lance().await?;
+            Ok(Box::new(LanceRandomAccessor::new(path)))
+        }
         _ => unimplemented!("Random access bench not implemented for {format}"),
     }
 }
@@ -91,7 +97,7 @@ async fn get_accessor(format: Format) -> anyhow::Result<Box<dyn RandomAccessor>>
 /// collecting timing for each run.
 async fn benchmark_random_access(
     accessor: &dyn RandomAccessor,
-    indices: &Buffer<u64>,
+    indices: &[u64],
     time_limit_secs: u64,
     storage: &str,
 ) -> anyhow::Result<TimingMeasurement> {
@@ -101,9 +107,9 @@ async fn benchmark_random_access(
 
     // Run at least once, then continue until time limit
     loop {
-        let indices_clone = indices.clone();
+        let indices = indices.to_vec();
         let start = Instant::now();
-        let _row_count = accessor.take(indices_clone).await?;
+        let _row_count = accessor.take(indices).await?;
         runs.push(start.elapsed());
 
         if overall_start.elapsed() >= time_limit {
@@ -124,6 +130,8 @@ fn format_to_engine(format: Format) -> Engine {
     match format {
         Format::OnDiskVortex | Format::VortexCompact => Engine::Vortex,
         Format::Parquet => Engine::Arrow,
+        #[cfg(feature = "lance")]
+        Format::Lance => Engine::Arrow, // Is this right here?
         _ => Engine::default(),
     }
 }
@@ -135,7 +143,7 @@ async fn run_random_access(
     formats: Vec<Format>,
     time_limit: u64,
     display_format: DisplayFormat,
-    indices: Buffer<u64>,
+    indices: Vec<u64>,
     output_path: Option<PathBuf>,
 ) -> anyhow::Result<()> {
     let progress = ProgressBar::new(formats.len() as u64);

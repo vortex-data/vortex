@@ -5,7 +5,6 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use vortex::buffer::Buffer;
 
 use crate::Format;
 
@@ -31,5 +30,5 @@ pub trait RandomAccessor: Send + Sync {
     fn path(&self) -> &PathBuf;
 
     /// Take rows at the given indices, returning the number of rows read.
-    async fn take(&self, indices: Buffer<u64>) -> Result<usize>;
+    async fn take(&self, indices: Vec<u64>) -> Result<usize>;
 }
