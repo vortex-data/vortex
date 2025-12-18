@@ -102,7 +102,8 @@ impl ArrayParentReduceRule<DateTimePartsVTable> for DTPComparisonPushDownRule {
         // Only handle comparison operations (Binary comparisons or Between)
         if parent
             .scalar_fn()
-            .as_opt::<Binary>().is_none_or(|c| c.maybe_cmp_operator().is_none())
+            .as_opt::<Binary>()
+            .is_none_or(|c| c.maybe_cmp_operator().is_none())
             && !parent.scalar_fn().is::<Between>()
         {
             return Ok(None);
