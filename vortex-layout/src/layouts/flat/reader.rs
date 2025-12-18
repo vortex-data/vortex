@@ -169,6 +169,7 @@ impl LayoutReader for FlatReader {
             };
 
             let array_mask = if *USE_VORTEX_OPERATORS {
+                // TODO(0ax1): && expression is expensive - cost model
                 if use_filter(array.dtype()) {
                     // Run only over the pre-filtered rows.
                     let array = array.filter(mask.clone())?;
