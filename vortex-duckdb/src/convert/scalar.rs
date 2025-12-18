@@ -201,8 +201,11 @@ impl ToDuckDBScalar for ExtScalar<'_> {
                 _ => vortex_bail!("cannot have TimeUnit {unit}, so represent a day"),
             },
             TemporalMetadata::Timestamp(unit, tz) => {
-                if tz.is_some() {
-                    todo!("timezones to duckdb scalar")
+                if let Some(tz) = tz {
+                    if tz != "UTC" {
+                        todo!()
+                    }
+                    return Ok(Value::new_timestamp_tz(value()?));
                 }
                 match unit {
                     TimeUnit::Nanoseconds => Ok(Value::new_timestamp_ns(value()?)),
