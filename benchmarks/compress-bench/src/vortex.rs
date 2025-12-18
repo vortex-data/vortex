@@ -3,6 +3,8 @@
 
 use std::io::Cursor;
 use std::sync::Arc;
+use std::time::Duration;
+use std::time::Instant;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -12,10 +14,10 @@ use futures::pin_mut;
 use vortex::array::Array;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
+use vortex_bench::Format;
+use vortex_bench::SESSION;
 
-use crate::Format;
-use crate::SESSION;
-use crate::compress::bench::Compressor;
+use crate::bench::Compressor;
 
 /// Compressor implementation for Vortex format.
 pub struct VortexCompressor;
@@ -26,10 +28,12 @@ impl Compressor for VortexCompressor {
         Format::OnDiskVortex
     }
 
-    async fn compress(&self, array: &dyn Array) -> Result<Bytes> {
+    async fn compress(&self, array: &dyn Array) -> Result<(Bytes, Duration)> {
         let mut buf = Vec::new();
+        let start = Instant::now();
         vortex_compress_write(array, &mut buf).await?;
-        Ok(Bytes::from(buf))
+        let elapsed = start.elapsed();
+        Ok((Bytes::from(buf), elapsed))
     }
 
     async fn decompress(&self, data: Bytes) -> Result<usize> {

@@ -3,8 +3,9 @@
 
 use std::io::Cursor;
 use std::sync::Arc;
+use std::time::Duration;
+use std::time::Instant;
 
-use anyhow::Result;
 use arrow_array::RecordBatch;
 use arrow_schema::Schema;
 use async_trait::async_trait;
@@ -16,10 +17,10 @@ use parquet::basic::ZstdLevel;
 use parquet::file::properties::WriterProperties;
 use vortex::array::Array;
 use vortex::array::arrays::ChunkedVTable;
+use vortex_bench::Format;
 
-use crate::Format;
-use crate::compress::bench::Compressor;
-use crate::compress::chunked_to_vec_record_batch;
+use crate::bench::Compressor;
+use crate::chunked_to_vec_record_batch;
 
 /// Compressor implementation for Parquet format with ZSTD compression.
 pub struct ParquetCompressor {
@@ -50,17 +51,19 @@ impl Compressor for ParquetCompressor {
         Format::Parquet
     }
 
-    async fn compress(&self, array: &dyn Array) -> Result<Bytes> {
+    async fn compress(&self, array: &dyn Array) -> anyhow::Result<(Bytes, Duration)> {
         let chunked = array.as_::<ChunkedVTable>().clone();
-        let (batches, schema) = chunked_to_vec_record_batch(chunked);
+        let (batches, schema) = chunked_to_vec_record_batch(chunked)?;
 
         let mut buf = Vec::new();
-        parquet_compress_write(batches, schema, self.compression, &mut buf);
-        Ok(Bytes::from(buf))
+        let start = Instant::now();
+        parquet_compress_write(batches, schema, self.compression, &mut buf)?;
+        let elapsed = start.elapsed();
+        Ok((Bytes::from(buf), elapsed))
     }
 
-    async fn decompress(&self, data: Bytes) -> Result<usize> {
-        Ok(parquet_decompress_read(data))
+    async fn decompress(&self, data: Bytes) -> anyhow::Result<usize> {
+        parquet_decompress_read(data)
     }
 }
 
@@ -70,28 +73,29 @@ pub fn parquet_compress_write(
     schema: Arc<Schema>,
     compression: Compression,
     buf: &mut Vec<u8>,
-) -> usize {
+) -> anyhow::Result<usize> {
     let mut buf = Cursor::new(buf);
     let writer_properties = WriterProperties::builder()
         .set_compression(compression)
         .build();
-    let mut writer = ArrowWriter::try_new(&mut buf, schema, Some(writer_properties)).unwrap();
+    let mut writer = ArrowWriter::try_new(&mut buf, schema, Some(writer_properties))?;
     for batch in batches {
-        writer.write(&batch).unwrap();
+        writer.write(&batch)?;
     }
-    writer.flush().unwrap();
+    writer.flush()?;
     let n_bytes = writer.bytes_written();
-    writer.close().unwrap();
-    n_bytes
+    writer.close()?;
+    Ok(n_bytes)
 }
 
 #[inline(never)]
-pub fn parquet_decompress_read(buf: Bytes) -> usize {
-    let builder = ParquetRecordBatchReaderBuilder::try_new(buf).unwrap();
-    let reader = builder.build().unwrap();
+pub fn parquet_decompress_read(buf: Bytes) -> anyhow::Result<usize> {
+    let builder = ParquetRecordBatchReaderBuilder::try_new(buf)?;
+    let reader = builder.build()?;
     let mut nbytes = 0;
     for batch in reader {
-        nbytes += batch.unwrap().get_array_memory_size()
+        nbytes += batch?.get_array_memory_size()
     }
-    nbytes
+
+    Ok(nbytes)
 }

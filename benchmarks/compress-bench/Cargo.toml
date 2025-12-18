@@ -16,10 +16,17 @@ publish = false
 
 [dependencies]
 anyhow = { workspace = true }
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
+futures = { workspace = true }
 indicatif = { workspace = true }
 itertools = { workspace = true }
+parquet = { workspace = true }
 regex = { workspace = true }
+serde = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 vortex = { workspace = true }

@@ -146,7 +146,7 @@ jobs:
           # Build options string if scale_factor is set
           opts=""
           if [ -n "${{ matrix.scale_factor }}" ]; then
-            opts="--opt scale_factor=${{ matrix.scale_factor }}"
+            opts="--opt scale-factor=${{ matrix.scale_factor }}"
           fi
 
           # Generate all data formats with a single command
@@ -198,7 +198,7 @@ jobs:
           # Build options string if scale_factor is set
           opts=""
           if [ -n "${{ matrix.scale_factor }}" ]; then
-            opts="--opt scale_factor=${{ matrix.scale_factor }}"
+            opts="--opt scale-factor=${{ matrix.scale_factor }}"
           fi
 
           touch results.json
@@ -252,9 +252,9 @@ jobs:
           df_formats=$(echo "${{ matrix.targets }}" | tr ',' '\n' | grep '^datafusion:' | sed 's/datafusion://' | tr '\n' ',' | sed 's/,$//')
 
           # Build options string if scale_factor is set
-          opts="--opt remote_data_dir=${{ matrix.remote_storage }}"
+          opts="--opt remote-data-dir=${{ matrix.remote_storage }}"
           if [ -n "${{ matrix.scale_factor }}" ]; then
-            opts="--opt scale_factor=${{ matrix.scale_factor }} ${opts}"
+            opts="--opt scale-factor=${{ matrix.scale_factor }} ${opts}"
           fi
 
           touch results.json

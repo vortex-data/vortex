@@ -12,19 +12,9 @@ pub mod bench;
 pub mod parquet;
 pub mod vortex;
 
-// Re-export the trait and compressor implementations for convenience
-pub use bench::CompressMeasurements;
-pub use bench::CompressOp;
-pub use bench::CompressResult;
-pub use bench::Compressor;
-pub use bench::DecompressResult;
-pub use bench::benchmark_compress;
-pub use bench::benchmark_decompress;
-pub use bench::calculate_ratios;
-pub use parquet::ParquetCompressor;
-pub use vortex::VortexCompressor;
-
-pub fn chunked_to_vec_record_batch(chunked: ChunkedArray) -> (Vec<RecordBatch>, Arc<Schema>) {
+pub fn chunked_to_vec_record_batch(
+    chunked: ChunkedArray,
+) -> anyhow::Result<(Vec<RecordBatch>, Arc<Schema>)> {
     let chunks_vec = chunked.chunks();
     assert!(!chunks_vec.is_empty(), "empty chunks");
 
@@ -34,10 +24,10 @@ pub fn chunked_to_vec_record_batch(chunked: ChunkedArray) -> (Vec<RecordBatch>, 
             // TODO(connor)[ListView]: The rust Parquet implementation does not support writing
             // `ListView` to Parquet files yet.
             let converted_array = recursive_list_from_list_view(array.clone());
-            RecordBatch::try_from(converted_array.as_ref()).unwrap()
+            Ok(RecordBatch::try_from(converted_array.as_ref())?)
         })
-        .collect::<Vec<_>>();
+        .collect::<anyhow::Result<Vec<_>>>()?;
 
     let schema = batches[0].schema();
-    (batches, schema)
+    Ok((batches, schema))
 }

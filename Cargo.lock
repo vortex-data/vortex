@@ -1534,10 +1534,17 @@ name = "compress-bench"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arrow-array",
+ "arrow-schema",
+ "async-trait",
+ "bytes",
  "clap",
+ "futures",
  "indicatif",
  "itertools 0.14.0",
+ "parquet",
  "regex",
+ "serde",
  "tokio",
  "tracing",
  "vortex",

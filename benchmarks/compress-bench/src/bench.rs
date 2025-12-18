@@ -13,14 +13,9 @@ use clap::ValueEnum;
 use serde::Serialize;
 use vortex::array::Array;
 use vortex::utils::aliases::hash_map::HashMap;
-
-use crate::Format;
-use crate::measurements::CompressionTimingMeasurement;
-use crate::measurements::CustomUnitMeasurement;
-
-// ============================================================================
-// Measurement types
-// ============================================================================
+use vortex_bench::Format;
+use vortex_bench::measurements::CompressionTimingMeasurement;
+use vortex_bench::measurements::CustomUnitMeasurement;
 
 #[derive(Default)]
 pub struct CompressMeasurements {
@@ -79,10 +74,6 @@ pub struct DecompressResult {
     pub timing: CompressionTimingMeasurement,
 }
 
-// ============================================================================
-// Compressor trait
-// ============================================================================
-
 /// Trait for format-specific compression/decompression operations.
 ///
 /// Implementations handle the actual compression logic for a specific format
@@ -94,15 +85,11 @@ pub trait Compressor: Send + Sync {
     fn format(&self) -> Format;
 
     /// Compress the array data, returning the compressed bytes.
-    async fn compress(&self, array: &dyn Array) -> Result<Bytes>;
+    async fn compress(&self, array: &dyn Array) -> Result<(Bytes, Duration)>;
 
     /// Decompress the data, returning the decompressed size in bytes.
     async fn decompress(&self, data: Bytes) -> Result<usize>;
 }
-
-// ============================================================================
-// Benchmark functions
-// ============================================================================
 
 /// Run a compression benchmark for the given compressor.
 ///
@@ -118,9 +105,7 @@ pub async fn benchmark_compress(
     let mut compressed_size = 0u64;
 
     for _ in 0..iterations {
-        let start = Instant::now();
-        let compressed = compressor.compress(uncompressed).await?;
-        let elapsed = start.elapsed();
+        let (compressed, elapsed) = compressor.compress(uncompressed).await?;
 
         compressed_size = compressed.len() as u64;
         fastest = fastest.min(elapsed);
@@ -160,7 +145,7 @@ pub async fn benchmark_decompress(
     let format = compressor.format();
 
     // First compress to get the bytes we'll decompress
-    let compressed = compressor.compress(uncompressed).await?;
+    let (compressed, _) = compressor.compress(uncompressed).await?;
 
     let mut fastest = Duration::MAX;
 

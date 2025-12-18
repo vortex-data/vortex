@@ -32,10 +32,8 @@ use vortex::file::WriteStrategyBuilder;
 use vortex::layout::layouts::compact::CompactCompressor;
 use vortex::utils::aliases::hash_map::HashMap;
 
-pub mod bench_run;
 pub mod benchmark;
 pub mod clickbench;
-pub mod compress;
 pub mod conversions;
 pub mod datasets;
 pub mod display;
@@ -248,8 +246,8 @@ pub enum BenchmarkArg {
 /// Default scale factor for TPC-related benchmarks
 const DEFAULT_SCALE_FACTOR: &str = "1.0";
 
-const SCALE_FACTOR_KEY: &str = "scale_factor";
-const REMOTE_DATA_KEY: &str = "remote_data_dir";
+const SCALE_FACTOR_KEY: &str = "scale-factor";
+const REMOTE_DATA_KEY: &str = "remote-data-dir";
 
 /// Factory function to create a benchmark instance from CLI arguments.
 pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn Benchmark>> {
