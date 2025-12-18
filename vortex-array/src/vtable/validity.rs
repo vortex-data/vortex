@@ -207,6 +207,6 @@ where
     }
 
     fn validity(array: &V::Array) -> VortexResult<Validity> {
-        Ok(Validity::Array(array.sliced_child_array()))
+        array.sliced_child_array().validity()
     }
 }

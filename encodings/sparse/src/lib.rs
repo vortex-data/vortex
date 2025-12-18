@@ -415,7 +415,7 @@ impl ValidityVTable<SparseVTable> for SparseVTable {
         let patches = unsafe {
             Patches::new_unchecked(
                 array.patches.array_len(),
-                array.patches.offset().clone(),
+                array.patches.offset(),
                 array.patches.indices().clone(),
                 array
                     .patches
