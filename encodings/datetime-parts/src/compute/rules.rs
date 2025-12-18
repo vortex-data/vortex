@@ -100,7 +100,12 @@ impl ArrayParentReduceRule<DateTimePartsVTable> for DTPComparisonPushDownRule {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // Only handle comparison operations (Binary comparisons or Between)
-        if !is_comparison_op(parent) {
+        if !parent
+            .scalar_fn()
+            .as_opt::<Binary>()
+            .is_some_and(|c| c.maybe_cmp_operator().is_some())
+            && !parent.scalar_fn().is::<Between>()
+        {
             return Ok(None);
         }
 
@@ -140,13 +145,7 @@ impl ArrayParentReduceRule<DateTimePartsVTable> for DTPComparisonPushDownRule {
 }
 
 /// Check if the scalar function is a comparison operation we can push down.
-fn is_comparison_op(parent: &ScalarFnArray) -> bool {
-    parent
-        .scalar_fn()
-        .as_opt::<Binary>()
-        .is_some_and(|c| c.maybe_cmp_operator().is_some())
-        || parent.scalar_fn().is::<Between>()
-}
+fn is_comparison_op(parent: &ScalarFnArray) -> bool {}
 
 /// Try to extract the days value from a constant timestamp.
 /// Returns None if the constant is not a timestamp or has non-zero seconds/subseconds.
