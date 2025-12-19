@@ -8,7 +8,7 @@ inputs:
   aws-region:
     description: "AWS region to build AMI in"
     required: false
-    default: "us-east-1"
+    default: "eu-west-1"
   ami-prefix:
     description: "Prefix for AMI name"
     required: false
@@ -52,27 +52,30 @@ runs:
         rustup toolchain install nightly
         rustup component add --toolchain nightly rustfmt clippy rust-src miri llvm-tools-preview
 
-    - name: Install cargo tools
-      shell: bash
-      run: |
-        cargo install cargo-nextest --locked
-        cargo install cargo-hack --locked
-        cargo install grcov --locked
+#    - name: Install cargo tools
+#      shell: bash
+#      run: |
+#        cargo install cargo-nextest --locked
+#        cargo install cargo-hack --locked
+#        cargo install grcov --locked
 
     - name: Create AMI
       id: create-ami
       shell: bash
       env:
-        AWS_REGION: ${{ inputs.aws-region }}
         AMI_PREFIX: ${{ inputs.ami-prefix }}
         ARCH: ${{ inputs.arch }}
         RETENTION_DAYS: ${{ inputs.retention-days }}
       run: |
+        # Use the region where the instance is running
+        export AWS_REGION="$RUNS_ON_AWS_REGION"
+        export AWS_DEFAULT_REGION="$RUNS_ON_AWS_REGION"
+
         TIMESTAMP=$(date +%Y%m%d-%H%M%S)
         AMI_NAME="${AMI_PREFIX}-${ARCH}-${TIMESTAMP}"
         DEPRECATION_TIME=$(date -u -d "+${RETENTION_DAYS} days" +%Y-%m-%dT%H:%M:%SZ)
 
-        echo "Creating AMI: $AMI_NAME from instance $RUNS_ON_INSTANCE_ID"
+        echo "Creating AMI: $AMI_NAME from instance $RUNS_ON_INSTANCE_ID in region $AWS_REGION"
         AMI_ID=$(aws ec2 create-image \
           --instance-id "$RUNS_ON_INSTANCE_ID" \
           --name "$AMI_NAME" \
