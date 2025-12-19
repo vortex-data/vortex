@@ -164,15 +164,6 @@ impl VTable for ChunkedVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        let mut vector = VectorMut::with_capacity(&array.dtype, array.len);
-        for chunk in &array.chunks {
-            let chunk_vector = chunk.execute(ctx)?;
-            vector.extend_from_vector(&chunk_vector);
-        }
-        Ok(vector.freeze())
-    }
-
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
         Ok(match array.chunks.len() {
             0 => Some(Canonical::empty(array.dtype()).into_array()),
