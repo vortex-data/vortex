@@ -13,11 +13,14 @@ use crate::arrays::ChunkedVTable;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::arrays::ScalarFnArray;
+use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 
-pub(super) const PARENT_RULES: ParentRuleSet<ChunkedVTable> =
-    ParentRuleSet::new(&[ParentRuleSet::lift(&ChunkedUnaryScalarFnPushDownRule)]);
+pub(super) const PARENT_RULES: ParentRuleSet<ChunkedVTable> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&ChunkedUnaryScalarFnPushDownRule),
+    ParentRuleSet::lift(&ChunkedConstantScalarFnPushDownRule),
+]);
 
 /// Push down any unary scalar function through chunked arrays.
 #[derive(Debug)]
@@ -43,8 +46,13 @@ impl ArrayParentReduceRule<ChunkedVTable> for ChunkedUnaryScalarFnPushDownRule {
             .chunks
             .iter()
             .map(|chunk| {
-                ScalarFnArray::try_new(parent.scalar_fn().clone(), vec![chunk.clone()], chunk.len())
-                    .map(|a| a.into_array())
+                ScalarFnArray::try_new(
+                    parent.scalar_fn().clone(),
+                    vec![chunk.clone()],
+                    chunk.len(),
+                )?
+                .into_array()
+                .optimize()
             })
             .try_collect()?;
 
@@ -100,8 +108,9 @@ impl ArrayParentReduceRule<ChunkedVTable> for ChunkedConstantScalarFnPushDownRul
                     })
                     .collect();
 
-                ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children, chunk.len())
-                    .map(|a| a.into_array())
+                ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children, chunk.len())?
+                    .into_array()
+                    .optimize()
             })
             .try_collect()?;
 
