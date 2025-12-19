@@ -1,13 +1,14 @@
 # bench-orchestrator
 
-A Python CLI tool for orchestrating Vortex benchmark runs, storing results, and comparing performance across different engines and formats.
+A Python CLI tool for orchestrating Vortex benchmark runs, storing results, and comparing performance across different
+engines and formats.
 
 ## Installation
 
-The best way to install the orchestrator seems to be:
+The best way to run the orchestrator seems to be:
 
 ```bash
-uv tool install "bench_orchestrator @ ./bench-orchestrator/"
+uv run vx-bench
 ```
 
 This installs the `vx-bench` command.
@@ -33,7 +34,8 @@ vx-bench compare --runs run1,run2,run3
 
 ### `run` - Execute Benchmarks
 
-Run benchmark suites across multiple engines and formats. After completion, a comparison table is automatically displayed if there are multiple engine:format combinations.
+Run benchmark suites across multiple engines and formats. After completion, a comparison table is automatically
+displayed if there are multiple engine:format combinations.
 
 ```bash
 vx-bench run <benchmark> [options]
@@ -41,7 +43,8 @@ vx-bench run <benchmark> [options]
 
 **Arguments:**
 
-- `benchmark`: Benchmark suite to run (`tpch`, `tpcds`, `clickbench`, `fineweb`, `gh-archive`, `public-bi`, `statpopgen`)
+- `benchmark`: Benchmark suite to run (`tpch`, `tpcds`, `clickbench`, `fineweb`, `gh-archive`, `public-bi`,
+  `statpopgen`)
 
 **Options:**
 
@@ -71,9 +74,11 @@ vx-bench compare [options]
 - `--format`: Filter results to a specific format
 - `--threshold`: Significance threshold (default: 0.10 = 10%)
 
-**Within-run comparison** (`--run`): Compares different engine:format combinations within a single run. Output shows one row per query, with columns for each engine:format combo.
+**Within-run comparison** (`--run`): Compares different engine:format combinations within a single run. Output shows one
+row per query, with columns for each engine:format combo.
 
-**Multi-run comparison** (`--runs`): Compares the same benchmarks across multiple runs. Output shows one row per (query, engine, format) combination, with columns for each run.
+**Multi-run comparison** (`--runs`): Compares the same benchmarks across multiple runs. Output shows one row per (query,
+engine, format) combination, with columns for each run.
 
 ### `list` - List Benchmark Runs
 
@@ -251,17 +256,18 @@ vx-bench clean --older-than "30 days" --no-keep-labeled
 
 ## Supported Engines and Formats
 
-| Engine     | Supported Formats                          |
-|------------|-------------------------------------------|
-| datafusion | parquet, vortex, vortex-compact, lance    |
-| duckdb     | parquet, vortex, vortex-compact, duckdb   |
-| lance      | lance                                      |
+| Engine     | Supported Formats                       |
+|------------|-----------------------------------------|
+| datafusion | parquet, vortex, vortex-compact, lance  |
+| duckdb     | parquet, vortex, vortex-compact, duckdb |
+| lance      | lance                                   |
 
 ## Output Format
 
 Comparison results are displayed in a pivot table format:
 
 **Within-run comparison** (`--run`):
+
 ```
 ┌───────┬──────────────────────┬────────────────────────┐
 │ Query │ duckdb:parquet (base)│ duckdb:vortex          │
@@ -272,6 +278,7 @@ Comparison results are displayed in a pivot table format:
 ```
 
 **Multi-run comparison** (`--runs`):
+
 ```
 ┌───────┬────────┬─────────┬──────────────┬──────────────────┐
 │ Query │ Engine │ Format  │ run1 (base)  │ run2             │
@@ -282,6 +289,7 @@ Comparison results are displayed in a pivot table format:
 ```
 
 Ratios are color-coded:
+
 - **Green**: Improvement (>10% faster, ratio < 0.9)
 - **Red**: Regression (>10% slower, ratio > 1.1)
 - **Yellow**: Neutral (within 10%)

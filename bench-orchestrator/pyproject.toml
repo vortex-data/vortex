@@ -13,12 +13,11 @@ dependencies = ["pandas>=2", "rich>=14", "typer>=0.20"]
 [project.scripts]
 vx-bench = "bench_orchestrator.cli:app"
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+[tool.uv]
+managed = true
 
-[tool.hatch.build.targets.wheel]
-packages = ["bench_orchestrator"]
+[tool.uv.sources]
+vortex-data = { workspace = true }
 
 [dependency-groups]
 dev = ["pandas-stubs>=2.3.3.251201"]

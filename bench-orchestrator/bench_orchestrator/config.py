@@ -94,8 +94,9 @@ class RunConfig:
 class BuildConfig:
     """Configuration for building benchmark binaries."""
 
-    profile: str = "release_debug"
-    rustflags: str = "-C target-cpu=native -C force-frame-pointers=yes"
+    profile: str = "bench"
+    # rustflags: str = "-C target-cpu=native"
+    rustflags: str = ""
 
 
 def get_workspace_root() -> Path:
