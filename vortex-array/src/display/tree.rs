@@ -53,13 +53,12 @@ impl fmt::Display for StatsDisplay<'_> {
         }
 
         // NaN count (only if > 0)
-        if let Some(nan) = stats.get(Stat::NaNCount) {
-            if let Ok(n) = usize::try_from(&nan.clone().into_inner()) {
-                if n > 0 {
-                    sep(f)?;
-                    write!(f, "nan={}", n)?;
-                }
-            }
+        if let Some(nan) = stats.get(Stat::NaNCount)
+            && let Ok(n) = usize::try_from(&nan.into_inner())
+            && n > 0
+        {
+            sep(f)?;
+            write!(f, "nan={}", n)?;
         }
 
         // Min/Max
@@ -79,22 +78,22 @@ impl fmt::Display for StatsDisplay<'_> {
         }
 
         // Boolean flags (compact)
-        if let Some(c) = stats.get(Stat::IsConstant) {
-            if bool::try_from(&c.into_inner()).unwrap_or(false) {
-                sep(f)?;
-                f.write_str("const")?;
-            }
+        if let Some(c) = stats.get(Stat::IsConstant)
+            && bool::try_from(&c.into_inner()).unwrap_or(false)
+        {
+            sep(f)?;
+            f.write_str("const")?;
         }
         if let Some(s) = stats.get(Stat::IsStrictSorted) {
             if bool::try_from(&s.into_inner()).unwrap_or(false) {
                 sep(f)?;
                 f.write_str("strict")?;
             }
-        } else if let Some(s) = stats.get(Stat::IsSorted) {
-            if bool::try_from(&s.into_inner()).unwrap_or(false) {
-                sep(f)?;
-                f.write_str("sorted")?;
-            }
+        } else if let Some(s) = stats.get(Stat::IsSorted)
+            && bool::try_from(&s.into_inner()).unwrap_or(false)
+        {
+            sep(f)?;
+            f.write_str("sorted")?;
         }
 
         // Close bracket if we wrote anything
