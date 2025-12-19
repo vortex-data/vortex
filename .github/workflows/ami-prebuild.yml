@@ -40,6 +40,41 @@ env:
   AWS_REGION: eu-west-1
 
 jobs:
+  debug-amis:
+    name: "Debug: List existing AMIs"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: List vortex-ci AMIs
+        run: |
+          echo "=== x64 AMIs ==="
+          aws ec2 describe-images \
+            --owners 375504701696 \
+            --filters "Name=name,Values=vortex-ci-x64-*" \
+            --query 'Images[*].[Name,ImageId,CreationDate,State]' \
+            --output table || echo "No x64 AMIs found"
+
+          echo ""
+          echo "=== arm64 AMIs ==="
+          aws ec2 describe-images \
+            --owners 375504701696 \
+            --filters "Name=name,Values=vortex-ci-arm64-*" \
+            --query 'Images[*].[Name,ImageId,CreationDate,State]' \
+            --output table || echo "No arm64 AMIs found"
+
+          echo ""
+          echo "=== runs-on base AMIs (for reference) ==="
+          aws ec2 describe-images \
+            --owners 135269210855 \
+            --filters "Name=name,Values=runs-on-v2.2-ubuntu24-full-x64-*" \
+            --query 'Images | sort_by(@, &CreationDate) | [-1].[Name,ImageId,CreationDate]' \
+            --output table || echo "Cannot read runs-on AMIs"
+
   build-x64:
     name: "Build AMI (x64)"
     if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.arch == '' || github.event.inputs.arch == 'x64' }}
