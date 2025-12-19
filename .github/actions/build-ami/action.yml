@@ -59,13 +59,6 @@ runs:
         cargo install cargo-hack --locked
         cargo install grcov --locked
 
-    - name: Get instance ID
-      id: instance
-      shell: bash
-      run: |
-        INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
-        echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
-
     - name: Create AMI
       id: create-ami
       shell: bash
@@ -79,9 +72,9 @@ runs:
         AMI_NAME="${AMI_PREFIX}-${ARCH}-${TIMESTAMP}"
         DEPRECATION_TIME=$(date -u -d "+${RETENTION_DAYS} days" +%Y-%m-%dT%H:%M:%SZ)
 
-        echo "Creating AMI: $AMI_NAME"
+        echo "Creating AMI: $AMI_NAME from instance $RUNS_ON_INSTANCE_ID"
         AMI_ID=$(aws ec2 create-image \
-          --instance-id "${{ steps.instance.outputs.instance_id }}" \
+          --instance-id "$RUNS_ON_INSTANCE_ID" \
           --name "$AMI_NAME" \
           --description "Vortex CI runner image for ${ARCH}" \
           --no-reboot \
