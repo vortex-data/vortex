@@ -4,7 +4,6 @@
 use std::any::type_name;
 use std::sync::Arc;
 
-use arrow_array::Array;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::GenericListArray;
 use arrow_array::OffsetSizeTrait;
@@ -12,6 +11,7 @@ use arrow_schema::DataType;
 use arrow_schema::FieldRef;
 use vortex_buffer::BufferMut;
 use vortex_compute::arrow::IntoArrow;
+use vortex_compute::cast::Cast;
 use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
@@ -19,10 +19,12 @@ use vortex_dtype::PTypeDowncastExt;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
+use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VectorExecutor;
@@ -35,6 +37,7 @@ use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::builtins::ArrayBuiltins;
 use crate::validity::Validity;
+use crate::vectors::VectorIntoArray;
 use crate::vtable::ValidityHelper;
 
 /// Convert a Vortex array into an Arrow GenericBinaryArray.
@@ -64,12 +67,32 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
     //  In other words, check that offsets + sizes are monotonically increasing.
 
     // Otherwise, we execute the array to become a ListViewVector.
-    let list_view = array.execute_vector(session)?.into_arrow()?;
-    match O::IS_LARGE {
-        true => arrow_cast::cast(&list_view, &DataType::LargeList(elements_field.clone())),
-        false => arrow_cast::cast(&list_view, &DataType::List(elements_field.clone())),
-    }
-    .map_err(VortexError::from)
+    let elements_dtype = array
+        .dtype()
+        .as_list_element_opt()
+        .ok_or_else(|| vortex_err!("Cannot convert non-list array to Arrow ListArray"))?;
+    let list_view = array.execute_vector(session)?.into_list();
+    let (elements, offsets, sizes, validity) = list_view.into_parts();
+    let offset_dtype = DType::Primitive(O::PTYPE, Nullability::NonNullable);
+    let list_view = unsafe {
+        ListViewArray::new_unchecked(
+            (*elements).clone().into_array(elements_dtype),
+            offsets.cast(&offset_dtype)?.into_array(&offset_dtype),
+            sizes.cast(&offset_dtype)?.into_array(&offset_dtype),
+            Validity::from_mask(validity, array.dtype().nullability()),
+        )
+    };
+
+    list_view_to_list::<O>(list_view, elements_field, session)
+
+    // FIXME(ngates): we need this PR from arrow-rs:
+    //  https://github.com/apache/arrow-rs/pull/8735
+    // let list_view = array.execute_vector(session)?.into_arrow()?;
+    // match O::IS_LARGE {
+    //     true => arrow_cast::cast(&list_view, &DataType::LargeList(elements_field.clone())),
+    //     false => arrow_cast::cast(&list_view, &DataType::List(elements_field.clone())),
+    // }
+    // .map_err(VortexError::from)
 }
 
 /// Convert a Vortex VarBinArray into an Arrow GenericBinaryArray.
@@ -203,6 +226,7 @@ fn list_view_to_list<O: OffsetSizeTrait + NativePType>(
         }
         new_offsets.push(O::usize_as(take_indices.len()));
     }
+    assert_eq!(new_offsets.len(), offsets.len() + 1);
 
     // Now we can "take" the elements using the computed indices.
     let elements =
@@ -214,20 +238,11 @@ fn list_view_to_list<O: OffsetSizeTrait + NativePType>(
         "Cannot convert to non-nullable Arrow array with null elements"
     );
 
-    // We need to compute the final offsets from the sizes.
-    let mut final_offsets = Vec::with_capacity(sizes.len() + 1);
-    final_offsets.push(O::usize_as(0));
-    for i in 0..sizes.len() {
-        let last_offset = final_offsets[i].as_usize();
-        let size = sizes[i].as_usize();
-        final_offsets.push(O::usize_as(last_offset + size));
-    }
-
     let null_buffer = to_arrow_null_buffer(&validity, sizes.len(), session)?;
 
     Ok(Arc::new(GenericListArray::<O>::new(
         elements_field.clone(),
-        offsets.into_arrow_offset_buffer(),
+        new_offsets.freeze().into_arrow_offset_buffer(),
         elements,
         null_buffer,
     )))

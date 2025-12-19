@@ -6,22 +6,16 @@ use vortex_error::VortexResult;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::AnyScalarFn;
-use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
 use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
 use crate::arrays::FilterArray;
 use crate::arrays::FilterVTable;
-use crate::arrays::ScalarFnArray;
 use crate::matchers::Exact;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 
-pub(super) const PARENT_RULES: ParentRuleSet<ExtensionVTable> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&ExtensionFilterPushDownRule),
-    ParentRuleSet::lift(&ExtensionScalarFnConstantPushDownRule),
-]);
+pub(super) const PARENT_RULES: ParentRuleSet<ExtensionVTable> =
+    ParentRuleSet::new(&[ParentRuleSet::lift(&ExtensionFilterPushDownRule)]);
 
 /// Push filter operations into the storage array of an extension array.
 #[derive(Debug)]
@@ -51,68 +45,6 @@ impl ArrayParentReduceRule<ExtensionVTable> for ExtensionFilterPushDownRule {
     }
 }
 
-/// Push scalar function operations into the storage array when the other operand is a constant
-/// with the same extension type.
-#[derive(Debug)]
-struct ExtensionScalarFnConstantPushDownRule;
-
-impl ArrayParentReduceRule<ExtensionVTable> for ExtensionScalarFnConstantPushDownRule {
-    type Parent = AnyScalarFn;
-
-    fn parent(&self) -> Self::Parent {
-        AnyScalarFn
-    }
-
-    fn reduce_parent(
-        &self,
-        child: &ExtensionArray,
-        parent: &ScalarFnArray,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        // Check that all other children are constants with matching extension types.
-        for (idx, sibling) in parent.children().iter().enumerate() {
-            if idx == child_idx {
-                continue;
-            }
-
-            // Sibling must be a constant.
-            let Some(const_array) = sibling.as_opt::<ConstantVTable>() else {
-                return Ok(None);
-            };
-
-            // Sibling must be an extension scalar with the same extension type.
-            let Some(ext_scalar) = const_array.scalar().as_extension_opt() else {
-                return Ok(None);
-            };
-
-            // ExtDType::eq_ignore_nullability checks id, metadata, and storage dtype
-            if !ext_scalar
-                .ext_dtype()
-                .eq_ignore_nullability(child.ext_dtype())
-            {
-                return Ok(None);
-            }
-        }
-
-        // Build new children with storage arrays/scalars.
-        let mut new_children = Vec::with_capacity(parent.children().len());
-        for (idx, sibling) in parent.children().iter().enumerate() {
-            if idx == child_idx {
-                new_children.push(child.storage().clone());
-            } else {
-                let const_array = sibling.as_::<ConstantVTable>();
-                let storage_scalar = const_array.scalar().as_extension().storage();
-                new_children.push(ConstantArray::new(storage_scalar, child.len()).into_array());
-            }
-        }
-
-        Ok(Some(
-            ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children, child.len())?
-                .into_array(),
-        ))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -134,7 +66,6 @@ mod tests {
     use crate::arrays::ExtensionVTable;
     use crate::arrays::FilterArray;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::PrimitiveVTable;
     use crate::arrays::ScalarFnArrayExt;
     use crate::expr::Binary;
     use crate::expr::Operator;
@@ -200,52 +131,6 @@ mod tests {
         // Check values: should be [Some(1), None, None]
         let canonical = ext_result.storage().to_primitive();
         assert_eq!(canonical.len(), 3);
-    }
-
-    #[test]
-    fn test_scalar_fn_constant_pushdown_comparison() {
-        let ext_dtype = test_ext_dtype();
-        let storage = buffer![10i64, 20, 30, 40, 50].into_array();
-        let ext_array = ExtensionArray::new(ext_dtype.clone(), storage).into_array();
-
-        // Create a constant extension scalar with value 25
-        let const_scalar = Scalar::extension(ext_dtype, Scalar::from(25i64));
-        let const_array = ConstantArray::new(const_scalar, 5).into_array();
-
-        // Create a binary comparison: ext_array < const_array
-        let scalar_fn_array = Binary
-            .try_new_array(5, Operator::Lt, [ext_array, const_array])
-            .unwrap();
-
-        // Optimize should push down the comparison to storage
-        let optimized = scalar_fn_array.optimize().unwrap();
-
-        // The result should still be a ScalarFnArray but operating on primitive storage
-        let scalar_fn = optimized.as_opt::<crate::arrays::ScalarFnVTable>();
-        assert!(
-            scalar_fn.is_some(),
-            "Expected ScalarFnArray after optimization"
-        );
-
-        // The children should now be primitives, not extensions
-        let children = scalar_fn.unwrap().children();
-        assert_eq!(children.len(), 2);
-
-        // First child should be the primitive storage
-        assert!(
-            children[0].as_opt::<PrimitiveVTable>().is_some(),
-            "Expected first child to be PrimitiveArray, got {}",
-            children[0].encoding_id()
-        );
-
-        // Second child should be a constant with primitive value
-        assert!(
-            children[1]
-                .as_opt::<crate::arrays::ConstantVTable>()
-                .is_some(),
-            "Expected second child to be ConstantArray, got {}",
-            children[1].encoding_id()
-        );
     }
 
     #[test]
