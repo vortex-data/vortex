@@ -265,7 +265,7 @@ jobs:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
       - cpu=16
-      - image=ubuntu24-full-x64
+      - image=vortex-ci-amd64
       - extras=s3-cache
       - tag=rust-lint
     steps:
@@ -273,10 +273,6 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
-        with:
-          toolchain: nightly
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Rust Lint - Format
         run: cargo +nightly fmt --all --check
       - name: Rustc check

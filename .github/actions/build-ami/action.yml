@@ -52,12 +52,12 @@ runs:
         rustup toolchain install nightly
         rustup component add --toolchain nightly rustfmt clippy rust-src miri llvm-tools-preview
 
-#    - name: Install cargo tools
-#      shell: bash
-#      run: |
-#        cargo install cargo-nextest --locked
-#        cargo install cargo-hack --locked
-#        cargo install grcov --locked
+    - name: Install cargo tools
+      shell: bash
+      run: |
+        cargo install cargo-nextest --locked
+        cargo install cargo-hack --locked
+        cargo install grcov --locked
 
     - name: Create AMI
       id: create-ami

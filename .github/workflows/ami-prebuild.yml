@@ -3,12 +3,6 @@ name: AMI Prebuild
 # Schedule to run every 15 days to keep runner agent up to date
 # GitHub stops routing jobs to runners with agents older than 30 days
 on:
-  # TODO: Remove push trigger after testing
-  push:
-    branches: [ji/ami-prebuild]
-    paths:
-      - ".github/workflows/ami-prebuild.yml"
-      - ".github/actions/build-ami/**"
   schedule:
     # Run at 00:00 UTC on the 1st and 16th of each month (~15 days apart)
     - cron: "0 0 1,16 * *"
@@ -115,30 +109,6 @@ jobs:
           echo "- **Deprecation:** ${{ inputs.retention-days || '30' }} days" >> $GITHUB_STEP_SUMMARY
 
   # Test the newly built AMI by running a simple lint check
-  test-x64:
-    name: "Test AMI (x64)"
-    needs: build-x64
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=4
-      - image=vortex-ci-amd64
-      - tag=test-ami-x64
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v6
-      - name: Verify tools are installed
-        run: |
-          echo "Checking installed tools..."
-          cargo --version
-          rustc --version
-          rustup show
-          protoc --version
-          flatc --version
-          mold --version
-      - name: Run cargo check
-        run: cargo check --locked
-
   test-arm64:
     name: "Test AMI (arm64)"
     needs: build-arm64
