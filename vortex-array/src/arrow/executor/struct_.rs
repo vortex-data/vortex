@@ -19,7 +19,10 @@ use vortex_session::VortexSession;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::IntoArray;
+use crate::ToCanonical;
 use crate::VectorExecutor;
+use crate::arrays::ChunkedVTable;
 use crate::arrays::ScalarFnVTable;
 use crate::arrays::StructVTable;
 use crate::arrow::ArrowArrayExecutor;
@@ -35,7 +38,17 @@ pub(super) fn to_arrow_struct(
 ) -> VortexResult<ArrowArrayRef> {
     let len = array.len();
 
-    // First, we attempt to short-circuit if the array is already a StructVTable:
+    // If the array is chunked, then we invert the chunk-of-struct to struct-of-chunk.
+    let array = match array.try_into::<ChunkedVTable>() {
+        Ok(array) => {
+            // NOTE(ngates): this currently uses the old into_canonical code path, but we should
+            //  just call directly into the swizzle-chunks function.
+            array.to_struct().into_array()
+        }
+        Err(array) => array,
+    };
+
+    // Attempt to short-circuit if the array is already a StructVTable:
     let array = match array.try_into::<StructVTable>() {
         Ok(array) => {
             let validity = to_arrow_null_buffer(array.validity(), array.len(), session)?;
