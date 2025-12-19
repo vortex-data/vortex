@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -49,13 +50,18 @@ impl ArrayParentReduceRule<StructVTable> for StructCastPushDownRule {
             new_fields.push(field_array.cast(field_dtype)?)
         }
 
+        let validity = if parent.options.is_nullable() {
+            array.validity().clone().into_nullable()
+        } else {
+            array
+                .validity()
+                .clone()
+                .into_non_nullable(array.len)
+                .ok_or_else(|| vortex_err!("Failed to cast nullable struct to non-nullable"))?
+        };
+
         let new_struct = unsafe {
-            StructArray::new_unchecked(
-                new_fields,
-                target_fields.clone(),
-                array.len(),
-                array.validity().clone(),
-            )
+            StructArray::new_unchecked(new_fields, target_fields.clone(), array.len(), validity)
         };
 
         Ok(Some(new_struct.into_array()))
