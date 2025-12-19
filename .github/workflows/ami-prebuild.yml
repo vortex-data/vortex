@@ -3,6 +3,12 @@ name: AMI Prebuild
 # Schedule to run every 15 days to keep runner agent up to date
 # GitHub stops routing jobs to runners with agents older than 30 days
 on:
+  # TODO: Remove push trigger after testing
+  push:
+    branches: [ji/ami-prebuild]
+    paths:
+      - ".github/workflows/ami-prebuild.yml"
+      - ".github/actions/build-ami/**"
   schedule:
     # Run at 00:00 UTC on the 1st and 16th of each month (~15 days apart)
     - cron: "0 0 1,16 * *"

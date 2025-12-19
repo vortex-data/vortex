@@ -59,6 +59,28 @@ runs:
         cargo install cargo-hack --locked
         cargo install grcov --locked
 
+    - name: Clean runner state before AMI creation
+      shell: bash
+      run: |
+        # Stop the GitHub Actions runner service
+        sudo systemctl stop actions.runner.* || true
+
+        # Remove runner registration and credentials
+        sudo rm -rf /home/runner/actions-runner/.runner || true
+        sudo rm -rf /home/runner/actions-runner/.credentials* || true
+        sudo rm -rf /home/runner/actions-runner/_diag || true
+        sudo rm -rf /home/runner/actions-runner/_work || true
+
+        # Clear any cached runner state
+        sudo rm -rf /tmp/* || true
+        sudo rm -rf /var/tmp/* || true
+
+        # Clear bash history
+        cat /dev/null > ~/.bash_history || true
+        history -c || true
+
+        echo "Runner state cleaned for AMI creation"
+
     - name: Create AMI
       id: create-ami
       shell: bash
