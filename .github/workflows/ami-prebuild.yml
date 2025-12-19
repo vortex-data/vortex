@@ -113,3 +113,52 @@ jobs:
           echo "- **AMI ID:** ${{ steps.build.outputs.ami-id }}" >> $GITHUB_STEP_SUMMARY
           echo "- **AMI Name:** ${{ steps.build.outputs.ami-name }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Deprecation:** ${{ inputs.retention-days || '30' }} days" >> $GITHUB_STEP_SUMMARY
+
+  # Test the newly built AMI by running a simple lint check
+  test-x64:
+    name: "Test AMI (x64)"
+    needs: build-x64
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=4
+      - image=vortex-ci-amd64
+      - tag=test-ami-x64
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - name: Verify tools are installed
+        run: |
+          echo "Checking installed tools..."
+          cargo --version
+          rustc --version
+          rustup show
+          protoc --version
+          flatc --version
+          mold --version
+      - name: Run cargo check
+        run: cargo check --locked
+
+  test-arm64:
+    name: "Test AMI (arm64)"
+    needs: build-arm64
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7g
+      - cpu=4
+      - image=vortex-ci-arm64
+      - tag=test-ami-arm64
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - name: Verify tools are installed
+        run: |
+          echo "Checking installed tools..."
+          cargo --version
+          rustc --version
+          rustup show
+          protoc --version
+          flatc --version
+          mold --version
+      - name: Run cargo check
+        run: cargo check --locked
