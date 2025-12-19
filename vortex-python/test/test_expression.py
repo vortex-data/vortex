@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 # Tests the _schema_for_substrait workaround in vortex/arrow/expression.py
 
 import pyarrow as pa
