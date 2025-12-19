@@ -1,0 +1,128 @@
+name: "Build Vortex CI AMI"
+description: "Build a custom Amazon Machine Image for Vortex CI runners"
+
+inputs:
+  arch:
+    description: "Target architecture: x64 or arm64"
+    required: true
+  ami-prefix:
+    description: "Prefix for AMI name"
+    required: false
+    default: "vortex-ci"
+  retention-days:
+    description: "Number of days before AMI is deprecated"
+    required: false
+    default: "30"
+
+outputs:
+  ami-id:
+    description: "The ID of the built AMI"
+    value: ${{ steps.create-ami.outputs.ami_id }}
+  ami-name:
+    description: "The name of the built AMI"
+    value: ${{ steps.create-ami.outputs.ami_name }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Rust
+      uses: ./.github/actions/setup-rust
+
+    - name: Setup flatc
+      uses: ./.github/actions/setup-flatc
+
+    - name: Install extra dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+          cmake \
+          ninja-build \
+          clang \
+          lld \
+          llvm
+
+    - name: Install nightly toolchain
+      shell: bash
+      run: |
+        rustup toolchain install nightly
+        rustup component add --toolchain nightly rustfmt clippy rust-src miri llvm-tools-preview
+
+    - name: Install cargo tools
+      shell: bash
+      run: |
+        cargo install cargo-nextest --locked
+        cargo install cargo-hack --locked
+        cargo install grcov --locked
+
+    - name: Clean runner for AMI
+      shell: bash
+      run: |
+        echo "=== Cleaning runner state for clean AMI ==="
+
+        # The runner service name
+        RUNNER_SVC=$(systemctl list-units --type=service | grep actions.runner | awk '{print $1}' | head -1)
+
+        if [ -n "$RUNNER_SVC" ]; then
+          echo "Stopping runner service: $RUNNER_SVC"
+          sudo systemctl stop "$RUNNER_SVC" || true
+        fi
+
+        # Remove runner registration (this is the key!)
+        RUNNER_DIR="/home/runner/actions-runner"
+        if [ -d "$RUNNER_DIR" ]; then
+          echo "Cleaning runner directory..."
+          sudo rm -f "$RUNNER_DIR/.runner" || true
+          sudo rm -f "$RUNNER_DIR/.credentials" || true
+          sudo rm -f "$RUNNER_DIR/.credentials_rsaparams" || true
+          sudo rm -rf "$RUNNER_DIR/_diag" || true
+          sudo rm -rf "$RUNNER_DIR/_work" || true
+        fi
+
+        # Clear temp files
+        sudo rm -rf /tmp/* || true
+        sudo rm -rf /var/tmp/* || true
+
+        # Clear apt cache to reduce AMI size
+        sudo apt-get clean
+        sudo rm -rf /var/lib/apt/lists/*
+
+        echo "=== Runner state cleaned ==="
+
+    - name: Create AMI
+      id: create-ami
+      shell: bash
+      env:
+        AMI_PREFIX: ${{ inputs.ami-prefix }}
+        ARCH: ${{ inputs.arch }}
+        RETENTION_DAYS: ${{ inputs.retention-days }}
+      run: |
+        export AWS_REGION="$RUNS_ON_AWS_REGION"
+        export AWS_DEFAULT_REGION="$RUNS_ON_AWS_REGION"
+
+        TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+        AMI_NAME="${AMI_PREFIX}-${ARCH}-${TIMESTAMP}"
+        DEPRECATION_TIME=$(date -u -d "+${RETENTION_DAYS} days" +%Y-%m-%dT%H:%M:%SZ)
+
+        echo "Creating AMI: $AMI_NAME from instance $RUNS_ON_INSTANCE_ID in region $AWS_REGION"
+
+        AMI_ID=$(aws ec2 create-image \
+          --instance-id "$RUNS_ON_INSTANCE_ID" \
+          --name "$AMI_NAME" \
+          --description "Vortex CI runner image for ${ARCH}" \
+          --no-reboot \
+          --tag-specifications "ResourceType=image,Tags=[{Key=Name,Value=$AMI_NAME},{Key=Environment,Value=ci},{Key=Arch,Value=$ARCH},{Key=ManagedBy,Value=github-actions}]" \
+          --query 'ImageId' \
+          --output text)
+
+        echo "Waiting for AMI to be available..."
+        aws ec2 wait image-available --image-ids "$AMI_ID"
+
+        echo "Setting deprecation time to $DEPRECATION_TIME"
+        aws ec2 enable-image-deprecation \
+          --image-id "$AMI_ID" \
+          --deprecate-at "$DEPRECATION_TIME"
+
+        echo "ami_id=$AMI_ID" >> $GITHUB_OUTPUT
+        echo "ami_name=$AMI_NAME" >> $GITHUB_OUTPUT
+        echo "AMI created: $AMI_ID ($AMI_NAME)"
