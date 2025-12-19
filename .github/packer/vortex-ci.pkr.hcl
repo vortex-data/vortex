@@ -33,6 +33,12 @@ variable "subnet_id" {
   default = ""
 }
 
+variable "security_group_id" {
+  type        = string
+  default     = ""
+  description = "Existing security group ID (must allow SSH inbound)"
+}
+
 variable "rust_toolchain" {
   type    = string
   default = "1.89"
@@ -83,8 +89,9 @@ source "amazon-ebs" "vortex-ci" {
     owners      = [var.source_ami_owner]
   }
 
-  subnet_id    = var.subnet_id != "" ? var.subnet_id : null
-  ssh_username = "runner"
+  subnet_id         = var.subnet_id != "" ? var.subnet_id : null
+  security_group_id = var.security_group_id != "" ? var.security_group_id : null
+  ssh_username      = "runner"
 
   # User data to start SSH for Packer connectivity
   user_data_file = "${path.root}/scripts/user_data.sh"

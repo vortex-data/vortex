@@ -40,19 +40,14 @@ env:
   AWS_REGION: eu-west-1
 
 jobs:
-  # Build AMI by running on a runs-on instance and creating an image from it
   build-x64:
     name: "Build AMI (x64)"
     if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.arch == '' || github.event.inputs.arch == 'x64' }}
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - runner=2cpu-linux-x64
-      - family=m7i+m7i-flex+m7a
-      - tag=ami-build-x64
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     outputs:
-      ami-id: ${{ steps.build-ami.outputs.ami-id }}
-      ami-name: ${{ steps.build-ami.outputs.ami-name }}
+      ami-id: ${{ steps.build.outputs.ami_id }}
+      ami-name: ${{ steps.build.outputs.ami_name }}
 
     steps:
       - name: Checkout
@@ -64,34 +59,57 @@ jobs:
           role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Build AMI
-        id: build-ami
-        uses: ./.github/actions/build-ami
+      - name: Setup Packer
+        uses: hashicorp/setup-packer@main
         with:
-          arch: x64
-          ami-prefix: vortex-ci
-          retention-days: ${{ inputs.retention-days || '30' }}
+          version: "1.11.2"
+
+      - name: Packer Init
+        working-directory: .github/packer
+        run: packer init vortex-ci.pkr.hcl
+
+      - name: Packer Build
+        id: build
+        working-directory: .github/packer
+        run: |
+          packer build \
+            -var "arch=x64" \
+            -var "aws_region=${{ env.AWS_REGION }}" \
+            -var "subnet_id=${{ secrets.AWS_SUBNET_ID }}" \
+            -var "security_group_id=${{ secrets.AWS_SECURITY_GROUP_ID }}" \
+            -machine-readable \
+            vortex-ci.pkr.hcl | tee packer-output.log
+
+          # Extract AMI ID from Packer output
+          AMI_ID=$(grep 'artifact,0,id' packer-output.log | tail -1 | cut -d',' -f6 | cut -d':' -f2)
+          echo "ami_id=$AMI_ID" >> $GITHUB_OUTPUT
+          echo "ami_name=vortex-ci-x64" >> $GITHUB_OUTPUT
+          echo "Built AMI: $AMI_ID"
+
+      - name: Set AMI Deprecation
+        run: |
+          RETENTION_DAYS=${{ inputs.retention-days || '30' }}
+          DEPRECATION_TIME=$(date -u -d "+${RETENTION_DAYS} days" +%Y-%m-%dT%H:%M:%SZ)
+          aws ec2 enable-image-deprecation \
+            --image-id "${{ steps.build.outputs.ami_id }}" \
+            --deprecate-at "$DEPRECATION_TIME"
+          echo "AMI will be deprecated at $DEPRECATION_TIME"
 
       - name: Summary
         run: |
           echo "## AMI Build Complete (x64)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **AMI ID:** ${{ steps.build-ami.outputs.ami-id }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **AMI Name:** ${{ steps.build-ami.outputs.ami-name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **AMI ID:** ${{ steps.build.outputs.ami_id }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Deprecation:** ${{ inputs.retention-days || '30' }} days" >> $GITHUB_STEP_SUMMARY
 
   build-arm64:
     name: "Build AMI (arm64)"
     if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.arch == '' || github.event.inputs.arch == 'arm64' }}
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - runner=2cpu-linux-arm64
-      - family=m7g
-      - tag=ami-build-arm64
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     outputs:
-      ami-id: ${{ steps.build-ami.outputs.ami-id }}
-      ami-name: ${{ steps.build-ami.outputs.ami-name }}
+      ami-id: ${{ steps.build.outputs.ami_id }}
+      ami-name: ${{ steps.build.outputs.ami_name }}
 
     steps:
       - name: Checkout
@@ -103,20 +121,47 @@ jobs:
           role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Build AMI
-        id: build-ami
-        uses: ./.github/actions/build-ami
+      - name: Setup Packer
+        uses: hashicorp/setup-packer@main
         with:
-          arch: arm64
-          ami-prefix: vortex-ci
-          retention-days: ${{ inputs.retention-days || '30' }}
+          version: "1.11.2"
+
+      - name: Packer Init
+        working-directory: .github/packer
+        run: packer init vortex-ci.pkr.hcl
+
+      - name: Packer Build
+        id: build
+        working-directory: .github/packer
+        run: |
+          packer build \
+            -var "arch=arm64" \
+            -var "aws_region=${{ env.AWS_REGION }}" \
+            -var "subnet_id=${{ secrets.AWS_SUBNET_ID }}" \
+            -var "security_group_id=${{ secrets.AWS_SECURITY_GROUP_ID }}" \
+            -machine-readable \
+            vortex-ci.pkr.hcl | tee packer-output.log
+
+          # Extract AMI ID from Packer output
+          AMI_ID=$(grep 'artifact,0,id' packer-output.log | tail -1 | cut -d',' -f6 | cut -d':' -f2)
+          echo "ami_id=$AMI_ID" >> $GITHUB_OUTPUT
+          echo "ami_name=vortex-ci-arm64" >> $GITHUB_OUTPUT
+          echo "Built AMI: $AMI_ID"
+
+      - name: Set AMI Deprecation
+        run: |
+          RETENTION_DAYS=${{ inputs.retention-days || '30' }}
+          DEPRECATION_TIME=$(date -u -d "+${RETENTION_DAYS} days" +%Y-%m-%dT%H:%M:%SZ)
+          aws ec2 enable-image-deprecation \
+            --image-id "${{ steps.build.outputs.ami_id }}" \
+            --deprecate-at "$DEPRECATION_TIME"
+          echo "AMI will be deprecated at $DEPRECATION_TIME"
 
       - name: Summary
         run: |
           echo "## AMI Build Complete (arm64)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **AMI ID:** ${{ steps.build-ami.outputs.ami-id }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **AMI Name:** ${{ steps.build-ami.outputs.ami-name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **AMI ID:** ${{ steps.build.outputs.ami_id }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Deprecation:** ${{ inputs.retention-days || '30' }} days" >> $GITHUB_STEP_SUMMARY
 
   # Test the newly built AMI
