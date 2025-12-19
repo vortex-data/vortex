@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::type_name;
 use std::sync::Arc;
 
 use arrow_array::Array;
@@ -19,6 +20,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
@@ -28,9 +30,11 @@ use crate::arrays::ListArray;
 use crate::arrays::ListVTable;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewVTable;
+use crate::arrays::PrimitiveArray;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::builtins::ArrayBuiltins;
+use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 /// Convert a Vortex array into an Arrow GenericBinaryArray.
@@ -49,8 +53,9 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
         Ok(array) => {
             if array.is_zero_copy_to_list() {
                 return list_view_zctl::<O>(array, elements_field, session);
+            } else {
+                return list_view_to_list::<O>(array, elements_field, session);
             }
-            array.into_array()
         }
         Err(a) => a,
     };
@@ -155,6 +160,74 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
     Ok(Arc::new(GenericListArray::<O>::new(
         elements_field.clone(),
         offsets.freeze().into_arrow_offset_buffer(),
+        elements,
+        null_buffer,
+    )))
+}
+
+fn list_view_to_list<O: OffsetSizeTrait + NativePType>(
+    array: ListViewArray,
+    elements_field: &FieldRef,
+    session: &VortexSession,
+) -> VortexResult<ArrowArrayRef> {
+    let (elements, offsets, sizes, validity) = array.into_parts();
+
+    let offsets = offsets
+        .cast(DType::Primitive(O::PTYPE, Nullability::NonNullable))?
+        .execute_vector(session)?
+        .into_primitive()
+        .downcast::<O>()
+        .into_nonnull_buffer();
+    let sizes = sizes
+        .cast(DType::Primitive(O::PTYPE, Nullability::NonNullable))?
+        .execute_vector(session)?
+        .into_primitive()
+        .downcast::<O>()
+        .into_nonnull_buffer();
+
+    // We create a new offsets buffer for the final list array.
+    // And we also create an `indices` buffer for taking the elements.
+    let mut new_offsets = BufferMut::<O>::with_capacity(offsets.len() + 1);
+    let mut take_indices = BufferMut::<u32>::with_capacity(elements.len());
+
+    // Add the offset for the first subarray
+    new_offsets.push(O::zero());
+    for (offset, size) in offsets.iter().zip(sizes.iter()) {
+        let offset = offset.as_usize();
+        let size = size.as_usize();
+        let end = offset + size;
+        for j in offset..end {
+            take_indices.push(u32::try_from(j).map_err(|_| {
+                vortex_err!("List array too large for {} indices", type_name::<O>())
+            })?);
+        }
+        new_offsets.push(O::usize_as(take_indices.len()));
+    }
+
+    // Now we can "take" the elements using the computed indices.
+    let elements =
+        elements.take(PrimitiveArray::new(take_indices, Validity::NonNullable).into_array())?;
+
+    let elements = elements.execute_arrow(elements_field.data_type(), session)?;
+    vortex_ensure!(
+        elements_field.is_nullable() || elements.null_count() == 0,
+        "Cannot convert to non-nullable Arrow array with null elements"
+    );
+
+    // We need to compute the final offsets from the sizes.
+    let mut final_offsets = Vec::with_capacity(sizes.len() + 1);
+    final_offsets.push(O::usize_as(0));
+    for i in 0..sizes.len() {
+        let last_offset = final_offsets[i].as_usize();
+        let size = sizes[i].as_usize();
+        final_offsets.push(O::usize_as(last_offset + size));
+    }
+
+    let null_buffer = to_arrow_null_buffer(&validity, sizes.len(), session)?;
+
+    Ok(Arc::new(GenericListArray::<O>::new(
+        elements_field.clone(),
+        offsets.into_arrow_offset_buffer(),
         elements,
         null_buffer,
     )))

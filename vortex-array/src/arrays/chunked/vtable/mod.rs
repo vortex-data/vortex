@@ -10,19 +10,14 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_vector::Vector;
-use vortex_vector::VectorMut;
-use vortex_vector::VectorMutOps;
 
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::ToCanonical;
-use crate::VectorExecutor;
 use crate::arrays::ChunkedArray;
 use crate::arrays::PrimitiveArray;
-use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -162,15 +157,6 @@ impl VTable for ChunkedVTable {
             .map_err(|_| vortex_err!("total length {} exceeds usize range", total_len))?;
 
         Ok(())
-    }
-
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        let mut vector = VectorMut::with_capacity(&array.dtype, array.len);
-        for chunk in &array.chunks {
-            let chunk_vector = chunk.execute(ctx)?;
-            vector.extend_from_vector(&chunk_vector);
-        }
-        Ok(vector.freeze())
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
