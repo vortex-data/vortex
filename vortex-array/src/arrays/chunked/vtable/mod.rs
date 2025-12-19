@@ -18,6 +18,7 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::ChunkedArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::chunked::vtable::rules::PARENT_RULES;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -31,6 +32,7 @@ mod array;
 mod canonical;
 mod compute;
 mod operations;
+mod rules;
 mod validity;
 mod visitor;
 
@@ -165,5 +167,13 @@ impl VTable for ChunkedVTable {
             1 => Some(array.chunks[0].clone()),
             _ => None,
         })
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }
