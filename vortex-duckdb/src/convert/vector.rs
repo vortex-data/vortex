@@ -228,10 +228,10 @@ pub fn flat_vector_to_vortex(vector: &mut Vector, len: usize) -> VortexResult<Ar
             {
                 unsafe {
                     offsets.push_unchecked(
-                        i64::try_from(*offset).vortex_expect("offset must fit i64"),
+                        i64::try_from(*offset).vortex_expect("list offset must fit in i64"),
                     );
                     lengths.push_unchecked(
-                        i64::try_from(*length).vortex_expect("length must fit i64"),
+                        i64::try_from(*length).vortex_expect("list length must fit in i64"),
                     );
                 }
             }
@@ -240,7 +240,7 @@ pub fn flat_vector_to_vortex(vector: &mut Vector, len: usize) -> VortexResult<Ar
             let child_data = flat_vector_to_vortex(
                 &mut vector.list_vector_get_child(),
                 usize::try_from(offsets[len - 1] + lengths[len - 1])
-                    .vortex_expect("last offset and length sum must fit in usize "),
+                    .vortex_expect("list child data size must fit in usize"),
             )?;
 
             ListViewArray::try_new(
@@ -292,7 +292,7 @@ mod tests {
 
     use vortex::array::ToCanonical;
     use vortex::array::arrays::PrimitiveVTable;
-    use vortex::error::VortexUnwrap;
+    use vortex::error::VortexExpect;
     use vortex::mask::Mask;
 
     use super::*;
@@ -535,7 +535,7 @@ mod tests {
 
         let logical_type =
             LogicalType::list_type(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER))
-                .vortex_unwrap();
+                .vortex_expect("LogicalType creation should succeed for test data");
         let mut vector = Vector::with_capacity(logical_type, len);
 
         // Populate with data
@@ -571,7 +571,7 @@ mod tests {
 
         let logical_type =
             LogicalType::array_type(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER), 4)
-                .vortex_unwrap();
+                .vortex_expect("LogicalType creation should succeed for test data");
         let mut vector = Vector::with_capacity(logical_type, len);
 
         // Populate with data
@@ -598,7 +598,8 @@ mod tests {
     #[test]
     fn test_empty_struct() {
         let len = 4;
-        let logical_type = LogicalType::struct_type([], []).vortex_unwrap();
+        let logical_type = LogicalType::struct_type([], [])
+            .vortex_expect("LogicalType creation should succeed for test data");
         let mut vector = Vector::with_capacity(logical_type, len);
 
         // Test conversion
@@ -622,7 +623,7 @@ mod tests {
             ],
             [CString::new("a").unwrap(), CString::new("b").unwrap()],
         )
-        .vortex_unwrap();
+        .vortex_expect("LogicalType creation should succeed for test data");
         let mut vector = Vector::with_capacity(logical_type, len);
 
         // Populate with data

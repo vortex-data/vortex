@@ -25,7 +25,7 @@ use tpcds::TpcDsBenchmark;
 use tpch::benchmark::TpcHBenchmark;
 pub use utils::file::*;
 pub use utils::logging::*;
-use vortex::error::VortexUnwrap;
+use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::file::VortexWriteOptions;
 use vortex::file::WriteStrategyBuilder;
@@ -94,7 +94,7 @@ impl FromStr for Target {
                         e
                     )
                 })
-                .vortex_unwrap(),
+                .vortex_expect("operation should succeed in benchmark"),
             format: Format::from_str(format_str, true)
                 .map_err(|e| {
                     vortex_err!(
@@ -104,7 +104,7 @@ impl FromStr for Target {
                         e
                     )
                 })
-                .vortex_unwrap(),
+                .vortex_expect("operation should succeed in benchmark"),
         })
     }
 }

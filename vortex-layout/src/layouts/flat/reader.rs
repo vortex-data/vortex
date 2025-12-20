@@ -20,7 +20,6 @@ use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::VortexUnwrap as _;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -61,7 +60,8 @@ impl FlatReader {
 
     /// Register the segment request and return a future that would resolve into the deserialised array.
     fn array_future(&self) -> SharedArrayFuture {
-        let row_count = usize::try_from(self.layout.row_count()).vortex_unwrap();
+        let row_count =
+            usize::try_from(self.layout.row_count()).vortex_expect("row count must fit in usize");
 
         // We create the segment_fut here to ensure we give the segment reader visibility into
         // how to prioritize this segment, even if the `array` future has already been initialized.

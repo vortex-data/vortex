@@ -12,8 +12,8 @@ use rand::prelude::IndexedRandom;
 use rand::prelude::StdRng;
 use vortex_buffer::Buffer;
 use vortex_dtype::NativePType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::VortexUnwrap;
 
 use super::ChunkedArray;
 use super::DictArray;
@@ -82,7 +82,7 @@ where
     (0..chunk_count)
         .map(|_| {
             gen_primitive_dict::<T, O>(len, unique_values)
-                .vortex_unwrap()
+                .vortex_expect("operation should succeed in test")
                 .into_array()
         })
         .collect::<ChunkedArray>()

@@ -16,7 +16,6 @@ use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexExpect;
-use vortex_error::VortexUnwrap;
 use vortex_scalar::Scalar;
 use vortex_scalar::arbitrary::random_scalar;
 
@@ -78,7 +77,7 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
     } else {
         let dtype = chunks[0].dtype().clone();
         Ok(ChunkedArray::try_new(chunks, dtype)
-            .vortex_unwrap()
+            .vortex_expect("operation should succeed in arbitrary impl")
             .into_array())
     }
 }
@@ -158,7 +157,7 @@ fn random_array_chunk(
                 resolved_len,
                 random_validity(u, *n, resolved_len)?,
             )
-            .vortex_unwrap()
+            .vortex_expect("operation should succeed in arbitrary impl")
             .into_array())
         }
         DType::List(elem_dtype, null) => random_list(u, elem_dtype, *null, chunk_len),

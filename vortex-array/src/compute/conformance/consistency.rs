@@ -23,7 +23,7 @@ use vortex_buffer::BitBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_error::VortexUnwrap;
+use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
@@ -63,7 +63,7 @@ fn test_filter_take_consistency(array: &dyn Array) {
     let mask = Mask::from_buffer(mask_pattern.clone());
 
     // Filter the array
-    let filtered = filter(array, &mask).vortex_unwrap();
+    let filtered = filter(array, &mask).vortex_expect("filter should succeed in conformance test");
 
     // Create indices where mask is true
     let indices: Vec<u64> = mask_pattern
@@ -74,7 +74,8 @@ fn test_filter_take_consistency(array: &dyn Array) {
     let indices_array = PrimitiveArray::from_iter(indices).into_array();
 
     // Take using those indices
-    let taken = take(array, &indices_array).vortex_unwrap();
+    let taken =
+        take(array, &indices_array).vortex_expect("take should succeed in conformance test");
 
     // Results should be identical
     assert_eq!(
@@ -123,8 +124,9 @@ fn test_double_mask_consistency(array: &dyn Array) {
     let mask2: Mask = (0..len).map(|i| i % 2 == 0).collect();
 
     // Apply masks sequentially
-    let first_masked = mask(array, &mask1).vortex_unwrap();
-    let double_masked = mask(&first_masked, &mask2).vortex_unwrap();
+    let first_masked = mask(array, &mask1).vortex_expect("mask should succeed in conformance test");
+    let double_masked =
+        mask(&first_masked, &mask2).vortex_expect("mask should succeed in conformance test");
 
     // Create combined mask (OR operation - element is masked if EITHER mask is true)
     let combined_pattern: BitBuffer = mask1
@@ -136,7 +138,8 @@ fn test_double_mask_consistency(array: &dyn Array) {
     let combined_mask = Mask::from_buffer(combined_pattern);
 
     // Apply combined mask directly
-    let directly_masked = mask(array, &combined_mask).vortex_unwrap();
+    let directly_masked =
+        mask(array, &combined_mask).vortex_expect("mask should succeed in conformance test");
 
     // Results should be identical
     assert_eq!(
@@ -180,7 +183,8 @@ fn test_filter_identity(array: &dyn Array) {
     }
 
     let all_true_mask = Mask::new_true(len);
-    let filtered = filter(array, &all_true_mask).vortex_unwrap();
+    let filtered =
+        filter(array, &all_true_mask).vortex_expect("filter should succeed in conformance test");
 
     // Filtered array should be identical to original
     assert_eq!(
@@ -223,7 +227,8 @@ fn test_mask_identity(array: &dyn Array) {
     }
 
     let all_false_mask = Mask::new_false(len);
-    let masked = mask(array, &all_false_mask).vortex_unwrap();
+    let masked =
+        mask(array, &all_false_mask).vortex_expect("mask should succeed in conformance test");
 
     // Masked array should have same values (just nullable)
     assert_eq!(
@@ -278,7 +283,7 @@ fn test_slice_filter_consistency(array: &dyn Array) {
     mask_pattern[1..4.min(len)].fill(true);
 
     let mask = Mask::from_iter(mask_pattern);
-    let filtered = filter(array, &mask).vortex_unwrap();
+    let filtered = filter(array, &mask).vortex_expect("filter should succeed in conformance test");
 
     // Slice should produce the same result
     let sliced = array.slice(1..4.min(len));
@@ -325,7 +330,7 @@ fn test_take_slice_consistency(array: &dyn Array) {
     // Take indices [1, 2, 3]
     let end = 4.min(len);
     let indices = PrimitiveArray::from_iter((1..end).map(|i| i as u64)).into_array();
-    let taken = take(array, &indices).vortex_unwrap();
+    let taken = take(array, &indices).vortex_expect("take should succeed in conformance test");
 
     // Slice from 1 to end
     let sliced = array.slice(1..end);
@@ -361,7 +366,7 @@ fn test_filter_preserves_order(array: &dyn Array) {
     let mask_pattern: Vec<bool> = (0..len).map(|i| i == 0 || i == 2 || i == 3).collect();
     let mask = Mask::from_iter(mask_pattern);
 
-    let filtered = filter(array, &mask).vortex_unwrap();
+    let filtered = filter(array, &mask).vortex_expect("filter should succeed in conformance test");
 
     // Verify the filtered array contains the right elements in order
     assert_eq!(filtered.len(), 3.min(len));
@@ -381,7 +386,7 @@ fn test_take_repeated_indices(array: &dyn Array) {
 
     // Take the first element three times
     let indices = PrimitiveArray::from_iter([0u64, 0, 0]).into_array();
-    let taken = take(array, &indices).vortex_unwrap();
+    let taken = take(array, &indices).vortex_expect("take should succeed in conformance test");
 
     assert_eq!(taken.len(), 3);
     for i in 0..3 {
@@ -399,15 +404,17 @@ fn test_mask_filter_null_consistency(array: &dyn Array) {
     // First mask some elements
     let mask_pattern: Vec<bool> = (0..len).map(|i| i % 2 == 0).collect();
     let mask_array = Mask::from_iter(mask_pattern);
-    let masked = mask(array, &mask_array).vortex_unwrap();
+    let masked = mask(array, &mask_array).vortex_expect("mask should succeed in conformance test");
 
     // Then filter to remove the nulls
     let filter_pattern: Vec<bool> = (0..len).map(|i| i % 2 != 0).collect();
     let filter_mask = Mask::from_iter(filter_pattern);
-    let filtered = filter(&masked, &filter_mask).vortex_unwrap();
+    let filtered =
+        filter(&masked, &filter_mask).vortex_expect("filter should succeed in conformance test");
 
     // This should be equivalent to directly filtering the original array
-    let direct_filtered = filter(array, &filter_mask).vortex_unwrap();
+    let direct_filtered =
+        filter(array, &filter_mask).vortex_expect("filter should succeed in conformance test");
 
     assert_eq!(filtered.len(), direct_filtered.len());
     for i in 0..filtered.len() {
@@ -420,13 +427,15 @@ fn test_empty_operations_consistency(array: &dyn Array) {
     let len = array.len();
 
     // Empty filter
-    let empty_filter = filter(array, &Mask::new_false(len)).vortex_unwrap();
+    let empty_filter = filter(array, &Mask::new_false(len))
+        .vortex_expect("filter should succeed in conformance test");
     assert_eq!(empty_filter.len(), 0);
     assert_eq!(empty_filter.dtype(), array.dtype());
 
     // Empty take
     let empty_indices = PrimitiveArray::empty::<u64>(Nullability::NonNullable).into_array();
-    let empty_take = take(array, &empty_indices).vortex_unwrap();
+    let empty_take =
+        take(array, &empty_indices).vortex_expect("take should succeed in conformance test");
     assert_eq!(empty_take.len(), 0);
     assert_eq!(empty_take.dtype(), array.dtype());
 
@@ -447,7 +456,7 @@ fn test_take_preserves_properties(array: &dyn Array) {
 
     // Take all elements in original order
     let indices = PrimitiveArray::from_iter((0..len).map(|i| i as u64)).into_array();
-    let taken = take(array, &indices).vortex_unwrap();
+    let taken = take(array, &indices).vortex_expect("take should succeed in conformance test");
 
     // Should be identical to original
     assert_eq!(taken.len(), array.len());
@@ -483,7 +492,7 @@ fn test_nullable_indices_consistency(array: &dyn Array) {
     // Create nullable indices where some indices are null
     let indices = PrimitiveArray::from_option_iter([Some(0u64), None, Some(2u64)]).into_array();
 
-    let taken = take(array, &indices).vortex_unwrap();
+    let taken = take(array, &indices).vortex_expect("take should succeed in conformance test");
 
     // Result should have nulls where indices were null
     assert_eq!(
@@ -535,12 +544,13 @@ fn test_large_array_consistency(array: &dyn Array) {
     // Test with every 10th element
     let indices: Vec<u64> = (0..len).step_by(10).map(|i| i as u64).collect();
     let indices_array = PrimitiveArray::from_iter(indices).into_array();
-    let taken = take(array, &indices_array).vortex_unwrap();
+    let taken =
+        take(array, &indices_array).vortex_expect("take should succeed in conformance test");
 
     // Create equivalent filter mask
     let mask_pattern: Vec<bool> = (0..len).map(|i| i % 10 == 0).collect();
     let mask = Mask::from_iter(mask_pattern);
-    let filtered = filter(array, &mask).vortex_unwrap();
+    let filtered = filter(array, &mask).vortex_expect("filter should succeed in conformance test");
 
     // Results should match
     assert_eq!(taken.len(), filtered.len());
@@ -590,7 +600,8 @@ fn test_comparison_inverse_consistency(array: &dyn Array) {
         compare(array, const_array.as_ref(), Operator::Eq),
         compare(array, const_array.as_ref(), Operator::NotEq),
     ) {
-        let inverted_eq = invert(&eq_result).vortex_unwrap();
+        let inverted_eq =
+            invert(&eq_result).vortex_expect("invert should succeed in conformance test");
 
         assert_eq!(
             inverted_eq.len(),
@@ -614,7 +625,8 @@ fn test_comparison_inverse_consistency(array: &dyn Array) {
         compare(array, const_array.as_ref(), Operator::Gt),
         compare(array, const_array.as_ref(), Operator::Lte),
     ) {
-        let inverted_gt = invert(&gt_result).vortex_unwrap();
+        let inverted_gt =
+            invert(&gt_result).vortex_expect("invert should succeed in conformance test");
 
         for i in 0..inverted_gt.len() {
             let inv_val = inverted_gt.scalar_at(i);
@@ -632,7 +644,8 @@ fn test_comparison_inverse_consistency(array: &dyn Array) {
         compare(array, const_array.as_ref(), Operator::Lt),
         compare(array, const_array.as_ref(), Operator::Gte),
     ) {
-        let inverted_lt = invert(&lt_result).vortex_unwrap();
+        let inverted_lt =
+            invert(&lt_result).vortex_expect("invert should succeed in conformance test");
 
         for i in 0..inverted_lt.len() {
             let inv_val = inverted_lt.scalar_at(i);
@@ -751,8 +764,10 @@ fn test_boolean_demorgan_consistency(array: &dyn Array) {
 
     // Test first De Morgan's law: NOT(A AND B) = (NOT A) OR (NOT B)
     if let (Ok(a_and_b), Ok(not_a), Ok(not_b)) = (and(array, mask), invert(array), invert(mask)) {
-        let not_a_and_b = invert(&a_and_b).vortex_unwrap();
-        let not_a_or_not_b = or(&not_a, &not_b).vortex_unwrap();
+        let not_a_and_b =
+            invert(&a_and_b).vortex_expect("invert should succeed in conformance test");
+        let not_a_or_not_b =
+            or(&not_a, &not_b).vortex_expect("or should succeed in conformance test");
 
         assert_eq!(
             not_a_and_b.len(),
@@ -773,8 +788,9 @@ fn test_boolean_demorgan_consistency(array: &dyn Array) {
 
     // Test second De Morgan's law: NOT(A OR B) = (NOT A) AND (NOT B)
     if let (Ok(a_or_b), Ok(not_a), Ok(not_b)) = (or(array, mask), invert(array), invert(mask)) {
-        let not_a_or_b = invert(&a_or_b).vortex_unwrap();
-        let not_a_and_not_b = and(&not_a, &not_b).vortex_unwrap();
+        let not_a_or_b = invert(&a_or_b).vortex_expect("invert should succeed in conformance test");
+        let not_a_and_not_b =
+            and(&not_a, &not_b).vortex_expect("and should succeed in conformance test");
 
         for i in 0..not_a_or_b.len() {
             let left = not_a_or_b.scalar_at(i);

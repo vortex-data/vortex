@@ -14,7 +14,6 @@ use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 use vortex_dtype::half::f16;
 use vortex_error::VortexExpect;
-use vortex_error::VortexUnwrap;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_utils::aliases::hash_set::HashSet;
@@ -200,7 +199,10 @@ where
         .try_into()
         .vortex_expect("null_count must fit in u32");
     let distinct_values_count = if count_distinct_values {
-        distinct_values.len().try_into().vortex_unwrap()
+        distinct_values
+            .len()
+            .try_into()
+            .vortex_expect("distinct values count must fit in u32")
     } else {
         u32::MAX
     };

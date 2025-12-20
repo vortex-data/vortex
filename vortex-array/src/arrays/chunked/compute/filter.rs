@@ -4,7 +4,6 @@
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::VortexUnwrap;
 use vortex_mask::Mask;
 use vortex_mask::MaskIter;
 
@@ -195,7 +194,9 @@ pub(crate) fn find_chunk_idx(idx: usize, chunk_ends: &[u64]) -> (usize, usize) {
         .search_sorted(&(idx as u64), SearchSortedSide::Right)
         .to_ends_index(chunk_ends.len())
         .saturating_sub(1);
-    let chunk_begin: usize = chunk_ends[chunk_id].try_into().vortex_unwrap();
+    let chunk_begin: usize = chunk_ends[chunk_id]
+        .try_into()
+        .vortex_expect("chunk end must fit in usize");
     let chunk_offset = idx - chunk_begin;
 
     (chunk_id, chunk_offset)
