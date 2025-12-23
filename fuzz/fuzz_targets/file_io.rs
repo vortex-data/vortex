@@ -21,7 +21,6 @@ use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
 use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
-use vortex_error::VortexUnwrap;
 use vortex_error::vortex_panic;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::WriteOptionsSessionExt;
@@ -52,14 +51,15 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
             .clone()
             .unwrap_or_else(|| lit(true))
             .evaluate(&array_data)
-            .vortex_unwrap();
+            .vortex_expect("filter expression evaluation should succeed in fuzz test");
         let mask = bool_mask.to_bool().to_mask_fill_null_false();
-        let filtered = filter(&array_data, &mask).vortex_unwrap();
+        let filtered = filter(&array_data, &mask)
+            .vortex_expect("filter operation should succeed in fuzz test");
         projection_expr
             .clone()
             .unwrap_or_else(root)
             .evaluate(&filtered)
-            .vortex_unwrap()
+            .vortex_expect("projection expression evaluation should succeed in fuzz test")
     };
 
     let write_options = match compressor_strategy {
@@ -76,20 +76,20 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     let _footer = write_options
         .blocking(&*RUNTIME)
         .write(&mut full_buff, array_data.to_array_iterator())
-        .vortex_unwrap();
+        .vortex_expect("file write should succeed in fuzz test");
 
     let mut output = SESSION
         .open_options()
         .open_buffer(full_buff)
-        .vortex_unwrap()
+        .vortex_expect("open_buffer should succeed in fuzz test")
         .scan()
-        .vortex_unwrap()
+        .vortex_expect("scan should succeed in fuzz test")
         .with_projection(projection_expr.unwrap_or_else(root))
         .with_some_filter(filter_expr)
         .into_array_iter(&*RUNTIME)
-        .vortex_unwrap()
+        .vortex_expect("into_array_iter should succeed in fuzz test")
         .try_collect::<_, Vec<_>, _>()
-        .vortex_unwrap();
+        .vortex_expect("collect should succeed in fuzz test");
 
     let output_array = match output.len() {
         0 => Canonical::empty(expected_array.dtype()).into_array(),
@@ -113,7 +113,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     );
 
     let bool_result = compare(&expected_array, &output_array, Operator::Eq)
-        .vortex_unwrap()
+        .vortex_expect("compare operation should succeed in fuzz test")
         .to_bool();
     let true_count = bool_result.bit_buffer().true_count();
     if true_count != expected_array.len() && (bool_result.all_valid() || expected_array.all_valid())

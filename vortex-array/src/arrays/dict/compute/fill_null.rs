@@ -67,7 +67,7 @@ mod tests {
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
-    use vortex_error::VortexUnwrap;
+    use vortex_error::VortexExpect;
     use vortex_scalar::Scalar;
 
     use crate::IntoArray;
@@ -88,13 +88,13 @@ mod tests {
             .into_array(),
             PrimitiveArray::new(buffer![10, 20, 20], Validity::AllValid).into_array(),
         )
-        .vortex_unwrap();
+        .vortex_expect("operation should succeed in test");
 
         let filled = fill_null(
             dict.as_ref(),
             &Scalar::primitive(20, Nullability::NonNullable),
         )
-        .vortex_unwrap();
+        .vortex_expect("operation should succeed in test");
         let filled_primitive = filled.to_primitive();
         assert_arrays_eq!(filled_primitive, PrimitiveArray::from_iter([10, 20, 20]));
         assert!(filled_primitive.all_valid());

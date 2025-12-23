@@ -182,7 +182,7 @@ mod tests {
     use vortex_dtype::FieldName;
     use vortex_dtype::FieldNames;
     use vortex_dtype::Nullability;
-    use vortex_error::VortexUnwrap;
+    use vortex_error::VortexExpect;
     use vortex_io::runtime::single::block_on;
     use vortex_mask::AllOr;
 
@@ -248,7 +248,7 @@ mod tests {
                 array
                     .statistics()
                     .compute_all(&Stat::all().collect::<Vec<_>>())
-                    .vortex_unwrap()
+                    .vortex_expect("stats computation should succeed for test array")
                     .into_iter(),
             );
 

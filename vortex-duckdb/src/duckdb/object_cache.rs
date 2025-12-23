@@ -4,7 +4,7 @@
 use std::ffi::CString;
 use std::os::raw::c_void;
 
-use vortex::error::VortexUnwrap;
+use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 
 use crate::cpp;
@@ -31,7 +31,7 @@ impl ObjectCacheRef<'_> {
     pub fn put<T: 'static>(&self, key: &str, entry: T) -> *mut T {
         let key_cstr = CString::new(key)
             .map_err(|e| vortex_err!("invalid key: {}", e))
-            .vortex_unwrap();
+            .vortex_expect("object cache key should be valid C string");
         let opaque_ptr = Box::into_raw(Box::new(entry));
 
         unsafe {
@@ -50,7 +50,7 @@ impl ObjectCacheRef<'_> {
     pub fn get<T>(&self, key: &str) -> Option<&T> {
         let key_cstr = CString::new(key)
             .map_err(|e| vortex_err!("invalid key: {}", e))
-            .vortex_unwrap();
+            .vortex_expect("object cache key should be valid C string");
 
         unsafe {
             let opaque_ptr = cpp::duckdb_vx_object_cache_get(self.as_ptr(), key_cstr.as_ptr());

@@ -533,7 +533,7 @@ mod test {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
-    use vortex_error::VortexUnwrap;
+    use vortex_error::VortexExpect;
     use vortex_scalar::PrimitiveScalar;
     use vortex_scalar::Scalar;
 
@@ -684,7 +684,7 @@ mod test {
             .into_array(),
             None,
         )
-        .vortex_unwrap();
+        .vortex_expect("SparseArray::encode should succeed for test data");
         let canonical = sparse.to_primitive();
         assert_eq!(
             sparse.validity_mask(),

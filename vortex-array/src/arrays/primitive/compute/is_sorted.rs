@@ -92,7 +92,7 @@ fn compute_is_sorted<T: NativePType>(array: &PrimitiveArray, strict: bool) -> Vo
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_error::VortexUnwrap;
+    use vortex_error::VortexExpect;
 
     use super::*;
     use crate::compute::is_sorted;
@@ -105,7 +105,10 @@ mod tests {
     #[case(PrimitiveArray::from_option_iter([None, None, Some(1i32), Some(1)]), true)]
     #[case(PrimitiveArray::from_option_iter([None, Some(5_u8), None]), false)]
     fn test_primitive_is_sorted(#[case] array: PrimitiveArray, #[case] expected: bool) {
-        assert_eq!(is_sorted(array.as_ref()).vortex_unwrap(), Some(expected));
+        assert_eq!(
+            is_sorted(array.as_ref()).vortex_expect("operation should succeed in test"),
+            Some(expected)
+        );
     }
 
     #[rstest]
@@ -116,7 +119,7 @@ mod tests {
     #[case(PrimitiveArray::from_option_iter([None, Some(5_u8), None]), false)]
     fn test_primitive_is_strict_sorted(#[case] array: PrimitiveArray, #[case] expected: bool) {
         assert_eq!(
-            is_strict_sorted(array.as_ref()).vortex_unwrap(),
+            is_strict_sorted(array.as_ref()).vortex_expect("operation should succeed in test"),
             Some(expected)
         );
     }

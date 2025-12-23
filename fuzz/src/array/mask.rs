@@ -17,8 +17,8 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::ExtDType;
 use vortex_dtype::match_each_decimal_value_type;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::VortexUnwrap;
 use vortex_mask::Mask;
 
 /// Apply mask on the canonical form of the array to get a consistent baseline.
@@ -94,13 +94,13 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
                 array.len(),
                 new_validity,
             )
-            .vortex_unwrap()
+            .vortex_expect("StructArray creation should succeed in fuzz test")
             .into_array()
         }
         Canonical::Extension(array) => {
             // Recursively mask the storage array
-            let masked_storage =
-                mask_canonical_array(array.storage().to_canonical(), mask).vortex_unwrap();
+            let masked_storage = mask_canonical_array(array.storage().to_canonical(), mask)
+                .vortex_expect("mask_canonical_array should succeed in fuzz test");
 
             if masked_storage.dtype().nullability()
                 == array.ext_dtype().storage_dtype().nullability()
