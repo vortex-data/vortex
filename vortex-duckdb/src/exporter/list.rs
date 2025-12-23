@@ -261,7 +261,7 @@ mod tests {
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
-    use vortex::error::VortexUnwrap;
+    use vortex::error::VortexExpect;
 
     use super::*;
     use crate::duckdb::DataChunk;
@@ -280,7 +280,8 @@ mod tests {
         }
         .into_array();
 
-        let list_type = LogicalType::list_type(LogicalType::int32()).vortex_unwrap();
+        let list_type = LogicalType::list_type(LogicalType::int32())
+            .vortex_expect("LogicalType creation should succeed for test data");
         let mut chunk = DataChunk::new([list_type]);
 
         new_array_exporter(&list, &ConversionCache::default())
@@ -314,7 +315,8 @@ mod tests {
         }
         .into_array();
 
-        let list_type = LogicalType::list_type(LogicalType::varchar()).vortex_unwrap();
+        let list_type = LogicalType::list_type(LogicalType::varchar())
+            .vortex_expect("LogicalType creation should succeed for test data");
         let mut chunk = DataChunk::new([list_type]);
 
         new_array_exporter(&list, &ConversionCache::default())

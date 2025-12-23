@@ -11,7 +11,6 @@ use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
 use vortex_dtype::UnsignedPType;
 use vortex_error::VortexExpect;
-use vortex_error::VortexUnwrap;
 use vortex_error::vortex_panic;
 use vortex_utils::aliases::hash_map::DefaultHashBuilder;
 use vortex_utils::aliases::hash_map::HashTable;
@@ -107,7 +106,8 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
                         let view = BinaryView::make_view(
                             val,
                             0,
-                            u32::try_from(self.values.len()).vortex_unwrap(),
+                            u32::try_from(self.values.len())
+                                .vortex_expect("values length must fit in u32"),
                         );
                         let additional_bytes = if view.is_inlined() {
                             size_of::<BinaryView>()

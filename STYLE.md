@@ -54,7 +54,7 @@
   - `vortex_panic!` for handling invariant violations
 - Add context to errors using `.with_context()`
 - Include backtraces for better debugging
-- Use `VortexExpect` and `VortexUnwrap` traits when unwrapping is appropriate
+- Use `VortexExpect` trait when unwrapping is appropriate with proper error context.
 
 ## Code Structure
 

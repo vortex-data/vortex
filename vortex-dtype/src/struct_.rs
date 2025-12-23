@@ -10,7 +10,6 @@ use std::sync::OnceLock;
 use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::VortexUnwrap;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
@@ -349,17 +348,30 @@ impl StructFields {
     /// of the first field encountered with a given name.
     pub fn field(&self, name: impl AsRef<str>) -> Option<DType> {
         let index = self.find(name)?;
-        Some(self.0.dtypes[index].value().vortex_unwrap())
+        Some(
+            self.0.dtypes[index]
+                .value()
+                .vortex_expect("field DType must be valid"),
+        )
     }
 
     /// Get the [`DType`] of a field by index.
     pub fn field_by_index(&self, index: usize) -> Option<DType> {
-        Some(self.0.dtypes.get(index)?.value().vortex_unwrap())
+        Some(
+            self.0
+                .dtypes
+                .get(index)?
+                .value()
+                .vortex_expect("field DType must be valid"),
+        )
     }
 
     /// Returns an ordered iterator over the fields.
     pub fn fields(&self) -> impl ExactSizeIterator<Item = DType> + '_ {
-        self.0.dtypes.iter().map(|dt| dt.value().vortex_unwrap())
+        self.0
+            .dtypes
+            .iter()
+            .map(|dt| dt.value().vortex_expect("field DType must be valid"))
     }
 
     /// Project a subset of fields from the struct

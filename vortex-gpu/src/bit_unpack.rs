@@ -225,7 +225,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
-    use vortex_error::VortexUnwrap;
+    use vortex_error::VortexExpect;
     use vortex_fastlanes::BitPackedArray;
 
     use super::*;
@@ -251,7 +251,7 @@ mod tests {
             Validity::NonNullable,
         );
 
-        let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width).vortex_unwrap();
+        let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width).vortex_expect("operation should succeed in test");
         let unpacked = cuda_bit_unpack(&array, ctx).unwrap();
 
         assert_eq!(
@@ -290,7 +290,7 @@ mod tests {
             Validity::NonNullable,
         );
 
-        let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width).vortex_unwrap();
+        let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width).vortex_expect("operation should succeed in test");
         let unpacked = cuda_bit_unpack(&array, ctx).unwrap();
 
         assert_eq!(
@@ -345,7 +345,7 @@ mod tests {
             Validity::NonNullable,
         );
 
-        let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width).vortex_unwrap();
+        let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width).vortex_expect("operation should succeed in test");
         let unpacked = cuda_bit_unpack(&array, ctx).unwrap();
 
         assert_eq!(
@@ -432,7 +432,7 @@ mod tests {
             Validity::NonNullable,
         );
 
-        let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width).vortex_unwrap();
+        let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width).vortex_expect("operation should succeed in test");
         let unpacked = cuda_bit_unpack(&array, ctx).unwrap();
 
         assert_eq!(

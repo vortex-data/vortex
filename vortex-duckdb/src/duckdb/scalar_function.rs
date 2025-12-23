@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::error::VortexUnwrap;
+use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 
 use crate::cpp;
@@ -17,7 +17,7 @@ impl ScalarFunction {
             std::ffi::CStr::from_ptr(name_ptr)
                 .to_str()
                 .map_err(|e| vortex_err!("invalid utf-8: {e}"))
-                .vortex_unwrap()
+                .vortex_expect("scalar function name should be valid UTF-8")
         }
     }
 
