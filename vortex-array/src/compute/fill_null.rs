@@ -5,7 +5,10 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
+use vortex_dtype::DecimalType;
+use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexError;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -15,6 +18,7 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::DecimalVTable;
 use crate::compute::ComputeFn;
 use crate::compute::ComputeFnVTable;
 use crate::compute::InvocationArgs;
@@ -59,6 +63,14 @@ pub fn fill_null(array: &dyn Array, fill_value: &Scalar) -> VortexResult<ArrayRe
 }
 
 pub trait FillNullKernel: VTable {
+    /// Kernel for replacing null values in an array with a fill value.
+    ///
+    /// TODO(connor): Actually enforce these constraints (so that casts do not fail).
+    ///
+    /// Implementations can assume that:
+    /// - The array has at least one null value (not all valid, not all invalid).
+    /// - The fill value is non-null.
+    /// - For decimal arrays, the fill value can be successfully cast to the array's storage type.
     fn fill_null(&self, array: &Self::Array, fill_value: &Scalar) -> VortexResult<ArrayRef>;
 }
 
@@ -109,6 +121,34 @@ impl ComputeFnVTable for FillNull {
         if fill_value.is_null() {
             vortex_bail!("Cannot fill_null with a null value")
         }
+
+        /*
+        // For decimal arrays, validate that the fill value fits in the storage type.
+        if let Some(decimal_dtype) = array.dtype().as_decimal_opt() {
+            // Try to get the actual storage type from a DecimalArray. Otherwise, use the smallest
+            // type that can represent the precision.
+            let storage_type = array
+                .as_opt::<DecimalVTable>()
+                .map(|arr| arr.values_type())
+                .unwrap_or_else(|| DecimalType::smallest_decimal_value_type(decimal_dtype));
+            let decimal_value = fill_value
+                .as_decimal()
+                .decimal_value()
+                .vortex_expect("fill_null checked is_null above");
+
+            let fits = match_each_decimal_value_type!(storage_type, |T| {
+                decimal_value.cast::<T>().is_some()
+            });
+
+            if !fits {
+                vortex_bail!(
+                    "fill value {} does not fit in array's decimal storage type {:?}",
+                    decimal_value,
+                    storage_type
+                )
+            }
+        }
+        */
 
         for kernel in kernels {
             if let Some(output) = kernel.invoke(args)? {

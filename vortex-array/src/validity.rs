@@ -272,37 +272,47 @@ impl Validity {
         indices: &dyn Array,
         patches: &Validity,
     ) -> Self {
+        use Validity::*;
+
         match (&self, patches) {
-            (Validity::NonNullable, Validity::NonNullable) => return Validity::NonNullable,
-            (Validity::NonNullable, _) => {
-                vortex_panic!("Can't patch a non-nullable validity with nullable validity")
+            (NonNullable, NonNullable | AllValid) => {
+                return NonNullable;
             }
-            (_, Validity::NonNullable) => {
-                vortex_panic!("Can't patch a nullable validity with non-nullable validity")
+            (NonNullable, Array(_) | AllInvalid) => {
+                vortex_panic!("Can't patch a non-nullable validity with null values")
             }
-            (Validity::AllValid, Validity::AllValid) => return Validity::AllValid,
-            (Validity::AllInvalid, Validity::AllInvalid) => return Validity::AllInvalid,
-            _ => {}
+
+            (AllValid | Array(_) | AllInvalid, NonNullable) => {
+                vortex_panic!("Can't patch a nullable validity with a non-nullable validity")
+            }
+
+            (AllValid, AllValid) => return AllValid,
+            (AllValid, Array(_) | AllInvalid) => {}
+
+            (AllInvalid, AllInvalid) => return AllInvalid,
+            (AllInvalid, AllValid | Array(_)) => {}
+
+            (Array(_), _) => {}
         };
 
-        let own_nullability = if self == Validity::NonNullable {
+        let own_nullability = if self == NonNullable {
             Nullability::NonNullable
         } else {
             Nullability::Nullable
         };
 
         let source = match self {
-            Validity::NonNullable => BoolArray::from(BitBuffer::new_set(len)),
-            Validity::AllValid => BoolArray::from(BitBuffer::new_set(len)),
-            Validity::AllInvalid => BoolArray::from(BitBuffer::new_unset(len)),
-            Validity::Array(a) => a.to_bool(),
+            NonNullable => BoolArray::from(BitBuffer::new_set(len)),
+            AllValid => BoolArray::from(BitBuffer::new_set(len)),
+            AllInvalid => BoolArray::from(BitBuffer::new_unset(len)),
+            Array(a) => a.to_bool(),
         };
 
         let patch_values = match patches {
-            Validity::NonNullable => BoolArray::from(BitBuffer::new_set(indices.len())),
-            Validity::AllValid => BoolArray::from(BitBuffer::new_set(indices.len())),
-            Validity::AllInvalid => BoolArray::from(BitBuffer::new_unset(indices.len())),
-            Validity::Array(a) => a.to_bool(),
+            NonNullable => BoolArray::from(BitBuffer::new_set(indices.len())),
+            AllValid => BoolArray::from(BitBuffer::new_set(indices.len())),
+            AllInvalid => BoolArray::from(BitBuffer::new_unset(indices.len())),
+            Array(a) => a.to_bool(),
         };
 
         let patches = Patches::new(
@@ -513,21 +523,96 @@ mod tests {
     use crate::validity::Validity;
 
     #[rstest]
-    #[case(Validity::AllValid, 5, &[2, 4], Validity::AllValid, Validity::AllValid)]
-    #[case(Validity::AllValid, 5, &[2, 4], Validity::AllInvalid, Validity::Array(BoolArray::from_iter([true, true, false, true, false]).into_array())
+    #[case(
+        Validity::AllValid,
+        5,
+        &[2, 4],
+        Validity::AllValid,
+        Validity::AllValid
     )]
-    #[case(Validity::AllValid, 5, &[2, 4], Validity::Array(BoolArray::from_iter([true, false]).into_array()), Validity::Array(BoolArray::from_iter([true, true, true, true, false]).into_array())
+    #[case(
+        Validity::AllValid,
+        5,
+        &[2, 4],
+        Validity::AllInvalid,
+        Validity::Array(BoolArray::from_iter([true, true, false, true, false]).into_array())
     )]
-    #[case(Validity::AllInvalid, 5, &[2, 4], Validity::AllValid, Validity::Array(BoolArray::from_iter([false, false, true, false, true]).into_array())
+    #[case(
+        Validity::AllValid,
+        5,
+        &[2, 4],
+        Validity::Array(BoolArray::from_iter([true, false]).into_array()),
+        Validity::Array(BoolArray::from_iter([true, true, true, true, false]).into_array())
     )]
-    #[case(Validity::AllInvalid, 5, &[2, 4], Validity::AllInvalid, Validity::AllInvalid)]
-    #[case(Validity::AllInvalid, 5, &[2, 4], Validity::Array(BoolArray::from_iter([true, false]).into_array()), Validity::Array(BoolArray::from_iter([false, false, true, false, false]).into_array())
+    #[case(
+        Validity::AllInvalid,
+        5,
+        &[2, 4],
+        Validity::AllValid,
+        Validity::Array(BoolArray::from_iter([false, false, true, false, true]).into_array())
     )]
-    #[case(Validity::Array(BoolArray::from_iter([false, true, false, true, false]).into_array()), 5, &[2, 4], Validity::AllValid, Validity::Array(BoolArray::from_iter([false, true, true, true, true]).into_array())
+    #[case(
+        Validity::AllInvalid,
+        5,
+        &[2, 4],
+        Validity::AllInvalid,
+        Validity::AllInvalid
     )]
-    #[case(Validity::Array(BoolArray::from_iter([false, true, false, true, false]).into_array()), 5, &[2, 4], Validity::AllInvalid, Validity::Array(BoolArray::from_iter([false, true, false, true, false]).into_array())
+    #[case(
+        Validity::AllInvalid,
+        5,
+        &[2, 4],
+        Validity::Array(BoolArray::from_iter([true, false]).into_array()),
+        Validity::Array(BoolArray::from_iter([false, false, true, false, false]).into_array())
     )]
-    #[case(Validity::Array(BoolArray::from_iter([false, true, false, true, false]).into_array()), 5, &[2, 4], Validity::Array(BoolArray::from_iter([true, false]).into_array()), Validity::Array(BoolArray::from_iter([false, true, true, true, false]).into_array())
+    #[case(
+        Validity::Array(BoolArray::from_iter([false, true, false, true, false]).into_array()),
+        5,
+        &[2, 4],
+        Validity::AllValid,
+        Validity::Array(BoolArray::from_iter([false, true, true, true, true]).into_array())
+    )]
+    #[case(
+        Validity::Array(BoolArray::from_iter([false, true, false, true, false]).into_array()),
+        5,
+        &[2, 4],
+        Validity::AllInvalid,
+        Validity::Array(BoolArray::from_iter([false, true, false, true, false]).into_array())
+    )]
+    #[case(
+        Validity::Array(BoolArray::from_iter([false, true, false, true, false]).into_array()),
+        5,
+        &[2, 4],
+        Validity::Array(BoolArray::from_iter([true, false]).into_array()),
+        Validity::Array(BoolArray::from_iter([false, true, true, true, false]).into_array())
+    )]
+    #[case(
+        Validity::NonNullable,
+        5,
+        &[2, 4],
+        Validity::AllValid,
+        Validity::NonNullable
+    )]
+    #[case(
+        Validity::AllValid,
+        5,
+        &[2, 4],
+        Validity::NonNullable,
+        Validity::AllValid
+    )]
+    #[case(
+        Validity::AllInvalid,
+        5,
+        &[2, 4],
+        Validity::NonNullable,
+        Validity::Array(BoolArray::from_iter([false, false, true, false, true]).into_array())
+    )]
+    #[case(
+        Validity::Array(BoolArray::from_iter([false, true, false, true, false]).into_array()),
+        5,
+        &[2, 4],
+        Validity::NonNullable,
+        Validity::Array(BoolArray::from_iter([false, true, true, true, true]).into_array())
     )]
     fn patch_validity(
         #[case] validity: Validity,

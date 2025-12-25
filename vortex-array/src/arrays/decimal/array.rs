@@ -120,7 +120,7 @@ impl DecimalArray {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> VortexResult<Self> {
-        Self::validate(&buffer, &validity)?;
+        Self::validate(&buffer, decimal_dtype, &validity)?;
 
         // SAFETY: validate ensures all invariants are met.
         Ok(unsafe { Self::new_unchecked(buffer, decimal_dtype, validity) })
@@ -136,8 +136,10 @@ impl DecimalArray {
     ///
     /// The caller must ensure all of the following invariants are satisfied:
     ///
+    /// - The storage type `T` must be compatible with the precision (i.e., able to represent all
+    ///   values of the declared precision).
     /// - All non-null values in `buffer` must be representable within the specified precision.
-    /// - For example, with precision=5 and scale=2, all values must be in range [-999.99, 999.99].
+    ///   For example, with precision=5 and scale=2, all values must be in range [-999.99, 999.99].
     /// - If `validity` is [`Validity::Array`], its length must exactly equal `buffer.len()`.
     pub unsafe fn new_unchecked<T: NativeDecimalType>(
         buffer: Buffer<T>,
@@ -145,7 +147,7 @@ impl DecimalArray {
         validity: Validity,
     ) -> Self {
         #[cfg(debug_assertions)]
-        Self::validate(&buffer, &validity)
+        Self::validate(&buffer, decimal_dtype, &validity)
             .vortex_expect("[Debug Assertion]: Invalid `DecimalArray` parameters");
 
         Self {
@@ -162,8 +164,18 @@ impl DecimalArray {
     /// This function checks all the invariants required by [`DecimalArray::new_unchecked`].
     pub fn validate<T: NativeDecimalType>(
         buffer: &Buffer<T>,
+        // TODO(connor): The decimal array storage type should be able to represent the entire
+        // domain of the decimal type.
+        _decimal_dtype: DecimalDType,
         validity: &Validity,
     ) -> VortexResult<()> {
+        // vortex_ensure!(
+        //     T::DECIMAL_TYPE.is_compatible_decimal_value_type(decimal_dtype),
+        //     "Storage type {:?} cannot represent all values of precision {}",
+        //     T::DECIMAL_TYPE,
+        //     decimal_dtype.precision()
+        // );
+
         if let Some(len) = validity.maybe_len() {
             vortex_ensure!(
                 buffer.len() == len,
