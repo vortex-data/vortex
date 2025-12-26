@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
+use vortex_dtype::ExtDType;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -15,6 +17,8 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::ExtensionArray;
+use crate::canonical::ToCanonical;
 use crate::compute::ComputeFn;
 use crate::compute::ComputeFnVTable;
 use crate::compute::InvocationArgs;
@@ -125,6 +129,36 @@ impl ComputeFnVTable for FillNull {
             return Ok(fill_null(canonical_arr.as_ref(), fill_value)?.into());
         }
 
+        if matches!(array.dtype(), DType::Extension(..)) {
+            let filled_storage = fill_null(
+                array.to_extension().storage(),
+                &fill_value.as_extension().storage(),
+            )?;
+
+            if filled_storage.dtype().nullability()
+                == array
+                    .to_extension()
+                    .ext_dtype()
+                    .storage_dtype()
+                    .nullability()
+            {
+                return Ok(ExtensionArray::new(
+                    array.to_extension().ext_dtype().clone(),
+                    filled_storage,
+                )
+                .into_array()
+                .into());
+            } else {
+                let new_ext_dtype = Arc::new(ExtDType::new(
+                    array.to_extension().ext_dtype().id().clone(),
+                    Arc::new(filled_storage.dtype().clone()),
+                    array.to_extension().ext_dtype().metadata().cloned(),
+                ));
+                return Ok(ExtensionArray::new(new_ext_dtype, filled_storage)
+                    .into_array()
+                    .into());
+            }
+        }
         // TODO(joe): update fuzzer when fixed
         vortex_bail!("fill null not implemented for DType {}", array.dtype())
     }

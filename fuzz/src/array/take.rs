@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -8,6 +10,7 @@ use vortex_array::ToCanonical;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -16,6 +19,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_dtype::DecimalDType;
+use vortex_dtype::ExtDType;
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
@@ -23,7 +27,6 @@ use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-
 pub fn take_canonical_array_non_nullable_indices(
     array: &dyn Array,
     indices: &[usize],
@@ -141,8 +144,23 @@ pub fn take_canonical_array(
             }
             Ok(builder.finish())
         }
-        d @ (DType::Null | DType::Extension(_)) => {
-            unreachable!("DType {d} not supported for fuzzing")
+        DType::Extension(ext_dtype) => {
+            // Extension arrays delegate take to their storage type
+            let taken_storage = take_canonical_array(array.to_extension().storage(), indices)?;
+
+            if taken_storage.dtype().nullability() == ext_dtype.storage_dtype().nullability() {
+                Ok(ExtensionArray::new(ext_dtype.clone(), taken_storage).into_array())
+            } else {
+                let new_ext_dtype = Arc::new(ExtDType::new(
+                    ext_dtype.id().clone(),
+                    Arc::new(taken_storage.dtype().clone()),
+                    ext_dtype.metadata().cloned(),
+                ));
+                Ok(ExtensionArray::new(new_ext_dtype, taken_storage).into_array())
+            }
+        }
+        DType::Null => {
+            unreachable!("Null type not supported for fuzzing")
         }
     }
 }

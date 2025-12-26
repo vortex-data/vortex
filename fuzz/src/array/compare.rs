@@ -123,8 +123,16 @@ pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Oper
             )
             .into_array()
         }
-        d @ (DType::Null | DType::Extension(_)) => {
-            unreachable!("DType {d} not supported for fuzzing")
+        DType::Null => {
+            unreachable!("DType null not supported for fuzzing")
+        }
+        DType::Extension(..) => {
+            // Extension arrays delegate comparison to their storage type
+            compare_canonical_array(
+                array.to_extension().storage(),
+                &value.as_extension().storage(),
+                operator,
+            )
         }
     }
 }

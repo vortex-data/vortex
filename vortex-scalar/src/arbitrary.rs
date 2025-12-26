@@ -67,9 +67,7 @@ fn random_scalar_value(u: &mut Unstructured, dtype: &DType) -> Result<ScalarValu
                 .collect::<Result<Vec<_>>>()?
                 .into(),
         ))),
-        DType::Extension(..) => {
-            unreachable!("Can't yet generate arbitrary scalars for ext dtype")
-        }
+        DType::Extension(ext_dtype) => random_scalar_value(u, ext_dtype.storage_dtype()),
     }
 }
 

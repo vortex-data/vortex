@@ -9,6 +9,8 @@ use arbitrary::Unstructured;
 
 use crate::DType;
 use crate::DecimalDType;
+use crate::ExtDType;
+use crate::ExtID;
 use crate::FieldName;
 use crate::FieldNames;
 use crate::NativeDecimalType;
@@ -16,7 +18,6 @@ use crate::Nullability;
 use crate::PType;
 use crate::StructFields;
 use crate::i256;
-
 mod decimal;
 
 impl<'a> Arbitrary<'a> for DType {
@@ -35,7 +36,7 @@ impl<'a> Arbitrary<'a> for FieldName {
 fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
     const BASE_TYPE_COUNT: i32 = 5;
     // TODO(joe): update to 3 once fsl works
-    const CONTAINER_TYPE_COUNT: i32 = 2;
+    const CONTAINER_TYPE_COUNT: i32 = 3;
     let max_dtype_kind = if depth == 0 {
         BASE_TYPE_COUNT
     } else {
@@ -52,6 +53,8 @@ fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
         // container types
         6 => DType::Struct(random_struct_dtype(u, depth - 1)?, u.arbitrary()?),
         7 => DType::List(Arc::new(random_dtype(u, depth - 1)?), u.arbitrary()?),
+        8 => DType::Extension(Arc::new(random_ext_dtype(u, depth - 1)?)),
+
         // 8 => DType::FixedSizeList(
         //     Arc::new(random_dtype(u, depth - 1)?),
         //     // We limit the list size to 3 rather (following random struct fields).
@@ -100,6 +103,33 @@ impl<'a> Arbitrary<'a> for DecimalDType {
         let scale = u.int_in_range(-i256::MAX_SCALE..=(precision as i8))?;
         Ok(Self::new(precision, scale))
     }
+}
+
+impl<'a> Arbitrary<'a> for ExtDType {
+    fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
+        random_ext_dtype(u, 1)
+    }
+}
+
+fn random_ext_dtype(u: &mut Unstructured<'_>, _depth: u8) -> Result<ExtDType> {
+    let id_str = u.choose(&[
+        "test.ext",
+        "example.currency",
+        "example.uuid",
+        "example.ipv4",
+    ])?;
+    let ext_id = ExtID::from(*id_str);
+
+    // Supports only base types for now
+    let storage_dtype = match u.int_in_range(1..=3)? {
+        // base types
+        1 => DType::Bool(u.arbitrary()?),
+        2 => DType::Primitive(u.arbitrary()?, u.arbitrary()?),
+        3 => DType::Decimal(u.arbitrary()?, u.arbitrary()?),
+        _ => unreachable!("int_in_range(1..=3) returned value out of range"),
+    };
+
+    Ok(ExtDType::new(ext_id, storage_dtype.into(), None))
 }
 
 impl<'a> Arbitrary<'a> for StructFields {

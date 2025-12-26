@@ -129,8 +129,16 @@ pub fn search_sorted_canonical_array(
             let scalar_vals = (0..array.len()).map(|i| array.scalar_at(i)).collect_vec();
             Ok(scalar_vals.search_sorted(&scalar.cast(array.dtype())?, side))
         }
-        d @ (DType::Null | DType::Extension(_)) => {
-            unreachable!("DType {d} not supported for fuzzing")
+        DType::Extension(..) => {
+            // Extension arrays delegate search to their storage type
+            search_sorted_canonical_array(
+                array.to_extension().storage(),
+                &scalar.as_extension().storage(),
+                side,
+            )
+        }
+        DType::Null => {
+            unreachable!("Cannot search sorted on Null array")
         }
     }
 }

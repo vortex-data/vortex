@@ -10,6 +10,7 @@ use arbitrary::Unstructured;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
+use vortex_dtype::ExtDType;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
@@ -164,12 +165,42 @@ fn random_array_chunk(
         DType::FixedSizeList(elem_dtype, list_size, null) => {
             random_fixed_size_list(u, elem_dtype, *list_size, *null, chunk_len)
         }
-        DType::Extension(..) => {
-            todo!("Extension arrays are not implemented")
-        }
+        DType::Extension(ext_dtype) => random_extension(u, ext_dtype, chunk_len),
     }
 }
 
+/// Creates a random extension array.
+///
+/// If the `chunk_len` is specified, the length of the array will be equal to the chunk length.
+fn random_extension(
+    u: &mut Unstructured,
+    ext_dtype: &Arc<ExtDType>,
+    chunk_len: Option<usize>,
+) -> Result<ArrayRef> {
+    use crate::builders::ExtensionBuilder;
+
+    // Determine array length
+    let array_length = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
+
+    // Create builder for the extension array
+    let mut builder = ExtensionBuilder::with_capacity(ext_dtype.clone(), array_length);
+
+    // Generate random values
+    for _ in 0..array_length {
+        // Wrap in extension scalar using Scalar::extension()
+        let ext_scalar = Scalar::extension(
+            ext_dtype.clone(),
+            random_scalar(u, ext_dtype.storage_dtype())?,
+        );
+
+        // Append to builder
+        builder
+            .append_scalar(&ext_scalar)
+            .vortex_expect("can append extension scalar");
+    }
+
+    Ok(builder.finish())
+}
 /// Creates a random fixed-size list array.
 ///
 /// If the `chunk_len` is specified, the length of the array will be equal to the chunk length.
