@@ -70,7 +70,7 @@ mod test {
     use crate::test::SESSION;
 
     fn reader() -> LayoutReaderRef {
-        let ctx = ArrayContext::empty();
+        let ctx = SESSION.arrays().new_context();
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
         let layout = block_on(|handle| async {

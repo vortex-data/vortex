@@ -6,7 +6,6 @@ use std::fmt::Debug;
 use bytes::Buf;
 use flatbuffers::root;
 use flatbuffers::root_unchecked;
-use itertools::Itertools;
 use vortex_array::ArrayContext;
 use vortex_array::serde::ArrayParts;
 use vortex_array::session::ArrayRegistry;
@@ -127,13 +126,9 @@ impl MessageDecoder {
                                 .encodings()
                                 .iter()
                                 .flat_map(|e| e.iter())
-                                .map(|id| {
-                                    self.registry.find(id).ok_or_else(|| {
-                                        vortex_err!("unknown array encoding id: {}", id)
-                                    })
-                                })
-                                .try_collect()?;
-                            let ctx = ArrayContext::new(encodings);
+                                .map(|id| id.to_string())
+                                .collect();
+                            let ctx = ArrayContext::new(self.registry.clone(), encodings);
                             let row_count = header.row_count() as usize;
 
                             self.state = Default::default();

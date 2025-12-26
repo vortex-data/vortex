@@ -5,6 +5,7 @@ use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::registry::Registry;
 
+use crate::ArrayContext;
 use crate::arrays::BoolVTable;
 use crate::arrays::ChunkedVTable;
 use crate::arrays::ConstantVTable;
@@ -43,6 +44,10 @@ impl ArraySession {
     /// Register many array encodings, replacing any existing encodings with the same ID.
     pub fn register_many(&self, encodings: impl IntoIterator<Item = ArrayVTable>) {
         self.registry.register_many(encodings);
+    }
+
+    pub fn new_context(&self) -> ArrayContext {
+        ArrayContext::empty(self.registry.clone())
     }
 }
 

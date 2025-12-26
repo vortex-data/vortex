@@ -161,7 +161,6 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_array::Array;
-    use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
@@ -175,6 +174,7 @@ mod tests {
     use vortex_array::expr::stats::Precision;
     use vortex_array::expr::stats::Stat;
     use vortex_array::expr::stats::StatsProviderExt;
+    use vortex_array::session::ArraySessionExt;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBufferMut;
     use vortex_buffer::buffer;
@@ -199,7 +199,7 @@ mod tests {
     #[test]
     fn flat_stats() {
         block_on(|handle| async {
-            let ctx = ArrayContext::empty();
+            let ctx = SESSION.arrays().new_context();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
@@ -236,7 +236,7 @@ mod tests {
     #[test]
     fn truncates_variable_size_stats() {
         block_on(|handle| async {
-            let ctx = ArrayContext::empty();
+            let ctx = SESSION.arrays().new_context();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let mut builder =
@@ -314,7 +314,7 @@ mod tests {
             )
             .unwrap();
 
-            let ctx = ArrayContext::empty();
+            let ctx = SESSION.arrays().new_context();
 
             // Write the array into a byte buffer.
             let (layout, segments) = {

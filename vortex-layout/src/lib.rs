@@ -11,7 +11,7 @@ pub use gpu::*;
 pub use layout::*;
 pub use reader::*;
 pub use strategy::*;
-use vortex_array::VTableContext;
+use vortex_session::registry::RegistrySet;
 pub use vtable::*;
 pub mod aliases;
 mod children;
@@ -27,7 +27,7 @@ pub mod sequence;
 pub mod session;
 mod strategy;
 #[cfg(test)]
-mod test;
+pub(crate) mod test;
 pub mod vtable;
 
-pub type LayoutContext = VTableContext<LayoutEncodingRef>;
+pub type LayoutContext = RegistrySet<LayoutEncodingRef>;

@@ -152,7 +152,7 @@ impl LayoutChildren for ViewedLayoutChildren {
         };
         let encoding = self
             .layout_ctx
-            .lookup_encoding(fb_child.encoding())
+            .get(fb_child.encoding())
             .ok_or_else(|| vortex_err!("Encoding not found: {}", fb_child.encoding()))?;
 
         encoding.build(

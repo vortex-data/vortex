@@ -298,7 +298,6 @@ mod tests {
     use std::sync::Arc;
 
     use itertools::Itertools;
-    use vortex_array::ArrayContext;
     use vortex_array::IntoArray as _;
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;
@@ -307,6 +306,7 @@ mod tests {
     use vortex_array::expr::lit;
     use vortex_array::expr::or;
     use vortex_array::expr::root;
+    use vortex_array::session::ArraySessionExt;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
@@ -324,7 +324,7 @@ mod tests {
     #[test]
     fn flat_expr_no_row_id() {
         block_on(|handle| async {
-            let ctx = ArrayContext::empty();
+            let ctx = SESSION.arrays().new_context();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let array = buffer![1..=5].into_array();
@@ -365,7 +365,7 @@ mod tests {
     #[test]
     fn flat_expr_row_id() {
         block_on(|handle| async {
-            let ctx = ArrayContext::empty();
+            let ctx = SESSION.arrays().new_context();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let array = buffer![1..=5].into_array();
@@ -406,7 +406,7 @@ mod tests {
     #[test]
     fn flat_expr_or() {
         block_on(|handle| async {
-            let ctx = ArrayContext::empty();
+            let ctx = SESSION.arrays().new_context();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let array = buffer![1..=5].into_array();

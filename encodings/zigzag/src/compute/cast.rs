@@ -42,6 +42,7 @@ mod tests {
     use vortex_dtype::PType;
 
     use crate::ZigZagArray;
+    use crate::ZigZagVTable;
     use crate::zigzag_encode;
 
     #[test]
@@ -61,9 +62,8 @@ mod tests {
 
         // Verify the result is still a ZigZagArray (not decoded)
         // Note: The result might be wrapped, so let's check the encoding ID
-        assert_eq!(
-            casted.encoding().id().as_ref(),
-            "vortex.zigzag",
+        assert!(
+            casted.is::<ZigZagVTable>(),
             "Cast should preserve ZigZag encoding"
         );
 
@@ -82,11 +82,7 @@ mod tests {
             &DType::Primitive(PType::I16, Nullability::NonNullable),
         )
         .unwrap();
-        assert_eq!(
-            casted.encoding().id().as_ref(),
-            "vortex.zigzag",
-            "Should remain ZigZag encoded"
-        );
+        assert!(casted.is::<ZigZagVTable>(), "Should remain ZigZag encoded");
 
         let decoded = casted.to_primitive();
         assert_arrays_eq!(

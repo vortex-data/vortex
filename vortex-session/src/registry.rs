@@ -8,10 +8,11 @@ use std::fmt::Display;
 use std::ops::Deref;
 use std::sync::Arc;
 
+use parking_lot::RwLock;
+use vortex_error::VortexExpect;
 use vortex_utils::aliases::dash_map::DashMap;
 
 /// A registry of items that are keyed by a string identifier.
-// TODO(ngates): define a RegistryItem trait that has a custom key to avoid to_string calls.
 #[derive(Clone, Debug)]
 pub struct Registry<T>(Arc<DashMap<String, T>>);
 
@@ -21,7 +22,7 @@ impl<T> Default for Registry<T> {
     }
 }
 
-impl<T: Clone + Display + Eq> Registry<T> {
+impl<T: Display + Clone + Eq> Registry<T> {
     pub fn empty() -> Self {
         Self(Default::default())
     }
@@ -54,5 +55,55 @@ impl<T: Clone + Display + Eq> Registry<T> {
         for item in items {
             self.0.insert(item.to_string(), item);
         }
+    }
+}
+
+/// A set of ordered items from a registry, addressed by u16 integers.
+/// This can be used to create a dictionary-encoded set of identifiable items.
+#[derive(Clone, Debug)]
+pub struct RegistrySet<T> {
+    registry: Registry<T>,
+    ids: Arc<RwLock<Vec<String>>>,
+}
+
+impl<T: Display + Clone + Eq> RegistrySet<T> {
+    pub fn new(registry: Registry<T>, ids: Vec<String>) -> Self {
+        Self {
+            registry,
+            ids: Arc::new(RwLock::new(ids)),
+        }
+    }
+
+    pub fn empty(registry: Registry<T>) -> Self {
+        Self {
+            registry,
+            ids: Arc::new(RwLock::new(Vec::new())),
+        }
+    }
+
+    pub fn get(&self, position: u16) -> Option<T> {
+        let ids = self.ids.read();
+        let id = ids.get(position as usize)?;
+        self.registry.find(id)
+    }
+
+    pub fn position(&self, id: &str) -> Option<u16> {
+        {
+            let ids = self.ids.read();
+            if let Some(idx) = ids
+                .iter()
+                .position(|arc_str| arc_str.deref() == id)
+                .map(|idx| u16::try_from(idx).vortex_expect("maximum u16 items exceeded"))
+            {
+                return Some(idx);
+            }
+        }
+
+        // Otherwise, try to find in the registry and add it
+        let encoding = self.registry.find(id)?;
+        let mut ids = self.ids.write();
+        let idx = ids.len();
+        ids.push(encoding.to_string());
+        Some(u16::try_from(idx).vortex_expect("maximum u16 items exceeded"))
     }
 }

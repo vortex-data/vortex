@@ -11,7 +11,7 @@ use vortex_session::VortexSession;
 
 use crate::session::LayoutSession;
 
-pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+pub(crate) static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     VortexSession::empty()
         .with::<VortexMetrics>()
         .with::<ArraySession>()

@@ -28,6 +28,7 @@ use vortex_flatbuffers::ReadFlatBuffer;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::array as fba;
 use vortex_flatbuffers::array::Compression;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::Array;
 use crate::ArrayContext;
@@ -35,6 +36,7 @@ use crate::ArrayRef;
 use crate::ArrayVisitor;
 use crate::ArrayVisitorExt;
 use crate::stats::StatsSet;
+use crate::vtable::ArrayId;
 
 /// Options for serializing an array.
 #[derive(Default, Debug)]
@@ -155,6 +157,8 @@ impl dyn Array + '_ {
 
 /// A utility struct for creating an [`fba::ArrayNode`] flatbuffer.
 pub struct ArrayNodeFlatBuffer<'a> {
+    // Lookup from ArrayId to encoding index in the ArrayContext.
+    encodings: Arc<HashMap<ArrayId, u16>>,
     ctx: &'a ArrayContext,
     array: &'a dyn Array,
     buffer_idx: u16,
@@ -162,7 +166,11 @@ pub struct ArrayNodeFlatBuffer<'a> {
 
 impl<'a> ArrayNodeFlatBuffer<'a> {
     pub fn try_new(ctx: &'a ArrayContext, array: &'a dyn Array) -> VortexResult<Self> {
-        // Depth-first traversal of the array to ensure it supports serialization.
+        let mut encodings = HashMap::new();
+
+        // Depth-first traversal of the array to:
+        //   1. ensure it supports serialization
+        //   2. populate the ArrayContext with all encodings
         for child in array.depth_first_traversal() {
             if child.metadata()?.is_none() {
                 vortex_bail!(
@@ -170,6 +178,16 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
                     child.encoding_id()
                 );
             }
+
+            // Ensure the encoding appears in the ArrayContext. The context provides a stable
+            // dictionary encoding of all the array encodings.
+            let encoding_idx = ctx.position(&child.encoding_id()).ok_or_else(|| {
+                vortex_err!(
+                    "Cannot find encoding {} in registry for serialization",
+                    child.encoding_id()
+                )
+            })?;
+            encodings.insert(child.encoding_id(), encoding_idx);
         }
         let n_buffers_recursive = array.nbuffers_recursive();
         if n_buffers_recursive > u16::MAX as usize {
@@ -179,6 +197,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
             );
         };
         Ok(Self {
+            encodings: Arc::new(encodings),
             ctx,
             array,
             buffer_idx: 0,
@@ -195,7 +214,11 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> WIPOffset<Self::Target<'fb>> {
-        let encoding = self.ctx.encoding_idx(&self.array.encoding());
+        let encoding_idx = self
+            .encodings
+            .get(&self.array.encoding_id())
+            .copied()
+            .vortex_expect("All encodings are registered during initial traversal of array tree");
         let metadata = self
             .array
             .metadata()
@@ -216,6 +239,7 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
             .map(|child| {
                 // Update the number of buffers required.
                 let msg = ArrayNodeFlatBuffer {
+                    encodings: self.encodings.clone(),
                     ctx: self.ctx,
                     array: child,
                     buffer_idx: child_buffer_idx,
@@ -236,7 +260,7 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
         fba::ArrayNode::create(
             fbb,
             &fba::ArrayNodeArgs {
-                encoding,
+                encoding: encoding_idx,
                 metadata,
                 children,
                 buffers,
@@ -295,7 +319,7 @@ impl ArrayParts {
     pub fn decode(&self, ctx: &ArrayContext, dtype: &DType, len: usize) -> VortexResult<ArrayRef> {
         let encoding_id = self.flatbuffer().encoding();
         let vtable = ctx
-            .lookup_encoding(encoding_id)
+            .get(encoding_id)
             .ok_or_else(|| vortex_err!("Unknown encoding: {}", encoding_id))?;
 
         let buffers: Vec<_> = (0..self.nbuffers())

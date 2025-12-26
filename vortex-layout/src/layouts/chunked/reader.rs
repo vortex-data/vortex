@@ -314,11 +314,11 @@ mod test {
     use futures::stream;
     use rstest::fixture;
     use rstest::rstest;
-    use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::assert_arrays_eq;
     use vortex_array::expr::root;
+    use vortex_array::session::ArraySessionExt;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::NonNullable;
@@ -339,7 +339,7 @@ mod test {
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
     fn chunked_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
-        let ctx = ArrayContext::empty();
+        let ctx = SESSION.arrays().new_context();
 
         let segments = Arc::new(TestSegments::default());
         let strategy = ChunkedLayoutStrategy::new(FlatLayoutStrategy::default());

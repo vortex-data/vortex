@@ -209,11 +209,11 @@ impl LayoutStrategy for StructStrategy {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_array::ArrayContext;
     use vortex_array::Canonical;
     use vortex_array::IntoArray as _;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::session::ArraySessionExt;
     use vortex_array::validity::Validity;
     use vortex_dtype::DType;
     use vortex_dtype::FieldNames;
@@ -227,6 +227,7 @@ mod tests {
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
+    use crate::test::SESSION;
 
     #[test]
     #[should_panic]
@@ -234,7 +235,8 @@ mod tests {
         let strategy =
             StructStrategy::new(FlatLayoutStrategy::default(), FlatLayoutStrategy::default());
         let (ptr, eof) = SequenceId::root().split();
-        let ctx = ArrayContext::empty();
+        let ctx = SESSION.arrays().new_context();
+        SESSION.arrays().new_context();
 
         let segments = Arc::new(TestSegments::default());
         block_on(|handle| {
@@ -265,7 +267,7 @@ mod tests {
         let strategy =
             StructStrategy::new(FlatLayoutStrategy::default(), FlatLayoutStrategy::default());
         let (ptr, eof) = SequenceId::root().split();
-        let ctx = ArrayContext::empty();
+        let ctx = SESSION.arrays().new_context();
 
         let segments = Arc::new(TestSegments::default());
         let res = block_on(|handle| {

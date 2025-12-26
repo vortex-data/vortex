@@ -50,7 +50,7 @@ pub fn layout_from_flatbuffer(
 ) -> VortexResult<LayoutRef> {
     let fb_layout = root_with_opts::<layout::Layout>(&LAYOUT_VERIFIER, &flatbuffer)?;
     let encoding = layout_ctx
-        .lookup_encoding(fb_layout.encoding())
+        .get(fb_layout.encoding())
         .ok_or_else(|| vortex_err!("Invalid encoding ID: {}", fb_layout.encoding()))?;
 
     // SAFETY: we validate the flatbuffer above in the `root` call, and extract a loc.
@@ -89,6 +89,7 @@ impl dyn Layout + '_ {
         &'a self,
         ctx: &'a LayoutContext,
     ) -> impl WriteFlatBuffer<Target<'a> = layout::Layout<'a>> + FlatBufferRoot + 'a {
+        // FIXME(ngates): pre-compute the layout indices?
         LayoutFlatBufferWriter { layout: self, ctx }
     }
 }
@@ -138,7 +139,16 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
         let segments = (!segments.is_empty()).then(|| fbb.create_vector(&segments));
 
         // Dictionary-encode the layout ID
-        let encoding = self.ctx.encoding_idx(&self.layout.encoding());
+        let encoding = self
+            .ctx
+            .position(&self.layout.encoding_id())
+            .ok_or_else(|| {
+                vortex_err!(
+                    "LayoutContext missing encoding {}",
+                    self.layout.encoding_id(),
+                )
+            })
+            .vortex_expect("Failed to dictionary-encode layout ID");
 
         layout::Layout::create(
             fbb,

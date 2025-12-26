@@ -5,7 +5,6 @@ use bytes::Bytes;
 use bytes::BytesMut;
 use flatbuffers::FlatBufferBuilder;
 use vortex_array::Array;
-use vortex_array::ArrayContext;
 use vortex_array::serde::SerializeOptions;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -56,7 +55,7 @@ impl MessageEncoder {
             EncoderMessage::Array(array) => {
                 // Currently we include a Context in every message. We could convert this to
                 // sending deltas later.
-                let ctx = ArrayContext::empty();
+                let ctx = SESSION.arrays().new_context();
                 let array_buffers = array
                     .serialize(&ctx, &SerializeOptions::default())
                     // TODO(ngates): we should propagate this somehow
