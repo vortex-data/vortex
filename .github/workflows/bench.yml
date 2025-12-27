@@ -66,9 +66,8 @@ jobs:
         shell: bash
         env:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
-        # The main difference between this and `bench-pr.yml` is that we add the `lance` feature.
         run: |
-          cargo build --bin ${{ matrix.benchmark.id }} --package vortex-bench --profile release_debug --features lance
+          cargo build --bin ${{ matrix.benchmark.id }} --package vortex-bench --profile release_debug
 
       - name: Setup Polar Signals
         uses: polarsignals/gh-actions-ps-profiling@v0.6.0
