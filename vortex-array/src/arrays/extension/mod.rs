@@ -8,3 +8,6 @@ mod compute;
 
 mod vtable;
 pub use vtable::ExtensionVTable;
+
+mod validate;
+pub use validate::validator_for_ext_type;

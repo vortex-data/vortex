@@ -59,6 +59,8 @@ pub enum VortexFuzzError {
     LengthMismatch(usize, usize, ArrayRef, ArrayRef, usize, Backtrace),
 
     VortexError(VortexError, Backtrace),
+
+    DomainValidationFailed(Scalar, usize, ArrayRef, usize, Backtrace),
 }
 
 impl Debug for VortexFuzzError {
@@ -121,6 +123,13 @@ impl Display for VortexFuzzError {
                     rhs.display_tree(),
                 )
             }
+            VortexFuzzError::DomainValidationFailed(expected, idx, lhs, step, backtrace) => {
+                write!(
+                    f,
+                    "Domain validation failed:\n  Scalar: {expected}\n  Index: {idx}\n  Array: {}\n  Step: {step}\nBacktrace:\n{backtrace}",
+                    lhs.display_tree(),
+                )
+            }
             VortexFuzzError::VortexError(err, backtrace) => {
                 write!(f, "{err}\nBacktrace:\n{backtrace}")
             }
@@ -137,6 +146,7 @@ impl Error for VortexFuzzError {
             | VortexFuzzError::LengthMismatch(..)
             | VortexFuzzError::ScalarMismatch(..)
             | VortexFuzzError::MinMaxMismatch(..)
+            | VortexFuzzError::DomainValidationFailed(..)
             | VortexFuzzError::DTypeMismatch(..) => None,
         }
     }

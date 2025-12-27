@@ -10,13 +10,17 @@ use arbitrary::Unstructured;
 use crate::DType;
 use crate::DecimalDType;
 use crate::ExtDType;
-use crate::ExtID;
 use crate::FieldName;
 use crate::FieldNames;
 use crate::NativeDecimalType;
 use crate::Nullability;
 use crate::PType;
 use crate::StructFields;
+use crate::datetime::DATE_ID;
+use crate::datetime::TIME_ID;
+use crate::datetime::TIMESTAMP_ID;
+use crate::datetime::TemporalMetadata;
+use crate::datetime::TimeUnit;
 use crate::i256;
 mod decimal;
 
@@ -112,24 +116,65 @@ impl<'a> Arbitrary<'a> for ExtDType {
 }
 
 fn random_ext_dtype(u: &mut Unstructured<'_>, _depth: u8) -> Result<ExtDType> {
-    let id_str = u.choose(&[
-        "test.ext",
-        "example.currency",
-        "example.uuid",
-        "example.ipv4",
-    ])?;
-    let ext_id = ExtID::from(*id_str);
+    let choice = u.int_in_range(0..=2)?;
 
-    // Supports only base types for now
-    let storage_dtype = match u.int_in_range(1..=3)? {
-        // base types
-        1 => DType::Bool(u.arbitrary()?),
-        2 => DType::Primitive(u.arbitrary()?, u.arbitrary()?),
-        3 => DType::Decimal(u.arbitrary()?, u.arbitrary()?),
-        _ => unreachable!("int_in_range(1..=3) returned value out of range"),
-    };
+    match choice {
+        0 => {
+            // DATE: i32 (Days) or i64 (Milliseconds)
+            let (ptype, time_unit) = match u.int_in_range(0..=1)? {
+                0 => (PType::I32, TimeUnit::Days),
+                1 => (PType::I64, TimeUnit::Milliseconds),
+                _ => unreachable!(),
+            };
 
-    Ok(ExtDType::new(ext_id, storage_dtype.into(), None))
+            Ok(ExtDType::new(
+                DATE_ID.clone(),
+                DType::Primitive(ptype, u.arbitrary()?).into(),
+                Some(TemporalMetadata::Date(time_unit).into()),
+            ))
+        }
+        1 => {
+            // TIME: i32 for Seconds/Milliseconds, i64 for Microseconds/Nanoseconds
+            let (ptype, time_unit) = match u.int_in_range(0..=3)? {
+                0 => (PType::I32, TimeUnit::Seconds),
+                1 => (PType::I32, TimeUnit::Milliseconds),
+                2 => (PType::I64, TimeUnit::Microseconds),
+                3 => (PType::I64, TimeUnit::Nanoseconds),
+                _ => unreachable!(),
+            };
+
+            Ok(ExtDType::new(
+                TIME_ID.clone(),
+                DType::Primitive(ptype, u.arbitrary()?).into(),
+                Some(TemporalMetadata::Time(time_unit).into()),
+            ))
+        }
+        2 => {
+            // TIMESTAMP: always i64 with time unit and optional timezone
+            let time_unit = match u.int_in_range(0..=3)? {
+                0 => TimeUnit::Seconds,
+                1 => TimeUnit::Milliseconds,
+                2 => TimeUnit::Microseconds,
+                3 => TimeUnit::Nanoseconds,
+                _ => unreachable!(),
+            };
+
+            let time_zone = u
+                .arbitrary::<bool>()?
+                .then(|| {
+                    u.choose(&["UTC", "America/New_York", "Europe/London", "Asia/Tokyo"])
+                        .map(|s| s.to_string())
+                })
+                .transpose()?;
+
+            Ok(ExtDType::new(
+                TIMESTAMP_ID.clone(),
+                DType::Primitive(PType::I64, u.arbitrary()?).into(),
+                Some(TemporalMetadata::Timestamp(time_unit, time_zone).into()),
+            ))
+        }
+        _ => unreachable!(),
+    }
 }
 
 impl<'a> Arbitrary<'a> for StructFields {

@@ -662,6 +662,9 @@ pub fn assert_array_eq(
     rhs: &ArrayRef,
     step: usize,
 ) -> crate::error::VortexFuzzResult<()> {
+    use vortex_array::ToCanonical;
+    use vortex_array::arrays::validator_for_ext_type;
+
     use crate::error::Backtrace;
     use crate::error::VortexFuzzError;
 
@@ -699,7 +702,22 @@ pub fn assert_array_eq(
                 Backtrace::capture(),
             ));
         }
+
+        // Also validate the expected array's domain constraints for extension types
+        if matches!(lhs.dtype(), DType::Extension(..)) {
+            let validator = validator_for_ext_type(lhs.to_extension().ext_dtype());
+            if !validator(&l) {
+                return Err(VortexFuzzError::DomainValidationFailed(
+                    l,
+                    idx,
+                    lhs.clone(),
+                    step,
+                    Backtrace::capture(),
+                ));
+            }
+        }
     }
+
     Ok(())
 }
 

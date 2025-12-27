@@ -31,6 +31,7 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::validator_for_ext_type;
 use crate::builders::ArrayBuilder;
 use crate::builders::DecimalBuilder;
 use crate::builders::FixedSizeListBuilder;
@@ -170,7 +171,6 @@ fn random_array_chunk(
 }
 
 /// Creates a random extension array.
-///
 /// If the `chunk_len` is specified, the length of the array will be equal to the chunk length.
 fn random_extension(
     u: &mut Unstructured,
@@ -179,24 +179,34 @@ fn random_extension(
 ) -> Result<ArrayRef> {
     use crate::builders::ExtensionBuilder;
 
+    // Get the validator for this extension type
+    let validator = validator_for_ext_type(ext_dtype);
+
     // Determine array length
     let array_length = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
 
     // Create builder for the extension array
     let mut builder = ExtensionBuilder::with_capacity(ext_dtype.clone(), array_length);
 
-    // Generate random values
+    // Generate random values, retrying if they don't pass validation
     for _ in 0..array_length {
-        // Wrap in extension scalar using Scalar::extension()
-        let ext_scalar = Scalar::extension(
-            ext_dtype.clone(),
-            random_scalar(u, ext_dtype.storage_dtype())?,
-        );
+        // Retry loop to generate valid values
+        loop {
+            // Generate a random storage scalar
+            let storage_scalar = random_scalar(u, ext_dtype.storage_dtype())?;
 
-        // Append to builder
-        builder
-            .append_scalar(&ext_scalar)
-            .vortex_expect("can append extension scalar");
+            // Wrap it in an extension scalar
+            let ext_scalar = Scalar::extension(ext_dtype.clone(), storage_scalar);
+
+            // Validate the scalar
+            if validator(&ext_scalar) {
+                // Valid value - append and break
+                builder
+                    .append_scalar(&ext_scalar)
+                    .vortex_expect("can append extension scalar");
+                break;
+            }
+        }
     }
 
     Ok(builder.finish())
