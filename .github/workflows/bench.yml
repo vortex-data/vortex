@@ -43,9 +43,9 @@ jobs:
     strategy:
       matrix:
         benchmark:
-          - id: random_access
+          - id: random-access-bench
             name: Random Access
-          - id: compress
+          - id: compress-bench
             name: Compression
     steps:
       - uses: runs-on/action@v2
