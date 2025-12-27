@@ -7,6 +7,7 @@ use vortex_dtype::FieldName;
 use vortex_dtype::FieldNames;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
+use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::IntoArray;
@@ -149,4 +150,181 @@ fn test_uncompressed_size_in_bytes() {
 
     assert_eq!(canonical_size, 2);
     assert_eq!(uncompressed_size, Some(4000));
+}
+
+#[test]
+fn test_push_validity_into_children_preserve_struct() {
+    // Create struct with top-level nulls
+    // structArray : [a, b]
+    // fields: [1, 2, 3] (a), [10, 20, 30] (b)
+    // validity: [true, false, true]
+    // row 1 is null at struct level
+    let struct_array = StructArray::try_new(
+        ["a", "b"].into(),
+        vec![
+            buffer![1i32, 2i32, 3i32].into_array(),
+            buffer![10i32, 20i32, 30i32].into_array(),
+        ],
+        3,
+        Validity::from_iter([true, false, true]), // row 1 is null at struct level
+    )
+    .unwrap();
+
+    // Push validity into children, preserving struct validity
+    let pushed = struct_array.push_validity_into_children(true).unwrap();
+
+    // Check that struct validity is preserved
+    assert_eq!(pushed.validity_mask(), struct_array.validity_mask());
+
+    // Check that children now have nulls where struct was null
+    let field_a = pushed.fields()[0].as_ref();
+    let field_b = pushed.fields()[1].as_ref();
+
+
+    assert!(field_a.is_valid(0));
+    assert!(!field_a.is_valid(1)); // Should be null due to struct null
+    assert!(field_a.is_valid(2));
+
+    assert!(field_b.is_valid(0));
+    assert!(!field_b.is_valid(1)); // Should be null due to struct null
+    assert!(field_b.is_valid(2));
+
+
+    // Original values should be preserved where valid
+    assert_eq!(field_a.scalar_at(0), 1i32.into());
+    assert_eq!(field_a.scalar_at(2), 3i32.into());
+    assert_eq!(field_b.scalar_at(0), 10i32.into());
+    assert_eq!(field_b.scalar_at(2), 30i32.into());
+
+
+    // Verify pushed struct array values (preserve_struct_validity = true)
+    assert!(pushed.is_valid(0));  // Row 0 should be valid
+    assert!(!pushed.is_valid(1)); // Row 1 should be null (preserved)
+    assert!(pushed.is_valid(2));  // Row 2 should be valid
+
+    // Row 0: {a: 1, b: 10} - should be valid struct with valid fields
+    let row0 = pushed.scalar_at(0);
+    assert!(row0.is_valid());
+
+    // Row 1: null - should be null struct (preserved from original)
+    let row1 = pushed.scalar_at(1);
+    assert!(!row1.is_valid());
+
+    // Row 2: {a: 3, b: 30} - should be valid struct with valid fields
+    let row2 = pushed.scalar_at(2);
+    assert!(row2.is_valid());
+
+}
+
+#[test]
+fn test_push_validity_into_children_remove_struct() {
+
+    // Create struct with top-level nulls
+    let struct_array = StructArray::try_new(
+        ["a", "b"].into(),
+        vec![
+            buffer![1i32, 2i32, 3i32].into_array(),
+            buffer![10i32, 20i32, 30i32].into_array(),
+        ],
+        3,
+        Validity::from_iter([true, false, true]), // row 1 is null at struct level
+    )
+    .unwrap();
+
+
+    // Push validity into children, removing struct validity when default behavior is used (preserve_struct_validity = false)
+    let pushed = struct_array.push_validity_into_children_default().unwrap();
+
+
+    // Check that struct validity is now AllValid
+    assert!(pushed.validity_mask().all_true());
+
+    // Check that children still have nulls where struct was null
+    let field_a = pushed.fields()[0].as_ref();
+    let field_b = pushed.fields()[1].as_ref();
+
+
+    assert!(field_a.is_valid(0));
+    assert!(!field_a.is_valid(1)); // Should be null due to struct null
+    assert!(field_a.is_valid(2));
+
+    assert!(field_b.is_valid(0));
+    assert!(!field_b.is_valid(1)); // Should be null due to struct null
+    assert!(field_b.is_valid(2));
+
+
+    // Original values should be preserved where valid
+    assert_eq!(field_a.scalar_at(0), 1i32.into());
+    assert_eq!(field_a.scalar_at(2), 3i32.into());
+    assert_eq!(field_b.scalar_at(0), 10i32.into());
+    assert_eq!(field_b.scalar_at(2), 30i32.into());
+
+    // Verify null values using proper null scalar comparison
+    use vortex_dtype::{DType, Nullability, PType};
+    let null_i32_scalar = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
+    assert_eq!(field_a.scalar_at(1), null_i32_scalar);
+    assert_eq!(field_b.scalar_at(1), null_i32_scalar);
+
+    // Alternative: check if the scalar is null
+    assert!(!field_a.scalar_at(1).is_valid());
+    assert!(!field_b.scalar_at(1).is_valid());
+
+    // Verify pushed struct array values (preserve_struct_validity = false)
+    assert!(pushed.is_valid(0)); // Row 0 should be valid
+    assert!(pushed.is_valid(1)); // Row 1 should be valid (validity removed)
+    assert!(pushed.is_valid(2)); // Row 2 should be valid
+
+    // Row 0: {a: 1, b: 10} - should be valid struct with valid fields
+    let row0 = pushed.scalar_at(0);
+    assert!(row0.is_valid());
+
+    // Row 1: {a: null, b: null} - should be valid struct but with null fields
+    let row1 = pushed.scalar_at(1);
+    assert!(row1.is_valid()); // Struct is valid, but fields are null
+
+    // Row 2: {a: 3, b: 30} - should be valid struct with valid fields
+    let row2 = pushed.scalar_at(2);
+    assert!(row2.is_valid());
+
+}
+
+#[test]
+fn test_push_validity_into_children_no_nulls() {
+    // Create struct without any nulls
+    let struct_array = StructArray::try_new(
+        ["a", "b"].into(),
+        vec![
+            buffer![1i32, 2i32, 3i32].into_array(),
+            buffer![10i32, 20i32, 30i32].into_array(),
+        ],
+        3,
+        Validity::AllValid,
+    )
+    .unwrap();
+
+
+    // Push validity into children (should be no-op when preserve=true)
+    let pushed_preserve = struct_array.push_validity_into_children(true).unwrap();
+    assert_eq!(pushed_preserve.validity_mask(), struct_array.validity_mask());
+
+    // Push validity into children (should change validity to AllValid when preserve=false)
+    let pushed_remove = struct_array.push_validity_into_children(false).unwrap();
+    assert!(pushed_remove.validity_mask().all_true());
+
+    // Fields should remain unchanged
+    for i in 0..struct_array.fields().len() {
+        assert_eq!(
+            pushed_preserve.fields()[i].scalar_at(0),
+            struct_array.fields()[i].scalar_at(0)
+        );
+        assert_eq!(
+            pushed_preserve.fields()[i].scalar_at(1),
+            struct_array.fields()[i].scalar_at(1)
+        );
+        assert_eq!(
+            pushed_preserve.fields()[i].scalar_at(2),
+            struct_array.fields()[i].scalar_at(2)
+        );
+    }
+
 }
