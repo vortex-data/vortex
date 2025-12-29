@@ -258,7 +258,7 @@ org.glassfish.jersey.core:jersey-server:2.40 (3 constraints: 363eb427)
 
 org.glassfish.jersey.inject:jersey-hk2:2.40 (1 constraints: ea0cbc29)
 
-org.immutables:value:2.11.7 (1 constraints: 3d05393b)
+org.immutables:value:2.12.0 (1 constraints: 3705353b)
 
 org.javassist:javassist:3.29.2-GA (1 constraints: 30112ef1)
 
