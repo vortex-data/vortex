@@ -124,9 +124,8 @@ jobs:
             "name": "TPC-H SF=1 on S3",
             "local_dir": "vortex-bench/data/tpch/1.0",
             "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/${{github.run_id}}/tpch/1.0/",
-            "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,datafusion:lance,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
-            "scale_factor": "1.0",
-            "build_lance": true
+            "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
+            "scale_factor": "1.0"
           },
           {
             "id": "tpch-nvme-10",
@@ -142,9 +141,8 @@ jobs:
             "name": "TPC-H SF=10 on S3",
             "local_dir": "vortex-bench/data/tpch/10.0",
             "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/${{github.run_id}}/tpch/10.0/",
-            "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,datafusion:lance,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
-            "scale_factor": "10.0",
-            "build_lance": true
+            "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
+            "scale_factor": "10.0"
           },
           {
             "id": "tpcds-nvme",
