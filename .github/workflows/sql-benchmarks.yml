@@ -190,9 +190,14 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
-          # Extract formats for each engine (filter out lance from df_formats)
-          df_formats=$(echo "${{ matrix.targets }}" | tr ',' '\n' | (grep '^datafusion:' | grep -v ':lance$' || true) | sed 's/datafusion://' | tr '\n' ',' | sed 's/,$//')
-          ddb_formats=$(echo "${{ matrix.targets }}" | tr ',' '\n' | (grep '^duckdb:' || true) | sed 's/duckdb://' | tr '\n' ',' | sed 's/,$//')
+          # Extract formats for each engine from the targets string.
+          # Example input: "datafusion:parquet,datafusion:vortex,datafusion:lance,duckdb:parquet"
+          #
+          # Pipeline: split by comma -> filter by engine prefix -> remove prefix -> rejoin with commas
+
+          # Lance is filtered out of df_formats because it uses a separate binary (lance-bench).
+          df_formats=$(echo "${{ matrix.targets }}" | tr ',' '\n' | grep '^datafusion:' | grep -v ':lance$' | sed 's/datafusion://' | tr '\n' ',' | sed 's/,$//')
+          ddb_formats=$(echo "${{ matrix.targets }}" | tr ',' '\n' | grep '^duckdb:' | sed 's/duckdb://' | tr '\n' ',' | sed 's/,$//')
           has_lance=$(echo "${{ matrix.targets }}" | grep -q 'datafusion:lance' && echo "true" || echo "false")
 
           # Build options string if scale_factor is set
@@ -247,9 +252,22 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
-          # Extract formats for each engine
-          ddb_formats=$(echo "${{ matrix.targets }}" | tr ',' '\n' | grep '^duckdb:' | sed 's/duckdb://' | tr '\n' ',' | sed 's/,$//')
+          # Lance on remote storage is not supported. The infrastructure to generate and upload
+          # lance files to S3 does not exist. If you need lance on S3, you must first implement:
+          # 1. Lance data generation in data-gen (or a separate step)
+          # 2. Lance data upload to S3 before this step runs
+          if echo "${{ matrix.targets }}" | grep -q 'lance'; then
+            echo "ERROR: Lance format is not supported for remote storage benchmarks."
+            echo "Remove 'datafusion:lance' from targets for benchmark '${{ matrix.id }}'."
+            exit 1
+          fi
+
+          # Extract formats for each engine from the targets string.
+          # Example input: "datafusion:parquet,datafusion:vortex,duckdb:parquet"
+          #
+          # Pipeline: split by comma -> filter by engine prefix -> remove prefix -> rejoin with commas
           df_formats=$(echo "${{ matrix.targets }}" | tr ',' '\n' | grep '^datafusion:' | sed 's/datafusion://' | tr '\n' ',' | sed 's/,$//')
+          ddb_formats=$(echo "${{ matrix.targets }}" | tr ',' '\n' | grep '^duckdb:' | sed 's/duckdb://' | tr '\n' ',' | sed 's/,$//')
 
           # Build options string if scale_factor is set
           opts="--opt remote-data-dir=${{ matrix.remote_storage }}"

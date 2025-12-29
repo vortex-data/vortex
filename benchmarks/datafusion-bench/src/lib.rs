@@ -107,6 +107,8 @@ pub fn format_to_df_format(format: Format) -> Arc<dyn FileFormat> {
         Format::OnDiskVortex | Format::VortexCompact => {
             Arc::new(VortexFormat::new(SESSION.clone()))
         }
-        _ => unimplemented!(),
+        Format::OnDiskDuckDB | Format::Lance => {
+            unimplemented!("Format {format} cannot be turned into a DataFusion `FileFormat`")
+        }
     }
 }
