@@ -67,7 +67,7 @@ jobs:
         env:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
-          cargo build --bin ${{ matrix.benchmark.id }} --package vortex-bench --profile release_debug
+          cargo build --bin ${{ matrix.benchmark.id }} --profile release_debug
 
       - name: Setup Polar Signals
         uses: polarsignals/gh-actions-ps-profiling@v0.6.0
@@ -83,7 +83,7 @@ jobs:
         env:
           RUST_BACKTRACE: full
         run: |
-          target/release_debug/${{ matrix.benchmark.id }} --formats parquet,lance,vortex -o results.json
+          target/release_debug/${{ matrix.benchmark.id }} --formats parquet,lance,vortex -d gh-json -o results.json
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v5
