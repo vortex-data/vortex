@@ -501,25 +501,19 @@ impl StructArray {
     /// // pushed_no_struct.validity is AllValid
     /// ```
     /// Push validity into children with default behavior (preserve_struct_validity = false).
-    ///
-    /// This is equivalent to calling `push_validity_into_children(false)`.
-    pub fn push_validity_into_children_default(&self) -> VortexResult<Self> {
-        self.push_validity_into_children(false)
-    }
-
 
     pub fn push_validity_into_children(&self, preserve_struct_validity: bool) -> VortexResult<Self> {
         use crate::compute::mask;
 
-        // Get the struct-level validity mask
+        // Get the struct-level validity mask.
         let struct_validity_mask = self.validity_mask();
 
-        // If the struct has no nulls, return a clone
+        // If the struct has no nulls, return a clone.
         if struct_validity_mask.all_true() {
             return if preserve_struct_validity {
                 Ok(self.clone())
             } else {
-                // Remove struct validity if requested
+                // Remove struct validity if requested.
                 Self::try_new(
                     self.names().clone(),
                     self.fields().clone(),
@@ -529,9 +523,9 @@ impl StructArray {
             };
         }
 
-        // Apply the struct validity mask to each child field
-        // We want to set nulls where the struct is null (i.e., where struct_validity_mask is false)
-        // So we need to invert the mask: where struct is invalid, set child to invalid
+        // Apply the struct validity mask to each child field.
+        // We want to set nulls where the struct is null (i.e., where struct_validity_mask is false).
+        // So we need to invert the mask: where struct is invalid, set child to invalid.
         let null_mask = struct_validity_mask.iter_bools(|iter| {
             Mask::from_iter(iter.map(|valid| !valid)) // invert: valid->invalid, invalid->valid
         });
@@ -540,19 +534,19 @@ impl StructArray {
             .fields()
             .iter()
             .map(|field| {
-                // Use the mask function to apply null positions to each field
+                // Use the mask function to apply null positions to each field.
                 mask(field.as_ref(), &null_mask)
             })
             .collect::<VortexResult<Vec<_>>>()?;
 
-        // Determine the new struct validity (default to false = remove struct validity)
+        // Determine the new struct validity (default to false = remove struct validity).
         let new_struct_validity = if preserve_struct_validity {
             self.validity.clone()
         } else {
             Validity::AllValid
         };
 
-        // Construct the new struct array
+        // Construct the new struct array.
         Self::try_new(
             self.names().clone(),
             masked_fields,

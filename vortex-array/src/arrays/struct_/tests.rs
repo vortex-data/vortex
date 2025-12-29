@@ -232,8 +232,8 @@ fn test_push_validity_into_children_remove_struct() {
     .unwrap();
 
 
-    // Push validity into children, removing struct validity when default behavior is used (preserve_struct_validity = false)
-    let pushed = struct_array.push_validity_into_children_default().unwrap();
+    // Push validity into children, removing struct validity (preserve_struct_validity = false)
+    let pushed = struct_array.push_validity_into_children(false).unwrap();
 
 
     // Check that struct validity is now AllValid
