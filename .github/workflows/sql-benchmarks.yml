@@ -190,59 +190,8 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
-          # Extract formats for each engine from the targets string.
-          # Example input: "datafusion:parquet,datafusion:vortex,datafusion:lance,duckdb:parquet"
-          #
-          # Pipeline: split by comma -> filter by engine prefix -> remove prefix -> rejoin with commas
-
-          # Lance is filtered out of df_formats because it uses a separate binary (lance-bench).
-          #
-          # The `|| true` is needed because some benchmarks don't use all engines. grep returns exit code 1 when no matches are found, and
-          # GitHub Actions uses `bash -eo pipefail` by default.
-          df_formats=$(echo "${{ matrix.targets }}" | tr ',' '\n' | (grep '^datafusion:' || true) | grep -v ':lance$' | sed 's/datafusion://' | tr '\n' ',' | sed 's/,$//')
-          ddb_formats=$(echo "${{ matrix.targets }}" | tr ',' '\n' | (grep '^duckdb:' || true) | sed 's/duckdb://' | tr '\n' ',' | sed 's/,$//')
-          has_lance=$(echo "${{ matrix.targets }}" | grep -q 'datafusion:lance' && echo "true" || echo "false")
-
-          # Build options string if scale_factor is set
-          opts=""
-          if [ -n "${{ matrix.scale_factor }}" ]; then
-            opts="--opt scale-factor=${{ matrix.scale_factor }}"
-          fi
-
-          touch results.json
-
-          # Run datafusion-bench
-          if [ -n "$df_formats" ]; then
-            target/release_debug/datafusion-bench ${{ matrix.subcommand }} \
-              -d gh-json \
-              --formats "$df_formats" \
-              $opts \
-              -o df-results.json
-
-            cat df-results.json >> results.json
-          fi
-
-          # Run duckdb-bench
-          if [ -n "$ddb_formats" ]; then
-            target/release_debug/duckdb-bench ${{ matrix.subcommand }} \
-              -d gh-json \
-              --formats "$ddb_formats" \
-              $opts \
-              --delete-duckdb-database \
-              -o ddb-results.json
-
-            cat ddb-results.json >> results.json
-          fi
-
-          # Run lance-bench
-          if [ "$has_lance" = "true" ] && [ -f "target/release_debug/lance-bench" ]; then
-            target/release_debug/lance-bench ${{ matrix.subcommand }} \
-              -d gh-json \
-              $opts \
-              -o lance-results.json
-
-            cat lance-results.json >> results.json
-          fi
+          .github/scripts/run-sql-bench.sh "${{ matrix.subcommand }}" "${{ matrix.targets }}" \
+            ${{ matrix.scale_factor && format('--scale-factor {0}', matrix.scale_factor) || '' }}
 
       - name: Run ${{ matrix.name }} benchmark (remote)
         if: matrix.remote_storage != null && (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false)
@@ -255,56 +204,10 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
-          # Lance on remote storage is not supported. The infrastructure to generate and upload
-          # lance files to S3 does not exist. If you need lance on S3, you must first implement:
-          # 1. Lance data generation in data-gen (or a separate step)
-          # 2. Lance data upload to S3 before this step runs
-          if echo "${{ matrix.targets }}" | grep -q 'lance'; then
-            echo "ERROR: Lance format is not supported for remote storage benchmarks."
-            echo "Remove 'datafusion:lance' from targets for benchmark '${{ matrix.id }}'."
-            exit 1
-          fi
-
-          # Extract formats for each engine from the targets string.
-          # Example input: "datafusion:parquet,datafusion:vortex,duckdb:parquet"
-          #
-          # Pipeline: split by comma -> filter by engine prefix -> remove prefix -> rejoin with commas
-          #
-          # The `|| true` is needed because some benchmarks don't use all engines. grep returns exit
-          # code 1 when no matches are found, and GitHub Actions uses `bash -eo pipefail`.
-          df_formats=$(echo "${{ matrix.targets }}" | tr ',' '\n' | (grep '^datafusion:' || true) | sed 's/datafusion://' | tr '\n' ',' | sed 's/,$//')
-          ddb_formats=$(echo "${{ matrix.targets }}" | tr ',' '\n' | (grep '^duckdb:' || true) | sed 's/duckdb://' | tr '\n' ',' | sed 's/,$//')
-
-          # Build options string if scale_factor is set
-          opts="--opt remote-data-dir=${{ matrix.remote_storage }}"
-          if [ -n "${{ matrix.scale_factor }}" ]; then
-            opts="--opt scale-factor=${{ matrix.scale_factor }} ${opts}"
-          fi
-
-          touch results.json
-
-          # Run datafusion-bench with remote storage
-          if [ -n "$df_formats" ]; then
-            target/release_debug/datafusion-bench ${{ matrix.subcommand }} \
-              -d gh-json \
-              --formats "$df_formats" \
-              $opts \
-              -o df-results.json
-
-            cat df-results.json >> results.json
-          fi
-
-          # Run duckdb-bench with remote storage
-          if [ -n "$ddb_formats" ]; then
-            target/release_debug/duckdb-bench ${{ matrix.subcommand }} \
-              -d gh-json \
-              --formats "$ddb_formats" \
-              $opts \
-              --delete-duckdb-database \
-              -o ddb-results.json
-
-            cat ddb-results.json >> results.json
-          fi
+          .github/scripts/run-sql-bench.sh "${{ matrix.subcommand }}" "${{ matrix.targets }}" \
+            --remote-storage "${{ matrix.remote_storage }}" \
+            --benchmark-id "${{ matrix.id }}" \
+            ${{ matrix.scale_factor && format('--scale-factor {0}', matrix.scale_factor) || '' }}
 
       - name: Install uv
         if: inputs.mode == 'pr'
