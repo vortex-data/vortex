@@ -73,8 +73,9 @@ fi
 # Lance is filtered out of df_formats because it uses a separate binary (lance-bench).
 #
 # The `|| true` is needed because some benchmarks don't use all engines (e.g., statpopgen only has
-# duckdb targets). grep returns exit code 1 when no matches are found.
-df_formats=$(echo "$targets" | tr ',' '\n' | (grep '^datafusion:' || true) | grep -v ':lance$' | sed 's/datafusion://' | tr '\n' ',' | sed 's/,$//')
+# duckdb targets). grep returns exit code 1 when no matches are found. Both greps must be in the
+# subshell so that `|| true` covers the case where grep -v receives empty input.
+df_formats=$(echo "$targets" | tr ',' '\n' | (grep '^datafusion:' | grep -v ':lance$' || true) | sed 's/datafusion://' | tr '\n' ',' | sed 's/,$//')
 ddb_formats=$(echo "$targets" | tr ',' '\n' | (grep '^duckdb:' || true) | sed 's/duckdb://' | tr '\n' ',' | sed 's/,$//')
 has_lance=$(echo "$targets" | grep -q 'datafusion:lance' && echo "true" || echo "false")
 
