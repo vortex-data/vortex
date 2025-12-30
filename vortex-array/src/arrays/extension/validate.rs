@@ -30,8 +30,8 @@ pub type DomainValidator = Box<dyn Fn(&Scalar) -> bool + Send + Sync>;
 ///
 /// ```
 /// use std::sync::Arc;
-/// use vortex_array::arrays::extension::validator_for_ext_type;
-/// use vortex_dtype::{ExtDType, ExtMetadata, DType, PType, Nullability};
+/// use vortex_array::arrays::validator_for_ext_type;
+/// use vortex_dtype::{ExtDType,ExtID, ExtMetadata, DType, PType, Nullability};
 /// use vortex_dtype::datetime::{TemporalMetadata, TimeUnit, DATE_ID};
 /// use vortex_scalar::Scalar;
 ///
@@ -51,9 +51,18 @@ pub type DomainValidator = Box<dyn Fn(&Scalar) -> bool + Send + Sync>;
 /// );
 /// assert!(validator(&valid_scalar));
 ///
-/// // Null is always valid
-/// let null_scalar = Scalar::null(DType::Extension(Arc::new(ext_dtype)));
-/// assert!(validator(&null_scalar));
+/// // Check for custom extension type
+/// let custom_ext_dtype = ExtDType::new(ExtID::new("vortex.even".into()),DType::Primitive(PType::I64, Nullability::NonNullable).into(), None);
+/// let custom_validator = validator_for_ext_type(&custom_ext_dtype);
+///
+/// let cutom_valid_scalar = Scalar::extension(Arc::new(custom_ext_dtype.clone()), Scalar::primitive(42i64, Nullability::NonNullable));
+///             
+///assert!(custom_validator(&cutom_valid_scalar));
+///
+/// let custom_invalid_scalar = Scalar::extension(Arc::new(custom_ext_dtype.clone()), Scalar::primitive(43i64, Nullability::NonNullable));
+///
+/// assert!(!custom_validator(&custom_invalid_scalar));
+///
 /// ```
 pub fn validator_for_ext_type(ext_dtype: &ExtDType) -> DomainValidator {
     if is_temporal_ext_type(ext_dtype.id()) {
@@ -79,6 +88,26 @@ pub fn validator_for_ext_type(ext_dtype: &ExtDType) -> DomainValidator {
             };
 
             value.map(|v| metadata.to_jiff(v).is_ok()).unwrap_or(false)
+        })
+    } else if matches!(ext_dtype.id().as_ref(), "vortex.even") {
+        // Validator for the "vortex.even" extension type - accepts only even i64 values
+        Box::new(move |scalar: &Scalar| {
+            if scalar.is_null() {
+                return true;
+            }
+
+            let ext_scalar = scalar.as_extension();
+            let storage = ext_scalar.storage();
+            let primitive = storage.as_primitive();
+
+            if primitive.ptype() != PType::I64 {
+                return false;
+            }
+
+            match primitive.typed_value::<i64>() {
+                Some(v) => v % 2 == 0,
+                None => false,
+            }
         })
     } else {
         // Unknown extension type - accept all values
