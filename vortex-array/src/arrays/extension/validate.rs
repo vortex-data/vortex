@@ -55,9 +55,9 @@ pub type DomainValidator = Box<dyn Fn(&Scalar) -> bool + Send + Sync>;
 /// let custom_ext_dtype = ExtDType::new(ExtID::new("vortex.even".into()),DType::Primitive(PType::I64, Nullability::NonNullable).into(), None);
 /// let custom_validator = validator_for_ext_type(&custom_ext_dtype);
 ///
-/// let cutom_valid_scalar = Scalar::extension(Arc::new(custom_ext_dtype.clone()), Scalar::primitive(42i64, Nullability::NonNullable));
+/// let custom_valid_scalar = Scalar::extension(Arc::new(custom_ext_dtype.clone()), Scalar::primitive(42i64, Nullability::NonNullable));
 ///             
-///assert!(custom_validator(&cutom_valid_scalar));
+///assert!(custom_validator(&custom_valid_scalar));
 ///
 /// let custom_invalid_scalar = Scalar::extension(Arc::new(custom_ext_dtype.clone()), Scalar::primitive(43i64, Nullability::NonNullable));
 ///
