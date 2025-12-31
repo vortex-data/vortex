@@ -97,19 +97,19 @@ cudarc = { version = "0.18.0", features = [
     "nvrtc",
 ], default-features = false }
 dashmap = "6.1.0"
-datafusion = { version = "50", default-features = false }
-datafusion-catalog = { version = "50" }
-datafusion-common = { version = "50" }
-datafusion-common-runtime = { version = "50" }
-datafusion-datasource = { version = "50", default-features = false }
-datafusion-execution = { version = "50" }
-datafusion-expr = { version = "50" }
-datafusion-functions = { version = "50" }
-datafusion-physical-expr = { version = "50" }
-datafusion-physical-expr-adapter = { version = "50" }
-datafusion-physical-expr-common = { version = "50" }
-datafusion-physical-plan = { version = "50" }
-datafusion-pruning = { version = "50" }
+datafusion = { version = "51", default-features = false }
+datafusion-catalog = { version = "51" }
+datafusion-common = { version = "51" }
+datafusion-common-runtime = { version = "51" }
+datafusion-datasource = { version = "51", default-features = false }
+datafusion-execution = { version = "51" }
+datafusion-expr = { version = "51" }
+datafusion-functions = { version = "51" }
+datafusion-physical-expr = { version = "51" }
+datafusion-physical-expr-adapter = { version = "51" }
+datafusion-physical-expr-common = { version = "51" }
+datafusion-physical-plan = { version = "51" }
+datafusion-pruning = { version = "51" }
 dirs = "6.0.0"
 divan = { package = "codspeed-divan-compat", version = "4.0.4" }
 enum-iterator = "2.0.0"
