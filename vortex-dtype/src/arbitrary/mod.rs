@@ -10,7 +10,6 @@ use arbitrary::Unstructured;
 use crate::DType;
 use crate::DecimalDType;
 use crate::ExtDType;
-use crate::ExtID;
 use crate::FieldName;
 use crate::FieldNames;
 use crate::NativeDecimalType;
@@ -117,7 +116,7 @@ impl<'a> Arbitrary<'a> for ExtDType {
 }
 
 fn random_ext_dtype(u: &mut Unstructured<'_>, _depth: u8) -> Result<ExtDType> {
-    let choice = u.int_in_range(0..=3)?;
+    let choice = u.int_in_range(0..=2)?;
 
     match choice {
         0 => {
@@ -172,14 +171,6 @@ fn random_ext_dtype(u: &mut Unstructured<'_>, _depth: u8) -> Result<ExtDType> {
                 TIMESTAMP_ID.clone(),
                 DType::Primitive(PType::I64, u.arbitrary()?).into(),
                 Some(TemporalMetadata::Timestamp(time_unit, time_zone).into()),
-            ))
-        }
-        3 => {
-            // Extension type to store even numbers
-            Ok(ExtDType::new(
-                ExtID::new("vortex.even".into()),
-                DType::Primitive(PType::I64, u.arbitrary()?).into(),
-                None,
             ))
         }
         _ => unreachable!(),

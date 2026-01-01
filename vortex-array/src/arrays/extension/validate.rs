@@ -59,10 +59,6 @@ pub type DomainValidator = Box<dyn Fn(&Scalar) -> bool + Send + Sync>;
 ///             
 ///assert!(custom_validator(&custom_valid_scalar));
 ///
-/// let custom_invalid_scalar = Scalar::extension(Arc::new(custom_ext_dtype.clone()), Scalar::primitive(43i64, Nullability::NonNullable));
-///
-/// assert!(!custom_validator(&custom_invalid_scalar));
-///
 /// ```
 pub fn validator_for_ext_type(ext_dtype: &ExtDType) -> DomainValidator {
     if is_temporal_ext_type(ext_dtype.id()) {
@@ -88,26 +84,6 @@ pub fn validator_for_ext_type(ext_dtype: &ExtDType) -> DomainValidator {
             };
 
             value.map(|v| metadata.to_jiff(v).is_ok()).unwrap_or(false)
-        })
-    } else if matches!(ext_dtype.id().as_ref(), "vortex.even") {
-        // Validator for the "vortex.even" extension type - accepts only even i64 values
-        Box::new(move |scalar: &Scalar| {
-            if scalar.is_null() {
-                return true;
-            }
-
-            let ext_scalar = scalar.as_extension();
-            let storage = ext_scalar.storage();
-            let primitive = storage.as_primitive();
-
-            if primitive.ptype() != PType::I64 {
-                return false;
-            }
-
-            match primitive.typed_value::<i64>() {
-                Some(v) => v % 2 == 0,
-                None => false,
-            }
         })
     } else {
         // Unknown extension type - accept all values
