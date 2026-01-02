@@ -17,12 +17,15 @@ version = { workspace = true }
 all-features = true
 
 [features]
+cudarc = ["dep:cudarc"]
 flatbuffers = ["dep:flatbuffers"]
 python = ["dep:pyo3"]
 serde = ["dep:serde_json"]
+wgpu = ["dep:wgpu"]
 
 [dependencies]
 arrow-schema = { workspace = true }
+cudarc = { workspace = true, optional = true }
 flatbuffers = { workspace = true, optional = true }
 jiff = { workspace = true }
 object_store = { workspace = true, optional = true }
@@ -31,6 +34,7 @@ pyo3 = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 url = { workspace = true }
+wgpu = { workspace = true, optional = true }
 
 [lints]
 workspace = true

@@ -15,6 +15,7 @@ members = [
     "vortex-ffi",
     "vortex-file",
     "vortex-flatbuffers",
+    "vortex-gpu",
     "vortex-io",
     "vortex-ipc",
     "vortex-jni",
@@ -31,7 +32,6 @@ members = [
     "vortex-vector",
     "benchmarks/*",
     "encodings/*",
-
     "xtask",
 ]
 exclude = ["java/testfiles", "wasm-test"]
@@ -88,14 +88,7 @@ cfg-if = "1"
 chrono = "0.4.41"
 clap = "4.5"
 crossterm = "0.29"
-cudarc = { version = "0.18.0", features = [
-    "std",
-    "driver",
-    "cuda-12080",
-    "dynamic-loading",
-    "f16",
-    "nvrtc",
-], default-features = false }
+cudarc = { version = "0.18.2", default-features = false }
 dashmap = "6.1.0"
 datafusion = { version = "50", default-features = false }
 datafusion-catalog = { version = "50" }
@@ -205,8 +198,14 @@ url = "2.5.7"
 uuid = { version = "1.18", features = ["js"] }
 walkdir = "2.5.0"
 wasm-bindgen-futures = "0.4.39"
+wgpu = "27.0.0"
 witchcraft-metrics = "1.0.1"
+xshell = "0.2.6"
+zigzag = "0.1.0"
 zip = "6.0.0"
+zstd = { version = "0.13.3", default-features = false, features = [
+    "zdict_builder",
+] }
 
 # BEGIN crates published by this project
 vortex = { version = "0.1.0", path = "./vortex" }
@@ -225,6 +224,7 @@ vortex-fastlanes = { version = "0.1.0", path = "./encodings/fastlanes", default-
 vortex-file = { version = "0.1.0", path = "./vortex-file", default-features = false }
 vortex-flatbuffers = { version = "0.1.0", path = "./vortex-flatbuffers", default-features = false }
 vortex-fsst = { version = "0.1.0", path = "./encodings/fsst", default-features = false }
+vortex-gpu = { version = "0.1.0", path = "./vortex-gpu", default-features = false }
 vortex-io = { version = "0.1.0", path = "./vortex-io", default-features = false }
 vortex-ipc = { version = "0.1.0", path = "./vortex-ipc", default-features = false }
 vortex-layout = { version = "0.1.0", path = "./vortex-layout", default-features = false }
@@ -247,11 +247,6 @@ vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features =
 # No version constraints for unpublished crates.
 vortex-bench = { path = "./vortex-bench", default-features = false }
 vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
-xshell = "0.2.6"
-zigzag = "0.1.0"
-zstd = { version = "0.13.3", default-features = false, features = [
-    "zdict_builder",
-] }
 
 [workspace.dependencies.getrandom_v03]
 features = ["wasm_js"]
