@@ -109,9 +109,6 @@ impl FileOpener for VortexOpener {
             Some(indices) => Arc::new(table_schema.file_schema().project(indices)?),
         };
 
-        let _file_name = file.object_meta.location.to_string();
-        let _schema = projected_schema.to_string();
-
         let schema_adapter = self.schema_adapter_factory.create(
             projected_schema.clone(),
             table_schema.table_schema().clone(),
@@ -120,7 +117,6 @@ impl FileOpener for VortexOpener {
         // Update partition column access in the filter to use literals instead
         let partition_fields = self.table_schema.table_partition_cols().clone();
         let table_schema = self.table_schema.clone();
-        let projected_schema = projected_schema.clone();
 
         Ok(async move {
             // Create FilePruner when we have a predicate and either dynamic expressions

@@ -47,8 +47,8 @@ target-lexicon = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
-tpchgen = { git = "https://github.com/clflushopt/tpchgen-rs.git", rev = "c38f69b0dc84c4b7edfad349d1a9cd1a134b8018" }
-tpchgen-arrow = { git = "https://github.com/clflushopt/tpchgen-rs.git", rev = "c38f69b0dc84c4b7edfad349d1a9cd1a134b8018" }
+tpchgen = { workspace = true }
+tpchgen-arrow = { workspace = true }
 tracing = { workspace = true }
 tracing-perfetto = { workspace = true }
 tracing-subscriber = { workspace = true, features = [
