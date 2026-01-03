@@ -17,7 +17,6 @@ permissions:
   contents: read
   pull-requests: write  # for commenting on PRs
   id-token: write  # enables AWS-GitHub OIDC
-  deployments: write  # for Polar Signals profiling
 
 jobs:
   label_trigger:

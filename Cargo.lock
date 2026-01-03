@@ -988,68 +988,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "55248b47b0caf0546f7988906588779981c43bb1bc9d0c44087278f80cdb44ba"
 
 [[package]]
-name = "bench-vortex"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arrow-array",
- "arrow-cast",
- "arrow-schema",
- "arrow-select",
- "async-trait",
- "bytes",
- "bzip2",
- "clap",
- "datafusion",
- "datafusion-common",
- "datafusion-physical-plan",
- "dirs",
- "erased-serde",
- "futures",
- "glob",
- "humansize",
- "indicatif",
- "itertools 0.14.0",
- "lance",
- "lance-encoding",
- "mimalloc",
- "noodles-bgzf",
- "noodles-vcf",
- "object_store",
- "opentelemetry",
- "opentelemetry-otlp",
- "opentelemetry_sdk",
- "parking_lot",
- "parquet",
- "rand 0.9.2",
- "rayon",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "similar",
- "sysinfo",
- "tabled",
- "tar",
- "target-lexicon",
- "tempfile",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tpchgen",
- "tpchgen-arrow",
- "tracing",
- "tracing-perfetto",
- "tracing-subscriber",
- "url",
- "uuid",
- "vortex",
- "vortex-datafusion",
- "vortex-duckdb",
- "xshell",
-]
-
-[[package]]
 name = "better_io"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1077,7 +1015,7 @@ dependencies = [
  "bitflags",
  "cexpr",
  "clang-sys",
- "itertools 0.12.1",
+ "itertools 0.13.0",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -1331,9 +1269,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.49"
+version = "1.2.50"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90583009037521a116abf44494efecd645ba48b6622457080f080b85544e2215"
+checksum = "9f50d563227a1c37cc0a263f64eca3334388c01c5e4c4861a9def205c614383c"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -1477,7 +1415,7 @@ checksum = "af491d569909a7e4dee0ad7db7f5341fef5c614d5b8ec8cf765732aba3cff681"
 dependencies = [
  "serde",
  "termcolor",
- "unicode-width 0.1.14",
+ "unicode-width 0.2.0",
 ]
 
 [[package]]
@@ -1589,6 +1527,29 @@ dependencies = [
  "rustversion",
  "ryu",
  "static_assertions",
+]
+
+[[package]]
+name = "compress-bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow-array",
+ "arrow-schema",
+ "async-trait",
+ "bytes",
+ "clap",
+ "futures",
+ "indicatif",
+ "itertools 0.14.0",
+ "lance-bench",
+ "parquet",
+ "regex",
+ "serde",
+ "tokio",
+ "tracing",
+ "vortex",
+ "vortex-bench",
 ]
 
 [[package]]
@@ -1918,9 +1879,9 @@ dependencies = [
 
 [[package]]
 name = "cxx"
-version = "1.0.191"
+version = "1.0.192"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd46505a9588ea42961c833d8e20a8956741f26f4aa84f5248a60c2137bf0373"
+checksum = "bbda285ba6e5866529faf76352bdf73801d9b44a6308d7cd58ca2379f378e994"
 dependencies = [
  "cc",
  "cxx-build",
@@ -1933,9 +1894,9 @@ dependencies = [
 
 [[package]]
 name = "cxx-build"
-version = "1.0.191"
+version = "1.0.192"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b78549cfae183ba0391f186544fdf1f5d96e9d3cf2683ee1449a3aea066e4e32"
+checksum = "af9efde466c5d532d57efd92f861da3bdb7f61e369128ce8b4c3fe0c9de4fa4d"
 dependencies = [
  "cc",
  "codespan-reporting",
@@ -1948,9 +1909,9 @@ dependencies = [
 
 [[package]]
 name = "cxxbridge-cmd"
-version = "1.0.191"
+version = "1.0.192"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5f593aa804e4cd4fda75ca4c56820c15a27ac667f02bffe626c2ed16e2d747d"
+checksum = "3efb93799095bccd4f763ca07997dc39a69e5e61ab52d2c407d4988d21ce144d"
 dependencies = [
  "clap",
  "codespan-reporting",
@@ -1962,15 +1923,15 @@ dependencies = [
 
 [[package]]
 name = "cxxbridge-flags"
-version = "1.0.191"
+version = "1.0.192"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5e77806f6ca008fe3cb35ac747db8f5cf30c038b81ae97077a6aecd7ca01a31"
+checksum = "3092010228026e143b32a4463ed9fa8f86dca266af4bf5f3b2a26e113dbe4e45"
 
 [[package]]
 name = "cxxbridge-macro"
-version = "1.0.191"
+version = "1.0.192"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e751ebe2dee4a88a26df4f11c2baf6aa1e7f652af9a3bef5b4db5ae33397577d"
+checksum = "31d72ebfcd351ae404fb00ff378dfc9571827a00722c9e735c9181aec320ba0a"
 dependencies = [
  "indexmap",
  "proc-macro2",
@@ -2111,6 +2072,29 @@ dependencies = [
  "tokio",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "datafusion-bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow-ipc",
+ "clap",
+ "datafusion",
+ "datafusion-common",
+ "datafusion-physical-plan",
+ "futures",
+ "get_dir",
+ "itertools 0.14.0",
+ "object_store",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
+ "tokio",
+ "url",
+ "vortex-bench",
+ "vortex-datafusion",
 ]
 
 [[package]]
@@ -2855,6 +2839,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3a5ccdfd6c5e7e2fea9c5cf256f2a08216047fab19c621c3da64e9ae4a1462d"
 
 [[package]]
+name = "duckdb-bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "get_dir",
+ "similar",
+ "tokio",
+ "tracing",
+ "url",
+ "vortex",
+ "vortex-bench",
+ "vortex-duckdb",
+]
+
+[[package]]
 name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2929,17 +2929,6 @@ name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
-
-[[package]]
-name = "erased-serde"
-version = "0.4.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "89e8918065695684b2b0702da20382d5ae6065cf3327bc2d6436bd49a71ce9f3"
-dependencies = [
- "serde",
- "serde_core",
- "typeid",
-]
 
 [[package]]
 name = "errno"
@@ -3047,18 +3036,6 @@ name = "fastrand"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
-
-[[package]]
-name = "filetime"
-version = "0.2.26"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc0505cd1b6fa6580283f6bdf70a73fcf4aba1184038c90902b92b3dd0df63ed"
-dependencies = [
- "cfg-if",
- "libc",
- "libredox",
- "windows-sys 0.60.2",
-]
 
 [[package]]
 name = "find-msvc-tools"
@@ -3320,6 +3297,12 @@ dependencies = [
  "typenum",
  "version_check",
 ]
+
+[[package]]
+name = "get_dir"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7be53a543a609b266f8ed4237af223fa96bdaa54d69fd6845c71a421a4a4748"
 
 [[package]]
 name = "getrandom"
@@ -4165,6 +4148,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "lance-bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow-cast",
+ "async-trait",
+ "clap",
+ "futures",
+ "get_dir",
+ "lance",
+ "lance-encoding",
+ "parquet",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "vortex-bench",
+]
+
+[[package]]
 name = "lance-bitpacking"
 version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4688,7 +4690,6 @@ checksum = "416f7e718bdb06000964960ffa43b4335ad4012ae8b99060261aa4a8088d5ccb"
 dependencies = [
  "bitflags",
  "libc",
- "redox_syscall",
 ]
 
 [[package]]
@@ -4956,9 +4957,9 @@ checksum = "dce6dd36094cac388f119d2e9dc82dc730ef91c32a6222170d630e5414b956e6"
 
 [[package]]
 name = "moka"
-version = "0.12.11"
+version = "0.12.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8261cd88c312e0004c1d51baad2980c66528dfdb2bee62003e643a4d8f86b077"
+checksum = "a3dec6bd31b08944e08b58fd99373893a6c17054d6f3ea5006cc894f4f4eee2a"
 dependencies = [
  "async-lock",
  "crossbeam-channel",
@@ -4969,7 +4970,6 @@ dependencies = [
  "futures-util",
  "parking_lot",
  "portable-atomic",
- "rustc_version",
  "smallvec",
  "tagptr",
  "uuid",
@@ -6356,6 +6356,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "random-access-bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "indicatif",
+ "lance-bench",
+ "tokio",
+ "vortex",
+ "vortex-bench",
+]
+
+[[package]]
 name = "random_word"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6516,9 +6529,9 @@ dependencies = [
 
 [[package]]
 name = "reqwest"
-version = "0.12.25"
+version = "0.12.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6eff9328d40131d43bd911d42d79eb6a47312002a4daefc9e37f17e74a7701a"
+checksum = "3b4c14b2d9afca6a60277086b0cc6a6ae0b568f6f7916c943a8cdc79f8be240f"
 dependencies = [
  "base64",
  "bytes",
@@ -6587,9 +6600,9 @@ dependencies = [
 
 [[package]]
 name = "roaring"
-version = "0.11.2"
+version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f08d6a905edb32d74a5d5737a0c9d7e950c312f3c46cb0ca0a2ca09ea11878a0"
+checksum = "8ba9ce64a8f45d7fc86358410bb1a82e8c987504c0d4900e9141d69a9f26c885"
 dependencies = [
  "bytemuck",
  "byteorder",
@@ -7588,17 +7601,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
-name = "tar"
-version = "0.4.44"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d863878d212c87a19c1a610eb53bb01fe12951c0501cf5a0d65f724914a667a"
-dependencies = [
- "filetime",
- "libc",
- "xattr",
-]
-
-[[package]]
 name = "target-features"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7606,9 +7608,9 @@ checksum = "c1bbb9f3c5c463a01705937a24fdabc5047929ac764b2d5b9cf681c1f5041ed5"
 
 [[package]]
 name = "target-lexicon"
-version = "0.13.3"
+version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df7f62577c25e07834649fc3b39fafdc597c0a3527dc1c60129201ccfcbaa50c"
+checksum = "b1dd07eb858a2067e2f3c7155d54e929265c264e6f37efe3ee7a8d1b5a1dd0ba"
 
 [[package]]
 name = "tempfile"
@@ -8014,9 +8016,9 @@ dependencies = [
 
 [[package]]
 name = "tracing"
-version = "0.1.43"
+version = "0.1.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d15d90a0b5c19378952d479dc858407149d7bb45a14de0142f6c534b16fc647"
+checksum = "63e71662fa4b2a2c3a26f570f037eb95bb1f85397f3cd8076caed2f026a6d100"
 dependencies = [
  "log",
  "pin-project-lite",
@@ -8037,9 +8039,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-core"
-version = "0.1.35"
+version = "0.1.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a04e24fab5c89c6a36eb8558c9656f30d81de51dfa4d3b45f26b21d61fa0a6c"
+checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
  "valuable",
@@ -8104,12 +8106,6 @@ checksum = "9ea3136b675547379c4bd395ca6b938e5ad3c3d20fad76e7fe85f9e0d011419c"
 dependencies = [
  "rand 0.9.2",
 ]
-
-[[package]]
-name = "typeid"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc7d623258602320d5c55d1bc22793b57daff0ec7efc270ea7d55ce1d5f5471c"
 
 [[package]]
 name = "typenum"
@@ -8386,16 +8382,58 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow-array",
+ "arrow-schema",
+ "arrow-select",
+ "async-trait",
+ "bytes",
+ "bzip2",
+ "clap",
+ "futures",
+ "get_dir",
+ "glob",
+ "humansize",
+ "indicatif",
+ "itertools 0.14.0",
+ "mimalloc",
+ "noodles-bgzf",
+ "noodles-vcf",
+ "parking_lot",
+ "parquet",
+ "rand 0.9.2",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "tabled",
+ "target-lexicon",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tpchgen",
+ "tpchgen-arrow",
+ "tracing",
+ "tracing-perfetto",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+ "vortex",
+]
+
+[[package]]
 name = "vortex-btrblocks"
 version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
- "env_logger",
  "getrandom 0.3.4",
  "itertools 0.14.0",
  "num-traits",
  "rand 0.9.2",
- "rstest",
  "rustc-hash",
  "tracing",
  "vortex-alp",
@@ -8439,7 +8477,6 @@ dependencies = [
 name = "vortex-bytebool"
 version = "0.1.0"
 dependencies = [
- "itertools 0.14.0",
  "num-traits",
  "rstest",
  "vortex-array",
@@ -8460,7 +8497,6 @@ dependencies = [
  "codspeed-divan-compat",
  "half",
  "itertools 0.14.0",
- "log",
  "multiversion",
  "num-traits",
  "paste",
@@ -8544,7 +8580,6 @@ dependencies = [
 name = "vortex-decimal-byte-parts"
 version = "0.1.0"
 dependencies = [
- "itertools 0.14.0",
  "num-traits",
  "prost 0.14.1",
  "rstest",
@@ -8643,7 +8678,6 @@ dependencies = [
  "fastlanes",
  "itertools 0.14.0",
  "lending-iterator",
- "mimalloc",
  "num-traits",
  "prost 0.14.1",
  "rand 0.9.2",
@@ -8736,7 +8770,6 @@ version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
  "fsst-rs",
- "itertools 0.14.0",
  "num-traits",
  "prost 0.14.1",
  "rand 0.9.2",
@@ -8797,7 +8830,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "vortex-buffer",
  "vortex-error",
  "vortex-metrics",
@@ -9007,7 +9039,7 @@ dependencies = [
  "futures",
  "itertools 0.14.0",
  "parking_lot",
- "roaring 0.11.2",
+ "roaring 0.11.3",
  "sketches-ddsketch",
  "tracing",
  "vortex-array",
@@ -9029,13 +9061,10 @@ dependencies = [
  "num-traits",
  "prost 0.14.1",
  "rstest",
- "tokio",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
- "vortex-file",
- "vortex-layout",
  "vortex-mask",
  "vortex-proto",
  "vortex-scalar",
@@ -9103,6 +9132,7 @@ dependencies = [
 name = "vortex-vector"
 version = "0.1.0"
 dependencies = [
+ "num-traits",
  "paste",
  "static_assertions",
  "vortex-buffer",
@@ -9714,16 +9744,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05f360fc0b24296329c78fda852a1e9ae82de9cf7b27dae4b7f62f118f77b9ed"
 dependencies = [
  "tap",
-]
-
-[[package]]
-name = "xattr"
-version = "1.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32e45ad4206f6d2479085147f02bc2ef834ac85886624a23575ae137c8aa8156"
-dependencies = [
- "libc",
- "rustix 1.1.2",
 ]
 
 [[package]]

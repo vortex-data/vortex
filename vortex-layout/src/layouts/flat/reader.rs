@@ -20,7 +20,6 @@ use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::VortexUnwrap as _;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -36,16 +35,6 @@ use crate::segments::SegmentSource;
 // TODO(ngates): more experimentation is needed, and this should probably be dynamic based on the
 //  actual expression? Perhaps all expressions are given a selection mask to decide for themselves?
 const EXPR_EVAL_THRESHOLD: f64 = 0.2;
-
-/// Below this mask density we will propagate filters one by one. In other words, we filter an
-/// array using a mask prior to running a filter expression, and then have to perform a more
-/// expensive rank intersection on the result. This threshold exists because filtering has a
-/// non-trivial cost, and often that cost outweighs evaluating the filter expression over a few
-/// more rows that are already known to be false.
-///
-/// TODO(ngates): this threshold should really be estimated based on the cost of the filter + the
-///  the cost of the expression itself.
-const FILTER_OF_FILTER_THRESHOLD: f64 = 0.8;
 
 pub struct FlatReader {
     layout: FlatLayout,
@@ -71,7 +60,8 @@ impl FlatReader {
 
     /// Register the segment request and return a future that would resolve into the deserialised array.
     fn array_future(&self) -> SharedArrayFuture {
-        let row_count = usize::try_from(self.layout.row_count()).vortex_unwrap();
+        let row_count =
+            usize::try_from(self.layout.row_count()).vortex_expect("row count must fit in usize");
 
         // We create the segment_fut here to ensure we give the segment reader visibility into
         // how to prioritize this segment, even if the `array` future has already been initialized.
@@ -157,10 +147,12 @@ impl LayoutReader for FlatReader {
             }
 
             let array_mask = if *USE_VORTEX_OPERATORS {
-                if mask.density() < FILTER_OF_FILTER_THRESHOLD {
-                    // Run only over the pre-filtered rows.
-                    let array = array.filter(mask.clone())?;
+                if mask.density() < EXPR_EVAL_THRESHOLD {
+                    // We have the choice to apply the filter or the expression first, we apply the
+                    // expression first so that it can try pushing down itself and then the filter
+                    // after this.
                     let array = array.apply(&expr)?;
+                    let array = array.filter(mask.clone())?;
                     let array_mask = array.execute_mask(&session)?;
 
                     mask.intersect_by_rank(&array_mask)

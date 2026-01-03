@@ -31,7 +31,6 @@ use taffy::TraversePartialTree;
 use vortex::dtype::FieldName;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
-use vortex::error::VortexUnwrap;
 use vortex::error::vortex_err;
 use vortex::file::SegmentSpec;
 use vortex::layout::Layout;
@@ -110,7 +109,7 @@ pub fn segments_ui(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
         app_state.segment_grid_state.segment_tree = Some(
             to_display_segment_tree(segment_tree)
                 .map_err(|e| vortex_err!("Fail to compute segment tree {e}"))
-                .vortex_unwrap(),
+                .vortex_expect("operation should succeed in TUI"),
         );
     }
 
@@ -125,7 +124,7 @@ pub fn segments_ui(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
         };
         tree.compute_layout(*root_node, viewport_size)
             .map_err(|e| vortex_err!("Fail to compute layout {e}"))
-            .vortex_unwrap();
+            .vortex_expect("operation should succeed in TUI");
         app_state.frame_size = area.as_size();
 
         let root_layout = tree.get_final_layout(*root_node);
@@ -388,7 +387,8 @@ fn collect_segment_tree(root_layout: &dyn Layout, segments: &Arc<[SegmentSpec]>)
         segments: HashMap::new(),
         segment_ordering: Vec::new(),
     };
-    segments_by_name_impl(root_layout, None, None, Some(0), segments, &mut tree).vortex_unwrap();
+    segments_by_name_impl(root_layout, None, None, Some(0), segments, &mut tree)
+        .vortex_expect("operation should succeed in TUI");
 
     tree
 }

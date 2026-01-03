@@ -11,8 +11,8 @@ use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::NativeDType;
 use vortex_dtype::i256;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::VortexUnwrap;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_proto::scalar as pb;
@@ -83,7 +83,7 @@ impl ScalarValue {
         pb_scalar
             .encode(&mut buf)
             .map_err(|e| vortex_err!("Failed to serialize protobuf {e}"))
-            .vortex_unwrap();
+            .vortex_expect("protobuf encoding should succeed");
         buf
     }
 

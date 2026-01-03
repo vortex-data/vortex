@@ -1,0 +1,36 @@
+[package]
+name = "lance-bench"
+description = "Lance benchmark tool"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+include.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish = false
+
+[dependencies]
+lance = { version = "0.39.0" }
+lance-encoding = { version = "0.39.0" }
+
+anyhow = { workspace = true }
+arrow-cast = { workspace = true }
+async-trait = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+futures = { workspace = true }
+parquet = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing.workspace = true
+vortex-bench = { workspace = true }
+
+[build-dependencies]
+get_dir = { workspace = true }
+
+[lints]
+workspace = true

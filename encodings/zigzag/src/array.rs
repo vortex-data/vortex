@@ -206,7 +206,7 @@ impl OperationsVTable<ZigZagVTable> for ZigZagVTable {
 }
 
 impl ValidityChild<ZigZagVTable> for ZigZagVTable {
-    fn validity_child(array: &ZigZagArray) -> &dyn Array {
+    fn validity_child(array: &ZigZagArray) -> &ArrayRef {
         array.encoded()
     }
 }

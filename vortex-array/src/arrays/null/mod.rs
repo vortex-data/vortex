@@ -24,6 +24,7 @@ use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSetRef;
+use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
@@ -195,6 +196,10 @@ impl ValidityVTable<NullVTable> for NullVTable {
 
     fn all_invalid(array: &NullArray) -> bool {
         !array.is_empty()
+    }
+
+    fn validity(_array: &NullArray) -> VortexResult<Validity> {
+        Ok(Validity::AllInvalid)
     }
 
     fn validity_mask(array: &NullArray) -> Mask {

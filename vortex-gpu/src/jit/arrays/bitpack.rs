@@ -7,7 +7,7 @@ use std::sync::Arc;
 use cudarc::driver::{CudaSlice, CudaStream, DeviceRepr, LaunchArgs, PushKernelArg};
 use vortex_buffer::Buffer;
 use vortex_dtype::{NativePType, PType, match_each_native_ptype};
-use vortex_error::{VortexResult, VortexUnwrap, vortex_err};
+use vortex_error::{VortexResult, VortexExpect, vortex_err};
 use vortex_fastlanes::BitPackedArray;
 
 use crate::indent::IndentedWrite;
@@ -36,7 +36,7 @@ pub fn new_jit(
         let cuda_slice = stream
             .memcpy_stod(values.as_slice())
             .map_err(|e| vortex_err!("Failed to copy to device: {e}"))
-            .vortex_unwrap();
+            .vortex_expect("operation should succeed");
         let step_id = allocator.fresh_id();
         Box::new(BitPack::<P> {
             step_id,

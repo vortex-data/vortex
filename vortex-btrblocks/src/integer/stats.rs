@@ -15,7 +15,6 @@ use vortex_dtype::IntegerPType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
-use vortex_error::VortexUnwrap;
 use vortex_mask::AllOr;
 use vortex_scalar::PValue;
 use vortex_scalar::Scalar;
@@ -242,7 +241,7 @@ where
         AllOr::All => {
             for chunk in &mut chunks {
                 inner_loop_nonnull(
-                    chunk.try_into().vortex_unwrap(),
+                    chunk.try_into().vortex_expect("chunk size must be 64"),
                     count_distinct_values,
                     &mut loop_state,
                 )
@@ -268,13 +267,13 @@ where
                     0 => continue,
                     // Inner loop for when validity check can be elided
                     64 => inner_loop_nonnull(
-                        chunk.try_into().vortex_unwrap(),
+                        chunk.try_into().vortex_expect("chunk size must be 64"),
                         count_distinct_values,
                         &mut loop_state,
                     ),
                     // Inner loop for when we need to check validity
                     _ => inner_loop_nullable(
-                        chunk.try_into().vortex_unwrap(),
+                        chunk.try_into().vortex_expect("chunk size must be 64"),
                         count_distinct_values,
                         &validity,
                         &mut loop_state,
@@ -305,7 +304,11 @@ where
 
     let runs = loop_state.runs;
     let distinct_values_count = if count_distinct_values {
-        loop_state.distinct_values.len().try_into().vortex_unwrap()
+        loop_state
+            .distinct_values
+            .len()
+            .try_into()
+            .vortex_expect("distinct values count must fit in u32")
     } else {
         u32::MAX
     };

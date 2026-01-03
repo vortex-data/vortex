@@ -11,8 +11,8 @@ use std::ops::Range;
 use static_assertions::assert_eq_align;
 use static_assertions::assert_eq_size;
 use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::VortexUnwrap;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
@@ -55,7 +55,7 @@ impl Inlined {
     fn new<const N: usize>(value: &[u8]) -> Self {
         debug_assert_eq!(value.len(), N);
         let mut inlined = Self {
-            size: N.try_into().vortex_unwrap(),
+            size: N.try_into().vortex_expect("inlined size must fit in u32"),
             data: [0u8; BinaryView::MAX_INLINED_SIZE],
         };
         inlined.data[..N].copy_from_slice(&value[..N]);
@@ -178,8 +178,10 @@ impl BinaryView {
             },
             _ => Self {
                 _ref: Ref {
-                    size: u32::try_from(value.len()).vortex_unwrap(),
-                    prefix: value[0..4].try_into().vortex_unwrap(),
+                    size: u32::try_from(value.len()).vortex_expect("value length must fit in u32"),
+                    prefix: value[0..4]
+                        .try_into()
+                        .vortex_expect("prefix must be exactly 4 bytes"),
                     buffer_index: block,
                     offset,
                 },

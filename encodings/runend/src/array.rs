@@ -21,6 +21,7 @@ use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
+use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::ArrayVTable;
@@ -425,6 +426,22 @@ impl ValidityVTable<RunEndVTable> for RunEndVTable {
 
     fn all_invalid(array: &RunEndArray) -> bool {
         array.values().all_invalid()
+    }
+
+    fn validity(array: &RunEndArray) -> VortexResult<Validity> {
+        Ok(match array.values().validity()? {
+            Validity::NonNullable | Validity::AllValid => Validity::AllValid,
+            Validity::AllInvalid => Validity::AllInvalid,
+            Validity::Array(values_validity) => Validity::Array(unsafe {
+                RunEndArray::new_unchecked(
+                    array.ends().clone(),
+                    values_validity,
+                    array.offset(),
+                    array.len(),
+                )
+                .into_array()
+            }),
+        })
     }
 
     fn validity_mask(array: &RunEndArray) -> Mask {

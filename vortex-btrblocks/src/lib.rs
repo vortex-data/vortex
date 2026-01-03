@@ -38,19 +38,21 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::list_from_list_view;
+use vortex_array::compute::Cost;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::datetime::TemporalMetadata;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::VortexUnwrap;
 
 use crate::decimal::compress_decimal;
 pub use crate::float::FloatCompressor;
@@ -184,7 +186,8 @@ fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
 
         // We want to sample about 1% of data, while keeping a minimal sample of 640 values.
         let sample_count = usize::max(
-            (source_len / 100) / usize::try_from(SAMPLE_SIZE).vortex_unwrap(),
+            (source_len / 100)
+                / usize::try_from(SAMPLE_SIZE).vortex_expect("SAMPLE_SIZE must fit in usize"),
             10,
         );
 
@@ -194,7 +197,12 @@ fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
             source_len
         );
 
-        stats.sample(SAMPLE_SIZE, sample_count.try_into().vortex_unwrap())
+        stats.sample(
+            SAMPLE_SIZE,
+            sample_count
+                .try_into()
+                .vortex_expect("sample count must fit in u32"),
+        )
     };
 
     let after = compressor
@@ -475,6 +483,13 @@ impl BtrBlocksCompressor {
                 if let Ok(temporal_array) = TemporalArray::try_from(ext_array.to_array())
                     && let TemporalMetadata::Timestamp(..) = temporal_array.temporal_metadata()
                 {
+                    if temporal_array.as_ref().is_constant_opts(Cost::Canonicalize) {
+                        return Ok(ConstantArray::new(
+                            temporal_array.as_ref().scalar_at(0),
+                            ext_array.len(),
+                        )
+                        .into_array());
+                    }
                     return compress_temporal(temporal_array);
                 }
 

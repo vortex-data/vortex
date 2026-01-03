@@ -175,7 +175,7 @@ mod tests {
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::PType;
     use vortex_dtype::i256;
-    use vortex_error::VortexUnwrap;
+    use vortex_error::VortexExpect;
     use vortex_scalar::DecimalValue;
     use vortex_scalar::Scalar;
 
@@ -292,10 +292,10 @@ mod tests {
     fn test_sum_float_non_multiply() {
         let acc = -2048669276050936500000000000f64;
         let array = ConstantArray::new(6.1811675e16f64, 25);
-        let sum =
-            sum_with_accumulator(array.as_ref(), &Scalar::primitive(acc, Nullable)).vortex_unwrap();
+        let sum = sum_with_accumulator(array.as_ref(), &Scalar::primitive(acc, Nullable))
+            .vortex_expect("operation should succeed in test");
         assert_eq!(
-            f64::try_from(sum).vortex_unwrap(),
+            f64::try_from(sum).vortex_expect("operation should succeed in test"),
             -2048669274505644600000000000f64
         );
     }

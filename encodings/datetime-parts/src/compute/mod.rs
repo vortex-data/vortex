@@ -6,6 +6,7 @@ mod compare;
 mod filter;
 mod is_constant;
 mod mask;
+pub(super) mod rules;
 mod take;
 
 #[cfg(test)]

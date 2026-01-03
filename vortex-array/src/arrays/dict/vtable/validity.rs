@@ -4,13 +4,16 @@
 use vortex_buffer::BitBuffer;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use super::DictVTable;
 use crate::Array;
+use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::dict::DictArray;
+use crate::validity::Validity;
 use crate::vtable::ValidityVTable;
 
 impl ValidityVTable<DictVTable> for DictVTable {
@@ -33,6 +36,36 @@ impl ValidityVTable<DictVTable> for DictVTable {
 
     fn all_invalid(array: &DictArray) -> bool {
         array.codes().all_invalid() || array.values().all_invalid()
+    }
+
+    fn validity(array: &DictArray) -> VortexResult<Validity> {
+        Ok(
+            match (array.codes().validity()?, array.values().validity()?) {
+                (
+                    Validity::NonNullable | Validity::AllValid,
+                    Validity::NonNullable | Validity::AllValid,
+                ) => {
+                    // Recall that we know the dictionary is nullable if we're in this function.
+                    Validity::AllValid
+                }
+                (Validity::AllInvalid, _) | (_, Validity::AllInvalid) => Validity::AllInvalid,
+                (Validity::Array(codes_validity), Validity::NonNullable | Validity::AllValid) => {
+                    Validity::Array(codes_validity)
+                }
+                (Validity::AllValid | Validity::NonNullable, Validity::Array(values_validity)) => {
+                    Validity::Array(
+                        unsafe { DictArray::new_unchecked(array.codes().clone(), values_validity) }
+                            .into_array(),
+                    )
+                }
+                (Validity::Array(_), Validity::Array(values_validity)) => {
+                    // We essentially create is_not_null(Dict(codes, is_not_null(values)))
+                    unsafe { DictArray::new_unchecked(array.codes().clone(), values_validity) }
+                        .into_array()
+                        .validity()?
+                }
+            },
+        )
     }
 
     fn validity_mask(array: &DictArray) -> Mask {

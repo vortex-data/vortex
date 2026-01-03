@@ -22,7 +22,6 @@ use vortex_dtype::NativePType;
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::VortexUnwrap;
 use vortex_mask::Mask;
 
 use crate::RunEndArray;
@@ -118,9 +117,9 @@ fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitiv
         let end = min(run_ends[i].as_() - offset, length);
 
         // Safety: predicate must be the same length as the array the ends have been taken from
-        for pred in
-            (start..end).map(|i| unsafe { mask.value_unchecked(i.try_into().vortex_unwrap()) })
-        {
+        for pred in (start..end).map(|i| unsafe {
+            mask.value_unchecked(i.try_into().vortex_expect("index must fit in usize"))
+        }) {
             count += <R as From<bool>>::from(pred);
             keep |= pred
         }

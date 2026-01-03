@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_vector::Datum;
 use vortex_vector::ScalarOps;
@@ -12,6 +14,7 @@ use crate::LEGACY_SESSION;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::executor::VectorExecutor;
+use crate::validity::Validity;
 use crate::vtable::ValidityVTable;
 
 impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
@@ -47,6 +50,15 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
                 array.children().iter().any(|child| child.all_invalid())
             }
         }
+    }
+
+    fn validity(array: &ScalarFnArray) -> VortexResult<Validity> {
+        // TODO(ngates): we should add an execute_validity function to ScalarFn.
+        //  Or have more descriptive null sensitivity metadata.
+        Ok(Validity::from_mask(
+            Self::validity_mask(array),
+            Nullability::Nullable,
+        ))
     }
 
     fn validity_mask(array: &ScalarFnArray) -> Mask {

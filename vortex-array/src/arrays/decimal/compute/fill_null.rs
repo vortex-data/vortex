@@ -28,11 +28,13 @@ impl FillNullKernel for DecimalVTable {
                 let is_invalid = is_valid.to_bool().bit_buffer().not();
                 match_each_decimal_value_type!(array.values_type(), |T| {
                     let mut buffer = array.buffer::<T>().into_mut();
-                    let fill_value = fill_value
-                        .as_decimal()
+                    let decimal_scalar = fill_value.as_decimal();
+                    let decimal_value = decimal_scalar
                         .decimal_value()
-                        .and_then(|v| v.cast::<T>())
-                        .vortex_expect("top-level fill_null ensure non-null fill value");
+                        .vortex_expect("fill_null requires a non-null fill value");
+                    let fill_value = decimal_value
+                        .cast::<T>()
+                        .vortex_expect("fill value does not fit in array's decimal storage type");
                     for invalid_index in is_invalid.set_indices() {
                         buffer[invalid_index] = fill_value;
                     }

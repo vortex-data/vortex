@@ -31,7 +31,6 @@ use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
-use vortex_error::VortexUnwrap;
 use vortex_error::vortex_panic;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -229,7 +228,7 @@ impl RDEncoder {
         // SAFETY: by construction, all values in left_parts can be packed to left_bit_width.
         let packed_left = unsafe {
             bitpack_encode_unchecked(primitive_left, left_bit_width as _)
-                .vortex_unwrap()
+                .vortex_expect("bitpack_encode_unchecked should succeed for left parts")
                 .into_array()
         };
 
@@ -237,7 +236,7 @@ impl RDEncoder {
         // SAFETY: by construction, all values in right_parts are right_bit_width + leading zeros.
         let packed_right = unsafe {
             bitpack_encode_unchecked(primitive_right, self.right_bit_width as _)
-                .vortex_unwrap()
+                .vortex_expect("bitpack_encode_unchecked should succeed for right parts")
                 .into_array()
         };
 
@@ -252,7 +251,9 @@ impl RDEncoder {
             // SAFETY: We calculate bw such that it is wide enough to hold the largest position index.
             let packed_pos = unsafe {
                 bitpack_encode_unchecked(exc_pos_array, bw)
-                    .vortex_unwrap()
+                    .vortex_expect(
+                        "bitpack_encode_unchecked should succeed for exception positions",
+                    )
                     .into_array()
             };
 

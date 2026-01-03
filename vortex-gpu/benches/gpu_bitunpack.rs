@@ -15,7 +15,7 @@ use vortex_alp::{ALPArray, Exponents};
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
-use vortex_error::VortexUnwrap;
+use vortex_error::VortexExpect;
 use vortex_fastlanes::{BitPackedArray, FoRArray};
 
 // Data sizes: 1GB, 2.5GB, 5GB, 10GB
@@ -59,7 +59,7 @@ fn make_for_bitpackable_array(len: usize) -> FoRArray {
     let bitpacked = BitPackedArray::encode(values.as_ref(), 6).unwrap();
 
     // Wrap in FoR encoding with reference value
-    FoRArray::try_new(bitpacked.into_array(), reference.into()).vortex_unwrap()
+    FoRArray::try_new(bitpacked.into_array(), reference.into()).vortex_expect("operation should succeed in benchmark")
 }
 
 fn make_alp_array(len: usize) -> ArrayRef {
@@ -79,12 +79,12 @@ fn make_alp_array(len: usize) -> ArrayRef {
     // Wrap in FoR encoding with reference value
     ALPArray::try_new(
         FoRArray::try_new(bitpacked.into_array(), reference.into())
-            .vortex_unwrap()
+            .vortex_expect("operation should succeed in benchmark")
             .into_array(),
         Exponents { e: 4, f: 5 },
         None,
     )
-    .vortex_unwrap()
+    .vortex_expect("operation should succeed in benchmark")
     .into_array()
 }
 
