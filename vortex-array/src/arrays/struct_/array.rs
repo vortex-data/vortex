@@ -462,8 +462,8 @@ impl StructArray {
     /// # Parameters
     ///
     /// * `preserve_struct_validity` - If true, the new struct array retains the original struct-level
-    ///   validity. If false, the new struct array has `Validity::AllValid` since all null information
-    ///   is now contained within the individual fields.
+    ///   validity. If false, the new struct array has `Validity::NonNullable` since all null information
+    ///   is now contained within the individual fields and the struct instances themselves cannot be null.
     ///
     /// # Returns
     ///
@@ -477,33 +477,35 @@ impl StructArray {
     /// use vortex_array::IntoArray;
     /// use vortex_buffer::buffer;
     ///
-    /// // Create struct with top-level nulls
+    /// // Create struct with top-level nulls. Child fields are created as non-nullable
+    /// // but become nullable after pushing validity.
     /// let struct_array = StructArray::try_new(
     ///     ["a", "b"].into(),
     ///     vec![
-    ///         buffer![1i32, 2i32, 3i32].into_array(),
-    ///         buffer![10i32, 20i32, 30i32].into_array(),
+    ///         buffer![1i32, 2i32, 3i32].into_array(),  // non-nullable initially
+    ///         buffer![10i32, 20i32, 30i32].into_array(), // non-nullable initially
     ///     ],
     ///     3,
-    ///     Validity::from_iter([true, false, true]), // row 1 is null
+    ///     Validity::from_iter([true, false, true]), // row 1 is null at struct level
     /// ).unwrap();
     ///
     /// // Push validity into children, preserving struct validity
     /// let pushed = struct_array.push_validity_into_children(true).unwrap();
-    /// // pushed.fields()[0] now has nulls at position 1
-    /// // pushed.fields()[1] now has nulls at position 1
-    /// // pushed.validity still shows row 1 as null
+    /// // Result: struct has nulls at position 1, fields have nulls at position 1
+    /// // pushed.validity: [true, false, true] (preserved)
+    /// // pushed.fields()[0]: [1, null, 3] (nullable)
+    /// // pushed.fields()[1]: [10, null, 30] (nullable)
     ///
     /// // Push validity into children, removing struct validity
     /// let pushed_no_struct = struct_array.push_validity_into_children(false).unwrap();
-    /// // pushed_no_struct.fields()[0] now has nulls at position 1
-    /// // pushed_no_struct.fields()[1] now has nulls at position 1
-    /// // pushed_no_struct.validity is AllValid
+    /// // Result: struct instances cannot be null, all null info is in fields
+    /// // pushed_no_struct.validity: NonNullable (struct instances are never null)
+    /// // pushed_no_struct.fields()[0]: [1, null, 3] (nullable)
+    /// // pushed_no_struct.fields()[1]: [10, null, 30] (nullable)
     /// ```
     /// Push validity into children with default behavior (preserve_struct_validity = false).
 
     pub fn push_validity_into_children(&self, preserve_struct_validity: bool) -> VortexResult<Self> {
-        use crate::compute::mask;
 
         // Get the struct-level validity mask.
         let struct_validity_mask = self.validity_mask();
@@ -535,7 +537,7 @@ impl StructArray {
             .iter()
             .map(|field| {
                 // Use the mask function to apply null positions to each field.
-                mask(field.as_ref(), &null_mask)
+                crate::compute::mask(field.as_ref(), &null_mask)
             })
             .collect::<VortexResult<Vec<_>>>()?;
 
@@ -543,7 +545,7 @@ impl StructArray {
         let new_struct_validity = if preserve_struct_validity {
             self.validity.clone()
         } else {
-            Validity::AllValid
+            Validity::NonNullable
         };
 
         // Construct the new struct array.

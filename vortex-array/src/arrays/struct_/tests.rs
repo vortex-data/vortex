@@ -236,7 +236,8 @@ fn test_push_validity_into_children_remove_struct() {
     let pushed = struct_array.push_validity_into_children(false).unwrap();
 
 
-    // Check that struct validity is now AllValid
+    // Check that struct validity is now NonNullable (struct itself cannot be null)
+    // NonNullable means the struct instances themselves cannot be null
     assert!(pushed.validity_mask().all_true());
 
     // Check that children still have nulls where struct was null
@@ -245,7 +246,7 @@ fn test_push_validity_into_children_remove_struct() {
 
 
     assert!(field_a.is_valid(0));
-    assert!(!field_a.is_valid(1)); // Should be null due to struct null
+    assert!(!field_a.is_valid(1)); // Should be null    due to struct null
     assert!(field_a.is_valid(2));
 
     assert!(field_b.is_valid(0));
@@ -307,7 +308,7 @@ fn test_push_validity_into_children_no_nulls() {
     let pushed_preserve = struct_array.push_validity_into_children(true).unwrap();
     assert_eq!(pushed_preserve.validity_mask(), struct_array.validity_mask());
 
-    // Push validity into children (should change validity to AllValid when preserve=false)
+    // Push validity into children (should change validity to NonNullable when preserve=false)
     let pushed_remove = struct_array.push_validity_into_children(false).unwrap();
     assert!(pushed_remove.validity_mask().all_true());
 
