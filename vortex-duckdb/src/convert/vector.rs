@@ -111,13 +111,13 @@ fn vector_as_string_blob(vector: &mut Vector, len: usize, dtype: DType) -> Array
 
 /// Converts a valid [`duckdb_list_entry`] to `(offset, size)`, updating tracking state.
 ///
-/// Updates `child_max_length` with the maximum end offset seen so far, and `previous_end` with this
+/// Updates `child_min_length` with the maximum end offset seen so far, and `previous_end` with this
 /// entry's end offset (for use as the offset of subsequent null entries).
 ///
 /// Panics if the offset or size are negative or don't fit in the expected types.
 fn convert_valid_list_entry(
     entry: &duckdb_list_entry,
-    child_max_length: &mut usize,
+    child_min_length: &mut usize,
     previous_end: &mut i64,
 ) -> (i64, i64) {
     let offset = i64::try_from(entry.offset).vortex_expect("list offset must fit i64");
@@ -128,7 +128,7 @@ fn convert_valid_list_entry(
     let end = usize::try_from(offset + size)
         .vortex_expect("child vector length did not fit into a 32-bit `usize` type");
 
-    *child_max_length = (*child_max_length).max(end);
+    *child_min_length = (*child_min_length).max(end);
     *previous_end = offset + size;
 
     (offset, size)
@@ -137,7 +137,7 @@ fn convert_valid_list_entry(
 /// Processes DuckDB list entries with validity to produce Vortex-compatible `ListView` offsets and
 /// sizes.
 ///
-/// Returns `(offsets, sizes, child_max_length)` where `child_max_length` is the maximum end offset
+/// Returns `(offsets, sizes, child_min_length)` where `child_min_length` is the maximum end offset
 /// across all valid list entries, used to determine the child vector length coming from DuckDB.
 ///
 /// Null list views in DuckDB may contain garbage offset/size values (which is different from the
@@ -158,11 +158,11 @@ fn process_duckdb_lists(
     match validity {
         Validity::NonNullable | Validity::AllValid => {
             // All entries are valid, so there is no need to check the validity.
-            let mut child_max_length = 0;
+            let mut child_min_length = 0;
             let mut previous_end = 0;
             for entry in entries {
                 let (offset, size) =
-                    convert_valid_list_entry(entry, &mut child_max_length, &mut previous_end);
+                    convert_valid_list_entry(entry, &mut child_min_length, &mut previous_end);
 
                 // SAFETY: We allocated enough capacity above.
                 unsafe {
@@ -170,7 +170,7 @@ fn process_duckdb_lists(
                     sizes.push_unchecked(size);
                 }
             }
-            (offsets.freeze(), sizes.freeze(), child_max_length)
+            (offsets.freeze(), sizes.freeze(), child_min_length)
         }
         Validity::AllInvalid => {
             // All entries are null, so we can just set offset=0 and size=0.
@@ -184,13 +184,13 @@ fn process_duckdb_lists(
         Validity::Array(_) => {
             // We have some number of nulls, so make sure to check validity before updating info.
             let mask = validity.to_mask(len);
-            let child_max_length = mask.iter_bools(|validity_iter| {
-                let mut child_max_length = 0;
+            let child_min_length = mask.iter_bools(|validity_iter| {
+                let mut child_min_length = 0;
                 let mut previous_end = 0;
 
                 for (entry, is_valid) in entries.iter().zip(validity_iter) {
                     let (offset, size) = if is_valid {
-                        convert_valid_list_entry(entry, &mut child_max_length, &mut previous_end)
+                        convert_valid_list_entry(entry, &mut child_min_length, &mut previous_end)
                     } else {
                         (previous_end, 0)
                     };
@@ -202,9 +202,9 @@ fn process_duckdb_lists(
                     }
                 }
 
-                child_max_length
+                child_min_length
             });
-            (offsets.freeze(), sizes.freeze(), child_max_length)
+            (offsets.freeze(), sizes.freeze(), child_min_length)
         }
     }
 }
@@ -324,9 +324,9 @@ pub fn flat_vector_to_vortex(vector: &mut Vector, len: usize) -> VortexResult<Ar
             let validity = vector.validity_ref(len).to_validity();
             let entries = vector.as_slice_with_len::<duckdb_list_entry>(len);
 
-            let (offsets, sizes, child_max_length) = process_duckdb_lists(entries, &validity);
+            let (offsets, sizes, child_min_length) = process_duckdb_lists(entries, &validity);
             let child_data =
-                flat_vector_to_vortex(&mut vector.list_vector_get_child(), child_max_length)?;
+                flat_vector_to_vortex(&mut vector.list_vector_get_child(), child_min_length)?;
 
             ListViewArray::try_new(
                 child_data,
@@ -876,7 +876,7 @@ mod tests {
         let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
         validity_slice.set(1, false);
 
-        // Test conversion. The old code would compute child_max_length as 9999+9999=19998, which
+        // Test conversion. The old code would compute child_min_length as 9999+9999=19998, which
         // would panic when trying to read that much data from the child vector.
         let result = flat_vector_to_vortex(&mut vector, len).unwrap();
         let vortex_array = result.to_listview();
