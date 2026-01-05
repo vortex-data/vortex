@@ -1,6 +1,4 @@
-use crate::session::WgpuSession;
 use std::sync::LazyLock;
-use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 
 pub mod executor;
