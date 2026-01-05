@@ -1928,16 +1928,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cudarc"
-version = "0.18.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3aa12038120eb13347a6ae2ffab1d34efe78150125108627fd85044dd4d6ff1e"
-dependencies = [
- "half",
- "libloading 0.8.9",
-]
-
-[[package]]
 name = "cxx"
 version = "1.0.192"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3565,8 +3555,6 @@ dependencies = [
  "cfg-if",
  "crunchy",
  "num-traits",
- "rand 0.9.2",
- "rand_distr 0.5.1",
  "zerocopy",
 ]
 
@@ -8768,7 +8756,6 @@ dependencies = [
  "bitvec",
  "bytes",
  "codspeed-divan-compat",
- "cudarc",
  "itertools 0.14.0",
  "memmap2",
  "num-traits",
@@ -8965,7 +8952,6 @@ name = "vortex-error"
 version = "0.1.0"
 dependencies = [
  "arrow-schema",
- "cudarc",
  "flatbuffers",
  "jiff",
  "object_store",
@@ -9112,26 +9098,6 @@ dependencies = [
  "vortex-scalar",
  "vortex-session",
  "vortex-utils",
-]
-
-[[package]]
-name = "vortex-gpu"
-version = "0.1.0"
-dependencies = [
- "arcref",
- "async-trait",
- "cudarc",
- "futures",
- "vortex-array",
- "vortex-buffer",
- "vortex-dtype",
- "vortex-error",
- "vortex-fastlanes",
- "vortex-io",
- "vortex-layout",
- "vortex-session",
- "vortex-utils",
- "wgpu",
 ]
 
 [[package]]
@@ -9467,6 +9433,25 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
+]
+
+[[package]]
+name = "vortex-wgpu"
+version = "0.1.0"
+dependencies = [
+ "arcref",
+ "async-trait",
+ "futures",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-dtype",
+ "vortex-error",
+ "vortex-fastlanes",
+ "vortex-io",
+ "vortex-layout",
+ "vortex-session",
+ "vortex-utils",
+ "wgpu",
 ]
 
 [[package]]

@@ -3,11 +3,11 @@
 
 use std::iter;
 
-use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
+use vortex_buffer::{Alignment, BufferHandle};
 use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
@@ -64,7 +64,7 @@ pub use patch::patch_chunk;
 #[derive(Clone, Debug)]
 pub struct PrimitiveArray {
     pub(super) dtype: DType,
-    pub(super) buffer: ByteBuffer,
+    pub(super) buffer: BufferHandle,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
@@ -118,7 +118,7 @@ impl PrimitiveArray {
 
         Self {
             dtype: DType::Primitive(T::PTYPE, validity.nullability()),
-            buffer: buffer.into_byte_buffer(),
+            buffer: BufferHandle::Buffer(buffer.into_byte_buffer()),
             validity,
             stats_set: Default::default(),
         }

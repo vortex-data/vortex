@@ -1,5 +1,5 @@
 [package]
-name = "vortex-gpu"
+name = "vortex-wgpu"
 authors.workspace = true
 description = "GPU compute for Vortex"
 edition = { workspace = true }
@@ -26,19 +26,10 @@ futures = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
-vortex-error = { workspace = true, features = ["cudarc", "wgpu"] }
+vortex-error = { workspace = true, features = ["wgpu"] }
 vortex-fastlanes = { workspace = true }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
-
-cudarc = { workspace = true, features = [
-    "std",
-    "driver",
-    "cuda-12080",
-    "dynamic-loading",
-    "f16",
-    "nvrtc",
-] }
 wgpu = { workspace = true }

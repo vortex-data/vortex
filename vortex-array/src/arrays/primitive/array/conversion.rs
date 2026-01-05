@@ -3,9 +3,9 @@
 
 //! Conversion methods and trait implementations of [`From`] and [`Into`] for [`PrimitiveArray`].
 
-use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_buffer::{BitBufferMut, BufferHandle};
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
@@ -70,6 +70,10 @@ impl PrimitiveArray {
             }
         }
         Self::new(values.freeze(), Validity::from(validity.freeze()))
+    }
+
+    pub fn buffer_handle(&self) -> &BufferHandle {
+        &self.buffer
     }
 
     pub fn buffer<T: NativePType>(&self) -> Buffer<T> {

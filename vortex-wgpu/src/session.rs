@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::executor::WgpuSupport;
 use vortex_array::vtable::ArrayId;
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::wgpu::executor::WgpuSupport;
-
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct WgpuSession {
     // Registry of supported array executors.
     executors: HashMap<ArrayId, &'static dyn WgpuSupport>,

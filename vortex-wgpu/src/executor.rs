@@ -2,21 +2,23 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
+use std::fmt::Debug;
 use std::sync::Arc;
 
-use crate::vector::GpuVector;
-use crate::vector::PrimitiveGpuVector;
-use crate::wgpu::INSTANCE;
-use crate::wgpu::session::WgpuSession;
+use crate::INSTANCE;
+use crate::pipeline::PipelineBuilder;
+use crate::session::WgpuSession;
+use crate::vector::{GpuVector, PrimitiveGpuVector};
 use vortex_array::Canonical;
+use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::PType;
 use vortex_error::vortex_err;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_fastlanes::FoRVTable;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
-use wgpu::wgt::DeviceDescriptor;
-use wgpu::{BindGroup, BindGroupEntry, BufferBindingType};
+use wgpu::wgt::{CommandEncoderDescriptor, DeviceDescriptor};
+use wgpu::{BindGroup, BindGroupEntry, BufferBindingType, CommandEncoder, ComputePass};
 use wgpu::{BindGroupDescriptor, RequestAdapterOptions};
 use wgpu::{BindGroupLayoutDescriptor, ShaderStages};
 use wgpu::{BindGroupLayoutEntry, ShaderModuleDescriptor, ShaderSource};
@@ -46,9 +48,15 @@ impl WgpuExecutor {
     }
 }
 
+pub struct WgpuCtx<'a> {
+    pub device: &'a wgpu::Device,
+    pub cache: Option<&'a wgpu::PipelineCache>,
+}
+
 /// Shader support for WebGPU execution.
-pub trait WgpuSupport {
-    fn shader(&self, array: &ArrayRef, args: WgpuShaderArgs) -> VortexResult<WgpuShader>;
+pub trait WgpuSupport: Debug {
+    fn execute(&self, array: &ArrayRef, ctx: &WgpuCtx, cpass: &mut ComputePass)
+    -> VortexResult<()>;
 }
 
 pub struct WgpuShaderArgs<'a> {
@@ -73,9 +81,19 @@ pub struct WgpuShader {
     pub self_input: Option<BindGroup>,
 }
 
+pub trait WgpuArrayExt: Array {
+    fn execute_wgpu(&self, ctx: &WgpuCtx) -> VortexResult<ArrayRef>;
+}
+impl WgpuArrayExt for ArrayRef {
+    fn execute_wgpu(&self, ctx: &WgpuCtx) -> VortexResult<ArrayRef> {
+        todo!()
+    }
+}
+
+#[derive(Debug)]
 struct FoRWgpuSupport;
 impl WgpuSupport for FoRWgpuSupport {
-    fn shader(&self, array: &ArrayRef, args: WgpuShaderArgs) -> VortexResult<WgpuShader> {
+    fn pipeline(&self, array: &ArrayRef, args: WgpuShaderArgs) -> VortexResult<WgpuShader> {
         let for_array = array.as_::<FoRVTable>();
         let input = &args.inputs[0];
 
@@ -94,21 +112,19 @@ impl WgpuSupport for FoRWgpuSupport {
             input.bind_group, args.self_bind_group, args.output_bind_group,
         );
 
-        let output = GpuVector::Primitive(unsafe {
-            PrimitiveGpuVector::new_unchecked(
-                for_array.ptype(),
-                for_array.len(),
-                BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
+        let output = GpuVector::Primitive(PrimitiveGpuVector {
+            ptype: for_array.ptype(),
+            len: for_array.len(),
+            buffer: BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
                 },
-            )
+                count: None,
+            },
         });
 
         let reference_bytes = for_array
@@ -154,6 +170,61 @@ impl WgpuSupport for FoRWgpuSupport {
             self_input: Some(self_input),
         })
     }
+
+    fn execute(
+        &self,
+        array: &ArrayRef,
+        ctx: &WgpuCtx,
+        cpass: &mut ComputePass,
+    ) -> VortexResult<()> {
+        // First, we execute the child array to get the input values.
+        let for_array = array.as_::<FoRVTable>();
+        let input = for_array.encoded().execute_wgpu(ctx)?;
+        let input_primitive = input.as_::<PrimitiveVTable>();
+
+        let source = "
+            @group(0) @binding(0) var<storage, read> input: array<vec4<u32>>;
+            @group(0) @binding(1) var<uniform> ref_val: u32;
+            @group(0) @binding(2) var<storage, read_write> output: array<vec4<u32>>;
+
+            @compute @workgroup_size(256)
+            fn decode_for(@builtin(global_invocation_id) global_id: vec3<u32>) {{
+                let r = vec4<u32>(ref_val);
+                output[global_id.x] = input[global_id.x] + r;
+            }}
+            ";
+
+        let module = ctx.device.create_shader_module(ShaderModuleDescriptor {
+            label: None,
+            source: ShaderSource::Wgsl(Cow::Borrowed(source)),
+        });
+
+        let compute_pipeline = ctx
+            .device
+            .create_compute_pipeline(&ComputePipelineDescriptor {
+                label: None,
+                layout: None,
+                module: &module,
+                entry_point: None,
+                compilation_options: Default::default(),
+                cache: ctx.cache,
+            });
+
+        let encoded_buffer = input_primitive.buffer()
+
+        let bind_group = ctx.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("FoR Bind Group"),
+            layout: &compute_pipeline.get_bind_group_layout(0),
+            entries: &[],
+        });
+
+        cpass.set_pipeline(&compute_pipeline);
+        cpass.set_bind_group(0, &bind_group, &[]);
+        cpass.insert_debug_marker("compute for iterations");
+        cpass.dispatch_workgroups(input_vals.len() as u32, 1, 1);
+
+        Ok(())
+    }
 }
 
 impl WgpuExecutor {
@@ -179,6 +250,9 @@ impl WgpuExecutor {
             );
         };
 
+        let mut builder = PipelineBuilder::new(&self.device);
+        let shader = support.pipeline(&array, &mut builder)?;
+
         // The input vectors are the array's children.
         // TODO(ngates): implement this recursion.
         let input_layout_entry = BindGroupLayoutEntry {
@@ -193,8 +267,10 @@ impl WgpuExecutor {
         };
         let input = WgpuShaderInput {
             bind_group: 0,
-            vector: GpuVector::Primitive(unsafe {
-                PrimitiveGpuVector::new_unchecked(PType::U32, array.len(), input_layout_entry)
+            vector: GpuVector::Primitive(PrimitiveGpuVector {
+                ptype: PType::U32,
+                len: array.len(),
+                buffer: input_layout_entry,
             }),
         };
         let input_layout = self
@@ -210,7 +286,7 @@ impl WgpuExecutor {
             self_bind_group: 1,
             output_bind_group: 2,
         };
-        let shader = support.shader(&array, args)?;
+        let shader = support.pipeline(&array, args)?;
         let module = self.device.create_shader_module(ShaderModuleDescriptor {
             label: None,
             source: ShaderSource::Wgsl(Cow::Borrowed(&shader.source)),
@@ -262,8 +338,8 @@ mod test {
     use vortex_fastlanes::{FoRArray, FoRVTable};
     use vortex_io::runtime::single::block_on;
 
-    use crate::wgpu::executor::{FoRWgpuSupport, WgpuExecutor};
-    use crate::wgpu::session::WgpuSession;
+    use crate::executor::{FoRWgpuSupport, WgpuExecutor};
+    use crate::session::WgpuSession;
 
     #[test]
     fn test_for_wgpu() -> VortexResult<()> {

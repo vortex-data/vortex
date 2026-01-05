@@ -138,9 +138,6 @@ pub enum VortexError {
     /// Wrap prost unknown enum value
     #[cfg(feature = "prost")]
     ProstUnknownEnumValue(prost::UnknownEnumValue, Box<Backtrace>),
-    /// Wrap cudarc errors
-    #[cfg(feature = "cudarc")]
-    CudaError(cudarc::driver::DriverError, Box<Backtrace>),
     /// Wrap wgpu errors
     #[cfg(feature = "wgpu")]
     WgpuError(wgpu::Error, Box<Backtrace>),
@@ -248,9 +245,6 @@ impl Display for VortexError {
             }
             #[cfg(feature = "prost")]
             VortexError::ProstUnknownEnumValue(err, backtrace) => {
-                write!(f, "{err}\nBacktrace:\n{backtrace}")
-            }
-            VortexError::CudaError(err, backtrace) => {
                 write!(f, "{err}\nBacktrace:\n{backtrace}")
             }
             VortexError::WgpuError(err, backtrace) => {
@@ -566,13 +560,6 @@ impl From<prost::DecodeError> for VortexError {
 impl From<prost::UnknownEnumValue> for VortexError {
     fn from(value: prost::UnknownEnumValue) -> Self {
         VortexError::ProstUnknownEnumValue(value, Box::new(Backtrace::capture()))
-    }
-}
-
-#[cfg(feature = "cudarc")]
-impl From<cudarc::driver::DriverError> for VortexError {
-    fn from(value: cudarc::driver::DriverError) -> Self {
-        VortexError::CudaError(value, Box::new(Backtrace::capture()))
     }
 }
 
