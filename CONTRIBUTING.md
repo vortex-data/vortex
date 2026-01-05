@@ -71,6 +71,7 @@ The contribution process is outlined below:
 
 3. Open a PR to indicate that the change is ready for review.
     * Ensure that you sign your work via DCO (see below).
+    * If do you GenAI/LLMs in your contributions **do** mention this.
 
 ## Developer Certificate of Origin (DCO)
 
