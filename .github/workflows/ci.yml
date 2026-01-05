@@ -221,9 +221,11 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
+      - id: setup-rust
+        uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          timestamp: "true"
       - name: Install wasm32 target
         if: ${{ matrix.config.target == 'wasm32-unknown-unknown' }}
         run: rustup target add wasm32-unknown-unknown
@@ -235,6 +237,9 @@ jobs:
         run: |
           git status --porcelain
           test -z "$(git status --porcelain)"
+      - name: Prune cache
+        if: github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true'
+        run: cargo sweep --file
 
   check-min-deps:
     name: "Check build with minimal dependencies"
@@ -273,10 +278,12 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
+      - id: setup-rust
+        uses: ./.github/actions/setup-rust
         with:
           toolchain: nightly
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          timestamp: "true"
       - name: Rust Lint - Format
         run: cargo +nightly fmt --all --check
       - name: Rustc check
@@ -287,6 +294,9 @@ jobs:
         run: cargo clippy --locked --all-features --all-targets -- -D warnings
       - name: Rust Lint - Clippy Default Features
         run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Prune cache
+        if: github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true'
+        run: cargo sweep --file
 
   rust-lint-no-default:
     name: "Rust (lint, no default)"
@@ -303,9 +313,11 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
+      - id: setup-rust
+        uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          timestamp: "true"
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Lint - Clippy No Default Features
@@ -313,6 +325,9 @@ jobs:
         run: |
           # https://spiraldb.slack.com/archives/C07BV3GKAJ2/p1732736281946729
           cargo hack clippy --no-default-features -- -D warnings
+      - name: Prune cache
+        if: github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true'
+        run: cargo sweep --file
 
   rust-semver:
     name: "Rust (semver checks)"
@@ -380,7 +395,8 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
+      - id: setup-rust
+        uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install grcov
@@ -427,6 +443,9 @@ jobs:
           disable_search: true
           flags: ${{ matrix.suite }}
           use_oidc: true
+      - name: Prune cache
+        if: github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true'
+        run: cargo sweep --file
 
   rust-test:
     name: "Rust tests (sanitizer)"
@@ -459,12 +478,14 @@ jobs:
         with:
           compiler: llvm
           cache-tools: true
-      - uses: ./.github/actions/setup-rust
+      - id: setup-rust
+        uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           toolchain: nightly
           components: "rust-src, rustfmt, clippy, llvm-tools-preview"
           cache-suffix: "sanitizer"
+          timestamp: "true"
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -485,6 +506,9 @@ jobs:
             --no-fail-fast \
             --target x86_64-unknown-linux-gnu \
             --verbose
+      - name: Prune cache
+        if: github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true'
+        run: cargo sweep --file
 
   rust-test-other:
     name: "Rust tests (${{ matrix.os }})"
@@ -520,9 +544,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - uses: ./.github/actions/setup-rust
+      - id: setup-rust
+        uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          timestamp: "true"
       - name: Install nextest
         uses: taiki-e/install-action@v2
         with:
@@ -534,6 +560,9 @@ jobs:
       - name: Rust Tests (Other)
         if: matrix.os != 'windows-x64'
         run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude vortex-duckdb
+      - name: Prune cache
+        if: github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true'
+        run: cargo sweep --file
 
   build-java:
     name: "Java"

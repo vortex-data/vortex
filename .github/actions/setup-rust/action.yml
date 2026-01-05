@@ -19,6 +19,9 @@ inputs:
     description: "optional suffix for cache key to isolate builds with different RUSTFLAGS (e.g. 'sanitizer')"
     required: false
     default: ""
+  timestamp:
+    description: "Timestamp cache with cargo sweep"
+    default: "false"
 
 runs:
   using: "composite"
@@ -61,3 +64,13 @@ runs:
       with:
         version: "29.3"
         repo-token: ${{ inputs.repo-token }}
+
+    - name: Install Sweep
+      shell: bash
+      if: ${{ inputs.timestamp == 'true' && github.ref_name == 'develop' }}
+      run: cargo install cargo-sweep
+
+    - name: Timestamp Cache
+      shell: bash
+      if: ${{ inputs.timestamp == 'true' && github.ref_name == 'develop' }}
+      run: cargo sweep --stamp

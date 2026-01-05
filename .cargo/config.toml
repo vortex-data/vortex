@@ -21,3 +21,15 @@ timeout = 3600
 # Environment variables for PyO3. Ensures reproducible builds and avoids spurious recompilations.
 [env]
 PYO3_ENVIRONMENT_SIGNATURE = { value = "cpython-3.11-64bit", force = true }
+
+[cache.global-clean]
+# Anything older than this duration will be deleted in the source cache.
+max-src-age = "1 week"
+# Anything older than this duration will be deleted in the compressed crate cache.
+max-crate-age = "1 week"
+# Any git checkout older than this duration will be deleted from the checkout cache.
+max-git-co-age = "1 week"
+# Any index older than this duration will be deleted from the index cache.
+max-index-age = "1 month"
+# Any git clone older than this duration will be deleted from the git cache.
+max-git-db-age = "1 month"
