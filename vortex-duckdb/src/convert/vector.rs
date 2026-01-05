@@ -109,6 +109,106 @@ fn vector_as_string_blob(vector: &mut Vector, len: usize, dtype: DType) -> Array
     builder.finish()
 }
 
+/// Converts a valid [`duckdb_list_entry`] to `(offset, size)`, updating tracking state.
+///
+/// Updates `child_min_length` with the maximum end offset seen so far, and `previous_end` with this
+/// entry's end offset (for use as the offset of subsequent null entries).
+///
+/// Panics if the offset or size are negative or don't fit in the expected types.
+fn convert_valid_list_entry(
+    entry: &duckdb_list_entry,
+    child_min_length: &mut usize,
+    previous_end: &mut i64,
+) -> (i64, i64) {
+    let offset = i64::try_from(entry.offset).vortex_expect("list offset must fit i64");
+    assert!(offset >= 0, "list offset must be non-negative");
+    let size = i64::try_from(entry.length).vortex_expect("list size must fit i64");
+    assert!(size >= 0, "list size must be non-negative");
+
+    let end = usize::try_from(offset + size)
+        .vortex_expect("child vector length did not fit into a 32-bit `usize` type");
+
+    *child_min_length = (*child_min_length).max(end);
+    *previous_end = offset + size;
+
+    (offset, size)
+}
+
+/// Processes DuckDB list entries with validity to produce Vortex-compatible `ListView` offsets and
+/// sizes.
+///
+/// Returns `(offsets, sizes, child_min_length)` where `child_min_length` is the maximum end offset
+/// across all valid list entries, used to determine the child vector length coming from DuckDB.
+///
+/// Null list views in DuckDB may contain garbage offset/size values (which is different from the
+/// Arrow specification), so we must check validity before reading them.
+///
+/// For null entries, we set the offset to the previous list's end and size to 0 so that:
+/// 1. We don't accidentally read garbage data from the child vector.
+/// 2. The null entries remain in (mostly) sorted offset order, which can potentially simplify
+///    downstream operations like converting `ListView` to `List`.
+fn process_duckdb_lists(
+    entries: &[duckdb_list_entry],
+    validity: &Validity,
+) -> (Buffer<i64>, Buffer<i64>, usize) {
+    let len = entries.len();
+    let mut offsets = BufferMut::with_capacity(len);
+    let mut sizes = BufferMut::with_capacity(len);
+
+    match validity {
+        Validity::NonNullable | Validity::AllValid => {
+            // All entries are valid, so there is no need to check the validity.
+            let mut child_min_length = 0;
+            let mut previous_end = 0;
+            for entry in entries {
+                let (offset, size) =
+                    convert_valid_list_entry(entry, &mut child_min_length, &mut previous_end);
+
+                // SAFETY: We allocated enough capacity above.
+                unsafe {
+                    offsets.push_unchecked(offset);
+                    sizes.push_unchecked(size);
+                }
+            }
+            (offsets.freeze(), sizes.freeze(), child_min_length)
+        }
+        Validity::AllInvalid => {
+            // All entries are null, so we can just set offset=0 and size=0.
+            // SAFETY: We allocated enough capacity above.
+            unsafe {
+                offsets.push_n_unchecked(0, len);
+                sizes.push_n_unchecked(0, len);
+            }
+            (offsets.freeze(), sizes.freeze(), 0)
+        }
+        Validity::Array(_) => {
+            // We have some number of nulls, so make sure to check validity before updating info.
+            let mask = validity.to_mask(len);
+            let child_min_length = mask.iter_bools(|validity_iter| {
+                let mut child_min_length = 0;
+                let mut previous_end = 0;
+
+                for (entry, is_valid) in entries.iter().zip(validity_iter) {
+                    let (offset, size) = if is_valid {
+                        convert_valid_list_entry(entry, &mut child_min_length, &mut previous_end)
+                    } else {
+                        (previous_end, 0)
+                    };
+
+                    // SAFETY: We allocated enough capacity above.
+                    unsafe {
+                        offsets.push_unchecked(offset);
+                        sizes.push_unchecked(size);
+                    }
+                }
+
+                child_min_length
+            });
+            (offsets.freeze(), sizes.freeze(), child_min_length)
+        }
+    }
+}
+
 /// Converts flat vector to a vortex array
 pub fn flat_vector_to_vortex(vector: &mut Vector, len: usize) -> VortexResult<ArrayRef> {
     let type_id = vector.logical_type().as_type_id();
@@ -221,33 +321,18 @@ pub fn flat_vector_to_vortex(vector: &mut Vector, len: usize) -> VortexResult<Ar
             .map(|a| a.into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_LIST => {
-            let mut offsets = BufferMut::with_capacity(len);
-            let mut lengths = BufferMut::with_capacity(len);
-            for duckdb_list_entry { offset, length } in
-                vector.as_slice_with_len::<duckdb_list_entry>(len)
-            {
-                unsafe {
-                    offsets.push_unchecked(
-                        i64::try_from(*offset).vortex_expect("list offset must fit in i64"),
-                    );
-                    lengths.push_unchecked(
-                        i64::try_from(*length).vortex_expect("list length must fit in i64"),
-                    );
-                }
-            }
-            let offsets = offsets.freeze();
-            let lengths = lengths.freeze();
-            let child_data = flat_vector_to_vortex(
-                &mut vector.list_vector_get_child(),
-                usize::try_from(offsets[len - 1] + lengths[len - 1])
-                    .vortex_expect("list child data size must fit in usize"),
-            )?;
+            let validity = vector.validity_ref(len).to_validity();
+            let entries = vector.as_slice_with_len::<duckdb_list_entry>(len);
+
+            let (offsets, sizes, child_min_length) = process_duckdb_lists(entries, &validity);
+            let child_data =
+                flat_vector_to_vortex(&mut vector.list_vector_get_child(), child_min_length)?;
 
             ListViewArray::try_new(
                 child_data,
                 offsets.into_array(),
-                lengths.into_array(),
-                vector.validity_ref(len).to_validity(),
+                sizes.into_array(),
+                validity,
             )
             .map(|a| a.into_array())
         }
@@ -650,6 +735,179 @@ mod tests {
         assert_eq!(
             vortex_array.fields()[1].to_primitive().as_slice::<i32>(),
             &[5, 6, 7, 8]
+        );
+    }
+
+    #[test]
+    fn test_list_with_trailing_null() {
+        // Regression test: when the last list entry is null, its offset/length may be 0/0,
+        // so we can't use the last entry to compute child vector length.
+        let child_values = vec![1i32, 2, 3, 4];
+        let len = 2;
+
+        let logical_type =
+            LogicalType::list_type(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER)).unwrap();
+        let mut vector = Vector::with_capacity(logical_type, len);
+
+        // Entry 0: offset=0, length=4 -> all elements (end=4)
+        // Entry 1: null, offset=0, length=0 (end=0)
+        unsafe {
+            let entries = vector.as_slice_mut::<duckdb_list_entry>(len);
+            entries[0] = duckdb_list_entry {
+                offset: 0,
+                length: child_values.len() as u64,
+            };
+            entries[1] = duckdb_list_entry {
+                offset: 0,
+                length: 0,
+            };
+            let mut child = vector.list_vector_get_child();
+            let slice = child.as_slice_mut::<i32>(child_values.len());
+            slice.copy_from_slice(&child_values);
+        }
+
+        // Set the second entry as null.
+        let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
+        validity_slice.set(1, false);
+
+        // Test conversion - the old bug would compute child length as 0+0=0 instead of
+        // max(4,0)=4.
+        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let vortex_array = result.to_listview();
+
+        assert_eq!(vortex_array.len(), len);
+        assert_eq!(
+            vortex_array
+                .list_elements_at(0)
+                .to_primitive()
+                .as_slice::<i32>(),
+            &[1, 2, 3, 4]
+        );
+        assert_eq!(vortex_array.validity_mask(), Mask::from_indices(2, vec![0]));
+    }
+
+    #[test]
+    fn test_list_out_of_order() {
+        // Regression test: list views can be out of order in DuckDB. The child vector length
+        // must be computed as the maximum end offset, not just the last entry's end offset.
+        let child_values = vec![1i32, 2, 3, 4];
+        let len = 2;
+
+        let logical_type =
+            LogicalType::list_type(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER)).unwrap();
+        let mut vector = Vector::with_capacity(logical_type, len);
+
+        // Populate with out-of-order list entries:
+        // - Entry 0: offset=2, length=2 -> elements [3, 4] (end=4)
+        // - Entry 1: offset=0, length=2 -> elements [1, 2] (end=2)
+        unsafe {
+            let entries = vector.as_slice_mut::<duckdb_list_entry>(len);
+            entries[0] = duckdb_list_entry {
+                offset: 2,
+                length: 2,
+            };
+            entries[1] = duckdb_list_entry {
+                offset: 0,
+                length: 2,
+            };
+            let mut child = vector.list_vector_get_child();
+            let slice = child.as_slice_mut::<i32>(child_values.len());
+            slice.copy_from_slice(&child_values);
+        }
+
+        // Test conversion - the old bug would compute child length as 0+2=2 instead of
+        // max(4,2)=4.
+        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let vortex_array = result.to_listview();
+
+        assert_eq!(vortex_array.len(), len);
+        assert_eq!(
+            vortex_array
+                .list_elements_at(0)
+                .to_primitive()
+                .as_slice::<i32>(),
+            &[3, 4]
+        );
+        assert_eq!(
+            vortex_array
+                .list_elements_at(1)
+                .to_primitive()
+                .as_slice::<i32>(),
+            &[1, 2]
+        );
+    }
+
+    #[test]
+    fn test_list_null_garbage_data() {
+        // Test that null list entries with garbage offset/size values don't cause issues.
+        // DuckDB doesn't guarantee valid offset/size for null list views, so we must check
+        // validity before reading the offset/size values.
+        let child_values = vec![1i32, 2, 3, 4];
+        let len = 3;
+
+        let logical_type =
+            LogicalType::list_type(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER)).unwrap();
+        let mut vector = Vector::with_capacity(logical_type, len);
+
+        // Entry 0: valid, offset=0, length=2 -> elements [1, 2]
+        // Entry 1: null with garbage values (offset=9999, length=9999)
+        // Entry 2: valid, offset=2, length=2 -> elements [3, 4]
+        unsafe {
+            let entries = vector.as_slice_mut::<duckdb_list_entry>(len);
+            entries[0] = duckdb_list_entry {
+                offset: 0,
+                length: 2,
+            };
+            // Garbage values that would cause a panic if we tried to use them.
+            entries[1] = duckdb_list_entry {
+                offset: 9999,
+                length: 9999,
+            };
+            entries[2] = duckdb_list_entry {
+                offset: 2,
+                length: 2,
+            };
+            let mut child = vector.list_vector_get_child();
+            let slice = child.as_slice_mut::<i32>(child_values.len());
+            slice.copy_from_slice(&child_values);
+        }
+
+        // Set entry 1 as null.
+        let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
+        validity_slice.set(1, false);
+
+        // Test conversion. The old code would compute child_min_length as 9999+9999=19998, which
+        // would panic when trying to read that much data from the child vector.
+        let result = flat_vector_to_vortex(&mut vector, len).unwrap();
+        let vortex_array = result.to_listview();
+
+        assert_eq!(vortex_array.len(), len);
+
+        // Valid entries should work correctly.
+        assert_eq!(
+            vortex_array
+                .list_elements_at(0)
+                .to_primitive()
+                .as_slice::<i32>(),
+            &[1, 2]
+        );
+        assert_eq!(
+            vortex_array
+                .list_elements_at(2)
+                .to_primitive()
+                .as_slice::<i32>(),
+            &[3, 4]
+        );
+
+        // Verify the null entry has sanitized offset/size (offset=2, size=0) rather than garbage.
+        let offsets = vortex_array.offsets().to_primitive();
+        let sizes = vortex_array.sizes().to_primitive();
+        assert_eq!(offsets.as_slice::<i64>()[1], 2); // Previous end (0+2).
+        assert_eq!(sizes.as_slice::<i64>()[1], 0);
+
+        assert_eq!(
+            vortex_array.validity_mask(),
+            Mask::from_indices(3, vec![0, 2])
         );
     }
 }

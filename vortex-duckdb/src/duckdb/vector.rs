@@ -303,6 +303,7 @@ pub struct ValidityRef<'a> {
 }
 
 impl ValidityRef<'_> {
+    #[inline]
     pub fn is_valid(&self, row: usize) -> bool {
         let Some(validity) = self.validity else {
             return true;
