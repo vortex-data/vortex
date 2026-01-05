@@ -395,7 +395,7 @@ jobs:
           RUSTFLAGS: "-Cinstrument-coverage -A warnings --cfg vortex_nightly"
         run: |
           cargo +nightly nextest run --locked --workspace --all-features --no-fail-fast
-          cargo +nightly nextest run --locked --workspace --all-features --no-fail-fast --run-ignored
+          cargo +nightly nextest run --locked --workspace --all-features --no-fail-fast --run-ignored only
       - name: Run TPC-H
         if: ${{ matrix.suite == 'tpc-h' }}
         # We use i2 to ensure that restarting the duckdb connection succeeds
