@@ -9,8 +9,17 @@ use vortex::scan::Selection;
 /// This is intended as a low-level interface for users building their own data systems, see the [advance index] example from the DataFusion repo for a similar usage with Parquet.
 ///
 /// [advance index]: https://github.com/apache/datafusion/blob/47df535d2cd5aac5ad5a92bdc837f38e05ea0f0f/datafusion-examples/examples/data_io/parquet_advanced_index.rs
+#[derive(Default)]
 pub struct VortexAccessPlan {
     selection: Option<Selection>,
+}
+
+impl VortexAccessPlan {
+    /// Sets a [`Selection`] for this plan.
+    pub fn with_selection(mut self, selection: Selection) -> Self {
+        self.selection = Some(selection);
+        self
+    }
 }
 
 impl VortexAccessPlan {
