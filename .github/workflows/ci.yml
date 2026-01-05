@@ -238,7 +238,7 @@ jobs:
           git status --porcelain
           test -z "$(git status --porcelain)"
       - name: Prune cache
-        if: github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true'
+        if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
         run: cargo sweep --file
 
   check-min-deps:
@@ -295,7 +295,7 @@ jobs:
       - name: Rust Lint - Clippy Default Features
         run: cargo clippy --locked --all-targets -- -D warnings
       - name: Prune cache
-        if: github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true'
+        if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
         run: cargo sweep --file
 
   rust-lint-no-default:
@@ -326,7 +326,7 @@ jobs:
           # https://spiraldb.slack.com/archives/C07BV3GKAJ2/p1732736281946729
           cargo hack clippy --no-default-features -- -D warnings
       - name: Prune cache
-        if: github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true'
+        if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
         run: cargo sweep --file
 
   rust-semver:
@@ -399,6 +399,7 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          timestamp: "true"
       - name: Install grcov
         uses: taiki-e/install-action@grcov
       - name: Install nextest
@@ -444,7 +445,7 @@ jobs:
           flags: ${{ matrix.suite }}
           use_oidc: true
       - name: Prune cache
-        if: github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true'
+        if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
         run: cargo sweep --file
 
   rust-test:
@@ -459,7 +460,6 @@ jobs:
       - tag=rust-test-sanitizer
     env:
       # Add debug symbols and enable ASAN/LSAN with better output
-      RUSTFLAGS: "-A warnings -Zsanitizer=address -Zsanitizer=leak --cfg disable_loom --cfg vortex_nightly -C debuginfo=2 -C opt-level=0 -C strip=none"
       ASAN_OPTIONS: "symbolize=1:print_stats=1:check_initialization_order=1:detect_leaks=1:halt_on_error=0:verbosity=1:leak_check_at_exit=1"
       LSAN_OPTIONS: "verbosity=1:report_objects=1"
       ASAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
@@ -495,6 +495,8 @@ jobs:
         with:
           tool: nextest
       - name: Rust Tests
+        env:
+          RUSTFLAGS: "-A warnings -Zsanitizer=address -Zsanitizer=leak --cfg disable_loom --cfg vortex_nightly -C debuginfo=2 -C opt-level=0 -C strip=none"
         run: |
           # Build with full debug info first (helps with caching)
           cargo +nightly build --locked --workspace --all-features --target x86_64-unknown-linux-gnu
@@ -507,7 +509,7 @@ jobs:
             --target x86_64-unknown-linux-gnu \
             --verbose
       - name: Prune cache
-        if: github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true'
+        if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
         run: cargo sweep --file
 
   rust-test-other:
@@ -561,7 +563,7 @@ jobs:
         if: matrix.os != 'windows-x64'
         run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude vortex-duckdb
       - name: Prune cache
-        if: github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true'
+        if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
         run: cargo sweep --file
 
   build-java:
