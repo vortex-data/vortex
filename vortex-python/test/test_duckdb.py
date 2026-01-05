@@ -18,7 +18,7 @@ def test_duckdb_via_substrait(tmp_path):
 
     arr = pa.array([datetime(2024, 1, 1), datetime(2024, 6, 15), datetime(2024, 12, 31)])
     table = pa.table({"ts": arr})
-    vx.io.write(table, '/tmp/test_timestamp.vortex')
+    vx.io.write(table, "/tmp/test_timestamp.vortex")
 
     ds = vx.open("/tmp/test_timestamp.vortex").to_dataset()  # noqa: F841 - used by duckdb
     result = con.execute("SELECT * FROM ds WHERE ts > '2024-06-01'").fetchall()
