@@ -18,11 +18,11 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_error::{vortex_bail, vortex_err};
 use vortex_fastlanes::FoRVTable;
-use wgpu::ComputePipelineDescriptor;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::wgt::{CommandEncoderDescriptor, DeviceDescriptor};
 use wgpu::{BindGroupDescriptor, RequestAdapterOptions};
 use wgpu::{BindGroupEntry, MapMode};
+use wgpu::{BufferUsages, ComputePipelineDescriptor};
 use wgpu::{ShaderModuleDescriptor, ShaderSource};
 
 #[derive(Debug)]
@@ -100,6 +100,10 @@ pub trait WgpuArrayExt: Array {
 #[async_trait]
 impl WgpuArrayExt for ArrayRef {
     async fn execute_wgpu(&self, ctx: &WgpuCtx) -> VortexResult<ArrayRef> {
+        if self.is_canonical() {
+            return Ok(self.clone());
+        }
+
         let Some(support) = ctx.session.get_executor(&self.encoding_id()) else {
             todo!(
                 "No WebGPU executor registered for array encoding {}",
@@ -127,10 +131,10 @@ impl WgpuSupport for FoRWgpuSupport {
             @group(0) @binding(2) var<storage, read_write> output: array<vec4<u32>>;
 
             @compute @workgroup_size(256)
-            fn decode_for(@builtin(global_invocation_id) global_id: vec3<u32>) {{
+            fn decode_for(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 let r = vec4<u32>(ref_val);
                 output[global_id.x] = input[global_id.x] + r;
-            }}
+            }
             ";
 
         let module = ctx.device.create_shader_module(ShaderModuleDescriptor {
@@ -153,7 +157,7 @@ impl WgpuSupport for FoRWgpuSupport {
             BufferHandle::Host(buffer) => ctx.device.create_buffer_init(&BufferInitDescriptor {
                 label: Some("FoR Input Buffer"),
                 contents: buffer.as_slice(),
-                usage: wgpu::BufferUsages::STORAGE,
+                usage: BufferUsages::STORAGE,
             }),
             BufferHandle::Device(device) => match device.as_any().downcast_ref::<wgpu::Buffer>() {
                 None => {
@@ -172,13 +176,23 @@ impl WgpuSupport for FoRWgpuSupport {
         let ref_val_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
             label: Some("FoR Reference Buffer"),
             contents: &ref_val.to_le_bytes(),
-            usage: wgpu::BufferUsages::UNIFORM,
+            usage: BufferUsages::UNIFORM,
         });
 
         let output_buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("FoR Output Buffer"),
             size: encoded_buffer.size(),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+
+        // FIXME(ngates): we only need a staging buffer to copy the data back to the host.
+        //  If we're keeping the data on the device, we can read directly from output_buffer.
+        //  We should therefore defer this until we're trying to move the data back to the host.
+        let staging_buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("FoR Staging Buffer"),
+            size: encoded_buffer.size(),
+            usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
@@ -206,24 +220,28 @@ impl WgpuSupport for FoRWgpuSupport {
             .create_command_encoder(&CommandEncoderDescriptor {
                 label: Some("FoR Command Encoder"),
             });
-        let mut cpass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("FoR Compute Pass"),
-            timestamp_writes: None,
-        });
 
-        cpass.set_pipeline(&compute_pipeline);
-        cpass.set_bind_group(0, &bind_group, &[]);
-        cpass.insert_debug_marker("compute for iterations");
+        {
+            let mut cpass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("FoR Compute Pass"),
+                timestamp_writes: None,
+            });
 
-        let workgroup_count = u32::try_from(for_array.len().div_ceil(256))
-            .map_err(|_| vortex_err!("FoR array workgroup count exceeds u32"))?;
-        cpass.dispatch_workgroups(workgroup_count, 1, 1);
+            cpass.set_pipeline(&compute_pipeline);
+            cpass.set_bind_group(0, &bind_group, &[]);
+            cpass.insert_debug_marker("compute for iterations");
 
-        drop(cpass);
+            let workgroup_count = u32::try_from(for_array.len().div_ceil(256))
+                .map_err(|_| vortex_err!("FoR array workgroup count exceeds u32"))?;
+            cpass.dispatch_workgroups(workgroup_count, 1, 1);
+        }
+
+        enc.copy_buffer_to_buffer(&output_buffer, 0, &staging_buffer, 0, output_buffer.size());
+
         ctx.queue.submit(Some(enc.finish()));
 
         let (send, recv) = oneshot::channel();
-        output_buffer.map_async(MapMode::Read, .., |result| {
+        staging_buffer.map_async(MapMode::Read, .., |result| {
             send.send(result)
                 .map_err(|e| vortex_err!("Failed to send map_async result: {:?}", e))
                 .vortex_expect("oneshot send failed");
@@ -239,7 +257,7 @@ impl WgpuSupport for FoRWgpuSupport {
         let output_array = unsafe {
             PrimitiveArray::new_unchecked_raw(
                 for_array.dtype().clone(),
-                BufferHandle::Device(Arc::new(WgpuBuffer(output_buffer))),
+                BufferHandle::Device(Arc::new(WgpuBuffer(staging_buffer))),
                 input_primitive.validity()?,
             )
         };

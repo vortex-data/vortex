@@ -163,8 +163,8 @@ impl PrimitiveArray {
         self.dtype().as_ptype()
     }
 
-    pub fn byte_buffer(&self) -> &ByteBuffer {
-        &self.buffer.bytes()
+    pub fn byte_buffer(&self) -> ByteBuffer {
+        self.buffer.bytes()
     }
 
     pub fn into_byte_buffer(self) -> ByteBuffer {

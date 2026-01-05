@@ -7,8 +7,8 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_buffer::ByteBuffer;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_utils::dyn_traits::DynEq;
 use vortex_utils::dyn_traits::DynHash;
 
@@ -20,6 +20,22 @@ pub enum BufferHandle {
     Host(ByteBuffer),
     /// On the device.
     Device(Arc<dyn DeviceBuffer>),
+}
+
+impl BufferHandle {
+    pub fn len(&self) -> usize {
+        match self {
+            BufferHandle::Host(b) => b.len(),
+            BufferHandle::Device(d) => d.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            BufferHandle::Host(b) => b.is_empty(),
+            BufferHandle::Device(d) => d.is_empty(),
+        }
+    }
 }
 
 /// A buffer that is stored on a device (e.g. GPU).
@@ -54,10 +70,13 @@ impl Eq for dyn DeviceBuffer {}
 
 impl BufferHandle {
     /// Fetches the cpu buffer and fails otherwise.
-    pub fn bytes(&self) -> &ByteBuffer {
+    pub fn bytes(&self) -> ByteBuffer {
         match self {
-            BufferHandle::Host(b) => b,
-            BufferHandle::Device(_) => todo!(),
+            BufferHandle::Host(b) => b.clone(),
+            BufferHandle::Device(b) => b
+                .clone()
+                .to_host()
+                .vortex_expect("failed to move device buffer to host buffer"),
         }
     }
 
