@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
@@ -15,11 +13,12 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::vtable::ValidityHelper;
-use vortex_dtype::ExtDType;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+
+use crate::array::clone_ext_dtype;
 
 /// Apply mask on the canonical form of the array to get a consistent baseline.
 /// This implementation manually applies the mask to each canonical type
@@ -108,12 +107,15 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
                 ExtensionArray::new(array.ext_dtype().clone(), masked_storage).into_array()
             } else {
                 // The storage dtype changed (i.e., became nullable due to masking)
-                let ext_dtype = Arc::new(ExtDType::new(
-                    array.ext_dtype().id().clone(),
-                    Arc::new(masked_storage.dtype().clone()),
-                    array.ext_dtype().metadata().cloned(),
-                ));
-                ExtensionArray::new(ext_dtype, masked_storage).into_array()
+                ExtensionArray::new(
+                    clone_ext_dtype(
+                        array.ext_dtype().id().clone(),
+                        masked_storage.dtype().clone(),
+                        array.ext_dtype().metadata().cloned(),
+                    ),
+                    masked_storage,
+                )
+                .into_array()
             }
         }
     })

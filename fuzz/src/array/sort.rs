@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::cmp::Ordering;
-use std::sync::Arc;
 
 use vortex_array::Array;
 use vortex_array::ArrayRef;
@@ -15,13 +14,13 @@ use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_dtype::DType;
-use vortex_dtype::ExtDType;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use crate::array::clone_ext_dtype;
 use crate::array::take_canonical_array_non_nullable_indices;
 
 pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
@@ -88,18 +87,22 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
             Ok(array.to_array())
         }
         DType::Extension(ext_dtype) => {
-            // Extension arrays delegate sorting to their storage type
+            // Extension arrays delegate sorting to their storage type.
             let sorted_storage = sort_canonical_array(array.to_extension().storage())?;
 
             if sorted_storage.dtype().nullability() == ext_dtype.storage_dtype().nullability() {
                 Ok(ExtensionArray::new(ext_dtype.clone(), sorted_storage).into_array())
             } else {
-                let new_ext_dtype = Arc::new(ExtDType::new(
-                    ext_dtype.id().clone(),
-                    Arc::new(sorted_storage.dtype().clone()),
-                    ext_dtype.metadata().cloned(),
-                ));
-                Ok(ExtensionArray::new(new_ext_dtype, sorted_storage).into_array())
+                // The storage dtype changed (i.e., became nullable due to sorting)
+                Ok(ExtensionArray::new(
+                    clone_ext_dtype(
+                        ext_dtype.id().clone(),
+                        sorted_storage.dtype().clone(),
+                        ext_dtype.metadata().cloned(),
+                    ),
+                    sorted_storage,
+                )
+                .into_array())
             }
         }
     }

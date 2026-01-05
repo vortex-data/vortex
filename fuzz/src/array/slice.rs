@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-use std::sync::Arc;
-
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -17,10 +15,11 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::validity::Validity;
 use vortex_dtype::DType;
-use vortex_dtype::ExtDType;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
+
+use crate::array::clone_ext_dtype;
 
 #[allow(clippy::unnecessary_fallible_conversions)]
 pub fn slice_canonical_array(
@@ -117,19 +116,23 @@ pub fn slice_canonical_array(
             )
         }
         DType::Extension(ext_dtype) => {
-            // Extension arrays delegate slicing to their storage type
+            // Extension arrays delegate slicing to their storage type.
             let sliced_storage =
                 slice_canonical_array(array.to_extension().storage(), start, stop)?;
 
             if sliced_storage.dtype().nullability() == ext_dtype.storage_dtype().nullability() {
                 Ok(ExtensionArray::new(ext_dtype.clone(), sliced_storage).into_array())
             } else {
-                let new_ext_dtype = Arc::new(ExtDType::new(
-                    ext_dtype.id().clone(),
-                    Arc::new(sliced_storage.dtype().clone()),
-                    ext_dtype.metadata().cloned(),
-                ));
-                Ok(ExtensionArray::new(new_ext_dtype, sliced_storage).into_array())
+                // The storage dtype changed (i.e., became nullable due to slicing).
+                Ok(ExtensionArray::new(
+                    clone_ext_dtype(
+                        ext_dtype.id().clone(),
+                        sliced_storage.dtype().clone(),
+                        ext_dtype.metadata().cloned(),
+                    ),
+                    sliced_storage,
+                )
+                .into_array())
             }
         }
         DType::Null => {

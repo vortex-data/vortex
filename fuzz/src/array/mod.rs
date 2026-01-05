@@ -16,6 +16,7 @@ mod take;
 
 use std::iter;
 use std::ops::Range;
+use std::sync::Arc;
 
 use arbitrary::Arbitrary;
 use arbitrary::Error::EmptyChoose;
@@ -40,14 +41,19 @@ pub(crate) use take::*;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
+use vortex_array::arrays::validator_for_ext_type;
 use vortex_array::compute::MinMaxResult;
 use vortex_array::compute::Operator;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dtype::DType;
+use vortex_dtype::ExtDType;
+use vortex_dtype::ExtID;
+use vortex_dtype::ExtMetadata;
 use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
@@ -491,6 +497,14 @@ fn random_action_from_list(
     u.choose_iter(actions).copied()
 }
 
+fn clone_ext_dtype(
+    ext_id: ExtID,
+    storage_dtype: DType,
+    metadata: Option<ExtMetadata>,
+) -> Arc<ExtDType> {
+    Arc::new(ExtDType::new(ext_id, Arc::new(storage_dtype), metadata))
+}
+
 /// Compress an array using the given strategy.
 #[cfg(feature = "zstd")]
 pub fn compress_array(array: &dyn Array, strategy: CompressorStrategy) -> ArrayRef {
@@ -662,9 +676,6 @@ pub fn assert_array_eq(
     rhs: &ArrayRef,
     step: usize,
 ) -> crate::error::VortexFuzzResult<()> {
-    use vortex_array::ToCanonical;
-    use vortex_array::arrays::validator_for_ext_type;
-
     use crate::error::Backtrace;
     use crate::error::VortexFuzzError;
 

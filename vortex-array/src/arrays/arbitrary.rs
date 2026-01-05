@@ -34,6 +34,7 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::validator_for_ext_type;
 use crate::builders::ArrayBuilder;
 use crate::builders::DecimalBuilder;
+use crate::builders::ExtensionBuilder;
 use crate::builders::FixedSizeListBuilder;
 use crate::builders::ListViewBuilder;
 use crate::validity::Validity;
@@ -177,30 +178,27 @@ fn random_extension(
     ext_dtype: &Arc<ExtDType>,
     chunk_len: Option<usize>,
 ) -> Result<ArrayRef> {
-    use crate::builders::ExtensionBuilder;
-
-    // Get the validator for this extension type
+    // Get the validator for this extension type.
     let validator = validator_for_ext_type(ext_dtype);
 
-    // Determine array length
+    // Determine array length.
     let array_length = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
 
     // Create builder for the extension array
     let mut builder = ExtensionBuilder::with_capacity(ext_dtype.clone(), array_length);
 
-    // Generate random values, retrying if they don't pass validation
+    // Generate random values, retrying if they don't pass validation.
     for _ in 0..array_length {
-        // Retry loop to generate valid values
+        // Retry loop in case we generate invalid values.
         loop {
-            // Generate a random storage scalar
+            // Generate a random storage scalar.
             let storage_scalar = random_scalar(u, ext_dtype.storage_dtype())?;
 
-            // Wrap it in an extension scalar
+            // Wrap it in an extension scalar.
             let ext_scalar = Scalar::extension(ext_dtype.clone(), storage_scalar);
 
-            // Validate the scalar
+            // Validate the scalar.
             if validator(&ext_scalar) {
-                // Valid value - append and break
                 builder
                     .append_scalar(&ext_scalar)
                     .vortex_expect("can append extension scalar");

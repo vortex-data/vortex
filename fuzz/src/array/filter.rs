@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -18,11 +16,11 @@ use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_dtype::ExtDType;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 
+use crate::array::clone_ext_dtype;
 use crate::array::take_canonical_array_non_nullable_indices;
 
 pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResult<ArrayRef> {
@@ -120,18 +118,22 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
             take_canonical_array_non_nullable_indices(array, indices.as_slice())
         }
         DType::Extension(ext_dtype) => {
-            // Extension arrays delegate filter to their storage type
+            // Extension arrays delegate filter to their storage type.
             let filtered_storage = filter_canonical_array(array.to_extension().storage(), filter)?;
 
             if filtered_storage.dtype().nullability() == ext_dtype.storage_dtype().nullability() {
                 Ok(ExtensionArray::new(ext_dtype.clone(), filtered_storage).into_array())
             } else {
-                let new_ext_dtype = Arc::new(ExtDType::new(
-                    ext_dtype.id().clone(),
-                    Arc::new(filtered_storage.dtype().clone()),
-                    ext_dtype.metadata().cloned(),
-                ));
-                Ok(ExtensionArray::new(new_ext_dtype, filtered_storage).into_array())
+                // The storage dtype changed (i.e., became nullable due to filtering).
+                Ok(ExtensionArray::new(
+                    clone_ext_dtype(
+                        ext_dtype.id().clone(),
+                        filtered_storage.dtype().clone(),
+                        ext_dtype.metadata().cloned(),
+                    ),
+                    filtered_storage,
+                )
+                .into_array())
             }
         }
         DType::Null => {
