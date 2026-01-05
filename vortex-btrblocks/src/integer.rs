@@ -903,9 +903,7 @@ mod tests {
         assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
     }
 
-    #[test]
-    // Ignore is run in CI, but not locally.
-    #[ignore]
+    #[test_with::env(CI)]
     fn compress_large_int() -> VortexResult<()> {
         const NUM_LISTS: usize = 10_000;
         const ELEMENTS_PER_LIST: usize = 5_000;
