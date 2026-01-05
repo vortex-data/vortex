@@ -10720,6 +10720,7 @@ dependencies = [
  "arcref",
  "async-trait",
  "futures",
+ "oneshot",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",

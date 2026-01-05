@@ -379,7 +379,7 @@ impl ZstdArray {
             frames,
             frame_metas,
         } = Self::compress_values(
-            value_bytes,
+            &value_bytes,
             &frame_byte_starts,
             level,
             values_per_frame,

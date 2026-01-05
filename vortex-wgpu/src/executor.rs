@@ -4,7 +4,6 @@
 use crate::INSTANCE;
 use crate::session::WgpuSession;
 use async_trait::async_trait;
-use futures::channel::oneshot;
 use std::any::Any;
 use std::borrow::Cow;
 use std::fmt::Debug;
@@ -19,14 +18,18 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_error::{vortex_bail, vortex_err};
 use vortex_fastlanes::FoRVTable;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
-use wgpu::wgt::{CommandEncoderDescriptor, DeviceDescriptor};
+use wgpu::wgt::{CommandEncoderDescriptor, DeviceDescriptor, PollType};
 use wgpu::{BindGroupDescriptor, RequestAdapterOptions};
 use wgpu::{BindGroupEntry, MapMode};
 use wgpu::{BufferUsages, ComputePipelineDescriptor};
 use wgpu::{ShaderModuleDescriptor, ShaderSource};
 
 #[derive(Debug)]
-pub struct WgpuBuffer(pub wgpu::Buffer);
+pub struct WgpuBuffer {
+    buffer: wgpu::Buffer,
+    queue: wgpu::Queue,
+    device: wgpu::Device,
+}
 
 impl DeviceBuffer for WgpuBuffer {
     fn as_any(&self) -> &dyn Any {
@@ -34,11 +37,42 @@ impl DeviceBuffer for WgpuBuffer {
     }
 
     fn len(&self) -> usize {
-        usize::try_from(self.0.size()).vortex_expect("wgpu buffer size fits in usize")
+        usize::try_from(self.buffer.size()).vortex_expect("wgpu buffer size fits in usize")
     }
 
     fn to_host(self: Arc<Self>) -> VortexResult<ByteBuffer> {
-        Ok(ByteBuffer::copy_from(self.0.get_mapped_range(..)))
+        let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Staging Buffer"),
+            size: self.buffer.size(),
+            usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor {
+                label: Some("To Host Command Encoder"),
+            });
+        encoder.copy_buffer_to_buffer(&self.buffer, 0, &staging_buffer, 0, self.buffer.size());
+        let submission_index = self.queue.submit(Some(encoder.finish()));
+
+        let (send, recv) = oneshot::channel();
+        staging_buffer.map_async(MapMode::Read, .., move |result| drop(send.send(result)));
+
+        self.device
+            .poll(PollType::Wait {
+                submission_index: Some(submission_index),
+                timeout: None,
+            })
+            .map_err(|e| vortex_err!("Device poll failed: {}", e))?;
+
+        recv.recv()
+            .map_err(|e| vortex_err!("Buffer mapping channel error: {}", e))?
+            .map_err(|e| vortex_err!("Buffer mapping failed: {}", e))?;
+
+        // FIXME(ngates): we have no idea on alignment requirements here.
+        Ok(ByteBuffer::copy_from(
+            staging_buffer.get_mapped_range(..).as_ref(),
+        ))
     }
 }
 
@@ -186,16 +220,6 @@ impl WgpuSupport for FoRWgpuSupport {
             mapped_at_creation: false,
         });
 
-        // FIXME(ngates): we only need a staging buffer to copy the data back to the host.
-        //  If we're keeping the data on the device, we can read directly from output_buffer.
-        //  We should therefore defer this until we're trying to move the data back to the host.
-        let staging_buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("FoR Staging Buffer"),
-            size: encoded_buffer.size(),
-            usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
         let bind_group = ctx.device.create_bind_group(&BindGroupDescriptor {
             label: Some("FoR Bind Group"),
             layout: &compute_pipeline.get_bind_group_layout(0),
@@ -236,28 +260,19 @@ impl WgpuSupport for FoRWgpuSupport {
             cpass.dispatch_workgroups(workgroup_count, 1, 1);
         }
 
-        enc.copy_buffer_to_buffer(&output_buffer, 0, &staging_buffer, 0, output_buffer.size());
-
         ctx.queue.submit(Some(enc.finish()));
-
-        let (send, recv) = oneshot::channel();
-        staging_buffer.map_async(MapMode::Read, .., |result| {
-            send.send(result)
-                .map_err(|e| vortex_err!("Failed to send map_async result: {:?}", e))
-                .vortex_expect("oneshot send failed");
-        });
-
         ctx.device
             .poll(wgpu::PollType::wait_indefinitely())
             .map_err(|e| vortex_err!("Device poll failed: {}", e))?;
-        recv.await
-            .map_err(|e| vortex_err!("Cancelled while waiting for map_async: {}", e))?
-            .map_err(|e| vortex_err!("Failed to receive map_async result: {}", e))?;
 
         let output_array = unsafe {
             PrimitiveArray::new_unchecked_raw(
                 for_array.dtype().clone(),
-                BufferHandle::Device(Arc::new(WgpuBuffer(staging_buffer))),
+                BufferHandle::Device(Arc::new(WgpuBuffer {
+                    buffer: output_buffer,
+                    queue: ctx.queue.clone(),
+                    device: ctx.device.clone(),
+                })),
                 input_primitive.validity()?,
             )
         };
