@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -21,6 +20,7 @@ use crate::SerializeMetadata;
 use crate::VectorExecutor;
 use crate::arrays::ListViewArray;
 use crate::arrays::listview::vtable::rules::PARENT_RULES;
+use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;

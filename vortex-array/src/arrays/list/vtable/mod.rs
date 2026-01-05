@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -16,6 +15,7 @@ use crate::ExecutionCtx;
 use crate::ProstMetadata;
 use crate::arrays::ListArray;
 use crate::arrays::list::vtable::kernel::PARENT_KERNELS;
+use crate::buffer::BufferHandle;
 use crate::metadata::DeserializeMetadata;
 use crate::metadata::SerializeMetadata;
 use crate::serde::ArrayChildren;

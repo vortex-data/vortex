@@ -3,7 +3,6 @@
 
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
-use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_native_ptype;
@@ -16,6 +15,7 @@ use vortex_vector::primitive::PVector;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::arrays::PrimitiveArray;
+use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;

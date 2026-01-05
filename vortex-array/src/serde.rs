@@ -12,7 +12,6 @@ use flatbuffers::WIPOffset;
 use flatbuffers::root;
 use itertools::Itertools;
 use vortex_buffer::Alignment;
-use vortex_buffer::BufferHandle;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::TryFromBytes;
@@ -34,6 +33,7 @@ use crate::ArrayContext;
 use crate::ArrayRef;
 use crate::ArrayVisitor;
 use crate::ArrayVisitorExt;
+use crate::buffer::BufferHandle;
 use crate::stats::StatsSet;
 
 /// Options for serializing an array.
@@ -494,7 +494,7 @@ impl ArrayParts {
                         .aligned(Alignment::from_exponent(fb_buf.alignment_exponent()));
 
                     offset += buffer_len;
-                    BufferHandle::Buffer(buffer)
+                    BufferHandle::Host(buffer)
                 })
                 .collect();
 
@@ -565,7 +565,7 @@ impl TryFrom<ByteBuffer> for ArrayParts {
                     .aligned(Alignment::from_exponent(fb_buffer.alignment_exponent()));
 
                 offset += buffer_len;
-                BufferHandle::Buffer(buffer)
+                BufferHandle::Host(buffer)
             })
             .collect();
 

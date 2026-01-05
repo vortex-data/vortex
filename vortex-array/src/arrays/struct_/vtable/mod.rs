@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -18,6 +17,7 @@ use crate::EmptyMetadata;
 use crate::VectorExecutor;
 use crate::arrays::struct_::StructArray;
 use crate::arrays::struct_::vtable::rules::PARENT_RULES;
+use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
