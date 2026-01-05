@@ -46,9 +46,21 @@ enum State {
 
 #[derive(Debug)]
 pub enum PollRead {
+    /// A complete message was decoded.
     Some(DecoderMessage),
-    /// Returns the _total_ number of bytes needed to make progress.
-    /// Note this is _not_ the incremental number of bytes needed to make progress.
+    /// The decoder needs more data to make progress.
+    ///
+    /// The inner value is the **total*k number of bytes the buffer should contain, not the
+    /// incremental amount needed. Callers should:
+    ///
+    /// 1. Resize the buffer to this length.
+    /// 2. Fill the buffer completely (handling partial reads as needed).
+    /// 3. Only then call [`MessageDecoder::read_next`] again.
+    ///
+    /// The decoder checks [`bytes::Buf::remaining`] to determine available data, which for
+    /// [`bytes::BytesMut`] returns the buffer length regardless of how many bytes were actually
+    /// written. Calling `read_next` before the buffer is fully populated will cause the decoder
+    /// to read garbage data.
     NeedMore(usize),
 }
 

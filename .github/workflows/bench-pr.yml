@@ -44,9 +44,9 @@ jobs:
     strategy:
       matrix:
         benchmark:
-          - id: random_access
+          - id: random-access-bench
             name: Random Access
-          - id: compress
+          - id: compress-bench
             name: Compression
     if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'benchmark' && github.event_name == 'pull_request' }}
     steps:
@@ -72,7 +72,7 @@ jobs:
         env:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
-          cargo build --bin ${{ matrix.benchmark.id }} --package bench-vortex --profile release_debug
+          cargo build --package ${{ matrix.benchmark.id }} --profile release_debug
 
       - name: Setup Polar Signals
         if: github.event.pull_request.head.repo.fork == false
@@ -89,7 +89,7 @@ jobs:
         env:
           RUST_BACKTRACE: full
         run: |
-          target/release_debug/${{ matrix.benchmark.id }} -d gh-json -o ${{ matrix.benchmark.id }}.json
+          target/release_debug/${{ matrix.benchmark.id }} -d gh-json -o results.json
 
       - name: Setup AWS CLI
         if: github.event.pull_request.head.repo.fork == false
@@ -123,7 +123,7 @@ jobs:
 
           echo '# Benchmarks: ${{ matrix.benchmark.name }}' > comment.md
           echo '' >> comment.md
-          uv run --no-project scripts/compare-benchmark-jsons.py base.json ${{ matrix.benchmark.id }}.json "${{ matrix.benchmark.name }}" \
+          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ matrix.benchmark.name }}" \
             >> comment.md
 
       - name: Comment PR

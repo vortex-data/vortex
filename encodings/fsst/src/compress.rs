@@ -13,7 +13,6 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
-use vortex_error::VortexUnwrap;
 
 use crate::FSSTArray;
 
@@ -74,7 +73,11 @@ where
                 uncompressed_lengths.push(0);
             }
             Some(s) => {
-                uncompressed_lengths.push(s.len().try_into().vortex_unwrap());
+                uncompressed_lengths.push(
+                    s.len()
+                        .try_into()
+                        .vortex_expect("string length must fit in i32"),
+                );
 
                 // SAFETY: buffer is large enough
                 unsafe { compressor.compress_into(s, &mut buffer) };

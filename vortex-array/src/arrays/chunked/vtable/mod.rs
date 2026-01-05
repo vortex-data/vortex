@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -10,19 +9,16 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_vector::Vector;
-use vortex_vector::VectorMut;
-use vortex_vector::VectorMutOps;
 
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::ToCanonical;
-use crate::VectorExecutor;
 use crate::arrays::ChunkedArray;
 use crate::arrays::PrimitiveArray;
-use crate::executor::ExecutionCtx;
+use crate::arrays::chunked::vtable::rules::PARENT_RULES;
+use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -36,6 +32,7 @@ mod array;
 mod canonical;
 mod compute;
 mod operations;
+mod rules;
 mod validity;
 mod visitor;
 
@@ -164,20 +161,19 @@ impl VTable for ChunkedVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        let mut vector = VectorMut::with_capacity(&array.dtype, array.len);
-        for chunk in &array.chunks {
-            let chunk_vector = chunk.execute(ctx)?;
-            vector.extend_from_vector(&chunk_vector);
-        }
-        Ok(vector.freeze())
-    }
-
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
         Ok(match array.chunks.len() {
             0 => Some(Canonical::empty(array.dtype()).into_array()),
             1 => Some(array.chunks[0].clone()),
             _ => None,
         })
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }

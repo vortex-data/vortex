@@ -4,8 +4,7 @@
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_error::VortexExpect as _;
-use vortex_error::VortexUnwrap;
+use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
 
@@ -52,7 +51,8 @@ pub fn test_cast_conformance(array: &dyn Array) {
 
 fn test_cast_identity(array: &dyn Array) {
     // Casting to the same type should be a no-op
-    let result = cast(array, array.dtype()).vortex_unwrap();
+    let result =
+        cast(array, array.dtype()).vortex_expect("cast should succeed in conformance test");
     assert_eq!(result.len(), array.len());
     assert_eq!(result.dtype(), array.dtype());
 
@@ -64,7 +64,7 @@ fn test_cast_identity(array: &dyn Array) {
 
 fn test_cast_from_null(array: &dyn Array) {
     // Null can be cast to itself
-    let result = cast(array, &DType::Null).vortex_unwrap();
+    let result = cast(array, &DType::Null).vortex_expect("cast should succeed in conformance test");
     assert_eq!(result.len(), array.len());
     assert_eq!(result.dtype(), &DType::Null);
 
@@ -78,7 +78,7 @@ fn test_cast_from_null(array: &dyn Array) {
     ];
 
     for dtype in nullable_types {
-        let result = cast(array, &dtype).vortex_unwrap();
+        let result = cast(array, &dtype).vortex_expect("cast should succeed in conformance test");
         assert_eq!(result.len(), array.len());
         assert_eq!(result.dtype(), &dtype);
 
@@ -188,7 +188,7 @@ fn fits(value: &Scalar, ptype: PType) -> bool {
 }
 
 fn test_cast_to_primitive(array: &dyn Array, target_ptype: PType, test_round_trip: bool) {
-    let maybe_min_max = min_max(array).vortex_unwrap();
+    let maybe_min_max = min_max(array).vortex_expect("cast should succeed in conformance test");
 
     if let Some(MinMaxResult { min, max }) = maybe_min_max
         && (!fits(&min, target_ptype) || !fits(&max, target_ptype))
@@ -228,14 +228,18 @@ fn test_cast_to_primitive(array: &dyn Array, target_ptype: PType, test_round_tri
         let original = array.scalar_at(i);
         let casted = casted.scalar_at(i);
         assert_eq!(
-            original.cast(casted.dtype()).vortex_unwrap(),
+            original
+                .cast(casted.dtype())
+                .vortex_expect("cast should succeed in conformance test"),
             casted,
             "{i} {original} {casted}"
         );
         if test_round_trip {
             assert_eq!(
                 original,
-                casted.cast(original.dtype()).vortex_unwrap(),
+                casted
+                    .cast(original.dtype())
+                    .vortex_expect("cast should succeed in conformance test"),
                 "{i} {original} {casted}"
             );
         }

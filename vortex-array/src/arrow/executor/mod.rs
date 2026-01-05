@@ -22,10 +22,13 @@ use arrow_array::cast::AsArray;
 use arrow_array::types::*;
 use arrow_schema::DataType;
 use arrow_schema::Schema;
+use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
+use crate::Array;
 use crate::ArrayRef;
 use crate::arrow::executor::bool::to_arrow_bool;
 use crate::arrow::executor::byte::to_arrow_byte_array;
@@ -61,6 +64,13 @@ pub trait ArrowArrayExecutor: Sized {
         let array = self.execute_arrow(&DataType::Struct(schema.fields.clone()), session)?;
         Ok(RecordBatch::from(array.as_struct()))
     }
+
+    /// Execute the array to produce Arrow `RecordBatch`'s with the given schema.
+    fn execute_record_batches(
+        self,
+        schema: &Schema,
+        session: &VortexSession,
+    ) -> VortexResult<Vec<RecordBatch>>;
 }
 
 impl ArrowArrayExecutor for ArrayRef {
@@ -69,7 +79,9 @@ impl ArrowArrayExecutor for ArrayRef {
         data_type: &DataType,
         session: &VortexSession,
     ) -> VortexResult<ArrowArrayRef> {
-        match data_type {
+        let len = self.len();
+
+        let arrow = match data_type {
             DataType::Null => to_arrow_null(self, session),
             DataType::Boolean => to_arrow_bool(self, session),
             DataType::Int8 => to_arrow_primitive::<Int8Type>(self, session),
@@ -133,6 +145,24 @@ impl ArrowArrayExecutor for ArrayRef {
             | DataType::Union(..) => {
                 vortex_bail!("Conversion to Arrow type {data_type} is not supported");
             }
-        }
+        }?;
+
+        vortex_ensure!(
+            arrow.len() == len,
+            "Arrow array length does not match Vortex array length after conversion to {:?}",
+            arrow
+        );
+
+        Ok(arrow)
+    }
+
+    fn execute_record_batches(
+        self,
+        schema: &Schema,
+        session: &VortexSession,
+    ) -> VortexResult<Vec<RecordBatch>> {
+        self.to_array_iterator()
+            .map(|a| a?.execute_record_batch(schema, session))
+            .try_collect()
     }
 }

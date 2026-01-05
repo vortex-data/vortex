@@ -1,0 +1,30 @@
+[package]
+name = "random-access-bench"
+description = "Random access benchmarks for Vortex and other formats"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+include.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+indicatif = { workspace = true }
+lance-bench = { path = "../lance-bench", optional = true }
+tokio = { workspace = true, features = ["full"] }
+vortex = { workspace = true }
+vortex-bench = { workspace = true }
+
+[features]
+lance = ["dep:lance-bench"]
+
+[lints]
+workspace = true

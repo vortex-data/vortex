@@ -59,6 +59,14 @@ pub fn fill_null(array: &dyn Array, fill_value: &Scalar) -> VortexResult<ArrayRe
 }
 
 pub trait FillNullKernel: VTable {
+    /// Kernel for replacing null values in an array with a fill value.
+    ///
+    /// TODO(connor): Actually enforce these constraints (so that casts do not fail).
+    ///
+    /// Implementations can assume that:
+    /// - The array has at least one null value (not all valid, not all invalid).
+    /// - The fill value is non-null.
+    /// - For decimal arrays, the fill value can be successfully cast to the array's storage type.
     fn fill_null(&self, array: &Self::Array, fill_value: &Scalar) -> VortexResult<ArrayRef>;
 }
 

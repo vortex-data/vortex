@@ -19,6 +19,7 @@ use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
 use vortex_array::compute::fill_null;
@@ -42,7 +43,6 @@ use vortex_array::vtable::ValidityVTable;
 use vortex_array::vtable::VisitorVTable;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
-use vortex_buffer::BufferHandle;
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
 use vortex_dtype::NativePType;
@@ -533,7 +533,7 @@ mod test {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
-    use vortex_error::VortexUnwrap;
+    use vortex_error::VortexExpect;
     use vortex_scalar::PrimitiveScalar;
     use vortex_scalar::Scalar;
 
@@ -684,7 +684,7 @@ mod test {
             .into_array(),
             None,
         )
-        .vortex_unwrap();
+        .vortex_expect("SparseArray::encode should succeed for test data");
         let canonical = sparse.to_primitive();
         assert_eq!(
             sparse.validity_mask(),

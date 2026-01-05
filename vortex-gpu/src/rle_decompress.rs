@@ -215,7 +215,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_dtype::NativePType;
-    use vortex_error::VortexUnwrap;
+    use vortex_error::VortexExpect;
     use vortex_fastlanes::RLEArray;
 
     use crate::rle_decompress::cuda_rle_decompress;
@@ -233,7 +233,7 @@ mod tests {
     #[case::f64((-2000..2000).map(|i| i as f64).collect::<Buffer<f64>>())]
     fn test_cuda_rle_decompress<T: NativePType>(#[case] values: Buffer<T>) {
         let primitive_array = PrimitiveArray::new(values, Validity::NonNullable);
-        let array = RLEArray::encode(&primitive_array).vortex_unwrap();
+        let array = RLEArray::encode(&primitive_array).vortex_expect("operation should succeed in test");
         let ctx = CudaContext::new(0).unwrap();
         ctx.set_blocking_synchronize().unwrap();
         let unpacked = cuda_rle_decompress(&array, ctx).unwrap();

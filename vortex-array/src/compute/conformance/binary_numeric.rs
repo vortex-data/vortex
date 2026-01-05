@@ -28,7 +28,7 @@ use num_traits::Num;
 use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::PType;
-use vortex_error::VortexUnwrap;
+use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_scalar::NumericOperator;
@@ -93,8 +93,10 @@ where
 
     let one = T::from(1)
         .ok_or_else(|| vortex_err!("could not convert 1 into array native type"))
-        .vortex_unwrap();
-    let scalar_one = Scalar::from(one).cast(array.dtype()).vortex_unwrap();
+        .vortex_expect("operation should succeed in conformance test");
+    let scalar_one = Scalar::from(one)
+        .cast(array.dtype())
+        .vortex_expect("operation should succeed in conformance test");
 
     let operators: [NumericOperator; 6] = [
         NumericOperator::Add,
@@ -327,7 +329,7 @@ where
 
     let scalar = Scalar::from(scalar_value)
         .cast(array.dtype())
-        .vortex_unwrap();
+        .vortex_expect("operation should succeed in conformance test");
 
     // Only test operators that make sense for the given scalar
     let operators = if scalar_value == T::zero() {
@@ -362,7 +364,7 @@ where
             continue;
         }
 
-        let result = result.vortex_unwrap();
+        let result = result.vortex_expect("operation should succeed in conformance test");
         let actual_values = to_vec_of_scalar(&result);
 
         // Check each element for overflow/underflow

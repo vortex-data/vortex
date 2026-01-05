@@ -11,7 +11,6 @@ use vortex::dtype::ExtDType;
 use vortex::dtype::FieldName;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
-use vortex::error::VortexUnwrap;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 
@@ -268,7 +267,7 @@ wrapper!(
         unsafe { CStr::from_ptr(ptr) }
             .to_str()
             .map_err(|e| vortex_err!("Failed to convert C string to str: {e}"))
-            .vortex_unwrap()
+            .vortex_expect("DuckDB string should be valid UTF-8")
     },
     |ptr: &mut *mut std::ffi::c_char| unsafe { duckdb_free((*ptr).cast()) }
 );

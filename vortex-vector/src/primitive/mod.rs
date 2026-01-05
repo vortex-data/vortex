@@ -99,6 +99,8 @@
 //!
 //! [`f16`]: vortex_dtype::half::f16
 
+pub mod cast;
+
 mod generic;
 pub use generic::PVector;
 
