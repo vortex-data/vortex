@@ -17,24 +17,24 @@ Vortex is a next-generation columnar file format and toolkit designed for high-p
 It is the fastest and most extensible format for building data systems backed by object storage. It provides:
 
 - **Blazing Fast Performance**
-  - 100x faster random access reads (vs. modern Apache Parquet)
-  - 10-20x faster scans
-  - 5x faster writes
-  - Similar compression ratios
-  - Efficient support for wide tables with zero-copy/zero-parse metadata
+    - 100x faster random access reads (vs. modern Apache Parquet)
+    - 10-20x faster scans
+    - 5x faster writes
+    - Similar compression ratios
+    - Efficient support for wide tables with zero-copy/zero-parse metadata
 
 - **Extensible Architecture**
-  - Modeled after Apache DataFusion's extensible approach
-  - Pluggable encoding system, type system, compression strategy, & layout strategy
-  - Zero-copy compatibility with Apache Arrow
+    - Modeled after Apache DataFusion's extensible approach
+    - Pluggable encoding system, type system, compression strategy, & layout strategy
+    - Zero-copy compatibility with Apache Arrow
 
 - **Open Source, Neutral Governance**
-  - A Linux Foundation (LF AI & Data) Project
-  - Apache-2.0 Licensed
+    - A Linux Foundation (LF AI & Data) Project
+    - Apache-2.0 Licensed
 
 - **Integrations**
-  - Arrow, DataFusion, DuckDB, Spark, Pandas, Polars, & more
-  - Apache Iceberg (coming soon)
+    - Arrow, DataFusion, DuckDB, Spark, Pandas, Polars, & more
+    - Apache Iceberg (coming soon)
 
 > 🟢 **Development Status**: Library APIs may change from version to version, but we now consider
 > the file format <ins>_stable_</ins>. From release 0.36.0, all future releases of Vortex should
@@ -141,7 +141,7 @@ the [Technical Charter](https://vortex.dev/charter.pdf).
 
 ### Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Please **do** read [CONTRIBUTING.md](CONTRIBUTING.md) before you contribute.
 
 ### Reporting Vulnerabilities
 
@@ -159,14 +159,17 @@ The Vortex project benefits enormously from groundbreaking work from the academi
 ### Research in Vortex
 
 - [BtrBlocks](https://www.cs.cit.tum.de/fileadmin/w00cfj/dis/papers/btrblocks.pdf) - Efficient columnar compression
-- [FastLanes](https://www.vldb.org/pvldb/vol16/p2132-afroozeh.pdf) & [FastLanes on GPU](https://dbdbd2023.ugent.be/abstracts/felius_fastlanes.pdf) - High-performance integer compression
+- [FastLanes](https://www.vldb.org/pvldb/vol16/p2132-afroozeh.pdf) & [FastLanes on GPU](https://dbdbd2023.ugent.be/abstracts/felius_fastlanes.pdf) -
+  High-performance integer compression
 - [FSST](https://www.vldb.org/pvldb/vol13/p2649-boncz.pdf) - Fast random access string compression
-- [ALP](https://ir.cwi.nl/pub/33334/33334.pdf) & [G-ALP](https://dl.acm.org/doi/pdf/10.1145/3736227.3736242) - Adaptive lossless floating-point compression
+- [ALP](https://ir.cwi.nl/pub/33334/33334.pdf) & [G-ALP](https://dl.acm.org/doi/pdf/10.1145/3736227.3736242) - Adaptive
+  lossless floating-point compression
 - [Procella](https://dl.acm.org/citation.cfm?id=3360438) - YouTube's unified data system
 - [Anyblob](https://www.durner.dev/app/media/papers/anyblob-vldb23.pdf) - High-performance access to object storage
 - [ClickHouse](https://www.vldb.org/pvldb/vol17/p3731-schulze.pdf) - Fast analytics for everyone
 - [MonetDB/X100](https://www.cidrdb.org/cidr2005/papers/P19.pdf) - Hyper-Pipelining Query Execution
-- [Morsel-Driven Parallelism](https://db.in.tum.de/~leis/papers/morsels.pdf): A NUMA-Aware Query Evaluation Format for the Many-Core Age
+- [Morsel-Driven Parallelism](https://db.in.tum.de/~leis/papers/morsels.pdf): A NUMA-Aware Query Evaluation Format for
+  the Many-Core Age
 - [The FastLanes File Format](https://github.com/cwida/FastLanes/blob/dev/docs/specification.pdf) - Expression Operators
 
 ### Vortex in Research
