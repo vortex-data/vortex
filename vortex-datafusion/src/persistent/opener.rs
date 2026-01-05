@@ -47,6 +47,7 @@ use vortex_utils::aliases::dash_map::Entry;
 
 use super::cache::VortexFileCache;
 use crate::VortexAccessPlan;
+use crate::convert::exprs::ExpressionConvertor;
 use crate::convert::exprs::can_be_pushed_down;
 use crate::convert::exprs::make_vortex_predicate;
 
@@ -84,6 +85,8 @@ pub(crate) struct VortexOpener {
     pub layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
     /// Whether the query has output ordering specified
     pub has_output_ordering: bool,
+
+    pub expression_convertor: Arc<dyn ExpressionConvertor>,
 }
 
 impl FileOpener for VortexOpener {
@@ -116,6 +119,8 @@ impl FileOpener for VortexOpener {
         // Update partition column access in the filter to use literals instead
         let partition_fields = self.table_schema.table_partition_cols().clone();
         let table_schema = self.table_schema.clone();
+
+        let expr_convertor = self.expression_convertor.clone();
 
         Ok(async move {
             // Create FilePruner when we have a predicate and either dynamic expressions
@@ -271,7 +276,7 @@ impl FileOpener for VortexOpener {
                         )));
                     }
 
-                    make_vortex_predicate(&pushed).transpose()
+                    make_vortex_predicate(expr_convertor.as_ref(), &pushed).transpose()
                 })
                 .transpose()
                 .map_err(|e| DataFusionError::External(e.into()))?;
@@ -398,6 +403,7 @@ mod tests {
 
     use super::*;
     use crate::VortexAccessPlan;
+    use crate::convert::exprs::DefaultExpressionConvertor;
     use crate::vendor::schema_rewriter::DF52PhysicalExprAdapterFactory;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
@@ -484,6 +490,7 @@ mod tests {
             metrics: Default::default(),
             layout_readers: Default::default(),
             has_output_ordering: false,
+            expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
         }
     }
 
@@ -629,6 +636,7 @@ mod tests {
             metrics: Default::default(),
             layout_readers: Default::default(),
             has_output_ordering: false,
+            expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
         };
 
         let filter = col("a").lt(lit(100_i32));
@@ -712,6 +720,7 @@ mod tests {
             metrics: Default::default(),
             layout_readers: Default::default(),
             has_output_ordering: false,
+            expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
         };
 
         // The opener should successfully open the file and reorder columns
@@ -864,6 +873,7 @@ mod tests {
             metrics: Default::default(),
             layout_readers: Default::default(),
             has_output_ordering: false,
+            expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
         };
 
         // This should succeed and return the correctly projected and cast data
@@ -920,6 +930,7 @@ mod tests {
             metrics: Default::default(),
             layout_readers: Default::default(),
             has_output_ordering: false,
+            expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
         }
     }
 
