@@ -13,7 +13,6 @@ use vortex_dtype::IntegerPType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PTypeDowncastExt;
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -26,8 +25,6 @@ use vortex_vector::bool::BoolScalar;
 use vortex_vector::bool::BoolVector;
 use vortex_vector::listview::ListViewScalar;
 use vortex_vector::listview::ListViewVector;
-use vortex_vector::match_each_pvector;
-use vortex_vector::primitive::PScalar;
 use vortex_vector::primitive::PVector;
 
 use crate::ArrayRef;
@@ -129,29 +126,23 @@ impl VTable for ListContains {
             .try_into()
             .map_err(|_| vortex_err!("Wrong number of arguments for ListContains expression"))?;
 
-        match (lhs.as_scalar().is_some(), rhs.as_scalar().is_some()) {
-            (true, true) => {
-                // Early return with Scalar to avoid allocating BitBuffer.
-                let list = lhs.into_scalar().vortex_expect("scalar").into_list();
-                let needle = rhs.into_scalar().vortex_expect("scalar");
-                let found = list_contains_scalar_scalar(&list, &needle)?;
+        match (lhs, rhs) {
+            (Datum::Scalar(list_scalar), Datum::Scalar(needle_scalar)) => {
+                let list = list_scalar.into_list();
+                let found = list_contains_scalar_scalar(&list, &needle_scalar)?;
                 Ok(Datum::Scalar(BoolScalar::new(Some(found)).into()))
             }
-            (true, false) => {
-                let matches = constant_list_scalar_contains(
-                    lhs.into_scalar().vortex_expect("scalar").into_list(),
-                    rhs.into_vector().vortex_expect("vector"),
-                )?;
+            (Datum::Scalar(list_scalar), Datum::Vector(needle_vector)) => {
+                let matches =
+                    constant_list_scalar_contains(list_scalar.into_list(), needle_vector)?;
                 Ok(Datum::Vector(matches.into()))
             }
-            (false, true) => {
-                let matches = list_contains_scalar(
-                    lhs.unwrap_into_vector(args.row_count).into_list(),
-                    rhs.into_scalar().vortex_expect("scalar").into_list(),
-                )?;
+            (Datum::Vector(list_vector), Datum::Scalar(needle_scalar)) => {
+                let matches =
+                    list_contains_scalar(list_vector.into_list(), needle_scalar.into_list())?;
                 Ok(Datum::Vector(matches.into()))
             }
-            (false, false) => {
+            (Datum::Vector(_), Datum::Vector(_)) => {
                 vortex_bail!(
                     "ListContains currently only supports constant needle (RHS) or constant list (LHS)"
                 )
@@ -335,29 +326,33 @@ fn constant_list_scalar_contains(list: ListViewScalar, values: Vector) -> Vortex
     Ok(result)
 }
 
-/// Used when both needle and list are scalars.
+/// Used when the needle is a scalar checked for containment in a single list.
 fn list_contains_scalar_scalar(
     list: &ListViewScalar,
     needle: &vortex_vector::Scalar,
 ) -> VortexResult<bool> {
     let elements = list.value().elements();
 
-    // Downcast to `PVector` and access slice directly to avoid `scalar_at` overhead.
-    let found = if let Vector::Primitive(prim) = &**elements {
-        match_each_pvector!(prim, |pvec| {
-            let slice: &[_] = pvec.as_ref();
-            let validity = pvec.validity();
-            slice
-                .iter()
-                .enumerate()
-                .any(|(i, &elem)| needle == &PScalar::new(Some(elem)).into() && validity.value(i))
-        })
-    } else {
-        // Fallback for non-primitive vectors
-        (0..elements.len()).any(|i| needle == &elements.scalar_at(i))
-    };
+    // Note: If the comparison becomes a bottleneck, look into faster ways to check for list
+    // containment. `execute` allocates the returned vector on the heap. Further, the `eq`
+    // comparison does not short-circuit on the first match found.
+    let found = Binary
+        .bind(operators::Operator::Eq)
+        .execute(ExecutionArgs {
+            datums: vec![
+                Datum::Vector(elements.deref().clone()),
+                Datum::Scalar(needle.clone()),
+            ],
+            dtypes: vec![],
+            row_count: elements.len(),
+            return_dtype: DType::Bool(Nullability::Nullable),
+        })?
+        .unwrap_into_vector(elements.len())
+        .into_bool()
+        .into_bits();
 
-    Ok(found)
+    let mut true_bits = BitIndexIterator::new(found.inner().as_ref(), 0, found.len());
+    Ok(true_bits.next().is_some())
 }
 
 /// Returns a [`BitBuffer`] where each bit represents if a list contains the scalar, derived from a
