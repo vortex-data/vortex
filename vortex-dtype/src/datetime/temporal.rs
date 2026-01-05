@@ -137,7 +137,7 @@ impl TemporalMetadata {
             }
             TemporalMetadata::Date(
                 unit @ (TimeUnit::Nanoseconds | TimeUnit::Microseconds | TimeUnit::Seconds),
-            ) => vortex_bail!("invalid TimeUnit {unit} for vortex.time"),
+            ) => vortex_bail!("invalid TimeUnit {unit} for vortex.date"),
             TemporalMetadata::Date(TimeUnit::Milliseconds) => PType::I64,
             TemporalMetadata::Date(TimeUnit::Days) => PType::I32,
             TemporalMetadata::Timestamp(
@@ -148,7 +148,7 @@ impl TemporalMetadata {
                 ..,
             ) => PType::I64,
             TemporalMetadata::Timestamp(TimeUnit::Days, ..) => {
-                vortex_bail!("invalid TimeUnit days for vortex.time");
+                vortex_bail!("invalid TimeUnit days for vortex.timestamp");
             }
         };
 
