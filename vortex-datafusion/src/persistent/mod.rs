@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Persistent implementation of a Vortex table provider.
+mod access_plan;
 mod cache;
 mod format;
 pub mod metrics;
@@ -9,6 +10,7 @@ mod opener;
 mod sink;
 mod source;
 
+pub use access_plan::VortexAccessPlan;
 pub use format::VortexFormat;
 pub use format::VortexFormatFactory;
 pub use format::VortexOptions;

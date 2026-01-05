@@ -41,12 +41,12 @@ use vortex::layout::LayoutReader;
 use vortex::layout::layouts::USE_VORTEX_OPERATORS;
 use vortex::metrics::VortexMetrics;
 use vortex::scan::ScanBuilder;
-use vortex::scan::Selection;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 
 use super::cache::VortexFileCache;
+use crate::VortexAccessPlan;
 use crate::convert::exprs::can_be_pushed_down;
 use crate::convert::exprs::make_vortex_predicate;
 
@@ -102,7 +102,6 @@ impl FileOpener for VortexOpener {
         let metrics = self.metrics.clone();
         let layout_reader = self.layout_readers.clone();
         let has_output_ordering = self.has_output_ordering;
-        let extensions = file.extensions.clone();
 
         let projected_schema = match projection.as_ref() {
             None => table_schema.file_schema().clone(),
@@ -229,9 +228,13 @@ impl FileOpener for VortexOpener {
             };
 
             let mut scan_builder = ScanBuilder::new(session.clone(), layout_reader);
-            if let Some(selection) = get_selection_from_extensions(extensions) {
-                scan_builder = scan_builder.with_selection(selection);
+
+            if let Some(extensions) = file.extensions
+                && let Some(vortex_plan) = extensions.downcast_ref::<VortexAccessPlan>()
+            {
+                scan_builder = vortex_plan.apply_to_builder(scan_builder);
             }
+
             if let Some(file_range) = file.range {
                 scan_builder = apply_byte_range(
                     file_range,
@@ -359,24 +362,6 @@ fn byte_range_to_row_range(byte_range: Range<u64>, row_count: u64, total_size: u
 
     // We take the min here as `end_row` might overshoot
     start_row..u64::min(row_count, end_row)
-}
-
-/// Attempts to extract a `Selection` from the extensions object, if present.
-///
-/// This function is used to retrieve the row selection plan that may have been
-/// attached to a `PartitionedFile` via its `extensions` field.
-///
-/// # Arguments
-///
-/// * `extensions` - Optional type-erased extensions object that may contain a `Selection`
-///
-/// # Returns
-///
-/// Returns `Some(Selection)` if the extensions contain a valid `Selection`, otherwise `None`.
-fn get_selection_from_extensions(
-    extensions: Option<Arc<dyn std::any::Any + Send + Sync>>,
-) -> Option<Selection> {
-    extensions?.downcast_ref::<Selection>().cloned()
 }
 
 #[cfg(test)]
