@@ -9118,12 +9118,18 @@ dependencies = [
 name = "vortex-gpu"
 version = "0.1.0"
 dependencies = [
+ "arcref",
+ "async-trait",
  "cudarc",
+ "futures",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
+ "vortex-fastlanes",
+ "vortex-io",
  "vortex-layout",
+ "vortex-session",
  "vortex-utils",
  "wgpu",
 ]

@@ -6,10 +6,13 @@
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 
-pub mod cuda;
-pub mod wgpu;
+pub enum HalKind {
+    Cuda,
+    Wgpu,
+}
 
 pub trait Hal: Sized {
+    const KIND: HalKind;
     type Buffer: HalBuffer<Self>;
     type Device: HalDevice<Self>;
 }

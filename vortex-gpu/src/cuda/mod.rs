@@ -11,11 +11,12 @@ use vortex_error::VortexResult;
 use crate::hal::Hal;
 use crate::hal::HalBuffer;
 use crate::hal::HalDevice;
+use crate::hal::HalKind;
 
 pub struct Cuda;
 
 impl Hal for Cuda {
-    // TODO(ngates): we may want a wrapper around this to manage buffer pools etc?
+    const KIND: HalKind = HalKind::Cuda;
     type Buffer = CudaBuffer;
     type Device = CudaDevice;
 }

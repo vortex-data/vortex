@@ -1,7 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod backend;
+mod backends;
+mod executor;
+mod kernel;
+mod session;
+mod shaders;
+mod vector;
+
 use std::ops::Deref;
+use std::sync::LazyLock;
 
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
@@ -11,10 +20,15 @@ use wgpu::util::DeviceExt;
 use crate::hal::Hal;
 use crate::hal::HalBuffer;
 use crate::hal::HalDevice;
+use crate::hal::HalKind;
+
+pub const INSTANCE: LazyLock<wgpu::Instance> =
+    LazyLock::new(|| wgpu::Instance::new(&wgpu::InstanceDescriptor::default()));
 
 pub struct Wgpu;
 
 impl Hal for Wgpu {
+    const KIND: HalKind = HalKind::Wgpu;
     type Buffer = WgpuBuffer;
     type Device = WgpuDevice;
 }

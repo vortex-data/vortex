@@ -6,30 +6,37 @@
 
 use vortex_dtype::PType;
 
-use crate::hal::Hal;
+pub trait GpuBuffer {}
+impl<T> GpuBuffer for T {}
 
-pub enum GpuVector<H: Hal> {
+pub enum GpuVector<B: GpuBuffer> {
     Null,
     Bool,
-    Primitive(PrimitiveGpuVector<H>),
+    Primitive(PrimitiveGpuVector<B>),
 }
 
-pub struct BoolGpuVector<H: Hal> {
+pub struct BoolGpuVector<B: GpuBuffer> {
     len: usize,
-    buffer: H::Buffer,
+    buffer: B,
     // validity:
 }
 
-pub struct PrimitiveGpuVector<H: Hal> {
+pub struct PrimitiveGpuVector<B: GpuBuffer> {
     ptype: PType,
     len: usize,
-    buffer: H::Buffer,
+    buffer: B,
     // validity:
+}
+
+impl<B: GpuBuffer> PrimitiveGpuVector<B> {
+    pub unsafe fn new_unchecked(ptype: PType, len: usize, buffer: B) -> Self {
+        Self { ptype, len, buffer }
+    }
 }
 
 // TODO(ngates): BitBuffer to wrap gpu buffer?
-pub struct GpuBitBuffer<H: Hal> {
-    buffer: H::Buffer,
+pub struct GpuBitBuffer<B: GpuBuffer> {
+    buffer: B,
     offset: usize,
     len: usize,
 }
