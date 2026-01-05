@@ -595,7 +595,7 @@ jobs:
           RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
         run: cargo codspeed build ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@972e3437949c89e1357ebd1a2dbc852fcbc57245
+        uses: CodSpeedHQ/action@dbda7111f8ac363564b0c51b992d4ce76bb89f2f
         with:
           run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
