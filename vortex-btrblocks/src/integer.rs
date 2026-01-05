@@ -916,7 +916,7 @@ mod tests {
             })
             .collect::<PrimitiveArray>();
 
-        _ = FloatCompressor::compress(&prim, false, 3, &[])?;
+        drop(FloatCompressor::compress(&prim, false, 3, &[])?);
 
         Ok(())
     }
