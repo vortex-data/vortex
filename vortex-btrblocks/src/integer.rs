@@ -593,13 +593,13 @@ impl Scheme for DictScheme {
         // Assume codes are compressed RLE + BitPacking.
         let codes_bw = usize::BITS - stats.distinct_values_count.leading_zeros();
 
-        let n_runs = stats.value_count / stats.average_run_length;
+        let n_runs = (stats.value_count / stats.average_run_length) as usize;
 
         // Assume that codes will either be BitPack or RLE-BitPack
         let codes_size_bp = (codes_bw * stats.value_count) as usize;
-        let codes_size_rle_bp = (codes_bw + 32) * n_runs;
+        let codes_size_rle_bp = usize::checked_mul((codes_bw + 32) as usize, n_runs);
 
-        let codes_size = usize::min(codes_size_bp, codes_size_rle_bp as usize);
+        let codes_size = usize::min(codes_size_bp, codes_size_rle_bp.unwrap_or(usize::MAX));
 
         let before = stats.value_count as usize * stats.source().ptype().bit_width();
 
@@ -782,11 +782,13 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::BufferMut;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_sequence::SequenceVTable;
     use vortex_sparse::SparseVTable;
 
     use crate::Compressor;
     use crate::CompressorStats;
+    use crate::FloatCompressor;
     use crate::Scheme;
     use crate::integer::IntCompressor;
     use crate::integer::IntegerStats;
@@ -899,5 +901,23 @@ mod tests {
         let decoded = compressed;
         let expected = Buffer::copy_from(&values).into_array();
         assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
+    }
+
+    #[test]
+    // Ignore is run in CI, but not locally.
+    #[ignore]
+    fn compress_large_int() -> VortexResult<()> {
+        const NUM_LISTS: usize = 10_000;
+        const ELEMENTS_PER_LIST: usize = 5_000;
+
+        let prim = (0..NUM_LISTS)
+            .flat_map(|list_idx| {
+                (0..ELEMENTS_PER_LIST).map(move |elem_idx| (list_idx * 1000 + elem_idx) as f64)
+            })
+            .collect::<PrimitiveArray>();
+
+        let compressed = FloatCompressor::compress(&prim, false, 3, &[])?;
+
+        Ok(())
     }
 }
