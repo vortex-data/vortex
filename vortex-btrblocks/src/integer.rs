@@ -916,7 +916,7 @@ mod tests {
             })
             .collect::<PrimitiveArray>();
 
-        let compressed = FloatCompressor::compress(&prim, false, 3, &[])?;
+        let _ = FloatCompressor::compress(&prim, false, 3, &[])?;
 
         Ok(())
     }
