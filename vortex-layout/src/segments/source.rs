@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use futures::future::BoxFuture;
-use vortex_buffer::BufferHandle;
+use vortex_array::buffer::BufferHandle;
 use vortex_error::VortexResult;
 
 use crate::segments::SegmentId;

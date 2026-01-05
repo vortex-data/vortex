@@ -5,6 +5,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use clap::Parser;
+#[cfg(feature = "lance")]
+use compress_bench::LanceCompressor;
 use compress_bench::parquet::ParquetCompressor;
 use compress_bench::vortex::VortexCompressor;
 use indicatif::ProgressBar;
@@ -92,7 +94,7 @@ fn get_compressor(format: Format) -> Box<dyn Compressor> {
         Format::OnDiskVortex => Box::new(VortexCompressor),
         Format::Parquet => Box::new(ParquetCompressor::new()),
         #[cfg(feature = "lance")]
-        Format::Lance => todo!(),
+        Format::Lance => Box::new(LanceCompressor),
         _ => unimplemented!("Compress bench not implemented for {format}"),
     }
 }

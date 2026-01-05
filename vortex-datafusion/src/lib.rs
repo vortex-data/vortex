@@ -10,7 +10,9 @@ use vortex::expr::stats::Precision;
 
 mod convert;
 mod persistent;
+pub mod vendor;
 
+pub use convert::exprs::ExpressionConvertor;
 pub use persistent::*;
 
 /// Extension trait to convert our [`Precision`](vortex::stats::Precision) to Datafusion's [`Precision`](datafusion_common::stats::Precision)

@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -16,6 +15,7 @@ use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::VectorExecutor;
 use crate::arrays::FixedSizeListArray;
+use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;

@@ -8,7 +8,6 @@ mod rules;
 mod validity;
 mod visitor;
 
-use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -21,6 +20,7 @@ use crate::EmptyMetadata;
 use crate::VectorExecutor;
 use crate::arrays::extension::ExtensionArray;
 use crate::arrays::extension::vtable::rules::PARENT_RULES;
+use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::vtable;

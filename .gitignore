@@ -221,3 +221,6 @@ compile_commands.json
 # Claude
 .claude
 
+# cargo sweep output
+sweep.timestamp
+

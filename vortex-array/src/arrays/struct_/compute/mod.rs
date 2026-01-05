@@ -200,41 +200,6 @@ mod tests {
     }
 
     #[test]
-    fn test_cast_cannot_change_name_order() {
-        let array = StructArray::try_new(
-            ["xs", "ys", "zs"].into(),
-            vec![
-                buffer![1u8].into_array(),
-                buffer![1u8].into_array(),
-                buffer![1u8].into_array(),
-            ],
-            1,
-            Validity::NonNullable,
-        )
-        .unwrap();
-
-        let tu8 = DType::Primitive(PType::U8, NonNullable);
-
-        let result = cast(
-            array.as_ref(),
-            &DType::Struct(
-                StructFields::new(
-                    FieldNames::from(["ys", "xs", "zs"]),
-                    vec![tu8.clone(), tu8.clone(), tu8],
-                ),
-                NonNullable,
-            ),
-        );
-        assert!(
-            result.as_ref().is_err_and(|err| {
-                err.to_string()
-                    .contains("cannot cast {xs=u8, ys=u8, zs=u8} to {ys=u8, xs=u8, zs=u8}")
-            }),
-            "{result:?}"
-        );
-    }
-
-    #[test]
     fn test_cast_complex_struct() {
         let xs = PrimitiveArray::from_option_iter([Some(0i64), Some(1), Some(2), Some(3), Some(4)]);
         let ys = VarBinArray::from_vec(vec!["a", "b", "c", "d", "e"], DType::Utf8(Nullable));

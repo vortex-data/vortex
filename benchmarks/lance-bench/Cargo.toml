@@ -19,14 +19,14 @@ lance = { version = "0.39.0" }
 lance-encoding = { version = "0.39.0" }
 
 anyhow = { workspace = true }
-arrow-cast = { workspace = true }
+arrow-cast = { version = "56" }
 async-trait = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
-parquet = { workspace = true }
+parquet = { version = "56" }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
-tracing.workspace = true
+tracing = { workspace = true }
 vortex-bench = { workspace = true }
 
 [build-dependencies]

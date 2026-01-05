@@ -43,9 +43,9 @@ jobs:
     strategy:
       matrix:
         benchmark:
-          - id: random_access
+          - id: random-access-bench
             name: Random Access
-          - id: compress
+          - id: compress-bench
             name: Compression
     steps:
       - uses: runs-on/action@v2
@@ -66,9 +66,8 @@ jobs:
         shell: bash
         env:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
-        # The main difference between this and `bench-pr.yml` is that we add the `lance` feature.
         run: |
-          cargo build --bin ${{ matrix.benchmark.id }} --package vortex-bench --profile release_debug --features lance
+          cargo build --bin ${{ matrix.benchmark.id }} --profile release_debug --features lance
 
       - name: Setup Polar Signals
         uses: polarsignals/gh-actions-ps-profiling@v0.6.0
@@ -84,7 +83,7 @@ jobs:
         env:
           RUST_BACKTRACE: full
         run: |
-          target/release_debug/${{ matrix.benchmark.id }} --formats parquet,lance,vortex -o results.json
+          target/release_debug/${{ matrix.benchmark.id }} --formats parquet,lance,vortex -d gh-json -o results.json
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v5
@@ -125,9 +124,8 @@ jobs:
             "name": "TPC-H SF=1 on S3",
             "local_dir": "vortex-bench/data/tpch/1.0",
             "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/${{github.run_id}}/tpch/1.0/",
-            "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,datafusion:lance,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
-            "scale_factor": "1.0",
-            "build_lance": true
+            "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
+            "scale_factor": "1.0"
           },
           {
             "id": "tpch-nvme-10",
@@ -143,9 +141,8 @@ jobs:
             "name": "TPC-H SF=10 on S3",
             "local_dir": "vortex-bench/data/tpch/10.0",
             "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/${{github.run_id}}/tpch/10.0/",
-            "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,datafusion:lance,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
-            "scale_factor": "10.0",
-            "build_lance": true
+            "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
+            "scale_factor": "10.0"
           },
           {
             "id": "tpcds-nvme",

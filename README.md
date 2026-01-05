@@ -141,7 +141,7 @@ the [Technical Charter](https://vortex.dev/charter.pdf).
 
 ### Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Please **do** read [CONTRIBUTING.md](CONTRIBUTING.md) before you contribute.
 
 ### Reporting Vulnerabilities
 

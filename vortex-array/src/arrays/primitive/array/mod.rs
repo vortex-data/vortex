@@ -3,11 +3,11 @@
 
 use std::iter;
 
+use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
-use vortex_buffer::{Alignment, BufferHandle};
 use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
@@ -28,6 +28,7 @@ mod conversion;
 mod patch;
 mod top_value;
 
+use crate::buffer::BufferHandle;
 pub use patch::patch_chunk;
 
 /// A primitive array that stores [native types][vortex_dtype::NativePType] in a contiguous buffer
@@ -118,7 +119,7 @@ impl PrimitiveArray {
 
         Self {
             dtype: DType::Primitive(T::PTYPE, validity.nullability()),
-            buffer: BufferHandle::Buffer(buffer.into_byte_buffer()),
+            buffer: BufferHandle::Host(buffer.into_byte_buffer()),
             validity,
             stats_set: Default::default(),
         }
@@ -150,11 +151,11 @@ impl PrimitiveArray {
     }
 
     pub fn byte_buffer(&self) -> &ByteBuffer {
-        &self.buffer
+        &self.buffer.bytes()
     }
 
     pub fn into_byte_buffer(self) -> ByteBuffer {
-        self.buffer
+        self.buffer.into_bytes()
     }
 
     pub fn from_byte_buffer(buffer: ByteBuffer, ptype: PType, validity: Validity) -> Self {

@@ -11,7 +11,6 @@ use std::hash::Hasher;
 use std::sync::Arc;
 
 use arcref::ArcRef;
-use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -27,6 +26,7 @@ use crate::ArrayAdapter;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
+use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::vtable::EncodeVTable;
