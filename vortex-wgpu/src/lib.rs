@@ -4,7 +4,6 @@ use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 
 pub mod executor;
-mod pipeline;
 pub mod session;
 mod vector;
 mod vectors;

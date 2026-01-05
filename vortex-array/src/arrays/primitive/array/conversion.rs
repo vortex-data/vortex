@@ -3,9 +3,9 @@
 
 //! Conversion methods and trait implementations of [`From`] and [`Into`] for [`PrimitiveArray`].
 
+use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_buffer::{BitBufferMut, BufferHandle};
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
@@ -18,6 +18,7 @@ use vortex_vector::primitive::PrimitiveVector;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
+use crate::buffer::BufferHandle;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -95,7 +96,7 @@ impl PrimitiveArray {
                 self.ptype()
             )
         }
-        Buffer::from_byte_buffer(self.buffer)
+        Buffer::from_byte_buffer(self.buffer.into_bytes())
     }
 
     /// Extract a mutable buffer from the PrimitiveArray. Attempts to do this with zero-copy

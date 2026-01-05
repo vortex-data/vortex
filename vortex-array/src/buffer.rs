@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -23,6 +24,9 @@ pub enum BufferHandle {
 
 /// A buffer that is stored on a device (e.g. GPU).
 pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
+    /// Downcast to a concrete type.
+    fn as_any(&self) -> &dyn Any;
+
     /// Returns the length of the buffer in bytes.
     fn len(&self) -> usize;
 

@@ -99,6 +99,19 @@ impl PrimitiveArray {
         Ok(unsafe { Self::new_unchecked(buffer, validity) })
     }
 
+    pub unsafe fn new_unchecked_raw(
+        dtype: DType,
+        buffer: BufferHandle,
+        validity: Validity,
+    ) -> Self {
+        Self {
+            dtype,
+            buffer,
+            validity,
+            stats_set: Default::default(),
+        }
+    }
+
     /// Creates a new [`PrimitiveArray`] without validation from these components:
     ///
     /// * `buffer` is a typed buffer containing the primitive values.

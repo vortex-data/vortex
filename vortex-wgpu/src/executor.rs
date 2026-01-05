@@ -1,28 +1,59 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::INSTANCE;
+use crate::session::WgpuSession;
+use async_trait::async_trait;
+use futures::channel::oneshot;
+use std::any::Any;
 use std::borrow::Cow;
 use std::fmt::Debug;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
-
-use crate::INSTANCE;
-use crate::pipeline::PipelineBuilder;
-use crate::session::WgpuSession;
-use crate::vector::{GpuVector, PrimitiveGpuVector};
-use vortex_array::Canonical;
-use vortex_array::arrays::PrimitiveVTable;
+use vortex_array::arrays::{PrimitiveArray, PrimitiveVTable};
+use vortex_array::buffer::{BufferHandle, DeviceBuffer};
 use vortex_array::{Array, ArrayRef};
-use vortex_dtype::PType;
-use vortex_error::vortex_err;
+use vortex_array::{Canonical, IntoArray};
+use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, vortex_err};
 use vortex_fastlanes::FoRVTable;
+use wgpu::ComputePipelineDescriptor;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::wgt::{CommandEncoderDescriptor, DeviceDescriptor};
-use wgpu::{BindGroup, BindGroupEntry, BufferBindingType, CommandEncoder, ComputePass};
 use wgpu::{BindGroupDescriptor, RequestAdapterOptions};
-use wgpu::{BindGroupLayoutDescriptor, ShaderStages};
-use wgpu::{BindGroupLayoutEntry, ShaderModuleDescriptor, ShaderSource};
-use wgpu::{BindingType, ComputePipelineDescriptor};
+use wgpu::{BindGroupEntry, MapMode};
+use wgpu::{ShaderModuleDescriptor, ShaderSource};
+
+#[derive(Debug)]
+pub struct WgpuBuffer(pub wgpu::Buffer);
+
+impl DeviceBuffer for WgpuBuffer {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn len(&self) -> usize {
+        usize::try_from(self.0.size()).vortex_expect("wgpu buffer size fits in usize")
+    }
+
+    fn to_host(self: Arc<Self>) -> VortexResult<ByteBuffer> {
+        Ok(ByteBuffer::copy_from(self.0.get_mapped_range(..)))
+    }
+}
+
+impl PartialEq for WgpuBuffer {
+    fn eq(&self, _other: &Self) -> bool {
+        false
+    }
+}
+
+impl Hash for WgpuBuffer {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // FIXME(ngates): get HAL address?
+        state.write_usize(self.len());
+    }
+}
 
 pub struct WgpuExecutor {
     session: Arc<WgpuSession>,
@@ -48,138 +79,46 @@ impl WgpuExecutor {
     }
 }
 
-pub struct WgpuCtx<'a> {
-    pub device: &'a wgpu::Device,
-    pub cache: Option<&'a wgpu::PipelineCache>,
+pub struct WgpuCtx {
+    pub session: Arc<WgpuSession>,
+    pub device: wgpu::Device,
+    pub cache: Option<wgpu::PipelineCache>,
+    queue: wgpu::Queue,
 }
 
 /// Shader support for WebGPU execution.
-pub trait WgpuSupport: Debug {
-    fn execute(&self, array: &ArrayRef, ctx: &WgpuCtx, cpass: &mut ComputePass)
-    -> VortexResult<()>;
+#[async_trait]
+pub trait WgpuSupport: 'static + Send + Sync + Debug {
+    async fn execute(&self, array: &ArrayRef, ctx: &WgpuCtx) -> VortexResult<ArrayRef>;
 }
 
-pub struct WgpuShaderArgs<'a> {
-    /// The device to compile the shader for.
-    pub device: &'a wgpu::Device,
-    /// The input vectors to the shader.
-    pub inputs: &'a [WgpuShaderInput],
-    /// The bind group index for additional self inputs.
-    pub self_bind_group: u32,
-    /// The output bind group index.
-    pub output_bind_group: u32,
-}
-
-pub struct WgpuShaderInput {
-    pub bind_group: u32,
-    pub vector: GpuVector<BindGroupLayoutEntry>,
-}
-
-pub struct WgpuShader {
-    pub source: String,
-    pub output: GpuVector<BindGroupLayoutEntry>,
-    pub self_input: Option<BindGroup>,
-}
-
+#[async_trait]
 pub trait WgpuArrayExt: Array {
-    fn execute_wgpu(&self, ctx: &WgpuCtx) -> VortexResult<ArrayRef>;
+    async fn execute_wgpu(&self, ctx: &WgpuCtx) -> VortexResult<ArrayRef>;
 }
+
+#[async_trait]
 impl WgpuArrayExt for ArrayRef {
-    fn execute_wgpu(&self, ctx: &WgpuCtx) -> VortexResult<ArrayRef> {
-        todo!()
+    async fn execute_wgpu(&self, ctx: &WgpuCtx) -> VortexResult<ArrayRef> {
+        let Some(support) = ctx.session.get_executor(&self.encoding_id()) else {
+            todo!(
+                "No WebGPU executor registered for array encoding {}",
+                self.encoding_id()
+            );
+        };
+        support.execute(self, ctx).await
     }
 }
 
 #[derive(Debug)]
 struct FoRWgpuSupport;
+
+#[async_trait]
 impl WgpuSupport for FoRWgpuSupport {
-    fn pipeline(&self, array: &ArrayRef, args: WgpuShaderArgs) -> VortexResult<WgpuShader> {
-        let for_array = array.as_::<FoRVTable>();
-        let input = &args.inputs[0];
-
-        let source = format!(
-            "
-            @group({}) @binding(0) var<storage, read> input: array<vec4<u32>>;
-            @group({}) @binding(0) var<uniform> ref_val: u32;
-            @group({}) @binding(0) var<storage, read_write> output: array<vec4<u32>>;
-
-            @compute @workgroup_size(256)
-            fn decode_for(@builtin(global_invocation_id) global_id: vec3<u32>) {{
-                let r = vec4<u32>(ref_val);
-                output[global_id.x] = input[global_id.x] + r;
-            }}
-            ",
-            input.bind_group, args.self_bind_group, args.output_bind_group,
-        );
-
-        let output = GpuVector::Primitive(PrimitiveGpuVector {
-            ptype: for_array.ptype(),
-            len: for_array.len(),
-            buffer: BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-        });
-
-        let reference_bytes = for_array
-            .reference_scalar()
-            .as_primitive()
-            .typed_value::<u32>()
-            .vortex_expect("FoR reference is u32")
-            .to_le_bytes();
-        let reference_buffer = args.device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("FoR Reference Buffer"),
-            contents: &reference_bytes,
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
-
-        let self_input_layout = args
-            .device
-            .create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some("FoR Self Bind Group Layout"),
-                entries: &[BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
-
-        let self_input = args.device.create_bind_group(&BindGroupDescriptor {
-            label: Some("FoR Self Bind Group"),
-            layout: &self_input_layout,
-            entries: &[BindGroupEntry {
-                binding: 0,
-                resource: reference_buffer.as_entire_binding(),
-            }],
-        });
-
-        Ok(WgpuShader {
-            source,
-            output,
-            self_input: Some(self_input),
-        })
-    }
-
-    fn execute(
-        &self,
-        array: &ArrayRef,
-        ctx: &WgpuCtx,
-        cpass: &mut ComputePass,
-    ) -> VortexResult<()> {
+    async fn execute(&self, array: &ArrayRef, ctx: &WgpuCtx) -> VortexResult<ArrayRef> {
         // First, we execute the child array to get the input values.
         let for_array = array.as_::<FoRVTable>();
-        let input = for_array.encoded().execute_wgpu(ctx)?;
+        let input = for_array.encoded().execute_wgpu(ctx).await?;
         let input_primitive = input.as_::<PrimitiveVTable>();
 
         let source = "
@@ -207,23 +146,105 @@ impl WgpuSupport for FoRWgpuSupport {
                 module: &module,
                 entry_point: None,
                 compilation_options: Default::default(),
-                cache: ctx.cache,
+                cache: ctx.cache.as_ref(),
             });
 
-        let encoded_buffer = input_primitive.buffer()
+        let encoded_buffer = match input_primitive.buffer_handle() {
+            BufferHandle::Host(buffer) => ctx.device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("FoR Input Buffer"),
+                contents: buffer.as_slice(),
+                usage: wgpu::BufferUsages::STORAGE,
+            }),
+            BufferHandle::Device(device) => match device.as_any().downcast_ref::<wgpu::Buffer>() {
+                None => {
+                    // We could go via host memory
+                    vortex_bail!("FoR input buffer is not a wgpu::Buffer");
+                }
+                Some(buffer) => buffer.clone(),
+            },
+        };
+
+        let ref_val = for_array
+            .reference_scalar()
+            .as_primitive()
+            .typed_value::<u32>()
+            .vortex_expect("FoR reference is u32");
+        let ref_val_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("FoR Reference Buffer"),
+            contents: &ref_val.to_le_bytes(),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+
+        let output_buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("FoR Output Buffer"),
+            size: encoded_buffer.size(),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
 
         let bind_group = ctx.device.create_bind_group(&BindGroupDescriptor {
             label: Some("FoR Bind Group"),
             layout: &compute_pipeline.get_bind_group_layout(0),
-            entries: &[],
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: encoded_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: ref_val_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: output_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
+        let mut enc = ctx
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor {
+                label: Some("FoR Command Encoder"),
+            });
+        let mut cpass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("FoR Compute Pass"),
+            timestamp_writes: None,
         });
 
         cpass.set_pipeline(&compute_pipeline);
         cpass.set_bind_group(0, &bind_group, &[]);
         cpass.insert_debug_marker("compute for iterations");
-        cpass.dispatch_workgroups(input_vals.len() as u32, 1, 1);
 
-        Ok(())
+        let workgroup_count = u32::try_from(for_array.len().div_ceil(256))
+            .map_err(|_| vortex_err!("FoR array workgroup count exceeds u32"))?;
+        cpass.dispatch_workgroups(workgroup_count, 1, 1);
+
+        drop(cpass);
+        ctx.queue.submit(Some(enc.finish()));
+
+        let (send, recv) = oneshot::channel();
+        output_buffer.map_async(MapMode::Read, .., |result| {
+            send.send(result)
+                .map_err(|e| vortex_err!("Failed to send map_async result: {:?}", e))
+                .vortex_expect("oneshot send failed");
+        });
+
+        ctx.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .map_err(|e| vortex_err!("Device poll failed: {}", e))?;
+        recv.await
+            .map_err(|e| vortex_err!("Cancelled while waiting for map_async: {}", e))?
+            .map_err(|e| vortex_err!("Failed to receive map_async result: {}", e))?;
+
+        let output_array = unsafe {
+            PrimitiveArray::new_unchecked_raw(
+                for_array.dtype().clone(),
+                BufferHandle::Device(Arc::new(WgpuBuffer(output_buffer))),
+                input_primitive.validity()?,
+            )
+        };
+
+        Ok(output_array.into_array())
     }
 }
 
@@ -233,96 +254,13 @@ impl WgpuExecutor {
         // For a given array, we first check if any of its children can "execute_parent", if so
         // we allow them to perform the execution.
         // TODO(ngates): check children for execute_parent optimizations
-
-        // Otherwise, we need to execute this array ourselves.
-
-        // In order of preference, an array should:
-        // 1. Produce a WGSL shader (this has the best chance of fused compilation as part of a
-        //    larger pipeline).
-        // 2. Produce a WebGPU pipeline (data is passed between pipelines via GPU memory, so
-        //    cannot benefit from passing data via registers).
-        // 3. Fall back to CPU execution (data is copied back to CPU memory).
-
-        let Some(support) = self.session.get_executor(&array.encoding_id()) else {
-            todo!(
-                "No WebGPU executor registered for array encoding {}",
-                array.encoding_id()
-            );
+        let ctx = WgpuCtx {
+            session: self.session.clone(),
+            device: self.device.clone(),
+            cache: None,
+            queue: self.queue.clone(),
         };
-
-        let mut builder = PipelineBuilder::new(&self.device);
-        let shader = support.pipeline(&array, &mut builder)?;
-
-        // The input vectors are the array's children.
-        // TODO(ngates): implement this recursion.
-        let input_layout_entry = BindGroupLayoutEntry {
-            binding: 0,
-            visibility: ShaderStages::COMPUTE,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        };
-        let input = WgpuShaderInput {
-            bind_group: 0,
-            vector: GpuVector::Primitive(PrimitiveGpuVector {
-                ptype: PType::U32,
-                len: array.len(),
-                buffer: input_layout_entry,
-            }),
-        };
-        let input_layout = self
-            .device
-            .create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some("Input Bind Group Layout"),
-                entries: &[input_layout_entry],
-            });
-
-        let args = WgpuShaderArgs {
-            device: &self.device,
-            inputs: &[input],
-            self_bind_group: 1,
-            output_bind_group: 2,
-        };
-        let shader = support.pipeline(&array, args)?;
-        let module = self.device.create_shader_module(ShaderModuleDescriptor {
-            label: None,
-            source: ShaderSource::Wgsl(Cow::Borrowed(&shader.source)),
-        });
-
-        let output_layout = self
-            .device
-            .create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some("Output Bind Group Layout"),
-                entries: &[shader.output.bind_group_layout_entry(0)?],
-            });
-
-        let pipeline_layout = self
-            .device
-            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
-                bind_group_layouts: &[
-                    &input_layout,
-                    shader.self_input.vortex_expect("missing"),
-                    output_layout,
-                ],
-                push_constant_ranges: &[],
-            });
-
-        let pipeline = self
-            .device
-            .create_compute_pipeline(&ComputePipelineDescriptor {
-                label: None,
-                layout: Some(&pipeline_layout),
-                module: &module,
-                entry_point: None,
-                compilation_options: Default::default(),
-                cache: None,
-            });
-
-        todo!()
+        Ok(array.execute_wgpu(&ctx).await?.to_canonical())
     }
 }
 
