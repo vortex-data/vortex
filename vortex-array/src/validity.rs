@@ -50,6 +50,15 @@ impl Validity {
     /// The [`DType`] of the underlying validity array (if it exists).
     pub const DTYPE: DType = DType::Bool(Nullability::NonNullable);
 
+    /// Convert the validity to an array representation.
+    pub fn to_array(&self, len: usize) -> ArrayRef {
+        match self {
+            Self::NonNullable | Self::AllValid => ConstantArray::new(true, len).into_array(),
+            Self::AllInvalid => ConstantArray::new(false, len).into_array(),
+            Self::Array(a) => a.clone(),
+        }
+    }
+
     /// If Validity is [`Validity::Array`], returns the array, otherwise returns `None`.
     #[inline]
     pub fn into_array(self) -> Option<ArrayRef> {

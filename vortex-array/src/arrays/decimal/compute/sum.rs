@@ -129,7 +129,7 @@ mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::DecimalDType;
     use vortex_dtype::Nullability;
-    use vortex_error::VortexUnwrap;
+    use vortex_error::VortexExpect;
     use vortex_scalar::DecimalValue;
     use vortex_scalar::Scalar;
     use vortex_scalar::ScalarValue;
@@ -371,7 +371,7 @@ mod tests {
         );
 
         assert_eq!(
-            sum(decimal.as_ref()).vortex_unwrap(),
+            sum(decimal.as_ref()).vortex_expect("operation should succeed in test"),
             Scalar::null(DType::Decimal(decimal_dtype, Nullability::Nullable))
         );
     }

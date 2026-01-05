@@ -21,69 +21,69 @@ on:
               "id": "clickbench-nvme",
               "subcommand": "clickbench",
               "name": "Clickbench on NVME",
-              "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
+              "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb"
             },
             {
               "id": "tpch-nvme",
               "subcommand": "tpch",
               "name": "TPC-H SF=1 on NVME",
               "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
-              "scale_factor": "--scale-factor 1.0"
+              "scale_factor": "1.0"
             },
             {
               "id": "tpch-s3",
               "subcommand": "tpch",
               "name": "TPC-H SF=1 on S3",
-              "local_dir": "bench-vortex/data/tpch/1.0",
+              "local_dir": "vortex-bench/data/tpch/1.0",
               "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/${{github.run_id}}/tpch/1.0/",
               "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
-              "scale_factor": "--scale-factor 1.0"
+              "scale_factor": "1.0"
             },
             {
               "id": "tpch-nvme-10",
               "subcommand": "tpch",
               "name": "TPC-H SF=10 on NVME",
               "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
-              "scale_factor": "--scale-factor 10.0"
+              "scale_factor": "10.0"
             },
             {
               "id": "tpch-s3-10",
               "subcommand": "tpch",
               "name": "TPC-H SF=10 on S3",
-              "local_dir": "bench-vortex/data/tpch/10.0",
+              "local_dir": "vortex-bench/data/tpch/10.0",
               "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/${{github.run_id}}/tpch/10.0/",
               "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
-              "scale_factor": "--scale-factor 10.0"
+              "scale_factor": "10.0"
             },
             {
               "id": "tpcds-nvme",
               "subcommand": "tpcds",
               "name": "TPC-DS SF=1 on NVME",
               "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
-              "scale_factor": "--scale-factor 1.0"
+              "scale_factor": "1.0"
             },
             {
               "id": "statpopgen",
               "subcommand": "statpopgen",
               "name": "Statistical and Population Genetics",
               "targets": "duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
-              "scale_factor": "--scale-factor 100"
+              "scale_factor": "100"
             },
             {
               "id": "fineweb",
               "subcommand": "fineweb",
               "name": "FineWeb NVMe",
               "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
-              "scale_factor": "--scale-factor 100"
+              "scale_factor": "100"
             },
             {
               "id": "fineweb-s3",
               "subcommand": "fineweb",
               "name": "FineWeb S3",
-              "local_dir": "bench-vortex/data/fineweb",
+              "local_dir": "vortex-bench/data/fineweb",
               "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/${{github.run_id}}/fineweb/",
               "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
-              "scale_factor": "--scale-factor 100"
+              "scale_factor": "100"
             },
           ]
 
@@ -124,24 +124,35 @@ jobs:
           chmod +x duckdb
           echo "$PWD" >> $GITHUB_PATH
 
-      - name: Build binary
+      - name: Build binaries
         shell: bash
         env:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
-          cargo build --bin query_bench --package bench-vortex --profile release_debug ${{ matrix.build_args }}
+          packages="--bin data-gen --bin datafusion-bench --bin duckdb-bench"
+          if [ "${{ matrix.build_lance }}" = "true" ]; then
+            packages="$packages --bin lance-bench"
+          fi
+          cargo build $packages --profile release_debug
 
       - name: Generate data
         shell: bash
         env:
           RUST_BACKTRACE: full
         run: |
-          # Generate data, running each query once to make sure they don't panic.
-          target/release_debug/query_bench \
-            ${{ matrix.subcommand }} \
-            --targets ${{ matrix.targets }} \
-            -i1 \
-            -d gh-json ${{ matrix.scale_factor }}
+          # Extract all unique formats from targets (e.g., "datafusion:parquet,duckdb:vortex" -> "parquet,vortex")
+          all_formats=$(echo "${{ matrix.targets }}" | tr ',' '\n' | sed 's/^[^:]*://' | sort -u | tr '\n' ',' | sed 's/,$//')
+
+          # Build options string if scale_factor is set
+          opts=""
+          if [ -n "${{ matrix.scale_factor }}" ]; then
+            opts="--opt scale-factor=${{ matrix.scale_factor }}"
+          fi
+
+          # Generate all data formats with a single command
+          target/release_debug/data-gen ${{ matrix.subcommand }} \
+            --formats "$all_formats" \
+            $opts
 
       - name: Setup AWS CLI
         if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
@@ -179,12 +190,8 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
-          target/release_debug/query_bench ${{ matrix.subcommand }} \
-            -d gh-json \
-            --targets ${{ matrix.targets }} \
-            ${{ matrix.scale_factor }} \
-            --delete-duckdb-database \
-            -o results.json
+          .github/scripts/run-sql-bench.sh "${{ matrix.subcommand }}" "${{ matrix.targets }}" \
+            ${{ matrix.scale_factor && format('--scale-factor {0}', matrix.scale_factor) || '' }}
 
       - name: Run ${{ matrix.name }} benchmark (remote)
         if: matrix.remote_storage != null && (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false)
@@ -197,13 +204,10 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
-          target/release_debug/query_bench ${{ matrix.subcommand }} \
-              --use-remote-data-dir ${{ matrix.remote_storage }} \
-              --targets ${{ matrix.targets }} \
-              ${{ matrix.scale_factor }} \
-              -d gh-json \
-              --delete-duckdb-database \
-              -o results.json
+          .github/scripts/run-sql-bench.sh "${{ matrix.subcommand }}" "${{ matrix.targets }}" \
+            --remote-storage "${{ matrix.remote_storage }}" \
+            --benchmark-id "${{ matrix.id }}" \
+            ${{ matrix.scale_factor && format('--scale-factor {0}', matrix.scale_factor) || '' }}
 
       - name: Install uv
         if: inputs.mode == 'pr'
@@ -211,7 +215,6 @@ jobs:
         with:
           sync: false
       - name: Compare results
-
         if: inputs.mode == 'pr'
         shell: bash
         run: |

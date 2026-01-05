@@ -52,7 +52,6 @@ itertools = { workspace = true }
 rstest = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
-tracing-subscriber = { workspace = true }
 
 [features]
 object_store = ["dep:object_store", "vortex-error/object_store"]

@@ -306,29 +306,6 @@ impl From<&Arc<VortexError>> for VortexError {
     }
 }
 
-/// A trait for unwrapping a VortexResult.
-pub trait VortexUnwrap {
-    /// The type of the value being unwrapped.
-    type Output;
-
-    /// Returns the value of the result if it is Ok, otherwise panics with the error.
-    /// Should be called only in contexts where the error condition represents a bug (programmer error).
-    fn vortex_unwrap(self) -> Self::Output;
-}
-
-impl<T, E> VortexUnwrap for Result<T, E>
-where
-    E: Into<VortexError>,
-{
-    type Output = T;
-
-    #[inline(always)]
-    fn vortex_unwrap(self) -> Self::Output {
-        self.map_err(|err| err.into())
-            .unwrap_or_else(|err| vortex_panic!(err))
-    }
-}
-
 /// A trait for expect-ing a VortexResult or an Option.
 pub trait VortexExpect {
     /// The type of the value being expected.

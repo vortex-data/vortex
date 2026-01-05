@@ -80,8 +80,9 @@ impl DictArray {
 
         #[cfg(debug_assertions)]
         {
-            use vortex_error::VortexUnwrap;
-            self.validate_all_values_referenced().vortex_unwrap()
+            use vortex_error::VortexExpect;
+            self.validate_all_values_referenced()
+                .vortex_expect("validation should succeed when all values are referenced")
         }
 
         self
@@ -219,7 +220,6 @@ mod test {
     use vortex_dtype::PType;
     use vortex_dtype::UnsignedPType;
     use vortex_error::VortexExpect;
-    use vortex_error::VortexUnwrap;
     use vortex_error::vortex_panic;
     use vortex_mask::AllOr;
 
@@ -332,7 +332,7 @@ mod test {
                     .collect::<PrimitiveArray>();
 
                 DictArray::try_new(codes.into_array(), values.into_array())
-                    .vortex_unwrap()
+                    .vortex_expect("DictArray creation should succeed in arbitrary impl")
                     .into_array()
             })
             .collect::<ChunkedArray>()

@@ -173,7 +173,7 @@ mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
-    use vortex_error::VortexUnwrap as _;
+    use vortex_error::VortexExpect as _;
 
     use super::cast;
     use crate::IntoArray;
@@ -197,7 +197,8 @@ mod tests {
     #[test]
     fn replace_children() {
         let expr = cast(root(), DType::Bool(Nullability::Nullable));
-        expr.with_children(vec![root()]).vortex_unwrap();
+        expr.with_children(vec![root()])
+            .vortex_expect("operation should succeed in test");
     }
 
     #[test]

@@ -40,6 +40,8 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
+use crate::compute::rules::PARENT_RULES;
+
 vtable!(DateTimeParts);
 
 #[derive(Clone, prost::Message)]
@@ -158,6 +160,14 @@ impl VTable for DateTimePartsVTable {
         array.subseconds = children_iter.next().vortex_expect("checked");
 
         Ok(())
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }
 
@@ -278,7 +288,7 @@ impl BaseArrayVTable<DateTimePartsVTable> for DateTimePartsVTable {
 }
 
 impl ValidityChild<DateTimePartsVTable> for DateTimePartsVTable {
-    fn validity_child(array: &DateTimePartsArray) -> &dyn Array {
+    fn validity_child(array: &DateTimePartsArray) -> &ArrayRef {
         array.days()
     }
 }

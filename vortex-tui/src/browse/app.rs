@@ -11,7 +11,6 @@ use vortex::array::serde::ArrayParts;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
-use vortex::error::VortexUnwrap;
 use vortex::file::Footer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::SegmentSpec;
@@ -104,9 +103,10 @@ impl LayoutCursor {
     /// NOTE: this is only safe to run against a FLAT layout.
     pub fn flatbuffer_size(&self) -> usize {
         let segment_id = self.layout.as_::<FlatVTable>().segment_id();
-        let segment = block_on(self.segment_source.request(segment_id)).vortex_unwrap();
+        let segment = block_on(self.segment_source.request(segment_id))
+            .vortex_expect("operation should succeed in TUI");
         ArrayParts::try_from(segment)
-            .vortex_unwrap()
+            .vortex_expect("operation should succeed in TUI")
             .metadata()
             .len()
     }

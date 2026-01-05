@@ -13,16 +13,44 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::arrays::DictArray;
 use crate::arrays::DictVTable;
+use crate::arrays::FilterArray;
+use crate::arrays::FilterVTable;
 use crate::arrays::ScalarFnArray;
 use crate::builtins::ArrayBuiltins;
+use crate::expr::Pack;
+use crate::matchers::Exact;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 
 pub(super) const PARENT_RULES: ParentRuleSet<DictVTable> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&DictionaryFilterPushDownRule),
     ParentRuleSet::lift(&DictionaryScalarFnValuesPushDownRule),
     ParentRuleSet::lift(&DictionaryScalarFnCodesPullUpRule),
 ]);
+
+#[derive(Debug)]
+struct DictionaryFilterPushDownRule;
+
+impl ArrayParentReduceRule<DictVTable> for DictionaryFilterPushDownRule {
+    type Parent = Exact<FilterVTable>;
+
+    fn parent(&self) -> Self::Parent {
+        Exact::from(&FilterVTable)
+    }
+
+    fn reduce_parent(
+        &self,
+        array: &DictArray,
+        parent: &FilterArray,
+        _child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let new_codes = array.codes().filter(parent.filter_mask().clone())?;
+        let new_dict =
+            unsafe { DictArray::new_unchecked(new_codes, array.values().clone()) }.into_array();
+        Ok(Some(new_dict))
+    }
+}
 
 /// Push down a scalar function to run only over the values of a dictionary array.
 #[derive(Debug)]
@@ -43,6 +71,12 @@ impl ArrayParentReduceRule<DictVTable> for DictionaryScalarFnValuesPushDownRule 
     ) -> VortexResult<Option<ArrayRef>> {
         // Check that the scalar function can actually be pushed down.
         let sig = parent.scalar_fn().signature();
+
+        // Don't push down pack expressions since we might want to unpack them in exporters
+        // later.
+        if parent.scalar_fn().is::<Pack>() {
+            return Ok(None);
+        }
 
         // If the scalar function is fallible, we cannot push it down since it may fail over a
         // value that isn't referenced by any code.

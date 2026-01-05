@@ -46,6 +46,7 @@ jobs:
     timeout-minutes: 120
     permissions:
       id-token: write  # IMPORTANT: mandatory for trusted publishing
+      deployments: write
     environment:
       name: push-to-pypi
       url: https://pypi.org/p/vortex-data

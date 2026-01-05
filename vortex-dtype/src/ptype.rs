@@ -767,6 +767,56 @@ impl PType {
             }
         }
     }
+
+    /// Returns the minimum unsigned integer [`PType`] that can represent the given value.
+    #[inline]
+    pub const fn min_unsigned_ptype_for_value(value: u64) -> Self {
+        if value <= u8::MAX as u64 {
+            Self::U8
+        } else if value <= u16::MAX as u64 {
+            Self::U16
+        } else if value <= u32::MAX as u64 {
+            Self::U32
+        } else {
+            Self::U64
+        }
+    }
+
+    /// Returns the minimum signed integer [`PType`] that can represent the given value.
+    #[inline]
+    pub const fn min_signed_ptype_for_value(value: i64) -> Self {
+        if value >= i8::MIN as i64 && value <= i8::MAX as i64 {
+            Self::I8
+        } else if value >= i16::MIN as i64 && value <= i16::MAX as i64 {
+            Self::I16
+        } else if value >= i32::MIN as i64 && value <= i32::MAX as i64 {
+            Self::I32
+        } else {
+            Self::I64
+        }
+    }
+
+    /// Returns the wider of two unsigned integer [`PType`]s based on byte width.
+    #[inline]
+    pub const fn max_unsigned_ptype(self, other: Self) -> Self {
+        debug_assert!(self.is_unsigned_int() && other.is_unsigned_int());
+        if self.byte_width() >= other.byte_width() {
+            self
+        } else {
+            other
+        }
+    }
+
+    /// Returns the wider of two signed integer [`PType`]s based on byte width.
+    #[inline]
+    pub const fn max_signed_ptype(self, other: Self) -> Self {
+        debug_assert!(self.is_signed_int() && other.is_signed_int());
+        if self.byte_width() >= other.byte_width() {
+            self
+        } else {
+            other
+        }
+    }
 }
 
 impl Display for PType {

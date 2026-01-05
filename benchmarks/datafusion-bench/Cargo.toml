@@ -1,0 +1,44 @@
+[package]
+name = "datafusion-bench"
+description = "Datafusion benchmarks"
+authors = { workspace = true }
+categories = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+arrow-ipc.workspace = true
+clap = { workspace = true, features = ["derive"] }
+datafusion = { workspace = true, features = [
+    "parquet",
+    "datetime_expressions",
+    "nested_expressions",
+    "unicode_expressions",
+] }
+datafusion-common = { workspace = true }
+datafusion-physical-plan = { workspace = true }
+futures.workspace = true
+itertools.workspace = true
+object_store = { workspace = true, features = ["aws", "gcp"] }
+opentelemetry.workspace = true
+opentelemetry-otlp.workspace = true
+opentelemetry_sdk.workspace = true
+tokio = { workspace = true, features = ["full"] }
+url = { workspace = true }
+vortex-bench = { workspace = true }
+vortex-datafusion = { workspace = true }
+
+[build-dependencies]
+get_dir = { workspace = true }
+
+[lints]
+workspace = true

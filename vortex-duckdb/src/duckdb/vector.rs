@@ -12,8 +12,8 @@ use bitvec::view::BitView;
 use vortex::array::validity::Validity;
 use vortex::buffer::BitBuffer;
 use vortex::buffer::Buffer;
+use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
-use vortex::error::VortexUnwrap;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 
@@ -102,7 +102,7 @@ impl Vector {
     pub fn set_dictionary_id(&mut self, dict_id: String) {
         let dict_id = CString::new(dict_id)
             .map_err(|e| vortex_err!("cstr creation error {e}"))
-            .vortex_unwrap();
+            .vortex_expect("dictionary ID should be valid C string");
         unsafe {
             cpp::duckdb_vx_set_dictionary_vector_id(
                 self.ptr,
@@ -303,6 +303,7 @@ pub struct ValidityRef<'a> {
 }
 
 impl ValidityRef<'_> {
+    #[inline]
     pub fn is_valid(&self, row: usize) -> bool {
         let Some(validity) = self.validity else {
             return true;

@@ -350,7 +350,6 @@ mod tests {
     use rstest::rstest;
     use vortex_dtype::Nullability;
     use vortex_error::VortexExpect;
-    use vortex_error::VortexUnwrap;
 
     use crate::Scalar;
     use crate::Utf8Scalar;
@@ -360,8 +359,10 @@ mod tests {
         let utf8 = Scalar::utf8("snowman⛄️snowman", Nullability::NonNullable);
         let expected = Scalar::utf8("snowman", Nullability::NonNullable);
         assert_eq!(
-            Utf8Scalar::try_from(&utf8).vortex_unwrap().lower_bound(9),
-            Utf8Scalar::try_from(&expected).vortex_unwrap()
+            Utf8Scalar::try_from(&utf8)
+                .vortex_expect("utf8 scalar conversion should succeed")
+                .lower_bound(9),
+            Utf8Scalar::try_from(&expected).vortex_expect("utf8 scalar conversion should succeed")
         );
     }
 
@@ -371,10 +372,10 @@ mod tests {
         let expected = Scalar::utf8("chas", Nullability::NonNullable);
         assert_eq!(
             Utf8Scalar::try_from(&utf8)
-                .vortex_unwrap()
+                .vortex_expect("utf8 scalar conversion should succeed")
                 .upper_bound(5)
                 .vortex_expect("must have upper bound"),
-            Utf8Scalar::try_from(&expected).vortex_unwrap()
+            Utf8Scalar::try_from(&expected).vortex_expect("utf8 scalar conversion should succeed")
         );
     }
 
@@ -383,7 +384,7 @@ mod tests {
         let utf8 = Scalar::utf8("🂑🂒🂓", Nullability::NonNullable);
         assert!(
             Utf8Scalar::try_from(&utf8)
-                .vortex_unwrap()
+                .vortex_expect("utf8 scalar conversion should succeed")
                 .upper_bound(2)
                 .is_none()
         );

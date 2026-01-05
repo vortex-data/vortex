@@ -17,7 +17,7 @@ use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::VectorExecutor;
 use crate::arrays::struct_::StructArray;
-use crate::arrays::struct_::rules::RULES;
+use crate::arrays::struct_::vtable::rules::PARENT_RULES;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
@@ -30,6 +30,7 @@ use crate::vtable::ValidityVTableFromValidityHelper;
 mod array;
 mod canonical;
 mod operations;
+mod rules;
 mod validity;
 mod visitor;
 
@@ -159,7 +160,7 @@ impl VTable for StructVTable {
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }
 

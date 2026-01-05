@@ -9,8 +9,8 @@ use vortex_array::arrays::varbin_scalar;
 use vortex_dtype::DType;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::VortexUnwrap;
 use vortex_scalar::DecimalValue;
 use vortex_scalar::Scalar;
 
@@ -44,7 +44,10 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
         Canonical::List(array) => {
             let list = array.list_elements_at(index);
             let children: Vec<Scalar> = (0..list.len())
-                .map(|i| scalar_at_canonical_array(list.to_canonical(), i).vortex_unwrap())
+                .map(|i| {
+                    scalar_at_canonical_array(list.to_canonical(), i)
+                        .vortex_expect("scalar_at_canonical_array should succeed in fuzz test")
+                })
                 .collect();
             Scalar::list(
                 Arc::new(list.dtype().clone()),
@@ -55,7 +58,10 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
         Canonical::FixedSizeList(array) => {
             let list = array.fixed_size_list_elements_at(index);
             let children: Vec<Scalar> = (0..list.len())
-                .map(|i| scalar_at_canonical_array(list.to_canonical(), i).vortex_unwrap())
+                .map(|i| {
+                    scalar_at_canonical_array(list.to_canonical(), i)
+                        .vortex_expect("scalar_at_canonical_array should succeed in fuzz test")
+                })
                 .collect();
             Scalar::fixed_size_list(list.dtype().clone(), children, array.dtype().nullability())
         }
@@ -63,7 +69,10 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
             let field_scalars: Vec<Scalar> = array
                 .fields()
                 .iter()
-                .map(|field| scalar_at_canonical_array(field.to_canonical(), index).vortex_unwrap())
+                .map(|field| {
+                    scalar_at_canonical_array(field.to_canonical(), index)
+                        .vortex_expect("scalar_at_canonical_array should succeed in fuzz test")
+                })
                 .collect();
             Scalar::struct_(array.dtype().clone(), field_scalars)
         }

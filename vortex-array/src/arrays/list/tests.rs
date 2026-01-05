@@ -8,7 +8,7 @@ use vortex_buffer::buffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType::I32;
-use vortex_error::VortexUnwrap;
+use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -359,7 +359,7 @@ fn test_offset_to_0() {
             )
             .as_list(),
         )
-        .vortex_unwrap();
+        .vortex_expect("operation should succeed in test");
     builder
         .append_value(
             Scalar::list(
@@ -369,7 +369,7 @@ fn test_offset_to_0() {
             )
             .as_list(),
         )
-        .vortex_unwrap();
+        .vortex_expect("operation should succeed in test");
     builder
         .append_value(
             Scalar::list(
@@ -379,7 +379,7 @@ fn test_offset_to_0() {
             )
             .as_list(),
         )
-        .vortex_unwrap();
+        .vortex_expect("operation should succeed in test");
     builder
         .append_value(
             Scalar::list(
@@ -389,7 +389,7 @@ fn test_offset_to_0() {
             )
             .as_list(),
         )
-        .vortex_unwrap();
+        .vortex_expect("operation should succeed in test");
     builder
         .append_value(
             Scalar::list(
@@ -399,7 +399,7 @@ fn test_offset_to_0() {
             )
             .as_list(),
         )
-        .vortex_unwrap();
+        .vortex_expect("operation should succeed in test");
     let list = builder.finish().slice(2..4);
 
     // The sliced list should be a ListArray since we built it with ListBuilder

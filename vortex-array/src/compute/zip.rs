@@ -329,7 +329,7 @@ mod tests {
         let result = zip(&const1, &const2, &mask).unwrap();
 
         insta::assert_snapshot!(result.display_tree(), @r"
-        root: vortex.varbinview(utf8?, len=100) nbytes=1.66 kB (100.00%)
+        root: vortex.varbinview(utf8?, len=100) nbytes=1.66 kB (100.00%) [all_valid]
           metadata: EmptyMetadata
           buffer (align=1): 29 B (1.75%)
           buffer (align=1): 28 B (1.69%)
@@ -348,7 +348,7 @@ mod tests {
         insta::assert_snapshot!(wrapped_result.display_tree(), @r"
         root: vortex.struct({nested=utf8?}, len=100) nbytes=1.66 kB (100.00%)
           metadata: EmptyMetadata
-          nested: vortex.varbinview(utf8?, len=100) nbytes=1.66 kB (100.00%)
+          nested: vortex.varbinview(utf8?, len=100) nbytes=1.66 kB (100.00%) [all_valid]
             metadata: EmptyMetadata
             buffer (align=1): 29 B (1.75%)
             buffer (align=1): 28 B (1.69%)
