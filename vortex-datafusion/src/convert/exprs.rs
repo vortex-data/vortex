@@ -9,7 +9,6 @@ use datafusion_expr::Operator as DFOperator;
 use datafusion_functions::core::getfield::GetFieldFunc;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::ScalarFunctionExpr;
-use datafusion_physical_expr_common::physical_expr::PhysicalExprRef;
 use datafusion_physical_expr_common::physical_expr::is_dynamic_physical_expr;
 use datafusion_physical_plan::expressions as df_expr;
 use itertools::Itertools;
@@ -40,7 +39,7 @@ use crate::convert::TryFromDataFusion;
 
 /// Tries to convert the expressions into a vortex conjunction. Will return Ok(None) iff the input conjunction is empty.
 pub(crate) fn make_vortex_predicate(
-    predicate: &[&Arc<dyn PhysicalExpr>],
+    predicate: &[Arc<dyn PhysicalExpr>],
 ) -> VortexResult<Option<Expression>> {
     let exprs = predicate
         .iter()
@@ -87,6 +86,14 @@ impl TryFromDataFusion<dyn PhysicalExpr> for Expression {
             let cast_dtype = DType::from_arrow((cast_expr.cast_type(), Nullability::Nullable));
             let child = Expression::try_from_df(cast_expr.expr().as_ref())?;
             return Ok(cast(child, cast_dtype));
+        }
+
+        if let Some(cast_col_expr) = df.as_any().downcast_ref::<df_expr::CastColumnExpr>() {
+            let target = cast_col_expr.target_field();
+
+            let target_dtype = DType::from_arrow((target.data_type(), target.is_nullable().into()));
+            let child = Expression::try_from_df(cast_col_expr.expr().as_ref())?;
+            return Ok(cast(child, target_dtype));
         }
 
         if let Some(is_null_expr) = df.as_any().downcast_ref::<df_expr::IsNullExpr>() {
@@ -216,7 +223,7 @@ impl TryFromDataFusion<DFOperator> for Operator {
     }
 }
 
-pub(crate) fn can_be_pushed_down(df_expr: &PhysicalExprRef, schema: &Schema) -> bool {
+pub(crate) fn can_be_pushed_down(df_expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> bool {
     // We currently do not support pushdown of dynamic expressions in DF.
     // See issue: https://github.com/vortex-data/vortex/issues/4034
     if is_dynamic_physical_expr(df_expr) {
@@ -235,8 +242,10 @@ pub(crate) fn can_be_pushed_down(df_expr: &PhysicalExprRef, schema: &Schema) -> 
         can_be_pushed_down(like.expr(), schema) && can_be_pushed_down(like.pattern(), schema)
     } else if let Some(lit) = expr.downcast_ref::<df_expr::Literal>() {
         supported_data_types(&lit.value().data_type())
-    } else if let Some(cast) = expr.downcast_ref::<df_expr::CastExpr>() {
-        supported_data_types(cast.cast_type()) && can_be_pushed_down(cast.expr(), schema)
+    } else if expr.downcast_ref::<df_expr::CastExpr>().is_some()
+        || expr.downcast_ref::<df_expr::CastColumnExpr>().is_some()
+    {
+        true
     } else if let Some(is_null) = expr.downcast_ref::<df_expr::IsNullExpr>() {
         can_be_pushed_down(is_null.arg(), schema)
     } else if let Some(is_not_null) = expr.downcast_ref::<df_expr::IsNotNullExpr>() {
@@ -245,7 +254,7 @@ pub(crate) fn can_be_pushed_down(df_expr: &PhysicalExprRef, schema: &Schema) -> 
         can_be_pushed_down(in_list.expr(), schema)
             && in_list.list().iter().all(|e| can_be_pushed_down(e, schema))
     } else if let Some(scalar_fn) = expr.downcast_ref::<ScalarFunctionExpr>() {
-        can_scalar_fn_be_pushed_down(scalar_fn, schema)
+        can_scalar_fn_be_pushed_down(scalar_fn)
     } else {
         tracing::debug!(%df_expr, "DataFusion expression can't be pushed down");
         false
@@ -293,50 +302,8 @@ fn supported_data_types(dt: &DataType) -> bool {
 }
 
 /// Checks if a GetField scalar function can be pushed down.
-fn can_scalar_fn_be_pushed_down(scalar_fn: &ScalarFunctionExpr, schema: &Schema) -> bool {
-    let Some(get_field_fn) = ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn)
-    else {
-        // Only get_field pushdown is supported.
-        return false;
-    };
-
-    let args = get_field_fn.args();
-    if args.len() != 2 {
-        tracing::debug!(
-            "Expected 2 arguments for GetField, not pushing down {} arguments",
-            args.len()
-        );
-        return false;
-    }
-    let source_expr = &args[0];
-    let field_name_expr = &args[1];
-    let Some(field_name) = field_name_expr
-        .as_any()
-        .downcast_ref::<df_expr::Literal>()
-        .and_then(|lit| lit.value().try_as_str().flatten())
-    else {
-        return false;
-    };
-
-    let Ok(source_dt) = source_expr.data_type(schema) else {
-        tracing::debug!(
-            field_name = field_name,
-            schema = ?schema,
-            source_expr = ?source_expr,
-            "Failed to get source type for GetField, not pushing down"
-        );
-        return false;
-    };
-    let DataType::Struct(fields) = source_dt else {
-        tracing::debug!(
-            field_name = field_name,
-            schema = ?schema,
-            source_expr = ?source_expr,
-            "Failed to get source type as struct for GetField, not pushing down"
-        );
-        return false;
-    };
-    fields.find(field_name).is_some()
+fn can_scalar_fn_be_pushed_down(scalar_fn: &ScalarFunctionExpr) -> bool {
+    ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn).is_some()
 }
 
 #[cfg(test)]
@@ -345,14 +312,10 @@ mod tests {
 
     use arrow_schema::DataType;
     use arrow_schema::Field;
-    use arrow_schema::Fields;
     use arrow_schema::Schema;
     use arrow_schema::TimeUnit as ArrowTimeUnit;
-    use datafusion::functions::core::getfield::GetFieldFunc;
     use datafusion_common::ScalarValue;
-    use datafusion_common::config::ConfigOptions;
     use datafusion_expr::Operator as DFOperator;
-    use datafusion_expr::ScalarUDF;
     use datafusion_physical_expr::PhysicalExpr;
     use datafusion_physical_plan::expressions as df_expr;
     use insta::assert_snapshot;
@@ -391,7 +354,7 @@ mod tests {
     #[test]
     fn test_make_vortex_predicate_single() {
         let col_expr = Arc::new(df_expr::Column::new("test", 0)) as Arc<dyn PhysicalExpr>;
-        let result = make_vortex_predicate(&[&col_expr]).unwrap();
+        let result = make_vortex_predicate(&[col_expr]).unwrap();
         assert!(result.is_some());
     }
 
@@ -399,7 +362,7 @@ mod tests {
     fn test_make_vortex_predicate_multiple() {
         let col1 = Arc::new(df_expr::Column::new("col1", 0)) as Arc<dyn PhysicalExpr>;
         let col2 = Arc::new(df_expr::Column::new("col2", 1)) as Arc<dyn PhysicalExpr>;
-        let result = make_vortex_predicate(&[&col1, &col2]).unwrap();
+        let result = make_vortex_predicate(&[col1, col2]).unwrap();
         assert!(result.is_some());
         // Result should be an AND expression combining the two columns
     }
@@ -532,7 +495,8 @@ mod tests {
         DataType::List(Arc::new(Field::new("item", DataType::Int32, true))),
         false
     )]
-    #[case::struct_type(DataType::Struct(vec![Field::new("field", DataType::Int32, true)].into()), false)]
+    #[case::struct_type(DataType::Struct(vec![Field::new("field", DataType::Int32, true)].into()
+    ), false)]
     // Dictionary types - should be supported if value type is supported
     #[case::dict_utf8(
         DataType::Dictionary(Box::new(DataType::UInt32), Box::new(DataType::Utf8)),
@@ -651,56 +615,5 @@ mod tests {
             Arc::new(df_expr::LikeExpr::new(false, false, expr, pattern)) as Arc<dyn PhysicalExpr>;
 
         assert!(!can_be_pushed_down(&like_expr, &test_schema));
-    }
-
-    #[test]
-    fn test_expr_from_df_get_field() {
-        let struct_col = Arc::new(df_expr::Column::new("my_struct", 0)) as Arc<dyn PhysicalExpr>;
-        let field_name = Arc::new(df_expr::Literal::new(ScalarValue::Utf8(Some(
-            "field1".to_string(),
-        )))) as Arc<dyn PhysicalExpr>;
-        let get_field_expr = ScalarFunctionExpr::new(
-            "get_field",
-            Arc::new(ScalarUDF::from(GetFieldFunc::new())),
-            vec![struct_col, field_name],
-            Arc::new(Field::new("field1", DataType::Utf8, true)),
-            Arc::new(ConfigOptions::new()),
-        );
-        let result = Expression::try_from_df(&get_field_expr).unwrap();
-        assert_snapshot!(result.display_tree().to_string(), @r"
-        vortex.get_item(field1)
-        └── input: vortex.get_item(my_struct)
-            └── input: vortex.root()
-        ");
-    }
-
-    #[rstest]
-    #[case::valid_field("field1", true)]
-    #[case::missing_field("nonexistent_field", false)]
-    fn test_can_be_pushed_down_get_field(#[case] field_name: &str, #[case] expected: bool) {
-        let struct_fields = Fields::from(vec![
-            Field::new("field1", DataType::Utf8, true),
-            Field::new("field2", DataType::Int32, true),
-        ]);
-        let schema = Schema::new(vec![Field::new(
-            "my_struct",
-            DataType::Struct(struct_fields),
-            true,
-        )]);
-
-        let struct_col = Arc::new(df_expr::Column::new("my_struct", 0)) as Arc<dyn PhysicalExpr>;
-        let field_name_lit = Arc::new(df_expr::Literal::new(ScalarValue::Utf8(Some(
-            field_name.to_string(),
-        )))) as Arc<dyn PhysicalExpr>;
-
-        let get_field_expr = Arc::new(ScalarFunctionExpr::new(
-            "get_field",
-            Arc::new(ScalarUDF::from(GetFieldFunc::new())),
-            vec![struct_col, field_name_lit],
-            Arc::new(Field::new(field_name, DataType::Utf8, true)),
-            Arc::new(ConfigOptions::new()),
-        )) as Arc<dyn PhysicalExpr>;
-
-        assert_eq!(can_be_pushed_down(&get_field_expr, &schema), expected);
     }
 }
