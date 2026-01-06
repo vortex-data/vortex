@@ -145,7 +145,7 @@ jobs:
           rm -rf ../target/wheels/
 
           uv venv
-          uv pip install "maturin[zig]"
+          uv pip install "maturin[zig]==1.11.1"
           uv tool run maturin build --interpreter python3.11 --zig
           uv tool run maturin build --interpreter python3.11 --zig --sdist
 
@@ -363,18 +363,8 @@ jobs:
           cargo install cargo-edit
           cargo set-version --workspace ${{ steps.latest-tag.outputs.tag }}
 
-      - name: Get Rust toolchain version
-        id: rust-toolchain
-        run: echo "channel=$(grep '^channel' rust-toolchain.toml | cut -d'"' -f2)" >> $GITHUB_OUTPUT
-
       - name: Check semver
         uses: obi1kenobi/cargo-semver-checks-action@v2
-        with:
-          rust-toolchain: ${{ steps.rust-toolchain.outputs.channel }}
-          # vortex-buffer 0.56.0 on crates.io has a bug where serde feature doesn't enable derive.
-          # This prevents the baseline from building, so we exclude it until the next release.
-          exclude: vortex-buffer
-
 
   rust-coverage:
     name: "Rust tests (coverage)"

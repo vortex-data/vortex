@@ -56,6 +56,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           command: build
+          maturin-version: v1.11.1
           target: ${{ matrix.target.target }}
           args: >
             ${{ (matrix.target.os == 'ubuntu' && '--zig') || '' }}

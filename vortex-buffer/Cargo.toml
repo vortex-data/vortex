@@ -28,7 +28,7 @@ bitvec = { workspace = true }
 bytes = { workspace = true }
 itertools = { workspace = true }
 memmap2 = { workspace = true, optional = true }
-serde = { workspace = true, optional = true, features = ["derive"] }
+serde = { workspace = true, optional = true }
 simdutf8 = { workspace = true }
 tracing = { workspace = true, optional = true }
 vortex-error = { workspace = true }
