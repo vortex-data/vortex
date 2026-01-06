@@ -112,10 +112,9 @@ impl FileOpener for VortexOpener {
             Some(indices) => Arc::new(table_schema.file_schema().project(indices)?),
         };
 
-        let schema_adapter = self.schema_adapter_factory.create(
-            projected_schema,
-            table_schema.table_schema().clone(),
-        );
+        let schema_adapter = self
+            .schema_adapter_factory
+            .create(projected_schema, table_schema.table_schema().clone());
 
         // Update partition column access in the filter to use literals instead
         let partition_fields = self.table_schema.table_partition_cols().clone();
