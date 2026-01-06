@@ -56,7 +56,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           command: build
-          maturin-version: v1.10
+          maturin-version: 1.10.2
           target: ${{ matrix.target.target }}
           args: >
             ${{ (matrix.target.os == 'ubuntu' && '--zig') || '' }}
@@ -140,7 +140,7 @@ jobs:
           if-no-files-found: error
 
   prepare-all:
-    needs: [prepare-python, prepare-java-macos, prepare-java-linux]
+    needs: [ prepare-python, prepare-java-macos, prepare-java-linux ]
     runs-on: ubuntu-latest
     steps:
       - run: echo "All packages built successfully"
