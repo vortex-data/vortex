@@ -363,8 +363,15 @@ jobs:
           cargo install cargo-edit
           cargo set-version --workspace ${{ steps.latest-tag.outputs.tag }}
 
+      - name: Get Rust toolchain version
+        id: rust-toolchain
+        run: echo "channel=$(grep '^channel' rust-toolchain.toml | cut -d'"' -f2)" >> $GITHUB_OUTPUT
+
       - name: Check semver
         uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          rust-toolchain: ${{ steps.rust-toolchain.outputs.channel }}
+
 
   rust-coverage:
     name: "Rust tests (coverage)"
