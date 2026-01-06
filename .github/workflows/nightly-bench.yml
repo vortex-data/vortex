@@ -16,6 +16,9 @@ permissions:
   actions: read
   contents: write
 
+env:
+  VORTEX_OPERATORS: "true"
+
 jobs:
   sql:
     uses: ./.github/workflows/sql-benchmarks.yml

@@ -20,6 +20,9 @@ permissions:
   pull-requests: write  # for commenting on PRs
   id-token: write  # enables AWS-GitHub OIDC
 
+env:
+  VORTEX_OPERATORS: "true"
+
 jobs:
   label_trigger:
     runs-on: ubuntu-latest

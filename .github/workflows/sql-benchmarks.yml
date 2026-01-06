@@ -87,6 +87,9 @@ on:
             },
           ]
 
+env:
+  VORTEX_OPERATORS: "true"
+
 jobs:
   bench:
     timeout-minutes: 120

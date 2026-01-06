@@ -11,6 +11,9 @@ permissions:
   actions: read
   contents: write
 
+env:
+  VORTEX_OPERATORS: "true"
+
 jobs:
   commit-metadata:
     runs-on: ubuntu-latest
