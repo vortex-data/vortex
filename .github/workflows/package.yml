@@ -140,7 +140,7 @@ jobs:
           if-no-files-found: error
 
   prepare-all:
-    needs: [ prepare-python, prepare-java-macos, prepare-java-linux ]
+    needs: [prepare-python, prepare-java-macos, prepare-java-linux]
     runs-on: ubuntu-latest
     steps:
       - run: echo "All packages built successfully"
