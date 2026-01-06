@@ -145,7 +145,7 @@ jobs:
           rm -rf ../target/wheels/
 
           uv venv
-          uv pip install "maturin[zig]==1.11.1"
+          uv pip install "maturin[zig]==1.11"
           uv tool run maturin build --interpreter python3.11 --zig
           uv tool run maturin build --interpreter python3.11 --zig --sdist
 
