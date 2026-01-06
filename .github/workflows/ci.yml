@@ -366,11 +366,9 @@ jobs:
       - name: Check semver
         uses: obi1kenobi/cargo-semver-checks-action@v2
 
-  rust-coverage:
-    name: "Rust tests (coverage)"
+  rust-test-suite:
+    name: "Rust tests (${{ matrix.suite }})"
     timeout-minutes: 120
-    permissions:
-      id-token: write
     strategy:
       matrix:
         suite:
@@ -383,13 +381,8 @@ jobs:
       - cpu=16
       - image=ubuntu24-full-x64
       - extras=s3-cache
-      - tag=rust-coverage
+      - tag=rust-test-suite
       - tag=suite-${{ matrix.suite }}
-    env:
-      RUSTFLAGS: "-Cinstrument-coverage -A warnings"
-      CARGO_INCREMENTAL: 0  # Disable incremental compilation to get accurate coverage
-      LLVM_PROFILE_FILE: "target/coverage/vortex-%p-%m.profraw"
-      GRCOV_OUTPUT_FILE: "target/coverage/vortex.lcov"
     steps:
       - uses: runs-on/action@v2
         with:
@@ -400,8 +393,6 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           timestamp: "true"
-      - name: Install grcov
-        uses: taiki-e/install-action@grcov
       - name: Install nextest
         uses: taiki-e/install-action@v2
         with:
@@ -409,7 +400,7 @@ jobs:
       - name: Rust Tests
         if: ${{ matrix.suite == 'tests' }}
         env:
-          RUSTFLAGS: "-Cinstrument-coverage -A warnings --cfg vortex_nightly"
+          RUSTFLAGS: "-A warnings --cfg vortex_nightly"
         run: |
           cargo +nightly nextest run --locked --workspace --all-features --no-fail-fast
       - name: Run TPC-H
@@ -423,27 +414,6 @@ jobs:
         run: |
           cargo build -p vortex-ffi
           cargo run -p vortex-ffi --example hello_vortex
-      - name: Install llvm-tools-preview
-        run: rustup component add llvm-tools-preview
-      - name: Generate coverage report
-        run: |
-          grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
-            --threads $(nproc) \
-            --ignore '../*' --ignore '/*' --ignore 'fuzz/*' --ignore 'vortex-bench/*' \
-            --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*' --ignore 'vortex-error/*' \
-            --ignore 'vortex-python/*' --ignore 'vortex-jni/*' --ignore 'vortex-flatbuffers/*' \
-            --ignore 'vortex-proto/*' --ignore 'vortex-tui/*' --ignore 'vortex-datafusion/examples/*' \
-            --ignore 'vortex-ffi/examples/*' --ignore '*/arbitrary/*' --ignore '*/arbitrary.rs' --ignore 'vortex-cxx/*' \
-            --ignore 'vortex-gpu/*' --ignore benchmarks/* \
-            -o ${{ env.GRCOV_OUTPUT_FILE }}
-      - name: Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          name: run-${{ matrix.suite }}
-          files: ${{ env.GRCOV_OUTPUT_FILE }}
-          disable_search: true
-          flags: ${{ matrix.suite }}
-          use_oidc: true
       - name: Prune cache
         if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
         run: cargo sweep --file
