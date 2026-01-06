@@ -1,8 +1,41 @@
 # Contributing to Vortex
 
-Welcome, and thank you for your interest in contributing to Vortex! We are  delighted to receive all forms of community contributions (issues, pull requests, questions).
+Welcome, and thank you for your interest in contributing to Vortex! We are delighted to receive all forms of community contributions (issues, pull requests, questions).
 
 We ask that you read the guidelines below in order to make the process as streamlined as possible.
+
+## AI Assistance Notice
+
+> [!IMPORTANT]
+> The Vortex project allows AI-assisted contributions, which must be properly
+> disclosed in the pull request.
+>
+> If you are using any kind of AI assistance when contributing to Vortex, please
+> disclose this in your pull request, along with the extent to which it was used
+> (e.g. writing docs or code generation).
+>
+> Contributors are required to be able to understand the AI-assisted output and
+> reason about it. Should a PR indicate no visible human accountability and
+> involvement we reserve the right to close it.
+
+## Code Contributions
+
+The contribution process is outlined below:
+
+1. Start a discussion by creating or commenting on a GitHub Issue (unless it's a very minor change).
+
+2. Implement the change.
+   - If the change is large, consider posting a draft pull request (PR)
+     with the title prefixed with [WIP], and share with the team to get early feedback.
+   - Give the PR a clear, brief description; this will be the commit
+     message when the PR is merged.
+   - For significant new functionality, ensure that you write tests to cover that new functionality. Similarly,
+     for bugfixes, include a test that reproduces the original bug (and that should now pass after the fix).
+   - Make sure the PR passes all CI tests.
+
+3. Open a PR to indicate that the change is ready for review.
+   - Ensure that you sign your work via DCO (see below).
+   - Disclose LLM usage as described in [AI Assistance Notice](#ai-assistance-notice).
 
 ## Governance
 
@@ -10,9 +43,9 @@ Vortex is an independent open-source project and not controlled by any single co
 
 ## Project Roles
 
-* Contributor: anyone who contributes intellectual property to the common endeavor of the project under the project license.
-* Committer: a subset of Contributors, who collectively determine the project's technical direction. Committers have permissions to review & merge code contributions. Unless they are also Maintainers, Committers are non-voting members of the Technical Steering Committee (TSC).
-* Maintainer: a subset of Committers, who are also *voting* members of the Technical Steering Committee (TSC). In practice, Maintainers' primary responsibility is to manage membership of the Committers/Maintainers group over time and ensure the long-term health of the project.
+- Contributor: anyone who contributes intellectual property to the common endeavor of the project under the project license.
+- Committer: a subset of Contributors, who collectively determine the project's technical direction. Committers have permissions to review & merge code contributions. Unless they are also Maintainers, Committers are non-voting members of the Technical Steering Committee (TSC).
+- Maintainer: a subset of Committers, who are also _voting_ members of the Technical Steering Committee (TSC). In practice, Maintainers' primary responsibility is to manage membership of the Committers/Maintainers group over time and ensure the long-term health of the project.
 
 ### Committers
 
@@ -53,25 +86,6 @@ See #5495 for background on this change.
 
 If you see something that you think is a bug, create a new Discussion and select "Issue Triage"
 for the template. Then fill out the form.
-
-## Code Contributions
-
-The contribution process is outlined below:
-
-1. Start a discussion by creating or commenting on a GitHub Issue (unless it's a very minor change).
-
-2. Implement the change.
-    * If the change is large, consider posting a draft pull request (PR)
-      with the title prefixed with [WIP], and share with the team to get early feedback.
-    * Give the PR a clear, brief description; this will be the commit
-      message when the PR is merged.
-    * For significant new functionality, ensure that you write tests to cover that new functionality. Similarly,
-      for bugfixes, include a test that reproduces the original bug (and that should now pass after the fix).
-    * Make sure the PR passes all CI tests.
-
-3. Open a PR to indicate that the change is ready for review.
-    * Ensure that you sign your work via DCO (see below).
-    * If do you GenAI/LLMs in your contributions **do** mention this.
 
 ## Developer Certificate of Origin (DCO)
 

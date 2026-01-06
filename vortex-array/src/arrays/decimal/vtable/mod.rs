@@ -3,7 +3,6 @@
 
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
-use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::PrecisionScale;
@@ -20,6 +19,7 @@ use crate::DeserializeMetadata;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::DecimalArray;
+use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;

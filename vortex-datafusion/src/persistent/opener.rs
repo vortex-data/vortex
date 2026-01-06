@@ -41,12 +41,13 @@ use vortex::layout::LayoutReader;
 use vortex::layout::layouts::USE_VORTEX_OPERATORS;
 use vortex::metrics::VortexMetrics;
 use vortex::scan::ScanBuilder;
-use vortex::scan::Selection;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 
 use super::cache::VortexFileCache;
+use crate::VortexAccessPlan;
+use crate::convert::exprs::ExpressionConvertor;
 use crate::convert::exprs::can_be_pushed_down;
 use crate::convert::exprs::make_vortex_predicate;
 
@@ -84,6 +85,8 @@ pub(crate) struct VortexOpener {
     pub layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
     /// Whether the query has output ordering specified
     pub has_output_ordering: bool,
+
+    pub expression_convertor: Arc<dyn ExpressionConvertor>,
 }
 
 impl FileOpener for VortexOpener {
@@ -102,7 +105,6 @@ impl FileOpener for VortexOpener {
         let metrics = self.metrics.clone();
         let layout_reader = self.layout_readers.clone();
         let has_output_ordering = self.has_output_ordering;
-        let extensions = file.extensions.clone();
 
         let projected_schema = match projection.as_ref() {
             None => table_schema.file_schema().clone(),
@@ -117,6 +119,8 @@ impl FileOpener for VortexOpener {
         // Update partition column access in the filter to use literals instead
         let partition_fields = self.table_schema.table_partition_cols().clone();
         let table_schema = self.table_schema.clone();
+
+        let expr_convertor = self.expression_convertor.clone();
 
         Ok(async move {
             // Create FilePruner when we have a predicate and either dynamic expressions
@@ -229,9 +233,13 @@ impl FileOpener for VortexOpener {
             };
 
             let mut scan_builder = ScanBuilder::new(session.clone(), layout_reader);
-            if let Some(selection) = get_selection_from_extensions(extensions) {
-                scan_builder = scan_builder.with_selection(selection);
+
+            if let Some(extensions) = file.extensions
+                && let Some(vortex_plan) = extensions.downcast_ref::<VortexAccessPlan>()
+            {
+                scan_builder = vortex_plan.apply_to_builder(scan_builder);
             }
+
             if let Some(file_range) = file.range {
                 scan_builder = apply_byte_range(
                     file_range,
@@ -268,7 +276,7 @@ impl FileOpener for VortexOpener {
                         )));
                     }
 
-                    make_vortex_predicate(&pushed).transpose()
+                    make_vortex_predicate(expr_convertor.as_ref(), &pushed).transpose()
                 })
                 .transpose()
                 .map_err(|e| DataFusionError::External(e.into()))?;
@@ -361,30 +369,13 @@ fn byte_range_to_row_range(byte_range: Range<u64>, row_count: u64, total_size: u
     start_row..u64::min(row_count, end_row)
 }
 
-/// Attempts to extract a `Selection` from the extensions object, if present.
-///
-/// This function is used to retrieve the row selection plan that may have been
-/// attached to a `PartitionedFile` via its `extensions` field.
-///
-/// # Arguments
-///
-/// * `extensions` - Optional type-erased extensions object that may contain a `Selection`
-///
-/// # Returns
-///
-/// Returns `Some(Selection)` if the extensions contain a valid `Selection`, otherwise `None`.
-fn get_selection_from_extensions(
-    extensions: Option<Arc<dyn std::any::Any + Send + Sync>>,
-) -> Option<Selection> {
-    extensions?.downcast_ref::<Selection>().cloned()
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
 
     use arrow_schema::Field;
     use arrow_schema::Fields;
+    use arrow_schema::SchemaRef;
     use datafusion::arrow::array::RecordBatch;
     use datafusion::arrow::array::StringArray;
     use datafusion::arrow::array::StructArray;
@@ -411,6 +402,8 @@ mod tests {
     use vortex::session::VortexSession;
 
     use super::*;
+    use crate::VortexAccessPlan;
+    use crate::convert::exprs::DefaultExpressionConvertor;
     use crate::vendor::schema_rewriter::DF52PhysicalExprAdapterFactory;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
@@ -497,6 +490,7 @@ mod tests {
             metrics: Default::default(),
             layout_readers: Default::default(),
             has_output_ordering: false,
+            expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
         }
     }
 
@@ -642,6 +636,7 @@ mod tests {
             metrics: Default::default(),
             layout_readers: Default::default(),
             has_output_ordering: false,
+            expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
         };
 
         let filter = col("a").lt(lit(100_i32));
@@ -725,6 +720,7 @@ mod tests {
             metrics: Default::default(),
             layout_readers: Default::default(),
             has_output_ordering: false,
+            expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
         };
 
         // The opener should successfully open the file and reorder columns
@@ -877,6 +873,7 @@ mod tests {
             metrics: Default::default(),
             layout_readers: Default::default(),
             has_output_ordering: false,
+            expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
         };
 
         // This should succeed and return the correctly projected and cast data
@@ -901,152 +898,192 @@ mod tests {
         Ok(())
     }
 
-    // #[tokio::test]
-    // // Test that Selection::IncludeByIndex filters to specific row indices.
-    // async fn test_selection_include_by_index() -> anyhow::Result<()> {
-    //     use datafusion::arrow::util::pretty::pretty_format_batches_with_options;
+    fn make_test_batch_with_10_rows() -> RecordBatch {
+        record_batch!(
+            ("a", Int32, (0..=9).map(Some).collect::<Vec<_>>()),
+            (
+                "b",
+                Utf8,
+                (0..=9).map(|i| Some(format!("r{}", i))).collect::<Vec<_>>()
+            )
+        )
+        .unwrap()
+    }
 
-    //     let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
-    //     let file_path = "/path/file.vortex";
+    fn make_test_opener(
+        object_store: Arc<dyn ObjectStore>,
+        schema: SchemaRef,
+        projection: Option<Arc<[usize]>>,
+    ) -> VortexOpener {
+        VortexOpener {
+            session: SESSION.clone(),
+            object_store,
+            projection,
+            filter: None,
+            file_pruning_predicate: None,
+            expr_adapter_factory: Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _),
+            schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
+            file_cache: VortexFileCache::new(1, 1, SESSION.clone()),
+            table_schema: TableSchema::from_file_schema(schema),
+            batch_size: 100,
+            limit: None,
+            metrics: Default::default(),
+            layout_readers: Default::default(),
+            has_output_ordering: false,
+            expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+        }
+    }
 
-    //     let batch = make_test_batch_with_10_rows();
-    //     let data_size =
-    //         write_arrow_to_vortex(object_store.clone(), file_path, batch.clone()).await?;
+    #[tokio::test]
+    // Test that Selection::IncludeByIndex filters to specific row indices.
+    async fn test_selection_include_by_index() -> anyhow::Result<()> {
+        use datafusion::arrow::util::pretty::pretty_format_batches_with_options;
+        use vortex::buffer::Buffer;
+        use vortex::scan::Selection;
 
-    //     let table_schema = batch.schema();
-    //     let file_meta = make_meta(file_path, data_size);
-    //     let mut file = PartitionedFile::new(file_path.to_string(), data_size);
-    //     file.extensions = Some(Arc::new(Selection::IncludeByIndex(Buffer::from_iter(
-    //         vec![1, 3, 5, 7],
-    //     ))));
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "/path/file.vortex";
 
-    //     let opener = make_test_opener(
-    //         object_store.clone(),
-    //         table_schema.clone(),
-    //         Some(vec![0, 1].into()),
-    //     );
+        let batch = make_test_batch_with_10_rows();
+        let data_size =
+            write_arrow_to_vortex(object_store.clone(), file_path, batch.clone()).await?;
 
-    //     let stream = opener.open(file_meta, file)?.await?;
-    //     let data = stream.try_collect::<Vec<_>>().await?;
-    //     let format_opts = FormatOptions::new().with_types_info(true);
+        let table_schema = batch.schema();
+        let mut file = PartitionedFile::new(file_path.to_string(), data_size);
+        file.extensions = Some(Arc::new(VortexAccessPlan::default().with_selection(
+            Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7])),
+        )));
 
-    //     assert_snapshot!(pretty_format_batches_with_options(&data, &format_opts)?.to_string(), @r"
-    //     +-------+------+
-    //     | a     | b    |
-    //     | Int32 | Utf8 |
-    //     +-------+------+
-    //     | 1     | r1   |
-    //     | 3     | r3   |
-    //     | 5     | r5   |
-    //     | 7     | r7   |
-    //     +-------+------+
-    //     ");
+        let opener = make_test_opener(
+            object_store.clone(),
+            table_schema.clone(),
+            Some(vec![0, 1].into()),
+        );
 
-    //     Ok(())
-    // }
+        let stream = opener.open(file)?.await?;
+        let data = stream.try_collect::<Vec<_>>().await?;
+        let format_opts = FormatOptions::new().with_types_info(true);
 
-    // #[tokio::test]
-    // // Test that Selection::ExcludeByIndex excludes specific row indices.
-    // async fn test_selection_exclude_by_index() -> anyhow::Result<()> {
-    //     use datafusion::arrow::util::pretty::pretty_format_batches_with_options;
+        assert_snapshot!(pretty_format_batches_with_options(&data, &format_opts)?.to_string(), @r"
+        +-------+------+
+        | a     | b    |
+        | Int32 | Utf8 |
+        +-------+------+
+        | 1     | r1   |
+        | 3     | r3   |
+        | 5     | r5   |
+        | 7     | r7   |
+        +-------+------+
+        ");
 
-    //     let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
-    //     let file_path = "/path/file.vortex";
+        Ok(())
+    }
 
-    //     let batch = make_test_batch_with_10_rows();
-    //     let data_size =
-    //         write_arrow_to_vortex(object_store.clone(), file_path, batch.clone()).await?;
+    #[tokio::test]
+    // Test that Selection::ExcludeByIndex excludes specific row indices.
+    async fn test_selection_exclude_by_index() -> anyhow::Result<()> {
+        use datafusion::arrow::util::pretty::pretty_format_batches_with_options;
+        use vortex::buffer::Buffer;
+        use vortex::scan::Selection;
 
-    //     let table_schema = batch.schema();
-    //     let file_meta = make_meta(file_path, data_size);
-    //     let mut file = PartitionedFile::new(file_path.to_string(), data_size);
-    //     file.extensions = Some(Arc::new(Selection::ExcludeByIndex(Buffer::from_iter(
-    //         vec![0, 2, 4, 6, 8],
-    //     ))));
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "/path/file.vortex";
 
-    //     let opener = make_test_opener(
-    //         object_store.clone(),
-    //         table_schema.clone(),
-    //         Some(vec![0, 1].into()),
-    //     );
+        let batch = make_test_batch_with_10_rows();
+        let data_size =
+            write_arrow_to_vortex(object_store.clone(), file_path, batch.clone()).await?;
 
-    //     let stream = opener.open(file_meta, file)?.await?;
-    //     let data = stream.try_collect::<Vec<_>>().await?;
-    //     let format_opts = FormatOptions::new().with_types_info(true);
+        let table_schema = batch.schema();
+        let mut file = PartitionedFile::new(file_path.to_string(), data_size);
+        file.extensions = Some(Arc::new(VortexAccessPlan::default().with_selection(
+            Selection::ExcludeByIndex(Buffer::from_iter(vec![0, 2, 4, 6, 8])),
+        )));
 
-    //     assert_snapshot!(pretty_format_batches_with_options(&data, &format_opts)?.to_string(), @r"
-    //     +-------+------+
-    //     | a     | b    |
-    //     | Int32 | Utf8 |
-    //     +-------+------+
-    //     | 1     | r1   |
-    //     | 3     | r3   |
-    //     | 5     | r5   |
-    //     | 7     | r7   |
-    //     | 9     | r9   |
-    //     +-------+------+
-    //     ");
+        let opener = make_test_opener(
+            object_store.clone(),
+            table_schema.clone(),
+            Some(vec![0, 1].into()),
+        );
 
-    //     Ok(())
-    // }
+        let stream = opener.open(file)?.await?;
+        let data = stream.try_collect::<Vec<_>>().await?;
+        let format_opts = FormatOptions::new().with_types_info(true);
 
-    // #[tokio::test]
-    // // Test that Selection::All returns all rows.
-    // async fn test_selection_all() -> anyhow::Result<()> {
-    //     let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
-    //     let file_path = "/path/file.vortex";
+        assert_snapshot!(pretty_format_batches_with_options(&data, &format_opts)?.to_string(), @r"
+        +-------+------+
+        | a     | b    |
+        | Int32 | Utf8 |
+        +-------+------+
+        | 1     | r1   |
+        | 3     | r3   |
+        | 5     | r5   |
+        | 7     | r7   |
+        | 9     | r9   |
+        +-------+------+
+        ");
 
-    //     let batch = make_test_batch_with_10_rows();
-    //     let data_size =
-    //         write_arrow_to_vortex(object_store.clone(), file_path, batch.clone()).await?;
+        Ok(())
+    }
 
-    //     let table_schema = batch.schema();
-    //     let file_meta = make_meta(file_path, data_size);
-    //     let mut file = PartitionedFile::new(file_path.to_string(), data_size);
-    //     file.extensions = Some(Arc::new(Selection::All));
+    #[tokio::test]
+    // Test that Selection::All returns all rows.
+    async fn test_selection_all() -> anyhow::Result<()> {
+        use vortex::scan::Selection;
 
-    //     let opener = make_test_opener(
-    //         object_store.clone(),
-    //         table_schema.clone(),
-    //         Some(vec![0].into()),
-    //     );
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "/path/file.vortex";
 
-    //     let stream = opener.open(file_meta, file)?.await?;
-    //     let data = stream.try_collect::<Vec<_>>().await?;
+        let batch = make_test_batch_with_10_rows();
+        let data_size =
+            write_arrow_to_vortex(object_store.clone(), file_path, batch.clone()).await?;
 
-    //     let total_rows: usize = data.iter().map(|rb| rb.num_rows()).sum();
-    //     assert_eq!(total_rows, 10);
+        let table_schema = batch.schema();
+        let mut file = PartitionedFile::new(file_path.to_string(), data_size);
+        file.extensions = Some(Arc::new(
+            VortexAccessPlan::default().with_selection(Selection::All),
+        ));
 
-    //     Ok(())
-    // }
+        let opener = make_test_opener(
+            object_store.clone(),
+            table_schema.clone(),
+            Some(vec![0].into()),
+        );
 
-    // #[tokio::test]
-    // // Test that when no extensions are provided, all rows are returned (backward compatibility).
-    // async fn test_selection_no_extensions() -> anyhow::Result<()> {
-    //     let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
-    //     let file_path = "/path/file.vortex";
+        let stream = opener.open(file)?.await?;
+        let data = stream.try_collect::<Vec<_>>().await?;
 
-    //     let batch = make_test_batch_with_10_rows();
-    //     let data_size =
-    //         write_arrow_to_vortex(object_store.clone(), file_path, batch.clone()).await?;
+        let total_rows: usize = data.iter().map(|rb| rb.num_rows()).sum();
+        assert_eq!(total_rows, 10);
 
-    //     let table_schema = batch.schema();
-    //     let file_meta = make_meta(file_path, data_size);
-    //     let file = PartitionedFile::new(file_path.to_string(), data_size);
-    //     // file.extensions is None by default
+        Ok(())
+    }
 
-    //     let opener = make_test_opener(
-    //         object_store.clone(),
-    //         table_schema.clone(),
-    //         Some(vec![0].into()),
-    //     );
+    #[tokio::test]
+    // Test that when no extensions are provided, all rows are returned (backward compatibility).
+    async fn test_selection_no_extensions() -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "/path/file.vortex";
 
-    //     let stream = opener.open(file_meta, file)?.await?;
-    //     let data = stream.try_collect::<Vec<_>>().await?;
+        let batch = make_test_batch_with_10_rows();
+        let data_size =
+            write_arrow_to_vortex(object_store.clone(), file_path, batch.clone()).await?;
 
-    //     let total_rows: usize = data.iter().map(|rb| rb.num_rows()).sum();
-    //     assert_eq!(total_rows, 10);
+        let table_schema = batch.schema();
+        let file = PartitionedFile::new(file_path.to_string(), data_size);
+        // file.extensions is None by default
 
-    //     Ok(())
-    // }
+        let opener = make_test_opener(
+            object_store.clone(),
+            table_schema.clone(),
+            Some(vec![0].into()),
+        );
+
+        let stream = opener.open(file)?.await?;
+        let data = stream.try_collect::<Vec<_>>().await?;
+
+        let total_rows: usize = data.iter().map(|rb| rb.num_rows()).sum();
+        assert_eq!(total_rows, 10);
+
+        Ok(())
+    }
 }

@@ -37,6 +37,8 @@ use vortex_utils::aliases::dash_map::DashMap;
 use super::cache::VortexFileCache;
 use super::metrics::PARTITION_LABEL;
 use super::opener::VortexOpener;
+use crate::convert::exprs::DefaultExpressionConvertor;
+use crate::convert::exprs::ExpressionConvertor;
 use crate::convert::exprs::can_be_pushed_down;
 use crate::vendor::schema_rewriter::DF52PhysicalExprAdapterFactory;
 
@@ -63,6 +65,7 @@ pub struct VortexSource {
     ///
     /// Sharing the readers allows us to only read every layout once from the file, even across partitions.
     layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
+    expression_convertor: Arc<dyn ExpressionConvertor>,
 }
 
 impl VortexSource {
@@ -79,7 +82,17 @@ impl VortexSource {
             expr_adapter_factory: None,
             _unused_df_metrics: Default::default(),
             layout_readers: Arc::new(DashMap::default()),
+            expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
         }
+    }
+
+    /// Set a [`ExpressionConvertor`] to control how Datafusion expression should be converted and pushed down.
+    pub fn with_expression_convertor(
+        mut self,
+        expr_convertor: Arc<dyn ExpressionConvertor>,
+    ) -> Self {
+        self.expression_convertor = expr_convertor;
+        self
     }
 }
 
@@ -150,6 +163,7 @@ impl FileSource for VortexSource {
             metrics: partition_metrics,
             layout_readers: self.layout_readers.clone(),
             has_output_ordering: !base_config.output_ordering.is_empty(),
+            expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
         };
 
         Arc::new(opener)

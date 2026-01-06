@@ -7,7 +7,6 @@ use std::ops::Range;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
 use vortex_buffer::BitBuffer;
-use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::arrow::FromArrowType;
@@ -28,6 +27,7 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::BoolArray;
 use crate::arrow::FromArrowArray;
+use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSetRef;

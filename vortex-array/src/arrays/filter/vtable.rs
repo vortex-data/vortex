@@ -6,7 +6,6 @@ use std::fmt::Formatter;
 use std::hash::Hasher;
 use std::ops::Range;
 
-use vortex_buffer::BufferHandle;
 use vortex_compute::filter::Filter;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
@@ -30,6 +29,7 @@ use crate::Precision;
 use crate::VectorExecutor;
 use crate::arrays::filter::array::FilterArray;
 use crate::arrays::filter::rules::PARENT_RULES;
+use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;

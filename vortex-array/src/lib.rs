@@ -31,6 +31,7 @@ pub mod aliases;
 mod array;
 pub mod arrays;
 pub mod arrow;
+pub mod buffer;
 pub mod builders;
 pub mod builtins;
 mod canonical;

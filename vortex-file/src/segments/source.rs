@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::TryFutureExt;
-use vortex_buffer::BufferHandle;
+use vortex_array::buffer::BufferHandle;
 use vortex_error::VortexError;
 use vortex_error::vortex_err;
 use vortex_io::VortexReadAt;
@@ -41,7 +41,7 @@ impl SegmentSource for FileSegmentSource {
             maybe_fut
                 .ok_or_else(|| vortex_err!("Missing segment: {}", id))?
                 .await
-                .map(BufferHandle::Buffer)
+                .map(BufferHandle::Host)
         }
         .boxed()
     }

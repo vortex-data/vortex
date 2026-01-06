@@ -4,7 +4,6 @@
 use std::hash::Hash;
 use std::ops::Range;
 
-use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -20,6 +19,7 @@ use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::Precision;
+use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
