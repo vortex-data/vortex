@@ -39,6 +39,7 @@ vortex-zigzag = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }
+test-with = { workspace = true }
 vortex-array = { workspace = true, features = ["test-harness"] }
 
 [features]

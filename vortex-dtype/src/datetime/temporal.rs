@@ -16,9 +16,12 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
+use crate::DType;
 use crate::ExtDType;
 use crate::ExtID;
 use crate::ExtMetadata;
+use crate::Nullability;
+use crate::PType;
 use crate::datetime::unit::TimeUnit;
 
 /// ID for the Vortex time type.
@@ -119,6 +122,60 @@ impl TemporalMetadata {
                     .in_tz(tz)?,
             )),
         }
+    }
+
+    /// The (only) allowed storage PType for this temporal type.
+    ///
+    /// Each temporal extension type has exactly one allowed representation. This function returns
+    /// that representation.
+    pub fn storage_ptype(&self) -> VortexResult<PType> {
+        let storage_ptype = match self {
+            TemporalMetadata::Time(TimeUnit::Nanoseconds | TimeUnit::Microseconds) => PType::I64,
+            TemporalMetadata::Time(TimeUnit::Milliseconds | TimeUnit::Seconds) => PType::I32,
+            TemporalMetadata::Time(TimeUnit::Days) => {
+                vortex_bail!("invalid TimeUnit days for vortex.time");
+            }
+            TemporalMetadata::Date(
+                unit @ (TimeUnit::Nanoseconds | TimeUnit::Microseconds | TimeUnit::Seconds),
+            ) => vortex_bail!("invalid TimeUnit {unit} for vortex.date"),
+            TemporalMetadata::Date(TimeUnit::Milliseconds) => PType::I64,
+            TemporalMetadata::Date(TimeUnit::Days) => PType::I32,
+            TemporalMetadata::Timestamp(
+                TimeUnit::Nanoseconds
+                | TimeUnit::Microseconds
+                | TimeUnit::Milliseconds
+                | TimeUnit::Seconds,
+                ..,
+            ) => PType::I64,
+            TemporalMetadata::Timestamp(TimeUnit::Days, ..) => {
+                vortex_bail!("invalid TimeUnit days for vortex.timestamp");
+            }
+        };
+
+        Ok(storage_ptype)
+    }
+
+    /// The Extension (DType) ID for this temporal type.
+    pub fn extension_id(&self) -> ExtID {
+        match self {
+            TemporalMetadata::Time(..) => TIME_ID.clone(),
+            TemporalMetadata::Date(..) => DATE_ID.clone(),
+            TemporalMetadata::Timestamp(..) => TIMESTAMP_ID.clone(),
+        }
+    }
+
+    /// The (only) allowed storage DType for this temporal type.
+    ///
+    /// Each temporal extension type has exactly one allowed representation for a given
+    /// nullability. This function returns that representation.
+    pub fn dtype(self, nullability: Nullability) -> VortexResult<DType> {
+        let extension_id = self.extension_id();
+        let storage_ptype = self.storage_ptype()?;
+        let metadata = ExtMetadata::from(self);
+        let storage_dtype = DType::Primitive(storage_ptype, nullability);
+        let ext_dtype = ExtDType::new(extension_id, Arc::new(storage_dtype), Some(metadata));
+
+        Ok(DType::Extension(Arc::new(ext_dtype)))
     }
 }
 
