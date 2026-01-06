@@ -34,7 +34,6 @@ use vortex::array::ArrayRef;
 use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::dtype::FieldName;
 use vortex::error::VortexError;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::expr::root;
@@ -114,7 +113,7 @@ impl FileOpener for VortexOpener {
         };
 
         let schema_adapter = self.schema_adapter_factory.create(
-            projected_schema.clone(),
+            projected_schema,
             table_schema.table_schema().clone(),
         );
 
