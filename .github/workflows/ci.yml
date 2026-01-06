@@ -424,7 +424,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
-      - cpu=16
+      - cpu=32
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=rust-test-sanitizer
