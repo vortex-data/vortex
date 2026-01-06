@@ -371,6 +371,9 @@ jobs:
         uses: obi1kenobi/cargo-semver-checks-action@v2
         with:
           rust-toolchain: ${{ steps.rust-toolchain.outputs.channel }}
+          # vortex-buffer 0.56.0 on crates.io has a bug where serde feature doesn't enable derive.
+          # This prevents the baseline from building, so we exclude it until the next release.
+          exclude: vortex-buffer
 
 
   rust-coverage:
