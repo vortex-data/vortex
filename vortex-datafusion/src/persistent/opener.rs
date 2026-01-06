@@ -51,6 +51,7 @@ use crate::VortexAccessPlan;
 use crate::convert::exprs::ExpressionConvertor;
 use crate::convert::exprs::can_be_pushed_down;
 use crate::convert::exprs::make_vortex_predicate;
+use crate::persistent::stream::PrunableStream;
 
 #[derive(Clone)]
 pub(crate) struct VortexOpener {
@@ -336,7 +337,11 @@ impl FileOpener for VortexOpener {
                 .map(move |batch| batch.and_then(|b| schema_mapping.map_batch(b)))
                 .boxed();
 
-            Ok(stream)
+            if let Some(file_pruner) = file_pruner {
+                Ok(PrunableStream::new(file_pruner, stream).boxed())
+            } else {
+                Ok(stream)
+            }
         }
         .in_current_span()
         .boxed())
