@@ -29,10 +29,12 @@ use futures::stream;
 use object_store::ObjectStore;
 use object_store::path::Path;
 use tracing::Instrument;
+use vortex::array::Array;
 use vortex::array::ArrayRef;
 use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::dtype::FieldName;
 use vortex::error::VortexError;
+use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::expr::root;
@@ -295,7 +297,8 @@ impl FileOpener for VortexOpener {
                 .with_ordered(has_output_ordering)
                 .map(move |chunk| {
                     if *USE_VORTEX_OPERATORS {
-                        chunk.execute_record_batch(&projected_schema, &chunk_session)
+                        let schema = chunk.dtype().to_arrow_schema()?;
+                        chunk.execute_record_batch(&schema, &chunk_session)
                     } else {
                         RecordBatch::try_from(chunk.as_ref())
                     }
@@ -809,11 +812,9 @@ mod tests {
         // struct column.
         let data = opener
             .open(PartitionedFile::new(file_path.to_string(), data_size))?
-            .await
-            .unwrap()
+            .await?
             .try_collect::<Vec<_>>()
-            .await
-            .unwrap();
+            .await?;
 
         assert_eq!(data.len(), 1);
         assert_eq!(data[0].num_rows(), 3);
