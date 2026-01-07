@@ -58,9 +58,7 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref_name == 'develop' }}
+      - uses: ./.github/actions/setup-rust-2
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
         with:
@@ -90,9 +88,7 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref_name == 'develop' }}
+      - uses: ./.github/actions/setup-rust-2
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
         with:
@@ -168,9 +164,7 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref_name == 'develop' }}
+      - uses: ./.github/actions/setup-rust-2
       - name: Docs
         run: |
           RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
@@ -212,9 +206,7 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref_name == 'develop' }}
+      - uses: ./.github/actions/setup-rust-2
       - name: Rust Build (${{matrix.config.name}})
         run: ${{matrix.config.env.rustflags}} cargo hack ${{matrix.config.command}} --locked ${{matrix.config.args}} --ignore-private
       - name: "Make sure no files changed after build"
@@ -235,9 +227,7 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref_name == 'develop' }}
+      - uses: ./.github/actions/setup-rust-2
       - run: cargo minimal-versions check --direct --workspace --ignore-private
 
   rust-lint:
@@ -253,9 +243,7 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref_name == 'develop' }}
+      - uses: ./.github/actions/setup-rust-2
       - name: Rust Lint - Format
         run: cargo +nightly fmt --all --check
       - name: Rustc check
@@ -280,9 +268,7 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref_name == 'develop' }}
+      - uses: ./.github/actions/setup-rust-2
       - name: Rust Lint - Clippy No Default Features
         shell: bash
         run: |
@@ -306,9 +292,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-      - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref_name == 'develop' }}
+      - uses: ./.github/actions/setup-rust-2
 
       # We have to set the correct Cargo.toml versions so semver checks uses the previous release.
       - name: Latest Tag
@@ -349,9 +333,7 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref_name == 'develop' }}
+      - uses: ./.github/actions/setup-rust-2
       - name: Rust Tests
         if: ${{ matrix.suite == 'tests' }}
         env:
@@ -412,9 +394,7 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref_name == 'develop' }}
+      - uses: ./.github/actions/setup-rust-2
       - name: Install llvm
         uses: aminya/setup-cpp@v1
         with:
@@ -502,6 +482,7 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust-2
       - uses: actions/setup-java@v5
         with:
           distribution: "corretto"
@@ -580,6 +561,7 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust-2
       - name: Build and run C++ unit tests
         working-directory: vortex-cxx/
         run: |

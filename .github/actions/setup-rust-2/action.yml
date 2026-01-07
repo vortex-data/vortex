@@ -1,0 +1,37 @@
+name: "Setup Rust (Custom AMI)"
+description: "Lightweight Rust setup for custom AMI runners with pre-installed toolchain"
+
+inputs:
+  cache-suffix:
+    description: "optional suffix for cache key to isolate builds with different RUSTFLAGS (e.g. 'sanitizer')"
+    required: false
+    default: ""
+  targets:
+    description: "optional targets override (for cache key compatibility)"
+    required: false
+  timestamp:
+    description: "Timestamp cache with cargo sweep"
+    default: "false"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Get Rust version for cache key
+      id: rust-version
+      shell: bash
+      run: |
+        # Get a short hash of the rustc version (matches dtolnay/rust-toolchain cachekey format)
+        RUSTC_VERSION=$(rustc --version)
+        CACHEKEY=$(echo "$RUSTC_VERSION" | sha256sum | cut -c1-20)
+        echo "cachekey=$CACHEKEY" >> $GITHUB_OUTPUT
+
+    - name: Rust Dependency Cache
+      uses: Swatinem/rust-cache@v2
+      with:
+        # save-if: ${{ github.ref_name == 'develop' }}
+        shared-key: "rust-cache-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-${{ steps.rust-version.outputs.cachekey }}-${{ inputs.targets }}${{ inputs.cache-suffix && format('-{0}', inputs.cache-suffix) || '' }}"
+
+    - name: Timestamp Cache
+      shell: bash
+      if: ${{ inputs.timestamp == 'true' && github.ref_name == 'develop' }}
+      run: cargo sweep --stamp
