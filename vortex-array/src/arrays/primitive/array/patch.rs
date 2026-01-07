@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_dtype::IntegerPType;
 use vortex_dtype::NativePType;
 use vortex_dtype::UnsignedPType;
@@ -9,6 +11,7 @@ use vortex_dtype::match_each_native_ptype;
 
 use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
+use crate::patches::PATCH_CHUNK_SIZE;
 use crate::patches::Patches;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
@@ -58,6 +61,23 @@ impl PrimitiveArray {
     }
 }
 
+/// Computes the index range for a chunk, accounting for slice offset.
+///
+/// # Arguments
+///
+/// * `chunk_idx` - Index of the chunk
+/// * `offset` - Offset from slice
+/// * `array_len` - Length of the sliced array
+#[inline]
+pub fn chunk_range(chunk_idx: usize, offset: usize, array_len: usize) -> Range<usize> {
+    let offset_in_chunk = offset % PATCH_CHUNK_SIZE;
+    let local_start = (chunk_idx * PATCH_CHUNK_SIZE).saturating_sub(offset_in_chunk);
+    let local_end = ((chunk_idx + 1) * PATCH_CHUNK_SIZE)
+        .saturating_sub(offset_in_chunk)
+        .min(array_len);
+    local_start..local_end
+}
+
 /// Patches a chunk of decoded values.
 ///
 /// # Arguments
@@ -65,16 +85,11 @@ impl PrimitiveArray {
 /// * `decoded_values` - Mutable slice of decoded values to be patched
 /// * `patches_indices` - Indices indicating which positions to patch
 /// * `patches_values` - Values to apply at the patched indices
-/// * `patches_offset` - Offset to subtract from patch indices
+/// * `patches_offset` - Absolute position where the slice starts
 /// * `chunk_offsets_slice` - Slice containing offsets for each chunk
 /// * `chunk_idx` - Index of the chunk to patch
-/// * `base_offset` - Base offset from the first chunk
-/// * `offset_within_chunk` - Offset within chunk for sliced patches
+/// * `offset_within_chunk` - Number of patches to skip at the start of the first chunk
 #[inline]
-#[expect(
-    clippy::too_many_arguments,
-    reason = "all arguments are needed for the patching operation"
-)]
 pub fn patch_chunk<T, I, C>(
     decoded_values: &mut [T],
     patches_indices: &[I],
@@ -82,13 +97,15 @@ pub fn patch_chunk<T, I, C>(
     patches_offset: usize,
     chunk_offsets_slice: &[C],
     chunk_idx: usize,
-    base_offset: usize,
     offset_within_chunk: usize,
 ) where
     T: NativePType,
     I: UnsignedPType,
     C: UnsignedPType,
 {
+    // Compute base_offset from the first chunk offset.
+    let base_offset: usize = chunk_offsets_slice[0].as_();
+
     // Use the same logic as patches slice implementation for calculating patch ranges.
     let patches_start_idx =
         (chunk_offsets_slice[chunk_idx].as_() - base_offset).saturating_sub(offset_within_chunk);
@@ -98,12 +115,12 @@ pub fn patch_chunk<T, I, C>(
         patches_indices.len()
     };
 
-    let chunk_start = chunk_idx * 1024;
+    let chunk_start = chunk_range(chunk_idx, patches_offset, /* ignore */ usize::MAX).start;
+
     for patches_idx in patches_start_idx..patches_end_idx {
-        let patched_value = patches_values[patches_idx];
-        let absolute_index: usize = patches_indices[patches_idx].as_() - patches_offset;
-        let chunk_relative_index = absolute_index - chunk_start;
-        decoded_values[chunk_relative_index] = patched_value;
+        let chunk_relative_index =
+            (patches_indices[patches_idx].as_() - patches_offset) - chunk_start;
+        decoded_values[chunk_relative_index] = patches_values[patches_idx];
     }
 }
 

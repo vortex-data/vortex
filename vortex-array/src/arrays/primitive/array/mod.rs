@@ -28,6 +28,7 @@ mod conversion;
 mod patch;
 mod top_value;
 
+pub use patch::chunk_range;
 pub use patch::patch_chunk;
 
 /// A primitive array that stores [native types][vortex_dtype::NativePType] in a contiguous buffer
