@@ -1,11 +1,17 @@
+# Custom AMIs for Vortex CI runners
+# These AMIs are automatically rebuilt every 15 days by the ami-prebuild.yml workflow
+# to keep the GitHub Actions runner agent up to date (required to be <30 days old).
+#
+# AMI naming pattern: vortex-ci-{arch}-{timestamp}
+# Built with: .github/actions/build-ami and .github/packer/vortex-ci.pkr.hcl
 images:
   vortex-ci-amd64:
     platform: "linux"
     arch: "x64"
-    name: "vortex-ci-*"
+    name: "vortex-ci-x64-*"
     owner: "375504701696"
   vortex-ci-arm64:
     platform: "linux"
     arch: "arm64"
-    name: "vortex-ci-*"
+    name: "vortex-ci-arm64-*"
     owner: "375504701696"
