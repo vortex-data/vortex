@@ -9,6 +9,10 @@ runners:
     image: vortex-ci-amd64
     cpu: 8
     family: [m7i, m7i-flex, m7a]
+  rust-amd64-large:
+    image: vortex-ci-amd64
+    cpu: 16
+    family: [m7i, m7i-flex, m7a]
 
 images:
   vortex-ci-amd64:

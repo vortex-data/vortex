@@ -49,9 +49,7 @@ jobs:
     name: "Python (lint)"
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=16
-      - image=ubuntu24-full-x64
+      - runner=rust-amd64-large
       - extras=s3-cache
       - tag=python-lint
     timeout-minutes: 120
@@ -81,9 +79,7 @@ jobs:
     name: "Python (test)"
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=16
-      - image=ubuntu24-full-x64
+      - runner=rust-amd64-large
       - extras=s3-cache
       - tag=python-test
     timeout-minutes: 120
@@ -164,9 +160,7 @@ jobs:
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=8
-      - image=ubuntu24-full-x64
+      - runner=rust-amd64-medium
       - extras=s3-cache
       - tag=rust-docs
     steps:
@@ -243,9 +237,7 @@ jobs:
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=8
-      - image=ubuntu24-full-x64
+      - runner=rust-amd64-medium
       - extras=s3-cache
       - tag=rust-min-deps
     steps:
@@ -265,9 +257,7 @@ jobs:
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=16
-      - image=ubuntu24-full-x64
+      - runner=rust-amd64-large
       - extras=s3-cache
       - tag=rust-lint
     steps:
@@ -300,9 +290,7 @@ jobs:
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=16
-      - image=ubuntu24-full-x64
+      - runner=rust-amd64-large
       - extras=s3-cache
       - tag=rust-lint-no-default
     steps:
@@ -332,9 +320,7 @@ jobs:
     if: github.ref != 'refs/heads/develop'
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=16
-      - image=ubuntu24-full-x64
+      - runner=rust-amd64-large
       - extras=s3-cache
       - tag=rust-semver
     steps:
@@ -376,9 +362,7 @@ jobs:
           - ffi
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=16
-      - image=ubuntu24-full-x64
+      - runner=rust-amd64-large
       - extras=s3-cache
       - tag=rust-coverage
       - tag=suite-${{ matrix.suite }}
@@ -450,9 +434,7 @@ jobs:
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=16
-      - image=ubuntu24-full-x64
+      - runner=rust-amd64-large
       - extras=s3-cache
       - tag=rust-test-sanitizer
     env:
@@ -567,9 +549,7 @@ jobs:
     name: "Java"
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=16
-      - image=ubuntu24-full-x64
+      - runner=rust-amd64-large
       - extras=s3-cache
       - tag=java
     timeout-minutes: 120
@@ -651,9 +631,7 @@ jobs:
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=8
-      - image=ubuntu24-full-x64
+      - runner=rust-amd64-medium
       - extras=s3-cache
       - tag=cxx-build
     steps:
