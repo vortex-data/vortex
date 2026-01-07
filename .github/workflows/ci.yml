@@ -213,10 +213,10 @@ jobs:
           sccache: s3
       - uses: actions/checkout@v6
       - id: setup-rust
-        uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          timestamp: "true"
+#        uses: ./.github/actions/setup-rust
+#        with:
+#          repo-token: ${{ secrets.GITHUB_TOKEN }}
+#          timestamp: "true"
       - name: Install wasm32 target
         if: ${{ matrix.config.target == 'wasm32-unknown-unknown' }}
         run: rustup target add wasm32-unknown-unknown
