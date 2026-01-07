@@ -717,7 +717,7 @@ mod tests {
     #[case(500, 100)]
     #[case(1000, 200)]
     #[case(2048, 512)]
-    fn test_to_primitive(#[case] size: usize, #[case] slice_start: usize) {
+    fn test_sliced_to_primitive(#[case] size: usize, #[case] slice_start: usize) {
         let values: Vec<Option<f64>> = (0..size)
             .map(|i| {
                 if i % 5 == 0 {
