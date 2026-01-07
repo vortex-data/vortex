@@ -18,8 +18,10 @@ use vortex::array::Canonical;
 use vortex::array::Precision;
 use vortex::array::RawMetadata;
 use vortex::array::SerializeMetadata;
+use vortex::array::buffer::BufferHandle;
 use vortex::array::serde::ArrayChildren;
 use vortex::array::stats::StatsSetRef;
+use vortex::array::validity::Validity;
 use vortex::array::vtable;
 use vortex::array::vtable::ArrayId;
 use vortex::array::vtable::ArrayVTable;
@@ -31,7 +33,6 @@ use vortex::array::vtable::OperationsVTable;
 use vortex::array::vtable::VTable;
 use vortex::array::vtable::ValidityVTable;
 use vortex::array::vtable::VisitorVTable;
-use vortex::buffer::BufferHandle;
 use vortex::compute::ComputeFn;
 use vortex::compute::InvocationArgs;
 use vortex::compute::Output;
@@ -203,6 +204,10 @@ impl ValidityVTable<PythonVTable> for PythonVTable {
     }
 
     fn all_invalid(_array: &PythonArray) -> bool {
+        todo!()
+    }
+
+    fn validity(_array: &PythonArray) -> VortexResult<Validity> {
         todo!()
     }
 

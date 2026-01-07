@@ -8,12 +8,12 @@ use std::ops::Range;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
+use vortex_vector::binaryview::Ref;
 
 use crate::arrays::VarBinViewArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
-use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl VarBinViewArray {
     /// Returns a compacted copy of the input array, where all wasted space has been cleaned up. This
@@ -55,28 +55,42 @@ impl VarBinViewArray {
         bytes_referenced < buffer_total_bytes || buffer_total_bytes == 0
     }
 
-    // count the number of bytes addressed by the views, not including null
-    // values or any inlined strings.
-    fn count_referenced_bytes(&self) -> u64 {
-        match self.validity() {
-            Validity::AllInvalid => 0u64,
-            Validity::NonNullable | Validity::AllValid | Validity::Array(_) => self
-                .views()
-                .iter()
-                .enumerate()
-                .map(|(idx, &view)| {
-                    if !self.is_valid(idx) || view.is_inlined() {
-                        0u64
-                    } else {
-                        view.len() as u64
+    /// Iterates over all valid, non-inlined views, calling the provided
+    /// closure for each one.
+    #[inline(always)]
+    fn iter_valid_views<F>(&self, mut f: F)
+    where
+        F: FnMut(&Ref),
+    {
+        match self.validity_mask() {
+            Mask::AllTrue(_) => {
+                for &view in self.views().iter() {
+                    if !view.is_inlined() {
+                        f(view.as_view());
                     }
-                })
-                .sum(),
+                }
+            }
+            Mask::AllFalse(_) => {}
+            Mask::Values(v) => {
+                for (&view, is_valid) in self.views().iter().zip(v.bit_buffer().iter()) {
+                    if is_valid && !view.is_inlined() {
+                        f(view.as_view());
+                    }
+                }
+            }
         }
     }
 
+    /// Count the number of bytes addressed by the views, not including null
+    /// values or any inlined strings.
+    fn count_referenced_bytes(&self) -> u64 {
+        let mut total = 0u64;
+        self.iter_valid_views(|view| total += view.size as u64);
+        total
+    }
+
     pub(crate) fn buffer_utilizations(&self) -> Vec<BufferUtilization> {
-        let mut utilizations = self
+        let mut utilizations: Vec<BufferUtilization> = self
             .buffers()
             .iter()
             .map(|buf| {
@@ -85,18 +99,9 @@ impl VarBinViewArray {
             })
             .collect();
 
-        if matches!(self.validity(), Validity::AllInvalid) {
-            return utilizations;
-        }
-
-        for (idx, &view) in self.views().iter().enumerate() {
-            if !self.is_valid(idx) || view.is_inlined() {
-                continue;
-            }
-            let view = view.as_view();
-
-            utilizations[view.buffer_index as usize].add(view.offset, view.size)
-        }
+        self.iter_valid_views(|view| {
+            utilizations[view.buffer_index as usize].add(view.offset, view.size);
+        });
 
         utilizations
     }
@@ -177,6 +182,7 @@ impl BufferUtilization {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
@@ -432,5 +438,33 @@ mod tests {
                 "Slice strategy should maintain single buffer"
             );
         }
+    }
+
+    const LONG1: &str = "long string one!";
+    const LONG2: &str = "long string two!";
+    const SHORT: &str = "x";
+    const EXPECTED_BYTES: u64 = (LONG1.len() + LONG2.len()) as u64;
+
+    fn mixed_array() -> VarBinViewArray {
+        VarBinViewArray::from_iter_nullable_str([Some(LONG1), None, Some(LONG2), Some(SHORT)])
+    }
+
+    #[rstest]
+    #[case::non_nullable(VarBinViewArray::from_iter_str([LONG1, LONG2, SHORT]), EXPECTED_BYTES, &[1.0])]
+    #[case::all_valid(VarBinViewArray::from_iter_nullable_str([Some(LONG1), Some(LONG2), Some(SHORT)]), EXPECTED_BYTES, &[1.0])]
+    #[case::all_invalid(VarBinViewArray::from_iter_nullable_str([None::<&str>, None]), 0, &[])]
+    #[case::mixed_validity(mixed_array(), EXPECTED_BYTES, &[1.0])]
+    fn test_validity_code_paths(
+        #[case] arr: VarBinViewArray,
+        #[case] expected_bytes: u64,
+        #[case] expected_utils: &[f64],
+    ) {
+        assert_eq!(arr.count_referenced_bytes(), expected_bytes);
+        let utils: Vec<f64> = arr
+            .buffer_utilizations()
+            .iter()
+            .map(|u| u.overall_utilization())
+            .collect();
+        assert_eq!(utils, expected_utils);
     }
 }

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::FutureExt;
 use parking_lot::Mutex;
-use vortex_buffer::BufferHandle;
+use vortex_array::buffer::BufferHandle;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
@@ -30,7 +30,7 @@ impl SegmentSource for TestSegments {
         let buffer = self.segments.lock().get(*id as usize).cloned();
         async move {
             buffer
-                .map(BufferHandle::Buffer)
+                .map(BufferHandle::Host)
                 .ok_or_else(|| vortex_err!("Segment not found"))
         }
         .boxed()

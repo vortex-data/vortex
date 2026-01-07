@@ -105,7 +105,6 @@ mod tests {
     use vortex::buffer::BitBuffer;
     use vortex::buffer::buffer;
     use vortex::error::VortexExpect;
-    use vortex::error::VortexUnwrap;
 
     use super::*;
     use crate::cpp;
@@ -127,7 +126,7 @@ mod tests {
             ],
             vec![CString::new("col1").unwrap(), CString::new("col2").unwrap()],
         )
-        .vortex_unwrap()]);
+        .vortex_expect("LogicalType creation should succeed for test data")]);
 
         new_exporter(&arr, &ConversionCache::default())
             .unwrap()
@@ -179,7 +178,7 @@ mod tests {
                 true, true, true, false, false, false, true, true, true, true,
             ])),
         )
-        .vortex_unwrap();
+        .vortex_expect("StructArray creation should succeed for test data");
         let mut chunk = DataChunk::new([LogicalType::struct_type(
             vec![
                 LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER),
@@ -187,7 +186,7 @@ mod tests {
             ],
             vec![CString::new("col1").unwrap(), CString::new("col2").unwrap()],
         )
-        .vortex_unwrap()]);
+        .vortex_expect("LogicalType creation should succeed for test data")]);
 
         new_exporter(&arr, &ConversionCache::default())
             .unwrap()
@@ -210,7 +209,7 @@ mod tests {
             buffer![0u8, 1, 1, 2, 2, 2, 2, 3, 3, 4].into_array(),
             VarBinViewArray::from_iter_str(vec!["b", "c", "d", "g", "h"]).into_array(),
         )
-        .vortex_unwrap()
+        .vortex_expect("DictArray creation should succeed for test data")
         .into_array();
         let arr = StructArray::try_new(
             ["col1", "col2"].into(),
@@ -220,7 +219,7 @@ mod tests {
                 true, true, true, false, false, false, true, true, true, true,
             ])),
         )
-        .vortex_unwrap();
+        .vortex_expect("StructArray creation should succeed for test data");
         let mut chunk = DataChunk::new([LogicalType::struct_type(
             vec![
                 LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER),
@@ -228,7 +227,7 @@ mod tests {
             ],
             vec![CString::new("col1").unwrap(), CString::new("col2").unwrap()],
         )
-        .vortex_unwrap()]);
+        .vortex_expect("LogicalType creation should succeed for test data")]);
 
         new_exporter(&arr, &ConversionCache::default())
             .unwrap()

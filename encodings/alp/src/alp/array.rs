@@ -17,6 +17,7 @@ use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::VectorExecutor;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
@@ -34,7 +35,6 @@ use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_array::vtable::VisitorVTable;
-use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
 use vortex_error::VortexError;
@@ -432,7 +432,7 @@ impl ALPArray {
 }
 
 impl ValidityChild<ALPVTable> for ALPVTable {
-    fn validity_child(array: &ALPArray) -> &dyn Array {
+    fn validity_child(array: &ALPArray) -> &ArrayRef {
         array.encoded()
     }
 }

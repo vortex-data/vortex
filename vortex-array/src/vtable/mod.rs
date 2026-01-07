@@ -23,7 +23,6 @@ pub use encode::*;
 pub use operations::*;
 pub use validity::*;
 pub use visitor::*;
-use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_vector::Vector;
@@ -32,6 +31,7 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VectorExecutor;
+use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 

@@ -6,7 +6,6 @@ mod canonical;
 mod operations;
 mod validity;
 
-use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -21,6 +20,7 @@ use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::VectorExecutor;
 use crate::arrays::masked::MaskedArray;
+use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;

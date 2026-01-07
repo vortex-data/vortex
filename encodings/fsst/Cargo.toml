@@ -34,7 +34,6 @@ test-harness = ["dep:rand", "vortex-array/test-harness"]
 
 [dev-dependencies]
 divan = { workspace = true }
-itertools = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["test-harness"] }

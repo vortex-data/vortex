@@ -21,7 +21,6 @@ use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::VortexUnwrap;
 use vortex_scalar::Scalar;
 
 /// Apply fill_null on the canonical form of the array to get a consistent baseline.
@@ -87,7 +86,8 @@ fn fill_primitive_array(
     result_nullability: Nullability,
 ) -> ArrayRef {
     match_each_native_ptype!(array.ptype(), |T| {
-        let fill_val = T::try_from(fill_value).vortex_unwrap();
+        let fill_val = T::try_from(fill_value)
+            .vortex_expect("fill value conversion should succeed in fuzz test");
 
         match array.validity() {
             Validity::NonNullable | Validity::AllValid => PrimitiveArray::from_byte_buffer(
@@ -129,7 +129,8 @@ fn fill_decimal_array(
     let decimal_scalar = fill_value.as_decimal();
 
     match_each_decimal_value_type!(array.values_type(), |D| {
-        let fill_val = D::try_from(decimal_scalar).vortex_unwrap();
+        let fill_val = D::try_from(decimal_scalar)
+            .vortex_expect("decimal fill value conversion should succeed in fuzz test");
 
         match array.validity() {
             Validity::NonNullable | Validity::AllValid => DecimalArray::new(
@@ -156,7 +157,7 @@ fn fill_decimal_array(
                 }
 
                 DecimalArray::try_new(new_data.freeze(), decimal_dtype, result_nullability.into())
-                    .vortex_unwrap()
+                    .vortex_expect("DecimalArray creation should succeed in fuzz test")
                     .into_array()
             }
         }

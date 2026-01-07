@@ -4,7 +4,6 @@
 mod array;
 pub use array::StructArray;
 mod compute;
-mod rules;
 
 mod vtable;
 pub use vtable::StructVTable;

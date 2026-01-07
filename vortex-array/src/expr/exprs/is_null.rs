@@ -140,7 +140,7 @@ mod tests {
     use vortex_dtype::FieldPath;
     use vortex_dtype::FieldPathSet;
     use vortex_dtype::Nullability;
-    use vortex_error::VortexUnwrap as _;
+    use vortex_error::VortexExpect as _;
     use vortex_scalar::Scalar;
     use vortex_utils::aliases::hash_map::HashMap;
     use vortex_utils::aliases::hash_set::HashSet;
@@ -170,7 +170,8 @@ mod tests {
     #[test]
     fn replace_children() {
         let expr = is_null(root());
-        expr.with_children([root()]).vortex_unwrap();
+        expr.with_children([root()])
+            .vortex_expect("operation should succeed in test");
     }
 
     #[test]

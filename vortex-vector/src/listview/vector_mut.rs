@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use num_traits::NumCast;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
 use vortex_error::VortexExpect;
@@ -184,12 +185,17 @@ impl ListViewVectorMut {
     }
 
     /// Creates a new [`ListViewVectorMut`] with the specified capacity.
-    pub fn with_capacity(element_dtype: &DType, capacity: usize) -> Self {
+    pub fn with_capacity(element_dtype: &DType, capacity: usize, elements_capacity: usize) -> Self {
+        let offsets_ptype = PType::min_unsigned_ptype_for_value(elements_capacity as u64);
+        let sizes_ptype = offsets_ptype;
+
+        // SAFETY: Everything is empty and the offsets and sizes `PType` is the same, so all
+        // invariants are satisfied.
         unsafe {
             Self::new_unchecked(
                 Box::new(VectorMut::with_capacity(element_dtype, 0)),
-                PrimitiveVectorMut::with_capacity(PType::U64, capacity),
-                PrimitiveVectorMut::with_capacity(PType::U32, capacity),
+                PrimitiveVectorMut::with_capacity(offsets_ptype, capacity),
+                PrimitiveVectorMut::with_capacity(sizes_ptype, capacity),
                 MaskMut::with_capacity(capacity),
             )
         }
@@ -300,26 +306,22 @@ impl VectorMutOps for ListViewVectorMut {
         self.len = self.validity.len();
     }
 
-    /// This will also panic if we try to extend the `ListViewVector` beyond the maximum offset
-    /// representable by the type of the `offsets` primitive vector.
     fn extend_from_vector(&mut self, other: &ListViewVector) {
         // Extend the elements with the other's elements.
         let old_elements_len = self.elements.len() as u64;
         self.elements.extend_from_vector(&other.elements);
         let new_elements_len = self.elements.len() as u64;
 
-        // Then extend the sizes with the other's sizes (these do not need any adjustment).
-        self.sizes.extend_from_vector(&other.sizes);
+        // Extend sizes with automatic upcasting (does not panic on type mismatch).
+        self.sizes.extend_from_vector_with_upcast(&other.sizes);
 
-        // We need this assertion to ensure that the casts below are infallible.
-        assert!(
-            new_elements_len < self.offsets.ptype().max_value_as_u64(),
-            "the elements length {new_elements_len} is not representable by the offsets type {}",
-            self.offsets.ptype()
+        // Extend offsets with adjustment and automatic upcasting based on `new_elements_len`.
+        adjust_and_extend_offsets(
+            &mut self.offsets,
+            &other.offsets,
+            old_elements_len,
+            new_elements_len,
         );
-
-        // Finally, extend the offsets after adding the old `elements` length to each.
-        adjust_and_extend_offsets(&mut self.offsets, &other.offsets, old_elements_len);
 
         self.validity.append_mask(&other.validity);
         self.len += other.len;
@@ -505,39 +507,60 @@ fn validate_views_bound(
     Ok(())
 }
 
-// TODO(connor): It would be better to separate everything inside the macros into its own function,
-// but that would require adding another macro that sets a type `$type` to be used by the caller.
-/// Checks that all views are `<= elements_len`.
+/// Adjusts and extends offsets from `new_offsets` into `curr_offsets`, upcasting if needed.
+///
+/// Each offset from `new_offsets` is adjusted by adding `old_elements_len` before appending.
+///
+/// If the resulting offsets would exceed the current offset type's capacity, the offset vector is
+/// automatically upcasted to a wider type.
 #[expect(
     clippy::cognitive_complexity,
     reason = "complexity from nested match_each_* macros"
 )]
 fn adjust_and_extend_offsets(
-    our_offsets: &mut PrimitiveVectorMut,
-    other: &PrimitiveVector,
+    curr_offsets: &mut PrimitiveVectorMut,
+    new_offsets: &PrimitiveVector,
     old_elements_len: u64,
+    new_elements_len: u64,
 ) {
-    our_offsets.reserve(other.len());
+    // Make sure we use the correct width to fit all offsets.
+    let target_ptype = PType::min_unsigned_ptype_for_value(new_elements_len)
+        .max_unsigned_ptype(curr_offsets.ptype())
+        .max_unsigned_ptype(new_offsets.ptype());
 
-    // Adjust each offset from `other` by adding the current elements length to each of the
+    if curr_offsets.ptype() != target_ptype {
+        let old_offsets = std::mem::replace(
+            curr_offsets,
+            PrimitiveVectorMut::with_capacity(target_ptype, 0),
+        );
+        *curr_offsets = old_offsets.upcast(target_ptype);
+    }
+
+    curr_offsets.reserve(new_offsets.len());
+
+    // Adjust each offset from `new_offsets` by adding the current elements length to each of the
     // incoming offsets.
-    match_each_integer_pvector_mut!(our_offsets, |self_offsets| {
-        match_each_integer_pvector!(other, |other_offsets| {
-            let other_offsets_slice = other_offsets.as_ref();
+    match_each_integer_pvector_mut!(curr_offsets, |curr| {
+        match_each_integer_pvector!(new_offsets, |new| {
+            let new_offsets_slice = new.as_ref();
 
-            // Append each offset from `other`, adjusted by the elements_offset.
-            for i in 0..other.len() {
-                // All offset types are representable via a `u64` since we also ensure offsets
-                // are always non-negative.
+            // Append each offset from `new_offsets`, adjusted by the elements_offset.
+            for i in 0..new.len() {
+                // All offset types are representable via a `u64` since we also ensure offsets are
+                // always non-negative.
                 #[allow(clippy::unnecessary_cast)]
-                let adjusted_offset = other_offsets_slice[i] as u64 + old_elements_len;
+                let adjusted_offset = new_offsets_slice[i] as u64 + old_elements_len;
+                debug_assert!(
+                    adjusted_offset < new_elements_len,
+                    "new list view offset is somehow out of bounds, something has gone wrong"
+                );
 
-                // SAFETY: We just reserved capacity for `other.len()` elements above, and we
-                // also know the cast is fine because we verified above that the maximum
-                // possible offset is representable by the offset type.
-                #[allow(clippy::cast_possible_truncation)]
+                let converted = NumCast::from(adjusted_offset)
+                    .vortex_expect("offset conversion should succeed after upcast");
+
+                // SAFETY: We reserved capacity for `new_offsets.len()` elements above.
                 unsafe {
-                    self_offsets.push_unchecked(adjusted_offset as _);
+                    curr.push_unchecked(converted);
                 }
             }
         });

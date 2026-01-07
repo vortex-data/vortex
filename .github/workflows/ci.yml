@@ -145,9 +145,8 @@ jobs:
           rm -rf ../target/wheels/
 
           uv venv
-          uv pip install "maturin[zig]"
-          uv tool run maturin build --interpreter python3.11 --zig
-          uv tool run maturin build --interpreter python3.11 --zig --sdist
+          uv tool run maturin@1.10 build --interpreter python3.11 --zig
+          uv tool run maturin@1.10 build --interpreter python3.11 --zig --sdist
 
           file_count=$(ls -1 ../target/wheels/ | wc -l)
 
@@ -191,7 +190,7 @@ jobs:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
       - cpu=8
-      - image=vortex-ci-amd64
+      - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=${{ matrix.config.name }}
     env:
@@ -221,9 +220,11 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
+      - id: setup-rust
+        uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          timestamp: "true"
       - name: Install wasm32 target
         if: ${{ matrix.config.target == 'wasm32-unknown-unknown' }}
         run: rustup target add wasm32-unknown-unknown
@@ -235,6 +236,9 @@ jobs:
         run: |
           git status --porcelain
           test -z "$(git status --porcelain)"
+      - name: Prune cache
+        if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
+        run: cargo sweep --file
 
   check-min-deps:
     name: "Check build with minimal dependencies"
@@ -273,6 +277,12 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
+      - id: setup-rust
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: nightly
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          timestamp: "true"
       - name: Rust Lint - Format
         run: cargo +nightly fmt --all --check
       - name: Rustc check
@@ -283,6 +293,9 @@ jobs:
         run: cargo clippy --locked --all-features --all-targets -- -D warnings
       - name: Rust Lint - Clippy Default Features
         run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Prune cache
+        if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
+        run: cargo sweep --file
 
   rust-lint-no-default:
     name: "Rust (lint, no default)"
@@ -299,9 +312,11 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
+      - id: setup-rust
+        uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          timestamp: "true"
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Lint - Clippy No Default Features
@@ -309,6 +324,9 @@ jobs:
         run: |
           # https://spiraldb.slack.com/archives/C07BV3GKAJ2/p1732736281946729
           cargo hack clippy --no-default-features -- -D warnings
+      - name: Prune cache
+        if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
+        run: cargo sweep --file
 
   rust-semver:
     name: "Rust (semver checks)"
@@ -376,9 +394,11 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
+      - id: setup-rust
+        uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          timestamp: "true"
       - name: Install grcov
         uses: taiki-e/install-action@grcov
       - name: Install nextest
@@ -395,7 +415,8 @@ jobs:
         if: ${{ matrix.suite == 'tpc-h' }}
         # We use i2 to ensure that restarting the duckdb connection succeeds
         run: |
-          cargo run --bin query_bench -- tpch -i2 --targets "datafusion:vortex,datafusion:vortex-compact,duckdb:vortex,duckdb:vortex-compact" --scale-factor 0.1
+          cargo run --bin datafusion-bench -- tpch -i2 --formats "vortex,vortex-compact" --opt scale-factor=0.1
+          cargo run --bin duckdb-bench -- tpch -i2 --formats "vortex,vortex-compact" --opt scale-factor=0.1
       - name: Run FFI Example
         if: ${{ matrix.suite == 'ffi' }}
         run: |
@@ -407,12 +428,12 @@ jobs:
         run: |
           grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
             --threads $(nproc) \
-            --ignore '../*' --ignore '/*' --ignore 'fuzz/*' --ignore 'bench-vortex/*' \
+            --ignore '../*' --ignore '/*' --ignore 'fuzz/*' --ignore 'vortex-bench/*' \
             --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*' --ignore 'vortex-error/*' \
             --ignore 'vortex-python/*' --ignore 'vortex-jni/*' --ignore 'vortex-flatbuffers/*' \
             --ignore 'vortex-proto/*' --ignore 'vortex-tui/*' --ignore 'vortex-datafusion/examples/*' \
             --ignore 'vortex-ffi/examples/*' --ignore '*/arbitrary/*' --ignore '*/arbitrary.rs' --ignore 'vortex-cxx/*' \
-            --ignore 'vortex-gpu/*' \
+            --ignore 'vortex-gpu/*' --ignore benchmarks/* \
             -o ${{ env.GRCOV_OUTPUT_FILE }}
       - name: Codecov
         uses: codecov/codecov-action@v5
@@ -422,6 +443,9 @@ jobs:
           disable_search: true
           flags: ${{ matrix.suite }}
           use_oidc: true
+      - name: Prune cache
+        if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
+        run: cargo sweep --file
 
   rust-test:
     name: "Rust tests (sanitizer)"
@@ -435,7 +459,6 @@ jobs:
       - tag=rust-test-sanitizer
     env:
       # Add debug symbols and enable ASAN/LSAN with better output
-      RUSTFLAGS: "-A warnings -Zsanitizer=address -Zsanitizer=leak --cfg disable_loom --cfg vortex_nightly -C debuginfo=2 -C opt-level=0 -C strip=none"
       ASAN_OPTIONS: "symbolize=1:print_stats=1:check_initialization_order=1:detect_leaks=1:halt_on_error=0:verbosity=1:leak_check_at_exit=1"
       LSAN_OPTIONS: "verbosity=1:report_objects=1"
       ASAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
@@ -454,12 +477,14 @@ jobs:
         with:
           compiler: llvm
           cache-tools: true
-      - uses: ./.github/actions/setup-rust
+      - id: setup-rust
+        uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           toolchain: nightly
           components: "rust-src, rustfmt, clippy, llvm-tools-preview"
           cache-suffix: "sanitizer"
+          timestamp: "true"
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -469,6 +494,8 @@ jobs:
         with:
           tool: nextest
       - name: Rust Tests
+        env:
+          RUSTFLAGS: "-A warnings -Zsanitizer=address -Zsanitizer=leak --cfg disable_loom --cfg vortex_nightly -C debuginfo=2 -C opt-level=0 -C strip=none"
         run: |
           # Build with full debug info first (helps with caching)
           cargo +nightly build --locked --workspace --all-features --target x86_64-unknown-linux-gnu
@@ -480,6 +507,9 @@ jobs:
             --no-fail-fast \
             --target x86_64-unknown-linux-gnu \
             --verbose
+      - name: Prune cache
+        if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
+        run: cargo sweep --file
 
   rust-test-other:
     name: "Rust tests (${{ matrix.os }})"
@@ -515,19 +545,25 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - uses: ./.github/actions/setup-rust
+      - id: setup-rust
+        uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          timestamp: "true"
       - name: Install nextest
         uses: taiki-e/install-action@v2
         with:
           tool: nextest
       - name: Rust Tests (Windows)
         if: matrix.os == 'windows-x64'
-        run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude bench-vortex --exclude vortex-python --exclude vortex-duckdb --exclude vortex-fuzz
+        run: |
+          cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude vortex-python --exclude vortex-duckdb --exclude vortex-fuzz --exclude duckdb-bench --exclude lance-bench --exclude datafusion-bench --exclude random-access-bench --exclude compress-bench
       - name: Rust Tests (Other)
         if: matrix.os != 'windows-x64'
-        run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude bench-vortex --exclude vortex-duckdb
+        run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude vortex-duckdb
+      - name: Prune cache
+        if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
+        run: cargo sweep --file
 
   build-java:
     name: "Java"
@@ -589,7 +625,7 @@ jobs:
           RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
         run: cargo codspeed build ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@346a2d8a8d9d38909abd0bc3d23f773110f076ad
+        uses: CodSpeedHQ/action@dbda7111f8ac363564b0c51b992d4ce76bb89f2f
         with:
           run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}

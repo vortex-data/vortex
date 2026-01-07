@@ -24,6 +24,7 @@ use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinVTable;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
@@ -39,7 +40,6 @@ use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_array::vtable::VisitorVTable;
 use vortex_buffer::Buffer;
-use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -198,6 +198,8 @@ pub struct FSSTArray {
     symbols: Buffer<Symbol>,
     symbol_lengths: Buffer<u8>,
     codes: VarBinArray,
+    /// NOTE(ngates): this === codes, but is stored as an ArrayRef so we can return &ArrayRef!
+    codes_array: ArrayRef,
     /// Lengths of the original values before compression, can be compressed.
     uncompressed_lengths: ArrayRef,
     stats_set: ArrayStats,
@@ -283,12 +285,14 @@ impl FSSTArray {
             Compressor::rebuild_from(symbols2.as_slice(), symbol_lengths2.as_slice())
         })
             as Box<dyn Fn() -> Compressor + Send>));
+        let codes_array = codes.to_array();
 
         Self {
             dtype,
             symbols,
             symbol_lengths,
             codes,
+            codes_array,
             uncompressed_lengths,
             stats_set: Default::default(),
             compressor,
@@ -377,8 +381,8 @@ impl BaseArrayVTable<FSSTVTable> for FSSTVTable {
 }
 
 impl ValidityChild<FSSTVTable> for FSSTVTable {
-    fn validity_child(array: &FSSTArray) -> &dyn Array {
-        array.codes().as_ref()
+    fn validity_child(array: &FSSTArray) -> &ArrayRef {
+        &array.codes_array
     }
 }
 

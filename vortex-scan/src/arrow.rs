@@ -191,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn test_record_batch_iterator_adapter() {
+    fn test_record_batch_iterator_adapter() -> VortexResult<()> {
         let schema = create_arrow_schema();
         let batch1 = RecordBatch::try_new(
             schema.clone(),
@@ -199,16 +199,14 @@ mod tests {
                 Arc::new(Int32Array::from(vec![Some(1), Some(2)])) as ArrowArrayRef,
                 Arc::new(StringArray::from(vec![Some("Alice"), Some("Bob")])) as ArrowArrayRef,
             ],
-        )
-        .unwrap();
+        )?;
         let batch2 = RecordBatch::try_new(
             schema.clone(),
             vec![
                 Arc::new(Int32Array::from(vec![None, Some(4)])) as ArrowArrayRef,
                 Arc::new(StringArray::from(vec![Some("Charlie"), None])) as ArrowArrayRef,
             ],
-        )
-        .unwrap();
+        )?;
 
         let iter = vec![Ok(batch1), Ok(batch2)].into_iter();
         let mut adapter = RecordBatchIteratorAdapter {
@@ -220,13 +218,15 @@ mod tests {
         assert_eq!(adapter.schema(), schema);
 
         // Test Iterator trait
-        let first = adapter.next().unwrap().unwrap();
+        let first = adapter.next().unwrap()?;
         assert_eq!(first.num_rows(), 2);
 
-        let second = adapter.next().unwrap().unwrap();
+        let second = adapter.next().unwrap()?;
         assert_eq!(second.num_rows(), 2);
 
         assert!(adapter.next().is_none());
+
+        Ok(())
     }
 
     #[test]

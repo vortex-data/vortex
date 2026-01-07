@@ -412,3 +412,66 @@ fn test_try_into_mut() {
     let original = mut_result2.unwrap_err();
     assert_eq!(original.len(), 2);
 }
+
+#[test]
+fn test_extend_upcasts_offset_and_size_types() {
+    use vortex_dtype::PType;
+
+    // Create first list with u8 offsets/sizes and u8::MAX elements
+    // This forces upcasting when extended with larger types
+    let elements1 = PVectorMut::from_iter((0..u8::MAX as i32).map(Some));
+    let offsets1 = PVectorMut::from_iter([0u8]).into();
+    let sizes1 = PVectorMut::from_iter([u8::MAX]).into();
+    let validity1 = MaskMut::new_true(1);
+
+    let mut list = ListViewVectorMut::new(Box::new(elements1.into()), offsets1, sizes1, validity1);
+
+    // Verify initial types
+    assert_eq!(list.offsets().ptype(), PType::U8);
+    assert_eq!(list.sizes().ptype(), PType::U8);
+
+    // Create second list with u32 offsets and u16 sizes, with u16::MAX elements
+    let elements2: PrimitiveVector = PVectorMut::from_iter((0..u16::MAX as i32).map(Some))
+        .freeze()
+        .into();
+    let offsets2: PrimitiveVector = PVectorMut::from_iter([0u32]).freeze().into();
+    let sizes2: PrimitiveVector = PVectorMut::from_iter([u16::MAX]).freeze().into();
+    let validity2 = Mask::new_true(1);
+
+    let list2 = ListViewVector::new(Arc::new(elements2.into()), offsets2, sizes2, validity2);
+
+    // Extend - this should upcast offsets to u32 and sizes to u16
+    list.extend_from_vector(&list2);
+
+    // Verify types were upcasted
+    assert_eq!(list.offsets().ptype(), PType::U32);
+    assert_eq!(list.sizes().ptype(), PType::U16);
+
+    // Verify lengths
+    assert_eq!(list.len(), 2);
+
+    let frozen = list.freeze();
+
+    // Check that first list's offset is still 0 and size is u8::MAX
+    let offsets = frozen.offsets();
+    let sizes = frozen.sizes();
+
+    let (o0, o1) = match offsets {
+        PrimitiveVector::U32(pvec) => (*pvec.get(0).unwrap(), *pvec.get(1).unwrap()),
+        _ => panic!("Expected U32 offsets"),
+    };
+    let (s0, s1) = match sizes {
+        PrimitiveVector::U16(pvec) => (*pvec.get(0).unwrap(), *pvec.get(1).unwrap()),
+        _ => panic!("Expected U16 sizes"),
+    };
+
+    assert_eq!(o0, 0);
+    assert_eq!(s0, u8::MAX as u16);
+    // Second list's offset should be adjusted by first list's element count (u8::MAX)
+    assert_eq!(o1, u8::MAX as u32);
+    assert_eq!(s1, u16::MAX);
+
+    // Verify element count
+    let total_elements = (u8::MAX as usize) + (u16::MAX as usize);
+    assert_eq!(frozen.elements().len(), total_elements);
+}
