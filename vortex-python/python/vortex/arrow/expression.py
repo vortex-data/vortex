@@ -34,14 +34,14 @@ def _schema_for_substrait(schema: pa.Schema) -> pa.Schema:
     # If/When PyArrow to_substrait supports view types, revert.
     # Workaround for: https://github.com/vortex-data/vortex/issues/5759
     fields = []
-    for field in schema:
-        if field.type == pa.string_view():
-            fields.append(field.with_type(pa.string()))
-        elif field.type == pa.binary_view():
-            fields.append(field.with_type(pa.binary()))
+    for field in schema:  # pyright: ignore[reportUnknownVariableType]
+        if field.type == pa.string_view():  # pyright: ignore[reportUnknownMemberType]
+            fields.append(field.with_type(pa.string()))  # pyright: ignore[reportUnknownMemberType]
+        elif field.type == pa.binary_view():  # pyright: ignore[reportUnknownMemberType]
+            fields.append(field.with_type(pa.binary()))  # pyright: ignore[reportUnknownMemberType]
         else:
-            fields.append(field)
-    return pa.schema(fields)
+            fields.append(field)  # pyright: ignore[reportUnknownMemberType]
+    return pa.schema(fields)  # pyright: ignore[reportUnknownArgumentType]
 
 
 def arrow_to_vortex(arrow_expression: pc.Expression, schema: pa.Schema) -> Expr:

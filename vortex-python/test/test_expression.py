@@ -6,7 +6,7 @@
 import pyarrow as pa
 import pyarrow.compute as pc
 import pytest
-from vortex.arrow.expression import _schema_for_substrait, arrow_to_vortex
+from vortex.arrow.expression import _schema_for_substrait, arrow_to_vortex  # pyright: ignore[reportPrivateUsage]
 
 
 class TestSchemaForSubstrait:
@@ -15,12 +15,12 @@ class TestSchemaForSubstrait:
     def test_string_view_mapped_to_string(self):
         schema = pa.schema([("col", pa.string_view())])
         result = _schema_for_substrait(schema)
-        assert result.field("col").type == pa.string()
+        assert result.field("col").type == pa.string()  # pyright: ignore[reportUnknownMemberType]
 
     def test_binary_view_mapped_to_binary(self):
         schema = pa.schema([("col", pa.binary_view())])
         result = _schema_for_substrait(schema)
-        assert result.field("col").type == pa.binary()
+        assert result.field("col").type == pa.binary()  # pyright: ignore[reportUnknownMemberType]
 
     def test_other_types_unchanged(self):
         schema = pa.schema(
@@ -95,8 +95,8 @@ class TestArrowToVortexWithViews:
             (pa.binary_view(), b"test"),
         ],
     )
-    def test_view_types_parametrized(self, view_type, value):
-        schema = pa.schema([("col", view_type)])
-        expr = pc.field("col") == value
-        vortex_expr = arrow_to_vortex(expr, schema)
+    def test_view_types_parametrized(self, view_type, value):  # pyright: ignore[reportMissingParameterType, reportUnknownParameterType]
+        schema = pa.schema([("col", view_type)])  # pyright: ignore[reportUnknownArgumentType]
+        expr = pc.field("col") == value  # pyright: ignore[reportUnknownVariableType]
+        vortex_expr = arrow_to_vortex(expr, schema)  # pyright: ignore[reportUnknownArgumentType]
         assert vortex_expr is not None
