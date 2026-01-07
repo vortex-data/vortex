@@ -1,6 +1,7 @@
 # Custom AMIs for Vortex CI runners
-# These AMIs are automatically rebuilt every 15 days by the ami-prebuild.yml workflow
+# These AMIs are automatically rebuilt every 25 days by the ami-prebuild.yml workflow
 # to keep the GitHub Actions runner agent up to date (required to be <30 days old).
+# AMIs are deprecated after 25 days via Packer's deprecate_at setting.
 #
 # AMI naming pattern: vortex-ci-{arch}-{timestamp}
 # Built with: .github/actions/build-ami and .github/packer/vortex-ci.pkr.hcl
