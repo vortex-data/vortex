@@ -37,7 +37,6 @@ use vortex::expr::root;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
 
-use crate::SESSION;
 use crate::browse::app::AppState;
 use crate::browse::app::LayoutCursor;
 
@@ -114,13 +113,13 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
     Widget::render(List::new(rows), inner_area, buf);
 }
 
-/// Render the inner Array for a FlatLayout
+/// Render the inner Array for a FlatLayout.
 fn render_array(app: &AppState<'_>, area: Rect, buf: &mut Buffer, is_stats_table: bool) {
     let row_count = app.cursor.layout().row_count();
     let reader = app
         .cursor
         .layout()
-        .new_reader("".into(), app.vxf.segment_source(), &SESSION)
+        .new_reader("".into(), app.vxf.segment_source(), app.session)
         .vortex_expect("Failed to create reader");
 
     // FIXME(ngates): our TUI app should never perform I/O in the render loop...
@@ -241,7 +240,7 @@ fn render_array(app: &AppState<'_>, area: Rect, buf: &mut Buffer, is_stats_table
 
 fn render_children_list(app: &mut AppState, area: Rect, buf: &mut Buffer) {
     // TODO: add selection state.
-    let search_filter = app.search_filter.clone();
+    let search_filter = &app.search_filter;
     let layout = app.cursor.layout();
 
     if layout.nchildren() > 0 {
@@ -264,7 +263,7 @@ fn render_children_list(app: &mut AppState, area: Rect, buf: &mut Buffer) {
                 .enumerate()
                 .filter_map(|(idx, name)| {
                     matcher
-                        .fuzzy_match(&name, &search_filter)
+                        .fuzzy_match(&name, search_filter)
                         .map(|_| (idx, name.to_string()))
                 })
                 .collect_vec();

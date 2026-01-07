@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
@@ -27,7 +28,12 @@ pub(super) const PARENT_RULES: ParentRuleSet<StructVTable> = ParentRuleSet::new(
     ParentRuleSet::lift(&StructGetItemRule),
 ]);
 
-/// Rule to push down cast into struct fields
+/// Rule to push down cast into struct fields.
+///
+/// TODO(joe/rob): should be have this in casts.
+///
+/// This rule supports schema evolution by allowing new nullable fields to be added
+/// at the end of the struct, filled with null values.
 #[derive(Debug)]
 struct StructCastPushDownRule;
 impl ArrayParentReduceRule<StructVTable> for StructCastPushDownRule {
@@ -44,10 +50,38 @@ impl ArrayParentReduceRule<StructVTable> for StructCastPushDownRule {
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         let target_fields = parent.options.as_struct_fields();
+        let source_field_count = array.fields.len();
+        let target_field_count = target_fields.nfields();
 
-        let mut new_fields = Vec::with_capacity(target_fields.nfields());
-        for (field_array, field_dtype) in array.fields.iter().zip(target_fields.fields()) {
-            new_fields.push(field_array.cast(field_dtype)?)
+        // Target must have at least as many fields as source
+        vortex_ensure!(
+            target_field_count >= source_field_count,
+            "Cannot cast struct: target has fewer fields ({}) than source ({})",
+            target_field_count,
+            source_field_count
+        );
+
+        let mut new_fields = Vec::with_capacity(target_field_count);
+
+        // Cast existing source fields to target types
+        for (field_array, field_dtype) in array
+            .fields
+            .iter()
+            .zip(target_fields.fields().take(source_field_count))
+        {
+            new_fields.push(field_array.cast(field_dtype)?);
+        }
+
+        // Add null arrays for any extra target fields (schema evolution)
+        for field_dtype in target_fields.fields().skip(source_field_count) {
+            vortex_ensure!(
+                field_dtype.is_nullable(),
+                "Cannot add non-nullable field during struct cast (schema evolution only supports nullable fields)"
+            );
+            new_fields.push(
+                ConstantArray::new(vortex_scalar::Scalar::null(field_dtype), array.len())
+                    .into_array(),
+            );
         }
 
         let validity = if parent.options.is_nullable() {

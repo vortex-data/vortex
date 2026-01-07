@@ -19,7 +19,7 @@ all-features = true
 [features]
 arrow = []
 memmap2 = ["dep:memmap2"]
-serde = ["dep:serde"]
+serde = ["dep:serde", "serde/serde_derive"]
 warn-copy = ["dep:tracing"]
 
 [dependencies]
@@ -40,7 +40,6 @@ cudarc = { workspace = true }
 workspace = true
 
 [dev-dependencies]
-arrow-buffer = { workspace = true }
 divan = { workspace = true }
 num-traits = { workspace = true }
 rstest = { workspace = true }

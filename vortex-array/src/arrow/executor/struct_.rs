@@ -8,6 +8,7 @@ use arrow_array::StructArray;
 use arrow_buffer::NullBuffer;
 use arrow_schema::DataType;
 use arrow_schema::Fields;
+use itertools::Itertools;
 use vortex_compute::arrow::IntoArrow;
 use vortex_dtype::DType;
 use vortex_dtype::StructFields;
@@ -93,7 +94,7 @@ fn create_from_fields(
     session: &VortexSession,
 ) -> VortexResult<ArrowArrayRef> {
     let mut arrow_fields = Vec::with_capacity(vortex_fields.len());
-    for (field, vx_field) in fields.iter().zip(vortex_fields.into_iter()) {
+    for (field, vx_field) in fields.iter().zip_eq(vortex_fields.into_iter()) {
         let arrow_field = vx_field.execute_arrow(field.data_type(), session)?;
         vortex_ensure!(
             field.is_nullable() || arrow_field.null_count() == 0,
