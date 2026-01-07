@@ -123,9 +123,16 @@ mod tests {
         };
     }
 
+    // Signed types
     test_big_cast_overflow!(test_i8_overflow, i8 => i16, i8::MAX, 1i16);
     test_big_cast_overflow!(test_i16_overflow, i16 => i32, i16::MAX, 1i32);
     test_big_cast_overflow!(test_i32_overflow, i32 => i64, i32::MAX, 1i64);
     test_big_cast_overflow!(test_i64_overflow, i64 => i128, i64::MAX, 1i128);
     test_big_cast_overflow!(test_i128_overflow, i128 => i256, i128::MAX, i256::ONE);
+
+    // Unsigned types
+    test_big_cast_overflow!(test_u8_overflow, u8 => u16, u8::MAX, 1u16);
+    test_big_cast_overflow!(test_u16_overflow, u16 => u32, u16::MAX, 1u32);
+    test_big_cast_overflow!(test_u32_overflow, u32 => u64, u32::MAX, 1u64);
+    test_big_cast_overflow!(test_u64_overflow, u64 => u128, u64::MAX, 1u128);
 }
