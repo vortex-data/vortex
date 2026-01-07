@@ -300,7 +300,8 @@ mod tests {
     // Define CountingReadAt struct
     struct CountingReadAt<R> {
         inner: R,
-        bytes_read: Arc<AtomicUsize>,
+        total_read: Arc<AtomicUsize>,
+        first_read_len: Arc<AtomicUsize>,
     }
 
     impl<R: VortexReadAt> VortexReadAt for CountingReadAt<R> {
@@ -310,7 +311,13 @@ mod tests {
             length: usize,
             alignment: Alignment,
         ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
-            self.bytes_read.fetch_add(length, Ordering::Relaxed);
+            self.total_read.fetch_add(length, Ordering::Relaxed);
+            let _ = self.first_read_len.compare_exchange(
+                0,
+                length,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            );
             self.inner.read_at(offset, length, alignment)
         }
 
@@ -353,22 +360,25 @@ mod tests {
             buffer.len()
         );
 
-        let bytes_read = Arc::new(AtomicUsize::new(0));
+        let total_read = Arc::new(AtomicUsize::new(0));
+        let first_read_len = Arc::new(AtomicUsize::new(0));
         let reader = CountingReadAt {
             inner: buffer,
-            bytes_read: bytes_read.clone(),
+            total_read: total_read.clone(),
+            first_read_len: first_read_len.clone(),
         };
 
         // Open the file
         let _file = session.open_options().open_read_at(reader).await.unwrap();
 
         // Assert that we read approximately the postscript size, not 1MB
-        let read = bytes_read.load(Ordering::Relaxed);
-        assert!(read < 1024 * 1024, "Read {} bytes, expected < 1MB", read);
+        let first = first_read_len.load(Ordering::Relaxed);
         assert_eq!(
-            read,
+            first,
             MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE,
             "Read exactly the postscript size"
         );
+        let read = total_read.load(Ordering::Relaxed);
+        assert!(read < 1024 * 1024, "Read {} bytes, expected < 1MB", read);
     }
 }
