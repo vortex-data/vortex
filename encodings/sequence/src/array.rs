@@ -16,9 +16,11 @@ use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
+use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::ArrayVTable;
@@ -31,7 +33,6 @@ use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
 use vortex_array::vtable::VisitorVTable;
-use vortex_buffer::BufferHandle;
 use vortex_buffer::BufferMut;
 use vortex_dtype::DType;
 use vortex_dtype::NativePType;
@@ -411,6 +412,10 @@ impl ValidityVTable<SequenceVTable> for SequenceVTable {
 
     fn all_invalid(_array: &SequenceArray) -> bool {
         false
+    }
+
+    fn validity(_array: &SequenceArray) -> VortexResult<Validity> {
+        Ok(Validity::AllValid)
     }
 
     fn validity_mask(array: &SequenceArray) -> Mask {

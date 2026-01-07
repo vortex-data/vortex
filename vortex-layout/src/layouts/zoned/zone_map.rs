@@ -288,7 +288,6 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
     use vortex_error::VortexExpect;
-    use vortex_error::VortexUnwrap;
 
     use crate::layouts::zoned::MAX_IS_TRUNCATED;
     use crate::layouts::zoned::MIN_IS_TRUNCATED;
@@ -308,8 +307,10 @@ mod tests {
         builder2.append_value("wait a minute");
         let mut acc =
             StatsAccumulator::new(builder.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
-        acc.push_chunk(&builder.finish()).vortex_unwrap();
-        acc.push_chunk(&builder2.finish()).vortex_unwrap();
+        acc.push_chunk(&builder.finish())
+            .vortex_expect("push_chunk should succeed for test data");
+        acc.push_chunk(&builder2.finish())
+            .vortex_expect("push_chunk should succeed for test data");
         let stats_table = acc.as_stats_table().vortex_expect("Must have stats table");
         assert_eq!(
             stats_table.array.names().as_ref(),
@@ -334,7 +335,8 @@ mod tests {
     fn always_adds_is_truncated_column() {
         let array = buffer![0, 1, 2].into_array();
         let mut acc = StatsAccumulator::new(array.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
-        acc.push_chunk(&array).vortex_unwrap();
+        acc.push_chunk(&array)
+            .vortex_expect("push_chunk should succeed for test array");
         let stats_table = acc.as_stats_table().vortex_expect("Must have stats table");
         assert_eq!(
             stats_table.array.names().as_ref(),

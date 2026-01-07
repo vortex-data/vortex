@@ -4,7 +4,6 @@
 use std::hash::Hash;
 use std::ops::Range;
 
-use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -20,10 +19,12 @@ use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::Precision;
+use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSetRef;
+use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
@@ -195,6 +196,10 @@ impl ValidityVTable<NullVTable> for NullVTable {
 
     fn all_invalid(array: &NullArray) -> bool {
         !array.is_empty()
+    }
+
+    fn validity(_array: &NullArray) -> VortexResult<Validity> {
+        Ok(Validity::AllInvalid)
     }
 
     fn validity_mask(array: &NullArray) -> Mask {

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Convert Parquet files to Vortex format.
+
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -20,32 +22,42 @@ use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
+use vortex::session::VortexSession;
 
-use crate::SESSION;
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
-enum Strategy {
+/// Compression strategy to use when converting Parquet files to Vortex format.
+#[derive(Clone, Copy, Debug, Default, ValueEnum)]
+pub enum Strategy {
+    /// Use the BtrBlocks compressor strategy (default)
+    #[default]
     Btrblocks,
+    /// Use the Compact compression strategy for more aggressive compression.
     Compact,
 }
-#[derive(Debug, Clone, Parser)]
-pub struct Flags {
-    /// Path to the Parquet file on disk to convert to Vortex
-    pub file: PathBuf,
 
-    /// Execute quietly. No output will be printed.
-    #[arg(short, long)]
-    quiet: bool,
+/// Command-line flags for the convert command.
+#[derive(Debug, Clone, Parser)]
+pub struct ConvertArgs {
+    /// Path to the Parquet file on disk to convert to Vortex.
+    pub file: PathBuf,
 
     /// Compression strategy.
     #[arg(short, long, default_value = "btrblocks")]
-    strategy: Strategy,
+    pub strategy: Strategy,
+
+    /// Execute quietly. No output will be printed.
+    #[arg(short, long)]
+    pub quiet: bool,
 }
 
-const BATCH_SIZE: usize = 8192;
+/// The batch size of the record batches.
+pub const BATCH_SIZE: usize = 8192;
 
 /// Convert Parquet files to Vortex.
-pub async fn exec_convert(flags: Flags) -> anyhow::Result<()> {
+///
+/// # Errors
+///
+/// Returns an error if the input file cannot be read or the output file cannot be written.
+pub async fn exec_convert(session: &VortexSession, flags: ConvertArgs) -> anyhow::Result<()> {
     let input_path = flags.file.clone();
     if !flags.quiet {
         eprintln!("Converting input Parquet file: {}", input_path.display());
@@ -87,7 +99,7 @@ pub async fn exec_convert(flags: Flags) -> anyhow::Result<()> {
     };
 
     let mut file = File::create(output_path).await?;
-    SESSION
+    session
         .write_options()
         .with_strategy(strategy.build())
         .write(&mut file, ArrayStreamAdapter::new(dtype, vortex_stream))

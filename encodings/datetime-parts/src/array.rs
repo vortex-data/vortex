@@ -16,6 +16,7 @@ use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::arrays::TemporalArray;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
@@ -30,7 +31,6 @@ use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_array::vtable::VisitorVTable;
-use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -39,6 +39,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+
+use crate::compute::rules::PARENT_RULES;
 
 vtable!(DateTimeParts);
 
@@ -159,6 +161,14 @@ impl VTable for DateTimePartsVTable {
 
         Ok(())
     }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -278,7 +288,7 @@ impl BaseArrayVTable<DateTimePartsVTable> for DateTimePartsVTable {
 }
 
 impl ValidityChild<DateTimePartsVTable> for DateTimePartsVTable {
-    fn validity_child(array: &DateTimePartsArray) -> &dyn Array {
+    fn validity_child(array: &DateTimePartsArray) -> &ArrayRef {
         array.days()
     }
 }

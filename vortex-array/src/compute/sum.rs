@@ -273,7 +273,7 @@ mod test {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
-    use vortex_error::VortexUnwrap;
+    use vortex_error::VortexExpect;
     use vortex_scalar::Scalar;
 
     use crate::IntoArray as _;
@@ -327,7 +327,7 @@ mod test {
             ],
             DType::Primitive(PType::I32, Nullability::NonNullable),
         )
-        .vortex_unwrap();
+        .vortex_expect("operation should succeed in test");
         // compute sum with accumulator to populate stats
         sum_with_accumulator(
             array.as_ref(),

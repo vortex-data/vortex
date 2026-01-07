@@ -4,10 +4,10 @@
 mod array;
 mod canonical;
 mod operations;
+mod rules;
 mod validity;
 mod visitor;
 
-use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -19,6 +19,8 @@ use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::VectorExecutor;
 use crate::arrays::extension::ExtensionArray;
+use crate::arrays::extension::vtable::rules::PARENT_RULES;
+use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::vtable;
@@ -97,6 +99,14 @@ impl VTable for ExtensionVTable {
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         array.storage().execute(ctx)
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }
 

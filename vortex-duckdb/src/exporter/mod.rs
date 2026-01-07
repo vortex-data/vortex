@@ -9,6 +9,7 @@ mod decimal;
 mod dict;
 mod fixed_size_list;
 mod list;
+mod list_view;
 mod primitive;
 mod run_end;
 mod sequence;
@@ -31,6 +32,7 @@ use vortex::array::Canonical;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::ConstantVTable;
 use vortex::array::arrays::DictVTable;
+use vortex::array::arrays::ListVTable;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::TemporalArray;
 use vortex::array::iter::ArrayIterator;
@@ -202,6 +204,10 @@ fn new_array_exporter_with_flatten(
         return sequence::new_exporter(array);
     }
 
+    if let Some(array) = array.as_opt::<ListVTable>() {
+        return list::new_exporter(array, cache);
+    }
+
     // Otherwise, we fall back to canonical
     match array.to_canonical() {
         Canonical::Null(_) => Ok(all_invalid::new_exporter(
@@ -212,7 +218,7 @@ fn new_array_exporter_with_flatten(
         Canonical::Primitive(array) => primitive::new_exporter(&array),
         Canonical::Decimal(array) => decimal::new_exporter(&array),
         Canonical::Struct(array) => struct_::new_exporter(&array, cache),
-        Canonical::List(array) => list::new_exporter(&array, cache),
+        Canonical::List(array) => list_view::new_exporter(&array, cache),
         Canonical::FixedSizeList(array) => fixed_size_list::new_exporter(&array, cache),
         Canonical::VarBinView(array) => varbinview::new_exporter(&array),
         Canonical::Extension(ext) => {
@@ -257,6 +263,10 @@ fn new_array_vector_exporter_with_flatten(
         return dict::new_vector_exporter_with_flatten(array, cache, session, flatten);
     }
 
+    if let Some(array) = array.as_opt::<ListVTable>() {
+        return list::new_vector_exporter(array, cache, session);
+    }
+
     // Otherwise, we fall back to canonical
     match array.dtype() {
         DType::Null => Ok(all_invalid::new_exporter(
@@ -268,7 +278,7 @@ fn new_array_vector_exporter_with_flatten(
         DType::Decimal(..) => decimal::new_vector_exporter(array, session),
         DType::Binary(..) => varbinview::new_vector_exporter(array, session),
         DType::Utf8(..) => varbinview::new_vector_exporter(array, session),
-        DType::List(..) => list::new_vector_exporter(array, cache, session),
+        DType::List(..) => list_view::new_vector_exporter(array, cache, session),
         DType::FixedSizeList(..) => fixed_size_list::new_vector_exporter(array, cache, session),
         DType::Struct(..) => struct_::new_vector_exporter(array.to_struct(), cache, session),
         DType::Extension(ext) => {

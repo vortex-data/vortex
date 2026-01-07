@@ -148,7 +148,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::Buffer;
-    use vortex_error::VortexUnwrap;
+    use vortex_error::VortexExpect;
     use vortex_fastlanes::{BitPackedArray, FoRArray};
 
     use super::*;
@@ -159,8 +159,8 @@ mod tests {
             (0u32..4096).map(|i| i % 8).collect::<Buffer<_>>(),
             Validity::NonNullable,
         );
-        let array = BitPackedArray::encode(primitive_array.as_ref(), 6).vortex_unwrap();
-        let array = FoRArray::try_new(array.into_array(), 8u32.into()).vortex_unwrap();
+        let array = BitPackedArray::encode(primitive_array.as_ref(), 6).vortex_expect("operation should succeed in test");
+        let array = FoRArray::try_new(array.into_array(), 8u32.into()).vortex_expect("operation should succeed in test");
         let ctx = CudaContext::new(0).unwrap();
         ctx.set_blocking_synchronize().unwrap();
         let unpacked = cuda_for_bp_unpack(&array, ctx).unwrap();

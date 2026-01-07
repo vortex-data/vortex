@@ -31,7 +31,6 @@ use taffy::TraversePartialTree;
 use vortex::dtype::FieldName;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
-use vortex::error::VortexUnwrap;
 use vortex::error::vortex_err;
 use vortex::file::SegmentSpec;
 use vortex::layout::Layout;
@@ -40,24 +39,44 @@ use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::browse::app::AppState;
 
+/// State for the segment grid visualization.
+///
+/// This struct manages the layout tree and scroll state for displaying segments in a grid view.
+/// The segment tree is lazily computed on first render and cached for subsequent frames.
 #[derive(Debug, Clone, Default)]
 pub struct SegmentGridState<'a> {
-    /// state for the segment grid layout
+    /// The computed layout tree for the segment grid, or `None` if not yet computed.
+    ///
+    /// Contains the taffy layout tree, root node ID, and a map of node contents.
     pub segment_tree: Option<(TaffyTree<()>, NodeId, HashMap<NodeId, NodeContents<'a>>)>,
+
+    /// State for the horizontal scrollbar widget.
     pub horizontal_scroll_state: ScrollbarState,
+
+    /// State for the vertical scrollbar widget.
     pub vertical_scroll_state: ScrollbarState,
+
+    /// Current vertical scroll position in pixels.
     pub vertical_scroll: usize,
+
+    /// Current horizontal scroll position in pixels.
     pub horizontal_scroll: usize,
+
+    /// Maximum horizontal scroll position.
     pub max_horizontal_scroll: usize,
+
+    /// Maximum vertical scroll position.
     pub max_vertical_scroll: usize,
 }
 
 impl SegmentGridState<'_> {
+    /// Scroll the viewport up by the given amount.
     pub fn scroll_up(&mut self, amount: usize) {
         self.vertical_scroll = self.vertical_scroll.saturating_sub(amount);
         self.vertical_scroll_state = self.vertical_scroll_state.position(self.vertical_scroll);
     }
 
+    /// Scroll the viewport down by the given amount.
     pub fn scroll_down(&mut self, amount: usize) {
         self.vertical_scroll = self
             .vertical_scroll
@@ -66,6 +85,7 @@ impl SegmentGridState<'_> {
         self.vertical_scroll_state = self.vertical_scroll_state.position(self.vertical_scroll);
     }
 
+    /// Scroll the viewport left by the given amount.
     pub fn scroll_left(&mut self, amount: usize) {
         self.horizontal_scroll = self.horizontal_scroll.saturating_sub(amount);
         self.horizontal_scroll_state = self
@@ -73,6 +93,7 @@ impl SegmentGridState<'_> {
             .position(self.horizontal_scroll);
     }
 
+    /// Scroll the viewport right by the given amount.
     pub fn scroll_right(&mut self, amount: usize) {
         self.horizontal_scroll = self
             .horizontal_scroll
@@ -110,7 +131,7 @@ pub fn segments_ui(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
         app_state.segment_grid_state.segment_tree = Some(
             to_display_segment_tree(segment_tree)
                 .map_err(|e| vortex_err!("Fail to compute segment tree {e}"))
-                .vortex_unwrap(),
+                .vortex_expect("operation should succeed in TUI"),
         );
     }
 
@@ -125,7 +146,7 @@ pub fn segments_ui(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
         };
         tree.compute_layout(*root_node, viewport_size)
             .map_err(|e| vortex_err!("Fail to compute layout {e}"))
-            .vortex_unwrap();
+            .vortex_expect("operation should succeed in TUI");
         app_state.frame_size = area.as_size();
 
         let root_layout = tree.get_final_layout(*root_node);
@@ -291,55 +312,56 @@ fn to_display_segment_tree<'a>(
                 .get_mut(&name)
                 .vortex_expect("Must have segment for name");
             chunks.sort_by(|a, b| a.spec.offset.cmp(&b.spec.offset));
-            let leaves = chunks
-                .iter()
-                .scan(0u64, |current_offset, segment| {
-                    let node_id = tree
-                        .new_leaf(Style {
-                            min_size: Size {
-                                width: Dimension::percent(1.0),
-                                height: Dimension::length(7.0),
-                            },
-                            size: Size {
-                                width: Dimension::percent(1.0),
-                                height: Dimension::length(15.0),
-                            },
-                            ..Default::default()
-                        })
-                        .expect("Fail to create leaf node");
-                    node_contents.insert(
-                        node_id,
-                        NodeContents {
-                            title: segment.name.clone(),
-                            contents: vec![
-                                Line::raw(format!(
-                                    "Rows: {}..{} ({})",
-                                    segment.row_offset,
-                                    segment.row_offset + segment.row_count,
-                                    segment.row_count
-                                )),
-                                Line::raw(format!(
-                                    "Bytes: {}..{} ({})",
-                                    segment.spec.offset,
-                                    segment.spec.offset + segment.spec.length as u64,
-                                    humansize::format_size(segment.spec.length, DECIMAL),
-                                )),
-                                Line::raw(format!("Align: {}", segment.spec.alignment)),
-                                Line::raw(format!(
-                                    "Byte gap: {}",
-                                    if *current_offset == 0 {
-                                        0
-                                    } else {
-                                        segment.spec.offset - *current_offset
-                                    }
-                                )),
-                            ],
-                        },
-                    );
-                    *current_offset = segment.spec.length as u64 + segment.spec.offset;
-                    Some(node_id)
-                })
-                .collect::<Vec<_>>();
+
+            // Build leaf nodes for each segment chunk.
+            let mut leaves = Vec::with_capacity(chunks.len());
+            let mut current_offset = 0u64;
+            for segment in chunks.iter() {
+                let node_id = tree.new_leaf(Style {
+                    min_size: Size {
+                        width: Dimension::percent(1.0),
+                        height: Dimension::length(7.0),
+                    },
+                    size: Size {
+                        width: Dimension::percent(1.0),
+                        height: Dimension::length(15.0),
+                    },
+                    ..Default::default()
+                })?;
+
+                node_contents.insert(
+                    node_id,
+                    NodeContents {
+                        title: segment.name.clone(),
+                        contents: vec![
+                            Line::raw(format!(
+                                "Rows: {}..{} ({})",
+                                segment.row_offset,
+                                segment.row_offset + segment.row_count,
+                                segment.row_count
+                            )),
+                            Line::raw(format!(
+                                "Bytes: {}..{} ({})",
+                                segment.spec.offset,
+                                segment.spec.offset + segment.spec.length as u64,
+                                humansize::format_size(segment.spec.length, DECIMAL),
+                            )),
+                            Line::raw(format!("Align: {}", segment.spec.alignment)),
+                            Line::raw(format!(
+                                "Byte gap: {}",
+                                if current_offset == 0 {
+                                    0
+                                } else {
+                                    segment.spec.offset - current_offset
+                                }
+                            )),
+                        ],
+                    },
+                );
+
+                current_offset = segment.spec.length as u64 + segment.spec.offset;
+                leaves.push(node_id);
+            }
 
             let node_id = tree.new_with_children(
                 Style {
@@ -388,7 +410,8 @@ fn collect_segment_tree(root_layout: &dyn Layout, segments: &Arc<[SegmentSpec]>)
         segments: HashMap::new(),
         segment_ordering: Vec::new(),
     };
-    segments_by_name_impl(root_layout, None, None, Some(0), segments, &mut tree).vortex_unwrap();
+    segments_by_name_impl(root_layout, None, None, Some(0), segments, &mut tree)
+        .vortex_expect("operation should succeed in TUI");
 
     tree
 }

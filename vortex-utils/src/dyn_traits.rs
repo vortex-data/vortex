@@ -6,6 +6,9 @@
 use std::any::Any;
 
 /// A dynamic equality trait for types implementing [`PartialEq`] or [`Eq`].
+///
+/// Developers should implement `PartialEq` or `Eq` for `dyn Trait` types and
+/// delegate to this trait for dynamic equality checks.
 pub trait DynEq: Any + private::SealedEq {
     /// Compares `self` with another `Any` type for equality.
     fn dyn_eq(&self, other: &dyn Any) -> bool;

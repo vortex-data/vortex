@@ -4,6 +4,7 @@
 use vortex_dtype::DType;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
+use vortex_mask::MaskMut;
 
 use crate::Scalar;
 use crate::ScalarOps;
@@ -11,6 +12,7 @@ use crate::VectorMut;
 use crate::VectorMutOps;
 use crate::VectorOps;
 use crate::fixed_size_list::FixedSizeListVector;
+use crate::fixed_size_list::FixedSizeListVectorMut;
 
 /// A scalar value for fixed-size list types.
 ///
@@ -84,14 +86,161 @@ impl ScalarOps for FixedSizeListScalar {
         }
     }
 
-    fn repeat(&self, _n: usize) -> VectorMut {
-        // TODO(ngates): add "repeat(n)" to the vector ops trait
-        todo!()
+    fn repeat(&self, n: usize) -> VectorMut {
+        if n == 0 {
+            // Return an empty vector with the correct structure
+            let list_size = self.0.list_size();
+            let scalar_elements = self.0.elements();
+            let elements = scalar_elements.slice(0..0).into_mut();
+            let validity = MaskMut::new_true(0);
+            return unsafe {
+                VectorMut::FixedSizeList(FixedSizeListVectorMut::new_unchecked(
+                    Box::new(elements),
+                    list_size,
+                    validity,
+                ))
+            };
+        }
+
+        let list_size = self.0.list_size();
+
+        let scalar_elements = self.0.elements();
+        let mut elements = scalar_elements.as_ref().clone();
+        // ensure we don't allocate a vector with the wrong size.
+        elements.clear();
+        let mut elements = elements.into_mut();
+        elements.reserve(n * list_size as usize);
+
+        if self.is_null() {
+            elements.append_zeros(n * list_size as usize);
+            let validity = MaskMut::new_false(n);
+            return unsafe {
+                VectorMut::FixedSizeList(FixedSizeListVectorMut::new_unchecked(
+                    Box::new(elements),
+                    list_size,
+                    validity,
+                ))
+            };
+        }
+
+        // Repeat the elements n-1 more times (we already have 1 copy)
+        for _ in 0..n {
+            elements.extend_from_vector(scalar_elements.as_ref());
+        }
+
+        // SAFETY: We've repeated the elements n times, so elements.len() == n * list_size
+        unsafe {
+            VectorMut::FixedSizeList(FixedSizeListVectorMut::new_unchecked(
+                Box::new(elements),
+                list_size,
+                MaskMut::new_true(n),
+            ))
+        }
     }
 }
 
 impl From<FixedSizeListScalar> for Scalar {
     fn from(val: FixedSizeListScalar) -> Self {
         Scalar::FixedSizeList(val)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
+    use vortex_mask::Mask;
+
+    use super::*;
+    use crate::Vector;
+    use crate::fixed_size_list::FixedSizeListVector;
+    use crate::primitive::PVectorMut;
+
+    #[test]
+    fn test_repeat_valid_scalar() {
+        // Create a FSL with elements [1, 2, 3] (list_size = 3)
+        let elements: Vector = PVectorMut::<i32>::from_iter([1, 2, 3]).freeze().into();
+        let validity = Mask::new_true(1);
+        let fsl = FixedSizeListVector::new(Arc::new(elements), 3, validity);
+
+        let scalar = FixedSizeListScalar::new(fsl);
+        assert!(scalar.is_valid());
+
+        // Repeat 4 times
+        let repeated = scalar.repeat(4).freeze();
+        assert_eq!(repeated.len(), 4);
+
+        // Check validity - all should be valid
+        assert_eq!(repeated.validity().true_count(), 4);
+
+        // Freeze and check the elements
+        let fsl_vec = repeated.as_fixed_size_list();
+        assert_eq!(fsl_vec.len(), 4);
+        assert_eq!(fsl_vec.list_size(), 3);
+
+        // Elements should be [1,2,3, 1,2,3, 1,2,3, 1,2,3]
+        let elements = fsl_vec.elements();
+        assert_eq!(elements.len(), 12);
+    }
+
+    #[test]
+    fn test_repeat_null_scalar() {
+        // Create a null FSL scalar
+        let dtype = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            3,
+            Nullability::Nullable,
+        );
+        let scalar = FixedSizeListScalar::null(&dtype);
+        assert!(!scalar.is_valid());
+
+        // Repeat 3 times
+        let repeated = scalar.repeat(3).freeze();
+        assert_eq!(repeated.len(), 3);
+
+        // Check validity - all should be null
+        assert_eq!(repeated.validity().true_count(), 0);
+    }
+
+    #[test]
+    fn test_repeat_zero() {
+        // Create a valid FSL scalar
+        let elements: Vector = PVectorMut::<i32>::from_iter([1, 2]).freeze().into();
+        let validity = Mask::new_true(1);
+        let fsl = FixedSizeListVector::new(Arc::new(elements), 2, validity);
+
+        let scalar = FixedSizeListScalar::new(fsl);
+
+        // Repeat 0 times - should return empty vector
+        let repeated = scalar.repeat(0);
+        assert_eq!(repeated.len(), 0);
+
+        let frozen = repeated.freeze();
+        let fsl_vec = frozen.as_fixed_size_list();
+        assert_eq!(fsl_vec.len(), 0);
+        assert_eq!(fsl_vec.list_size(), 2);
+        assert_eq!(fsl_vec.elements().len(), 0);
+    }
+
+    #[test]
+    fn test_repeat_one() {
+        // Create a FSL with elements [10, 20]
+        let elements: Vector = PVectorMut::<i32>::from_iter([10, 20]).freeze().into();
+        let validity = Mask::new_true(1);
+        let fsl = FixedSizeListVector::new(Arc::new(elements), 2, validity);
+
+        let scalar = FixedSizeListScalar::new(fsl);
+
+        // Repeat 1 time - should be same as original
+        let repeated = scalar.repeat(1);
+        assert_eq!(repeated.len(), 1);
+
+        let frozen = repeated.freeze();
+        let fsl_vec = frozen.as_fixed_size_list();
+        assert_eq!(fsl_vec.len(), 1);
+        assert_eq!(fsl_vec.elements().len(), 2);
     }
 }

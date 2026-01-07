@@ -4,6 +4,7 @@
 use std::any::Any;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -23,7 +24,9 @@ use crate::arrays::FilterArray;
 use crate::arrays::FilterVTable;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::ScalarFnVTable;
+use crate::arrays::StructArray;
 use crate::expr::ExecutionArgs;
+use crate::expr::Pack;
 use crate::expr::ReduceCtx;
 use crate::expr::ReduceNode;
 use crate::expr::ReduceNodeRef;
@@ -33,12 +36,42 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
+use crate::validity::Validity;
 
-pub(super) const RULES: ReduceRuleSet<ScalarFnVTable> =
-    ReduceRuleSet::new(&[&ScalarFnConstantRule, &ScalarFnAbstractReduceRule]);
+pub(super) const RULES: ReduceRuleSet<ScalarFnVTable> = ReduceRuleSet::new(&[
+    &ScalarFnPackToStructRule,
+    &ScalarFnConstantRule,
+    &ScalarFnAbstractReduceRule,
+]);
 
 pub(super) const PARENT_RULES: ParentRuleSet<ScalarFnVTable> =
     ParentRuleSet::new(&[ParentRuleSet::lift(&ScalarFnUnaryFilterPushDownRule)]);
+
+/// Converts a ScalarFnArray with Pack into a StructArray directly.
+#[derive(Debug)]
+struct ScalarFnPackToStructRule;
+impl ArrayReduceRule<ScalarFnVTable> for ScalarFnPackToStructRule {
+    fn reduce(&self, array: &ScalarFnArray) -> VortexResult<Option<ArrayRef>> {
+        let Some(pack_options) = array.scalar_fn.as_opt::<Pack>() else {
+            return Ok(None);
+        };
+
+        let validity = match pack_options.nullability {
+            vortex_dtype::Nullability::NonNullable => Validity::NonNullable,
+            vortex_dtype::Nullability::Nullable => Validity::AllValid,
+        };
+
+        Ok(Some(
+            StructArray::try_new(
+                pack_options.names.clone(),
+                array.children.clone(),
+                array.len,
+                validity,
+            )?
+            .into_array(),
+        ))
+    }
+}
 
 #[derive(Debug)]
 struct ScalarFnConstantRule;
@@ -188,11 +221,11 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnUnaryFilterPushDownRule {
                 .iter()
                 .map(|c| match c.as_opt::<ConstantVTable>() {
                     Some(array) => {
-                        ConstantArray::new(array.scalar().clone(), parent.len()).into_array()
+                        Ok(ConstantArray::new(array.scalar().clone(), parent.len()).into_array())
                     }
-                    None => FilterArray::new(c.clone(), parent.filter_mask().clone()).into_array(),
+                    None => c.filter(parent.filter_mask().clone()),
                 })
-                .collect();
+                .try_collect()?;
 
             let new_array =
                 ScalarFnArray::try_new(child.scalar_fn.clone(), new_children, parent.len())?

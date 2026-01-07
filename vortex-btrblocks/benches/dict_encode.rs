@@ -28,6 +28,7 @@ fn make_array() -> PrimitiveArray {
     PrimitiveArray::new(values, Validity::Array(nulls))
 }
 
+#[cfg(not(codspeed))]
 #[divan::bench]
 fn encode_generic(bencher: Bencher) {
     let array = make_array().into_array();
@@ -36,6 +37,7 @@ fn encode_generic(bencher: Bencher) {
         .bench_refs(|array| dict_encode(array.as_ref()).unwrap());
 }
 
+#[cfg(not(codspeed))]
 #[divan::bench]
 fn encode_specialized(bencher: Bencher) {
     let stats = IntegerStats::generate(&make_array());

@@ -10,9 +10,12 @@ use arrow_schema::SchemaRef;
 use futures::Stream;
 use futures::TryStreamExt;
 use vortex_array::ArrayRef;
+use vortex_array::arrow::ArrowArrayExecutor;
 use vortex_array::arrow::IntoArrowArray;
 use vortex_error::VortexResult;
 use vortex_io::runtime::BlockingRuntime;
+use vortex_layout::layouts::USE_VORTEX_OPERATORS;
+use vortex_session::VortexSession;
 
 use crate::ScanBuilder;
 
@@ -28,9 +31,10 @@ impl ScanBuilder<ArrayRef> {
         runtime: &B,
     ) -> VortexResult<impl RecordBatchReader + 'static> {
         let data_type = DataType::Struct(schema.fields().clone());
+        let session = self.session().clone();
 
         let iter = self
-            .map(move |chunk| to_record_batch(chunk, &data_type))
+            .map(move |chunk| to_record_batch(chunk, &data_type, &session))
             .into_iter(runtime)?
             .map(|result| result.map_err(|e| ArrowError::ExternalError(Box::new(e))));
 
@@ -42,9 +46,10 @@ impl ScanBuilder<ArrayRef> {
         schema: SchemaRef,
     ) -> VortexResult<impl Stream<Item = Result<RecordBatch, ArrowError>> + Send + 'static> {
         let data_type = DataType::Struct(schema.fields().clone());
+        let session = self.session().clone();
 
         let stream = self
-            .map(move |chunk| to_record_batch(chunk, &data_type))
+            .map(move |chunk| to_record_batch(chunk, &data_type, &session))
             .into_stream()?
             .map_err(|e| ArrowError::ExternalError(Box::new(e)));
 
@@ -52,9 +57,18 @@ impl ScanBuilder<ArrayRef> {
     }
 }
 
-fn to_record_batch(chunk: ArrayRef, data_type: &DataType) -> VortexResult<RecordBatch> {
-    let arrow = chunk.into_arrow(data_type)?;
-    Ok(RecordBatch::from(arrow.as_struct().clone()))
+fn to_record_batch(
+    chunk: ArrayRef,
+    data_type: &DataType,
+    session: &VortexSession,
+) -> VortexResult<RecordBatch> {
+    if *USE_VORTEX_OPERATORS {
+        let arrow = chunk.execute_arrow(data_type, session)?;
+        Ok(RecordBatch::from(arrow.as_struct().clone()))
+    } else {
+        let arrow = chunk.into_arrow(data_type)?;
+        Ok(RecordBatch::from(arrow.as_struct().clone()))
+    }
 }
 
 /// We create an adapter for record batch iterators that supports clone.
@@ -114,6 +128,7 @@ mod tests {
     use vortex_error::VortexResult;
 
     use super::*;
+    use crate::test::SESSION;
 
     fn create_test_struct_array() -> VortexResult<ArrayRef> {
         // Create Arrow arrays
@@ -152,7 +167,7 @@ mod tests {
         let schema = create_arrow_schema();
         let data_type = DataType::Struct(schema.fields().clone());
 
-        let batch = to_record_batch(vortex_array, &data_type)?;
+        let batch = to_record_batch(vortex_array, &data_type, &SESSION)?;
         assert_eq!(batch.num_columns(), 2);
         assert_eq!(batch.num_rows(), 4);
 
@@ -176,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn test_record_batch_iterator_adapter() {
+    fn test_record_batch_iterator_adapter() -> VortexResult<()> {
         let schema = create_arrow_schema();
         let batch1 = RecordBatch::try_new(
             schema.clone(),
@@ -184,16 +199,14 @@ mod tests {
                 Arc::new(Int32Array::from(vec![Some(1), Some(2)])) as ArrowArrayRef,
                 Arc::new(StringArray::from(vec![Some("Alice"), Some("Bob")])) as ArrowArrayRef,
             ],
-        )
-        .unwrap();
+        )?;
         let batch2 = RecordBatch::try_new(
             schema.clone(),
             vec![
                 Arc::new(Int32Array::from(vec![None, Some(4)])) as ArrowArrayRef,
                 Arc::new(StringArray::from(vec![Some("Charlie"), None])) as ArrowArrayRef,
             ],
-        )
-        .unwrap();
+        )?;
 
         let iter = vec![Ok(batch1), Ok(batch2)].into_iter();
         let mut adapter = RecordBatchIteratorAdapter {
@@ -205,13 +218,15 @@ mod tests {
         assert_eq!(adapter.schema(), schema);
 
         // Test Iterator trait
-        let first = adapter.next().unwrap().unwrap();
+        let first = adapter.next().unwrap()?;
         assert_eq!(first.num_rows(), 2);
 
-        let second = adapter.next().unwrap().unwrap();
+        let second = adapter.next().unwrap()?;
         assert_eq!(second.num_rows(), 2);
 
         assert!(adapter.next().is_none());
+
+        Ok(())
     }
 
     #[test]

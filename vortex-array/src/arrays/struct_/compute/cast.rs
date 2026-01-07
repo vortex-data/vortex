@@ -5,10 +5,12 @@ use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
 use crate::compute::CastKernel;
@@ -28,8 +30,30 @@ impl CastKernel for StructVTable {
             .as_struct_fields_opt()
             .vortex_expect("struct array must have struct dtype");
 
-        if target_sdtype.names() != source_sdtype.names() {
-            vortex_bail!("cannot cast {} to {}", array.dtype(), dtype);
+        // Re-order, handle fields by value instead.
+        let mut cast_fields = vec![];
+        for (target_name, target_type) in
+            target_sdtype.names().iter().zip_eq(target_sdtype.fields())
+        {
+            match source_sdtype.find(target_name) {
+                None => {
+                    // No source field with this name => evolve the schema compatibly.
+                    // If the field is nullable, we add a new ConstantArray field with the type.
+                    vortex_ensure!(
+                        target_type.is_nullable(),
+                        "CAST for struct only supports added nullable fields"
+                    );
+
+                    cast_fields.push(
+                        ConstantArray::new(Scalar::null(target_type), array.len).into_array(),
+                    );
+                }
+                Some(src_field_idx) => {
+                    // Field exists in source field. Cast it to the target type.
+                    let cast_field = cast(array.fields()[src_field_idx].as_ref(), &target_type)?;
+                    cast_fields.push(cast_field);
+                }
+            }
         }
 
         let validity = array
@@ -39,12 +63,7 @@ impl CastKernel for StructVTable {
 
         StructArray::try_new(
             target_sdtype.names().clone(),
-            array
-                .fields()
-                .iter()
-                .zip_eq(target_sdtype.fields())
-                .map(|(field, dtype)| cast(field, &dtype))
-                .collect::<Result<Vec<_>, _>>()?,
+            cast_fields,
             array.len(),
             validity,
         )

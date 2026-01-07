@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_dtype::FieldName;
-use vortex_error::VortexUnwrap;
+use vortex_error::VortexExpect;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::expr::traversal::NodeExt;
@@ -61,7 +61,8 @@ impl VortexExprExt for Expression {
     fn field_references(&self) -> HashSet<FieldName> {
         let mut collector = ReferenceCollector::new();
         // The collector is infallible, so we can unwrap the result
-        self.accept(&mut collector).vortex_unwrap();
+        self.accept(&mut collector)
+            .vortex_expect("reference collector should never fail");
         collector.into_fields()
     }
 }

@@ -87,7 +87,9 @@ impl VectorMut {
             DType::Binary(..) => BinaryVectorMut::with_capacity(capacity).into(),
             DType::Extension(ext) => VectorMut::with_capacity(ext.storage_dtype(), capacity),
             DType::List(elem, ..) => {
-                ListViewVectorMut::with_capacity(elem.as_ref(), capacity).into()
+                // We arbitrarily choose 2 times the number of list scalars for the capacity of the
+                // elements since we cannot know this ahead of time.
+                ListViewVectorMut::with_capacity(elem.as_ref(), capacity, 2 * capacity).into()
             }
         }
     }
@@ -240,6 +242,14 @@ impl VectorMut {
             return v;
         }
         vortex_panic!("Expected PrimitiveVectorMut, got {self:?}");
+    }
+
+    /// Consumes `self` and returns the inner [`PrimitiveVectorMut`] if `self` is of that variant.
+    pub fn into_decimal(self) -> DecimalVectorMut {
+        if let VectorMut::Decimal(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected DecimalVectorMut, got {self:?}");
     }
 
     /// Consumes `self` and returns the inner [`StringVectorMut`] if `self` is of that variant.

@@ -200,6 +200,11 @@ impl Stream for ArrayStreamIPCBytes {
 
 #[cfg(test)]
 mod test {
+    use std::io;
+    use std::pin::Pin;
+    use std::task::Context;
+    use std::task::Poll;
+
     use futures::io::Cursor;
     use vortex_array::IntoArray as _;
     use vortex_array::ToCanonical;
@@ -230,6 +235,78 @@ mod test {
         assert_eq!(
             array.to_primitive().as_slice::<i32>(),
             result.as_slice::<i32>()
+        );
+    }
+
+    /// Wrapper that limits reads to small chunks to simulate network behavior
+    struct ChunkedReader<R> {
+        inner: R,
+        chunk_size: usize,
+    }
+
+    impl<R: AsyncRead + Unpin> AsyncRead for ChunkedReader<R> {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &mut [u8],
+        ) -> Poll<io::Result<usize>> {
+            let chunk_size = self.chunk_size.min(buf.len());
+            Pin::new(&mut self.inner).poll_read(cx, &mut buf[..chunk_size])
+        }
+    }
+
+    #[tokio::test]
+    async fn test_async_stream_chunked() {
+        let session = ArraySession::default();
+        let array = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array();
+        let ipc_buffer = array
+            .to_array_stream()
+            .into_ipc()
+            .collect_to_buffer()
+            .await
+            .unwrap();
+
+        let chunked = ChunkedReader {
+            inner: Cursor::new(ipc_buffer),
+            chunk_size: 3,
+        };
+
+        let reader = AsyncIPCReader::try_new(chunked, session.registry().clone())
+            .await
+            .unwrap();
+
+        let result = reader.read_all().await.unwrap().to_primitive();
+        assert_eq!(
+            &[1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            result.as_slice::<i32>()
+        );
+    }
+
+    /// Test with 1-byte chunks to stress-test partial read handling.
+    #[tokio::test]
+    async fn test_async_stream_single_byte_chunks() {
+        let session = ArraySession::default();
+        let array = buffer![42i64, -1, 0, i64::MAX, i64::MIN].into_array();
+        let ipc_buffer = array
+            .to_array_stream()
+            .into_ipc()
+            .collect_to_buffer()
+            .await
+            .unwrap();
+
+        let chunked = ChunkedReader {
+            inner: Cursor::new(ipc_buffer),
+            chunk_size: 1,
+        };
+
+        let reader = AsyncIPCReader::try_new(chunked, session.registry().clone())
+            .await
+            .unwrap();
+
+        let result = reader.read_all().await.unwrap().to_primitive();
+        assert_eq!(
+            &[42i64, -1, 0, i64::MAX, i64::MIN],
+            result.as_slice::<i64>()
         );
     }
 }

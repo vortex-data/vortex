@@ -24,19 +24,24 @@ use itertools::Itertools;
 use num_traits::AsPrimitive;
 use url::Url;
 use vortex::VortexSessionDefault;
+use vortex::array::Array;
 use vortex::array::ArrayRef;
 use vortex::array::ToCanonical;
+use vortex::array::VectorExecutor;
+use vortex::array::arrays::ScalarFnVTable;
+use vortex::array::arrays::StructArray;
+use vortex::array::arrays::StructVTable;
 use vortex::array::optimizer::ArrayOptimizer;
+use vortex::array::vectors::VectorIntoArray;
 use vortex::dtype::FieldNames;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
-use vortex::expr::and;
+use vortex::expr::Pack;
 use vortex::expr::and_collect;
 use vortex::expr::col;
-use vortex::expr::lit;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
@@ -46,6 +51,7 @@ use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::ThreadSafeIterator;
 use vortex::layout::layouts::USE_VORTEX_OPERATORS;
 use vortex::session::VortexSession;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::RUNTIME;
 use crate::SESSION;
@@ -172,38 +178,32 @@ fn extract_table_filter_expr(
     init: &TableInitInput<VortexTableFunction>,
     column_ids: &[u64],
 ) -> VortexResult<Option<Expression>> {
-    let table_filter_expr = init
-        .table_filter_set()
-        .and_then(|filter| {
-            filter
-                .into_iter()
-                .map(|(idx, ex)| {
-                    let idx_u: usize = idx.as_();
-                    let col_idx: usize = column_ids[idx_u].as_();
-                    let name = init
-                        .bind_data()
-                        .column_names
-                        .get(col_idx)
-                        .vortex_expect("exists");
-                    try_from_table_filter(
-                        &ex,
-                        &col(name.as_str()),
-                        init.bind_data().first_file.dtype(),
-                    )
-                })
-                .reduce(|l, r| l?.zip(r?).map(|(l, r)| Ok(and(l, r))).transpose())
-        })
-        .transpose()?
-        .flatten();
+    let mut table_filter_exprs: HashSet<Expression> = if let Some(filter) = init.table_filter_set()
+    {
+        filter
+            .into_iter()
+            .map(|(idx, ex)| {
+                let idx_u: usize = idx.as_();
+                let col_idx: usize = column_ids[idx_u].as_();
+                let name = init
+                    .bind_data()
+                    .column_names
+                    .get(col_idx)
+                    .vortex_expect("exists");
+                try_from_table_filter(
+                    &ex,
+                    &col(name.as_str()),
+                    init.bind_data().first_file.dtype(),
+                )
+            })
+            .collect::<VortexResult<Option<HashSet<_>>>>()?
+            .unwrap_or_else(HashSet::new)
+    } else {
+        HashSet::new()
+    };
 
-    let complex_filter_expr = and_collect(init.bind_data().filter_exprs.clone());
-    let filter_expr = complex_filter_expr
-        .into_iter()
-        .chain(table_filter_expr)
-        .reduce(and)
-        .unwrap_or_else(|| lit(true));
-
-    Ok(Some(filter_expr))
+    table_filter_exprs.extend(init.bind_data().filter_exprs.clone());
+    Ok(and_collect(table_filter_exprs.into_iter().collect_vec()))
 }
 
 /// Helper function to open a Vortex file from either a local or S3 URL
@@ -330,13 +330,30 @@ impl TableFunction for VortexTableFunction {
                 let (array_result, conversion_cache) = result?;
 
                 let array_result = if *USE_VORTEX_OPERATORS {
-                    array_result.optimize_recursive()?
+                    let array_result = array_result.optimize_recursive()?;
+                    if let Some(array) = array_result.as_opt::<StructVTable>() {
+                        array.clone()
+                    } else if let Some(array) = array_result.as_opt::<ScalarFnVTable>()
+                        && let Some(pack_options) = array.scalar_fn().as_opt::<Pack>()
+                    {
+                        StructArray::new(
+                            pack_options.names.clone(),
+                            array.children(),
+                            array.len(),
+                            pack_options.nullability.into(),
+                        )
+                    } else {
+                        array_result
+                            .execute_vector(&global_state.session)?
+                            .into_struct()
+                            .into_array(array_result.dtype())
+                    }
                 } else {
-                    array_result
+                    array_result.to_struct()
                 };
 
                 local_state.exporter = Some(ArrayExporter::try_new(
-                    &array_result.to_struct(),
+                    &array_result,
                     &conversion_cache,
                     &global_state.session,
                 )?);

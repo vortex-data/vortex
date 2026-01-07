@@ -17,6 +17,9 @@ version = { workspace = true }
 arrow = ["dep:arrow-buffer"]
 serde = ["dep:serde", "vortex-buffer/serde"]
 
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
 arrow-buffer = { workspace = true, optional = true }
 itertools = { workspace = true }

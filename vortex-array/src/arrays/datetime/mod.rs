@@ -201,6 +201,12 @@ impl TemporalArray {
     }
 }
 
+impl AsRef<dyn Array> for TemporalArray {
+    fn as_ref(&self) -> &dyn Array {
+        self.ext.as_ref()
+    }
+}
+
 impl From<TemporalArray> for ArrayRef {
     fn from(value: TemporalArray) -> Self {
         value.ext.into_array()

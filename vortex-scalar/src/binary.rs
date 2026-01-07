@@ -279,7 +279,6 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_error::VortexExpect;
-    use vortex_error::VortexUnwrap;
 
     use crate::BinaryScalar;
     use crate::Scalar;
@@ -290,9 +289,10 @@ mod tests {
         let expected = Scalar::binary(buffer![0u8, 5], Nullability::NonNullable);
         assert_eq!(
             BinaryScalar::try_from(&binary)
-                .vortex_unwrap()
+                .vortex_expect("binary scalar conversion should succeed")
                 .lower_bound(2),
-            BinaryScalar::try_from(&expected).vortex_unwrap()
+            BinaryScalar::try_from(&expected)
+                .vortex_expect("binary scalar conversion should succeed")
         );
     }
 
@@ -302,10 +302,11 @@ mod tests {
         let expected = Scalar::binary(buffer![0u8, 6, 0], Nullability::NonNullable);
         assert_eq!(
             BinaryScalar::try_from(&binary)
-                .vortex_unwrap()
+                .vortex_expect("binary scalar conversion should succeed")
                 .upper_bound(3)
                 .vortex_expect("must have upper bound"),
-            BinaryScalar::try_from(&expected).vortex_unwrap()
+            BinaryScalar::try_from(&expected)
+                .vortex_expect("binary scalar conversion should succeed")
         );
     }
 
@@ -314,7 +315,7 @@ mod tests {
         let binary = Scalar::binary(buffer![255u8, 255, 255], Nullability::NonNullable);
         assert!(
             BinaryScalar::try_from(&binary)
-                .vortex_unwrap()
+                .vortex_expect("binary scalar conversion should succeed")
                 .upper_bound(2)
                 .is_none()
         );

@@ -13,7 +13,6 @@ use vortex_dtype::match_each_decimal_value;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::VortexUnwrap;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
@@ -234,7 +233,7 @@ impl DecimalBuffer {
                             T::DECIMAL_TYPE,
                         )
                     })
-                    .vortex_unwrap(),
+                    .vortex_expect("operation should succeed in builder"),
             )
         });
     }

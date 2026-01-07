@@ -13,7 +13,6 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
-use vortex_error::VortexUnwrap;
 use vortex_error::vortex_bail;
 
 use crate::Array;
@@ -83,7 +82,9 @@ impl ChunkedArray {
 
         Self {
             dtype,
-            len: curr_offset.try_into().vortex_unwrap(),
+            len: curr_offset
+                .try_into()
+                .vortex_expect("chunk offset must fit in usize"),
             chunk_offsets,
             chunks,
             stats_set: Default::default(),

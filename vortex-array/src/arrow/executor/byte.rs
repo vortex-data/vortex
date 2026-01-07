@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
-use arrow_array::GenericBinaryArray;
+use arrow_array::GenericByteArray;
 use arrow_array::types::ByteArrayType;
 use vortex_compute::arrow::IntoArrow;
 use vortex_dtype::DType;
@@ -62,8 +62,7 @@ where
     let data = array.bytes().clone().into_arrow_buffer();
 
     let null_buffer = to_arrow_null_buffer(array.validity(), array.len(), session)?;
-
     Ok(Arc::new(unsafe {
-        GenericBinaryArray::<T::Offset>::new_unchecked(offsets, data, null_buffer)
+        GenericByteArray::<T>::new_unchecked(offsets, data, null_buffer)
     }))
 }

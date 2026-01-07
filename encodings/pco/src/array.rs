@@ -28,6 +28,7 @@ use vortex_array::ProstMetadata;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveVTable;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::compute::filter;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
@@ -47,7 +48,6 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValiditySliceHelper;
 use vortex_array::vtable::ValidityVTableFromValiditySliceHelper;
 use vortex_array::vtable::VisitorVTable;
-use vortex_buffer::BufferHandle;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
@@ -57,7 +57,6 @@ use vortex_dtype::half;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::VortexUnwrap;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -377,7 +376,7 @@ impl PcoArray {
         // may exceed the bounds of the slice, so we need to slice later.
         let (fd, _) = FileDecompressor::new(self.metadata.header.as_slice())
             .map_err(vortex_err_from_pco)
-            .vortex_unwrap();
+            .vortex_expect("FileDecompressor::new should succeed with valid header");
         let mut decompressed_values = BufferMut::<T>::with_capacity(slice_n_values);
         let mut page_idx = 0;
         let mut page_value_start = 0;
@@ -406,7 +405,9 @@ impl PcoArray {
                         let (new_cd, _) = fd
                             .chunk_decompressor(chunk_meta_bytes)
                             .map_err(vortex_err_from_pco)
-                            .vortex_unwrap();
+                            .vortex_expect(
+                                "chunk_decompressor should succeed with valid chunk metadata",
+                            );
                         cd = Some(new_cd);
                     }
                     let mut pd = cd
@@ -414,10 +415,10 @@ impl PcoArray {
                         .unwrap()
                         .page_decompressor(page, page_n_values)
                         .map_err(vortex_err_from_pco)
-                        .vortex_unwrap();
+                        .vortex_expect("page_decompressor should succeed with valid page data");
                     pd.decompress(&mut decompressed_values[old_len..new_len])
                         .map_err(vortex_err_from_pco)
-                        .vortex_unwrap();
+                        .vortex_expect("decompress should succeed with valid compressed data");
                 } else {
                     n_skipped_values += page_n_values;
                 }

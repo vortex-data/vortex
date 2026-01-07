@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use vortex_buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -20,6 +19,8 @@ use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::VectorExecutor;
 use crate::arrays::ListViewArray;
+use crate::arrays::listview::vtable::rules::PARENT_RULES;
+use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
@@ -34,6 +35,7 @@ use crate::vtable::ValidityVTableFromValidityHelper;
 mod array;
 mod canonical;
 mod operations;
+mod rules;
 mod validity;
 mod visitor;
 
@@ -186,5 +188,13 @@ impl VTable for ListViewVTable {
             )
         }
         .into())
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }

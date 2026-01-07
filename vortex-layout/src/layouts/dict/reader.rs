@@ -92,6 +92,7 @@ impl DictReader {
         // We capture the name, so it may be wrong if we re-use the same reader within multiple
         // different parent readers. But that's rare...
         let values_len = self.values_len;
+        let session = self.session.clone();
         self.values_array
             .get_or_init(move || {
                 self.values
@@ -102,7 +103,15 @@ impl DictReader {
                     )
                     .vortex_expect("must construct dict values array evaluation")
                     .map_err(Arc::new)
-                    .map_ok(|arr| arr.to_canonical().into_array())
+                    .map(move |array| {
+                        if *USE_VORTEX_OPERATORS {
+                            // We execute the array to avoid re-evaluating for every split.
+                            let array = array?;
+                            Ok(array.execute_vector(&session)?.into_array(array.dtype()))
+                        } else {
+                            Ok(array?.to_canonical().into_array())
+                        }
+                    })
                     .boxed()
                     .shared()
             })

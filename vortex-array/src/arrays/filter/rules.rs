@@ -3,6 +3,7 @@
 
 use vortex_error::VortexResult;
 
+use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::FilterArray;
@@ -32,7 +33,7 @@ impl ArrayParentReduceRule<FilterVTable> for FilterFilterRule {
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         let combined_mask = child.mask.intersect_by_rank(&parent.mask);
-        let new_array = FilterArray::new(child.child.clone(), combined_mask);
+        let new_array = child.child.filter(combined_mask)?;
         Ok(Some(new_array.into_array()))
     }
 }
