@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Application state and data structures for the TUI browser.
+
 use std::path::Path;
 use std::sync::Arc;
 
@@ -21,25 +23,31 @@ use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
 use vortex::layout::segments::SegmentId;
 use vortex::layout::segments::SegmentSource;
+use vortex::session::VortexSession;
 
-use crate::SESSION;
-use crate::browse::ui::SegmentGridState;
+use super::ui::SegmentGridState;
 
+/// The currently active tab in the TUI browser.
 #[derive(Default, Copy, Clone, Eq, PartialEq)]
 pub enum Tab {
-    /// The layout tree browser.
+    /// The layout tree browser tab.
+    ///
+    /// Shows the hierarchical structure of layouts in the Vortex file and allows navigation
+    /// through the layout tree.
     #[default]
     Layout,
 
-    /// Show a segment map of the file
+    /// The segment map tab.
+    ///
+    /// Displays a visual representation of how segments are laid out in the file.
     Segments,
-    // TODO(aduffy): SQL query page powered by DF
-    // Query,
 }
 
-/// A pointer into the `Layout` hierarchy that can be advanced.
+/// A navigable pointer into the layout hierarchy of a Vortex file.
 ///
-/// The pointer wraps an InitialRead.
+/// The cursor maintains the current position within the layout tree and provides methods to
+/// navigate up and down the hierarchy. It also provides access to layout metadata and segment
+/// information at the current position.
 pub struct LayoutCursor {
     path: Vec<usize>,
     footer: Footer,
@@ -49,6 +57,7 @@ pub struct LayoutCursor {
 }
 
 impl LayoutCursor {
+    /// Create a new cursor pointing at the root layout.
     pub fn new(footer: Footer, segment_source: Arc<dyn SegmentSource>) -> Self {
         Self {
             path: Vec::new(),
@@ -59,6 +68,9 @@ impl LayoutCursor {
         }
     }
 
+    /// Create a new cursor at a specific path within the layout tree.
+    ///
+    /// The path is a sequence of child indices to traverse from the root.
     pub fn new_with_path(
         footer: Footer,
         segment_source: Arc<dyn SegmentSource>,
@@ -82,8 +94,7 @@ impl LayoutCursor {
         }
     }
 
-    /// Create a new LayoutCursor indexing into the n-th child of the layout at the current
-    /// cursor position.
+    /// Create a new cursor pointing at the n-th child of the current layout.
     pub fn child(&self, n: usize) -> Self {
         let mut path = self.path.clone();
         path.push(n);
@@ -91,6 +102,9 @@ impl LayoutCursor {
         Self::new_with_path(self.footer.clone(), self.segment_source.clone(), path)
     }
 
+    /// Create a new cursor pointing at the parent of the current layout.
+    ///
+    /// If already at the root, returns a cursor pointing at the root.
     pub fn parent(&self) -> Self {
         let mut path = self.path.clone();
         path.pop();
@@ -100,7 +114,9 @@ impl LayoutCursor {
 
     /// Get the size of the array flatbuffer for this layout.
     ///
-    /// NOTE: this is only safe to run against a FLAT layout.
+    /// # Panics
+    ///
+    /// Panics if the current layout is not a [`FlatVTable`] layout.
     pub fn flatbuffer_size(&self) -> usize {
         let segment_id = self.layout.as_::<FlatVTable>().segment_id();
         let segment = block_on(self.segment_source.request(segment_id))
@@ -111,18 +127,18 @@ impl LayoutCursor {
             .len()
     }
 
-    /// Get information about the flat layout metadata.
+    /// Get a human-readable description of the flat layout metadata.
     ///
-    /// NOTE: this is only safe to run against a FLAT layout.
+    /// # Panics
+    ///
+    /// Panics if the current layout is not a [`FlatVTable`] layout.
     pub fn flat_layout_metadata_info(&self) -> String {
         let flat_layout = self.layout.as_::<FlatVTable>();
         let metadata = FlatVTable::metadata(flat_layout);
 
-        // Check if array_encoding_tree is present and get its size
         match metadata.0.array_encoding_tree.as_ref() {
             Some(tree) => {
                 let size = tree.len();
-                // Truncate to a single line - show the size and presence
                 format!(
                     "Flat Metadata: array_encoding_tree present ({} bytes)",
                     size
@@ -132,6 +148,7 @@ impl LayoutCursor {
         }
     }
 
+    /// Get the total size in bytes of all segments reachable from this layout.
     pub fn total_size(&self) -> usize {
         self.layout_segments()
             .iter()
@@ -147,83 +164,138 @@ impl LayoutCursor {
             .collect()
     }
 
-    /// Predicate true when the cursor is currently activated over a stats table
+    /// Returns `true` if the cursor is currently pointing at a statistics table.
+    ///
+    /// A statistics table is the second child of a [`ZonedVTable`] layout.
     pub fn is_stats_table(&self) -> bool {
         let parent = self.parent();
         parent.layout().is::<ZonedVTable>() && self.path.last().copied().unwrap_or_default() == 1
     }
 
+    /// Get the data type of the current layout.
     pub fn dtype(&self) -> &DType {
         self.layout.dtype()
     }
 
+    /// Get a reference to the current layout.
     pub fn layout(&self) -> &LayoutRef {
         &self.layout
     }
 
+    /// Get the segment specification for a given segment ID.
     pub fn segment_spec(&self, id: SegmentId) -> &SegmentSpec {
         &self.segment_map[*id as usize]
     }
 }
 
+/// The current input mode of the TUI.
+///
+/// Different modes change how keyboard input is interpreted.
 #[derive(Default, PartialEq, Eq)]
 pub enum KeyMode {
-    /// Normal mode.
+    /// Normal navigation mode.
     ///
-    /// The default mode of the TUI when you start it up. Allows for browsing through layout hierarchies.
+    /// The default mode when the TUI starts. Allows browsing through the layout hierarchy using
+    /// arrow keys, vim-style navigation (`h`/`j`/`k`/`l`), and various shortcuts.
     #[default]
     Normal,
-    /// Searching mode.
+
+    /// Search/filter mode.
     ///
-    /// Triggered by a user when entering `/`, subsequent key presses will be used to craft a live-updating filter
-    /// of the current input element.
+    /// Activated by pressing `/` or `Ctrl-S`. In this mode, key presses are used to build a fuzzy
+    /// search filter that narrows down the displayed layout children. Press `Esc` or `Ctrl-G` to
+    /// exit search mode.
     Search,
 }
 
-/// State saved across all Tabs.
+/// The complete application state for the TUI browser.
 ///
-/// Holding them all allows us to switch between tabs without resetting view state.
+/// This struct holds all state needed to render and interact with the TUI, including:
+/// - The Vortex session and file being browsed
+/// - Navigation state (current cursor position, selected tab)
+/// - Input mode and search filter state
+/// - UI state for lists and grids
+///
+/// The state is preserved when switching between tabs, allowing users to return to their previous
+/// position.
 pub struct AppState<'a> {
+    /// The Vortex session used to read array data during rendering.
+    pub session: &'a VortexSession,
+
+    /// The current input mode (normal navigation or search).
     pub key_mode: KeyMode,
+
+    /// The current search filter string (only used in search mode).
     pub search_filter: String,
+
+    /// A boolean mask indicating which children match the current search filter.
+    ///
+    /// `None` when no filter is active, `Some(vec)` when filtering where `vec[i]` indicates
+    /// whether child `i` should be shown.
     pub filter: Option<Vec<bool>>,
 
+    /// The open Vortex file being browsed.
     pub vxf: VortexFile,
+
+    /// The current position in the layout hierarchy.
     pub cursor: LayoutCursor,
+
+    /// The currently selected tab.
     pub current_tab: Tab,
 
-    /// List state for the Layouts view
+    /// Selection state for the layout children list.
     pub layouts_list_state: ListState,
+
+    /// State for the segment grid display.
     pub segment_grid_state: SegmentGridState<'a>,
+
+    /// The size of the last rendered frame.
     pub frame_size: Size,
 
-    /// Scroll offset for the encoding tree display in FlatLayout view
+    /// Vertical scroll offset for the encoding tree display in flat layout view.
     pub tree_scroll_offset: u16,
 }
 
-impl AppState<'_> {
+impl<'a> AppState<'a> {
+    /// Create a new application state by opening a Vortex file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be opened or read.
+    pub async fn new(
+        session: &'a VortexSession,
+        path: impl AsRef<Path>,
+    ) -> VortexResult<AppState<'a>> {
+        let vxf = session.open_options().open(path.as_ref()).await?;
+
+        let cursor = LayoutCursor::new(vxf.footer().clone(), vxf.segment_source());
+
+        Ok(AppState {
+            session,
+            vxf,
+            cursor,
+            key_mode: KeyMode::default(),
+            search_filter: String::new(),
+            filter: None,
+            current_tab: Tab::default(),
+            layouts_list_state: ListState::default().with_selected(Some(0)),
+            segment_grid_state: SegmentGridState::default(),
+            frame_size: Size::new(0, 0),
+            tree_scroll_offset: 0,
+        })
+    }
+
+    /// Clear the current search filter and return to showing all children.
     pub fn clear_search(&mut self) {
         self.search_filter.clear();
         self.filter.take();
     }
-}
 
-/// Create an app backed from a file path.
-pub async fn create_file_app<'a>(path: impl AsRef<Path>) -> VortexResult<AppState<'a>> {
-    let vxf = SESSION.open_options().open(path.as_ref()).await?;
-
-    let cursor = LayoutCursor::new(vxf.footer().clone(), vxf.segment_source());
-
-    Ok(AppState {
-        vxf,
-        cursor,
-        key_mode: KeyMode::default(),
-        search_filter: String::new(),
-        filter: None,
-        current_tab: Tab::default(),
-        layouts_list_state: ListState::default().with_selected(Some(0)),
-        segment_grid_state: SegmentGridState::default(),
-        frame_size: Size::new(0, 0),
-        tree_scroll_offset: 0,
-    })
+    /// Reset the layout view state after navigating to a different layout.
+    ///
+    /// This resets the list selection to the first item and clears any scroll offset.
+    pub fn reset_layout_view_state(&mut self) {
+        self.layouts_list_state = ListState::default().with_selected(Some(0));
+        self.tree_scroll_offset = 0;
+    }
 }
