@@ -28,8 +28,10 @@ jobs:
     steps:
       # We remove the benchmark label first so that the workflow can be re-triggered.
       - uses: actions-ecosystem/action-remove-labels@v1
+        if: ${{ github.event.pull_request.head.repo.full_name == 'vortex-data/vortex' }}
         with:
           labels: benchmark
+          fail_on_error: true
 
   bench:
     needs: label_trigger
