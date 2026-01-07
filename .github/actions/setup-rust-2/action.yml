@@ -31,8 +31,8 @@ runs:
 #        save-if: ${{ github.ref_name == 'develop' }}
         shared-key: "rust-cache-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-${{ steps.rust-version.outputs.cachekey }}-${{ inputs.targets }}${{ inputs.cache-suffix && format('-{0}', inputs.cache-suffix) || '' }}"
 
-    - name: Rust Compile Cache
-      uses: mozilla-actions/sccache-action@v0.0.9
+    # Note: sccache is configured by runs-on/action with sccache: s3 in the workflow
+    # Do NOT add mozilla-actions/sccache-action here as it would override S3 config with GH cache
 
     - name: Timestamp Cache
       shell: bash
