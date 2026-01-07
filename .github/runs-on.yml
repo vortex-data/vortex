@@ -4,6 +4,12 @@
 #
 # AMI naming pattern: vortex-ci-{arch}-{timestamp}
 # Built with: .github/actions/build-ami and .github/packer/vortex-ci.pkr.hcl
+runners:
+  rust-amd64-medium:
+    image: vortex-ci-amd64
+    cpu: 8
+    family: [m7i, m7i-flex, m7a]
+
 images:
   vortex-ci-amd64:
     platform: "linux"
