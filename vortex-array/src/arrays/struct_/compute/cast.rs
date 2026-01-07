@@ -26,11 +26,12 @@ impl CastKernel for StructVTable {
 
         let source_sdtype = array.struct_fields();
 
-        let fields_match_order = target_sdtype
-            .names()
-            .iter()
-            .zip_eq(source_sdtype.names().iter())
-            .all(|(f1, f2)| f1 == f2);
+        let fields_match_order = target_sdtype.nfields() == source_sdtype.nfields()
+            && target_sdtype
+                .names()
+                .iter()
+                .zip(source_sdtype.names().iter())
+                .all(|(f1, f2)| f1 == f2);
 
         let mut cast_fields = Vec::with_capacity(target_sdtype.nfields());
         if fields_match_order {
