@@ -20,6 +20,7 @@ use crate::vtable::ValidityVTable;
 
 impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
     fn is_valid(array: &ScalarFnArray, index: usize) -> bool {
+        // inlined to remove a cycle `is_valid()` and `scalar_at()`
         assert!(index < array.len(), "index {index} out of bounds");
         let input_datums: Vec<_> = array
             .children()
