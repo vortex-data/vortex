@@ -36,7 +36,7 @@ use crate::footer::Footer;
 use crate::segments::FileSegmentSource;
 use crate::segments::InitialReadSegmentCache;
 
-const INITIAL_READ_SIZE: usize = 1 << 20; // 1 MB
+const INITIAL_READ_SIZE: usize = MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE;
 
 /// Open options for a Vortex file reader.
 pub struct VortexOpenOptions {
@@ -279,5 +279,96 @@ impl VortexOpenOptions {
             path.into(),
         ))
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use futures::future::BoxFuture;
+    use vortex_array::IntoArray;
+    use vortex_array::expr::session::ExprSession;
+    use vortex_array::session::ArraySession;
+    use vortex_buffer::{Buffer, ByteBufferMut};
+    use vortex_io::session::RuntimeSession;
+    use vortex_layout::session::LayoutSession;
+
+    use super::*;
+    use crate::WriteOptionsSessionExt;
+
+    // Define CountingReadAt struct
+    struct CountingReadAt<R> {
+        inner: R,
+        bytes_read: Arc<AtomicUsize>,
+    }
+
+    impl<R: VortexReadAt> VortexReadAt for CountingReadAt<R> {
+        fn read_at(
+            &self,
+            offset: u64,
+            length: usize,
+            alignment: Alignment,
+        ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+            self.bytes_read.fetch_add(length, Ordering::Relaxed);
+            self.inner.read_at(offset, length, alignment)
+        }
+
+        fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+            self.inner.size()
+        }
+    }
+
+    #[tokio::test]
+    async fn test_initial_read_size() {
+        // Create a large file (> 1MB)
+        let mut buf = ByteBufferMut::empty();
+        let mut session = VortexSession::empty()
+            .with::<VortexMetrics>()
+            .with::<ArraySession>()
+            .with::<LayoutSession>()
+            .with::<ExprSession>()
+            .with::<RuntimeSession>();
+
+        crate::register_default_encodings(&mut session);
+
+        // 1.5M integers -> ~6MB. We use a pattern to avoid Sequence encoding.
+        let array = Buffer::from(
+            (0..1_500_000)
+                .map(|i| if i % 2 == 0 { i as i32 } else { -(i as i32) })
+                .collect::<Vec<i32>>(),
+        )
+        .into_array();
+
+        session
+            .write_options()
+            .write(&mut buf, array.to_array_stream())
+            .await
+            .unwrap();
+
+        let buffer = ByteBuffer::from(buf);
+        assert!(
+            buffer.len() > 1024 * 1024,
+            "Buffer length is only {} bytes",
+            buffer.len()
+        );
+
+        let bytes_read = Arc::new(AtomicUsize::new(0));
+        let reader = CountingReadAt {
+            inner: buffer,
+            bytes_read: bytes_read.clone(),
+        };
+
+        // Open the file
+        let _file = session.open_options().open_read_at(reader).await.unwrap();
+
+        // Assert that we read approximately the postscript size, not 1MB
+        let read = bytes_read.load(Ordering::Relaxed);
+        assert!(read < 1024 * 1024, "Read {} bytes, expected < 1MB", read);
+        assert_eq!(
+            read,
+            MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE,
+            "Read exactly the postscript size"
+        );
     }
 }
