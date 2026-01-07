@@ -58,6 +58,9 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref_name == 'develop' }}
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
         with:
@@ -87,6 +90,9 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref_name == 'develop' }}
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
         with:
@@ -162,6 +168,9 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref_name == 'develop' }}
       - name: Docs
         run: |
           RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
@@ -203,6 +212,9 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref_name == 'develop' }}
       - name: Rust Build (${{matrix.config.name}})
         run: ${{matrix.config.env.rustflags}} cargo hack ${{matrix.config.command}} --locked ${{matrix.config.args}} --ignore-private
       - name: "Make sure no files changed after build"
@@ -223,6 +235,9 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref_name == 'develop' }}
       - run: cargo minimal-versions check --direct --workspace --ignore-private
 
   rust-lint:
@@ -238,6 +253,9 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref_name == 'develop' }}
       - name: Rust Lint - Format
         run: cargo +nightly fmt --all --check
       - name: Rustc check
@@ -262,6 +280,9 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref_name == 'develop' }}
       - name: Rust Lint - Clippy No Default Features
         shell: bash
         run: |
@@ -285,6 +306,9 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref_name == 'develop' }}
 
       # We have to set the correct Cargo.toml versions so semver checks uses the previous release.
       - name: Latest Tag
@@ -325,6 +349,9 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref_name == 'develop' }}
       - name: Rust Tests
         if: ${{ matrix.suite == 'tests' }}
         env:
@@ -385,6 +412,9 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref_name == 'develop' }}
       - name: Install llvm
         uses: aminya/setup-cpp@v1
         with:
