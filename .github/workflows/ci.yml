@@ -212,7 +212,7 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v6
-      - id: setup-rust
+#      - id: setup-rust
 #        uses: ./.github/actions/setup-rust
 #        with:
 #          repo-token: ${{ secrets.GITHUB_TOKEN }}
