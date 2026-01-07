@@ -3,7 +3,6 @@
 
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_scalar::Scalar;
@@ -25,33 +24,44 @@ impl CastKernel for StructVTable {
             return Ok(None);
         };
 
-        let source_sdtype = array
-            .dtype()
-            .as_struct_fields_opt()
-            .vortex_expect("struct array must have struct dtype");
+        let source_sdtype = array.struct_fields();
 
-        // Re-order, handle fields by value instead.
-        let mut cast_fields = vec![];
-        for (target_name, target_type) in
-            target_sdtype.names().iter().zip_eq(target_sdtype.fields())
-        {
-            match source_sdtype.find(target_name) {
-                None => {
-                    // No source field with this name => evolve the schema compatibly.
-                    // If the field is nullable, we add a new ConstantArray field with the type.
-                    vortex_ensure!(
-                        target_type.is_nullable(),
-                        "CAST for struct only supports added nullable fields"
-                    );
+        let fields_match_order = target_sdtype
+            .names()
+            .iter()
+            .zip_eq(source_sdtype.names().iter())
+            .all(|(f1, f2)| f1 == f2);
 
-                    cast_fields.push(
-                        ConstantArray::new(Scalar::null(target_type), array.len).into_array(),
-                    );
-                }
-                Some(src_field_idx) => {
-                    // Field exists in source field. Cast it to the target type.
-                    let cast_field = cast(array.fields()[src_field_idx].as_ref(), &target_type)?;
-                    cast_fields.push(cast_field);
+        let mut cast_fields = Vec::with_capacity(target_sdtype.nfields());
+        if fields_match_order {
+            for (field, target_type) in array.fields.iter().zip_eq(target_sdtype.fields()) {
+                // Field exists in source field. Cast it to the target type.
+                let cast_field = cast(field, &target_type)?;
+                cast_fields.push(cast_field);
+            }
+        } else {
+            // Re-order, handle fields by value instead.
+            for (target_name, target_type) in
+                target_sdtype.names().iter().zip_eq(target_sdtype.fields())
+            {
+                match source_sdtype.find(target_name) {
+                    None => {
+                        // No source field with this name => evolve the schema compatibly.
+                        // If the field is nullable, we add a new ConstantArray field with the type.
+                        vortex_ensure!(
+                            target_type.is_nullable(),
+                            "CAST for struct only supports added nullable fields"
+                        );
+
+                        cast_fields.push(
+                            ConstantArray::new(Scalar::null(target_type), array.len()).into_array(),
+                        );
+                    }
+                    Some(src_field_idx) => {
+                        // Field exists in source field. Cast it to the target type.
+                        let cast_field = cast(&array.fields()[src_field_idx], &target_type)?;
+                        cast_fields.push(cast_field);
+                    }
                 }
             }
         }
@@ -83,6 +93,7 @@ mod tests {
     use vortex_dtype::PType;
 
     use crate::IntoArray;
+    use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinArray;
@@ -174,5 +185,22 @@ mod tests {
         let result = crate::compute::cast(&empty_struct, &target_dtype).unwrap();
         assert_eq!(result.dtype(), &target_dtype);
         assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn cast_duplicate_field_names_to_nullable() {
+        let names = FieldNames::from(["a", "a"]);
+        let field1 = buffer![1i32, 2, 3].into_array();
+        let field2 = buffer![10i64, 20, 30].into_array();
+
+        let struct_array =
+            StructArray::try_new(names, vec![field1, field2], 3, Validity::NonNullable).unwrap();
+
+        let target_dtype = struct_array.dtype().as_nullable();
+
+        let result = crate::compute::cast(struct_array.as_ref(), &target_dtype).unwrap();
+        assert_eq!(result.dtype(), &target_dtype);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result.to_struct().fields().len(), 2);
     }
 }
