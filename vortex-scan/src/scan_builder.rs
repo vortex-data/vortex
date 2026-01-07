@@ -27,6 +27,7 @@ use vortex_dtype::Field;
 use vortex_dtype::FieldMask;
 use vortex_dtype::FieldName;
 use vortex_dtype::FieldPath;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::runtime::BlockingRuntime;
@@ -306,7 +307,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
 }
 
 enum LazyScanState<A: 'static + Send> {
-    Builder(Option<ScanBuilder<A>>),
+    Builder(Option<Box<ScanBuilder<A>>>),
     Stream(BoxStream<'static, VortexResult<A>>),
     Error(Option<vortex_error::VortexError>),
 }
@@ -318,7 +319,7 @@ struct LazyScanStream<A: 'static + Send> {
 impl<A: 'static + Send> LazyScanStream<A> {
     fn new(builder: ScanBuilder<A>) -> Self {
         Self {
-            state: LazyScanState::Builder(Some(builder)),
+            state: LazyScanState::Builder(Some(Box::new(builder))),
         }
     }
 }
@@ -332,7 +333,7 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
         loop {
             match &mut self.state {
                 LazyScanState::Builder(builder) => {
-                    let builder = builder.take().expect("polled after completion");
+                    let builder = builder.take().vortex_expect("polled after completion");
                     match builder
                         .prepare()
                         .and_then(|scan| scan.execute_stream(None).map(|s| s.boxed()))

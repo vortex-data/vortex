@@ -284,13 +284,15 @@ impl VortexOpenOptions {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
     use futures::future::BoxFuture;
     use vortex_array::IntoArray;
     use vortex_array::expr::session::ExprSession;
     use vortex_array::session::ArraySession;
-    use vortex_buffer::{Buffer, ByteBufferMut};
+    use vortex_buffer::Buffer;
+    use vortex_buffer::ByteBufferMut;
     use vortex_io::session::RuntimeSession;
     use vortex_layout::session::LayoutSession;
 
@@ -341,8 +343,8 @@ mod tests {
 
         // 1.5M integers -> ~6MB. We use a pattern to avoid Sequence encoding.
         let array = Buffer::from(
-            (0..1_500_000)
-                .map(|i| if i % 2 == 0 { i as i32 } else { -(i as i32) })
+            (0i32..1_500_000)
+                .map(|i| if i % 2 == 0 { i } else { -i })
                 .collect::<Vec<i32>>(),
         )
         .into_array();
