@@ -28,8 +28,11 @@ runs:
     - name: Rust Dependency Cache
       uses: Swatinem/rust-cache@v2
       with:
-        # save-if: ${{ github.ref_name == 'develop' }}
+#        save-if: ${{ github.ref_name == 'develop' }}
         shared-key: "rust-cache-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-${{ steps.rust-version.outputs.cachekey }}-${{ inputs.targets }}${{ inputs.cache-suffix && format('-{0}', inputs.cache-suffix) || '' }}"
+
+    - name: Rust Compile Cache
+      uses: mozilla-actions/sccache-action@v0.0.9
 
     - name: Timestamp Cache
       shell: bash

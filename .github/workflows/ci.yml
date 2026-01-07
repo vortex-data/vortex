@@ -395,11 +395,6 @@ jobs:
           sccache: s3
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-rust-2
-      - name: Install llvm
-        uses: aminya/setup-cpp@v1
-        with:
-          compiler: llvm
-          cache-tools: true
       - name: Rust Tests
         env:
           RUSTFLAGS: "-A warnings -Zsanitizer=address -Zsanitizer=leak --cfg disable_loom --cfg vortex_nightly -C debuginfo=2 -C opt-level=0 -C strip=none"
