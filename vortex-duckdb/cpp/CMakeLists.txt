@@ -1,41 +1,46 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-# This CMake project is only used for IDE support.
+# This CMake project is only used for IDE support (CLion, etc.).
 # See build.rs for the actual build definition.
-
+#
+# Prerequisites: Run `cargo build -p vortex-duckdb` first to download DuckDB
+# source and create the symlink at ../duckdb.
+#
 # If your editor relies on a compilation database to enable LSP functionality,
 # you can generate it by running `cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON` or
 # `bear -- cargo build` (https://github.com/rizsotto/Bear).
 
-cmake_minimum_required(VERSION 3.31)
-project(vortex)
+cmake_minimum_required(VERSION 3.20)
+project(vortex_duckdb_cpp)
 
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Default to debug if build config is not explicitly set.
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif ()
 
-# Enable compiler warnings. Unused parameter warnings are disabled as we
-# include DuckDB headers with implementations that have unused parameters.
-# Further, allow C++20 designator syntax in C++17.
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-c++20-designator")
+# Enable compiler warnings (matching build.rs flags).
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-c++20-designator -Wno-c++20-extensions")
 
-# Include directories
-include_directories(include ../duckdb/duckdb-1.3.2/src/include)
+# Find DuckDB include directory via the symlink created by build.rs.
+# The symlink points to target/duckdb-source-vX.Y.Z which contains duckdb-X.Y.Z/
+file(GLOB DUCKDB_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/../duckdb/duckdb-*")
+if(DUCKDB_DIRS)
+    list(GET DUCKDB_DIRS 0 DUCKDB_DIR)
+    set(DUCKDB_INCLUDE "${DUCKDB_DIR}/src/include")
+    message(STATUS "Found DuckDB include: ${DUCKDB_INCLUDE}")
+else()
+    message(FATAL_ERROR
+        "DuckDB source not found at ../duckdb/duckdb-*\n"
+        "Run 'cargo build -p vortex-duckdb' first to download DuckDB and create the symlink."
+    )
+endif()
 
-# Add library with source files
-add_library(vortex
-        client_context.cpp
-        config.cpp
-        data.cpp
-        error.cpp
-        expr.cpp
-        object_cache.cpp
-        scalar_function.cpp
-        table_filter.cpp
-        table_function.cpp
-        vector.cpp
-)
+include_directories(include ${DUCKDB_INCLUDE})
+
+# Auto-discover C++ source files
+file(GLOB CPP_SOURCES "*.cpp")
+add_library(vortex ${CPP_SOURCES})

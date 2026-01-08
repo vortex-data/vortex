@@ -3,6 +3,7 @@
 
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
 // Allow unused code in this build script for when we don't use the `DuckDBVersion::Commit` variant.
 #![allow(dead_code)]
 
@@ -25,6 +26,7 @@ static DUCKDB_VERSION: Lazy<DuckDBVersion> = Lazy::new(|| {
     } else {
         // The default DuckDB version to use when DUCKDB_VERSION env var is not set.
         DuckDBVersion::Release("1.4.2".to_owned())
+        // DuckDBVersion::Commit("483fbf12c5d8bb939c0b9405cd1d27cd50e4601c".to_owned())
     }
 });
 
@@ -138,7 +140,7 @@ fn download_duckdb_lib_archive() -> Result<PathBuf, Box<dyn std::error::Error>> 
 
     // Download if archive doesn't exist
     if !archive_path.exists() {
-        println!("cargo:warning=Downloading DuckDB libraries from {url}");
+        println!("cargo:info=Downloading DuckDB libraries from {url}");
         let response = http_client()?.get(&url).send()?;
         if !response.status().is_success() {
             return Err(format!(
@@ -148,7 +150,7 @@ fn download_duckdb_lib_archive() -> Result<PathBuf, Box<dyn std::error::Error>> 
             .into());
         }
         fs::write(&archive_path, &response.bytes()?)?;
-        println!("cargo:warning=Downloaded to {}", archive_path.display());
+        println!("cargo:info=Downloaded to {}", archive_path.display());
     }
 
     Ok(archive_path)
@@ -166,12 +168,12 @@ fn extract_duckdb_libraries(archive_path: &Path) -> Result<PathBuf, Box<dyn std:
     let so_exists = duckdb_lib_dir.join("libduckdb.so").exists();
 
     if dylib_exists || so_exists {
-        println!("cargo:warning=DuckDB libraries already extracted, skipping");
+        println!("cargo:info=DuckDB libraries already extracted, skipping");
         return Ok(duckdb_lib_dir);
     }
 
     println!(
-        "cargo:warning=Extracting DuckDB libraries to {}",
+        "cargo:info=Extracting DuckDB libraries to {}",
         duckdb_lib_dir.display()
     );
     let file = fs::File::open(archive_path)?;
@@ -203,7 +205,7 @@ fn download_duckdb_source_archive() -> Result<PathBuf, Box<dyn std::error::Error
 
     // Download if archive doesn't exist
     if !archive_path.exists() {
-        println!("cargo:warning=Downloading DuckDB source code from {url}");
+        println!("cargo:info=Downloading DuckDB source code from {url}");
         let response = http_client()?.get(&url).send()?;
         if !response.status().is_success() {
             return Err(format!(
@@ -213,7 +215,7 @@ fn download_duckdb_source_archive() -> Result<PathBuf, Box<dyn std::error::Error
             .into());
         }
         fs::write(&archive_path, &response.bytes()?)?;
-        println!("cargo:warning=Downloaded to {}", archive_path.display());
+        println!("cargo:info=Downloaded to {}", archive_path.display());
     }
 
     Ok(source_dir)
@@ -228,12 +230,12 @@ fn extract_duckdb_source(source_dir: &Path) -> Result<PathBuf, Box<dyn std::erro
     let cmake_file = source_dir.join(&inner_dir_name).join("CMakeLists.txt");
 
     if cmake_file.exists() {
-        println!("cargo:warning=DuckDB source already extracted, skipping");
+        println!("cargo:info=DuckDB source already extracted, skipping");
         return Ok(source_dir.to_path_buf());
     }
 
     println!(
-        "cargo:warning=Extracting DuckDB source to {}",
+        "cargo:info=Extracting DuckDB source to {}",
         source_dir.display()
     );
     let file = fs::File::open(&archive_path)?;
@@ -274,7 +276,7 @@ fn build_duckdb(duckdb_source_dir: &Path) -> Result<PathBuf, Box<dyn std::error:
             .unwrap_or(false);
 
     if !already_built {
-        println!("cargo:warning=Building DuckDB from source (this may take a while)...");
+        println!("cargo:info=Building DuckDB from source (this may take a while)...");
 
         // Build with ASAN/TSAN if VX_DUCKDB_SAN=1
         let (asan_option, tsan_option) =
@@ -301,9 +303,9 @@ fn build_duckdb(duckdb_source_dir: &Path) -> Result<PathBuf, Box<dyn std::error:
             .into());
         }
 
-        println!("cargo:warning=DuckDB build completed successfully");
+        println!("cargo:info=DuckDB build completed successfully");
     } else {
-        println!("cargo:warning=DuckDB already built, skipping build");
+        println!("cargo:info=DuckDB already built, skipping build");
     }
 
     // Copy libraries to a stable location
@@ -360,8 +362,8 @@ fn main() {
     let duckdb_symlink = crate_dir.join("duckdb");
 
     match &*DUCKDB_VERSION {
-        DuckDBVersion::Release(v) => println!("cargo:warning=Using DuckDB release version: {v}"),
-        DuckDBVersion::Commit(c) => println!("cargo:warning=Using DuckDB commit: {c}"),
+        DuckDBVersion::Release(v) => println!("cargo:info=Using DuckDB release version: {v}"),
+        DuckDBVersion::Commit(c) => println!("cargo:info=Using DuckDB commit: {c}"),
     }
 
     // Always download and extract source (needed for headers)
@@ -425,7 +427,25 @@ fn main() {
     // Link against DuckDB dylib.
     println!("cargo:rustc-link-search=native={}", library_path.display());
     println!("cargo:rustc-link-lib=dylib=duckdb");
+
+    // Set rpath for binaries built directly from this crate.
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", library_path.display());
+
+    // Export the library path for downstream crates via the `links` manifest key.
+    // Downstream crates can access this via `env::var("DEP_DUCKDB_LIB_DIR")` in their build.rs
+    // and add their own rpath:
+    //
+    //   if let Ok(duckdb_lib) = env::var("DEP_DUCKDB_LIB_DIR") {
+    //       println!("cargo:rustc-link-arg=-Wl,-rpath,{duckdb_lib}");
+    //   }
+    //
+    // Alternatively, set LD_LIBRARY_PATH (Linux) or DYLD_LIBRARY_PATH (macOS) at runtime:
+    //   export LD_LIBRARY_PATH="$DEP_DUCKDB_LIB_DIR:$LD_LIBRARY_PATH"
+    //
+    println!("cargo:lib_dir={}", library_path.display());
+
+    // Embed the library path in the binary for runtime diagnostics.
+    println!("cargo:rustc-env=DUCKDB_LIB_DIR={}", library_path.display());
 
     // Compile our C++ code that exposes additional DuckDB functionality.
     cc::Build::new()
