@@ -67,7 +67,8 @@ fn list_array_to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
     let offsets = array
         .offsets()
         .cast(DType::Primitive(O::PTYPE, array.dtype().nullability()))?
-        .execute_vector(&LEGACY_SESSION)?
+        .execute_session(&LEGACY_SESSION)?
+        .to_vector_session(&LEGACY_SESSION)?
         .into_primitive()
         .downcast::<O>()
         .into_nonnull_buffer();

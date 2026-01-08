@@ -35,6 +35,7 @@ pub mod buffer;
 pub mod builders;
 pub mod builtins;
 mod canonical;
+pub(crate) mod canonical_to_vector;
 pub mod compute;
 mod context;
 pub mod display;

@@ -79,7 +79,11 @@ pub(super) fn to_arrow_struct(
         vortex_dtype::Nullability::Nullable,
     ))?;
 
-    let struct_array = array.execute_vector(session)?.into_struct().into_arrow()?;
+    let struct_array = array
+        .execute_session(session)?
+        .to_vector_session(session)?
+        .into_struct()
+        .into_arrow()?;
 
     // Finally, we cast to Arrow to ensure any types not representable by Vortex (e.g. Dictionary)
     // are properly converted.

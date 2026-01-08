@@ -10321,7 +10321,6 @@ dependencies = [
  "vortex-runend",
  "vortex-sequence",
  "vortex-utils",
- "vortex-vector",
  "walkdir",
  "zip",
 ]

@@ -1,22 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_vector::Vector;
-use vortex_vector::fixed_size_list::FixedSizeListVector;
 
 use crate::ArrayRef;
 use crate::EmptyMetadata;
-use crate::VectorExecutor;
 use crate::arrays::FixedSizeListArray;
 use crate::buffer::BufferHandle;
-use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -132,16 +126,5 @@ impl VTable for FixedSizeListVTable {
             FixedSizeListArray::try_new(elements, array.list_size(), validity, array.len())?;
         *array = new_array;
         Ok(())
-    }
-
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        let elements = array.elements().execute(ctx)?;
-        let list_size = array.list_size();
-        let validity_mask = array.validity_mask();
-
-        Ok(unsafe {
-            FixedSizeListVector::new_unchecked(Arc::new(elements), list_size, validity_mask)
-        }
-        .into())
     }
 }

@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex::array::ExecutionCtx;
 use vortex::array::ToCanonical;
+use vortex::array::VectorExecutor;
 use vortex::array::arrays::TemporalArray;
 use vortex::error::VortexResult;
-use vortex::session::VortexSession;
 
 use crate::duckdb::Vector;
 use crate::exporter::ColumnExporter;
@@ -17,7 +18,7 @@ struct TemporalExporter {
 pub(crate) fn new_exporter(array: &TemporalArray) -> VortexResult<Box<dyn ColumnExporter>> {
     Ok(Box::new(TemporalExporter {
         storage_type_exporter: primitive::new_exporter(
-            &array.temporal_values().clone().to_primitive(),
+            array.temporal_values().clone().to_primitive(),
         )?,
     }))
 }
@@ -28,14 +29,13 @@ impl ColumnExporter for TemporalExporter {
     }
 }
 
-pub(crate) fn new_vector_exporter(
+pub(crate) fn new_operator_exporter(
     array: TemporalArray,
-    session: &VortexSession,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     Ok(Box::new(TemporalExporter {
-        storage_type_exporter: primitive::new_vector_exporter(
-            array.temporal_values().clone(),
-            session,
+        storage_type_exporter: primitive::new_exporter(
+            array.temporal_values().execute(ctx)?.into_primitive(),
         )?,
     }))
 }

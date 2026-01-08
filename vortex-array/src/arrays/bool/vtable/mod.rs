@@ -7,7 +7,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_vector::bool::BoolVector;
 
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
@@ -15,7 +14,6 @@ use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::BoolArray;
 use crate::buffer::BufferHandle;
-use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -32,7 +30,6 @@ mod validity;
 mod visitor;
 
 pub use rules::BoolMaskedValidityRule;
-use vortex_vector::Vector;
 
 use crate::arrays::bool::vtable::rules::RULES;
 use crate::vtable::ArrayId;
@@ -126,10 +123,6 @@ impl VTable for BoolVTable {
         };
 
         Ok(())
-    }
-
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        Ok(BoolVector::new(array.bit_buffer().clone(), array.validity_mask()).into())
     }
 
     fn reduce_parent(

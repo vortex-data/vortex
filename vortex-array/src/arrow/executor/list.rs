@@ -67,7 +67,10 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
         .dtype()
         .as_list_element_opt()
         .ok_or_else(|| vortex_err!("Cannot convert non-list array to Arrow ListArray"))?;
-    let list_view = array.execute_vector(session)?.into_list();
+    let list_view = array
+        .execute_session(session)?
+        .to_vector_session(session)?
+        .into_list();
     let (elements, offsets, sizes, validity) = list_view.into_parts();
     let offset_dtype = DType::Primitive(O::PTYPE, Nullability::NonNullable);
     let list_view = unsafe {
@@ -101,7 +104,8 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
     let offsets = array
         .offsets()
         .cast(DType::Primitive(O::PTYPE, Nullability::NonNullable))?
-        .execute_vector(session)?
+        .execute_session(session)?
+        .to_vector_session(session)?
         .into_primitive()
         .downcast::<O>()
         .into_nonnull_buffer()
@@ -147,7 +151,8 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
 
     let offsets = offsets
         .cast(DType::Primitive(O::PTYPE, Nullability::NonNullable))?
-        .execute_vector(session)?
+        .execute_session(session)?
+        .to_vector_session(session)?
         .into_primitive()
         .downcast::<O>()
         .into_nonnull_buffer();
@@ -193,13 +198,15 @@ fn list_view_to_list<O: OffsetSizeTrait + NativePType>(
 
     let offsets = offsets
         .cast(DType::Primitive(O::PTYPE, Nullability::NonNullable))?
-        .execute_vector(session)?
+        .execute_session(session)?
+        .to_vector_session(session)?
         .into_primitive()
         .downcast::<O>()
         .into_nonnull_buffer();
     let sizes = sizes
         .cast(DType::Primitive(O::PTYPE, Nullability::NonNullable))?
-        .execute_vector(session)?
+        .execute_session(session)?
+        .to_vector_session(session)?
         .into_primitive()
         .downcast::<O>()
         .into_nonnull_buffer();

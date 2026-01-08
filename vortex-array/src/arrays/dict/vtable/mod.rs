@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_compute::take::Take;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -9,11 +8,12 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_vector::Vector;
 
 use super::DictArray;
 use super::DictMetadata;
+use super::take_canonical;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::DeserializeMetadata;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
@@ -131,10 +131,10 @@ impl VTable for DictVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         let values = array.values().execute(ctx)?;
         let codes = array.codes().execute(ctx)?.into_primitive();
-        Ok(values.take(&codes))
+        Ok(take_canonical(values, &codes))
     }
 
     fn reduce_parent(

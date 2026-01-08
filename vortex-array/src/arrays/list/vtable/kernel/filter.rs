@@ -54,7 +54,8 @@ impl ExecuteParentKernel<ListVTable> for ListFilterKernel {
         // TODO(ngates): for ultra-sparse masks, we don't need to optimize the entire offsets.
         let offsets = array
             .offsets()
-            .execute_vector(ctx.session())?
+            .execute(ctx)?
+            .to_vector(ctx)?
             .into_primitive();
 
         let new_validity = match array.validity() {
@@ -109,7 +110,8 @@ impl ExecuteParentKernel<ListVTable> for ListFilterKernel {
         let new_elements = array
             .sliced_elements()
             .filter(element_mask)?
-            .execute_vector(ctx.session())?;
+            .execute(ctx)?
+            .to_vector(ctx)?;
 
         Ok(Some(
             unsafe {

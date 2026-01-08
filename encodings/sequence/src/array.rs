@@ -5,6 +5,7 @@ use std::hash::Hash;
 use std::ops::Range;
 
 use num_traits::cast::FromPrimitive;
+use vortex_array::Array;
 use vortex_array::ArrayBufferVisitor;
 use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayRef;
@@ -21,6 +22,7 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
+use vortex_array::vectors::VectorIntoArray;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::ArrayVTable;
@@ -51,7 +53,6 @@ use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
-use vortex_vector::Vector;
 use vortex_vector::VectorMut;
 use vortex_vector::VectorMutOps;
 use vortex_vector::primitive::PVector;
@@ -284,23 +285,15 @@ impl VTable for SequenceVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        let array = array.clone();
+    // TODO(joe): impl execute without to_canonical
 
-        Ok(match_each_native_ptype!(array.ptype(), |P| {
-            let base = array.base().cast::<P>();
-            let multiplier = array.multiplier().cast::<P>();
-
-            execute_iter(base, multiplier, 0..array.len(), array.len()).into()
-        }))
-    }
-
+    // TODO(joe): remove via vector.
     fn execute_parent(
         array: &Self::Array,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Vector>> {
+    ) -> VortexResult<Option<Canonical>> {
         // Try parent kernels first (e.g., comparison fusion)
         if let Some(result) = PARENT_KERNELS.execute(array, parent, child_idx, ctx)? {
             return Ok(Some(result));
@@ -320,6 +313,7 @@ impl VTable for SequenceVTable {
                 execute_iter(base, multiplier, indices.iter().copied(), indices.len()).into()
             }))),
         }
+        .map(|a| a.map(|a| a.into_array(array.dtype()).to_canonical()))
     }
 }
 
