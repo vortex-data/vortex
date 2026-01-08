@@ -95,13 +95,7 @@ jobs:
       matrix:
         include: ${{ fromJSON(inputs.benchmark_matrix) }}
 
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=${{ inputs.machine_type }}
-      - image=ubuntu24-full-x64
-      - spot=false
-      - ${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && 'extras=s3-cache' || '' }}
-      - tag=${{ matrix.id }}
+    runs-on: runs-on=${{ github.run_id }}/family=${{ inputs.machine_type }}/image=ubuntu24-full-x64/spot=false/tag=${{ matrix.id }}${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '' }}
     steps:
       - uses: runs-on/action@v2
         if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false

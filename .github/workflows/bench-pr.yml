@@ -36,13 +36,7 @@ jobs:
   bench:
     needs: label_trigger
     timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=c6id.8xlarge
-      - image=ubuntu24-full-x64
-      - spot=false
-      - ${{ github.event.pull_request.head.repo.fork == false && 'extras=s3-cache' || '' }}
-      - tag=${{ matrix.benchmark.id }}
+    runs-on: runs-on=${{ github.run_id }}/family=${{ inputs.machine_type }}/image=ubuntu24-full-x64/spot=false/tag=${{ matrix.id }}${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '' }}
     strategy:
       matrix:
         benchmark:
