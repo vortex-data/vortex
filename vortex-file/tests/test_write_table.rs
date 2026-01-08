@@ -30,14 +30,14 @@ use vortex_metrics::VortexMetrics;
 use vortex_session::VortexSession;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = VortexSession::empty()
+    let mut session = VortexSession::empty()
         .with::<VortexMetrics>()
         .with::<ArraySession>()
         .with::<LayoutSession>()
         .with::<ExprSession>()
         .with::<RuntimeSession>();
 
-    vortex_file::register_default_encodings(&session);
+    vortex_file::register_default_encodings(&mut session);
 
     session
 });
