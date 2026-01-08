@@ -41,7 +41,7 @@ jobs:
       - family=c6id.8xlarge
       - image=ubuntu24-full-x64
       - spot=false
-      - ${{ github.event.pull_request.head.repo.fork == false && 'extras=s3-cache' || '' }}
+      - 'extras=s3-cache'
       - tag=${{ matrix.benchmark.id }}
     strategy:
       matrix:
