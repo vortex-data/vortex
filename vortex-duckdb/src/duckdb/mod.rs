@@ -14,6 +14,7 @@ mod logical_type;
 mod macro_;
 mod object_cache;
 mod query_result;
+mod reusable_dict;
 mod scalar_function;
 mod selection_vector;
 mod string;

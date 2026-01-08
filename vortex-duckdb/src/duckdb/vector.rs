@@ -76,10 +76,11 @@ impl Vector {
     /// See: <https://github.com/duckdb/duckdb/blob/0dcf633f603a629981d089202f93b9080cb1a3e9/src/common/types/vector.cpp#L293>
     pub fn dictionary(
         &self,
+        reusable_dict: &Re
         dict: &Vector,
-        dictionary_size: usize,
+        // dictionary_size: usize,
         sel_vec: &SelectionVector,
-        count: usize,
+        // count: usize,
     ) {
         unsafe {
             cpp::duckdb_vx_vector_dictionary(
