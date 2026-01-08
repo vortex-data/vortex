@@ -372,14 +372,17 @@ jobs:
       id-token: write
     strategy:
       matrix:
-        suite:
-          - tests
-          - tpc-h
-          - ffi
+        include:
+          - suite: tests
+            cpu: 32
+          - suite: tpc-h
+            cpu: 16
+          - suite: ffi
+            cpu: 16
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
-      - cpu=16
+      - cpu=${{ matrix.cpu }}
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=rust-coverage
