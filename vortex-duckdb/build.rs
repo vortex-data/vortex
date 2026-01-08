@@ -3,6 +3,8 @@
 
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
+// Allow unused code in this build script for when we don't use the `DuckDBVersion::Commit` variant.
+#![allow(dead_code)]
 
 use std::borrow::ToOwned;
 use std::env;
