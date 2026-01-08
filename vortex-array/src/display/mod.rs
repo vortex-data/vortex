@@ -2,13 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod tree;
+mod tree_no_metadata;
 
 use std::fmt::Display;
 
 use itertools::Itertools as _;
 use tree::TreeDisplayWrapper;
 
-use crate::Array;
+use crate::{Array, display::tree_no_metadata::TreeNoMetadataDisplayWrapper};
 
 /// Describe how to convert an array to a string.
 ///
@@ -46,6 +47,28 @@ pub enum DisplayOptions {
     /// );
     /// ```
     CommaSeparatedScalars { omit_comma_after_space: bool },
+    /// The tree of encodings with neither metadata, buffers, nor values.
+    ///
+    /// ```
+    /// # use vortex_array::display::DisplayOptions;
+    /// # use vortex_array::IntoArray;
+    /// # use vortex_buffer::buffer;
+    /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
+    /// let expected = "root: vortex.primitive(i16, len=5)\n";
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeNoMetadataDisplay)), expected);
+    ///
+    /// # use vortex_array::arrays::StructArray;
+    /// let array = StructArray::from_fields(&[
+    ///     ("x", buffer![1, 2].into_array()),
+    ///     ("y", buffer![3, 4].into_array()),
+    /// ]).unwrap().into_array();
+    /// let expected = "root: vortex.struct({x=i32, y=i32}, len=2)
+    ///   x: vortex.primitive(i32, len=2)
+    ///   y: vortex.primitive(i32, len=2)
+    /// ";
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeNoMetadataDisplay)), expected);
+    /// ```
+    TreeNoMetadataDisplay,
     /// The tree of encodings and all metadata but no values.
     ///
     /// ```
@@ -164,6 +187,32 @@ impl dyn Array + '_ {
         DisplayArrayAs(self, options)
     }
 
+    /// Display the tree of array encodings and lengths without metadata or buffers.
+    ///
+    /// # Examples
+    /// ```
+    /// # use vortex_array::display::DisplayOptions;
+    /// # use vortex_array::IntoArray;
+    /// # use vortex_buffer::buffer;
+    /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
+    /// let expected = "root: vortex.primitive(i16, len=5)\n";
+    /// assert_eq!(format!("{}", array.display_tree_no_metadata()), expected);
+    ///
+    /// # use vortex_array::arrays::StructArray;
+    /// let array = StructArray::from_fields(&[
+    ///     ("x", buffer![1, 2].into_array()),
+    ///     ("y", buffer![3, 4].into_array()),
+    /// ]).unwrap().into_array();
+    /// let expected = "root: vortex.struct({x=i32, y=i32}, len=2)
+    ///   x: vortex.primitive(i32, len=2)
+    ///   y: vortex.primitive(i32, len=2)
+    /// ";
+    /// assert_eq!(format!("{}", array.display_tree_no_metadata()), expected);
+    /// ```
+    pub fn display_tree_no_metadata(&self) -> impl Display {
+        DisplayArrayAs(self, DisplayOptions::TreeNoMetadataDisplay)
+    }
+
     /// Display the tree of encodings of this array as an indented lists.
     ///
     /// While some metadata (such as length, bytes and validity-rate) are included, the logical
@@ -245,6 +294,9 @@ impl dyn Array + '_ {
                         .format(sep)
                 )?;
                 write!(f, "]")
+            }
+            DisplayOptions::TreeNoMetadataDisplay => {
+                write!(f, "{}", TreeNoMetadataDisplayWrapper(self.to_array()))
             }
             DisplayOptions::TreeDisplay => write!(f, "{}", TreeDisplayWrapper(self.to_array())),
             #[cfg(feature = "table-display")]
