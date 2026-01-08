@@ -101,6 +101,34 @@ impl Canonical {
     pub fn empty(dtype: &DType) -> Canonical {
         builder_with_capacity(dtype, 0).finish_into_canonical()
     }
+
+    pub fn len(&self) -> usize {
+        match self {
+            Canonical::Null(c) => c.len(),
+            Canonical::Bool(c) => c.len(),
+            Canonical::Primitive(c) => c.len(),
+            Canonical::Decimal(c) => c.len(),
+            Canonical::VarBinView(c) => c.len(),
+            Canonical::List(c) => c.len(),
+            Canonical::FixedSizeList(c) => c.len(),
+            Canonical::Struct(c) => c.len(),
+            Canonical::Extension(c) => c.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Canonical::Null(c) => c.is_empty(),
+            Canonical::Bool(c) => c.is_empty(),
+            Canonical::Primitive(c) => c.is_empty(),
+            Canonical::Decimal(c) => c.is_empty(),
+            Canonical::VarBinView(c) => c.is_empty(),
+            Canonical::List(c) => c.is_empty(),
+            Canonical::FixedSizeList(c) => c.is_empty(),
+            Canonical::Struct(c) => c.is_empty(),
+            Canonical::Extension(c) => c.is_empty(),
+        }
+    }
 }
 
 impl Canonical {

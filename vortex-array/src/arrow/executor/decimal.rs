@@ -45,7 +45,10 @@ pub(super) fn to_arrow_decimal<D: DecimalType, N: NativeDecimalType>(
     ))?;
 
     // Execute the array as a vector and downcast to our native type.
-    let vector = array.execute_vector(session)?.into_decimal();
+    let vector = array
+        .execute_session(session)?
+        .to_vector_session(session)?
+        .into_decimal();
     vortex_ensure!(
         vector.decimal_type() == N::DECIMAL_TYPE,
         "Decimal array conversion produced unexpected decimal type: expected {:?}, got {:?}",

@@ -131,7 +131,8 @@ where
     let values = array
         .temporal_values()
         .cast(values_dtype)?
-        .execute_vector(&LEGACY_SESSION)?
+        .execute_session(&LEGACY_SESSION)?
+        .to_vector_session(&LEGACY_SESSION)?
         .into_primitive()
         .downcast::<T::Native>();
 

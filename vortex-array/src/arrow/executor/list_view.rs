@@ -39,7 +39,8 @@ pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
 
     // Otherwise, we execute as a vector and convert.
     let mut vector = array
-        .execute_vector(session)?
+        .execute_session(session)?
+        .to_vector_session(session)?
         .into_list_opt()
         .ok_or_else(|| vortex_err!("Failed to convert array to ListVector"))?;
 
@@ -73,14 +74,16 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
 
     let offsets = offsets
         .cast(DType::Primitive(O::PTYPE, NonNullable))?
-        .execute_vector(session)?
+        .execute_session(session)?
+        .to_vector_session(session)?
         .into_primitive()
         .downcast::<O>()
         .into_nonnull_buffer()
         .into_arrow_scalar_buffer();
     let sizes = sizes
         .cast(DType::Primitive(O::PTYPE, NonNullable))?
-        .execute_vector(session)?
+        .execute_session(session)?
+        .to_vector_session(session)?
         .into_primitive()
         .downcast::<O>()
         .into_nonnull_buffer()

@@ -127,7 +127,10 @@ fn to_arrow_temporal_primitive<T: ArrowTemporalType>(
 where
     T::Native: NativePType,
 {
-    let vector = array.execute_vector(session)?.into_primitive();
+    let vector = array
+        .execute_session(session)?
+        .to_vector_session(session)?
+        .into_primitive();
     vortex_ensure!(
         vector.ptype() == T::Native::PTYPE,
         "Expected temporal array to produce vector of width {}, found {}",

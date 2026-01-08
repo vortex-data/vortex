@@ -25,7 +25,6 @@ use vortex_dtype::DType;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_dtype::PTypeDowncastExt;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -87,8 +86,7 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
             .cast(DType::Primitive(PType::U32, Nullability::NonNullable))?
             .execute(ctx)?
             .into_primitive()
-            .downcast::<u32>()
-            .into_nonnull_buffer();
+            .buffer::<u32>();
 
         let decompressor = array.decompressor();
 
@@ -99,7 +97,7 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
                 &codes_offsets,
                 mask_values,
                 &validity,
-                &uncompressed_lens.downcast::<S>().into_nonnull_buffer(),
+                &uncompressed_lens.buffer::<S>(),
             )
         });
 

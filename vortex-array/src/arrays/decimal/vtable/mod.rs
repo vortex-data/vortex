@@ -5,14 +5,12 @@ use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_dtype::NativeDecimalType;
-use vortex_dtype::PrecisionScale;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_scalar::DecimalType;
-use vortex_vector::decimal::DVector;
 
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
@@ -20,7 +18,6 @@ use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::DecimalArray;
 use crate::buffer::BufferHandle;
-use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -37,7 +34,6 @@ mod validity;
 mod visitor;
 
 pub use rules::DecimalMaskedValidityRule;
-use vortex_vector::Vector;
 
 use crate::arrays::decimal::vtable::rules::RULES;
 use crate::vtable::ArrayId;
@@ -144,41 +140,6 @@ impl VTable for DecimalVTable {
             );
         }
         Ok(())
-    }
-
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        use vortex_dtype::BigCast;
-
-        match_each_decimal_value_type!(array.values_type(), |D| {
-            // TODO(ngates): we probably shouldn't convert here... Do we allow larger P/S for a
-            //  given physical type, because we know that our values actually fit?
-            let min_value_type = DecimalType::smallest_decimal_value_type(&array.decimal_dtype());
-            match_each_decimal_value_type!(min_value_type, |E| {
-                let decimal_dtype = array.decimal_dtype();
-                let buffer = array.buffer::<D>();
-                let validity_mask = array.validity_mask();
-
-                // Copy from D to E, possibly widening, possibly narrowing
-                let values = Buffer::<E>::from_trusted_len_iter(
-                    buffer
-                        .iter()
-                        .map(|d| <E as BigCast>::from(*d).vortex_expect("Decimal cast failed")),
-                );
-
-                Ok(unsafe {
-                    DVector::<E>::new_unchecked(
-                        // TODO(ngates): this is too small?
-                        PrecisionScale::new_unchecked(
-                            decimal_dtype.precision(),
-                            decimal_dtype.scale(),
-                        ),
-                        values,
-                        validity_mask,
-                    )
-                }
-                .into())
-            })
-        })
     }
 
     fn reduce_parent(

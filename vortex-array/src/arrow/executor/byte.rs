@@ -37,7 +37,10 @@ where
     }
 
     // Otherwise, we execute the array to a BinaryView vector and cast from there.
-    let binary_view = array.execute_vector(session)?.into_arrow()?;
+    let binary_view = array
+        .execute_session(session)?
+        .to_vector_session(session)?
+        .into_arrow()?;
     arrow_cast::cast(&binary_view, &T::DATA_TYPE).map_err(VortexError::from)
 }
 
@@ -53,7 +56,8 @@ where
     let offsets = array
         .offsets()
         .cast(DType::Primitive(T::Offset::PTYPE, Nullability::NonNullable))?
-        .execute_vector(session)?
+        .execute_session(session)?
+        .to_vector_session(session)?
         .into_primitive()
         .downcast::<T::Offset>()
         .into_nonnull_buffer()

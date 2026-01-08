@@ -3,7 +3,6 @@
 
 use std::mem::transmute;
 
-use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
@@ -13,13 +12,7 @@ use vortex_array::patches::Patches;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::BufferMut;
 use vortex_dtype::DType;
-use vortex_dtype::NativePType;
 use vortex_dtype::match_each_unsigned_integer_ptype;
-use vortex_error::VortexResult;
-use vortex_vector::Vector;
-use vortex_vector::VectorMutOps;
-use vortex_vector::VectorOps;
-use vortex_vector::primitive::PVectorMut;
 
 use crate::ALPArray;
 use crate::ALPFloat;
@@ -46,46 +39,6 @@ pub fn decompress_into_array(array: ALPArray) -> PrimitiveArray {
     } else {
         decompress_unchunked(encoded, exponents, patches, dtype)
     }
-}
-
-/// Decompresses an ALP-encoded array.
-///
-/// # Returns
-///
-/// A `Vector` containing the decompressed floating-point values with all patches applied.
-pub fn decompress_into_vector<T: ALPFloat>(
-    encoded_vector: Vector,
-    exponents: Exponents,
-    patches_vectors: Option<(Vector, Vector, Option<Vector>)>,
-    patches_offset: usize,
-) -> VortexResult<Vector> {
-    let encoded_primitive = encoded_vector.into_primitive().into_mut();
-    let (mut alp_buffer, mask) = T::ALPInt::downcast(encoded_primitive).into_parts();
-    <T>::decode_slice_inplace(alp_buffer.as_mut_slice(), exponents);
-
-    // SAFETY: `Buffer<T::ALPInt> and `BufferMut<T>` have the same layout.
-    let mut decoded_buffer: BufferMut<T> = unsafe { transmute(alp_buffer) };
-
-    // Apply patches if they exist.
-    if let Some((patches_indices, patches_values, _)) = patches_vectors {
-        let patches_indices = patches_indices.into_primitive();
-        let patches_values = patches_values.into_primitive();
-
-        let values_buffer = T::downcast(patches_values.into_mut()).into_parts().0;
-        let values_slice = values_buffer.as_slice();
-        let decoded_slice = decoded_buffer.as_mut_slice();
-
-        match_each_unsigned_integer_ptype!(patches_indices.ptype(), |I| {
-            let indices_buffer = I::downcast(patches_indices.into_mut()).into_parts().0;
-            let indices_slice = indices_buffer.as_slice();
-
-            for (&idx, &value) in indices_slice.iter().zip(values_slice.iter()) {
-                decoded_slice[AsPrimitive::<usize>::as_(idx) - patches_offset] = value;
-            }
-        });
-    }
-
-    Ok(PVectorMut::<T>::new(decoded_buffer, mask).freeze().into())
 }
 
 /// Decompresses an ALP-encoded array in 1024-element chunks.

@@ -24,7 +24,6 @@ use vortex_array::expr::Expression;
 use vortex_array::expr::root;
 use vortex_array::mask::MaskExecutor;
 use vortex_array::optimizer::ArrayOptimizer;
-use vortex_array::vectors::VectorIntoArray;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexError;
@@ -107,7 +106,7 @@ impl DictReader {
                         if *USE_VORTEX_OPERATORS {
                             // We execute the array to avoid re-evaluating for every split.
                             let array = array?;
-                            Ok(array.execute_vector(&session)?.into_array(array.dtype()))
+                            Ok(array.execute_session(&session)?.into_array())
                         } else {
                             Ok(array?.to_canonical().into_array())
                         }
@@ -132,7 +131,7 @@ impl DictReader {
                         if *USE_VORTEX_OPERATORS {
                             let array = array?.apply(&expr)?;
                             // We execute the array to avoid re-evaluating for every split.
-                            Ok(array.execute_vector(&session)?.into_array(array.dtype()))
+                            Ok(array.execute_session(&session)?.into_array())
                         } else {
                             expr.evaluate(&array?).map_err(Arc::new)
                         }

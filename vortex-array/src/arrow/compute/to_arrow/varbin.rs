@@ -84,7 +84,8 @@ fn to_arrow<O: IntegerPType + OffsetSizeTrait>(array: &VarBinArray) -> VortexRes
         array.offsets(),
         &DType::Primitive(O::PTYPE, Nullability::NonNullable),
     )?
-    .execute_vector(&LEGACY_SESSION)?
+    .execute_session(&LEGACY_SESSION)?
+    .to_vector_session(&LEGACY_SESSION)?
     .into_primitive()
     .downcast::<O>()
     .into_nonnull_buffer();

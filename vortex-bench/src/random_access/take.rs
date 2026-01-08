@@ -22,7 +22,6 @@ use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::VectorExecutor;
 use vortex::array::stream::ArrayStreamExt;
-use vortex::array::vectors::VectorIntoArray;
 use vortex::buffer::Buffer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::layout::layouts::USE_VORTEX_OPERATORS;
@@ -145,7 +144,7 @@ async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> anyhow::
 
     // We canonicalize / decompress for equivalence to Arrow's `RecordBatch`es.
     Ok(if *USE_VORTEX_OPERATORS {
-        array.execute_vector(&SESSION)?.into_array(array.dtype())
+        array.execute_session(&SESSION)?.into_array()
     } else {
         array.to_canonical().into_array()
     })

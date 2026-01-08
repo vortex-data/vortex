@@ -5,23 +5,20 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
+use vortex::array::ExecutionCtx;
 use vortex::array::ToCanonical;
 use vortex::array::VectorExecutor;
 use vortex::array::arrays::ListArray;
 use vortex::array::arrays::PrimitiveArray;
-use vortex::array::vtable::ValidityHelper;
 use vortex::dtype::IntegerPType;
-use vortex::dtype::PTypeDowncastExt;
 use vortex::dtype::match_each_integer_ptype;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::mask::Mask;
-use vortex::session::VortexSession;
-use vortex_vector::primitive::PVector;
 
 use super::ConversionCache;
 use super::new_array_exporter_with_flatten;
-use super::new_array_vector_exporter_with_flatten;
+use super::new_array_operator_exporter_with_flatten;
 use crate::cpp;
 use crate::duckdb::Vector;
 use crate::exporter::ColumnExporter;
@@ -138,23 +135,10 @@ impl<O: IntegerPType> ColumnExporter for ListExporter<O> {
     }
 }
 
-struct ListVectorExporter<O> {
-    validity: Mask,
-    /// We cache the child elements of our list array so that we don't have to export it every time,
-    /// and we also share it across any other exporters who want to export this array.
-    ///
-    /// Note that we are trading less compute for more memory here, as we will export the entire
-    /// array in the constructor of the exporter (`new_exporter`) even if some of the elements are
-    /// unreachable.
-    duckdb_elements: Arc<Mutex<Vector>>,
-    offsets: PVector<O>,
-    num_elements: usize,
-}
-
-pub(crate) fn new_vector_exporter(
+pub(crate) fn new_operator_exporter(
     array: &ListArray,
     cache: &ConversionCache,
-    session: &VortexSession,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     // Cache an `elements` vector up front so that future exports can reference it.
     let elements = array.elements();
@@ -173,10 +157,10 @@ pub(crate) fn new_vector_exporter(
             // We have no cached the vector yet, so create a new DuckDB vector for the elements.
             let mut duckdb_elements =
                 Vector::with_capacity(elements.dtype().try_into()?, elements.len());
-            let elements_exporter = new_array_vector_exporter_with_flatten(
+            let elements_exporter = new_array_operator_exporter_with_flatten(
                 array.elements().clone(),
                 cache,
-                session,
+                ctx,
                 true,
             )?;
 
@@ -193,65 +177,19 @@ pub(crate) fn new_vector_exporter(
         }
     };
 
-    let offsets = array.offsets().execute_vector(session)?.into_primitive();
+    let offsets = array.offsets().execute(ctx)?.into_primitive();
 
     let boxed = match_each_integer_ptype!(offsets.ptype(), |O| {
-        Box::new(ListVectorExporter {
-            validity: array.validity().to_mask(array.len()),
+        Box::new(ListExporter {
+            validity: array.validity_mask(),
             duckdb_elements: shared_elements,
-            offsets: offsets.downcast::<O>(),
+            offsets,
             num_elements,
+            offset_type: PhantomData::<O>,
         }) as Box<dyn ColumnExporter>
     });
 
     Ok(boxed)
-}
-
-impl<O: IntegerPType> ColumnExporter for ListVectorExporter<O> {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
-        // Verify that offset + len doesn't exceed the validity mask length.
-        assert!(
-            offset + len <= self.validity.len(),
-            "Export range [{}, {}) exceeds validity mask length {}",
-            offset,
-            offset + len,
-            self.validity.len()
-        );
-
-        // Set validity if necessary.
-        if unsafe { vector.set_validity(&self.validity, offset, len) } {
-            // All values are null, so no point copying the data.
-            return Ok(());
-        }
-
-        let offsets = &self.offsets.as_ref()[offset..offset + len + 1];
-        debug_assert_eq!(offsets.len(), len + 1);
-
-        // SAFETY: TODO(connor): Pretty sure that `export` needs to be `unsafe`.
-        let duckdb_list_views: &mut [cpp::duckdb_list_entry] =
-            unsafe { vector.as_slice_mut::<cpp::duckdb_list_entry>(len) };
-        debug_assert_eq!(duckdb_list_views.len(), len);
-
-        for i in 0..len {
-            let offset = offsets[i]
-                .to_u64()
-                .ok_or_else(|| vortex_err!("somehow unable to convert an offset to u64"))?;
-            let length = (offsets[i + 1] - offsets[i])
-                .to_u64()
-                .ok_or_else(|| vortex_err!("somehow unable to convert an offset to u64"))?;
-
-            debug_assert!(offset + length <= self.num_elements as u64);
-
-            duckdb_list_views[i] = cpp::duckdb_list_entry { offset, length };
-        }
-
-        let mut child = vector.list_vector_get_child();
-        child.reference(&self.duckdb_elements.lock());
-
-        vector.list_vector_set_size(self.num_elements as u64)?;
-
-        Ok(())
-    }
 }
 
 #[cfg(test)]

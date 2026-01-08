@@ -13,6 +13,7 @@ use crate::Array;
 use crate::LEGACY_SESSION;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
+use crate::executor::CanonicalOutput;
 use crate::executor::VectorExecutor;
 use crate::expr::ExecutionArgs;
 use crate::validity::Validity;
@@ -86,13 +87,17 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
     }
 
     fn validity_mask(array: &ScalarFnArray) -> Mask {
-        let datum = array
+        let output = array
             .to_array()
-            .execute_datum(&LEGACY_SESSION)
+            .execute_output(&LEGACY_SESSION)
             .vortex_expect("Validity mask computation should be fallible");
-        match datum {
-            Datum::Scalar(s) => Mask::new(array.len, s.is_valid()),
-            Datum::Vector(v) => v.validity().clone(),
+        match output {
+            CanonicalOutput::Constant(c) => Mask::new(array.len, c.scalar().is_valid()),
+            CanonicalOutput::Array(a) => a
+                .to_vector_session(&LEGACY_SESSION)
+                .vortex_expect("Failed to convert canonical to vector")
+                .validity()
+                .clone(),
         }
     }
 }

@@ -8,9 +8,10 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_vector::Vector;
 
+use crate::Array;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::ProstMetadata;
 use crate::arrays::ListArray;
@@ -20,6 +21,7 @@ use crate::metadata::DeserializeMetadata;
 use crate::metadata::SerializeMetadata;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
+use crate::vectors::VectorIntoArray;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
@@ -148,8 +150,11 @@ impl VTable for ListVTable {
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Vector>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    ) -> VortexResult<Option<Canonical>> {
+        PARENT_KERNELS
+            .execute(array, parent, child_idx, ctx)
+            // TODO(joe): fixme don't go via vector
+            .map(|res| res.map(|v| v.into_array(array.dtype()).to_canonical()))
     }
 }
 

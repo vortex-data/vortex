@@ -25,12 +25,11 @@ pub use validity::*;
 pub use visitor::*;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_vector::Vector;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::IntoArray;
-use crate::VectorExecutor;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
@@ -135,24 +134,23 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// of children must be expected.
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()>;
 
-    /// Execute this array to produce a [`Vector`].
+    /// Execute this array to produce a [`Canonical`].
     ///
-    /// The returned [`Vector`] must be the appropriate one for the array's logical
+    /// The returned [`Canonical`] must be the appropriate one for the array's logical
     /// type (they are one-to-one with Vortex `DType`s), and should respect the output nullability
     /// of the array.
     ///
-    /// Debug builds will panic if the returned vector is of the wrong type, wrong length, or
+    /// Debug builds will panic if the returned array is of the wrong type, wrong length, or
     /// incorrectly contains null values.
     ///
-    /// Implementations should recursively call [`crate::executor::VectorExecutor::execute`] on
-    /// child arrays as needed.
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        // TODO(ngates): convert arrays to canonicalize over vectors.
-        let canonical = Self::CanonicalVTable::canonicalize(array);
-        canonical.into_array().execute_vector(ctx.session())
+    /// Implementations should recursively call [`crate::executor::VectorExecutor::execute`]
+    /// on child arrays as needed.
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        // TODO(ngates): convert arrays to canonicalize over vectors, so remove default impl.
+        Ok(Self::CanonicalVTable::canonicalize(array))
     }
 
-    /// Attempt to execute the parent of this array to produce a [`Vector`].
+    /// Attempt to execute the parent of this array to produce a [`Canonical`].
     ///
     /// This function allows arrays to plug in specialized execution logic for their parent. For
     /// example, strings compressed as FSST arrays can implement a custom equality comparison when
@@ -164,7 +162,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Vector>> {
+    ) -> VortexResult<Option<Canonical>> {
         _ = (array, parent, child_idx, ctx);
         Ok(None)
     }

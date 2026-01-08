@@ -5,6 +5,9 @@ mod array;
 pub use array::MaskedArray;
 
 mod compute;
+mod execute;
+
+pub use execute::mask_validity_canonical;
 
 mod vtable;
 pub use vtable::MaskedVTable;
