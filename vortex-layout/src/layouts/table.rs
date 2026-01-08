@@ -159,7 +159,7 @@ impl TableStrategy {
 }
 
 impl TableStrategy {
-    // Descend into a subfield for the writer.
+    /// Descend into a subfield for the writer.
     fn descend(&self, field: &Field) -> Self {
         // Start with the existing set of overrides, then only retain the ones that contain
         // the current field
