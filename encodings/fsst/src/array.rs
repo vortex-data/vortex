@@ -28,7 +28,6 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
-use vortex_array::vectors::VectorIntoArray;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::ArrayVTable;
@@ -188,10 +187,7 @@ impl VTable for FSSTVTable {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Canonical>> {
-        // TODO(joe): don't use vector
-        PARENT_KERNELS
-            .execute(array, parent, child_idx, ctx)
-            .map(|a| a.map(|a| a.into_array(array.dtype()).to_canonical()))
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 
