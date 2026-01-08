@@ -34,6 +34,8 @@ pub(crate) fn warm_up_vtable() -> usize {
 /// Attempt to cast an array to a desired DType.
 ///
 /// Some array support the ability to narrow or upcast.
+/// Struct DType casting is nominal and will resolve fields by their name and not their position.
+/// Consequently, struct casting can reorder fields and add missing fields to match the target dtype.
 pub fn cast(array: &dyn Array, dtype: &DType) -> VortexResult<ArrayRef> {
     CAST_FN
         .invoke(&InvocationArgs {

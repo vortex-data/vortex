@@ -35,7 +35,7 @@ impl CastKernel for StructVTable {
 
         let mut cast_fields = Vec::with_capacity(target_sdtype.nfields());
         if fields_match_order {
-            for (field, target_type) in array.fields.iter().zip_eq(target_sdtype.fields()) {
+            for (field, target_type) in array.fields().iter().zip_eq(target_sdtype.fields()) {
                 // Field exists in source field. Cast it to the target type.
                 let cast_field = cast(field, &target_type)?;
                 cast_fields.push(cast_field);
@@ -89,10 +89,12 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
+    use vortex_dtype::DecimalDType;
     use vortex_dtype::FieldNames;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
 
+    use crate::Array;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;
@@ -203,5 +205,31 @@ mod tests {
         assert_eq!(result.dtype(), &target_dtype);
         assert_eq!(result.len(), 3);
         assert_eq!(result.to_struct().fields().len(), 2);
+    }
+
+    #[test]
+    fn cast_add_fields() {
+        let names = FieldNames::from(["a", "b"]);
+        let field1 = buffer![1i32, 2, 3].into_array();
+        let field2 = buffer![10i64, 20, 30].into_array();
+        let target_dtype = DType::struct_(
+            [
+                ("a", field1.dtype().clone()),
+                ("b", field2.dtype().clone()),
+                (
+                    "c",
+                    DType::Decimal(DecimalDType::new(38, 10), Nullability::Nullable),
+                ),
+            ],
+            Nullability::NonNullable,
+        );
+
+        let struct_array =
+            StructArray::try_new(names, vec![field1, field2], 3, Validity::NonNullable).unwrap();
+
+        let result = crate::compute::cast(struct_array.as_ref(), &target_dtype).unwrap();
+        assert_eq!(result.dtype(), &target_dtype);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result.to_struct().fields().len(), 3);
     }
 }
