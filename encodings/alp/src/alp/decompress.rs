@@ -7,6 +7,7 @@ use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::chunk_range;
 use vortex_array::arrays::patch_chunk;
 use vortex_array::patches::Patches;
 use vortex_array::vtable::ValidityHelper;
@@ -111,7 +112,9 @@ fn decompress_chunked(
     let patches_values = patches.values().to_primitive();
     let ptype = dtype.as_ptype();
     let array_len = array.len();
-    let patches_offset = patches.offset();
+
+    // Number of patches to skip at the start of the first chunk.
+    let offset_within_chunk = patches.offset_within_chunk().unwrap_or(0);
 
     // We need to drop ALPArray here in case converting encoded buffer into
     // primitive didn't create a copy. In that case both alp_encoded and array
@@ -123,16 +126,13 @@ fn decompress_chunked(
         let mut alp_buffer = encoded.into_buffer_mut();
         match_each_unsigned_integer_ptype!(patches_chunk_offsets.ptype(), |C| {
             let patches_chunk_offsets = patches_chunk_offsets.as_slice::<C>();
-            // There always is at least one chunk offset.
-            let base_offset = patches_chunk_offsets[0];
-            let offset_within_chunk = patches.offset_within_chunk().unwrap_or(0);
 
             match_each_unsigned_integer_ptype!(patches_indices.ptype(), |I| {
                 let patches_indices = patches_indices.as_slice::<I>();
 
-                for (chunk_idx, chunk_start) in (0..array_len).step_by(1024).enumerate() {
-                    let chunk_end = (chunk_start + 1024).min(array_len);
-                    let chunk_slice = &mut alp_buffer.as_mut_slice()[chunk_start..chunk_end];
+                for chunk_idx in 0..patches_chunk_offsets.len() {
+                    let chunk_range = chunk_range(chunk_idx, patches.offset(), array_len);
+                    let chunk_slice = &mut alp_buffer.as_mut_slice()[chunk_range];
 
                     <T>::decode_slice_inplace(chunk_slice, exponents);
 
@@ -141,10 +141,9 @@ fn decompress_chunked(
                         decoded_chunk,
                         patches_indices,
                         patches_values,
-                        patches_offset,
+                        patches.offset(),
                         patches_chunk_offsets,
                         chunk_idx,
-                        base_offset.as_(),
                         offset_within_chunk,
                     );
                 }
