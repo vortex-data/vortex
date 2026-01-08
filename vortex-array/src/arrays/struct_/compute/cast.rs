@@ -36,7 +36,6 @@ impl CastKernel for StructVTable {
         let mut cast_fields = Vec::with_capacity(target_sdtype.nfields());
         if fields_match_order {
             for (field, target_type) in array.fields().iter().zip_eq(target_sdtype.fields()) {
-                // Field exists in source field. Cast it to the target type.
                 let cast_field = cast(field, &target_type)?;
                 cast_fields.push(cast_field);
             }
