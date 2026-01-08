@@ -4,6 +4,7 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
 
+use std::borrow::ToOwned;
 use std::env;
 use std::fs;
 use std::io::ErrorKind;
@@ -12,6 +13,20 @@ use std::path::PathBuf;
 
 use bindgen::Abi;
 use once_cell::sync::Lazy;
+
+static DUCKDB_VERSION: Lazy<DuckDBVersion> = Lazy::new(|| {
+    if let Ok(version) = env::var("DUCKDB_VERSION") {
+        // DUCKDB_VERSION env var can be set by:
+        // - The extension build in `vortex-data/duckdb-vortex` repo
+        // - Developers who want to test against a specific version/commit
+        parse_version(&version)
+    } else {
+        // The default DuckDB version to use when DUCKDB_VERSION env var is not set.
+        DuckDBVersion::Release("1.4.2".to_owned())
+    }
+});
+
+const DUCKDB_RELEASES_URL: &str = "https://github.com/duckdb/duckdb/releases/download";
 
 /// Represents either a released DuckDB version or a specific commit hash.
 #[derive(Debug, Clone)]
@@ -48,9 +63,6 @@ impl DuckDBVersion {
     }
 }
 
-/// The default DuckDB version to use when DUCKDB_VERSION env var is not set.
-const DEFAULT_VERSION: &str = "1.4.2";
-
 /// Parse a version string into a DuckDBVersion.
 /// - Strings starting with "v" followed by semver are treated as releases
 /// - Pure semver strings (X.Y.Z) are treated as releases
@@ -66,23 +78,9 @@ fn parse_version(s: &str) -> DuckDBVersion {
     if parts.len() >= 2 && parts.iter().all(|p| p.chars().all(|c| c.is_ascii_digit())) {
         DuckDBVersion::Release(version_str.to_owned())
     } else {
-        // Treat as a commit hash
-        DuckDBVersion::Commit(s.to_owned())
+        panic!("Invalid DuckDB version: {s}");
     }
 }
-
-static DUCKDB_VERSION: Lazy<DuckDBVersion> = Lazy::new(|| {
-    // DUCKDB_VERSION env var can be set by:
-    // - The extension build in `vortex-data/duckdb-vortex` repo
-    // - Developers who want to test against a specific version/commit
-    if let Ok(version) = env::var("DUCKDB_VERSION") {
-        parse_version(&version)
-    } else {
-        DuckDBVersion::Release(DEFAULT_VERSION.to_owned())
-    }
-});
-
-const DUCKDB_RELEASES_URL: &str = "https://github.com/duckdb/duckdb/releases/download";
 
 /// Create an HTTP client with appropriate timeout settings.
 fn http_client() -> Result<reqwest::blocking::Client, Box<dyn std::error::Error>> {
