@@ -92,6 +92,7 @@ impl VortexFileCache {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn footer_initial_read_size_bytes(&self) -> usize {
         self.footer_initial_read_size_bytes
     }
