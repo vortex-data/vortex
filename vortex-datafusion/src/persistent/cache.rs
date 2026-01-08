@@ -33,6 +33,7 @@ pub(crate) struct VortexFileCache {
     file_cache: Cache<FileKey, VortexFile, DefaultHashBuilder>,
     segment_cache: Cache<SegmentKey, ByteBuffer, DefaultHashBuilder>,
     session: VortexSession,
+    footer_initial_read_size_bytes: usize,
 }
 
 /// Cache key for a [`VortexFile`].
@@ -59,7 +60,12 @@ struct SegmentKey {
 }
 
 impl VortexFileCache {
-    pub fn new(size_mb: usize, segment_size_mb: usize, session: VortexSession) -> Self {
+    pub fn new(
+        size_mb: usize,
+        segment_size_mb: usize,
+        footer_initial_read_size_bytes: usize,
+        session: VortexSession,
+    ) -> Self {
         let file_cache = Cache::builder()
             .max_capacity(size_mb as u64 * (1 << 20))
             .eviction_listener(|k: Arc<FileKey>, _v: VortexFile, cause| {
@@ -82,7 +88,12 @@ impl VortexFileCache {
             file_cache,
             segment_cache,
             session,
+            footer_initial_read_size_bytes,
         }
+    }
+
+    pub(crate) fn footer_initial_read_size_bytes(&self) -> usize {
+        self.footer_initial_read_size_bytes
     }
 
     pub async fn try_get(
@@ -101,6 +112,7 @@ impl VortexFileCache {
                             .metrics()
                             .child_with_tags([("filename", object.location.to_string())]),
                     )
+                    .with_initial_read_size(self.footer_initial_read_size_bytes)
                     .with_file_size(object.size)
                     .with_segment_cache(Arc::new(VortexFileSegmentCache {
                         file_key,
