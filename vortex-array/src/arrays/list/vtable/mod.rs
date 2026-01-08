@@ -21,7 +21,6 @@ use crate::metadata::DeserializeMetadata;
 use crate::metadata::SerializeMetadata;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vectors::VectorIntoArray;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
@@ -151,10 +150,7 @@ impl VTable for ListVTable {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Canonical>> {
-        PARENT_KERNELS
-            .execute(array, parent, child_idx, ctx)
-            // TODO(joe): fixme don't go via vector
-            .map(|res| res.map(|v| v.into_array(array.dtype()).to_canonical()))
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 

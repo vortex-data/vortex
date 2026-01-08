@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
@@ -13,7 +12,6 @@ use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
-use vortex_array::vectors::VectorIntoArray;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::ArrayVTable;
@@ -245,16 +243,13 @@ impl VTable for BitPackedVTable {
         )
     }
 
-    // TODO(joe): impl execute without to_canonical and execute_parent without vector
     fn execute_parent(
         array: &Self::Array,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Canonical>> {
-        PARENT_KERNELS
-            .execute(array, parent, child_idx, ctx)
-            .map(|a| a.map(|a| a.into_array(array.dtype()).to_canonical()))
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 
