@@ -121,8 +121,10 @@ jobs:
           echo '' >> comment.md
           uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ matrix.benchmark.name }}" \
             >> comment.md
+          cat comment.md >> $GITHUB_STEP_SUMMARY
 
       - name: Comment PR
+        if: inputs.mode != 'pr' && github.event.pull_request.head.repo.fork == false
         uses: thollander/actions-comment-pull-request@v3
         with:
           file-path: comment.md
