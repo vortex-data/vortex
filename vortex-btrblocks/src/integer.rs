@@ -909,6 +909,7 @@ mod tests {
     }
 
     #[test_with::env(CI)]
+    #[test_with::no_env(VORTEX_SKIP_SLOW_TESTS)]
     fn compress_large_int() -> VortexResult<()> {
         const NUM_LISTS: usize = 10_000;
         const ELEMENTS_PER_LIST: usize = 5_000;

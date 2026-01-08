@@ -298,15 +298,19 @@ jobs:
         run: cargo sweep --file
 
   rust-lint-no-default:
-    name: "Rust (lint, no default)"
+    name: "Rust (lint, no default, ${{ matrix.partition }}/2)"
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2]
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
       - cpu=16
       - image=ubuntu24-full-x64
       - extras=s3-cache
-      - tag=rust-lint-no-default
+      - tag=rust-lint-no-default-${{ matrix.partition }}
     steps:
       - uses: runs-on/action@v2
         with:
@@ -323,7 +327,7 @@ jobs:
         shell: bash
         run: |
           # https://spiraldb.slack.com/archives/C07BV3GKAJ2/p1732736281946729
-          cargo hack clippy --no-default-features -- -D warnings
+          cargo hack clippy --no-default-features --partition ${{ matrix.partition }}/2 -- -D warnings
       - name: Prune cache
         if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
         run: cargo sweep --file
@@ -366,7 +370,7 @@ jobs:
         uses: obi1kenobi/cargo-semver-checks-action@v2
 
   rust-coverage:
-    name: "Rust tests (coverage)"
+    name: "Rust tests (coverage) (${{ matrix.suite }})"
     timeout-minutes: 120
     permissions:
       id-token: write
@@ -470,6 +474,8 @@ jobs:
       # Keep frame pointers for better stack traces
       CARGO_PROFILE_DEV_DEBUG: "true"
       CARGO_PROFILE_TEST_DEBUG: "true"
+      # Skip slow tests that are too expensive under sanitizer
+      VORTEX_SKIP_SLOW_TESTS: "1"
     steps:
       - uses: runs-on/action@v2
         with:
