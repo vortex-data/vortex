@@ -51,6 +51,8 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::expr::stats;
 use vortex::expr::stats::Stat;
+use vortex::file::EOF_SIZE;
+use vortex::file::MAX_POSTSCRIPT_SIZE;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
@@ -60,6 +62,8 @@ use super::sink::VortexSink;
 use super::source::VortexSource;
 use crate::PrecisionExt as _;
 use crate::convert::TryToDataFusion;
+
+const DEFAULT_FOOTER_INITIAL_READ_SIZE_BYTES: usize = MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE;
 
 /// Vortex implementation of a DataFusion [`FileFormat`].
 pub struct VortexFormat {
@@ -87,6 +91,11 @@ config_namespace! {
         pub footer_cache_size_mb: usize, default = 64
         /// The size of the in-memory segment cache.
         pub segment_cache_size_mb: usize, default = 0
+        /// The number of bytes to read when parsing a file footer.
+        ///
+        /// Values smaller than `MAX_POSTSCRIPT_SIZE + EOF_SIZE` will be clamped to that minimum
+        /// during footer parsing.
+        pub footer_initial_read_size_bytes: usize, default = DEFAULT_FOOTER_INITIAL_READ_SIZE_BYTES
     }
 }
 
@@ -186,6 +195,7 @@ impl VortexFormat {
             file_cache: VortexFileCache::new(
                 opts.footer_cache_size_mb,
                 opts.segment_cache_size_mb,
+                opts.footer_initial_read_size_bytes,
                 session,
             ),
             opts,
@@ -468,7 +478,7 @@ mod tests {
                 (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
                 STORED AS vortex \
                 LOCATION '{}' \
-                OPTIONS( segment_cache_size_mb '5' );",
+                OPTIONS( segment_cache_size_mb '5', footer_initial_read_size_bytes '12345' );",
                 dir.path().to_str().unwrap()
             ))
             .await
@@ -476,5 +486,14 @@ mod tests {
             .collect()
             .await
             .unwrap();
+    }
+
+    #[test]
+    fn format_plumbs_footer_initial_read_size() {
+        let mut opts = VortexOptions::default();
+        opts.set("footer_initial_read_size_bytes", "12345").unwrap();
+
+        let format = VortexFormat::new_with_options(VortexSession::default(), opts);
+        assert_eq!(format.file_cache.footer_initial_read_size_bytes(), 12345);
     }
 }
