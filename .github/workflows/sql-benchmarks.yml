@@ -234,7 +234,7 @@ jobs:
           cat comment.md >> $GITHUB_STEP_SUMMARY
 
       - name: Comment PR
-        if: inputs.mode != 'pr' && github.event.pull_request.head.repo.fork == false
+        if: inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
         uses: thollander/actions-comment-pull-request@v3
         with:
           file-path: comment.md
