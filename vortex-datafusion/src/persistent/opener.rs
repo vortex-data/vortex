@@ -51,7 +51,7 @@ use crate::VortexAccessPlan;
 use crate::convert::exprs::ExpressionConvertor;
 use crate::convert::exprs::can_be_pushed_down;
 use crate::convert::exprs::make_vortex_predicate;
-use crate::persistent::stream::PrunableStream;
+use crate::persistent::stream::EarlyTerminatingStream;
 
 #[derive(Clone)]
 pub(crate) struct VortexOpener {
@@ -282,12 +282,6 @@ impl FileOpener for VortexOpener {
                 .transpose()
                 .map_err(|e| DataFusionError::External(e.into()))?;
 
-            if let Some(limit) = limit
-                && filter.is_none()
-            {
-                scan_builder = scan_builder.with_limit(limit);
-            }
-
             let chunk_session = session.clone();
             let stream = scan_builder
                 .with_metrics(metrics)
@@ -337,11 +331,7 @@ impl FileOpener for VortexOpener {
                 .map(move |batch| batch.and_then(|b| schema_mapping.map_batch(b)))
                 .boxed();
 
-            if let Some(file_pruner) = file_pruner {
-                Ok(PrunableStream::new(file_pruner, stream).boxed())
-            } else {
-                Ok(stream)
-            }
+            Ok(EarlyTerminatingStream::new(file_pruner, limit, stream).boxed())
         }
         .in_current_span()
         .boxed())
