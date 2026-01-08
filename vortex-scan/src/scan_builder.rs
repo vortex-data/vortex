@@ -2,10 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::Range;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::Context;
+use std::task::Poll;
 
 use futures::Stream;
+use futures::StreamExt;
 use futures::future::BoxFuture;
+use futures::stream::BoxStream;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::expr::Expression;
@@ -22,6 +27,7 @@ use vortex_dtype::Field;
 use vortex_dtype::FieldMask;
 use vortex_dtype::FieldName;
 use vortex_dtype::FieldPath;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::runtime::BlockingRuntime;
@@ -287,7 +293,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
     pub fn into_stream(
         self,
     ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
-        self.prepare()?.execute_stream(None)
+        Ok(LazyScanStream::new(self))
     }
 
     /// Returns an [`Iterator`] using the session's runtime.
@@ -297,6 +303,49 @@ impl<A: 'static + Send> ScanBuilder<A> {
     ) -> VortexResult<impl Iterator<Item = VortexResult<A>> + 'static> {
         let stream = self.into_stream()?;
         Ok(runtime.block_on_stream(stream))
+    }
+}
+
+enum LazyScanState<A: 'static + Send> {
+    Builder(Option<Box<ScanBuilder<A>>>),
+    Stream(BoxStream<'static, VortexResult<A>>),
+    Error(Option<vortex_error::VortexError>),
+}
+
+struct LazyScanStream<A: 'static + Send> {
+    state: LazyScanState<A>,
+}
+
+impl<A: 'static + Send> LazyScanStream<A> {
+    fn new(builder: ScanBuilder<A>) -> Self {
+        Self {
+            state: LazyScanState::Builder(Some(Box::new(builder))),
+        }
+    }
+}
+
+impl<A: 'static + Send> Unpin for LazyScanStream<A> {}
+
+impl<A: 'static + Send> Stream for LazyScanStream<A> {
+    type Item = VortexResult<A>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        loop {
+            match &mut self.state {
+                LazyScanState::Builder(builder) => {
+                    let builder = builder.take().vortex_expect("polled after completion");
+                    match builder
+                        .prepare()
+                        .and_then(|scan| scan.execute_stream(None).map(|s| s.boxed()))
+                    {
+                        Ok(stream) => self.state = LazyScanState::Stream(stream),
+                        Err(err) => self.state = LazyScanState::Error(Some(err)),
+                    }
+                }
+                LazyScanState::Stream(stream) => return stream.as_mut().poll_next(cx),
+                LazyScanState::Error(err) => return Poll::Ready(err.take().map(Err)),
+            }
+        }
     }
 }
 
@@ -337,4 +386,115 @@ pub(crate) fn filter_and_projection_masks(
 
 fn to_field_mask(field: FieldName) -> FieldMask {
     FieldMask::Prefix(FieldPath::from(Field::Name(field)))
+}
+
+#[cfg(test)]
+mod test {
+    use std::collections::BTreeSet;
+    use std::ops::Range;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use vortex_array::MaskFuture;
+    use vortex_array::expr::Expression;
+    use vortex_dtype::DType;
+    use vortex_dtype::FieldMask;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
+    use vortex_error::VortexResult;
+    use vortex_io::runtime::BlockingRuntime;
+    use vortex_io::runtime::single::SingleThreadRuntime;
+    use vortex_io::session::RuntimeSessionExt;
+    use vortex_layout::ArrayFuture;
+    use vortex_layout::LayoutReader;
+    use vortex_mask::Mask;
+
+    use super::ScanBuilder;
+
+    #[derive(Debug)]
+    struct CountingLayoutReader {
+        name: Arc<str>,
+        dtype: DType,
+        row_count: u64,
+        register_splits_calls: Arc<AtomicUsize>,
+    }
+
+    impl CountingLayoutReader {
+        fn new(register_splits_calls: Arc<AtomicUsize>) -> Self {
+            Self {
+                name: Arc::from("counting"),
+                dtype: DType::Primitive(PType::I32, Nullability::NonNullable),
+                row_count: 1,
+                register_splits_calls,
+            }
+        }
+    }
+
+    impl LayoutReader for CountingLayoutReader {
+        fn name(&self) -> &Arc<str> {
+            &self.name
+        }
+
+        fn dtype(&self) -> &DType {
+            &self.dtype
+        }
+
+        fn row_count(&self) -> u64 {
+            self.row_count
+        }
+
+        fn register_splits(
+            &self,
+            _field_mask: &[FieldMask],
+            row_range: &Range<u64>,
+            splits: &mut BTreeSet<u64>,
+        ) -> VortexResult<()> {
+            self.register_splits_calls.fetch_add(1, Ordering::Relaxed);
+            splits.insert(row_range.end);
+            Ok(())
+        }
+
+        fn pruning_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &Expression,
+            _mask: Mask,
+        ) -> VortexResult<MaskFuture> {
+            unimplemented!("not needed for this test");
+        }
+
+        fn filter_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &Expression,
+            _mask: MaskFuture,
+        ) -> VortexResult<MaskFuture> {
+            unimplemented!("not needed for this test");
+        }
+
+        fn projection_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &Expression,
+            _mask: MaskFuture,
+        ) -> VortexResult<ArrayFuture> {
+            Ok(Box::pin(async move {
+                unreachable!("scan should not be polled in this test")
+            }))
+        }
+    }
+
+    #[test]
+    fn into_stream_is_lazy() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let reader = Arc::new(CountingLayoutReader::new(calls.clone()));
+
+        let runtime = SingleThreadRuntime::default();
+        let session = crate::test::SESSION.clone().with_handle(runtime.handle());
+
+        let _stream = ScanBuilder::new(session, reader).into_stream().unwrap();
+
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+    }
 }

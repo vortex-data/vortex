@@ -1,26 +1,40 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Interactive TUI browser for Vortex files.
+
 use std::path::Path;
 
 use app::AppState;
 use app::KeyMode;
 use app::Tab;
-use app::create_file_app;
+use crossterm::event;
 use crossterm::event::Event;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEventKind;
 use crossterm::event::KeyModifiers;
-use crossterm::event::{self};
 use ratatui::DefaultTerminal;
-use ratatui::widgets::ListState;
 use ui::render_app;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::layout::layouts::flat::FlatVTable;
+use vortex::session::VortexSession;
 
-mod app;
-mod ui;
+pub mod app;
+pub mod ui;
+
+/// Scroll amount for single-line navigation (up/down arrows).
+const SCROLL_LINE: usize = 1;
+/// Scroll amount for page navigation (PageUp/PageDown).
+const SCROLL_PAGE: usize = 10;
+/// Scroll amount for segment grid line navigation.
+const SEGMENT_SCROLL_LINE: usize = 10;
+/// Scroll amount for segment grid page navigation.
+const SEGMENT_SCROLL_PAGE: usize = 100;
+/// Scroll amount for segment grid horizontal step.
+const SEGMENT_SCROLL_HORIZONTAL_STEP: usize = 20;
+/// Scroll amount for segment grid horizontal jump (Home/End).
+const SEGMENT_SCROLL_HORIZONTAL_JUMP: usize = 200;
 
 // Use the VortexResult and potentially launch a Backtrace.
 async fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> VortexResult<()> {
@@ -47,107 +61,99 @@ enum HandleResult {
     Exit,
 }
 
+/// Navigate the layout list up by the given amount.
+fn navigate_layout_up(app: &mut AppState, amount: usize) {
+    let amount_u16 = amount.try_into().unwrap_or(u16::MAX);
+    if app.cursor.layout().is::<FlatVTable>() {
+        app.tree_scroll_offset = app.tree_scroll_offset.saturating_sub(amount_u16);
+    } else {
+        app.layouts_list_state.scroll_up_by(amount_u16);
+    }
+}
+
+/// Navigate the layout list down by the given amount.
+fn navigate_layout_down(app: &mut AppState, amount: usize) {
+    let amount_u16 = amount.try_into().unwrap_or(u16::MAX);
+    if app.cursor.layout().is::<FlatVTable>() {
+        app.tree_scroll_offset = app.tree_scroll_offset.saturating_add(amount_u16);
+    } else {
+        app.layouts_list_state.scroll_down_by(amount_u16);
+    }
+}
+
 fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
     if let Event::Key(key) = event
         && key.kind == KeyEventKind::Press
     {
         match (key.code, key.modifiers) {
             (KeyCode::Char('q'), _) => {
-                // Close the process down.
                 return HandleResult::Exit;
             }
             (KeyCode::Tab, _) => {
-                // toggle between tabs
                 app.current_tab = match app.current_tab {
                     Tab::Layout => Tab::Segments,
                     Tab::Segments => Tab::Layout,
                 };
             }
             (KeyCode::Up | KeyCode::Char('k'), _) | (KeyCode::Char('p'), KeyModifiers::CONTROL) => {
-                // We send the key-up to the list state if we're looking at
-                // the Layouts tab.
                 match app.current_tab {
-                    Tab::Layout => {
-                        if app.cursor.layout().is::<FlatVTable>() {
-                            app.tree_scroll_offset = app.tree_scroll_offset.saturating_sub(1);
-                        } else {
-                            app.layouts_list_state.select_previous();
-                        }
-                    }
-                    Tab::Segments => app.segment_grid_state.scroll_up(10),
+                    Tab::Layout => navigate_layout_up(app, SCROLL_LINE),
+                    Tab::Segments => app.segment_grid_state.scroll_up(SEGMENT_SCROLL_LINE),
                 }
             }
             (KeyCode::Down | KeyCode::Char('j'), _)
             | (KeyCode::Char('n'), KeyModifiers::CONTROL) => match app.current_tab {
-                Tab::Layout => {
-                    if app.cursor.layout().is::<FlatVTable>() {
-                        app.tree_scroll_offset = app.tree_scroll_offset.saturating_add(1);
-                    } else {
-                        app.layouts_list_state.select_next();
-                    }
-                }
-                Tab::Segments => app.segment_grid_state.scroll_down(10),
+                Tab::Layout => navigate_layout_down(app, SCROLL_LINE),
+                Tab::Segments => app.segment_grid_state.scroll_down(SEGMENT_SCROLL_LINE),
             },
             (KeyCode::PageUp, _) | (KeyCode::Char('v'), KeyModifiers::ALT) => {
                 match app.current_tab {
-                    Tab::Layout => {
-                        if app.cursor.layout().is::<FlatVTable>() {
-                            app.tree_scroll_offset = app.tree_scroll_offset.saturating_sub(10);
-                        } else {
-                            app.layouts_list_state.scroll_up_by(10);
-                        }
-                    }
-                    Tab::Segments => app.segment_grid_state.scroll_up(100),
+                    Tab::Layout => navigate_layout_up(app, SCROLL_PAGE),
+                    Tab::Segments => app.segment_grid_state.scroll_up(SEGMENT_SCROLL_PAGE),
                 }
             }
             (KeyCode::PageDown, _) | (KeyCode::Char('v'), KeyModifiers::CONTROL) => {
                 match app.current_tab {
-                    Tab::Layout => {
-                        if app.cursor.layout().is::<FlatVTable>() {
-                            app.tree_scroll_offset = app.tree_scroll_offset.saturating_add(10);
-                        } else {
-                            app.layouts_list_state.scroll_down_by(10);
-                        }
-                    }
-                    Tab::Segments => app.segment_grid_state.scroll_down(100),
+                    Tab::Layout => navigate_layout_down(app, SCROLL_PAGE),
+                    Tab::Segments => app.segment_grid_state.scroll_down(SEGMENT_SCROLL_PAGE),
                 }
             }
             (KeyCode::Home, _) | (KeyCode::Char('<'), KeyModifiers::ALT) => match app.current_tab {
                 Tab::Layout => app.layouts_list_state.select_first(),
-                Tab::Segments => app.segment_grid_state.scroll_left(200),
+                Tab::Segments => app
+                    .segment_grid_state
+                    .scroll_left(SEGMENT_SCROLL_HORIZONTAL_JUMP),
             },
             (KeyCode::End, _) | (KeyCode::Char('>'), KeyModifiers::ALT) => match app.current_tab {
                 Tab::Layout => app.layouts_list_state.select_last(),
-                Tab::Segments => app.segment_grid_state.scroll_right(200),
+                Tab::Segments => app
+                    .segment_grid_state
+                    .scroll_right(SEGMENT_SCROLL_HORIZONTAL_JUMP),
             },
             (KeyCode::Enter, _) => {
                 if app.current_tab == Tab::Layout && app.cursor.layout().nchildren() > 0 {
                     // Descend into the layout subtree for the selected child.
                     let selected = app.layouts_list_state.selected().unwrap_or_default();
                     app.cursor = app.cursor.child(selected);
-
-                    // Reset the list scroll state and tree scroll offset.
-                    app.layouts_list_state = ListState::default().with_selected(Some(0));
-                    app.tree_scroll_offset = 0;
+                    app.reset_layout_view_state();
                 }
             }
             (KeyCode::Left | KeyCode::Char('h'), _)
-            | (KeyCode::Char('b'), KeyModifiers::CONTROL) => {
-                match app.current_tab {
-                    Tab::Layout => {
-                        // Ascend back up to the Parent node
-                        app.cursor = app.cursor.parent();
-                        // Reset the list scroll state and tree scroll offset.
-                        app.layouts_list_state = ListState::default().with_selected(Some(0));
-                        app.tree_scroll_offset = 0;
-                    }
-                    Tab::Segments => app.segment_grid_state.scroll_left(20),
+            | (KeyCode::Char('b'), KeyModifiers::CONTROL) => match app.current_tab {
+                Tab::Layout => {
+                    app.cursor = app.cursor.parent();
+                    app.reset_layout_view_state();
                 }
-            }
+                Tab::Segments => app
+                    .segment_grid_state
+                    .scroll_left(SEGMENT_SCROLL_HORIZONTAL_STEP),
+            },
             (KeyCode::Right | KeyCode::Char('l'), _) | (KeyCode::Char('b'), KeyModifiers::ALT) => {
                 match app.current_tab {
                     Tab::Layout => {}
-                    Tab::Segments => app.segment_grid_state.scroll_right(20),
+                    Tab::Segments => app
+                        .segment_grid_state
+                        .scroll_right(SEGMENT_SCROLL_HORIZONTAL_STEP),
                 }
             }
 
@@ -155,7 +161,6 @@ fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
                 app.key_mode = KeyMode::Search;
             }
 
-            // Most events not handled
             _ => {}
         }
     }
@@ -167,33 +172,28 @@ fn handle_search_mode(app: &mut AppState, event: Event) -> HandleResult {
     if let Event::Key(key) = event {
         match (key.code, key.modifiers) {
             (KeyCode::Esc, _) | (KeyCode::Char('g'), KeyModifiers::CONTROL) => {
-                // Exit search mode.
-                // Kill the search bar and search filtering and return to normal input processing.
                 app.key_mode = KeyMode::Normal;
                 app.clear_search();
             }
 
-            // Use same navigation as Normal mode
             (KeyCode::Up, _) | (KeyCode::Char('p'), KeyModifiers::CONTROL) => {
-                // We send the key-up to the list state if we're looking at
-                // the Layouts tab.
                 if app.current_tab == Tab::Layout {
-                    app.layouts_list_state.scroll_up_by(1);
+                    navigate_layout_up(app, SCROLL_LINE);
                 }
             }
             (KeyCode::Down, _) | (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
                 if app.current_tab == Tab::Layout {
-                    app.layouts_list_state.scroll_down_by(1);
+                    navigate_layout_down(app, SCROLL_LINE);
                 }
             }
             (KeyCode::PageUp, _) | (KeyCode::Char('v'), KeyModifiers::ALT) => {
                 if app.current_tab == Tab::Layout {
-                    app.layouts_list_state.scroll_up_by(10);
+                    navigate_layout_up(app, SCROLL_PAGE);
                 }
             }
             (KeyCode::PageDown, _) | (KeyCode::Char('v'), KeyModifiers::CONTROL) => {
                 if app.current_tab == Tab::Layout {
-                    app.layouts_list_state.scroll_down_by(10);
+                    navigate_layout_down(app, SCROLL_PAGE);
                 }
             }
             (KeyCode::Home, _) | (KeyCode::Char('<'), KeyModifiers::ALT) => {
@@ -208,33 +208,27 @@ fn handle_search_mode(app: &mut AppState, event: Event) -> HandleResult {
             }
 
             (KeyCode::Enter, _) => {
-                // Change back to normal mode.
-                // We can eliminate the search filter when we do this
-                if app.current_tab == Tab::Layout && app.cursor.layout().nchildren() > 0 {
-                    // Descend into the layout subtree for the selected child, do nothing if there's nothing to select.
-                    if let Some(selected) = app.layouts_list_state.selected() {
-                        app.cursor = match app.filter.as_ref() {
-                            None => app.cursor.child(selected),
-                            Some(filter) => {
-                                let child_idx = filter
-                                    .iter()
-                                    .enumerate()
-                                    .filter_map(|(idx, show)| show.then_some(idx))
-                                    .nth(selected)
-                                    .vortex_expect("There must be a selected item in the filter");
+                if app.current_tab == Tab::Layout
+                    && app.cursor.layout().nchildren() > 0
+                    && let Some(selected) = app.layouts_list_state.selected()
+                {
+                    app.cursor = match app.filter.as_ref() {
+                        None => app.cursor.child(selected),
+                        Some(filter) => {
+                            let child_idx = filter
+                                .iter()
+                                .enumerate()
+                                .filter_map(|(idx, show)| show.then_some(idx))
+                                .nth(selected)
+                                .vortex_expect("There must be a selected item in the filter");
 
-                                app.cursor.child(child_idx)
-                            }
-                        };
+                            app.cursor.child(child_idx)
+                        }
+                    };
 
-                        // Reset the list scroll state and tree scroll offset.
-                        app.layouts_list_state = ListState::default().with_selected(Some(0));
-                        app.tree_scroll_offset = 0;
-
-                        app.clear_search();
-                        // Return to normal mode.
-                        app.key_mode = KeyMode::Normal;
-                    }
+                    app.reset_layout_view_state();
+                    app.clear_search();
+                    app.key_mode = KeyMode::Normal;
                 }
             }
 
@@ -243,13 +237,10 @@ fn handle_search_mode(app: &mut AppState, event: Event) -> HandleResult {
             }
 
             (KeyCode::Char(c), _) => {
-                // reset selection state
                 app.layouts_list_state.select_first();
-                // append to our search string
                 app.search_filter.push(c);
             }
 
-            // Most events unhandled.
             _ => {}
         }
     }
@@ -260,8 +251,13 @@ fn handle_search_mode(app: &mut AppState, event: Event) -> HandleResult {
 // TODO: add tui_logger and have a logs tab so we can see the log output from
 //  doing Vortex things.
 
-pub async fn exec_tui(file: impl AsRef<Path>) -> VortexResult<()> {
-    let app = create_file_app(file).await?;
+/// Launch the interactive TUI browser for a Vortex file.
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be opened or if there's a terminal I/O error.
+pub async fn exec_tui(session: &VortexSession, file: impl AsRef<Path>) -> VortexResult<()> {
+    let app = AppState::new(session, file).await?;
 
     let mut terminal = ratatui::init();
     terminal.clear()?;

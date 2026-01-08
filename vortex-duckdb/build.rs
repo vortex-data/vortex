@@ -3,6 +3,9 @@
 
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+
+use std::borrow::ToOwned;
 use std::env;
 use std::fs;
 use std::io::ErrorKind;
@@ -12,136 +15,76 @@ use std::path::PathBuf;
 use bindgen::Abi;
 use once_cell::sync::Lazy;
 
-const DUCKDB_BASE_URL: &str = "https://github.com/duckdb/duckdb/releases/download";
-static DUCKDB_VERSION: Lazy<String> = Lazy::new(|| {
-    // Override the DuckDB version via environment variable in case of an extension build.
-    // `DUCKDB_VERSION` is set by the extension build in the `duckdb-vortex` repo.
-    //
-    // This is to ensure that we don't implicitly build against a different DuckDB version during
-    // an extension build which might lead to subtle ABI breaks, e.g. reordering fields in C++ structs.
-    env::var("DUCKDB_VERSION")
-        .unwrap_or_else(|_| "1.4.2".to_owned())
-        .trim_start_matches("v")
-        .to_owned()
+static DUCKDB_VERSION: Lazy<DuckDBVersion> = Lazy::new(|| {
+    if let Ok(version) = env::var("DUCKDB_VERSION") {
+        // DUCKDB_VERSION env var can be set by:
+        // - The extension build in `vortex-data/duckdb-vortex` repo
+        // - Developers who want to test against a specific version/commit
+        parse_version(&version)
+    } else {
+        // The default DuckDB version to use when DUCKDB_VERSION env var is not set.
+        DuckDBVersion::Release("1.4.2".to_owned())
+    }
 });
 
-fn download_duckdb_lib_archive() -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
-    let target_dir = manifest_dir.parent().unwrap().join("target");
-    let duckdb_dir = target_dir.join("duckdb-lib");
+const DUCKDB_RELEASES_URL: &str = "https://github.com/duckdb/duckdb/releases/download";
 
-    let target = env::var("TARGET")?;
-    let (platform, arch) = match target.as_str() {
-        "aarch64-apple-darwin" => ("osx", "universal"),
-        "x86_64-apple-darwin" => ("osx", "universal"),
-        "x86_64-unknown-linux-gnu" => ("linux", "amd64"),
-        "aarch64-unknown-linux-gnu" => ("linux", "arm64"),
-        _ => return Err(format!("Unsupported target: {target}").into()),
-    };
+/// Represents either a released DuckDB version or a specific commit hash.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+enum DuckDBVersion {
+    /// A released DuckDB version of the form "X.Y.Z".
+    /// This mode will download pre-compiled dynamic libraries from GitHub releases.
+    Release(String),
+    /// A commit hash from `github.com/duckdb/duckdb`.
+    /// This mode will download source and build DuckDB from scratch.
+    Commit(String),
+}
 
-    let archive_name = format!("libduckdb-{platform}-{arch}.zip");
-    let url = format!(
-        "{DUCKDB_BASE_URL}/v{}/{archive_name}",
-        DUCKDB_VERSION.as_str()
-    );
-    let archive_path = duckdb_dir.join(&archive_name);
-
-    // Recreate the duckdb directory
-    match fs::remove_dir_all(&duckdb_dir) {
-        Err(err) if err.kind() == ErrorKind::NotFound => (),
-        otherwise => otherwise?,
+impl DuckDBVersion {
+    /// Returns the directory name suffix for this version.
+    fn dir_suffix(&self) -> String {
+        match self {
+            DuckDBVersion::Release(v) => format!("v{v}"),
+            DuckDBVersion::Commit(c) => c.clone(),
+        }
     }
-    fs::create_dir_all(&duckdb_dir)?;
 
-    if !archive_path.exists() {
-        println!("Downloading DuckDB libraries from {url}");
-        let response = http_client()?.get(&url).send()?;
-        fs::write(&archive_path, &response.bytes()?)?;
-        println!("Downloaded to {}", archive_path.display());
+    /// Returns true if this is a release version (not a commit).
+    fn is_release(&self) -> bool {
+        matches!(self, DuckDBVersion::Release(_))
+    }
+
+    /// Returns the name of the extracted source directory inside the zip archive.
+    /// GitHub archives extract to `duckdb-{version}` for tags and `duckdb-{commit}` for commits.
+    fn archive_inner_dir_name(&self) -> String {
+        match self {
+            DuckDBVersion::Release(v) => format!("duckdb-{v}"),
+            DuckDBVersion::Commit(c) => format!("duckdb-{c}"),
+        }
+    }
+}
+
+/// Parse a version string into a DuckDBVersion.
+/// - Strings starting with "v" followed by semver are treated as releases
+/// - Pure semver strings (X.Y.Z) are treated as releases
+/// - Everything else (e.g., commit hashes) are treated as commits
+fn parse_version(s: &str) -> DuckDBVersion {
+    let s = s.trim();
+
+    // Strip leading 'v' if present
+    let version_str = s.strip_prefix('v').unwrap_or(s);
+
+    // Check if it looks like a semver release (X.Y.Z pattern)
+    let parts: Vec<&str> = version_str.split('.').collect();
+    if parts.len() >= 2 && parts.iter().all(|p| p.chars().all(|c| c.is_ascii_digit())) {
+        DuckDBVersion::Release(version_str.to_owned())
     } else {
-        println!("Archive already exists, skipping download");
+        panic!("Invalid DuckDB version: {s}");
     }
-
-    Ok(archive_path)
 }
 
-fn extract_duckdb_libraries(archive_path: PathBuf) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let duckdb_lib_dir = archive_path
-        .parent()
-        .ok_or("Invalid archive path")?
-        .to_path_buf();
-
-    // Check if already extracted. The archive for Linux only contains a .so library, macOS only .dylib.
-    if duckdb_lib_dir.join("libduckdb.dylib").exists()
-        || duckdb_lib_dir.join("libduckdb.so").exists()
-    {
-        println!("DuckDB libraries already extracted, skipping extraction");
-        return Ok(duckdb_lib_dir);
-    }
-
-    let file = fs::File::open(&archive_path)?;
-    let mut archive = zip::ZipArchive::new(file)?;
-    archive.extract(&duckdb_lib_dir)?;
-    println!(
-        "Extracting DuckDB libraries to {}",
-        duckdb_lib_dir.display()
-    );
-
-    Ok(duckdb_lib_dir)
-}
-
-fn download_duckdb_source_archive() -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
-    let target_dir = manifest_dir.parent().unwrap().join("target");
-    let duckdb_source_dir = target_dir.join(format!("duckdb-source-v{}", DUCKDB_VERSION.as_str()));
-    let archive_name = format!("duckdb-source-v{}.zip", DUCKDB_VERSION.as_str());
-    let url = format!(
-        "https://github.com/duckdb/duckdb/archive/refs/tags/v{}.zip",
-        DUCKDB_VERSION.as_str()
-    );
-    let archive_path = duckdb_source_dir.join(&archive_name);
-
-    // Create directory if it doesn't exist.
-    fs::create_dir_all(&duckdb_source_dir)?;
-
-    if !archive_path.exists() {
-        println!("Downloading DuckDB source code from {url}");
-        let response = http_client()?.get(&url).send()?;
-        fs::write(&archive_path, &response.bytes()?)?;
-        println!("Downloaded to {}", archive_path.display());
-    } else {
-        println!("Source archive already exists, skipping download");
-    }
-
-    Ok(archive_path)
-}
-
-fn extract_duckdb_source(archive_path: PathBuf) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let duckdb_source_dir = archive_path
-        .parent()
-        .ok_or("Invalid archive path")?
-        .to_path_buf();
-
-    // Check if the source is already extracted.
-    if duckdb_source_dir
-        .join(format!("duckdb-{}/CMakeLists.txt", DUCKDB_VERSION.as_str()))
-        .exists()
-    {
-        println!("DuckDB source already extracted, skipping extraction");
-        return Ok(duckdb_source_dir);
-    }
-
-    let file = fs::File::open(&archive_path)?;
-    let mut archive = zip::ZipArchive::new(file)?;
-    archive.extract(&duckdb_source_dir)?;
-    println!(
-        "Extracting DuckDB source to {}",
-        duckdb_source_dir.display()
-    );
-
-    Ok(duckdb_source_dir)
-}
-
+/// Create an HTTP client with appropriate timeout settings.
 fn http_client() -> Result<reqwest::blocking::Client, Box<dyn std::error::Error>> {
     let timeout_secs = env::var("CARGO_HTTP_TIMEOUT")
         .or_else(|_| env::var("HTTP_TIMEOUT"))
@@ -155,96 +98,297 @@ fn http_client() -> Result<reqwest::blocking::Client, Box<dyn std::error::Error>
     Ok(client)
 }
 
-fn build_duckdb(duckdb_source_root: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+/// Get the target-specific platform and architecture for downloading prebuilt libraries.
+fn platform_arch() -> Result<(&'static str, &'static str), Box<dyn std::error::Error>> {
+    let target = env::var("TARGET")?;
+    match target.as_str() {
+        "aarch64-apple-darwin" | "x86_64-apple-darwin" => Ok(("osx", "universal")),
+        "x86_64-unknown-linux-gnu" => Ok(("linux", "amd64")),
+        "aarch64-unknown-linux-gnu" => Ok(("linux", "arm64")),
+        _ => Err(format!("Unsupported target: {target}").into()),
+    }
+}
+
+/// Get the base target directory for DuckDB artifacts.
+fn target_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
+    Ok(manifest_dir.parent().unwrap().join("target"))
+}
+
+/// Download prebuilt DuckDB libraries from GitHub releases.
+/// Only valid for release versions.
+fn download_duckdb_lib_archive() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let version = match &*DUCKDB_VERSION {
+        DuckDBVersion::Release(v) => v,
+        DuckDBVersion::Commit(_) => {
+            return Err("Cannot download prebuilt libraries for commit hashes".into());
+        }
+    };
+
+    let target_dir = target_dir()?;
+    let duckdb_lib_dir = target_dir.join(format!("duckdb-lib-v{version}"));
+
+    let (platform, arch) = platform_arch()?;
+    let archive_name = format!("libduckdb-{platform}-{arch}.zip");
+    let url = format!("{DUCKDB_RELEASES_URL}/v{version}/{archive_name}");
+    let archive_path = duckdb_lib_dir.join(&archive_name);
+
+    // Create directory if it doesn't exist
+    fs::create_dir_all(&duckdb_lib_dir)?;
+
+    // Download if archive doesn't exist
+    if !archive_path.exists() {
+        println!("cargo:info=Downloading DuckDB libraries from {url}");
+        let response = http_client()?.get(&url).send()?;
+        if !response.status().is_success() {
+            return Err(format!(
+                "Failed to download DuckDB libraries: HTTP {}",
+                response.status()
+            )
+            .into());
+        }
+        fs::write(&archive_path, &response.bytes()?)?;
+        println!("cargo:info=Downloaded to {}", archive_path.display());
+    }
+
+    Ok(archive_path)
+}
+
+/// Extract DuckDB libraries from the downloaded archive.
+fn extract_duckdb_libraries(archive_path: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let duckdb_lib_dir = archive_path
+        .parent()
+        .ok_or("Invalid archive path")?
+        .to_path_buf();
+
+    // Check if already extracted (check for both .dylib and .so)
+    let dylib_exists = duckdb_lib_dir.join("libduckdb.dylib").exists();
+    let so_exists = duckdb_lib_dir.join("libduckdb.so").exists();
+
+    if dylib_exists || so_exists {
+        println!("cargo:info=DuckDB libraries already extracted, skipping");
+        return Ok(duckdb_lib_dir);
+    }
+
+    println!(
+        "cargo:info=Extracting DuckDB libraries to {}",
+        duckdb_lib_dir.display()
+    );
+    let file = fs::File::open(archive_path)?;
+    let mut archive = zip::ZipArchive::new(file)?;
+    archive.extract(&duckdb_lib_dir)?;
+
+    Ok(duckdb_lib_dir)
+}
+
+/// Download DuckDB source code archive from GitHub.
+/// Works for both release versions and commit hashes.
+fn download_duckdb_source_archive() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let target_dir = target_dir()?;
+    let source_dir = target_dir.join(format!("duckdb-source-{}", DUCKDB_VERSION.dir_suffix()));
+
+    let url = match &*DUCKDB_VERSION {
+        DuckDBVersion::Release(v) => {
+            format!("https://github.com/duckdb/duckdb/archive/refs/tags/v{v}.zip")
+        }
+        DuckDBVersion::Commit(c) => {
+            format!("https://github.com/duckdb/duckdb/archive/{c}.zip")
+        }
+    };
+
+    let archive_path = source_dir.with_extension("zip");
+
+    // Create directory if it doesn't exist
+    fs::create_dir_all(&source_dir)?;
+
+    // Download if archive doesn't exist
+    if !archive_path.exists() {
+        println!("cargo:info=Downloading DuckDB source code from {url}");
+        let response = http_client()?.get(&url).send()?;
+        if !response.status().is_success() {
+            return Err(format!(
+                "Failed to download DuckDB source: HTTP {}",
+                response.status()
+            )
+            .into());
+        }
+        fs::write(&archive_path, &response.bytes()?)?;
+        println!("cargo:info=Downloaded to {}", archive_path.display());
+    }
+
+    Ok(source_dir)
+}
+
+/// Extract DuckDB source code from the downloaded archive.
+fn extract_duckdb_source(source_dir: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let archive_path = source_dir.with_extension("zip");
+
+    // Check if already extracted by looking for CMakeLists.txt
+    let inner_dir_name = DUCKDB_VERSION.archive_inner_dir_name();
+    let cmake_file = source_dir.join(&inner_dir_name).join("CMakeLists.txt");
+
+    if cmake_file.exists() {
+        println!("cargo:info=DuckDB source already extracted, skipping");
+        return Ok(source_dir.to_path_buf());
+    }
+
+    println!(
+        "cargo:info=Extracting DuckDB source to {}",
+        source_dir.display()
+    );
+    let file = fs::File::open(&archive_path)?;
+    let mut archive = zip::ZipArchive::new(file)?;
+
+    // Extract all files, the archive contains a root directory like `duckdb-{version}/`
+    archive.extract(source_dir)?;
+
+    Ok(source_dir.to_path_buf())
+}
+
+/// Build DuckDB from source. Used for commit hashes or when VX_DUCKDB_DEBUG is set.
+fn build_duckdb(duckdb_source_dir: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    // Check for ninja
     if std::process::Command::new("ninja")
         .arg("--version")
         .output()
         .is_err()
     {
-        return Err("'ninja' is required to build DuckDB.".into());
+        return Err(
+            "'ninja' is required to build DuckDB. Install it via your package manager.".into(),
+        );
     }
 
-    let duckdb_repo_dir = duckdb_source_root.join(format!("duckdb-{}", DUCKDB_VERSION.as_str()));
+    let inner_dir_name = DUCKDB_VERSION.archive_inner_dir_name();
+    let duckdb_repo_dir = duckdb_source_dir.join(&inner_dir_name);
     let build_dir = duckdb_repo_dir.join("build").join("debug");
 
-    // Build the DuckDB library with ASAN and TSAN in case `VX_DUCKDB_SAN=1` is set.
-    let (asan_option, tsan_option) =
-        if env::var("VX_DUCKDB_SAN").is_ok_and(|v| matches!(v.as_str(), "1" | "true")) {
-            // Note that the ASAN condition is inverted.
-            ("0", "1")
-        } else {
-            ("1", "0")
-        };
+    // Check if already built
+    let lib_dir = build_dir.join("src");
+    let already_built = lib_dir.join("libduckdb.dylib").exists()
+        || lib_dir.join("libduckdb.so").exists()
+        || lib_dir
+            .read_dir()
+            .map(|mut d| {
+                d.any(|e| e.is_ok_and(|e| e.file_name().to_string_lossy().starts_with("libduckdb")))
+            })
+            .unwrap_or(false);
 
-    let output = std::process::Command::new("make")
-        .current_dir(&duckdb_repo_dir)
-        .env("GEN", "ninja")
-        // Run with `ASAN_OPTIONS=detect_container_overflow=0` to skip false positives.
-        .env("DISABLE_SANITIZER", asan_option)
-        .env("THREADSAN", tsan_option)
-        .arg("debug")
-        .output()?;
+    if !already_built {
+        println!("cargo:info=Building DuckDB from source (this may take a while)...");
 
-    if !output.status.success() {
-        return Err(format!(
-            "Failed to build DuckDB:\nstdout: {}\nstderr: {}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        )
-        .into());
+        // Build with ASAN/TSAN if VX_DUCKDB_SAN=1
+        let (asan_option, tsan_option) =
+            if env::var("VX_DUCKDB_SAN").is_ok_and(|v| matches!(v.as_str(), "1" | "true")) {
+                ("0", "1") // DISABLE_SANITIZER=0 enables ASAN, THREADSAN=1 enables TSAN
+            } else {
+                ("1", "0")
+            };
+
+        let output = std::process::Command::new("make")
+            .current_dir(&duckdb_repo_dir)
+            .env("GEN", "ninja")
+            .env("DISABLE_SANITIZER", asan_option)
+            .env("THREADSAN", tsan_option)
+            .arg("debug")
+            .output()?;
+
+        if !output.status.success() {
+            return Err(format!(
+                "Failed to build DuckDB:\nstdout: {}\nstderr: {}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            )
+            .into());
+        }
+
+        println!("cargo:info=DuckDB build completed successfully");
+    } else {
+        println!("cargo:info=DuckDB already built, skipping build");
     }
 
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
-    let target_dir = manifest_dir.parent().unwrap().join("target");
-    let duckdb_library_dir = target_dir.join("duckdb-lib");
+    // Copy libraries to a stable location
+    let target_dir = target_dir()?;
+    let duckdb_library_dir = target_dir.join(format!("duckdb-lib-{}", DUCKDB_VERSION.dir_suffix()));
 
-    match fs::remove_dir_all(&duckdb_library_dir) {
-        Err(err) if err.kind() == ErrorKind::NotFound => (),
-        otherwise => otherwise?,
-    }
-    fs::create_dir_all(&duckdb_library_dir)?;
+    // Only copy if the destination doesn't have the libraries
+    if !(duckdb_library_dir.join("libduckdb.dylib").exists()
+        || duckdb_library_dir.join("libduckdb.so").exists())
+    {
+        // Clean and recreate destination
+        match fs::remove_dir_all(&duckdb_library_dir) {
+            Err(err) if err.kind() == ErrorKind::NotFound => (),
+            otherwise => otherwise?,
+        }
+        fs::create_dir_all(&duckdb_library_dir)?;
 
-    // Copy .dylib and .so files (macOS and Linux).
-    for entry in fs::read_dir(build_dir.join("src"))? {
-        let entry = entry?;
-        let path = entry.path();
+        // Copy .dylib and .so files
+        for entry in fs::read_dir(lib_dir)? {
+            let entry = entry?;
+            let path = entry.path();
 
-        if path
-            .file_name()
-            .and_then(|name| name.to_str())
-            // Match by file name prefix rather than on file type extension as versions
-            // can be appended to the file name on Linux, e.g. libduckdb.so.0.0.1.
-            .map(|name| name.starts_with("libduckdb"))
-            .unwrap_or(false)
-        {
-            let dest = duckdb_library_dir.join(entry.file_name());
-            fs::copy(&path, &dest)?;
+            if path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("libduckdb"))
+            {
+                let dest = duckdb_library_dir.join(entry.file_name());
+                fs::copy(&path, &dest)?;
+            }
         }
     }
 
     Ok(duckdb_library_dir)
 }
 
+/// Get the path to the DuckDB include directory within the source tree.
+fn duckdb_include_path(source_dir: &Path) -> PathBuf {
+    let inner_dir_name = DUCKDB_VERSION.archive_inner_dir_name();
+    source_dir.join(inner_dir_name).join("src").join("include")
+}
+
 fn main() {
+    // Emit rerun-if-env-changed for all relevant environment variables
+    println!("cargo:rerun-if-env-changed=DUCKDB_VERSION");
+    println!("cargo:rerun-if-env-changed=VX_DUCKDB_DEBUG");
+    println!("cargo:rerun-if-env-changed=VX_DUCKDB_SAN");
+    println!("cargo:rerun-if-env-changed=CARGO_HTTP_TIMEOUT");
+    println!("cargo:rerun-if-env-changed=HTTP_TIMEOUT");
+    println!("cargo:rerun-if-env-changed=TARGET");
+
     let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let duckdb_repo = crate_dir.join("duckdb");
+    let duckdb_symlink = crate_dir.join("duckdb");
 
-    // Download, extract and symlink DuckDB source code.
-    let zip_source_path = download_duckdb_source_archive().unwrap();
-    let extracted_source_path = extract_duckdb_source(zip_source_path).unwrap();
-    drop(fs::remove_dir_all(&duckdb_repo));
-    std::os::unix::fs::symlink(&extracted_source_path, &duckdb_repo).unwrap();
+    match &*DUCKDB_VERSION {
+        DuckDBVersion::Release(v) => println!("cargo:info=Using DuckDB release version: {v}"),
+        DuckDBVersion::Commit(c) => println!("cargo:info=Using DuckDB commit: {c}"),
+    }
 
-    let library_path =
-        // DuckDB debug build is linked in case of `VX_DUCKDB_DEBUG=1`.
-        if env::var("VX_DUCKDB_DEBUG").is_ok_and(|v| matches!(v.as_str(), "1" | "true")) {
-            // Build DuckDB from source.
-            build_duckdb(&extracted_source_path).unwrap()
-        } else {
-            // Download and extract prebuilt DuckDB libraries.
-            let zip_lib_path = download_duckdb_lib_archive().unwrap();
-            extract_duckdb_libraries(zip_lib_path).unwrap()
-        };
+    // Always download and extract source (needed for headers)
+    let source_dir = download_duckdb_source_archive().unwrap();
+    let extracted_source_path = extract_duckdb_source(&source_dir).unwrap();
+
+    // Create/update symlink to source directory
+    // Remove existing symlink/directory first (ignore errors if they don't exist)
+    drop(fs::remove_file(&duckdb_symlink));
+    drop(fs::remove_dir_all(&duckdb_symlink));
+    std::os::unix::fs::symlink(&extracted_source_path, &duckdb_symlink).unwrap();
+
+    // Determine whether to build from source or use prebuilt libraries
+    let use_debug_build =
+        env::var("VX_DUCKDB_DEBUG").is_ok_and(|v| matches!(v.as_str(), "1" | "true"));
+
+    let library_path = if use_debug_build || !DUCKDB_VERSION.is_release() {
+        // Build from source for:
+        // - Commit hashes (no prebuilt available)
+        // - When VX_DUCKDB_DEBUG=1 (user wants debug build)
+        build_duckdb(&extracted_source_path).unwrap()
+    } else {
+        // Download prebuilt libraries for release versions
+        let archive_path = download_duckdb_lib_archive().unwrap();
+        extract_duckdb_libraries(&archive_path).unwrap()
+    };
+
+    let duckdb_include_path = duckdb_include_path(&extracted_source_path);
 
     // Generate the _imported_ bindings from our C++ code.
     bindgen::Builder::default()
@@ -266,34 +410,36 @@ fn main() {
         .rustified_enum("DUCKDB_VX_VECTOR_TYPE")
         .rustified_non_exhaustive_enum("DUCKDB_TYPE")
         .size_t_is_usize(true)
-        //.generate_cstr(true) // This emits invalid syntax and breaks the Rust formatter
-        .clang_arg(format!(
-            "-I{}",
-            duckdb_repo
-                .join(format!("duckdb-{}/src/include", DUCKDB_VERSION.as_str()))
-                .to_str()
-                .unwrap()
-        ))
-        .clang_arg(format!(
-            "-I{}",
-            crate_dir.join("cpp/include").to_str().unwrap()
-        ))
+        .clang_arg(format!("-I{}", duckdb_include_path.display()))
+        .clang_arg(format!("-I{}", crate_dir.join("cpp/include").display()))
         // Tell cargo to invalidate the built crate whenever any of the
         // included header files changed.
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         // Finish the builder and generate the bindings.
         .generate()
-        // Unwrap the Result and panic on failure.
         .expect("Unable to generate bindings")
         .write_to_file(crate_dir.join("src/cpp.rs"))
         .expect("Couldn't write bindings!");
 
     // Link against DuckDB dylib.
-    println!("cargo:rerun-if-env-changed=VX_DUCKDB_DEBUG");
-    println!("cargo:rerun-if-env-changed=VX_DUCKDB_SAN");
     println!("cargo:rustc-link-search=native={}", library_path.display());
     println!("cargo:rustc-link-lib=dylib=duckdb");
+
+    // Set rpath for binaries built directly from this crate (this is not inherited by downstream crates).
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", library_path.display());
+
+    // Export the library path for downstream crates via the `links` manifest key.
+    // Downstream crates can access this via `env::var("DEP_DUCKDB_LIB_DIR")` in their build.rs
+    // and add their own rpath:
+    //
+    //   if let Ok(duckdb_lib) = env::var("DEP_DUCKDB_LIB_DIR") {
+    //       println!("cargo:rustc-link-arg=-Wl,-rpath,{duckdb_lib}");
+    //   }
+    //
+    // Alternatively, set LD_LIBRARY_PATH (Linux) or DYLD_LIBRARY_PATH (macOS) at runtime:
+    //   LD_LIBRARY_PATH=/path/to/target/duckdb-lib-vX.Y.Z cargo run --bin ...
+    //
+    println!("cargo:lib_dir={}", library_path.display());
 
     // Compile our C++ code that exposes additional DuckDB functionality.
     cc::Build::new()
@@ -310,8 +456,7 @@ fn main() {
         // headers with implementations that have unused parameters.
         .flag("-Wno-unused-parameter")
         .cpp(true)
-        // We include DuckDB headers from the DuckDB extension submodule.
-        .include(duckdb_repo.join(format!("duckdb-{}/src/include", DUCKDB_VERSION.as_str())))
+        .include(&duckdb_include_path)
         .include("cpp/include")
         .file("cpp/client_context.cpp")
         .file("cpp/config.cpp")

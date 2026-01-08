@@ -502,6 +502,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_array::ToCanonical;
     use vortex_array::VectorExecutor;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::session::ArraySession;
@@ -707,6 +708,50 @@ mod tests {
 
             if let Some(expected_val) = expected_value {
                 let result_val = result_primitive.as_ref()[idx];
+                assert_eq!(result_val, expected_val, "Value mismatch at idx={idx}",);
+            }
+        }
+    }
+
+    #[rstest]
+    #[case(500, 100)]
+    #[case(1000, 200)]
+    #[case(2048, 512)]
+    fn test_sliced_to_primitive(#[case] size: usize, #[case] slice_start: usize) {
+        let values: Vec<Option<f64>> = (0..size)
+            .map(|i| {
+                if i % 5 == 0 {
+                    None
+                } else if i % 4 == 3 {
+                    Some(PI)
+                } else {
+                    Some(1.0)
+                }
+            })
+            .collect();
+
+        let array = PrimitiveArray::from_option_iter(values.clone());
+        let encoded = alp_encode(&array, None).unwrap();
+
+        let slice_end = size - slice_start;
+        let slice_len = slice_end - slice_start;
+        let sliced_encoded = encoded.slice(slice_start..slice_end);
+
+        let result_primitive = sliced_encoded.to_primitive();
+
+        for idx in 0..slice_len {
+            let expected_value = values[slice_start + idx];
+
+            let result_valid = result_primitive.validity_mask().value(idx);
+            assert_eq!(
+                result_valid,
+                expected_value.is_some(),
+                "Validity mismatch at idx={idx}",
+            );
+
+            if let Some(expected_val) = expected_value {
+                let buf = result_primitive.buffer::<f64>();
+                let result_val = buf.as_slice()[idx];
                 assert_eq!(result_val, expected_val, "Value mismatch at idx={idx}",);
             }
         }

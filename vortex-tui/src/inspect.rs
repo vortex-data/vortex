@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Inspect Vortex file metadata and structure.
+
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::Read;
@@ -25,22 +27,23 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VERSION;
 use vortex::flatbuffers::footer as fb;
 use vortex::layout::LayoutRef;
+use vortex::session::VortexSession;
 
-use crate::SESSION;
-
+/// Command-line arguments for the inspect command.
 #[derive(Debug, clap::Parser)]
 pub struct InspectArgs {
-    /// What to inspect
+    /// What to inspect.
     #[clap(subcommand)]
     pub mode: Option<InspectMode>,
 
-    /// Path to the Vortex file to inspect
+    /// Path to the Vortex file to inspect.
     pub file: PathBuf,
 }
 
+/// What component of the Vortex file to inspect.
 #[derive(Debug, clap::Subcommand)]
 pub enum InspectMode {
-    /// Read and display the EOF marker (8 bytes at end of file)
+    /// Read and display the EOF marker (8 bytes at end of file).
     Eof,
 
     /// Read and display the postscript
@@ -50,8 +53,13 @@ pub enum InspectMode {
     Footer,
 }
 
-pub async fn exec_inspect(args: InspectArgs) -> anyhow::Result<()> {
-    let mut inspector = VortexInspector::new(args.file.clone())?;
+/// Inspect Vortex file footer and metadata.
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be opened or its metadata cannot be read.
+pub async fn exec_inspect(session: &VortexSession, args: InspectArgs) -> anyhow::Result<()> {
+    let mut inspector = VortexInspector::new(session, args.file.clone())?;
 
     println!("File: {}", args.file.display());
     println!("Size: {} bytes", inspector.file_size);
@@ -114,14 +122,15 @@ pub async fn exec_inspect(args: InspectArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-struct VortexInspector {
+struct VortexInspector<'a> {
+    session: &'a VortexSession,
     path: PathBuf,
     file: File,
     file_size: u64,
 }
 
-impl VortexInspector {
-    fn new(path: PathBuf) -> VortexResult<Self> {
+impl<'a> VortexInspector<'a> {
+    fn new(session: &'a VortexSession, path: PathBuf) -> VortexResult<Self> {
         let mut file =
             File::open(&path).map_err(|e| vortex_err!("Failed to open file {:?}: {}", path, e))?;
 
@@ -130,6 +139,7 @@ impl VortexInspector {
             .map_err(|e| vortex_err!("Failed to get file size: {}", e))?;
 
         Ok(Self {
+            session,
             path,
             file,
             file_size,
@@ -219,7 +229,8 @@ impl VortexInspector {
     }
 
     async fn read_footer(&mut self) -> VortexResult<Footer> {
-        Ok(SESSION
+        Ok(self
+            .session
             .open_options()
             .open(self.path.as_path())
             .await?

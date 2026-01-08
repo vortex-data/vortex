@@ -29,6 +29,7 @@ use futures::stream;
 use object_store::ObjectStore;
 use object_store::path::Path;
 use tracing::Instrument;
+use vortex::array::Array;
 use vortex::array::ArrayRef;
 use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::dtype::FieldName;
@@ -50,6 +51,7 @@ use crate::VortexAccessPlan;
 use crate::convert::exprs::ExpressionConvertor;
 use crate::convert::exprs::can_be_pushed_down;
 use crate::convert::exprs::make_vortex_predicate;
+use crate::persistent::stream::PrunableStream;
 
 #[derive(Clone)]
 pub(crate) struct VortexOpener {
@@ -111,10 +113,9 @@ impl FileOpener for VortexOpener {
             Some(indices) => Arc::new(table_schema.file_schema().project(indices)?),
         };
 
-        let schema_adapter = self.schema_adapter_factory.create(
-            projected_schema.clone(),
-            table_schema.table_schema().clone(),
-        );
+        let schema_adapter = self
+            .schema_adapter_factory
+            .create(projected_schema, table_schema.table_schema().clone());
 
         // Update partition column access in the filter to use literals instead
         let partition_fields = self.table_schema.table_partition_cols().clone();
@@ -295,7 +296,8 @@ impl FileOpener for VortexOpener {
                 .with_ordered(has_output_ordering)
                 .map(move |chunk| {
                     if *USE_VORTEX_OPERATORS {
-                        chunk.execute_record_batch(&projected_schema, &chunk_session)
+                        let schema = chunk.dtype().to_arrow_schema()?;
+                        chunk.execute_record_batch(&schema, &chunk_session)
                     } else {
                         RecordBatch::try_from(chunk.as_ref())
                     }
@@ -335,7 +337,11 @@ impl FileOpener for VortexOpener {
                 .map(move |batch| batch.and_then(|b| schema_mapping.map_batch(b)))
                 .boxed();
 
-            Ok(stream)
+            if let Some(file_pruner) = file_pruner {
+                Ok(PrunableStream::new(file_pruner, stream).boxed())
+            } else {
+                Ok(stream)
+            }
         }
         .in_current_span()
         .boxed())
@@ -483,7 +489,7 @@ mod tests {
             // no adapter
             expr_adapter_factory,
             schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
-            file_cache: VortexFileCache::new(1, 1, SESSION.clone()),
+            file_cache: VortexFileCache::new(1, 1, 0, SESSION.clone()),
             table_schema,
             batch_size: 100,
             limit: None,
@@ -629,7 +635,7 @@ mod tests {
             file_pruning_predicate: None,
             expr_adapter_factory: expr_adapter_factory.clone(),
             schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
-            file_cache: VortexFileCache::new(1, 1, SESSION.clone()),
+            file_cache: VortexFileCache::new(1, 1, 0, SESSION.clone()),
             table_schema: table_schema.clone(),
             batch_size: 100,
             limit: None,
@@ -713,7 +719,7 @@ mod tests {
             file_pruning_predicate: None,
             expr_adapter_factory: Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _),
             schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
-            file_cache: VortexFileCache::new(1, 1, SESSION.clone()),
+            file_cache: VortexFileCache::new(1, 1, 0, SESSION.clone()),
             table_schema: TableSchema::from_file_schema(table_schema.clone()),
             batch_size: 100,
             limit: None,
@@ -809,11 +815,9 @@ mod tests {
         // struct column.
         let data = opener
             .open(PartitionedFile::new(file_path.to_string(), data_size))?
-            .await
-            .unwrap()
+            .await?
             .try_collect::<Vec<_>>()
-            .await
-            .unwrap();
+            .await?;
 
         assert_eq!(data.len(), 1);
         assert_eq!(data[0].num_rows(), 3);
@@ -866,7 +870,7 @@ mod tests {
             file_pruning_predicate: None,
             expr_adapter_factory: Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _),
             schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
-            file_cache: VortexFileCache::new(1, 1, SESSION.clone()),
+            file_cache: VortexFileCache::new(1, 1, 0, SESSION.clone()),
             table_schema: table_schema.clone(),
             batch_size: 100,
             limit: None,
@@ -923,7 +927,7 @@ mod tests {
             file_pruning_predicate: None,
             expr_adapter_factory: Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _),
             schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
-            file_cache: VortexFileCache::new(1, 1, SESSION.clone()),
+            file_cache: VortexFileCache::new(1, 1, 0, SESSION.clone()),
             table_schema: TableSchema::from_file_schema(schema),
             batch_size: 100,
             limit: None,

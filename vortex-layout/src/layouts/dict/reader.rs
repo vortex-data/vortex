@@ -519,7 +519,7 @@ mod tests {
                 .await
                 .unwrap();
             let expected = array.validity_mask().into_array();
-            assert_arrays_eq!(actual, expected);
+            assert_arrays_eq!(actual.to_canonical().into_array(), expected);
         })
     }
 }

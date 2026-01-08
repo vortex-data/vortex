@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fs::File;
-#[cfg(not(unix))]
+#[cfg(all(not(unix), not(windows)))]
 use std::io::Read;
-#[cfg(not(unix))]
+#[cfg(all(not(unix), not(windows)))]
 use std::io::Seek;
 #[cfg(unix)]
 use std::os::unix::fs::FileExt;
@@ -37,7 +37,22 @@ pub(crate) fn read_exact_at(file: &File, buffer: &mut [u8], offset: u64) -> std:
     {
         file.read_exact_at(buffer, offset)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        let mut bytes_read = 0;
+        while bytes_read < buffer.len() {
+            let read = file.seek_read(&mut buffer[bytes_read..], offset + bytes_read as u64)?;
+            if read == 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "failed to fill whole buffer",
+                ));
+            }
+            bytes_read += read;
+        }
+        Ok(())
+    }
+    #[cfg(all(not(unix), not(windows)))]
     {
         use std::io::SeekFrom;
         let mut file_ref = file;
