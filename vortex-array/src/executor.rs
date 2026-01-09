@@ -43,6 +43,8 @@ impl ExecutionCtx {
 /// Executor for exporting Vortex arrays to canonical form.
 pub trait VectorExecutor {
     /// Recursively execute the array to canonical form.
+    /// This will replace the recursive usage of `to_canonical()`.
+    /// An `ExecutionCtx` is will be used to limit access to buffers.
     fn execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Canonical>;
 
     /// Execute the array and return a [`CanonicalOutput`].
