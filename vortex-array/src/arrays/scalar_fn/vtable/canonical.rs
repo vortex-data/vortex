@@ -24,7 +24,7 @@ impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut child_datums = Vec::with_capacity(array.children.len());
         for child in array.children.iter() {
-            let datum = match child.execute_output(&LEGACY_SESSION).vortex_expect(
+            let datum = match child.execute_output(&mut ctx).vortex_expect(
                 "Failed to execute child array during canonicalization of ScalarFnArray",
             ) {
                 CanonicalOutput::Constant(c) => Datum::Scalar(c.scalar().to_vector_scalar()),

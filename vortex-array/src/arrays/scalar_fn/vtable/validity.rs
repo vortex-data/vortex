@@ -88,19 +88,18 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
     }
 
     fn validity_mask(array: &ScalarFnArray) -> Mask {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let output = array
             .to_array()
-            .execute_output(&LEGACY_SESSION)
+            .execute_output(&mut ctx)
             .vortex_expect("Validity mask computation should be fallible");
         match output {
             CanonicalOutput::Constant(c) => Mask::new(array.len, c.scalar().is_valid()),
-            CanonicalOutput::Array(a) => {
-                let mut ctx = LEGACY_SESSION.create_execution_ctx();
-                a.to_vector(&mut ctx)
-                    .vortex_expect("Failed to convert canonical to vector")
-                    .validity()
-                    .clone()
-            }
+            CanonicalOutput::Array(a) => a
+                .to_vector(&mut ctx)
+                .vortex_expect("Failed to convert canonical to vector")
+                .validity()
+                .clone(),
         }
     }
 }

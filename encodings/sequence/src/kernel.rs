@@ -337,7 +337,6 @@ mod tests {
     #[test]
     fn test_sequence_eq_neq_constant() -> VortexResult<()> {
         let len = 1;
-        let session = VortexSession::empty();
         let seq = SequenceArray::typed_new(5i64, 1, NonNullable, len)?.to_array();
         let constant = ConstantArray::new(5i64, len).to_array();
 
@@ -362,7 +361,6 @@ mod tests {
 
     #[test]
     fn test_sequence_gte_constant() -> VortexResult<()> {
-        let session = VortexSession::empty();
         let seq = SequenceArray::typed_new(0i64, 1, NonNullable, 10)?.to_array();
         let constant = ConstantArray::new(
             Scalar::new(
@@ -390,7 +388,6 @@ mod tests {
 
     #[test]
     fn test_sequence_lt_constant() -> VortexResult<()> {
-        let session = VortexSession::empty();
         let seq = SequenceArray::typed_new(0i64, 1, NonNullable, 10)?.to_array();
         let constant = ConstantArray::new(5i64, 10).to_array();
 
@@ -408,7 +405,6 @@ mod tests {
 
     #[test]
     fn test_sequence_lte_constant() -> VortexResult<()> {
-        let session = VortexSession::empty();
         let seq = SequenceArray::typed_new(0i64, 1, NonNullable, 10)?.to_array();
         let constant = ConstantArray::new(5i64, 10).to_array();
 
@@ -427,7 +423,6 @@ mod tests {
 
     #[test]
     fn test_sequence_gt_constant() -> VortexResult<()> {
-        let session = VortexSession::empty();
         let seq = SequenceArray::typed_new(0i64, 1, NonNullable, 10)?.to_array();
         let constant = ConstantArray::new(5i64, 10).to_array();
 
@@ -447,7 +442,6 @@ mod tests {
     #[test]
     fn test_constant_gte_sequence() -> VortexResult<()> {
         // Test when constant is on the left side
-        let session = VortexSession::empty();
         let constant = ConstantArray::new(5i64, 10).to_array();
         let seq = SequenceArray::typed_new(0i64, 1, NonNullable, 10)?.to_array();
 
@@ -466,7 +460,6 @@ mod tests {
 
     #[test]
     fn test_sequence_eq_constant() -> VortexResult<()> {
-        let session = VortexSession::empty();
         let seq = SequenceArray::typed_new(0i64, 1, NonNullable, 10)?.to_array();
         let constant = ConstantArray::new(5i64, 10).to_array();
 
@@ -484,7 +477,6 @@ mod tests {
 
     #[test]
     fn test_sequence_not_eq_constant() -> VortexResult<()> {
-        let session = VortexSession::empty();
         let seq = SequenceArray::typed_new(0i64, 1, NonNullable, 10)?.to_array();
         let constant = ConstantArray::new(5i64, 10).to_array();
 
@@ -502,7 +494,6 @@ mod tests {
 
     #[test]
     fn test_sequence_all_true() -> VortexResult<()> {
-        let session = VortexSession::empty();
         let seq = SequenceArray::typed_new(10i64, 1, NonNullable, 5)?.to_array();
         let constant = ConstantArray::new(5i64, 5).to_array();
 
@@ -518,7 +509,6 @@ mod tests {
 
     #[test]
     fn test_sequence_all_false() -> VortexResult<()> {
-        let session = VortexSession::empty();
         let seq = SequenceArray::typed_new(0i64, 1, NonNullable, 5)?.to_array();
         let constant = ConstantArray::new(100i64, 5).to_array();
 
@@ -535,7 +525,6 @@ mod tests {
     #[test]
     fn test_sequence_multiplier_2_gte() -> VortexResult<()> {
         // Sequence: [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]
-        let session = VortexSession::empty();
         let seq = SequenceArray::typed_new(0i64, 2, NonNullable, 10)?.to_array();
         let constant = ConstantArray::new(10i64, 10).to_array();
 
@@ -555,7 +544,6 @@ mod tests {
     #[test]
     fn test_sequence_multiplier_3_eq() -> VortexResult<()> {
         // Sequence: [5, 8, 11, 14, 17, 20, 23, 26]
-        let session = VortexSession::empty();
         let seq = SequenceArray::typed_new(5i64, 3, NonNullable, 8)?.to_array();
         let constant = ConstantArray::new(14i64, 8).to_array();
 
@@ -573,7 +561,6 @@ mod tests {
     #[test]
     fn test_sequence_negative_multiplier_lt() -> VortexResult<()> {
         // Sequence: [100, 90, 80, 70, 60, 50, 40, 30, 20, 10]
-        let session = VortexSession::empty();
         let seq = SequenceArray::typed_new(100i64, -10, NonNullable, 10)?.to_array();
         let constant = ConstantArray::new(50i64, 10).to_array();
 

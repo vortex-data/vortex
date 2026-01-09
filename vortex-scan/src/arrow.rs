@@ -10,12 +10,13 @@ use arrow_schema::SchemaRef;
 use futures::Stream;
 use futures::TryStreamExt;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrow::ArrowArrayExecutor;
 use vortex_array::arrow::IntoArrowArray;
 use vortex_error::VortexResult;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_layout::layouts::USE_VORTEX_OPERATORS;
-use vortex_session::VortexSession;
 
 use crate::ScanBuilder;
 
@@ -34,7 +35,10 @@ impl ScanBuilder<ArrayRef> {
         let session = self.session().clone();
 
         let iter = self
-            .map(move |chunk| to_record_batch(chunk, &data_type, &session))
+            .map(move |chunk| {
+                let mut ctx = session.create_execution_ctx();
+                to_record_batch(chunk, &data_type, &mut ctx)
+            })
             .into_iter(runtime)?
             .map(|result| result.map_err(|e| ArrowError::ExternalError(Box::new(e))));
 
@@ -49,7 +53,10 @@ impl ScanBuilder<ArrayRef> {
         let session = self.session().clone();
 
         let stream = self
-            .map(move |chunk| to_record_batch(chunk, &data_type, &session))
+            .map(move |chunk| {
+                let mut ctx = session.create_execution_ctx();
+                to_record_batch(chunk, &data_type, &mut ctx)
+            })
             .into_stream()?
             .map_err(|e| ArrowError::ExternalError(Box::new(e)));
 
@@ -60,10 +67,10 @@ impl ScanBuilder<ArrayRef> {
 fn to_record_batch(
     chunk: ArrayRef,
     data_type: &DataType,
-    session: &VortexSession,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<RecordBatch> {
     if *USE_VORTEX_OPERATORS {
-        let arrow = chunk.execute_arrow(data_type, session)?;
+        let arrow = chunk.execute_arrow(data_type, ctx)?;
         Ok(RecordBatch::from(arrow.as_struct().clone()))
     } else {
         let arrow = chunk.into_arrow(data_type)?;
@@ -166,8 +173,9 @@ mod tests {
         let vortex_array = create_test_struct_array()?;
         let schema = create_arrow_schema();
         let data_type = DataType::Struct(schema.fields().clone());
+        let mut ctx = SESSION.create_execution_ctx();
 
-        let batch = to_record_batch(vortex_array, &data_type, &SESSION)?;
+        let batch = to_record_batch(vortex_array, &data_type, &mut ctx)?;
         assert_eq!(batch.num_columns(), 2);
         assert_eq!(batch.num_rows(), 4);
 

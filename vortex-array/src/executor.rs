@@ -49,7 +49,7 @@ pub trait VectorExecutor {
     ///
     /// This may short-circuit for constant arrays, returning [`CanonicalOutput::Constant`]
     /// instead of fully materializing the array.
-    fn execute_output(&self, session: &VortexSession) -> VortexResult<CanonicalOutput>;
+    fn execute_output(&self, ctx: &mut ExecutionCtx) -> VortexResult<CanonicalOutput>;
 }
 
 impl VectorExecutor for ArrayRef {
@@ -74,7 +74,7 @@ impl VectorExecutor for ArrayRef {
         self.encoding().as_dyn().execute_canonical(self, ctx)
     }
 
-    fn execute_output(&self, session: &VortexSession) -> VortexResult<CanonicalOutput> {
+    fn execute_output(&self, ctx: &mut ExecutionCtx) -> VortexResult<CanonicalOutput> {
         // Attempt to short-circuit constant arrays.
         if let Some(constant) = self.as_opt::<ConstantVTable>() {
             return Ok(CanonicalOutput::Constant(ConstantArray::new(
@@ -83,9 +83,8 @@ impl VectorExecutor for ArrayRef {
             )));
         }
 
-        let mut ctx = session.create_execution_ctx();
         tracing::debug!("Executing array {}:\n{}", self, self.display_tree());
-        Ok(CanonicalOutput::Array(self.execute(&mut ctx)?))
+        Ok(CanonicalOutput::Array(self.execute(ctx)?))
     }
 }
 

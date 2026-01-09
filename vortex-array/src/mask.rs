@@ -26,7 +26,7 @@ impl MaskExecutor for ArrayRef {
             vortex_bail!("Mask array must have boolean dtype, not {}", self.dtype());
         }
 
-        Ok(match self.execute_output(ctx.session())? {
+        Ok(match self.execute_output(ctx)? {
             CanonicalOutput::Constant(c) => {
                 Mask::new(self.len(), c.scalar().as_bool().value().unwrap_or(false))
             }
