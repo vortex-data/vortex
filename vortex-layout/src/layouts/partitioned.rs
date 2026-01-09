@@ -9,6 +9,7 @@ use futures::try_join;
 use itertools::Itertools;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::StructArray;
 use vortex_array::expr::Expression;
 use vortex_array::expr::transform::PartitionedExpr;
@@ -90,7 +91,8 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
             .into_array();
 
             let root_mask = if *USE_VORTEX_OPERATORS {
-                root_scope.apply(&self.root)?.execute_mask(&session)?
+                let mut ctx = session.create_execution_ctx();
+                root_scope.apply(&self.root)?.execute_mask(&mut ctx)?
             } else {
                 self.root
                     .evaluate(&root_scope)?

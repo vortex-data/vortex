@@ -11,6 +11,7 @@ use futures::future::BoxFuture;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
+use vortex_array::VortexSessionExecute;
 use vortex_array::compute::filter;
 use vortex_array::expr::Expression;
 use vortex_array::expr::Root;
@@ -153,13 +154,15 @@ impl LayoutReader for FlatReader {
                     // after this.
                     let array = array.apply(&expr)?;
                     let array = array.filter(mask.clone())?;
-                    let array_mask = array.execute_mask(&session)?;
+                    let mut ctx = session.create_execution_ctx();
+                    let array_mask = array.execute_mask(&mut ctx)?;
 
                     mask.intersect_by_rank(&array_mask)
                 } else {
                     // Run over the full array, with a simpler bitand at the end.
                     let array = array.apply(&expr)?;
-                    let array_mask = array.execute_mask(&session)?;
+                    let mut ctx = session.create_execution_ctx();
+                    let array_mask = array.execute_mask(&mut ctx)?;
 
                     mask.bitand(&array_mask)
                 }

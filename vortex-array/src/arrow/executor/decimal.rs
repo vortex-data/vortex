@@ -17,8 +17,8 @@ use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::ExecutionCtx;
 use crate::VectorExecutor;
+use crate::VortexSessionExecute;
 use crate::arrow::null_buffer::to_null_buffer;
 use crate::builtins::ArrayBuiltins;
 
@@ -46,11 +46,8 @@ pub(super) fn to_arrow_decimal<D: DecimalType, N: NativeDecimalType>(
     ))?;
 
     // Execute the array as a vector and downcast to our native type.
-    let mut ctx = ExecutionCtx::new(session.clone());
-    let vector = array
-        .execute(&mut ctx)?
-        .to_vector_session(session)?
-        .into_decimal();
+    let mut ctx = session.create_execution_ctx();
+    let vector = array.execute(&mut ctx)?.to_vector(&mut ctx)?.into_decimal();
     vortex_ensure!(
         vector.decimal_type() == N::DECIMAL_TYPE,
         "Decimal array conversion produced unexpected decimal type: expected {:?}, got {:?}",

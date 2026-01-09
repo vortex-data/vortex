@@ -479,9 +479,9 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
-    use vortex_array::ExecutionCtx;
     use vortex_array::ToCanonical;
     use vortex_array::VectorExecutor;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::session::ArraySession;
     use vortex_array::vtable::ValidityHelper;
@@ -507,7 +507,7 @@ mod tests {
         let encoded = alp_encode(&values, None).unwrap();
 
         let result_canonical = {
-            let mut ctx = ExecutionCtx::new(SESSION.clone());
+            let mut ctx = SESSION.create_execution_ctx();
             encoded.to_array().execute(&mut ctx).unwrap()
         };
         // Compare against the traditional array-based decompress path
@@ -537,7 +537,7 @@ mod tests {
         let encoded = alp_encode(&values, None).unwrap();
 
         let result_canonical = {
-            let mut ctx = ExecutionCtx::new(SESSION.clone());
+            let mut ctx = SESSION.create_execution_ctx();
             encoded.to_array().execute(&mut ctx).unwrap()
         };
         // Compare against the traditional array-based decompress path
@@ -573,7 +573,7 @@ mod tests {
         assert!(encoded.patches().unwrap().array_len() > 0);
 
         let result_canonical = {
-            let mut ctx = ExecutionCtx::new(SESSION.clone());
+            let mut ctx = SESSION.create_execution_ctx();
             encoded.to_array().execute(&mut ctx).unwrap()
         };
         // Compare against the traditional array-based decompress path
@@ -607,7 +607,7 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
 
         let result_canonical = {
-            let mut ctx = ExecutionCtx::new(SESSION.clone());
+            let mut ctx = SESSION.create_execution_ctx();
             encoded.to_array().execute(&mut ctx).unwrap()
         };
         // Compare against the traditional array-based decompress path
@@ -652,7 +652,7 @@ mod tests {
         assert!(encoded.patches().unwrap().array_len() > 0);
 
         let result_canonical = {
-            let mut ctx = ExecutionCtx::new(SESSION.clone());
+            let mut ctx = SESSION.create_execution_ctx();
             encoded.to_array().execute(&mut ctx).unwrap()
         };
         // Compare against the traditional array-based decompress path
@@ -700,7 +700,7 @@ mod tests {
         let sliced_encoded = encoded.slice(slice_start..slice_end);
 
         let result_canonical = {
-            let mut ctx = ExecutionCtx::new(SESSION.clone());
+            let mut ctx = SESSION.create_execution_ctx();
             sliced_encoded.execute(&mut ctx).unwrap()
         };
         let result_primitive = result_canonical.into_primitive();

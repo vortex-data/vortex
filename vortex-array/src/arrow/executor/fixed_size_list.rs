@@ -11,8 +11,8 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::ExecutionCtx;
 use crate::VectorExecutor;
+use crate::VortexSessionExecute;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::FixedSizeListVTable;
 use crate::arrow::ArrowArrayExecutor;
@@ -31,10 +31,10 @@ pub(super) fn to_arrow_fixed_list(
     }
 
     // Otherwise, we execute the array to become a FixedSizeListArray.
-    let mut ctx = ExecutionCtx::new(session.clone());
+    let mut ctx = session.create_execution_ctx();
     let vector = array
         .execute(&mut ctx)?
-        .to_vector_session(session)?
+        .to_vector(&mut ctx)?
         .into_fixed_size_list_opt()
         .ok_or_else(|| vortex_err!("Failed to convert array to FixedSizeListArray"))?;
     vortex_ensure!(

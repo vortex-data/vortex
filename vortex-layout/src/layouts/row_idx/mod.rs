@@ -17,6 +17,7 @@ use futures::future::BoxFuture;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
+use vortex_array::VortexSessionExecute;
 use vortex_array::compute::filter;
 use vortex_array::expr::ExactExpr;
 use vortex_array::expr::Expression;
@@ -264,7 +265,8 @@ fn row_idx_mask_future(
         let array = idx_array(row_offset, &row_range).into_array();
 
         let result_mask = if *USE_VORTEX_OPERATORS {
-            array.apply(&expr)?.execute_mask(&session)
+            let mut ctx = session.create_execution_ctx();
+            array.apply(&expr)?.execute_mask(&mut ctx)
         } else {
             expr.evaluate(&array)?.try_to_mask_fill_null_false()
         }?;

@@ -11,7 +11,6 @@ use vortex_compute::cast::Cast;
 use vortex_dtype::DType;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::PTypeDowncastExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -19,8 +18,8 @@ use vortex_session::VortexSession;
 use vortex_vector::listview::ListViewVector;
 
 use crate::ArrayRef;
-use crate::ExecutionCtx;
 use crate::VectorExecutor;
+use crate::VortexSessionExecute;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewVTable;
 use crate::arrow::ArrowArrayExecutor;
@@ -39,10 +38,10 @@ pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
     };
 
     // Otherwise, we execute as a vector and convert.
-    let mut ctx = ExecutionCtx::new(session.clone());
+    let mut ctx = session.create_execution_ctx();
     let mut vector = array
         .execute(&mut ctx)?
-        .to_vector_session(session)?
+        .to_vector(&mut ctx)?
         .into_list_opt()
         .ok_or_else(|| vortex_err!("Failed to convert array to ListVector"))?;
 
@@ -74,7 +73,7 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
         "Elements field is non-nullable but elements array contains nulls"
     );
 
-    let mut ctx = ExecutionCtx::new(session.clone());
+    let mut ctx = session.create_execution_ctx();
     let offsets = offsets
         .cast(DType::Primitive(O::PTYPE, NonNullable))?
         .execute(&mut ctx)?

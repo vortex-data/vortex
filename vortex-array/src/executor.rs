@@ -83,8 +83,20 @@ impl VectorExecutor for ArrayRef {
             )));
         }
 
-        let mut ctx = ExecutionCtx::new(session.clone());
+        let mut ctx = session.create_execution_ctx();
         tracing::debug!("Executing array {}:\n{}", self, self.display_tree());
         Ok(CanonicalOutput::Array(self.execute(&mut ctx)?))
+    }
+}
+
+/// Extension trait for creating an execution context from a session.
+pub trait VortexSessionExecute {
+    /// Create a new execution context from this session.
+    fn create_execution_ctx(&self) -> ExecutionCtx;
+}
+
+impl VortexSessionExecute for VortexSession {
+    fn create_execution_ctx(&self) -> ExecutionCtx {
+        ExecutionCtx::new(self.clone())
     }
 }

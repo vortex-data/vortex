@@ -13,7 +13,6 @@ use vortex_compute::cast::Cast;
 use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
-use vortex_dtype::PTypeDowncastExt;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -22,9 +21,9 @@ use vortex_session::VortexSession;
 
 use crate::Array;
 use crate::ArrayRef;
-use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::VectorExecutor;
+use crate::VortexSessionExecute;
 use crate::arrays::ListArray;
 use crate::arrays::ListVTable;
 use crate::arrays::ListViewArray;
@@ -68,11 +67,8 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
         .dtype()
         .as_list_element_opt()
         .ok_or_else(|| vortex_err!("Cannot convert non-list array to Arrow ListArray"))?;
-    let mut ctx = ExecutionCtx::new(session.clone());
-    let list_view = array
-        .execute(&mut ctx)?
-        .to_vector_session(session)?
-        .into_list();
+    let mut ctx = session.create_execution_ctx();
+    let list_view = array.execute(&mut ctx)?.to_vector(&mut ctx)?.into_list();
     let (elements, offsets, sizes, validity) = list_view.into_parts();
     let offset_dtype = DType::Primitive(O::PTYPE, Nullability::NonNullable);
     let list_view = unsafe {
@@ -103,7 +99,7 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
     session: &VortexSession,
 ) -> VortexResult<ArrowArrayRef> {
     // We must cast the offsets to the required offset type.
-    let mut ctx = ExecutionCtx::new(session.clone());
+    let mut ctx = session.create_execution_ctx();
     let offsets = array
         .offsets()
         .cast(DType::Primitive(O::PTYPE, Nullability::NonNullable))?
@@ -150,7 +146,7 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
         .typed_value::<O>()
         .vortex_expect("non null");
 
-    let mut ctx = ExecutionCtx::new(session.clone());
+    let mut ctx = session.create_execution_ctx();
     let offsets = offsets
         .cast(DType::Primitive(O::PTYPE, Nullability::NonNullable))?
         .execute(&mut ctx)?
@@ -196,7 +192,7 @@ fn list_view_to_list<O: OffsetSizeTrait + NativePType>(
 ) -> VortexResult<ArrowArrayRef> {
     let (elements, offsets, sizes, validity) = array.into_parts();
 
-    let mut ctx = ExecutionCtx::new(session.clone());
+    let mut ctx = session.create_execution_ctx();
     let offsets = offsets
         .cast(DType::Primitive(O::PTYPE, Nullability::NonNullable))?
         .execute(&mut ctx)?

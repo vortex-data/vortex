@@ -77,7 +77,7 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
                 Mask::new_true(parent.filter_mask().true_count())
             }
             Validity::AllInvalid => Mask::new_false(parent.filter_mask().true_count()),
-            Validity::Array(a) => a.execute_mask(ctx.session())?,
+            Validity::Array(a) => a.execute_mask(ctx)?,
         };
 
         // First we unpack the codes VarBinArray to get access to the raw data.

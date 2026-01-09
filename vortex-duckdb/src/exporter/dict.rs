@@ -177,11 +177,7 @@ pub(crate) fn new_operator_exporter_with_flatten(
     if let Some(constant) = values.as_opt::<ConstantVTable>() {
         return constant::new_exporter_with_mask(
             &ConstantArray::new(constant.scalar().clone(), array.codes().len()),
-            array
-                .codes()
-                .is_null()?
-                .not()?
-                .execute_mask(ctx.session())?,
+            array.codes().is_null()?.not()?.execute_mask(ctx)?,
             cache,
         );
     }
