@@ -10,12 +10,6 @@ use futures::stream::BoxStream;
 use vortex_error::VortexResult;
 
 use crate::file::IoRequest;
-use crate::runtime::Handle;
-
-/// A trait for types that can be opened as an `IoSource`.
-pub trait IntoReadSource {
-    fn into_read_source(self, handle: Handle) -> VortexResult<ReadSourceRef>;
-}
 
 pub type ReadSourceRef = Arc<dyn ReadSource>;
 

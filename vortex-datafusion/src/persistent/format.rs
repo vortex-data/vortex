@@ -54,6 +54,8 @@ use vortex::expr::stats::Stat;
 use vortex::file::EOF_SIZE;
 use vortex::file::MAX_POSTSCRIPT_SIZE;
 use vortex::file::VORTEX_FILE_EXTENSION;
+use vortex::io::file::object_store::ObjectStoreReadSource;
+use vortex::io::session::RuntimeSessionExt;
 use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
 
@@ -244,8 +246,11 @@ impl FileFormat for VortexFormat {
             .map(|o| {
                 let store = store.clone();
                 let cache = self.file_cache.clone();
+                let handle = self.session.handle();
                 SpawnedTask::spawn(async move {
-                    let vxf = cache.try_get(&o, store).await?;
+                    let reader = ObjectStoreReadSource::new(store, o.location.clone())
+                        .into_read_source(handle)?;
+                    let vxf = cache.try_get(&o, reader).await?;
                     let inferred_schema = vxf.dtype().to_arrow_schema()?;
                     VortexResult::Ok((o.location, inferred_schema))
                 })
@@ -275,8 +280,12 @@ impl FileFormat for VortexFormat {
         let store = store.clone();
         let cache = self.file_cache.clone();
 
+        let reader = ObjectStoreReadSource::new(store, object.location.clone())
+            .into_read_source(self.session.handle())
+            .map_err(|e| DataFusionError::External(Box::new(e)))?;
+
         SpawnedTask::spawn(async move {
-            let vxf = cache.try_get(&object, store.clone()).await.map_err(|e| {
+            let vxf = cache.try_get(&object, reader).await.map_err(|e| {
                 DataFusionError::Execution(format!(
                     "Failed to open Vortex file {}: {e}",
                     object.location

@@ -16,16 +16,9 @@ use vortex_error::vortex_err;
 
 use crate::file::IoRequest;
 use crate::file::read::CoalesceWindow;
-use crate::file::read::IntoReadSource;
 use crate::file::read::ReadSource;
 use crate::file::read::ReadSourceRef;
 use crate::runtime::Handle;
-
-impl IntoReadSource for ByteBuffer {
-    fn into_read_source(self, _handle: Handle) -> VortexResult<ReadSourceRef> {
-        Ok(Arc::new(self))
-    }
-}
 
 impl ReadSource for ByteBuffer {
     fn uri(&self) -> &Arc<str> {

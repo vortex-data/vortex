@@ -7,6 +7,7 @@ mod cache;
 mod format;
 pub mod metrics;
 mod opener;
+pub mod reader;
 mod sink;
 mod source;
 mod stream;

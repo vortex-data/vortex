@@ -17,7 +17,6 @@ use vortex_error::vortex_ensure;
 
 use crate::file::IoRequest;
 use crate::file::read::CoalesceWindow;
-use crate::file::read::IntoReadSource;
 use crate::file::read::ReadSource;
 use crate::file::read::ReadSourceRef;
 #[cfg(not(target_arch = "wasm32"))]
@@ -63,12 +62,6 @@ impl ObjectStoreReadSource {
     pub fn with_some_coalesce_window(mut self, window: Option<CoalesceWindow>) -> Self {
         self.coalesce_window = window;
         self
-    }
-}
-
-impl IntoReadSource for ObjectStoreReadSource {
-    fn into_read_source(self, handle: Handle) -> VortexResult<ReadSourceRef> {
-        Ok(Arc::new(ObjectStoreIoSource { io: self, handle }))
     }
 }
 

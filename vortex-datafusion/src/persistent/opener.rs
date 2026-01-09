@@ -52,11 +52,11 @@ use crate::convert::exprs::ExpressionConvertor;
 use crate::convert::exprs::can_be_pushed_down;
 use crate::convert::exprs::make_vortex_predicate;
 use crate::persistent::stream::PrunableStream;
+use crate::reader::VortexReaderFactory;
 
 #[derive(Clone)]
 pub(crate) struct VortexOpener {
     pub session: VortexSession,
-    pub object_store: Arc<dyn ObjectStore>,
     /// Optional table schema projection. The indices are w.r.t. the `table_schema`, which is
     /// all fields in the final scan result not including the partition columns.
     pub projection: Option<Arc<[usize]>>,
@@ -69,6 +69,7 @@ pub(crate) struct VortexOpener {
     pub file_pruning_predicate: Option<PhysicalExprRef>,
     pub expr_adapter_factory: Option<Arc<dyn PhysicalExprAdapterFactory>>,
     pub schema_adapter_factory: Arc<dyn SchemaAdapterFactory>,
+    pub vortex_reader_factory: Arc<dyn VortexReaderFactory>,
     /// This is the table's schema without partition columns. It may contain fields which do
     /// not exist in the file, and are supplied by the `schema_adapter_factory`.
     pub table_schema: TableSchema,
@@ -94,13 +95,13 @@ pub(crate) struct VortexOpener {
 impl FileOpener for VortexOpener {
     fn open(&self, file: PartitionedFile) -> DFResult<FileOpenFuture> {
         let session = self.session.clone();
-        let object_store = self.object_store.clone();
         let projection = self.projection.clone();
         let mut filter = self.filter.clone();
         let file_pruning_predicate = self.file_pruning_predicate.clone();
         let expr_adapter_factory = self.expr_adapter_factory.clone();
 
         let file_cache = self.file_cache.clone();
+        let vortex_reader_factory = self.vortex_reader_factory.clone();
         let table_schema = self.table_schema.clone();
         let batch_size = self.batch_size;
         let limit = self.limit;
@@ -154,8 +155,12 @@ impl FileOpener for VortexOpener {
                 return Ok(stream::empty().boxed());
             }
 
+            let io_source = vortex_reader_factory
+                .create_reader(file.path().as_ref(), &session)
+                .await?;
+
             let vxf = file_cache
-                .try_get(&file.object_meta, object_store)
+                .try_get(&file.object_meta, io_source)
                 .await
                 .map_err(|e| {
                     DataFusionError::Execution(format!("Failed to open Vortex file {e}"))
@@ -410,6 +415,7 @@ mod tests {
     use super::*;
     use crate::VortexAccessPlan;
     use crate::convert::exprs::DefaultExpressionConvertor;
+    use crate::reader::DefaultVortexReaderFactory;
     use crate::vendor::schema_rewriter::DF52PhysicalExprAdapterFactory;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
@@ -482,13 +488,13 @@ mod tests {
     ) -> VortexOpener {
         VortexOpener {
             session: SESSION.clone(),
-            object_store,
             projection: Some([0].into()),
             filter,
             file_pruning_predicate: None,
             // no adapter
             expr_adapter_factory,
             schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
+            vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(object_store)),
             file_cache: VortexFileCache::new(1, 1, 0, SESSION.clone()),
             table_schema,
             batch_size: 100,
@@ -629,7 +635,7 @@ mod tests {
 
         let make_opener = |filter| VortexOpener {
             session: SESSION.clone(),
-            object_store: object_store.clone(),
+            vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(object_store.clone())),
             projection: Some([0].into()),
             filter: Some(filter),
             file_pruning_predicate: None,
@@ -713,7 +719,7 @@ mod tests {
 
         let opener = VortexOpener {
             session: SESSION.clone(),
-            object_store: object_store.clone(),
+            vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(object_store.clone())),
             projection: Some([0, 1, 2].into()),
             filter: None,
             file_pruning_predicate: None,
@@ -864,7 +870,7 @@ mod tests {
 
         let opener = VortexOpener {
             session: SESSION.clone(),
-            object_store: object_store.clone(),
+            vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(object_store.clone())),
             projection: Some(projection.into()),
             filter: None,
             file_pruning_predicate: None,
@@ -921,7 +927,7 @@ mod tests {
     ) -> VortexOpener {
         VortexOpener {
             session: SESSION.clone(),
-            object_store,
+            vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(object_store.clone())),
             projection,
             filter: None,
             file_pruning_predicate: None,

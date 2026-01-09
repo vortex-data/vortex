@@ -40,6 +40,8 @@ use super::opener::VortexOpener;
 use crate::convert::exprs::DefaultExpressionConvertor;
 use crate::convert::exprs::ExpressionConvertor;
 use crate::convert::exprs::can_be_pushed_down;
+use crate::reader::DefaultVortexReaderFactory;
+use crate::reader::VortexReaderFactory;
 use crate::vendor::schema_rewriter::DF52PhysicalExprAdapterFactory;
 
 /// Execution plan for reading one or more Vortex files, intended to be consumed by [`DataSourceExec`].
@@ -60,6 +62,7 @@ pub struct VortexSource {
     pub(crate) table_schema: Option<TableSchema>,
     pub(crate) schema_adapter_factory: Option<Arc<dyn SchemaAdapterFactory>>,
     pub(crate) expr_adapter_factory: Option<Arc<dyn PhysicalExprAdapterFactory>>,
+    pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
     _unused_df_metrics: ExecutionPlanMetricsSet,
     /// Shared layout readers, the source only lives as long as one scan.
     ///
@@ -80,6 +83,7 @@ impl VortexSource {
             table_schema: None,
             schema_adapter_factory: None,
             expr_adapter_factory: None,
+            vortex_reader_factory: None,
             _unused_df_metrics: Default::default(),
             layout_readers: Arc::new(DashMap::default()),
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
@@ -92,6 +96,14 @@ impl VortexSource {
         expr_convertor: Arc<dyn ExpressionConvertor>,
     ) -> Self {
         self.expression_convertor = expr_convertor;
+        self
+    }
+
+    pub fn with_vortex_reader_factory(
+        mut self,
+        vortex_reader_factory: Arc<dyn VortexReaderFactory>,
+    ) -> Self {
+        self.vortex_reader_factory = Some(vortex_reader_factory);
         self
     }
 }
@@ -107,6 +119,11 @@ impl FileSource for VortexSource {
             .session
             .metrics()
             .child_with_tags([(PARTITION_LABEL, partition.to_string())].into_iter());
+
+        let vortex_reader_factory = self
+            .vortex_reader_factory
+            .clone()
+            .unwrap_or_else(|| Arc::new(DefaultVortexReaderFactory::new(object_store)) as _);
 
         let batch_size = self
             .batch_size
@@ -150,12 +167,12 @@ impl FileSource for VortexSource {
 
         let opener = VortexOpener {
             session: self.session.clone(),
-            object_store,
             projection,
             filter: self.vortex_predicate.clone(),
             file_pruning_predicate: self.full_predicate.clone(),
             expr_adapter_factory,
             schema_adapter_factory,
+            vortex_reader_factory,
             table_schema,
             file_cache: self.file_cache.clone(),
             batch_size,

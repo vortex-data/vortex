@@ -23,7 +23,6 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 
 use crate::file::CoalesceWindow;
-use crate::file::IntoReadSource;
 use crate::file::IoRequest;
 use crate::file::ReadSource;
 use crate::file::ReadSourceRef;
@@ -68,25 +67,25 @@ const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {
 };
 const CONCURRENCY: usize = 32;
 
-impl IntoReadSource for PathBuf {
-    fn into_read_source(self, handle: Handle) -> VortexResult<ReadSourceRef> {
-        self.as_path().into_read_source(handle)
-    }
-}
+// impl IntoReadSource for PathBuf {
+//     fn into_read_source(self, handle: Handle) -> VortexResult<ReadSourceRef> {
+//         self.as_path().into_read_source(handle)
+//     }
+// }
 
-impl IntoReadSource for &Path {
-    fn into_read_source(self, handle: Handle) -> VortexResult<ReadSourceRef> {
-        let uri = self.to_string_lossy().to_string().into();
-        let file = Arc::new(File::open(self)?);
-        Ok(Arc::new(FileIoSource { uri, file, handle }))
-    }
-}
+// impl IntoReadSource for &Path {
+//     fn into_read_source(self, handle: Handle) -> VortexResult<ReadSourceRef> {
+//         let uri = self.to_string_lossy().to_string().into();
+//         let file = Arc::new(File::open(self)?);
+//         Ok(Arc::new(FileIoSource { uri, file, handle }))
+//     }
+// }
 
-impl IntoReadSource for &str {
-    fn into_read_source(self, handle: Handle) -> VortexResult<ReadSourceRef> {
-        Path::new(self).into_read_source(handle)
-    }
-}
+// impl IntoReadSource for &str {
+//     fn into_read_source(self, handle: Handle) -> VortexResult<ReadSourceRef> {
+//         Path::new(self).into_read_source(handle)
+//     }
+// }
 
 pub(crate) struct FileIoSource {
     uri: Arc<str>,

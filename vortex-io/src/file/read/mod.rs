@@ -3,6 +3,11 @@
 
 mod request;
 mod source;
+#[cfg(feature = "tokio")]
+mod tokio;
+
+#[cfg(feature = "tokio")]
+pub use tokio::*;
 
 use std::fmt;
 use std::fmt::Debug;

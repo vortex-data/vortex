@@ -14,7 +14,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::InstrumentedReadAt;
 use vortex_io::VortexReadAt;
-use vortex_io::file::IntoReadSource;
+use vortex_io::file::ReadSource;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::segments::NoOpSegmentCache;
 use vortex_layout::segments::SegmentCache;
@@ -139,7 +139,7 @@ impl VortexOpenOptions {
     /// out-of-the-box performance. The underlying I/O system will continue to be optimised for
     /// different file systems and object stores so we encourage users to use this method
     /// whenever possible and file issues if they encounter problems.
-    pub async fn open<S: IntoReadSource>(self, source: S) -> VortexResult<VortexFile> {
+    pub async fn open<S: ReadSource>(self, source: S) -> VortexResult<VortexFile> {
         let handle = self.session.handle();
         let metrics = self.metrics.clone();
         self.open_read_at(handle.open_read(source, metrics)?).await

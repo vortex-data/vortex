@@ -5,6 +5,9 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use std::sync::Arc;
+use std::sync::Arc;
+use std::sync::Arc;
+use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
@@ -19,7 +22,6 @@ use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 
 use crate::VortexReadAt;
-use crate::file::IntoReadSource;
 use crate::file::IoRequest;
 use crate::file::ReadSource;
 use crate::file::ReadSourceRef;
@@ -145,9 +147,8 @@ async fn test_file_read_with_real_file_tokio() {
     temp_file.flush().unwrap();
 
     let handle = TokioRuntime::current();
-    let file_read = handle
-        .open_read(temp_file.path(), Default::default())
-        .unwrap();
+    let f = tokio::fs::File::open(temp_file.path()).await.unwrap();
+    let file_read = handle.open_read(Arc::new(f), Default::default()).unwrap();
 
     // Read a slice
     let result = file_read
@@ -175,7 +176,9 @@ async fn test_file_read_with_real_file_tokio() {
 async fn test_concurrent_reads() {
     let handle = TokioRuntime::current();
     let buffer = ByteBuffer::from(TEST_DATA.to_vec());
-    let file_read = handle.open_read(buffer, Default::default()).unwrap();
+    let file_read = handle
+        .open_read(Arc::new(buffer), Default::default())
+        .unwrap();
 
     // Issue multiple concurrent reads
     let futures = vec![
@@ -278,21 +281,15 @@ impl ReadSource for CountingIoSource {
     }
 }
 
-impl IntoReadSource for CountingIoSource {
-    fn into_read_source(self, _handle: Handle) -> VortexResult<ReadSourceRef> {
-        Ok(Arc::new(self))
-    }
-}
-
 #[tokio::test]
 async fn test_custom_io_source() {
     let handle = TokioRuntime::current();
     let read_count = Arc::new(AtomicUsize::new(0));
 
-    let source = CountingIoSource {
+    let source = Arc::new(CountingIoSource {
         data: ByteBuffer::from(TEST_DATA.to_vec()),
         read_count: read_count.clone(),
-    };
+    });
 
     let file_read = handle.open_read(source, Default::default()).unwrap();
 
@@ -313,7 +310,9 @@ async fn test_custom_io_source() {
 async fn test_read_out_of_bounds() {
     let handle = TokioRuntime::current();
     let buffer = ByteBuffer::from(TEST_DATA.to_vec());
-    let file_read = handle.open_read(buffer, Default::default()).unwrap();
+    let file_read = handle
+        .open_read(Arc::new(buffer), Default::default())
+        .unwrap();
 
     // Try to read beyond the buffer
     let result = file_read.read_at(100, 10, Alignment::new(1)).await;

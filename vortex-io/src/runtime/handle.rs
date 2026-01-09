@@ -16,8 +16,8 @@ use vortex_error::vortex_panic;
 use vortex_metrics::VortexMetrics;
 
 use crate::file::FileRead;
-use crate::file::IntoReadSource;
 use crate::file::IoRequestStream;
+use crate::file::ReadSourceRef;
 use crate::runtime::AbortHandleRef;
 use crate::runtime::Executor;
 use crate::runtime::IoTask;
@@ -145,13 +145,11 @@ impl Handle {
     }
 
     /// Open a file for I/O on this runtime.
-    pub fn open_read<S: IntoReadSource>(
+    pub fn open_read(
         &self,
-        source: S,
+        source: ReadSourceRef,
         metrics: VortexMetrics,
     ) -> VortexResult<FileRead> {
-        let source = source.into_read_source(self.clone())?;
-
         let (send, recv) = mpsc::unbounded();
 
         let read = FileRead::new(source.uri().clone(), source.size(), send);

@@ -22,6 +22,7 @@ use vortex::file::Footer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::SegmentSpec;
 use vortex::file::VortexFile;
+use vortex::io::file::ReadSource;
 use vortex::layout::segments::SegmentCache;
 use vortex::layout::segments::SegmentId;
 use vortex::metrics::MetricsSessionExt;
@@ -100,7 +101,7 @@ impl VortexFileCache {
     pub async fn try_get(
         &self,
         object: &ObjectMeta,
-        object_store: Arc<dyn ObjectStore>,
+        source: Arc<dyn ReadSource>,
     ) -> VortexResult<VortexFile> {
         let file_key = FileKey::from(object);
         self.file_cache
@@ -119,7 +120,7 @@ impl VortexFileCache {
                         file_key,
                         segment_cache: self.segment_cache.clone(),
                     }))
-                    .open_object_store(&object_store, object.location.as_ref()),
+                    .open(source),
             )
             .await
             .map_err(|e: Arc<VortexError>| {
