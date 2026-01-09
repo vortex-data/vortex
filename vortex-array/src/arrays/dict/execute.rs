@@ -25,6 +25,7 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
 use crate::compute::TakeKernel;
 
+/// TODO: replace usage of compute fn.
 /// Take from a canonical array using indices (codes), returning a new canonical array.
 ///
 /// This is the core operation for dictionary decoding - it expands the dictionary
@@ -43,7 +44,6 @@ pub fn take_canonical(values: Canonical, codes: &PrimitiveArray) -> Canonical {
     }
 }
 
-/// Take from a NullArray - result is always null.
 fn take_null(_array: &NullArray, codes: &PrimitiveArray) -> NullArray {
     NullVTable
         .take(_array, codes.as_ref())
@@ -52,7 +52,6 @@ fn take_null(_array: &NullArray, codes: &PrimitiveArray) -> NullArray {
         .clone()
 }
 
-/// Take from a BoolArray.
 fn take_bool(array: &BoolArray, codes: &PrimitiveArray) -> BoolArray {
     BoolVTable
         .take(array, codes.as_ref())
@@ -61,7 +60,6 @@ fn take_bool(array: &BoolArray, codes: &PrimitiveArray) -> BoolArray {
         .clone()
 }
 
-/// Take from a PrimitiveArray.
 fn take_primitive(array: &PrimitiveArray, codes: &PrimitiveArray) -> PrimitiveArray {
     PrimitiveVTable
         .take(array, codes.as_ref())
@@ -70,7 +68,6 @@ fn take_primitive(array: &PrimitiveArray, codes: &PrimitiveArray) -> PrimitiveAr
         .clone()
 }
 
-/// Take from a DecimalArray.
 fn take_decimal(array: &DecimalArray, codes: &PrimitiveArray) -> DecimalArray {
     DecimalVTable
         .take(array, codes.as_ref())
@@ -79,7 +76,6 @@ fn take_decimal(array: &DecimalArray, codes: &PrimitiveArray) -> DecimalArray {
         .clone()
 }
 
-/// Take from a VarBinViewArray.
 fn take_varbinview(array: &VarBinViewArray, codes: &PrimitiveArray) -> VarBinViewArray {
     VarBinViewVTable
         .take(array, codes.as_ref())
@@ -88,7 +84,6 @@ fn take_varbinview(array: &VarBinViewArray, codes: &PrimitiveArray) -> VarBinVie
         .clone()
 }
 
-/// Take from a ListViewArray.
 fn take_listview(array: &ListViewArray, codes: &PrimitiveArray) -> ListViewArray {
     ListViewVTable
         .take(array, codes.as_ref())
@@ -97,7 +92,6 @@ fn take_listview(array: &ListViewArray, codes: &PrimitiveArray) -> ListViewArray
         .clone()
 }
 
-/// Take from a FixedSizeListArray.
 fn take_fixed_size_list(array: &FixedSizeListArray, codes: &PrimitiveArray) -> FixedSizeListArray {
     FixedSizeListVTable
         .take(array, codes.as_ref())
@@ -106,7 +100,6 @@ fn take_fixed_size_list(array: &FixedSizeListArray, codes: &PrimitiveArray) -> F
         .clone()
 }
 
-/// Take from a StructArray.
 fn take_struct(array: &StructArray, codes: &PrimitiveArray) -> StructArray {
     StructVTable
         .take(array, codes.as_ref())
@@ -115,7 +108,6 @@ fn take_struct(array: &StructArray, codes: &PrimitiveArray) -> StructArray {
         .clone()
 }
 
-/// Take from an ExtensionArray.
 fn take_extension(array: &ExtensionArray, codes: &PrimitiveArray) -> ExtensionArray {
     use crate::compute::take;
 

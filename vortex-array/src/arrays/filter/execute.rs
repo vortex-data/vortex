@@ -32,6 +32,55 @@ use crate::compute::FilterKernel;
 use crate::compute::filter;
 use crate::validity::Validity;
 
+/// TODO: replace usage of compute fn.
+/// Filter a canonical array by a mask, returning a new canonical array.
+pub fn filter_canonical(canonical: Canonical, mask: &Mask) -> Canonical {
+    match canonical {
+        Canonical::Null(a) => Canonical::Null(filter_null(&a, mask)),
+        Canonical::Bool(a) => Canonical::Bool(filter_bool(&a, mask)),
+        Canonical::Primitive(a) => Canonical::Primitive(filter_primitive(&a, mask)),
+        Canonical::Decimal(a) => Canonical::Decimal(filter_decimal(&a, mask)),
+        Canonical::VarBinView(a) => Canonical::VarBinView(filter_varbinview(&a, mask)),
+        Canonical::List(a) => Canonical::List(filter_listview(&a, mask)),
+        Canonical::FixedSizeList(a) => Canonical::FixedSizeList(filter_fixed_size_list(&a, mask)),
+        Canonical::Struct(a) => Canonical::Struct(filter_struct(&a, mask)),
+        Canonical::Extension(a) => Canonical::Extension(filter_extension(&a, mask)),
+    }
+}
+
+fn filter_null(_array: &NullArray, mask: &Mask) -> NullArray {
+    NullArray::new(mask.true_count())
+}
+
+fn filter_bool(array: &BoolArray, mask: &Mask) -> BoolArray {
+    BoolVTable
+        .filter(array, mask)
+        .vortex_expect("filter bool array")
+        .as_::<BoolVTable>()
+        .clone()
+}
+
+fn filter_primitive(array: &PrimitiveArray, mask: &Mask) -> PrimitiveArray {
+    use vortex_dtype::match_each_native_ptype;
+
+    // Lazy validity: wrap in FilterArray instead of eagerly filtering
+    let validity = match array.validity().vortex_expect("primitive validity") {
+        v @ (Validity::NonNullable | Validity::AllValid | Validity::AllInvalid) => v,
+        Validity::Array(arr) => {
+            Validity::Array(FilterArray::new(arr.clone(), mask.clone()).into_array())
+        }
+    };
+
+    match_each_native_ptype!(array.ptype(), |T| {
+        let filtered = filter_slice(
+            array.as_slice::<T>(),
+            mask,
+            FILTER_SLICES_SELECTIVITY_THRESHOLD,
+        );
+        PrimitiveArray::new(filtered, validity)
+    })
+}
+
 /// Threshold for choosing between indices vs slices filtering strategy.
 pub const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
@@ -65,58 +114,6 @@ pub fn filter_slice<T: Copy>(values: &[T], mask: &Mask, selectivity_threshold: f
     }
 }
 
-/// Filter a canonical array by a mask, returning a new canonical array.
-pub fn filter_canonical(canonical: Canonical, mask: &Mask) -> Canonical {
-    match canonical {
-        Canonical::Null(a) => Canonical::Null(filter_null(&a, mask)),
-        Canonical::Bool(a) => Canonical::Bool(filter_bool(&a, mask)),
-        Canonical::Primitive(a) => Canonical::Primitive(filter_primitive(&a, mask)),
-        Canonical::Decimal(a) => Canonical::Decimal(filter_decimal(&a, mask)),
-        Canonical::VarBinView(a) => Canonical::VarBinView(filter_varbinview(&a, mask)),
-        Canonical::List(a) => Canonical::List(filter_listview(&a, mask)),
-        Canonical::FixedSizeList(a) => Canonical::FixedSizeList(filter_fixed_size_list(&a, mask)),
-        Canonical::Struct(a) => Canonical::Struct(filter_struct(&a, mask)),
-        Canonical::Extension(a) => Canonical::Extension(filter_extension(&a, mask)),
-    }
-}
-
-/// Filter a NullArray - just create a new one with the filtered length.
-fn filter_null(_array: &NullArray, mask: &Mask) -> NullArray {
-    NullArray::new(mask.true_count())
-}
-
-/// Filter a BoolArray - filter validity and bit buffer.
-fn filter_bool(array: &BoolArray, mask: &Mask) -> BoolArray {
-    BoolVTable
-        .filter(array, mask)
-        .vortex_expect("filter bool array")
-        .as_::<BoolVTable>()
-        .clone()
-}
-
-/// Filter a PrimitiveArray - filter buffer directly, wrap validity in FilterArray for lazy eval.
-fn filter_primitive(array: &PrimitiveArray, mask: &Mask) -> PrimitiveArray {
-    use vortex_dtype::match_each_native_ptype;
-
-    // Lazy validity: wrap in FilterArray instead of eagerly filtering
-    let validity = match array.validity().vortex_expect("primitive validity") {
-        v @ (Validity::NonNullable | Validity::AllValid | Validity::AllInvalid) => v,
-        Validity::Array(arr) => {
-            Validity::Array(FilterArray::new(arr.clone(), mask.clone()).into_array())
-        }
-    };
-
-    match_each_native_ptype!(array.ptype(), |T| {
-        let filtered = filter_slice(
-            array.as_slice::<T>(),
-            mask,
-            FILTER_SLICES_SELECTIVITY_THRESHOLD,
-        );
-        PrimitiveArray::new(filtered, validity)
-    })
-}
-
-/// Filter a DecimalArray - filter validity and values buffer.
 fn filter_decimal(array: &DecimalArray, mask: &Mask) -> DecimalArray {
     DecimalVTable
         .filter(array, mask)
@@ -134,7 +131,6 @@ fn filter_varbinview(array: &VarBinViewArray, mask: &Mask) -> VarBinViewArray {
         .clone()
 }
 
-/// Filter a ListViewArray - filter offsets/sizes, rebuild.
 fn filter_listview(array: &ListViewArray, mask: &Mask) -> ListViewArray {
     ListViewVTable
         .filter(array, mask)
@@ -144,7 +140,6 @@ fn filter_listview(array: &ListViewArray, mask: &Mask) -> ListViewArray {
         .rebuild(ListViewRebuildMode::MakeZeroCopyToList)
 }
 
-/// Filter a FixedSizeListArray - expand mask and filter elements.
 fn filter_fixed_size_list(array: &FixedSizeListArray, mask: &Mask) -> FixedSizeListArray {
     FixedSizeListVTable
         .filter(array, mask)
@@ -153,7 +148,6 @@ fn filter_fixed_size_list(array: &FixedSizeListArray, mask: &Mask) -> FixedSizeL
         .clone()
 }
 
-/// Filter a StructArray - filter each field recursively.
 fn filter_struct(array: &StructArray, mask: &Mask) -> StructArray {
     StructVTable
         .filter(array, mask)
@@ -162,7 +156,6 @@ fn filter_struct(array: &StructArray, mask: &Mask) -> StructArray {
         .clone()
 }
 
-/// Filter an ExtensionArray - filter underlying storage, wrap in new extension.
 fn filter_extension(array: &ExtensionArray, mask: &Mask) -> ExtensionArray {
     let filtered_storage = filter(array.storage(), mask).vortex_expect("filter extension storage");
     ExtensionArray::new(array.ext_dtype().clone(), filtered_storage)
