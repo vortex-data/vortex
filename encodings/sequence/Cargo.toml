@@ -32,7 +32,7 @@ rstest = { workspace = true }
 vortex-array = { path = "../../vortex-array", features = ["test-harness"] }
 vortex-file = { path = "../../vortex-file", features = ["tokio"] }
 vortex-layout = { path = "../../vortex-layout" }
-vortex-session = { workspace = true }
+vortex-session = { path = "../../vortex-session" }
 
 [lints]
 workspace = true
