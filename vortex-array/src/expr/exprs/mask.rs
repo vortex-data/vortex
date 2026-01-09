@@ -188,7 +188,7 @@ mod test {
             .vortex_expect("Simplification");
         assert_eq!(&simplified_true, &input_expr);
 
-        let mask_false_expr = mask(input_expr.clone(), false_mask_expr);
+        let mask_false_expr = mask(input_expr, false_mask_expr);
         let simplified_false = mask_false_expr
             .optimize(&DType::Null)
             .vortex_expect("Simplification");
