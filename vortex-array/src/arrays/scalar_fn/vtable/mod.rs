@@ -164,8 +164,7 @@ impl VTable for ScalarFnVTable {
             .scalar_fn
             .execute(args)?
             .unwrap_into_vector(array.len)
-            .into_array(array.dtype())
-            .to_canonical())
+            .into_array(array.dtype()))
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
