@@ -10,6 +10,7 @@ org.apache.spark:* = 3.5.7
 org.immutables:value = 2.12.0
 com.google.protobuf:protobuf-java = 4.33.2
 org.apache.arrow:* = 18.3.0
+io.trino:* = 476
 
 # Test dependencies
 org.junit.jupiter:* = 5.14.1

@@ -6,17 +6,17 @@ com.esotericsoftware:kryo-shaded:4.0.2 (2 constraints: b8134fa6)
 
 com.esotericsoftware:minlog:1.3.0 (1 constraints: 670e7c4f)
 
-com.fasterxml.jackson:jackson-bom:2.18.3 (4 constraints: 064eead9)
+com.fasterxml.jackson:jackson-bom:2.19.0 (4 constraints: fe4d34d7)
 
-com.fasterxml.jackson.core:jackson-annotations:2.18.3 (7 constraints: 097b87f9)
+com.fasterxml.jackson.core:jackson-annotations:2.19.0 (8 constraints: e583e2c0)
 
-com.fasterxml.jackson.core:jackson-core:2.18.3 (10 constraints: 959965cd)
+com.fasterxml.jackson.core:jackson-core:2.19.0 (10 constraints: 8d9953c3)
 
-com.fasterxml.jackson.core:jackson-databind:2.18.3 (12 constraints: 68b75475)
+com.fasterxml.jackson.core:jackson-databind:2.19.0 (12 constraints: 62b7f26a)
 
-com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.18.3 (2 constraints: e91bacc7)
+com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.19.0 (2 constraints: e71b5ec7)
 
-com.fasterxml.jackson.module:jackson-module-scala_2.12:2.18.3 (3 constraints: 922c8b83)
+com.fasterxml.jackson.module:jackson-module-scala_2.12:2.19.0 (3 constraints: 902cd382)
 
 com.github.luben:zstd-jni:1.5.5-4 (2 constraints: 651c7045)
 
@@ -44,7 +44,7 @@ com.jakewharton.nopen:nopen-annotations:1.0.1 (1 constraints: 0405f135)
 
 com.ning:compress-lzf:1.1.2 (1 constraints: 160dc636)
 
-com.thoughtworks.paranamer:paranamer:2.8 (2 constraints: 2820e282)
+com.thoughtworks.paranamer:paranamer:2.8.3 (2 constraints: 892049bb)
 
 com.twitter:chill-java:0.10.0 (2 constraints: f3160d96)
 
@@ -61,6 +61,8 @@ commons-io:commons-io:2.16.1 (1 constraints: 4c0d2344)
 commons-logging:commons-logging:1.1.3 (1 constraints: b0102eb8)
 
 io.airlift:aircompressor:0.27 (2 constraints: 6918ff95)
+
+io.airlift:slice:2.3 (1 constraints: 50082079)
 
 io.dropwizard.metrics:metrics-core:4.2.19 (7 constraints: c86edc92)
 
@@ -103,6 +105,14 @@ io.netty:netty-transport-native-epoll:4.1.96.Final (4 constraints: c83d63b7)
 io.netty:netty-transport-native-kqueue:4.1.96.Final (3 constraints: f32d6de6)
 
 io.netty:netty-transport-native-unix-common:4.1.96.Final (6 constraints: 2664d97a)
+
+io.opentelemetry:opentelemetry-api:1.50.0 (2 constraints: 611cdcfe)
+
+io.opentelemetry:opentelemetry-api-incubator:1.50.0-alpha (1 constraints: 120b8ccf)
+
+io.opentelemetry:opentelemetry-context:1.50.0 (2 constraints: 6d1891ca)
+
+io.trino:trino-spi:476 (1 constraints: b7043b2c)
 
 jakarta.annotation:jakarta.annotation-api:1.3.5 (2 constraints: f5217bb4)
 
@@ -277,6 +287,8 @@ org.jspecify:jspecify:1.0.0 (1 constraints: 130ae0b4)
 org.lz4:lz4-java:1.8.0 (1 constraints: 1b0dd936)
 
 org.objenesis:objenesis:2.5.1 (1 constraints: 6b0e884f)
+
+org.openjdk.jol:jol-core:0.17 (2 constraints: 2e1073b5)
 
 org.roaringbitmap:RoaringBitmap:0.9.45 (3 constraints: 8c30036b)
 

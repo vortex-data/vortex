@@ -1,0 +1,111 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+
+apply(plugin = "com.vanniktech.maven.publish")
+
+plugins {
+    `java-library`
+    `jvm-test-suite`
+    id("com.gradleup.shadow") version "9.2.2"
+}
+
+dependencies {
+    api(project(":vortex-jni", configuration = "shadow"))
+
+    compileOnly("io.trino:trino-spi")
+
+    compileOnly("org.immutables:value")
+    annotationProcessor("org.immutables:value")
+
+    implementation("com.google.guava:guava")
+    implementation("org.slf4j:slf4j-api:2.0.17")
+}
+
+testing {
+    suites {
+        val test by getting(JvmTestSuite::class) {
+            useJUnitJupiter()
+
+            dependencies {
+                implementation("org.junit.jupiter:junit-jupiter:5.14.1")
+                runtimeOnly("org.slf4j:slf4j-simple:2.0.17")
+            }
+        }
+    }
+}
+
+mavenPublishing {
+    coordinates(groupId = "dev.vortex", artifactId = "vortex-trino", version = "${rootProject.version}")
+
+    publishToMavenCentral()
+
+    signAllPublications()
+
+    pom {
+        name = "vortex-trino"
+        description = project.description
+        url = "https://vortex.dev"
+        inceptionYear = "2026"
+
+        licenses {
+            license {
+                name = "Apache-2.0"
+                url = "https://spdx.org/licenses/Apache-2.0.html"
+            }
+        }
+        developers {
+            developer {
+                id = "spiraldb"
+                name = "Vortex Authors"
+            }
+        }
+        scm {
+            connection = "scm:git:https://github.com/spiraldb/vortex.git"
+            developerConnection = "scm:git:ssh://github.com/spiraldb/vortex.git"
+            url = "https://github.com/spiraldb/vortex"
+        }
+    }
+
+    repositories {
+        mavenCentral()
+        mavenLocal()
+    }
+}
+
+// shade guava and protobuf dependencies
+tasks.withType<ShadowJar> {
+    relocate("com.google.protobuf", "dev.vortex.relocated.com.google.protobuf")
+    relocate("com.google.common", "dev.vortex.relocated.com.google.common")
+    relocate("org.apache.arrow", "dev.vortex.relocated.org.apache.arrow") {
+        // exclude C Data Interface since JNI cannot be relocated
+        exclude("org.apache.arrow.c.jni.JniWrapper")
+        exclude("org.apache.arrow.c.jni.PrivateData")
+        exclude("org.apache.arrow.c.jni.CDataJniException")
+        // Also used by JNI: https://github.com/apache/arrow/blob/apache-arrow-11.0.0/java/c/src/main/cpp/jni_wrapper.cc#L341
+        // Note this class is not used by us, but required when loading the native lib
+        exclude("org.apache.arrow.c.ArrayStreamExporter\$ExportedArrayStreamPrivateData")
+    }
+}
+
+tasks.withType<Test>().all {
+    classpath +=
+        project(":vortex-jni")
+            .tasks
+            .named("shadowJar")
+            .get()
+            .outputs.files
+    jvmArgs(
+        "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
+        "--add-opens=java.base/java.nio=ALL-UNNAMED",
+        "--add-opens=java.base/sun.util.calendar=ALL-UNNAMED",
+        "--add-opens=java.base/sun.security.action=ALL-UNNAMED",
+    )
+}
+
+tasks.build {
+    dependsOn("shadowJar")
+}
+
+description = "Trino bindings for reading Vortex file datasets"
