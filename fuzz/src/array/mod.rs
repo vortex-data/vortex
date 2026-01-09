@@ -66,7 +66,6 @@ use vortex_array::expr::root;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::session::ArraySession;
-use vortex_array::vectors::VectorIntoArray;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
