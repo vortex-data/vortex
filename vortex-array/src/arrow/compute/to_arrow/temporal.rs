@@ -29,6 +29,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VectorExecutor;
@@ -128,10 +129,11 @@ where
     T::Native: NativePType,
 {
     let values_dtype = DType::Primitive(T::Native::PTYPE, array.dtype().nullability());
+    let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
     let values = array
         .temporal_values()
         .cast(values_dtype)?
-        .execute_session(&LEGACY_SESSION)?
+        .execute(&mut ctx)?
         .to_vector_session(&LEGACY_SESSION)?
         .into_primitive()
         .downcast::<T::Native>();

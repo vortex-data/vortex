@@ -13,6 +13,7 @@ use futures::future::BoxFuture;
 use futures::try_join;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VectorExecutor;
@@ -106,7 +107,8 @@ impl DictReader {
                         if *USE_VORTEX_OPERATORS {
                             // We execute the array to avoid re-evaluating for every split.
                             let array = array?;
-                            Ok(array.execute_session(&session)?.into_array())
+                            let mut ctx = ExecutionCtx::new(session);
+                            Ok(array.execute(&mut ctx)?.into_array())
                         } else {
                             Ok(array?.to_canonical().into_array())
                         }
@@ -131,7 +133,8 @@ impl DictReader {
                         if *USE_VORTEX_OPERATORS {
                             let array = array?.apply(&expr)?;
                             // We execute the array to avoid re-evaluating for every split.
-                            Ok(array.execute_session(&session)?.into_array())
+                            let mut ctx = ExecutionCtx::new(session);
+                            Ok(array.execute(&mut ctx)?.into_array())
                         } else {
                             expr.evaluate(&array?).map_err(Arc::new)
                         }

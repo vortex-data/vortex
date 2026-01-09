@@ -479,6 +479,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_array::ExecutionCtx;
     use vortex_array::ToCanonical;
     use vortex_array::VectorExecutor;
     use vortex_array::arrays::PrimitiveArray;
@@ -505,7 +506,10 @@ mod tests {
         let values = PrimitiveArray::from_iter((0..size).map(|i| i as f32));
         let encoded = alp_encode(&values, None).unwrap();
 
-        let result_canonical = encoded.to_array().execute_session(&SESSION).unwrap();
+        let result_canonical = {
+            let mut ctx = ExecutionCtx::new(SESSION.clone());
+            encoded.to_array().execute(&mut ctx).unwrap()
+        };
         // Compare against the traditional array-based decompress path
         let expected = decompress_into_array(encoded);
 
@@ -532,7 +536,10 @@ mod tests {
         let values = PrimitiveArray::from_iter((0..size).map(|i| i as f64));
         let encoded = alp_encode(&values, None).unwrap();
 
-        let result_canonical = encoded.to_array().execute_session(&SESSION).unwrap();
+        let result_canonical = {
+            let mut ctx = ExecutionCtx::new(SESSION.clone());
+            encoded.to_array().execute(&mut ctx).unwrap()
+        };
         // Compare against the traditional array-based decompress path
         let expected = decompress_into_array(encoded);
 
@@ -565,7 +572,10 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().unwrap().array_len() > 0);
 
-        let result_canonical = encoded.to_array().execute_session(&SESSION).unwrap();
+        let result_canonical = {
+            let mut ctx = ExecutionCtx::new(SESSION.clone());
+            encoded.to_array().execute(&mut ctx).unwrap()
+        };
         // Compare against the traditional array-based decompress path
         let expected = decompress_into_array(encoded);
 
@@ -596,7 +606,10 @@ mod tests {
         let array = PrimitiveArray::from_option_iter(values);
         let encoded = alp_encode(&array, None).unwrap();
 
-        let result_canonical = encoded.to_array().execute_session(&SESSION).unwrap();
+        let result_canonical = {
+            let mut ctx = ExecutionCtx::new(SESSION.clone());
+            encoded.to_array().execute(&mut ctx).unwrap()
+        };
         // Compare against the traditional array-based decompress path
         let expected = decompress_into_array(encoded);
 
@@ -638,7 +651,10 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().unwrap().array_len() > 0);
 
-        let result_canonical = encoded.to_array().execute_session(&SESSION).unwrap();
+        let result_canonical = {
+            let mut ctx = ExecutionCtx::new(SESSION.clone());
+            encoded.to_array().execute(&mut ctx).unwrap()
+        };
         // Compare against the traditional array-based decompress path
         let expected = decompress_into_array(encoded);
 
@@ -683,7 +699,10 @@ mod tests {
         let slice_len = slice_end - slice_start;
         let sliced_encoded = encoded.slice(slice_start..slice_end);
 
-        let result_canonical = sliced_encoded.execute_session(&SESSION).unwrap();
+        let result_canonical = {
+            let mut ctx = ExecutionCtx::new(SESSION.clone());
+            sliced_encoded.execute(&mut ctx).unwrap()
+        };
         let result_primitive = result_canonical.into_primitive();
 
         for idx in 0..slice_len {

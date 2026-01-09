@@ -19,6 +19,7 @@ use vortex_session::VortexSession;
 use vortex_vector::listview::ListViewVector;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::VectorExecutor;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewVTable;
@@ -38,8 +39,9 @@ pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
     };
 
     // Otherwise, we execute as a vector and convert.
+    let mut ctx = ExecutionCtx::new(session.clone());
     let mut vector = array
-        .execute_session(session)?
+        .execute(&mut ctx)?
         .to_vector_session(session)?
         .into_list_opt()
         .ok_or_else(|| vortex_err!("Failed to convert array to ListVector"))?;
@@ -72,9 +74,10 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
         "Elements field is non-nullable but elements array contains nulls"
     );
 
+    let mut ctx = ExecutionCtx::new(session.clone());
     let offsets = offsets
         .cast(DType::Primitive(O::PTYPE, NonNullable))?
-        .execute_session(session)?
+        .execute(&mut ctx)?
         .to_vector_session(session)?
         .into_primitive()
         .downcast::<O>()
@@ -82,7 +85,7 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
         .into_arrow_scalar_buffer();
     let sizes = sizes
         .cast(DType::Primitive(O::PTYPE, NonNullable))?
-        .execute_session(session)?
+        .execute(&mut ctx)?
         .to_vector_session(session)?
         .into_primitive()
         .downcast::<O>()

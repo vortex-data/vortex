@@ -50,12 +50,6 @@ pub trait VectorExecutor {
     /// This may short-circuit for constant arrays, returning [`CanonicalOutput::Constant`]
     /// instead of fully materializing the array.
     fn execute_output(&self, session: &VortexSession) -> VortexResult<CanonicalOutput>;
-
-    /// Execute the array and return the resulting [`Canonical`] array.
-    ///
-    /// Unlike [`execute_output`](Self::execute_output), this always fully materializes
-    /// the array, expanding constants if necessary.
-    fn execute_session(&self, session: &VortexSession) -> VortexResult<Canonical>;
 }
 
 impl VectorExecutor for ArrayRef {
@@ -89,12 +83,8 @@ impl VectorExecutor for ArrayRef {
             )));
         }
 
-        Ok(CanonicalOutput::Array(self.execute_session(session)?))
-    }
-
-    fn execute_session(&self, session: &VortexSession) -> VortexResult<Canonical> {
         let mut ctx = ExecutionCtx::new(session.clone());
         tracing::debug!("Executing array {}:\n{}", self, self.display_tree());
-        self.execute(&mut ctx)
+        Ok(CanonicalOutput::Array(self.execute(&mut ctx)?))
     }
 }

@@ -16,6 +16,7 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::VectorExecutor;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinVTable;
@@ -37,8 +38,9 @@ where
     }
 
     // Otherwise, we execute the array to a BinaryView vector and cast from there.
+    let mut ctx = ExecutionCtx::new(session.clone());
     let binary_view = array
-        .execute_session(session)?
+        .execute(&mut ctx)?
         .to_vector_session(session)?
         .into_arrow()?;
     arrow_cast::cast(&binary_view, &T::DATA_TYPE).map_err(VortexError::from)
@@ -53,10 +55,11 @@ where
     T::Offset: NativePType,
 {
     // We must cast the offsets to the required offset type.
+    let mut ctx = ExecutionCtx::new(session.clone());
     let offsets = array
         .offsets()
         .cast(DType::Primitive(T::Offset::PTYPE, Nullability::NonNullable))?
-        .execute_session(session)?
+        .execute(&mut ctx)?
         .to_vector_session(session)?
         .into_primitive()
         .downcast::<T::Offset>()
