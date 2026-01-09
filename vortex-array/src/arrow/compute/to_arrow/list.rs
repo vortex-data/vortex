@@ -15,6 +15,7 @@ use vortex_dtype::PTypeDowncastExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VectorExecutor;
@@ -64,10 +65,11 @@ fn list_array_to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
     element: Option<&FieldRef>,
 ) -> VortexResult<ArrowArrayRef> {
     // First we cast the offsets and sizes into the specified width (determined by `O::PTYPE`).
+    let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
     let offsets = array
         .offsets()
         .cast(DType::Primitive(O::PTYPE, array.dtype().nullability()))?
-        .execute_session(&LEGACY_SESSION)?
+        .execute(&mut ctx)?
         .to_vector_session(&LEGACY_SESSION)?
         .into_primitive()
         .downcast::<O>()

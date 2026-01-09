@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::VectorExecutor;
 use crate::arrays::BoolArray;
 use crate::arrow::null_buffer::to_null_buffer;
@@ -25,6 +26,7 @@ pub(super) fn to_arrow_bool(
     array: ArrayRef,
     session: &VortexSession,
 ) -> VortexResult<ArrowArrayRef> {
-    let bool_array = array.execute_session(session)?.into_bool();
+    let mut ctx = ExecutionCtx::new(session.clone());
+    let bool_array = array.execute(&mut ctx)?.into_bool();
     Ok(canonical_bool_to_arrow(&bool_array))
 }

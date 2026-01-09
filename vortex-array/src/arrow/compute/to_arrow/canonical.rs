@@ -57,6 +57,7 @@ use vortex_scalar::DecimalType;
 
 use crate::Array as _;
 use crate::Canonical;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VectorExecutor;
@@ -531,10 +532,11 @@ fn to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
     };
 
     // Convert the child `offsets` and `validity` array to Arrow.
+    let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
     let offsets = list_array
         .offsets()
         .cast(DType::from(O::PTYPE))?
-        .execute_session(&LEGACY_SESSION)?
+        .execute(&mut ctx)?
         .to_vector_session(&LEGACY_SESSION)?
         .into_primitive()
         .downcast::<O>()
@@ -557,10 +559,11 @@ fn to_arrow_listview<O: IntegerPType + OffsetSizeTrait>(
 ) -> VortexResult<ArrowArrayRef> {
     // First we cast the offsets and sizes into the specified width (determined by `O::PTYPE`).
     let offsets_dtype = DType::Primitive(O::PTYPE, array.dtype().nullability());
+    let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
     let offsets = array
         .offsets()
         .cast(offsets_dtype.clone())?
-        .execute_session(&LEGACY_SESSION)?
+        .execute(&mut ctx)?
         .to_vector_session(&LEGACY_SESSION)?
         .into_primitive()
         .downcast::<O>()
@@ -569,7 +572,7 @@ fn to_arrow_listview<O: IntegerPType + OffsetSizeTrait>(
     let sizes = array
         .sizes()
         .cast(offsets_dtype)?
-        .execute_session(&LEGACY_SESSION)?
+        .execute(&mut ctx)?
         .to_vector_session(&LEGACY_SESSION)?
         .into_primitive()
         .downcast::<O>()

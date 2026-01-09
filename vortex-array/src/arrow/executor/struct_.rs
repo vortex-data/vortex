@@ -20,6 +20,7 @@ use vortex_session::VortexSession;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::VectorExecutor;
@@ -79,8 +80,9 @@ pub(super) fn to_arrow_struct(
         vortex_dtype::Nullability::Nullable,
     ))?;
 
+    let mut ctx = ExecutionCtx::new(session.clone());
     let struct_array = array
-        .execute_session(session)?
+        .execute(&mut ctx)?
         .to_vector_session(session)?
         .into_struct()
         .into_arrow()?;

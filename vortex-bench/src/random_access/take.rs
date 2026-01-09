@@ -19,6 +19,7 @@ use parquet::file::metadata::RowGroupMetaData;
 use stream::StreamExt;
 use vortex::array::Array;
 use vortex::array::ArrayRef;
+use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::VectorExecutor;
 use vortex::array::stream::ArrayStreamExt;
@@ -144,7 +145,8 @@ async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> anyhow::
 
     // We canonicalize / decompress for equivalence to Arrow's `RecordBatch`es.
     Ok(if *USE_VORTEX_OPERATORS {
-        array.execute_session(&SESSION)?.into_array()
+        let mut ctx = ExecutionCtx::new(SESSION.clone());
+        array.execute(&mut ctx)?.into_array()
     } else {
         array.to_canonical().into_array()
     })

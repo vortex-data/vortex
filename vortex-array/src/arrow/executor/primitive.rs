@@ -13,6 +13,7 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::VectorExecutor;
 use crate::arrays::PrimitiveArray;
 use crate::arrow::null_buffer::to_null_buffer;
@@ -38,6 +39,7 @@ where
 {
     // We use nullable here so we can essentially ignore nullability during the cast.
     let array = array.cast(DType::Primitive(T::Native::PTYPE, Nullability::Nullable))?;
-    let primitive = array.execute_session(session)?.into_primitive();
+    let mut ctx = ExecutionCtx::new(session.clone());
+    let primitive = array.execute(&mut ctx)?.into_primitive();
     Ok(canonical_primitive_to_arrow::<T>(primitive))
 }
