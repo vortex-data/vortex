@@ -23,6 +23,7 @@ use crate::arrays::VarBinViewArray;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
+/// TODO: replace usage of compute fn.
 /// Apply a validity mask to a canonical array, ANDing with existing validity.
 ///
 /// This is the core operation for MaskedArray execution - it intersects the child's
@@ -45,27 +46,22 @@ pub fn mask_validity_canonical(canonical: Canonical, validity_mask: &Mask) -> Ca
     }
 }
 
-/// Combine existing validity with a mask, returning a new validity.
 fn combine_validity(validity: &Validity, mask: &Mask, len: usize) -> Validity {
     let current_mask = validity.to_mask(len);
     let combined = current_mask.bitand(mask);
     Validity::from_mask(combined, Nullability::Nullable)
 }
 
-/// Mask validity for NullArray - always all invalid.
 fn mask_validity_null(array: NullArray, _mask: &Mask) -> NullArray {
-    // NullArray is always all invalid, masking doesn't change anything
     array
 }
 
-/// Mask validity for BoolArray.
 fn mask_validity_bool(array: BoolArray, mask: &Mask) -> BoolArray {
     let len = array.len();
     let new_validity = combine_validity(array.validity(), mask, len);
     BoolArray::new(array.bit_buffer().clone(), new_validity)
 }
 
-/// Mask validity for PrimitiveArray.
 fn mask_validity_primitive(array: PrimitiveArray, mask: &Mask) -> PrimitiveArray {
     let len = array.len();
     let ptype = array.ptype();
@@ -73,7 +69,6 @@ fn mask_validity_primitive(array: PrimitiveArray, mask: &Mask) -> PrimitiveArray
     PrimitiveArray::from_byte_buffer(array.into_byte_buffer(), ptype, new_validity)
 }
 
-/// Mask validity for DecimalArray.
 fn mask_validity_decimal(array: DecimalArray, mask: &Mask) -> DecimalArray {
     let len = array.len();
     let dec_dtype = array.decimal_dtype();
@@ -102,7 +97,6 @@ fn mask_validity_varbinview(array: VarBinViewArray, mask: &Mask) -> VarBinViewAr
     }
 }
 
-/// Mask validity for ListViewArray.
 fn mask_validity_listview(array: ListViewArray, mask: &Mask) -> ListViewArray {
     let len = array.len();
     let new_validity = combine_validity(array.validity(), mask, len);
@@ -117,7 +111,6 @@ fn mask_validity_listview(array: ListViewArray, mask: &Mask) -> ListViewArray {
     }
 }
 
-/// Mask validity for FixedSizeListArray.
 fn mask_validity_fixed_size_list(array: FixedSizeListArray, mask: &Mask) -> FixedSizeListArray {
     let len = array.len();
     let list_size = array.list_size();
@@ -128,7 +121,6 @@ fn mask_validity_fixed_size_list(array: FixedSizeListArray, mask: &Mask) -> Fixe
     }
 }
 
-/// Mask validity for StructArray.
 fn mask_validity_struct(array: StructArray, mask: &Mask) -> StructArray {
     let len = array.len();
     let new_validity = combine_validity(array.validity(), mask, len);
@@ -138,7 +130,6 @@ fn mask_validity_struct(array: StructArray, mask: &Mask) -> StructArray {
     unsafe { StructArray::new_unchecked(fields, struct_fields, len, new_validity) }
 }
 
-/// Mask validity for ExtensionArray.
 fn mask_validity_extension(array: ExtensionArray, mask: &Mask) -> ExtensionArray {
     // For extension arrays, we need to mask the underlying storage
     let storage = array.storage().to_canonical();
