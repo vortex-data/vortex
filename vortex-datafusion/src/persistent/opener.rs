@@ -31,6 +31,7 @@ use object_store::path::Path;
 use tracing::Instrument;
 use vortex::array::Array;
 use vortex::array::ArrayRef;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::dtype::FieldName;
 use vortex::error::VortexError;
@@ -297,7 +298,8 @@ impl FileOpener for VortexOpener {
                 .map(move |chunk| {
                     if *USE_VORTEX_OPERATORS {
                         let schema = chunk.dtype().to_arrow_schema()?;
-                        chunk.execute_record_batch(&schema, &chunk_session)
+                        let mut ctx = chunk_session.create_execution_ctx();
+                        chunk.execute_record_batch(&schema, &mut ctx)
                     } else {
                         RecordBatch::try_from(chunk.as_ref())
                     }
