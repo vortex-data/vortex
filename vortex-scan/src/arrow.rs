@@ -19,7 +19,7 @@ use vortex_session::VortexSession;
 
 use crate::ScanBuilder;
 
-impl ScanBuilder<ArrayRef> {
+impl ScanBuilder {
     /// Creates a new `RecordBatchReader` from the scan builder.
     ///
     /// The `schema` parameter is used to define the schema of the resulting record batches. In
@@ -33,10 +33,17 @@ impl ScanBuilder<ArrayRef> {
         let data_type = DataType::Struct(schema.fields().clone());
         let session = self.session().clone();
 
-        let iter = self
-            .map(move |chunk| to_record_batch(chunk, &data_type, &session))
-            .into_iter(runtime)?
-            .map(|result| result.map_err(|e| ArrowError::ExternalError(Box::new(e))));
+        let iter = self.into_iter(runtime)?.map(move |chunk| match chunk {
+            Ok(chunk) => {
+                let data_type = data_type.clone();
+                let session = session.clone();
+                to_record_batch(chunk, &data_type, &session)
+            }
+            .map_err(|e| ArrowError::ExternalError(Box::new(e))),
+            Err(e) => Err(ArrowError::ExternalError(Box::new(e))),
+        });
+
+        // let iter = runtime.block_on_stream(rb_stream);
 
         Ok(RecordBatchIteratorAdapter { iter, schema })
     }
@@ -49,8 +56,13 @@ impl ScanBuilder<ArrayRef> {
         let session = self.session().clone();
 
         let stream = self
-            .map(move |chunk| to_record_batch(chunk, &data_type, &session))
             .into_stream()?
+            .and_then(move |chunk| {
+                let data_type = data_type.clone();
+                let session = session.clone();
+
+                async move { to_record_batch(chunk, &data_type, &session) }
+            })
             .map_err(|e| ArrowError::ExternalError(Box::new(e)));
 
         Ok(stream)

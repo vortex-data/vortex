@@ -18,7 +18,6 @@ use vortex_array::expr::analysis::immediate_access::immediate_scope_access;
 use vortex_array::expr::root;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
-use vortex_array::stats::StatsSet;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_buffer::Buffer;
@@ -44,7 +43,7 @@ use crate::splits::Splits;
 use crate::splits::attempt_split_ranges;
 
 /// A struct for building a scan operation.
-pub struct ScanBuilder<A> {
+pub struct ScanBuilder {
     session: VortexSession,
     layout_reader: LayoutReaderRef,
     projection: Expression,
@@ -60,11 +59,7 @@ pub struct ScanBuilder<A> {
     split_by: SplitBy,
     /// The number of splits to make progress on concurrently **per-thread**.
     concurrency: usize,
-    /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
-    map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
     metrics: VortexMetrics,
-    /// Should we try to prune the file (using stats) on open.
-    file_stats: Option<Arc<[StatsSet]>>,
     /// Maximal number of rows to read (after filtering)
     limit: Option<usize>,
     /// The row-offset assigned to the first row of the file. Used by the `row_idx` expression,
@@ -72,7 +67,7 @@ pub struct ScanBuilder<A> {
     row_offset: u64,
 }
 
-impl ScanBuilder<ArrayRef> {
+impl ScanBuilder {
     pub fn new(session: VortexSession, layout_reader: Arc<dyn LayoutReader>) -> Self {
         Self {
             session,
@@ -86,9 +81,7 @@ impl ScanBuilder<ArrayRef> {
             // We default to four tasks per worker thread, which allows for some I/O lookahead
             // without too much impact on work-stealing.
             concurrency: 4,
-            map_fn: Arc::new(Ok),
             metrics: Default::default(),
-            file_stats: None,
             limit: None,
             row_offset: 0,
         }
@@ -115,9 +108,7 @@ impl ScanBuilder<ArrayRef> {
             runtime.block_on_stream(stream),
         ))
     }
-}
 
-impl<A: 'static + Send> ScanBuilder<A> {
     pub fn with_filter(mut self, filter: Expression) -> Self {
         self.filter = Some(filter);
         self
@@ -191,31 +182,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         &self.session
     }
 
-    /// Map each split of the scan. The function will be run on the spawned task.
-    pub fn map<B: 'static>(
-        self,
-        map_fn: impl Fn(A) -> VortexResult<B> + 'static + Send + Sync,
-    ) -> ScanBuilder<B> {
-        let old_map_fn = self.map_fn;
-        ScanBuilder {
-            session: self.session,
-            layout_reader: self.layout_reader,
-            projection: self.projection,
-            filter: self.filter,
-            ordered: self.ordered,
-            row_range: self.row_range,
-            selection: self.selection,
-            split_by: self.split_by,
-            concurrency: self.concurrency,
-            metrics: self.metrics,
-            file_stats: self.file_stats,
-            limit: self.limit,
-            row_offset: self.row_offset,
-            map_fn: Arc::new(move |a| old_map_fn(a).and_then(&map_fn)),
-        }
-    }
-
-    pub fn prepare(self) -> VortexResult<RepeatedScan<A>> {
+    pub fn prepare(self) -> VortexResult<RepeatedScan> {
         let dtype = self.dtype()?;
 
         if self.filter.is_some() && self.limit.is_some() {
@@ -273,14 +240,13 @@ impl<A: 'static + Send> ScanBuilder<A> {
             self.selection,
             splits,
             self.concurrency,
-            self.map_fn,
             self.limit,
             dtype,
         ))
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
-    pub fn build(self) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+    pub fn build(self) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<ArrayRef>>>>> {
         // The ultimate short circuit
         if self.limit.is_some_and(|l| l == 0) {
             return Ok(vec![]);
@@ -290,9 +256,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
     }
 
     /// Returns a [`Stream`] with tasks spawned onto the session's runtime handle.
-    pub fn into_stream(
-        self,
-    ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
+    pub fn into_stream(self) -> VortexResult<impl Stream<Item = VortexResult<ArrayRef>>> {
         Ok(LazyScanStream::new(self))
     }
 
@@ -300,34 +264,34 @@ impl<A: 'static + Send> ScanBuilder<A> {
     pub fn into_iter<B: BlockingRuntime>(
         self,
         runtime: &B,
-    ) -> VortexResult<impl Iterator<Item = VortexResult<A>> + 'static> {
+    ) -> VortexResult<impl Iterator<Item = VortexResult<ArrayRef>> + 'static> {
         let stream = self.into_stream()?;
         Ok(runtime.block_on_stream(stream))
     }
 }
 
-enum LazyScanState<A: 'static + Send> {
-    Builder(Option<Box<ScanBuilder<A>>>),
-    Stream(BoxStream<'static, VortexResult<A>>),
+enum LazyScanState {
+    Builder(Option<Box<ScanBuilder>>),
+    Stream(BoxStream<'static, VortexResult<ArrayRef>>),
     Error(Option<vortex_error::VortexError>),
 }
 
-struct LazyScanStream<A: 'static + Send> {
-    state: LazyScanState<A>,
+struct LazyScanStream {
+    state: LazyScanState,
 }
 
-impl<A: 'static + Send> LazyScanStream<A> {
-    fn new(builder: ScanBuilder<A>) -> Self {
+impl LazyScanStream {
+    fn new(builder: ScanBuilder) -> Self {
         Self {
             state: LazyScanState::Builder(Some(Box::new(builder))),
         }
     }
 }
 
-impl<A: 'static + Send> Unpin for LazyScanStream<A> {}
+impl Unpin for LazyScanStream {}
 
-impl<A: 'static + Send> Stream for LazyScanStream<A> {
-    type Item = VortexResult<A>;
+impl Stream for LazyScanStream {
+    type Item = VortexResult<ArrayRef>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
@@ -336,7 +300,7 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                     let builder = builder.take().vortex_expect("polled after completion");
                     match builder
                         .prepare()
-                        .and_then(|scan| scan.execute_stream(None).map(|s| s.boxed()))
+                        .and_then(move |scan| scan.execute_stream(None).map(|s| s.boxed()))
                     {
                         Ok(stream) => self.state = LazyScanState::Stream(stream),
                         Err(err) => self.state = LazyScanState::Error(Some(err)),

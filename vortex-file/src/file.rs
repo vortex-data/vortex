@@ -10,7 +10,6 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_array::ArrayRef;
 use vortex_array::VectorExecutor;
 use vortex_array::expr::Expression;
 use vortex_array::expr::pruning::checked_pruning_expr;
@@ -96,7 +95,7 @@ impl VortexFile {
     }
 
     /// Initiate a scan of the file, returning a builder for configuring the scan.
-    pub fn scan(&self) -> VortexResult<ScanBuilder<ArrayRef>> {
+    pub fn scan(&self) -> VortexResult<ScanBuilder> {
         Ok(
             ScanBuilder::new(self.session.clone(), self.layout_reader()?)
                 .with_metrics(self.metrics.clone()),

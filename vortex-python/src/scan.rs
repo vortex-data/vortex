@@ -4,7 +4,6 @@
 use pyo3::exceptions::PyIndexError;
 use pyo3::prelude::*;
 use vortex::array::Array;
-use vortex::array::ArrayRef;
 use vortex::scan::RepeatedScan;
 
 use crate::RUNTIME;
@@ -24,7 +23,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
 #[pyclass(name = "RepeatedScan", module = "vortex", frozen)]
 pub struct PyRepeatedScan {
-    pub scan: RepeatedScan<ArrayRef>,
+    pub scan: RepeatedScan,
     pub row_count: u64,
 }
 

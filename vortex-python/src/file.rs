@@ -174,7 +174,7 @@ impl PyVortexFile {
         expr: Option<Expression>,
         indices: Option<ArrayRef>,
         batch_size: Option<usize>,
-    ) -> VortexResult<ScanBuilder<ArrayRef>> {
+    ) -> VortexResult<ScanBuilder> {
         let mut builder = self
             .vxf
             .scan()?

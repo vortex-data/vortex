@@ -14,7 +14,6 @@ use arrow_schema::DataType;
 use arrow_schema::Schema;
 use arrow_schema::SchemaRef;
 use futures::stream::TryStreamExt;
-use vortex::array::ArrayRef;
 use vortex::array::arrow::IntoArrowArray;
 use vortex::buffer::Buffer;
 use vortex::file::OpenOptionsSessionExt;
@@ -57,7 +56,7 @@ pub(crate) fn open_file_from_buffer(data: &[u8]) -> Result<Box<VortexFile>> {
 }
 
 pub(crate) struct VortexScanBuilder {
-    inner: ScanBuilder<ArrayRef>,
+    inner: ScanBuilder,
     output_schema: Option<SchemaRef>,
 }
 
@@ -162,11 +161,15 @@ pub(crate) fn scan_builder_into_threadsafe_cloneable_reader(
 
     let stream = builder
         .inner
-        .map(move |b| {
-            b.into_arrow(&data_type)
-                .map(|struct_array| RecordBatch::from(struct_array.as_struct()))
-        })
         .into_stream()?
+        .and_then(move |chunk| {
+            let data_type = data_type.clone();
+            async move {
+                chunk
+                    .into_arrow(&data_type)
+                    .map(|struct_array| RecordBatch::from(struct_array.as_struct()))
+            }
+        })
         .map_err(|e| ArrowError::ExternalError(Box::new(e)));
 
     let iter = RUNTIME.block_on_stream_thread_safe(|_h| stream);

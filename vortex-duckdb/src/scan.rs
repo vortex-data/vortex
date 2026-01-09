@@ -17,6 +17,7 @@ use async_compat::Compat;
 use futures::FutureExt;
 use futures::Stream;
 use futures::StreamExt;
+use futures::TryStreamExt;
 use futures::stream;
 use futures::stream::BoxStream;
 use futures::stream::SelectAll;
@@ -439,8 +440,11 @@ impl TableFunction for VortexTableFunction {
                             .with_some_filter(filter_expr)
                             .with_projection(projection_expr)
                             .with_ordered(false)
-                            .map(move |split| Ok((split, conversion_cache.clone())))
                             .into_stream()?
+                            .and_then(move |split| {
+                                let conversion_cache = conversion_cache.clone();
+                                async move { Ok((split, conversion_cache)) }
+                            })
                             .boxed();
 
                         Ok(Some(scan))

@@ -7,6 +7,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use futures::Stream;
+use futures::StreamExt;
 use futures::future::BoxFuture;
 use itertools::Either;
 use itertools::Itertools;
@@ -33,7 +34,7 @@ use crate::tasks::split_exec;
 ///
 /// The method of this struct enable, possibly concurrent, scanning of multiple row ranges of this
 /// data source.
-pub struct RepeatedScan<A: 'static + Send> {
+pub struct RepeatedScan {
     session: VortexSession,
     layout_reader: LayoutReaderRef,
     projection: Expression,
@@ -47,37 +48,13 @@ pub struct RepeatedScan<A: 'static + Send> {
     splits: Splits,
     /// The number of splits to make progress on concurrently **per-thread**.
     concurrency: usize,
-    /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
-    map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
     /// Maximal number of rows to read (after filtering)
     limit: Option<usize>,
     /// The dtype of the projected arrays.
     dtype: DType,
 }
 
-impl RepeatedScan<ArrayRef> {
-    pub fn execute_array_iter<B: BlockingRuntime>(
-        &self,
-        row_range: Option<Range<u64>>,
-        runtime: &B,
-    ) -> VortexResult<impl ArrayIterator + 'static> {
-        let dtype = self.dtype.clone();
-        let stream = self.execute_stream(row_range)?;
-        let iter = runtime.block_on_stream(stream);
-        Ok(ArrayIteratorAdapter::new(dtype, iter))
-    }
-
-    pub fn execute_array_stream(
-        &self,
-        row_range: Option<Range<u64>>,
-    ) -> VortexResult<impl ArrayStream + Send + 'static> {
-        let dtype = self.dtype.clone();
-        let stream = self.execute_stream(row_range)?;
-        Ok(ArrayStreamAdapter::new(dtype, stream))
-    }
-}
-
-impl<A: 'static + Send> RepeatedScan<A> {
+impl RepeatedScan {
     /// Constructor just to allow `scan_builder` to create a `RepeatedScan`.
     #[expect(
         clippy::too_many_arguments,
@@ -93,7 +70,6 @@ impl<A: 'static + Send> RepeatedScan<A> {
         selection: Selection,
         splits: Splits,
         concurrency: usize,
-        map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
         limit: Option<usize>,
         dtype: DType,
     ) -> Self {
@@ -107,22 +83,40 @@ impl<A: 'static + Send> RepeatedScan<A> {
             selection,
             splits,
             concurrency,
-            map_fn,
             limit,
             dtype,
         }
     }
 
+    pub fn execute_array_iter<B: BlockingRuntime>(
+        &self,
+        row_range: Option<Range<u64>>,
+        runtime: &B,
+    ) -> VortexResult<impl ArrayIterator + 'static> {
+        let dtype = self.dtype.clone();
+        let stream = self.execute_stream(row_range)?;
+        let iter = runtime.block_on_stream(stream);
+        Ok(ArrayIteratorAdapter::new(dtype, iter))
+    }
+
+    pub fn execute_array_stream(
+        &self,
+        row_range: Option<Range<u64>>,
+    ) -> VortexResult<impl ArrayStream + Send> {
+        let dtype = self.dtype.clone();
+        let stream = self.execute_stream(row_range)?;
+        Ok(ArrayStreamAdapter::new(dtype, stream))
+    }
+
     pub fn execute(
         &self,
         row_range: Option<Range<u64>>,
-    ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+    ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<ArrayRef>>>>> {
         let ctx = Arc::new(TaskContext {
             selection: self.selection.clone(),
             filter: self.filter.clone().map(|f| Arc::new(FilterExpr::new(f))),
             reader: self.layout_reader.clone(),
             projection: self.projection.clone(),
-            mapper: self.map_fn.clone(),
         });
 
         let row_range = intersect_ranges(self.row_range.as_ref(), row_range);
@@ -175,8 +169,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
     pub fn execute_stream(
         &self,
         row_range: Option<Range<u64>>,
-    ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
-        use futures::StreamExt;
+    ) -> VortexResult<impl Stream<Item = VortexResult<ArrayRef>> + 'static> {
         let num_workers = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1);

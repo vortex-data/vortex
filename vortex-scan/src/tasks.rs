@@ -23,6 +23,18 @@ use crate::selection::Selection;
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 
+/// Information needed to execute a single split task.
+pub(super) struct TaskContext {
+    /// A row selection to apply.
+    pub(super) selection: Selection,
+    /// The shared filter expression.
+    pub(super) filter: Option<Arc<FilterExpr>>,
+    /// The layout reader.
+    pub(super) reader: Arc<dyn LayoutReader>,
+    /// The projection expression to apply to gather the scanned rows.
+    pub(super) projection: Expression,
+}
+
 /// Logic for executing a single split reading task.
 ///
 /// # Task execution flow
@@ -35,11 +47,11 @@ pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 ///
 /// This mask is then provided to the reader to perform a filtered projection over the split data,
 /// finally mapping the Vortex columnar record batches into some result type `A`.
-pub(super) fn split_exec<A: 'static + Send>(
-    ctx: Arc<TaskContext<A>>,
+pub(super) fn split_exec(
+    ctx: Arc<TaskContext>,
     split: Range<u64>,
     limit: Option<&mut usize>,
-) -> VortexResult<TaskFuture<Option<A>>> {
+) -> VortexResult<TaskFuture<Option<ArrayRef>>> {
     // Apply the selection to calculate a read mask
     let read_mask = ctx.selection.row_mask(&split);
     let row_range = read_mask.row_range();
@@ -138,7 +150,6 @@ pub(super) fn split_exec<A: 'static + Send>(
         ctx.reader
             .projection_evaluation(&row_range, &ctx.projection, filter_mask.clone())?;
 
-    let mapper = ctx.mapper.clone();
     let array_fut = async move {
         let mask = filter_mask.await?;
         if mask.all_false() {
@@ -146,22 +157,8 @@ pub(super) fn split_exec<A: 'static + Send>(
         }
 
         let array = projection_future.await?;
-        mapper(array).map(Some)
+        Ok(Some(array))
     };
 
     Ok(array_fut.boxed())
-}
-
-/// Information needed to execute a single split task.
-pub(super) struct TaskContext<A> {
-    /// A row selection to apply.
-    pub(super) selection: Selection,
-    /// The shared filter expression.
-    pub(super) filter: Option<Arc<FilterExpr>>,
-    /// The layout reader.
-    pub(super) reader: Arc<dyn LayoutReader>,
-    /// The projection expression to apply to gather the scanned rows.
-    pub(super) projection: Expression,
-    /// Function that maps into an A.
-    pub(super) mapper: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
 }

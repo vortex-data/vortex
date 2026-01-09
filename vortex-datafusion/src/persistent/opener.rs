@@ -30,7 +30,6 @@ use object_store::ObjectStore;
 use object_store::path::Path;
 use tracing::Instrument;
 use vortex::array::Array;
-use vortex::array::ArrayRef;
 use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::dtype::FieldName;
 use vortex::error::VortexError;
@@ -288,24 +287,30 @@ impl FileOpener for VortexOpener {
                 scan_builder = scan_builder.with_limit(limit);
             }
 
-            let chunk_session = session.clone();
-            let stream = scan_builder
+            let array_stream = scan_builder
                 .with_metrics(metrics)
                 .with_projection(projection_expr)
                 .with_some_filter(filter)
                 .with_ordered(has_output_ordering)
-                .map(move |chunk| {
-                    if *USE_VORTEX_OPERATORS {
-                        let schema = chunk.dtype().to_arrow_schema()?;
-                        chunk.execute_record_batch(&schema, &chunk_session)
-                    } else {
-                        RecordBatch::try_from(chunk.as_ref())
-                    }
-                })
                 .into_stream()
                 .map_err(|e| {
                     DataFusionError::Execution(format!("Failed to create Vortex stream: {e}"))
-                })?
+                })?;
+
+            let rb_stream = array_stream
+                .and_then(move |chunk| {
+                    let session = session.clone();
+                    async move {
+                        let rb = if *USE_VORTEX_OPERATORS {
+                            let schema = chunk.dtype().to_arrow_schema()?;
+                            chunk.execute_record_batch(&schema, &session)?
+                        } else {
+                            RecordBatch::try_from(chunk.as_ref())?
+                        };
+
+                        Ok(rb)
+                    }
+                })
                 .map_ok(move |rb| {
                     // We try and slice the stream into respecting datafusion's configured batch size.
                     stream::iter(
@@ -338,9 +343,9 @@ impl FileOpener for VortexOpener {
                 .boxed();
 
             if let Some(file_pruner) = file_pruner {
-                Ok(PrunableStream::new(file_pruner, stream).boxed())
+                Ok(PrunableStream::new(file_pruner, rb_stream).boxed())
             } else {
-                Ok(stream)
+                Ok(rb_stream)
             }
         }
         .in_current_span()
@@ -353,8 +358,8 @@ fn apply_byte_range(
     file_range: FileRange,
     total_size: u64,
     row_count: u64,
-    scan_builder: ScanBuilder<ArrayRef>,
-) -> ScanBuilder<ArrayRef> {
+    scan_builder: ScanBuilder,
+) -> ScanBuilder {
     let row_range = byte_range_to_row_range(
         file_range.start as u64..file_range.end as u64,
         row_count,
@@ -401,6 +406,7 @@ mod tests {
     use object_store::memory::InMemory;
     use rstest::rstest;
     use vortex::VortexSessionDefault;
+    use vortex::array::ArrayRef;
     use vortex::array::arrow::FromArrowArray;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::ObjectStoreWriter;

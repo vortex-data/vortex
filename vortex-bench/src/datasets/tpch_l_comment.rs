@@ -77,8 +77,8 @@ impl Dataset for TPCHLCommentChunked {
             let file_chunks: Vec<_> = file
                 .scan()?
                 .with_projection(pack(vec![("l_comment", col("l_comment"))], NonNullable))
-                .map(|a| Ok(a.to_canonical().into_array()))
                 .into_array_stream()?
+                .map_ok(|a| a.to_canonical().into_array())
                 .try_collect()
                 .await?;
             chunks.extend(file_chunks);
