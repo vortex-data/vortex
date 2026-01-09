@@ -19,8 +19,8 @@ use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::VectorExecutor;
 use crate::arrays::masked::MaskedArray;
-use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
+use crate::compute::mask;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
@@ -110,10 +110,8 @@ impl VTable for MaskedVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        let child = array.child().execute(ctx)?;
-        let validity_mask = array.validity_mask();
-
-        Ok(mask_validity_canonical(child, &validity_mask))
+        // TODO(joe): remove compute function.
+        mask(array.child(), &array.validity_mask()).and_then(|a| a.execute(ctx))
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

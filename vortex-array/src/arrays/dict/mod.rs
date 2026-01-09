@@ -10,9 +10,6 @@ mod array;
 pub use array::*;
 
 mod compute;
-mod execute;
-
-pub use execute::take_canonical;
 
 pub mod vtable;
 pub use vtable::*;

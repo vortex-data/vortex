@@ -11,7 +11,6 @@ use vortex_error::vortex_err;
 
 use super::DictArray;
 use super::DictMetadata;
-use super::take_canonical;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::DeserializeMetadata;
@@ -20,6 +19,7 @@ use crate::SerializeMetadata;
 use crate::VectorExecutor;
 use crate::arrays::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
+use crate::compute::take;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::vtable;
@@ -132,9 +132,8 @@ impl VTable for DictVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        let values = array.values().execute(ctx)?;
-        let codes = array.codes().execute(ctx)?.into_primitive();
-        Ok(take_canonical(values, &codes))
+        // TODO(joe): remove take compute fn
+        take(array.values(), array.codes()).and_then(|a| a.execute(ctx))
     }
 
     fn reduce_parent(

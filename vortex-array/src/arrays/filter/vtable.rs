@@ -15,7 +15,6 @@ use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use super::execute::filter_canonical;
 use crate::Array;
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
@@ -31,6 +30,7 @@ use crate::VortexSessionExecute;
 use crate::arrays::filter::array::FilterArray;
 use crate::arrays::filter::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
+use crate::compute::filter;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
@@ -114,8 +114,7 @@ impl VTable for FilterVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        let child = array.child.execute(ctx)?;
-        Ok(filter_canonical(child, &array.mask))
+        filter(array.child.as_ref(), &array.mask).and_then(|a| a.execute(ctx))
     }
 
     fn reduce_parent(
