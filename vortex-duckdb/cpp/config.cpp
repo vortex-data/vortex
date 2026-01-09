@@ -113,11 +113,8 @@ char *duckdb_vx_value_to_string(duckdb_value value) {
     }
 }
 
-duckdb_state duckdb_vx_add_extension_option(duckdb_config config,
-                                             const char *name,
-                                             const char *description,
-                                             duckdb_logical_type logical_type,
-                                             duckdb_value default_value) {
+duckdb_state duckdb_vx_add_extension_option(duckdb_config config, const char *name, const char *description,
+                                            duckdb_logical_type logical_type, duckdb_value default_value) {
     if (!name || !description || !logical_type || !default_value) {
         return DuckDBError;
     }
@@ -131,12 +128,7 @@ duckdb_state duckdb_vx_add_extension_option(duckdb_config config,
         auto *type = reinterpret_cast<LogicalType *>(logical_type);
         auto *value = reinterpret_cast<Value *>(default_value);
 
-        db_config->AddExtensionOption(
-            string(name),
-            string(description),
-            *type,
-            *value
-        );
+        db_config->AddExtensionOption(string(name), string(description), *type, *value);
 
         return DuckDBSuccess;
     } catch (...) {

@@ -29,7 +29,7 @@ duckdb_vx_client_context_get_object_cache(duckdb_vx_client_context context) {
 }
 
 extern "C" duckdb_value duckdb_vx_client_context_try_get_current_setting(duckdb_vx_client_context context,
-                                                                           const char *key) {
+                                                                         const char *key) {
     if (!context || !key) {
         return nullptr;
     }

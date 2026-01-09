@@ -8,62 +8,52 @@
 
 #include <iostream>
 
-namespace vortex
-{
-    // Wrapper class to hold opaque pointers in DuckDB's object cache
-    class OpaqueWrapper : public duckdb::ObjectCacheEntry
-    {
-    public:
-        void* ptr;
-        duckdb::optional_idx estimated_size;
-        duckdb_vx_deleter_fn deleter;
+namespace vortex {
+// Wrapper class to hold opaque pointers in DuckDB's object cache
+class OpaqueWrapper : public duckdb::ObjectCacheEntry {
+public:
+    void *ptr;
+    duckdb::optional_idx estimated_size;
+    duckdb_vx_deleter_fn deleter;
 
-        explicit OpaqueWrapper(void* p, duckdb::optional_idx estimated_size, duckdb_vx_deleter_fn del) :
-            ptr(p), estimated_size(estimated_size), deleter(del)
-        {
-        }
+    explicit OpaqueWrapper(void *p, duckdb::optional_idx estimated_size, duckdb_vx_deleter_fn del)
+        : ptr(p), estimated_size(estimated_size), deleter(del) {
+    }
 
-        ~OpaqueWrapper() override
-        {
-            if (ptr)
-            {
-                // Call the custom deleter function
-                deleter(ptr);
-            }
+    ~OpaqueWrapper() override {
+        if (ptr) {
+            // Call the custom deleter function
+            deleter(ptr);
         }
+    }
 
-        duckdb::string GetObjectType() override
-        {
-            return "vortex_opaque_wrapper";
-        }
+    duckdb::string GetObjectType() override {
+        return "vortex_opaque_wrapper";
+    }
 
-        duckdb::optional_idx GetEstimatedCacheMemory() const override
-        {
-            return estimated_size;
-        }
+    duckdb::optional_idx GetEstimatedCacheMemory() const override {
+        return estimated_size;
+    }
 
-        // Static method required by DuckDB's object cache
-        static duckdb::string ObjectType()
-        {
-            return "vortex_opaque_wrapper";
-        }
-    };
+    // Static method required by DuckDB's object cache
+    static duckdb::string ObjectType() {
+        return "vortex_opaque_wrapper";
+    }
+};
 } // namespace vortex
 
-extern "C" void duckdb_vx_object_cache_put(duckdb_vx_object_cache cache, const char* key, void* value,
-                                           uint64_t estimated_size, duckdb_vx_deleter_fn deleter)
-{
-    auto object_cache = reinterpret_cast<duckdb::ObjectCache*>(cache);
-    auto wrapper = duckdb::make_shared_ptr<vortex::OpaqueWrapper>(value, duckdb::optional_idx(estimated_size), deleter);
+extern "C" void duckdb_vx_object_cache_put(duckdb_vx_object_cache cache, const char *key, void *value,
+                                           uint64_t estimated_size, duckdb_vx_deleter_fn deleter) {
+    auto object_cache = reinterpret_cast<duckdb::ObjectCache *>(cache);
+    auto wrapper =
+        duckdb::make_shared_ptr<vortex::OpaqueWrapper>(value, duckdb::optional_idx(estimated_size), deleter);
     object_cache->Put(std::string(key), wrapper);
 }
 
-extern "C" void* duckdb_vx_object_cache_get(duckdb_vx_object_cache cache, const char* key)
-{
-    auto object_cache = reinterpret_cast<duckdb::ObjectCache*>(cache);
+extern "C" void *duckdb_vx_object_cache_get(duckdb_vx_object_cache cache, const char *key) {
+    auto object_cache = reinterpret_cast<duckdb::ObjectCache *>(cache);
     auto entry = object_cache->Get<vortex::OpaqueWrapper>(std::string(key));
-    if (!entry)
-    {
+    if (!entry) {
         return nullptr;
     }
     return entry->ptr;

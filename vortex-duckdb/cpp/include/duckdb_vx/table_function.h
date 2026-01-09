@@ -40,7 +40,8 @@ void duckdb_vx_tfunc_bind_result_add_column(duckdb_vx_tfunc_bind_result ffi_resu
 typedef struct duckdb_vx_tfunc_virtual_cols_result_ *duckdb_vx_tfunc_virtual_cols_result;
 // Push a column into the get_virtual_columns result.
 void duckdb_vx_tfunc_virtual_columns_push(duckdb_vx_tfunc_virtual_cols_result ffi_result, idx_t column_idx,
-                                       const char *name_str, size_t name_len, duckdb_logical_type ffi_type);
+                                          const char *name_str, size_t name_len,
+                                          duckdb_logical_type ffi_type);
 
 // String map for to_string result
 typedef struct duckdb_vx_string_map_ *duckdb_vx_string_map;
@@ -91,8 +92,8 @@ typedef struct {
     const char *const *named_parameter_names;
     size_t named_parameter_count;
 
-    duckdb_vx_data (*bind)(duckdb_vx_client_context ctx, duckdb_vx_tfunc_bind_input input, duckdb_vx_tfunc_bind_result result,
-                           duckdb_vx_error *error_out);
+    duckdb_vx_data (*bind)(duckdb_vx_client_context ctx, duckdb_vx_tfunc_bind_input input,
+                           duckdb_vx_tfunc_bind_result result, duckdb_vx_error *error_out);
 
     duckdb_vx_data (*bind_data_clone)(const void *bind_data, duckdb_vx_error *error_out);
 
@@ -104,8 +105,8 @@ typedef struct {
     duckdb_vx_data (*init_local)(const duckdb_vx_tfunc_init_input *input, void *init_global_data,
                                  duckdb_vx_error *error_out);
 
-    void (*function)(duckdb_vx_client_context ctx, const void *bind_data, void *init_global_data, void *init_local_data,
-                     duckdb_data_chunk data_chunk_out, duckdb_vx_error *error_out);
+    void (*function)(duckdb_vx_client_context ctx, const void *bind_data, void *init_global_data,
+                     void *init_local_data, duckdb_data_chunk data_chunk_out, duckdb_vx_error *error_out);
 
     // void *in_out_function;
     // void *in_out_function_final;
@@ -117,8 +118,6 @@ typedef struct {
     bool (*pushdown_complex_filter)(void *bind_data, duckdb_vx_expr expr, duckdb_vx_error *error_out);
 
     void (*get_virtual_columns)(void *bind_data, duckdb_vx_tfunc_virtual_cols_result result_out);
-
-
 
     void *pushdown_expression;
     duckdb_vx_string_map (*to_string)(void *bind_data);
