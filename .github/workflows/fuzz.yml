@@ -264,3 +264,106 @@ jobs:
     secrets:
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+  ops_fuzz_operator:
+    name: "Array Operations Fuzz (Operators)"
+    timeout-minutes: 230  # almost 4 hours
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m8g.large
+      - image=ubuntu24-full-arm64
+      - disk=large
+      - extras=s3-cache
+      - tag=ops-fuzz-operator
+    outputs:
+      crashes_found: ${{ steps.check.outputs.crashes_found }}
+      first_crash_name: ${{ steps.check.outputs.first_crash_name }}
+      artifact_url: ${{ steps.upload_artifacts.outputs.artifact-url }}
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          toolchain: nightly
+      - name: Install llvm
+        uses: aminya/setup-cpp@v1
+        with:
+          compiler: llvm
+      - name: Install cargo fuzz
+        run: cargo install --locked cargo-fuzz
+      - name: Restore corpus
+        shell: bash
+        run: |
+          aws s3api head-object --bucket vortex-fuzz-corpus --key "array_ops_operator_corpus.tar.zst" --query ETag --output text > current_etag || echo "no-etag" > current_etag
+          aws s3 cp s3://vortex-fuzz-corpus/array_ops_operator_corpus.tar.zst . || true
+          if [ -f array_ops_operator_corpus.tar.zst ]; then
+            tar -xf array_ops_operator_corpus.tar.zst
+          fi
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+          AWS_REGION: "us-east-1"
+          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
+      - name: Run fuzzing target with operators
+        id: fuzz
+        run: |
+          VORTEX_OPERATORS=true RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=1 cargo +nightly fuzz run --release --debug-assertions array_ops -- -max_total_time=7200 -rss_limit_mb=0 2>&1 | tee fuzz_output.log
+        continue-on-error: true
+      - name: Check for crashes
+        id: check
+        run: |
+          if [ -d "fuzz/artifacts" ] && [ "$(ls -A fuzz/artifacts 2>/dev/null)" ]; then
+            echo "crashes_found=true" >> $GITHUB_OUTPUT
+
+            # Get the first crash file only
+            FIRST_CRASH=$(find fuzz/artifacts -type f \( -name "crash-*" -o -name "leak-*" -o -name "timeout-*" -o -name "oom-*" \) | head -1)
+
+            if [ -n "$FIRST_CRASH" ]; then
+              echo "first_crash=$FIRST_CRASH" >> $GITHUB_OUTPUT
+              echo "first_crash_name=$(basename $FIRST_CRASH)" >> $GITHUB_OUTPUT
+
+              # Count all crashes for reporting
+              CRASH_COUNT=$(find fuzz/artifacts -type f \( -name "crash-*" -o -name "leak-*" -o -name "timeout-*" -o -name "oom-*" \) | wc -l)
+              echo "crash_count=$CRASH_COUNT" >> $GITHUB_OUTPUT
+              echo "Found $CRASH_COUNT crash(es), will process first: $(basename $FIRST_CRASH)"
+            fi
+          else
+            echo "crashes_found=false" >> $GITHUB_OUTPUT
+            echo "crash_count=0" >> $GITHUB_OUTPUT
+            echo "No crashes found"
+          fi
+      - name: Archive crash artifacts
+        id: upload_artifacts
+        if: steps.check.outputs.crashes_found == 'true'
+        uses: actions/upload-artifact@v5
+        with:
+          name: operations-operator-fuzzing-crash-artifacts
+          path: fuzz/artifacts
+          retention-days: 30
+      - name: Archive fuzzer output log
+        if: steps.check.outputs.crashes_found == 'true'
+        uses: actions/upload-artifact@v5
+        with:
+          name: ops-operator-fuzzing-logs
+          path: fuzz_output.log
+          retention-days: 30
+      - name: Persist corpus
+        shell: bash
+        run: |
+          tar -acf array_ops_operator_corpus.tar.zst fuzz/corpus/array_ops
+          if [ "$(cat current_etag)" = "no-etag" ]; then
+            aws s3api put-object --bucket vortex-fuzz-corpus --key "array_ops_operator_corpus.tar.zst" --body array_ops_operator_corpus.tar.zst --checksum-algorithm CRC32
+          else
+            aws s3api put-object --bucket vortex-fuzz-corpus --key "array_ops_operator_corpus.tar.zst" --body array_ops_operator_corpus.tar.zst --checksum-algorithm CRC32 --if-match "$(cat current_etag)"
+          fi
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+          AWS_REGION: "us-east-1"
+          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
+      - name: Fail job if fuzz run found a bug
+        if: steps.check.outputs.crashes_found == 'true'
+        run: exit 1

@@ -40,20 +40,43 @@ pub(crate) use take::*;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::VectorExecutor;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::compute::MinMaxResult;
 use vortex_array::compute::Operator;
+use vortex_array::compute::cast;
+use vortex_array::compute::compare;
+use vortex_array::compute::fill_null;
+use vortex_array::compute::filter;
+use vortex_array::compute::mask;
+use vortex_array::compute::min_max;
+use vortex_array::compute::sum;
+use vortex_array::compute::take;
+use vortex_array::expr::Binary;
+use vortex_array::expr::Operator as ExprOperator;
+use vortex_array::expr::VTableExt;
+use vortex_array::expr::cast as cast_expr;
+use vortex_array::expr::lit;
+use vortex_array::expr::root;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSortedSide;
+use vortex_array::session::ArraySession;
+use vortex_array::vectors::VectorIntoArray;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
+use vortex_layout::layouts::USE_VORTEX_OPERATORS;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 use vortex_scalar::arbitrary::random_scalar;
+use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
 
 #[derive(Debug)]
@@ -522,23 +545,23 @@ pub fn compress_array(array: &dyn Array, _strategy: CompressorStrategy) -> Array
 /// - `Err(_)` - a bug was found
 #[allow(clippy::result_large_err)]
 pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzzResult<bool> {
-    use vortex_array::arrays::ConstantArray;
-    use vortex_array::compute::cast;
-    use vortex_array::compute::compare;
-    use vortex_array::compute::fill_null;
-    use vortex_array::compute::filter;
-    use vortex_array::compute::mask;
-    use vortex_array::compute::min_max;
-    use vortex_array::compute::sum;
-    use vortex_array::compute::take;
-
     let FuzzArrayAction { array, actions } = fuzz_action;
     let mut current_array = array.to_array();
+
+    // Create a session for execute methods when USE_VORTEX_OPERATORS is enabled
+    let session = VortexSession::empty().with::<ArraySession>();
+    let mut ctx = session.create_execution_ctx();
 
     for (i, (action, expected)) in actions.into_iter().enumerate() {
         match action {
             Action::Compress(strategy) => {
-                let canonical = current_array.to_canonical();
+                let canonical = if *USE_VORTEX_OPERATORS {
+                    current_array
+                        .execute(&mut ctx)
+                        .vortex_expect("execute_datum should succeed in fuzz test")
+                } else {
+                    current_array.to_canonical()
+                };
                 current_array = compress_array(canonical.as_ref(), strategy);
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }
@@ -550,8 +573,17 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
                 if indices.is_empty() {
                     return Ok(false); // Reject
                 }
-                current_array = take(&current_array, &indices)
-                    .vortex_expect("take operation should succeed in fuzz test");
+                current_array = if *USE_VORTEX_OPERATORS {
+                    DictArray::try_new(indices, current_array)
+                        .vortex_expect("failed to created dict")
+                        .into_array()
+                        .execute(&mut ctx)
+                        .vortex_expect("execute dict")
+                        .into_array()
+                } else {
+                    take(&current_array, &indices)
+                        .vortex_expect("take operation should succeed in fuzz test")
+                };
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }
             Action::SearchSorted(s, side) => {
@@ -564,17 +596,39 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
                 assert_search_sorted(sorted, s, side, expected.search(), i)?;
             }
             Action::Filter(mask_val) => {
-                current_array = filter(&current_array, &mask_val)
-                    .vortex_expect("filter operation should succeed in fuzz test");
+                current_array = if *USE_VORTEX_OPERATORS {
+                    // Use Array::filter to create a FilterArray, then execute
+                    current_array
+                        .filter(mask_val)
+                        .vortex_expect("filter operation should succeed in fuzz test")
+                        .execute(&mut ctx)
+                        .vortex_expect("execute should succeed in fuzz test")
+                        .into_array()
+                } else {
+                    filter(&current_array, &mask_val)
+                        .vortex_expect("filter operation should succeed in fuzz test")
+                };
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }
             Action::Compare(v, op) => {
-                let compare_result = compare(
-                    &current_array,
-                    &ConstantArray::new(v.clone(), current_array.len()).into_array(),
-                    op,
-                )
-                .vortex_expect("compare operation should succeed in fuzz test");
+                let compare_result = if *USE_VORTEX_OPERATORS {
+                    // Use Binary expression and apply, then execute
+                    let expr_op: ExprOperator = op.into();
+                    let expr = Binary.new_expr(expr_op, [root(), lit(v.clone())]);
+                    current_array
+                        .apply(&expr)
+                        .vortex_expect("apply should succeed in fuzz test")
+                        .execute(&mut ctx)
+                        .vortex_expect("execute should succeed in fuzz test")
+                        .into_array()
+                } else {
+                    compare(
+                        &current_array,
+                        &ConstantArray::new(v.clone(), current_array.len()).into_array(),
+                        op,
+                    )
+                    .vortex_expect("compare operation should succeed in fuzz test")
+                };
                 if let Err(e) = assert_array_eq(&expected.array(), &compare_result, i) {
                     vortex_panic!(
                         "Failed to compare {}with {op} {v}\nError: {e}",
@@ -584,8 +638,19 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
                 current_array = compare_result;
             }
             Action::Cast(to) => {
-                let cast_result = cast(&current_array, &to)
-                    .vortex_expect("cast operation should succeed in fuzz test");
+                let cast_result = if *USE_VORTEX_OPERATORS {
+                    // Use cast expression and apply, then execute
+                    let expr = cast_expr(root(), to.clone());
+                    current_array
+                        .apply(&expr)
+                        .vortex_expect("apply should succeed in fuzz test")
+                        .execute(&mut ctx)
+                        .vortex_expect("execute should succeed in fuzz test")
+                        .into_array()
+                } else {
+                    cast(&current_array, &to)
+                        .vortex_expect("cast operation should succeed in fuzz test")
+                };
                 if let Err(e) = assert_array_eq(&expected.array(), &cast_result, i) {
                     vortex_panic!(
                         "Failed to cast {} to dtype {to}\nError: {e}",
@@ -610,8 +675,18 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }
             Action::Mask(mask_val) => {
-                current_array = mask(&current_array, &mask_val)
-                    .vortex_expect("mask operation should succeed in fuzz test");
+                current_array = if *USE_VORTEX_OPERATORS {
+                    current_array
+                        .mask(&mask_val.into_array())
+                        .vortex_expect("filter operation should succeed in fuzz test")
+                        .execute(&mut ctx)
+                        .vortex_expect("execute should succeed in fuzz test")
+                        .into_array()
+                } else {
+                    mask(&current_array, &mask_val)
+                        .vortex_expect("filter operation should succeed in fuzz test")
+                };
+
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }
             Action::ScalarAt(indices) => {
