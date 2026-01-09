@@ -38,6 +38,7 @@ pub use expr::*;
 pub use logical_type::*;
 pub use object_cache::*;
 pub use query_result::*;
+pub use reusable_dict::*;
 pub use scalar_function::*;
 pub use selection_vector::*;
 pub use string::*;
