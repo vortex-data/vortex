@@ -118,44 +118,49 @@ fn compare_eq_neq(
     negate: bool,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<Vector>> {
-    // Check if there exists an integer solution to const = base + idx * multiplier
-    let set_idx =
-        find_intersection_scalar(array.base(), array.multiplier(), array.length, constant);
-
     // For Eq: match_val=true, default_val=false
     // For NotEq: match_val=false, default_val=true
     let match_val = !negate;
     let not_match_val = negate;
 
-    if let Some(idx) = set_idx {
-        // Single match_val at idx, rest is default_val
-        let idx = idx as u64;
-        let len = array.length as u64;
-        let (ends, values) = if idx == 0 {
-            let ends = buffer![1u64, len].into_array();
-            let values = BoolArray::from_iter([match_val, not_match_val]).into_array();
-            (ends, values)
-        } else if idx == len - 1 {
-            let ends = buffer![idx, len].into_array();
-            let values = BoolArray::from_iter([not_match_val, match_val]).into_array();
-            (ends, values)
-        } else {
-            let ends = buffer![idx, idx + 1, len].into_array();
-            let values =
-                BoolArray::from_iter([not_match_val, match_val, not_match_val]).into_array();
-            (ends, values)
-        };
-        let result_array = RunEndArray::try_new(ends, values)?.into_array();
-        Ok(Some(result_array.execute(ctx)?))
-    } else {
-        // No match - all default_val
+    // Check if there exists an integer solution to const = base + idx * multiplier
+    let Some(set_idx) =
+        find_intersection_scalar(array.base(), array.multiplier(), array.length, constant)
+    else {
         let result_array = ConstantArray::new(
             Scalar::new(DType::Bool(nullability), not_match_val.into()),
             array.length,
         )
         .to_array();
-        Ok(Some(result_array.execute(ctx)?))
+        return Ok(Some(result_array.execute(ctx)?));
+    };
+    let idx = set_idx as u64;
+    let len = array.length as u64;
+
+    if len == 1 && set_idx == 0 {
+        let result_array = ConstantArray::new(
+            Scalar::new(DType::Bool(nullability), match_val.into()),
+            array.length,
+        )
+        .to_array();
+        return Ok(Some(result_array.execute(ctx)?));
     }
+
+    let (ends, values) = if idx == 0 {
+        let ends = buffer![1u64, len].into_array();
+        let values = BoolArray::from_iter([match_val, not_match_val]).into_array();
+        (ends, values)
+    } else if idx == len - 1 {
+        let ends = buffer![idx, len].into_array();
+        let values = BoolArray::from_iter([not_match_val, match_val]).into_array();
+        (ends, values)
+    } else {
+        let ends = buffer![idx, idx + 1, len].into_array();
+        let values = BoolArray::from_iter([not_match_val, match_val, not_match_val]).into_array();
+        (ends, values)
+    };
+    let result_array = RunEndArray::try_new(ends, values)?.into_array();
+    Ok(Some(result_array.execute(ctx)?))
 }
 
 fn compare_ordering(
@@ -313,6 +318,32 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::SequenceArray;
+
+    #[test]
+    fn test_sequence_eq_neq_constant() -> VortexResult<()> {
+        let len = 1;
+        let session = VortexSession::empty();
+        let seq = SequenceArray::typed_new(5i64, 1, NonNullable, len)?.to_array();
+        let constant = ConstantArray::new(5i64, len).to_array();
+
+        let compare_array =
+            Binary.try_new_array(len, ExprOperator::NotEq, [seq.clone(), constant.clone()])?;
+
+        let result = compare_array.execute_vector(&session)?;
+        let bool_result = result.into_bool();
+
+        let expected = BitBuffer::from(vec![false]);
+        assert_eq!(bool_result.bits(), &expected);
+
+        let compare_array = Binary.try_new_array(len, ExprOperator::Eq, [seq, constant])?;
+
+        let result = compare_array.execute_vector(&session)?;
+        let bool_result = result.into_bool();
+
+        let expected = BitBuffer::from(vec![true]);
+        assert_eq!(bool_result.bits(), &expected);
+        Ok(())
+    }
 
     #[test]
     fn test_sequence_gte_constant() -> VortexResult<()> {
