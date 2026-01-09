@@ -10,6 +10,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_scalar::Scalar;
 use vortex_vector::BoolDatum;
 use vortex_vector::Datum;
 use vortex_vector::ScalarOps;
@@ -18,14 +19,14 @@ use vortex_vector::VectorOps;
 
 use crate::Array;
 use crate::ArrayRef;
-use crate::expr::Arity;
-use crate::expr::ChildName;
-use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
+use crate::expr::{Arity, Literal};
+use crate::expr::{ChildName, SimplifyCtx};
+use crate::expr::{EmptyOptions, lit};
 
 /// An expression that masks an input based on a boolean mask.
 ///
@@ -121,9 +122,64 @@ impl VTable for Mask {
             }
         }
     }
+
+    fn simplify(
+        &self,
+        _options: &Self::Options,
+        expr: &Expression,
+        ctx: &dyn SimplifyCtx,
+    ) -> VortexResult<Option<Expression>> {
+        let Some(mask_lit) = expr.child(1).as_opt::<Literal>() else {
+            return Ok(None);
+        };
+
+        let mask_lit = mask_lit
+            .as_bool()
+            .value()
+            .vortex_expect("Mask must be non-nullable");
+
+        if mask_lit {
+            // Mask is all true, so the output is just the input.
+            Ok(Some(expr.child(0).clone()))
+        } else {
+            // Mask is all false, so the output is all nulls.
+            let input_dtype = ctx.return_dtype(expr.child(0))?;
+            Ok(Some(lit(Scalar::null(input_dtype.as_nullable()))))
+        }
+    }
 }
 
 /// Creates a mask expression that applies the given boolean mask to the input array.
 pub fn mask(array: Expression, mask: Expression) -> Expression {
     Mask.new_expr(EmptyOptions, [array, mask])
+}
+
+#[cfg(test)]
+mod test {
+    use crate::expr::exprs::literal::lit;
+    use crate::expr::exprs::mask::mask;
+    use vortex_dtype::Nullability::Nullable;
+    use vortex_dtype::{DType, PType};
+    use vortex_error::VortexExpect;
+    use vortex_scalar::Scalar;
+
+    #[test]
+    fn test_simplify() {
+        let input_expr = lit(42u32);
+        let true_mask_expr = lit(true);
+        let false_mask_expr = lit(false);
+
+        let mask_true_expr = mask(input_expr.clone(), true_mask_expr);
+        let simplified_true = mask_true_expr
+            .optimize(&DType::Null)
+            .vortex_expect("Simplification");
+        assert_eq!(&simplified_true, &input_expr);
+
+        let mask_false_expr = mask(input_expr.clone(), false_mask_expr);
+        let simplified_false = mask_false_expr
+            .optimize(&DType::Null)
+            .vortex_expect("Simplification");
+        let expected_null_expr = lit(Scalar::null(DType::Primitive(PType::U32, Nullable)));
+        assert_eq!(&simplified_false, &expected_null_expr);
+    }
 }
