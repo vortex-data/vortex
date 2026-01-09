@@ -19,14 +19,17 @@ use vortex_vector::VectorOps;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::expr::Arity;
+use crate::expr::ChildName;
+use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
+use crate::expr::Literal;
+use crate::expr::SimplifyCtx;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::expr::{Arity, Literal};
-use crate::expr::{ChildName, SimplifyCtx};
-use crate::expr::{EmptyOptions, lit};
+use crate::expr::lit;
 
 /// An expression that masks an input based on a boolean mask.
 ///
@@ -164,12 +167,14 @@ pub fn mask(array: Expression, mask: Expression) -> Expression {
 
 #[cfg(test)]
 mod test {
-    use crate::expr::exprs::literal::lit;
-    use crate::expr::exprs::mask::mask;
+    use vortex_dtype::DType;
     use vortex_dtype::Nullability::Nullable;
-    use vortex_dtype::{DType, PType};
+    use vortex_dtype::PType;
     use vortex_error::VortexExpect;
     use vortex_scalar::Scalar;
+
+    use crate::expr::exprs::literal::lit;
+    use crate::expr::exprs::mask::mask;
 
     #[test]
     fn test_simplify() {
