@@ -32,8 +32,8 @@ use vortex_session::VortexSession;
 
 use crate::Array;
 use crate::ArrayRef;
-use crate::ExecutionCtx;
 use crate::VectorExecutor;
+use crate::VortexSessionExecute;
 use crate::arrow::null_buffer::to_null_buffer;
 
 pub(super) fn to_arrow_temporal(
@@ -128,10 +128,10 @@ fn to_arrow_temporal_primitive<T: ArrowTemporalType>(
 where
     T::Native: NativePType,
 {
-    let mut ctx = ExecutionCtx::new(session.clone());
+    let mut ctx = session.create_execution_ctx();
     let vector = array
         .execute(&mut ctx)?
-        .to_vector_session(session)?
+        .to_vector(&mut ctx)?
         .into_primitive();
     vortex_ensure!(
         vector.ptype() == T::Native::PTYPE,

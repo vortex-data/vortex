@@ -14,8 +14,8 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::ExecutionCtx;
 use crate::VectorExecutor;
+use crate::VortexSessionExecute;
 use crate::arrays::VarBinViewArray;
 use crate::arrow::null_buffer::to_null_buffer;
 use crate::builtins::ArrayBuiltins;
@@ -45,7 +45,7 @@ pub(super) fn to_arrow_byte_view<T: ByteViewType>(
     // flexible since there's no prescribed nullability in Arrow types.
     let array = array.cast(DType::from_arrow((&T::DATA_TYPE, Nullability::Nullable)))?;
 
-    let mut ctx = ExecutionCtx::new(session.clone());
+    let mut ctx = session.create_execution_ctx();
     let varbinview = array.execute(&mut ctx)?.into_varbinview();
     Ok(canonical_varbinview_to_arrow::<T>(&varbinview))
 }

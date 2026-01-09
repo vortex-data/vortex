@@ -10,7 +10,6 @@ use vortex_dtype::PrecisionScale;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
-use vortex_session::VortexSession;
 use vortex_vector::Vector;
 use vortex_vector::binaryview::BinaryVector;
 use vortex_vector::binaryview::StringVector;
@@ -132,13 +131,5 @@ impl Canonical {
                 a.storage().execute(ctx)?.to_vector(ctx)?
             }
         })
-    }
-
-    /// Convert a Canonical array to a Vector using a session.
-    ///
-    /// This is a convenience wrapper that creates an ExecutionCtx internally.
-    pub fn to_vector_session(self, session: &VortexSession) -> VortexResult<Vector> {
-        let mut ctx = ExecutionCtx::new(session.clone());
-        self.to_vector(&mut ctx)
     }
 }

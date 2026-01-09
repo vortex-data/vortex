@@ -7,6 +7,7 @@ use vortex_vector::Datum;
 use crate::Array;
 use crate::Canonical;
 use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::executor::CanonicalOutput;
@@ -20,6 +21,7 @@ impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
     fn canonicalize(array: &ScalarFnArray) -> Canonical {
         let child_dtypes: Vec<_> = array.children.iter().map(|c| c.dtype().clone()).collect();
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut child_datums = Vec::with_capacity(array.children.len());
         for child in array.children.iter() {
             let datum = match child.execute_output(&LEGACY_SESSION).vortex_expect(
@@ -27,7 +29,7 @@ impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
             ) {
                 CanonicalOutput::Constant(c) => Datum::Scalar(c.scalar().to_vector_scalar()),
                 CanonicalOutput::Array(a) => Datum::Vector(
-                    a.to_vector_session(&LEGACY_SESSION)
+                    a.to_vector(&mut ctx)
                         .vortex_expect("Failed to convert canonical to vector"),
                 ),
             };

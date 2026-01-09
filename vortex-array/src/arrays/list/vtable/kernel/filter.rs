@@ -71,9 +71,7 @@ impl ExecuteParentKernel<ListVTable> for ListFilterKernel {
                 vec.append_nulls(selection.true_count());
                 return Ok(Some(vec.freeze().into_array(array.dtype()).to_canonical()));
             }
-            Validity::Array(a) => a
-                .filter(parent.filter_mask().clone())?
-                .execute_mask(ctx.session())?,
+            Validity::Array(a) => a.filter(parent.filter_mask().clone())?.execute_mask(ctx)?,
         };
 
         let (new_offsets, new_sizes) = match_each_integer_ptype!(offsets.ptype(), |O| {

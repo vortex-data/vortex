@@ -17,6 +17,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VectorExecutor;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
 use vortex_array::compute::MinMaxResult;
 use vortex_array::compute::min_max;
@@ -207,7 +208,8 @@ impl LayoutReader for DictReader {
             let mask = mask.await?;
 
             let dict_mask = if *USE_VORTEX_OPERATORS {
-                values.take(codes)?.execute_mask(&session)?
+                let mut ctx = session.create_execution_ctx();
+                values.take(codes)?.execute_mask(&mut ctx)?
             } else {
                 // Short-circuit when the values are all true/false.
                 if values.all_valid()

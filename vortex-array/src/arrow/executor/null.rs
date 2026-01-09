@@ -9,8 +9,8 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::ExecutionCtx;
 use crate::VectorExecutor;
+use crate::VortexSessionExecute;
 use crate::arrays::NullArray;
 
 /// Convert a canonical NullArray directly to Arrow.
@@ -22,7 +22,7 @@ pub(super) fn to_arrow_null(
     array: ArrayRef,
     session: &VortexSession,
 ) -> VortexResult<ArrowArrayRef> {
-    let mut ctx = ExecutionCtx::new(session.clone());
+    let mut ctx = session.create_execution_ctx();
     let canonical = array.execute(&mut ctx)?.into_null();
     Ok(canonical_null_to_arrow(&canonical))
 }

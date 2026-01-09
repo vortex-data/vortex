@@ -27,6 +27,7 @@ use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::Precision;
 use crate::VectorExecutor;
+use crate::VortexSessionExecute;
 use crate::arrays::filter::array::FilterArray;
 use crate::arrays::filter::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
@@ -151,7 +152,7 @@ impl BaseArrayVTable<FilterVTable> for FilterVTable {
 
 impl CanonicalVTable<FilterVTable> for FilterVTable {
     fn canonicalize(array: &FilterArray) -> Canonical {
-        FilterVTable::execute(array, &mut ExecutionCtx::new(LEGACY_SESSION.clone()))
+        FilterVTable::execute(array, &mut LEGACY_SESSION.create_execution_ctx())
             .vortex_expect("Canonicalize should be fallible")
     }
 }
