@@ -85,16 +85,12 @@ impl ScalarFn {
 
     /// Returns the typed options for this `ScalarFn` if it matches the given vtable type.
     pub fn as_opt<V: VTable>(&self) -> Option<&V::Options> {
-        if self.vtable.is::<V>() {
-            Some(
-                self.options()
-                    .as_any()
-                    .downcast_ref::<V::Options>()
-                    .vortex_expect("Expression options type mismatch"),
-            )
-        } else {
-            None
-        }
+        self.vtable.is::<V>().then(|| {
+            self.options()
+                .as_any()
+                .downcast_ref::<V::Options>()
+                .vortex_expect("Expression options type mismatch")
+        })
     }
 
     /// Returns the typed options for this `ScalarFn` if it matches the given vtable type.
