@@ -161,7 +161,7 @@ pub async fn exec_inspect(session: &VortexSession, args: InspectArgs) -> anyhow:
 }
 
 async fn exec_inspect_json(
-    inspector: &mut VortexInspector,
+    inspector: &mut VortexInspector<'_>,
     file_path: &Path,
     mode: InspectMode,
 ) -> anyhow::Result<()> {
@@ -271,7 +271,7 @@ async fn exec_inspect_json(
 }
 
 async fn exec_inspect_text(
-    inspector: &mut VortexInspector,
+    inspector: &mut VortexInspector<'_>,
     file_path: &Path,
     mode: InspectMode,
 ) -> anyhow::Result<()> {

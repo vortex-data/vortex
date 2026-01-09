@@ -14,14 +14,13 @@ use crossterm::event::KeyCode;
 use crossterm::event::KeyEventKind;
 use crossterm::event::KeyModifiers;
 use ratatui::DefaultTerminal;
+use ui::QueryFocus;
+use ui::SortDirection;
 use ui::render_app;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::session::VortexSession;
-
-use ui::QueryFocus;
-use ui::SortDirection;
 
 pub mod app;
 pub mod ui;
@@ -108,7 +107,8 @@ fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
                     app.query_state.sort_column = None;
                     app.query_state.sort_direction = SortDirection::None;
                     let file_path = app.file_path.clone();
-                    app.query_state.execute_initial_query(app.session, &file_path);
+                    app.query_state
+                        .execute_initial_query(app.session, &file_path);
                     // Switch focus to results table after executing
                     app.query_state.focus = QueryFocus::ResultsTable;
                 }
@@ -154,14 +154,16 @@ fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
             // Query tab: Ctrl+h for previous page
             (KeyCode::Char('h'), KeyModifiers::CONTROL) => {
                 if app.current_tab == Tab::Query {
-                    app.query_state.prev_page(app.session, &app.file_path.clone());
+                    app.query_state
+                        .prev_page(app.session, &app.file_path.clone());
                 }
             }
 
             // Query tab: Ctrl+l for next page
             (KeyCode::Char('l'), KeyModifiers::CONTROL) => {
                 if app.current_tab == Tab::Query {
-                    app.query_state.next_page(app.session, &app.file_path.clone());
+                    app.query_state
+                        .next_page(app.session, &app.file_path.clone());
                 }
             }
 
@@ -187,7 +189,8 @@ fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
                     Tab::Layout => navigate_layout_up(app, SCROLL_PAGE),
                     Tab::Segments => app.segment_grid_state.scroll_up(SEGMENT_SCROLL_PAGE),
                     Tab::Query => {
-                        app.query_state.prev_page(app.session, &app.file_path.clone());
+                        app.query_state
+                            .prev_page(app.session, &app.file_path.clone());
                     }
                 }
             }
@@ -196,7 +199,8 @@ fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
                     Tab::Layout => navigate_layout_down(app, SCROLL_PAGE),
                     Tab::Segments => app.segment_grid_state.scroll_down(SEGMENT_SCROLL_PAGE),
                     Tab::Query => {
-                        app.query_state.next_page(app.session, &app.file_path.clone());
+                        app.query_state
+                            .next_page(app.session, &app.file_path.clone());
                     }
                 }
             }

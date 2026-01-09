@@ -71,6 +71,11 @@ pub async fn create_vortex_context(
 }
 
 /// Convert an Arrow array value at a given index to a JSON value.
+///
+/// # Panics
+///
+/// Panics if the array type doesn't match the expected Arrow array type during downcast.
+/// This should not happen for well-formed Arrow arrays.
 #[allow(clippy::unwrap_used)]
 pub fn arrow_value_to_json(array: &dyn ArrowArray, idx: usize) -> serde_json::Value {
     use arrow_array::*;
@@ -165,7 +170,7 @@ pub fn arrow_value_to_json(array: &dyn ArrowArray, idx: usize) -> serde_json::Va
             let arr = array.as_any().downcast_ref::<Date64Array>().unwrap();
             serde_json::json!(arr.value(idx))
         }
-        DataType::Timestamp(_, _) => {
+        DataType::Timestamp(..) => {
             if let Some(arr) = array.as_any().downcast_ref::<TimestampMicrosecondArray>() {
                 serde_json::json!(arr.value(idx))
             } else if let Some(arr) = array.as_any().downcast_ref::<TimestampMillisecondArray>() {
@@ -178,11 +183,11 @@ pub fn arrow_value_to_json(array: &dyn ArrowArray, idx: usize) -> serde_json::Va
                 serde_json::Value::String("<timestamp>".to_string())
             }
         }
-        DataType::Decimal128(_, _) => {
+        DataType::Decimal128(..) => {
             let arr = array.as_any().downcast_ref::<Decimal128Array>().unwrap();
             serde_json::Value::String(arr.value_as_string(idx))
         }
-        DataType::Decimal256(_, _) => {
+        DataType::Decimal256(..) => {
             let arr = array.as_any().downcast_ref::<Decimal256Array>().unwrap();
             serde_json::Value::String(arr.value_as_string(idx))
         }

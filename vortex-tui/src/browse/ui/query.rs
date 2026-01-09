@@ -8,7 +8,6 @@ use ratatui::layout::Layout;
 use ratatui::layout::Rect;
 use ratatui::style::Color;
 use ratatui::style::Style;
-use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::text::Span;
 use ratatui::widgets::Block;
@@ -35,13 +34,17 @@ use crate::datafusion_helper::json_value_to_display;
 /// Sort direction for table columns.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum SortDirection {
+    /// No sorting applied.
     #[default]
     None,
+    /// Sort in ascending order.
     Ascending,
+    /// Sort in descending order.
     Descending,
 }
 
 impl SortDirection {
+    /// Cycle to the next sort direction: None -> Ascending -> Descending -> None.
     pub fn cycle(self) -> Self {
         match self {
             SortDirection::None => SortDirection::Ascending,
@@ -50,6 +53,7 @@ impl SortDirection {
         }
     }
 
+    /// Get the sort direction indicator character for display.
     pub fn indicator(self) -> &'static str {
         match self {
             SortDirection::None => "",
@@ -62,8 +66,10 @@ impl SortDirection {
 /// Focus state within the Query tab.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum QueryFocus {
+    /// Focus is on the SQL input field.
     #[default]
     SqlInput,
+    /// Focus is on the results table.
     ResultsTable,
 }
 
@@ -231,11 +237,7 @@ impl QueryState {
     }
 
     /// Build SQL query from current state and execute it.
-    fn rebuild_and_execute(
-        &mut self,
-        session: &vortex::session::VortexSession,
-        file_path: &str,
-    ) {
+    fn rebuild_and_execute(&mut self, session: &vortex::session::VortexSession, file_path: &str) {
         let offset = self.current_page * self.page_size;
 
         let new_sql = match &self.order_clause {
