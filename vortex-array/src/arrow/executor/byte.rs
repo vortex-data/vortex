@@ -60,10 +60,8 @@ where
         .offsets()
         .cast(DType::Primitive(T::Offset::PTYPE, Nullability::NonNullable))?
         .execute(&mut ctx)?
-        .to_vector_session(session)?
         .into_primitive()
-        .downcast::<T::Offset>()
-        .into_nonnull_buffer()
+        .buffer::<T::Offset>()
         .into_arrow_offset_buffer();
 
     let data = array.bytes().clone().into_arrow_buffer();
