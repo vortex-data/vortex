@@ -533,7 +533,7 @@ fn render_results_table(app: &mut AppState<'_>, area: Rect, buf: &mut Buffer) {
         let total_rows = app.query_state.total_row_count.unwrap_or(0);
         let total_pages = app.query_state.total_pages();
         format!(
-            "Results ({} rows, page {}/{}) [hjkl navigate, ^h/^l pages, s sort]",
+            "Results ({} rows, page {}/{}) [hjkl navigate, [/] pages, s sort]",
             total_rows,
             app.query_state.current_page + 1,
             total_pages,

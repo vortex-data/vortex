@@ -151,16 +151,16 @@ fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
                 };
             }
 
-            // Query tab: Ctrl+h for previous page
-            (KeyCode::Char('h'), KeyModifiers::CONTROL) => {
+            // Query tab: '[' for previous page
+            (KeyCode::Char('['), KeyModifiers::NONE) => {
                 if app.current_tab == Tab::Query {
                     app.query_state
                         .prev_page(app.session, &app.file_path.clone());
                 }
             }
 
-            // Query tab: Ctrl+l for next page
-            (KeyCode::Char('l'), KeyModifiers::CONTROL) => {
+            // Query tab: ']' for next page
+            (KeyCode::Char(']'), KeyModifiers::NONE) => {
                 if app.current_tab == Tab::Query {
                     app.query_state
                         .next_page(app.session, &app.file_path.clone());
