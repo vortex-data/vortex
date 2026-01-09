@@ -330,7 +330,6 @@ mod tests {
     use vortex_dtype::PType;
     use vortex_error::VortexResult;
     use vortex_scalar::Scalar;
-    use vortex_session::VortexSession;
 
     use crate::SequenceArray;
 
