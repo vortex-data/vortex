@@ -135,7 +135,7 @@ where
     );
 
     let validity = primitive.validity_mask();
-    let buffer = primitive.buffer::<T::Native>();
+    let buffer = primitive.buffer::<T::Native>(ctx);
 
     let values = buffer.into_arrow_scalar_buffer();
     let nulls = to_null_buffer(validity);

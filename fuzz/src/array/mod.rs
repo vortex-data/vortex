@@ -39,6 +39,7 @@ pub(crate) use sum::*;
 pub(crate) use take::*;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
@@ -185,7 +186,8 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                 ActionType::Slice => {
                     let start = u.choose_index(current_array.len())?;
                     let stop = u.int_in_range(start..=current_array.len())?;
-                    current_array = slice_canonical_array(&current_array, start, stop)
+                    let ctx = ExecutionCtx::default();
+                    current_array = slice_canonical_array(&current_array, start, stop, &ctx)
                         .vortex_expect("slice_canonical_array should succeed in fuzz test");
 
                     (
@@ -337,8 +339,9 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     }
 
                     // Compute expected result on canonical form
+                    let ctx = ExecutionCtx::default();
                     let expected_result =
-                        fill_null_canonical_array(current_array.to_canonical(), &fill_value)
+                        fill_null_canonical_array(current_array.to_canonical(), &fill_value, &ctx)
                             .vortex_expect("fill_null_canonical_array should succeed in fuzz test");
                     // Update current_array to the result for chaining
                     current_array = expected_result.clone();

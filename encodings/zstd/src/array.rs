@@ -14,6 +14,7 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -353,6 +354,7 @@ impl ZstdArray {
         parray: &PrimitiveArray,
         level: i32,
         values_per_frame: usize,
+        ctx: &ExecutionCtx,
     ) -> VortexResult<Self> {
         let dtype = parray.dtype().clone();
         let byte_width = parray.ptype().byte_width();
@@ -366,7 +368,7 @@ impl ZstdArray {
             n_values
         };
 
-        let value_bytes = values.byte_buffer();
+        let value_bytes = values.byte_buffer(ctx);
         // Align frames to buffer alignment. This is necessary for overaligned buffers.
         let alignment = *value_bytes.alignment();
         let step_width = (values_per_frame * byte_width).div_ceil(alignment) * alignment;

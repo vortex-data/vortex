@@ -108,61 +108,64 @@ impl Kernel for ToArrowCanonical {
         // preferred Arrow type if the array has child arrays (struct, list, and fixed-size list).
         let to_preferred = arrow_type_opt.is_none();
 
+        // Create execution context for primitive array conversions.
+        let ctx = LEGACY_SESSION.create_execution_ctx();
+
         let arrow_array = match (array.to_canonical(), &arrow_type) {
             (Canonical::Null(array), DataType::Null) => Ok(canonical_null_to_arrow(&array)),
             (Canonical::Bool(array), DataType::Boolean) => Ok(canonical_bool_to_arrow(&array)),
             (Canonical::Primitive(array), DataType::Int8) if matches!(array.ptype(), PType::I8) => {
-                Ok(canonical_primitive_to_arrow::<Int8Type>(array))
+                Ok(canonical_primitive_to_arrow::<Int8Type>(array, &ctx))
             }
             (Canonical::Primitive(array), DataType::Int16)
                 if matches!(array.ptype(), PType::I16) =>
             {
-                Ok(canonical_primitive_to_arrow::<Int16Type>(array))
+                Ok(canonical_primitive_to_arrow::<Int16Type>(array, &ctx))
             }
             (Canonical::Primitive(array), DataType::Int32)
                 if matches!(array.ptype(), PType::I32) =>
             {
-                Ok(canonical_primitive_to_arrow::<Int32Type>(array))
+                Ok(canonical_primitive_to_arrow::<Int32Type>(array, &ctx))
             }
             (Canonical::Primitive(array), DataType::Int64)
                 if matches!(array.ptype(), PType::I64) =>
             {
-                Ok(canonical_primitive_to_arrow::<Int64Type>(array))
+                Ok(canonical_primitive_to_arrow::<Int64Type>(array, &ctx))
             }
             (Canonical::Primitive(array), DataType::UInt8)
                 if matches!(array.ptype(), PType::U8) =>
             {
-                Ok(canonical_primitive_to_arrow::<UInt8Type>(array))
+                Ok(canonical_primitive_to_arrow::<UInt8Type>(array, &ctx))
             }
             (Canonical::Primitive(array), DataType::UInt16)
                 if matches!(array.ptype(), PType::U16) =>
             {
-                Ok(canonical_primitive_to_arrow::<UInt16Type>(array))
+                Ok(canonical_primitive_to_arrow::<UInt16Type>(array, &ctx))
             }
             (Canonical::Primitive(array), DataType::UInt32)
                 if matches!(array.ptype(), PType::U32) =>
             {
-                Ok(canonical_primitive_to_arrow::<UInt32Type>(array))
+                Ok(canonical_primitive_to_arrow::<UInt32Type>(array, &ctx))
             }
             (Canonical::Primitive(array), DataType::UInt64)
                 if matches!(array.ptype(), PType::U64) =>
             {
-                Ok(canonical_primitive_to_arrow::<UInt64Type>(array))
+                Ok(canonical_primitive_to_arrow::<UInt64Type>(array, &ctx))
             }
             (Canonical::Primitive(array), DataType::Float16)
                 if matches!(array.ptype(), PType::F16) =>
             {
-                Ok(canonical_primitive_to_arrow::<Float16Type>(array))
+                Ok(canonical_primitive_to_arrow::<Float16Type>(array, &ctx))
             }
             (Canonical::Primitive(array), DataType::Float32)
                 if matches!(array.ptype(), PType::F32) =>
             {
-                Ok(canonical_primitive_to_arrow::<Float32Type>(array))
+                Ok(canonical_primitive_to_arrow::<Float32Type>(array, &ctx))
             }
             (Canonical::Primitive(array), DataType::Float64)
                 if matches!(array.ptype(), PType::F64) =>
             {
-                Ok(canonical_primitive_to_arrow::<Float64Type>(array))
+                Ok(canonical_primitive_to_arrow::<Float64Type>(array, &ctx))
             }
             (Canonical::Decimal(array), DataType::Decimal32(precision, scale)) => {
                 if array.decimal_dtype().precision() != *precision

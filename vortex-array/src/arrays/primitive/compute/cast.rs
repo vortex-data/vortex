@@ -13,6 +13,8 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::CastKernel;
@@ -22,6 +24,7 @@ use crate::vtable::ValidityHelper;
 
 impl CastKernel for PrimitiveVTable {
     fn cast(&self, array: &PrimitiveArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+        let ctx = LEGACY_SESSION.create_execution_ctx();
         let DType::Primitive(new_ptype, new_nullability) = dtype else {
             return Ok(None);
         };
@@ -37,7 +40,7 @@ impl CastKernel for PrimitiveVTable {
         if array.ptype() == new_ptype {
             return Ok(Some(
                 PrimitiveArray::from_byte_buffer(
-                    array.byte_buffer().clone(),
+                    array.buffer_handle(&ctx).bytes().clone(),
                     array.ptype(),
                     new_validity,
                 )
@@ -50,7 +53,7 @@ impl CastKernel for PrimitiveVTable {
         // Otherwise, we need to cast the values one-by-one
         Ok(Some(match_each_native_ptype!(new_ptype, |T| {
             match_each_native_ptype!(array.ptype(), |F| {
-                PrimitiveArray::new(cast::<F, T>(array.as_slice(), mask)?, new_validity)
+                PrimitiveArray::new(cast::<F, T>(array.as_slice(&ctx), mask)?, new_validity)
                     .into_array()
             })
         })))
@@ -105,6 +108,8 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::canonical::ToCanonical;
     use crate::compute::cast;
@@ -114,11 +119,12 @@ mod test {
 
     #[test]
     fn cast_u32_u8() {
+        let ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = buffer![0u32, 10, 200].into_array();
 
         // cast from u32 to u8
         let p = cast(&arr, PType::U8.into()).unwrap().to_primitive();
-        assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
+        assert_eq!(p.as_slice::<u8>(&ctx), vec![0u8, 10, 200]);
         assert_eq!(p.validity(), &Validity::NonNullable);
 
         // to nullable
@@ -128,7 +134,7 @@ mod test {
         )
         .unwrap()
         .to_primitive();
-        assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
+        assert_eq!(p.as_slice::<u8>(&ctx), vec![0u8, 10, 200]);
         assert_eq!(p.validity(), &Validity::AllValid);
 
         // back to non-nullable
@@ -138,7 +144,7 @@ mod test {
         )
         .unwrap()
         .to_primitive();
-        assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
+        assert_eq!(p.as_slice::<u8>(&ctx), vec![0u8, 10, 200]);
         assert_eq!(p.validity(), &Validity::NonNullable);
 
         // to nullable u32
@@ -148,7 +154,7 @@ mod test {
         )
         .unwrap()
         .to_primitive();
-        assert_eq!(p.as_slice::<u32>(), vec![0u32, 10, 200]);
+        assert_eq!(p.as_slice::<u32>(&ctx), vec![0u32, 10, 200]);
         assert_eq!(p.validity(), &Validity::AllValid);
 
         // to non-nullable u8
@@ -158,15 +164,16 @@ mod test {
         )
         .unwrap()
         .to_primitive();
-        assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
+        assert_eq!(p.as_slice::<u8>(&ctx), vec![0u8, 10, 200]);
         assert_eq!(p.validity(), &Validity::NonNullable);
     }
 
     #[test]
     fn cast_u32_f32() {
+        let ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = buffer![0u32, 10, 200].into_array();
         let u8arr = cast(&arr, PType::F32.into()).unwrap().to_primitive();
-        assert_eq!(u8arr.as_slice::<f32>(), vec![0.0f32, 10., 200.]);
+        assert_eq!(u8arr.as_slice::<f32>(&ctx), vec![0.0f32, 10., 200.]);
     }
 
     #[test]
@@ -194,6 +201,7 @@ mod test {
 
     #[test]
     fn cast_with_invalid_nulls() {
+        let ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = PrimitiveArray::new(
             buffer![-1i32, 0, 10],
             Validity::from_iter([false, true, true]),
@@ -204,7 +212,7 @@ mod test {
         )
         .unwrap()
         .to_primitive();
-        assert_eq!(p.as_slice::<u32>(), vec![0, 0, 10]);
+        assert_eq!(p.as_slice::<u32>(&ctx), vec![0, 0, 10]);
         assert_eq!(
             p.validity_mask(),
             Mask::from(BitBuffer::from(vec![false, true, true]))

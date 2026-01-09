@@ -479,6 +479,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_array::ExecutionCtx;
     use vortex_array::ToCanonical;
     use vortex_array::VectorExecutor;
     use vortex_array::VortexSessionExecute;
@@ -759,7 +760,8 @@ mod tests {
             );
 
             if let Some(expected_val) = expected_value {
-                let buf = result_primitive.buffer::<f64>();
+                let ctx = ExecutionCtx::default();
+                let buf = result_primitive.buffer::<f64>(&ctx);
                 let result_val = buf.as_slice()[idx];
                 assert_eq!(result_val, expected_val, "Value mismatch at idx={idx}",);
             }

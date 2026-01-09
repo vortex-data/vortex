@@ -18,6 +18,7 @@ use vortex_vector::primitive::PrimitiveVector;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
+use crate::executor::ExecutionCtx;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -72,7 +73,8 @@ impl PrimitiveArray {
         Self::new(values.freeze(), Validity::from(validity.freeze()))
     }
 
-    pub fn buffer<T: NativePType>(&self) -> Buffer<T> {
+    /// Get a typed buffer view of the array data.
+    pub fn buffer<T: NativePType>(&self, ctx: &ExecutionCtx) -> Buffer<T> {
         if T::PTYPE != self.ptype() {
             vortex_panic!(
                 "Attempted to get buffer of type {} from array of type {}",
@@ -80,10 +82,11 @@ impl PrimitiveArray {
                 self.ptype()
             )
         }
-        Buffer::from_byte_buffer(self.byte_buffer().clone())
+        Buffer::from_byte_buffer(self.byte_buffer(ctx).clone())
     }
 
-    pub fn into_buffer<T: NativePType>(self) -> Buffer<T> {
+    /// Consume the array and return a typed buffer.
+    pub fn into_buffer<T: NativePType>(self, ctx: &ExecutionCtx) -> Buffer<T> {
         if T::PTYPE != self.ptype() {
             vortex_panic!(
                 "Attempted to get buffer of type {} from array of type {}",
@@ -91,12 +94,12 @@ impl PrimitiveArray {
                 self.ptype()
             )
         }
-        Buffer::from_byte_buffer(self.buffer)
+        Buffer::from_byte_buffer(self.into_byte_buffer(ctx))
     }
 
     /// Extract a mutable buffer from the PrimitiveArray. Attempts to do this with zero-copy
     /// if the buffer is uniquely owned, otherwise will make a copy.
-    pub fn into_buffer_mut<T: NativePType>(self) -> BufferMut<T> {
+    pub fn into_buffer_mut<T: NativePType>(self, ctx: &ExecutionCtx) -> BufferMut<T> {
         if T::PTYPE != self.ptype() {
             vortex_panic!(
                 "Attempted to get buffer_mut of type {} from array of type {}",
@@ -104,13 +107,16 @@ impl PrimitiveArray {
                 self.ptype()
             )
         }
-        self.into_buffer()
+        self.into_buffer(ctx)
             .try_into_mut()
             .unwrap_or_else(|buffer| BufferMut::<T>::copy_from(&buffer))
     }
 
     /// Try to extract a mutable buffer from the PrimitiveArray with zero copy.
-    pub fn try_into_buffer_mut<T: NativePType>(self) -> Result<BufferMut<T>, PrimitiveArray> {
+    pub fn try_into_buffer_mut<T: NativePType>(
+        self,
+        ctx: &ExecutionCtx,
+    ) -> Result<BufferMut<T>, PrimitiveArray> {
         if T::PTYPE != self.ptype() {
             vortex_panic!(
                 "Attempted to get buffer_mut of type {} from array of type {}",
@@ -119,7 +125,7 @@ impl PrimitiveArray {
             )
         }
         let validity = self.validity().clone();
-        Buffer::<T>::from_byte_buffer(self.into_byte_buffer())
+        Buffer::<T>::from_byte_buffer(self.into_byte_buffer(ctx))
             .try_into_mut()
             .map_err(|buffer| PrimitiveArray::new(buffer, validity))
     }

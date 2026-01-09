@@ -6,7 +6,9 @@ use std::hash::Hasher;
 
 use vortex_dtype::DType;
 
+use crate::LEGACY_SESSION;
 use crate::Precision;
+use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::PrimitiveVTable;
 use crate::hash::ArrayEq;
@@ -16,7 +18,8 @@ use crate::vtable::BaseArrayVTable;
 
 impl BaseArrayVTable<PrimitiveVTable> for PrimitiveVTable {
     fn len(array: &PrimitiveArray) -> usize {
-        array.byte_buffer().len() / array.ptype().byte_width()
+        let ctx = LEGACY_SESSION.create_execution_ctx();
+        array.buffer_handle(&ctx).bytes().len() / array.ptype().byte_width()
     }
 
     fn dtype(array: &PrimitiveArray) -> &DType {

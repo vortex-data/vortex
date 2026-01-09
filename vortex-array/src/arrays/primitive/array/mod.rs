@@ -18,6 +18,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::ToCanonical;
+use crate::executor::ExecutionCtx;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
@@ -30,6 +31,8 @@ mod top_value;
 
 pub use patch::chunk_range;
 pub use patch::patch_chunk;
+
+use crate::buffer::BufferHandle;
 
 /// A primitive array that stores [native types][vortex_dtype::NativePType] in a contiguous buffer
 /// of memory, along with an optional validity child.
@@ -65,7 +68,7 @@ pub use patch::patch_chunk;
 #[derive(Clone, Debug)]
 pub struct PrimitiveArray {
     pub(super) dtype: DType,
-    pub(super) buffer: ByteBuffer,
+    pub(super) buffer: BufferHandle,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
@@ -119,7 +122,7 @@ impl PrimitiveArray {
 
         Self {
             dtype: DType::Primitive(T::PTYPE, validity.nullability()),
-            buffer: buffer.into_byte_buffer(),
+            buffer: BufferHandle::Host(buffer.into_byte_buffer()),
             validity,
             stats_set: Default::default(),
         }
@@ -150,11 +153,23 @@ impl PrimitiveArray {
         self.dtype().as_ptype()
     }
 
-    pub fn byte_buffer(&self) -> &ByteBuffer {
+    /// Get the underlying byte buffer, transferring from device if necessary.
+    pub fn byte_buffer(&self, _ctx: &ExecutionCtx) -> &ByteBuffer {
+        self.buffer.bytes()
+    }
+
+    /// Consume the array and return the underlying byte buffer, transferring from device if necessary.
+    pub fn into_byte_buffer(self, _ctx: &ExecutionCtx) -> ByteBuffer {
+        self.buffer.into_bytes()
+    }
+
+    /// Get the raw buffer handle (host or device).
+    pub fn buffer_handle(&self, _ctx: &ExecutionCtx) -> &BufferHandle {
         &self.buffer
     }
 
-    pub fn into_byte_buffer(self) -> ByteBuffer {
+    /// Consume the array and return the buffer handle.
+    pub fn into_buffer_handle(self, _ctx: &ExecutionCtx) -> BufferHandle {
         self.buffer
     }
 
@@ -197,16 +212,18 @@ impl PrimitiveArray {
     ///
     /// TODO(ngates): we could be smarter here if validity is sparse and only run the function
     ///   over the valid elements.
-    pub fn map_each<T, R, F>(self, f: F) -> PrimitiveArray
+    pub fn map_each<T, R, F>(self, ctx: &ExecutionCtx, f: F) -> PrimitiveArray
     where
         T: NativePType,
         R: NativePType,
         F: FnMut(T) -> R,
     {
         let validity = self.validity().clone();
-        let buffer = match self.try_into_buffer_mut() {
+        let buffer = match self.try_into_buffer_mut(ctx) {
             Ok(buffer_mut) => buffer_mut.map_each_in_place(f),
-            Err(parray) => BufferMut::<R>::from_iter(parray.buffer::<T>().iter().copied().map(f)),
+            Err(parray) => {
+                BufferMut::<R>::from_iter(parray.buffer::<T>(ctx).iter().copied().map(f))
+            }
         };
         PrimitiveArray::new(buffer.freeze(), validity)
     }
@@ -215,7 +232,11 @@ impl PrimitiveArray {
     ///
     /// This doesn't ignore validity and maps over all maybe-null elements, with a bool true if
     /// valid and false otherwise.
-    pub fn map_each_with_validity<T, R, F>(self, f: F) -> VortexResult<PrimitiveArray>
+    pub fn map_each_with_validity<T, R, F>(
+        self,
+        ctx: &ExecutionCtx,
+        f: F,
+    ) -> VortexResult<PrimitiveArray>
     where
         T: NativePType,
         R: NativePType,
@@ -223,7 +244,7 @@ impl PrimitiveArray {
     {
         let validity = self.validity();
 
-        let buf_iter = self.buffer::<T>().into_iter();
+        let buf_iter = self.buffer::<T>(ctx).into_iter();
 
         let buffer = match &validity {
             Validity::NonNullable | Validity::AllValid => {

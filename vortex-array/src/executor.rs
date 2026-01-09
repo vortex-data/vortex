@@ -40,6 +40,12 @@ impl ExecutionCtx {
     }
 }
 
+impl Default for ExecutionCtx {
+    fn default() -> Self {
+        Self::new(VortexSession::empty())
+    }
+}
+
 /// Executor for exporting Vortex arrays to canonical form.
 pub trait VectorExecutor {
     /// Recursively execute the array to canonical form.

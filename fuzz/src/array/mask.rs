@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
@@ -24,7 +25,11 @@ use vortex_mask::Mask;
 /// Apply mask on the canonical form of the array to get a consistent baseline.
 /// This implementation manually applies the mask to each canonical type
 /// without using the mask_fn method, to serve as an independent baseline for testing.
-pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<ArrayRef> {
+pub fn mask_canonical_array(
+    canonical: Canonical,
+    mask: &Mask,
+    ctx: &ExecutionCtx,
+) -> VortexResult<ArrayRef> {
     Ok(match canonical {
         Canonical::Null(array) => {
             // Null arrays are already all invalid, masking has no effect
@@ -37,7 +42,7 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
         Canonical::Primitive(array) => {
             let new_validity = array.validity().mask(mask);
             PrimitiveArray::from_byte_buffer(
-                array.byte_buffer().clone(),
+                array.byte_buffer(ctx).clone(),
                 array.ptype(),
                 new_validity,
             )
@@ -99,7 +104,7 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
         }
         Canonical::Extension(array) => {
             // Recursively mask the storage array
-            let masked_storage = mask_canonical_array(array.storage().to_canonical(), mask)
+            let masked_storage = mask_canonical_array(array.storage().to_canonical(), mask, ctx)
                 .vortex_expect("mask_canonical_array should succeed in fuzz test");
 
             if masked_storage.dtype().nullability()

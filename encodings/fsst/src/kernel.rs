@@ -88,7 +88,7 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
             .cast(DType::Primitive(PType::U32, Nullability::NonNullable))?
             .execute(ctx)?
             .into_primitive()
-            .buffer::<u32>();
+            .buffer::<u32>(ctx);
 
         let decompressor = array.decompressor();
 
@@ -99,7 +99,7 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
                 &codes_offsets,
                 mask_values,
                 &validity,
-                &uncompressed_lens.buffer::<S>(),
+                &uncompressed_lens.buffer::<S>(ctx),
             )
         });
 

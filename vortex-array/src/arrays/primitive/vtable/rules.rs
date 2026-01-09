@@ -7,6 +7,8 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
 use crate::arrays::PrimitiveArray;
@@ -39,6 +41,7 @@ impl ArrayParentReduceRule<PrimitiveVTable> for PrimitiveMaskedValidityRule {
         parent: &MaskedArray,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
+        let ctx = LEGACY_SESSION.create_execution_ctx();
         // Merge the parent's validity mask into the child's validity
         // TODO(joe): make this lazy
         let masked_array = match_each_native_ptype!(array.ptype(), |T| {
@@ -46,7 +49,7 @@ impl ArrayParentReduceRule<PrimitiveVTable> for PrimitiveMaskedValidityRule {
             // were upheld are still upheld.
             unsafe {
                 PrimitiveArray::new_unchecked(
-                    Buffer::<T>::from_byte_buffer(array.byte_buffer().clone()),
+                    Buffer::<T>::from_byte_buffer(array.buffer_handle(&ctx).bytes().clone()),
                     array.validity().clone().and(parent.validity().clone()),
                 )
             }

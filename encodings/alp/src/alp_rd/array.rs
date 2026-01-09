@@ -13,6 +13,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
+use vortex_array::ExecutionCtx;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
@@ -417,13 +418,14 @@ impl CanonicalVTable<ALPRDVTable> for ALPRDVTable {
         // Decode the left_parts using our builtin dictionary.
         let left_parts_dict = array.left_parts_dictionary();
 
+        let ctx = ExecutionCtx::default();
         let decoded_array = if array.is_f32() {
             PrimitiveArray::new(
                 alp_rd_decode::<f32>(
-                    left_parts.into_buffer::<u16>(),
+                    left_parts.into_buffer::<u16>(&ctx),
                     left_parts_dict,
                     array.right_bit_width,
-                    right_parts.into_buffer_mut::<u32>(),
+                    right_parts.into_buffer_mut::<u32>(&ctx),
                     array.left_parts_patches(),
                 ),
                 Validity::copy_from_array(array.as_ref()),
@@ -431,10 +433,10 @@ impl CanonicalVTable<ALPRDVTable> for ALPRDVTable {
         } else {
             PrimitiveArray::new(
                 alp_rd_decode::<f64>(
-                    left_parts.into_buffer::<u16>(),
+                    left_parts.into_buffer::<u16>(&ctx),
                     left_parts_dict,
                     array.right_bit_width,
-                    right_parts.into_buffer_mut::<u64>(),
+                    right_parts.into_buffer_mut::<u64>(&ctx),
                     array.left_parts_patches(),
                 ),
                 Validity::copy_from_array(array.as_ref()),

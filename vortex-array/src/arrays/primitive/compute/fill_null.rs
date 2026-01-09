@@ -10,7 +10,9 @@ use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::FillNullKernel;
@@ -21,13 +23,14 @@ use crate::vtable::ValidityHelper;
 
 impl FillNullKernel for PrimitiveVTable {
     fn fill_null(&self, array: &PrimitiveArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
+        let ctx = LEGACY_SESSION.create_execution_ctx();
         let result_validity = Validity::from(fill_value.dtype().nullability());
 
         Ok(match array.validity() {
             Validity::Array(is_valid) => {
                 let is_invalid = is_valid.to_bool().bit_buffer().not();
                 match_each_native_ptype!(array.ptype(), |T| {
-                    let mut buffer = array.buffer::<T>().into_mut();
+                    let mut buffer = array.buffer::<T>(&ctx).into_mut();
                     let fill_value = fill_value
                         .as_primitive()
                         .typed_value::<T>()

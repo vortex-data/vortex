@@ -6,6 +6,8 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::MaskKernel;
@@ -15,11 +17,14 @@ use crate::vtable::ValidityHelper;
 
 impl MaskKernel for PrimitiveVTable {
     fn mask(&self, array: &PrimitiveArray, mask: &Mask) -> VortexResult<ArrayRef> {
+        let ctx = LEGACY_SESSION.create_execution_ctx();
         let validity = array.validity().mask(mask);
-        Ok(
-            PrimitiveArray::from_byte_buffer(array.byte_buffer().clone(), array.ptype(), validity)
-                .into_array(),
+        Ok(PrimitiveArray::from_byte_buffer(
+            array.byte_buffer(&ctx).clone(),
+            array.ptype(),
+            validity,
         )
+        .into_array())
     }
 }
 

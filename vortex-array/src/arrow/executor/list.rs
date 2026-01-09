@@ -102,7 +102,7 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
         .cast(DType::Primitive(O::PTYPE, Nullability::NonNullable))?
         .execute(ctx)?
         .into_primitive()
-        .buffer::<O>()
+        .buffer::<O>(ctx)
         .into_arrow_offset_buffer();
 
     let elements = array
@@ -147,7 +147,7 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
         .cast(DType::Primitive(O::PTYPE, Nullability::NonNullable))?
         .execute(ctx)?
         .into_primitive()
-        .buffer::<O>();
+        .buffer::<O>(ctx);
 
     // List arrays need one extra element in the offsets buffer to signify the end of the last list.
     // If the offsets original came from a list, chances are there is already capacity for this!
@@ -192,12 +192,12 @@ fn list_view_to_list<O: OffsetSizeTrait + NativePType>(
         .cast(DType::Primitive(O::PTYPE, Nullability::NonNullable))?
         .execute(ctx)?
         .into_primitive()
-        .buffer::<O>();
+        .buffer::<O>(ctx);
     let sizes = sizes
         .cast(DType::Primitive(O::PTYPE, Nullability::NonNullable))?
         .execute(ctx)?
         .into_primitive()
-        .buffer::<O>();
+        .buffer::<O>(ctx);
 
     // We create a new offsets buffer for the final list array.
     // And we also create an `indices` buffer for taking the elements.

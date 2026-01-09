@@ -3,6 +3,7 @@
 
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::accessor::ArrayAccessor;
@@ -24,6 +25,7 @@ pub fn slice_canonical_array(
     array: &dyn Array,
     start: usize,
     stop: usize,
+    ctx: &ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
         let bool_buff = array.validity_mask().to_bit_buffer();
@@ -41,10 +43,11 @@ pub fn slice_canonical_array(
         DType::Primitive(p, _) => {
             let primitive_array = array.to_primitive();
             match_each_native_ptype!(p, |P| {
-                Ok(
-                    PrimitiveArray::new(primitive_array.buffer::<P>().slice(start..stop), validity)
-                        .into_array(),
+                Ok(PrimitiveArray::new(
+                    primitive_array.buffer::<P>(ctx).slice(start..stop),
+                    validity,
                 )
+                .into_array())
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
@@ -62,7 +65,7 @@ pub fn slice_canonical_array(
             let sliced_children = struct_array
                 .fields()
                 .iter()
-                .map(|c| slice_canonical_array(c, start, stop))
+                .map(|c| slice_canonical_array(c, start, stop, ctx))
                 .collect::<VortexResult<Vec<_>>>()?;
             StructArray::try_new_with_dtype(
                 sliced_children,
@@ -75,8 +78,8 @@ pub fn slice_canonical_array(
         DType::List(..) => {
             let list_array = array.to_listview();
 
-            let offsets = slice_canonical_array(list_array.offsets(), start, stop)?;
-            let sizes = slice_canonical_array(list_array.sizes(), start, stop)?;
+            let offsets = slice_canonical_array(list_array.offsets(), start, stop, ctx)?;
+            let sizes = slice_canonical_array(list_array.sizes(), start, stop, ctx)?;
 
             // Since the list view elements can be stored out of order, we cannot slice it.
             let elements = list_array.elements().clone();
@@ -93,8 +96,12 @@ pub fn slice_canonical_array(
         DType::FixedSizeList(..) => {
             let fsl_array = array.to_fixed_size_list();
             let list_size = fsl_array.list_size() as usize;
-            let elements =
-                slice_canonical_array(fsl_array.elements(), start * list_size, stop * list_size)?;
+            let elements = slice_canonical_array(
+                fsl_array.elements(),
+                start * list_size,
+                stop * list_size,
+                ctx,
+            )?;
             let new_len = stop - start;
 
             FixedSizeListArray::try_new(elements, fsl_array.list_size(), validity, new_len)

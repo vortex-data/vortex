@@ -10,7 +10,9 @@ use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
 use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
 use crate::compute::TakeKernel;
@@ -20,6 +22,7 @@ use crate::vtable::ValidityHelper;
 
 impl TakeKernel for DecimalVTable {
     fn take(&self, array: &DecimalArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+        let ctx = LEGACY_SESSION.create_execution_ctx();
         let indices = indices.to_primitive();
         let validity = array.validity().take(indices.as_ref())?;
 
@@ -27,8 +30,10 @@ impl TakeKernel for DecimalVTable {
         // valid indices.
         let decimal = match_each_decimal_value_type!(array.values_type(), |D| {
             match_each_integer_ptype!(indices.ptype(), |I| {
-                let buffer =
-                    take_to_buffer::<I, D>(indices.as_slice::<I>(), array.buffer::<D>().as_slice());
+                let buffer = take_to_buffer::<I, D>(
+                    indices.as_slice::<I>(&ctx),
+                    array.buffer::<D>().as_slice(),
+                );
                 // SAFETY: Take operation preserves decimal dtype and creates valid buffer.
                 // Validity is computed correctly from the parent array and indices.
                 unsafe { DecimalArray::new_unchecked(buffer, array.decimal_dtype(), validity) }

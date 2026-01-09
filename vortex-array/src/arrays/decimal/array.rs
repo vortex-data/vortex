@@ -19,7 +19,9 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
 use crate::patches::Patches;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
@@ -270,8 +272,9 @@ impl DecimalArray {
         );
         assert_eq!(self.decimal_dtype(), patch_values.decimal_dtype());
 
+        let ctx = LEGACY_SESSION.create_execution_ctx();
         match_each_integer_ptype!(patch_indices.ptype(), |I| {
-            let patch_indices = patch_indices.as_slice::<I>();
+            let patch_indices = patch_indices.as_slice::<I>(&ctx);
             match_each_decimal_value_type!(patch_values.values_type(), |PatchDVT| {
                 let patch_values = patch_values.buffer::<PatchDVT>();
                 match_each_decimal_value_type!(self.values_type(), |ValuesDVT| {

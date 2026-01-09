@@ -11,13 +11,14 @@ use vortex_dtype::match_each_native_ptype;
 
 use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
+use crate::executor::ExecutionCtx;
 use crate::patches::PATCH_CHUNK_SIZE;
 use crate::patches::Patches;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 impl PrimitiveArray {
-    pub fn patch(self, patches: &Patches) -> Self {
+    pub fn patch(self, patches: &Patches, ctx: &ExecutionCtx) -> Self {
         let patch_indices = patches.indices().to_primitive();
         let patch_values = patches.values().to_primitive();
 
@@ -34,6 +35,7 @@ impl PrimitiveArray {
                     patches.offset(),
                     patch_values,
                     patched_validity,
+                    ctx,
                 )
             })
         })
@@ -45,15 +47,16 @@ impl PrimitiveArray {
         patch_indices_offset: usize,
         patch_values: PrimitiveArray,
         patched_validity: Validity,
+        ctx: &ExecutionCtx,
     ) -> Self
     where
         T: NativePType,
         I: IntegerPType,
     {
-        let mut own_values = self.into_buffer_mut::<T>();
+        let mut own_values = self.into_buffer_mut::<T>(ctx);
 
-        let patch_indices = patch_indices.as_slice::<I>();
-        let patch_values = patch_values.as_slice::<T>();
+        let patch_indices = patch_indices.as_slice::<I>(ctx);
+        let patch_values = patch_values.as_slice::<T>(ctx);
         for (idx, value) in itertools::zip_eq(patch_indices, patch_values) {
             own_values[idx.as_() - patch_indices_offset] = *value;
         }
@@ -129,13 +132,16 @@ mod tests {
     use vortex_buffer::buffer;
 
     use super::*;
+    use crate::LEGACY_SESSION;
     use crate::ToCanonical;
+    use crate::VortexSessionExecute;
     use crate::validity::Validity;
 
     #[test]
     fn patch_sliced() {
+        let ctx = LEGACY_SESSION.create_execution_ctx();
         let input = PrimitiveArray::new(buffer![2u32; 10], Validity::AllValid);
         let sliced = input.slice(2..8);
-        assert_eq!(sliced.to_primitive().as_slice::<u32>(), &[2u32; 6]);
+        assert_eq!(sliced.to_primitive().as_slice::<u32>(&ctx), &[2u32; 6]);
     }
 }

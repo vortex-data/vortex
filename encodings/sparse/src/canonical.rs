@@ -7,6 +7,7 @@ use itertools::Itertools;
 use num_traits::NumCast;
 use vortex_array::Array;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
@@ -448,8 +449,9 @@ fn canonicalize_varbin(
     let validity = Validity::from_mask(array.validity_mask(), dtype.nullability());
     let len = array.len();
 
+    let ctx = ExecutionCtx::default();
     match_each_integer_ptype!(indices.ptype(), |I| {
-        let indices = indices.buffer::<I>();
+        let indices = indices.buffer::<I>(&ctx);
         canonicalize_varbin_inner::<I>(fill_value, indices, values, dtype, validity, len)
     })
 }

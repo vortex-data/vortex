@@ -15,6 +15,7 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -233,12 +234,13 @@ impl CanonicalVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
         // Depending on the decimal type and the min/max of the primitive array we can choose
         // the correct buffer size
 
+        let ctx = ExecutionCtx::default();
         match_each_signed_integer_ptype!(prim.ptype(), |P| {
             // SAFETY: The primitive array's buffer is already validated with correct type.
             // The decimal dtype matches the array's dtype, and validity is preserved.
             Canonical::Decimal(unsafe {
                 DecimalArray::new_unchecked(
-                    prim.buffer::<P>(),
+                    prim.buffer::<P>(&ctx),
                     *array.decimal_dtype(),
                     prim.validity().clone(),
                 )

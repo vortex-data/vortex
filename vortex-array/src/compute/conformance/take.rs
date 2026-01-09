@@ -8,6 +8,8 @@ use vortex_error::VortexExpect;
 use crate::Array;
 use crate::Canonical;
 use crate::IntoArray as _;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
 use crate::compute::take;
 
@@ -62,9 +64,10 @@ fn test_take_all(array: &dyn Array) {
     assert_eq!(result.dtype(), array.dtype());
 
     // Verify elements match
+    let ctx = LEGACY_SESSION.create_execution_ctx();
     match (&array.to_canonical(), &result.to_canonical()) {
         (Canonical::Primitive(orig_prim), Canonical::Primitive(result_prim)) => {
-            assert_eq!(orig_prim.byte_buffer(), result_prim.byte_buffer());
+            assert_eq!(orig_prim.byte_buffer(&ctx), result_prim.byte_buffer(&ctx));
         }
         _ => {
             // For non-primitive types, check scalar values

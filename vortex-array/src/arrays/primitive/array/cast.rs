@@ -12,13 +12,14 @@ use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
 use crate::compute::cast;
 use crate::compute::min_max;
+use crate::executor::ExecutionCtx;
 use crate::vtable::ValidityHelper;
 
 impl PrimitiveArray {
     /// Return a slice of the array's buffer.
     ///
     /// NOTE: these values may be nonsense if the validity buffer indicates that the value is null.
-    pub fn as_slice<T: NativePType>(&self) -> &[T] {
+    pub fn as_slice<T: NativePType>(&self, ctx: &ExecutionCtx) -> &[T] {
         if T::PTYPE != self.ptype() {
             vortex_panic!(
                 "Attempted to get slice of type {} from array of type {}",
@@ -26,14 +27,17 @@ impl PrimitiveArray {
                 self.ptype()
             )
         }
-        let raw_slice = self.byte_buffer().as_ptr();
+        let raw_slice = self.byte_buffer(ctx).as_ptr();
         // SAFETY: alignment of Buffer is checked on construction
         unsafe {
-            std::slice::from_raw_parts(raw_slice.cast(), self.byte_buffer().len() / size_of::<T>())
+            std::slice::from_raw_parts(
+                raw_slice.cast(),
+                self.byte_buffer(ctx).len() / size_of::<T>(),
+            )
         }
     }
 
-    pub fn reinterpret_cast(&self, ptype: PType) -> Self {
+    pub fn reinterpret_cast(&self, ptype: PType, ctx: &ExecutionCtx) -> Self {
         if self.ptype() == ptype {
             return self.clone();
         }
@@ -44,7 +48,11 @@ impl PrimitiveArray {
             "can't reinterpret cast between integers of two different widths"
         );
 
-        PrimitiveArray::from_byte_buffer(self.byte_buffer().clone(), ptype, self.validity().clone())
+        PrimitiveArray::from_byte_buffer(
+            self.byte_buffer(ctx).clone(),
+            ptype,
+            self.validity().clone(),
+        )
     }
 
     /// Narrow the array to the smallest possible integer type that can represent all values.
@@ -134,6 +142,8 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
 
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::validity::Validity;
 
@@ -200,13 +210,14 @@ mod tests {
 
     #[test]
     fn test_downcast_preserves_values() {
+        let ctx = LEGACY_SESSION.create_execution_ctx();
         let values = vec![-100_i16, 0, 100];
         let array = PrimitiveArray::from_iter(values);
         let result = array.narrow().unwrap();
 
         assert_eq!(result.ptype(), PType::I8);
         // Check that the values were properly downscaled
-        let downscaled_values: Vec<i8> = result.as_slice::<i8>().to_vec();
+        let downscaled_values: Vec<i8> = result.as_slice::<i8>(&ctx).to_vec();
         assert_eq!(downscaled_values, vec![-100_i8, 0, 100]);
     }
 

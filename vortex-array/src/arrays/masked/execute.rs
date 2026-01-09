@@ -20,6 +20,7 @@ use crate::arrays::NullArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
+use crate::executor::ExecutionCtx;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -28,11 +29,17 @@ use crate::vtable::ValidityHelper;
 ///
 /// This is the core operation for MaskedArray execution - it intersects the child's
 /// validity with the provided mask, marking additional positions as invalid.
-pub fn mask_validity_canonical(canonical: Canonical, validity_mask: &Mask) -> Canonical {
+pub fn mask_validity_canonical(
+    canonical: Canonical,
+    validity_mask: &Mask,
+    ctx: &ExecutionCtx,
+) -> Canonical {
     match canonical {
         Canonical::Null(a) => Canonical::Null(mask_validity_null(a, validity_mask)),
         Canonical::Bool(a) => Canonical::Bool(mask_validity_bool(a, validity_mask)),
-        Canonical::Primitive(a) => Canonical::Primitive(mask_validity_primitive(a, validity_mask)),
+        Canonical::Primitive(a) => {
+            Canonical::Primitive(mask_validity_primitive(a, validity_mask, ctx))
+        }
         Canonical::Decimal(a) => Canonical::Decimal(mask_validity_decimal(a, validity_mask)),
         Canonical::VarBinView(a) => {
             Canonical::VarBinView(mask_validity_varbinview(a, validity_mask))
@@ -42,7 +49,9 @@ pub fn mask_validity_canonical(canonical: Canonical, validity_mask: &Mask) -> Ca
             Canonical::FixedSizeList(mask_validity_fixed_size_list(a, validity_mask))
         }
         Canonical::Struct(a) => Canonical::Struct(mask_validity_struct(a, validity_mask)),
-        Canonical::Extension(a) => Canonical::Extension(mask_validity_extension(a, validity_mask)),
+        Canonical::Extension(a) => {
+            Canonical::Extension(mask_validity_extension(a, validity_mask, ctx))
+        }
     }
 }
 
@@ -62,11 +71,15 @@ fn mask_validity_bool(array: BoolArray, mask: &Mask) -> BoolArray {
     BoolArray::new(array.bit_buffer().clone(), new_validity)
 }
 
-fn mask_validity_primitive(array: PrimitiveArray, mask: &Mask) -> PrimitiveArray {
+fn mask_validity_primitive(
+    array: PrimitiveArray,
+    mask: &Mask,
+    ctx: &ExecutionCtx,
+) -> PrimitiveArray {
     let len = array.len();
     let ptype = array.ptype();
     let new_validity = combine_validity(array.validity(), mask, len);
-    PrimitiveArray::from_byte_buffer(array.into_byte_buffer(), ptype, new_validity)
+    PrimitiveArray::from_byte_buffer(array.into_byte_buffer(ctx), ptype, new_validity)
 }
 
 fn mask_validity_decimal(array: DecimalArray, mask: &Mask) -> DecimalArray {
@@ -130,9 +143,13 @@ fn mask_validity_struct(array: StructArray, mask: &Mask) -> StructArray {
     unsafe { StructArray::new_unchecked(fields, struct_fields, len, new_validity) }
 }
 
-fn mask_validity_extension(array: ExtensionArray, mask: &Mask) -> ExtensionArray {
+fn mask_validity_extension(
+    array: ExtensionArray,
+    mask: &Mask,
+    ctx: &ExecutionCtx,
+) -> ExtensionArray {
     // For extension arrays, we need to mask the underlying storage
     let storage = array.storage().to_canonical();
-    let masked_storage = mask_validity_canonical(storage, mask);
+    let masked_storage = mask_validity_canonical(storage, mask, ctx);
     ExtensionArray::new(array.ext_dtype().clone(), masked_storage.into_array())
 }

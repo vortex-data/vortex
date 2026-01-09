@@ -113,7 +113,7 @@ impl VTable for MaskedVTable {
         let child = array.child().execute(ctx)?;
         let validity_mask = array.validity_mask();
 
-        Ok(mask_validity_canonical(child, &validity_mask))
+        Ok(mask_validity_canonical(child, &validity_mask, ctx))
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

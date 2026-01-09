@@ -22,6 +22,7 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -256,8 +257,15 @@ impl PcoArray {
         parray: &PrimitiveArray,
         level: usize,
         values_per_page: usize,
+        ctx: &ExecutionCtx,
     ) -> VortexResult<Self> {
-        Self::from_primitive_with_values_per_chunk(parray, level, VALUES_PER_CHUNK, values_per_page)
+        Self::from_primitive_with_values_per_chunk(
+            parray,
+            level,
+            VALUES_PER_CHUNK,
+            values_per_page,
+            ctx,
+        )
     }
 
     pub(crate) fn from_primitive_with_values_per_chunk(
@@ -265,6 +273,7 @@ impl PcoArray {
         level: usize,
         values_per_chunk: usize,
         values_per_page: usize,
+        ctx: &ExecutionCtx,
     ) -> VortexResult<Self> {
         let number_type = number_type_from_dtype(parray.dtype());
         let values_per_page = if values_per_page == 0 {
@@ -293,7 +302,7 @@ impl PcoArray {
                 number_type,
                 NumberType<T> => {
                     let chunk_end = cmp::min(n_values, chunk_start + values_per_chunk);
-                    let values = values.buffer::<T>();
+                    let values = values.buffer::<T>(ctx);
                     let chunk = &values.as_slice()[chunk_start..chunk_end];
                     fc
                         .chunk_compressor(chunk, &chunk_config)
@@ -333,9 +342,14 @@ impl PcoArray {
         ))
     }
 
-    pub fn from_array(array: ArrayRef, level: usize, nums_per_page: usize) -> VortexResult<Self> {
+    pub fn from_array(
+        array: ArrayRef,
+        level: usize,
+        nums_per_page: usize,
+        ctx: &ExecutionCtx,
+    ) -> VortexResult<Self> {
         if let Some(parray) = array.as_opt::<PrimitiveVTable>() {
-            Self::from_primitive(parray, level, nums_per_page)
+            Self::from_primitive(parray, level, nums_per_page, ctx)
         } else {
             Err(vortex_err!("Pco can only encode primitive arrays"))
         }

@@ -25,7 +25,9 @@ use vortex_scalar::Scalar;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
@@ -38,6 +40,7 @@ use crate::compute::Kernel;
 use crate::compute::Operator;
 use crate::compute::Output;
 use crate::compute::{self};
+use crate::executor::ExecutionCtx;
 use crate::validity::Validity;
 use crate::vtable::VTable;
 use crate::vtable::ValidityHelper;
@@ -304,11 +307,12 @@ fn list_contains_scalar(
     // Get the offsets and sizes as primitive arrays.
     let offsets = list_array.offsets().to_primitive();
     let sizes = list_array.sizes().to_primitive();
+    let ctx = LEGACY_SESSION.create_execution_ctx();
 
     // Process based on the offset and size types.
     let list_matches = match_each_integer_ptype!(offsets.ptype(), |O| {
         match_each_integer_ptype!(sizes.ptype(), |S| {
-            process_matches::<O, S>(matches, list_array.len(), offsets, sizes)
+            process_matches::<O, S>(matches, list_array.len(), offsets, sizes, &ctx)
         })
     });
 
@@ -326,13 +330,14 @@ fn process_matches<O, S>(
     list_array_len: usize,
     offsets: PrimitiveArray,
     sizes: PrimitiveArray,
+    ctx: &ExecutionCtx,
 ) -> BitBuffer
 where
     O: IntegerPType,
     S: IntegerPType,
 {
-    let offsets_slice = offsets.as_slice::<O>();
-    let sizes_slice = sizes.as_slice::<S>();
+    let offsets_slice = offsets.as_slice::<O>(ctx);
+    let sizes_slice = sizes.as_slice::<S>(ctx);
 
     (0..list_array_len)
         .map(|i| {
@@ -401,8 +406,14 @@ fn list_is_not_empty(
     }
 
     let sizes = list_array.sizes().to_primitive();
+    let ctx = LEGACY_SESSION.create_execution_ctx();
     let buffer = match_each_integer_ptype!(sizes.ptype(), |S| {
-        BitBuffer::from_iter(sizes.as_slice::<S>().iter().map(|&size| size != S::zero()))
+        BitBuffer::from_iter(
+            sizes
+                .as_slice::<S>(&ctx)
+                .iter()
+                .map(|&size| size != S::zero()),
+        )
     });
 
     // Copy over the validity mask from the input.
