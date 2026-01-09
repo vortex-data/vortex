@@ -65,6 +65,9 @@ runs:
         version: "29.3"
         repo-token: ${{ inputs.repo-token }}
 
+    - name: Install Ninja (for DuckDB build system)
+      uses: seanmiddleditch/gha-setup-ninja@master
+
     - name: Install Sweep
       shell: bash
       if: ${{ inputs.timestamp == 'true' && github.ref_name == 'develop' }}
