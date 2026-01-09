@@ -41,6 +41,14 @@ impl VTable for Mask {
         ExprId::from("vortex.mask")
     }
 
+    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
+    }
+
+    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Self::Options> {
+        Ok(EmptyOptions)
+    }
+
     fn arity(&self, _options: &Self::Options) -> Arity {
         Arity::Exact(2)
     }
