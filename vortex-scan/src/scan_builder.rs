@@ -6,6 +6,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
+use std::task::ready;
 
 use futures::Stream;
 use futures::StreamExt;
@@ -31,6 +32,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::runtime::BlockingRuntime;
+use vortex_io::runtime::Task;
+use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::LayoutReader;
 use vortex_layout::LayoutReaderRef;
 use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
@@ -308,6 +311,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
 enum LazyScanState<A: 'static + Send> {
     Builder(Option<Box<ScanBuilder<A>>>),
+    Preparing(Task<VortexResult<BoxStream<'static, VortexResult<A>>>>),
     Stream(BoxStream<'static, VortexResult<A>>),
     Error(Option<vortex_error::VortexError>),
 }
@@ -334,14 +338,17 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
             match &mut self.state {
                 LazyScanState::Builder(builder) => {
                     let builder = builder.take().vortex_expect("polled after completion");
-                    match builder
-                        .prepare()
-                        .and_then(|scan| scan.execute_stream(None).map(|s| s.boxed()))
-                    {
-                        Ok(stream) => self.state = LazyScanState::Stream(stream),
-                        Err(err) => self.state = LazyScanState::Error(Some(err)),
-                    }
+                    let handle = builder.session.handle();
+                    self.state = LazyScanState::Preparing(handle.spawn_blocking(move || {
+                        builder
+                            .prepare()
+                            .and_then(|scan| scan.execute_stream(None).map(|s| s.boxed()))
+                    }));
                 }
+                LazyScanState::Preparing(task) => match ready!(Pin::new(task).poll(cx)) {
+                    Ok(stream) => self.state = LazyScanState::Stream(stream),
+                    Err(err) => self.state = LazyScanState::Error(Some(err)),
+                },
                 LazyScanState::Stream(stream) => return stream.as_mut().poll_next(cx),
                 LazyScanState::Error(err) => return Poll::Ready(err.take().map(Err)),
             }
@@ -392,12 +399,21 @@ fn to_field_mask(field: FieldName) -> FieldMask {
 mod test {
     use std::collections::BTreeSet;
     use std::ops::Range;
+    use std::pin::Pin;
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
+    use std::task::Context;
+    use std::task::Poll;
+    use std::time::Duration;
 
+    use futures::Stream;
+    use futures::task::noop_waker_ref;
+    use parking_lot::Mutex;
     use vortex_array::MaskFuture;
     use vortex_array::expr::Expression;
+    use vortex_array::expr::session::ExprSession;
+    use vortex_array::session::ArraySession;
     use vortex_dtype::DType;
     use vortex_dtype::FieldMask;
     use vortex_dtype::Nullability;
@@ -405,12 +421,26 @@ mod test {
     use vortex_error::VortexResult;
     use vortex_io::runtime::BlockingRuntime;
     use vortex_io::runtime::single::SingleThreadRuntime;
+    use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_layout::ArrayFuture;
     use vortex_layout::LayoutReader;
+    use vortex_layout::session::LayoutSession;
     use vortex_mask::Mask;
+    use vortex_metrics::VortexMetrics;
+    use vortex_session::VortexSession;
 
     use super::ScanBuilder;
+
+    fn test_session(handle: vortex_io::runtime::Handle) -> VortexSession {
+        VortexSession::empty()
+            .with::<VortexMetrics>()
+            .with::<ArraySession>()
+            .with::<LayoutSession>()
+            .with::<ExprSession>()
+            .with::<RuntimeSession>()
+            .with_handle(handle)
+    }
 
     #[derive(Debug)]
     struct CountingLayoutReader {
@@ -491,10 +521,123 @@ mod test {
         let reader = Arc::new(CountingLayoutReader::new(calls.clone()));
 
         let runtime = SingleThreadRuntime::default();
-        let session = crate::test::SESSION.clone().with_handle(runtime.handle());
+        let session = test_session(runtime.handle());
 
         let _stream = ScanBuilder::new(session, reader).into_stream().unwrap();
 
         assert_eq!(calls.load(Ordering::Relaxed), 0);
+    }
+
+    #[derive(Debug)]
+    struct BlockingSplitsLayoutReader {
+        name: Arc<str>,
+        dtype: DType,
+        row_count: u64,
+        register_splits_calls: Arc<AtomicUsize>,
+        gate: Arc<Mutex<()>>,
+    }
+
+    impl BlockingSplitsLayoutReader {
+        fn new(gate: Arc<Mutex<()>>, register_splits_calls: Arc<AtomicUsize>) -> Self {
+            Self {
+                name: Arc::from("blocking-splits"),
+                dtype: DType::Primitive(PType::I32, Nullability::NonNullable),
+                row_count: 1,
+                register_splits_calls,
+                gate,
+            }
+        }
+    }
+
+    impl LayoutReader for BlockingSplitsLayoutReader {
+        fn name(&self) -> &Arc<str> {
+            &self.name
+        }
+
+        fn dtype(&self) -> &DType {
+            &self.dtype
+        }
+
+        fn row_count(&self) -> u64 {
+            self.row_count
+        }
+
+        fn register_splits(
+            &self,
+            _field_mask: &[FieldMask],
+            row_range: &Range<u64>,
+            splits: &mut BTreeSet<u64>,
+        ) -> VortexResult<()> {
+            self.register_splits_calls.fetch_add(1, Ordering::Relaxed);
+            let _guard = self.gate.lock();
+            splits.insert(row_range.end);
+            Ok(())
+        }
+
+        fn pruning_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &Expression,
+            _mask: Mask,
+        ) -> VortexResult<MaskFuture> {
+            unimplemented!("not needed for this test");
+        }
+
+        fn filter_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &Expression,
+            _mask: MaskFuture,
+        ) -> VortexResult<MaskFuture> {
+            unimplemented!("not needed for this test");
+        }
+
+        fn projection_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &Expression,
+            _mask: MaskFuture,
+        ) -> VortexResult<ArrayFuture> {
+            Ok(Box::pin(async move {
+                unreachable!("scan should not be polled in this test")
+            }))
+        }
+    }
+
+    #[test]
+    fn into_stream_first_poll_does_not_block() {
+        let gate = Arc::new(Mutex::new(()));
+        let guard = gate.lock();
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let reader = Arc::new(BlockingSplitsLayoutReader::new(gate.clone(), calls.clone()));
+
+        let runtime = SingleThreadRuntime::default();
+        let session = test_session(runtime.handle());
+
+        let mut stream = ScanBuilder::new(session, reader).into_stream().unwrap();
+
+        let (send, recv) = std::sync::mpsc::channel::<bool>();
+        let join = std::thread::spawn(move || {
+            let waker = noop_waker_ref();
+            let mut cx = Context::from_waker(waker);
+            let poll = Pin::new(&mut stream).poll_next(&mut cx);
+            let _ = send.send(matches!(poll, Poll::Pending));
+        });
+
+        let polled_pending = recv.recv_timeout(Duration::from_secs(1)).ok();
+
+        // Always release the gate and join the thread so failures don't hang the test process.
+        drop(guard);
+        drop(join.join());
+
+        let polled_pending = polled_pending.expect("poll_next blocked; expected quick return");
+        assert!(
+            polled_pending,
+            "expected Poll::Pending while prepare is blocked"
+        );
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+
+        drop(runtime);
     }
 }
