@@ -10738,9 +10738,13 @@ dependencies = [
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
+ "vortex-file",
+ "vortex-layout",
  "vortex-mask",
  "vortex-proto",
+ "vortex-runend",
  "vortex-scalar",
+ "vortex-session",
  "vortex-vector",
 ]
 

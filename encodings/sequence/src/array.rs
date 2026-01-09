@@ -56,6 +56,8 @@ use vortex_vector::VectorMut;
 use vortex_vector::VectorMutOps;
 use vortex_vector::primitive::PVector;
 
+use crate::kernel::PARENT_KERNELS;
+
 vtable!(Sequence);
 
 #[derive(Clone, prost::Message)]
@@ -296,9 +298,14 @@ impl VTable for SequenceVTable {
     fn execute_parent(
         array: &Self::Array,
         parent: &ArrayRef,
-        _child_idx: usize,
-        _ctx: &mut ExecutionCtx,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Vector>> {
+        // Try parent kernels first (e.g., comparison fusion)
+        if let Some(result) = PARENT_KERNELS.execute(array, parent, child_idx, ctx)? {
+            return Ok(Some(result));
+        }
+
         // Special-case filtered execution.
         let Some(filter) = parent.as_opt::<FilterVTable>() else {
             return Ok(None);
