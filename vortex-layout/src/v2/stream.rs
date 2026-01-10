@@ -3,6 +3,7 @@
 
 use futures::future::BoxFuture;
 use vortex_array::ArrayRef;
+use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -12,6 +13,9 @@ pub type SendableLayoutReaderStream = Box<dyn LayoutReaderStream + 'static + Sen
 ///
 /// Layout readers are driven by requesting chunks of data using a given selection masks.
 pub trait LayoutReaderStream {
+    /// Returns the [`DType`] of the data produced by the stream.
+    fn dtype(&self) -> &DType;
+
     /// Returns the length in rows of the next chunk in the stream.
     ///
     /// Returns [`None`] if the stream has ended.

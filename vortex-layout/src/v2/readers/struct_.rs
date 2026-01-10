@@ -5,11 +5,11 @@ use std::ops::Range;
 
 use futures::future::BoxFuture;
 use futures::future::try_join_all;
+use moka::future::FutureExt;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::arrays::ScalarFnArray;
-use vortex_array::expr::ScalarFn;
-use vortex_array::optimizer::ArrayOptimizer;
+use vortex_array::arrays::StructArray;
+use vortex_array::validity::Validity;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -19,15 +19,13 @@ use crate::v2::reader::LayoutReader2Ref;
 use crate::v2::stream::LayoutReaderStream;
 use crate::v2::stream::SendableLayoutReaderStream;
 
-/// A [`LayoutReader2] for applying a scalar function to another layout.
-pub struct ScalarFnReader {
-    scalar_fn: ScalarFn,
-    dtype: DType,
+pub struct StructReader2 {
     row_count: u64,
-    children: Vec<LayoutReader2Ref>,
+    dtype: DType,
+    fields: Vec<LayoutReader2Ref>,
 }
 
-impl LayoutReader2 for ScalarFnReader {
+impl LayoutReader2 for StructReader2 {
     fn row_count(&self) -> u64 {
         self.row_count
     }
@@ -37,41 +35,39 @@ impl LayoutReader2 for ScalarFnReader {
     }
 
     fn nchildren(&self) -> usize {
-        self.children.len()
+        self.fields.len()
     }
 
     fn child(&self, idx: usize) -> &LayoutReader2Ref {
-        &self.children[idx]
+        &self.fields[idx]
     }
 
     fn execute(&self, row_range: Range<u64>) -> VortexResult<SendableLayoutReaderStream> {
-        let input_streams = self
-            .children
+        let field_streams = self
+            .fields
             .iter()
-            .map(|child| child.execute(row_range.clone()))
+            .map(|field| field.execute(row_range.clone()))
             .collect::<VortexResult<Vec<_>>>()?;
 
-        Ok(Box::new(ScalarFnArrayStream {
+        Ok(Box::new(StructReaderStream {
             dtype: self.dtype.clone(),
-            scalar_fn: self.scalar_fn.clone(),
-            input_streams,
+            fields: field_streams,
         }))
     }
 }
 
-struct ScalarFnArrayStream {
+struct StructReaderStream {
     dtype: DType,
-    scalar_fn: ScalarFn,
-    input_streams: Vec<SendableLayoutReaderStream>,
+    fields: Vec<SendableLayoutReaderStream>,
 }
 
-impl LayoutReaderStream for ScalarFnArrayStream {
+impl LayoutReaderStream for StructReaderStream {
     fn dtype(&self) -> &DType {
         &self.dtype
     }
 
     fn next_chunk_len(&self) -> Option<usize> {
-        self.input_streams
+        self.fields
             .iter()
             .map(|s| s.next_chunk_len())
             .min()
@@ -82,19 +78,22 @@ impl LayoutReaderStream for ScalarFnArrayStream {
         &mut self,
         selection: &Mask,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
-        let scalar_fn = self.scalar_fn.clone();
-        let len = selection.true_count();
-        let futs = self
-            .input_streams
+        let struct_fields = self.dtype.as_struct_fields().clone();
+        let validity: Validity = self.dtype.nullability().into();
+        let fields = self
+            .fields
             .iter_mut()
             .map(|s| s.next_chunk(selection))
             .collect::<VortexResult<Vec<_>>>()?;
+        let len = selection.true_count();
 
-        Ok(Box::pin(async move {
-            let input_arrays = try_join_all(futs).await?;
-            let array = ScalarFnArray::try_new(scalar_fn, input_arrays, len)?.into_array();
-            let array = array.optimize()?;
-            Ok(array)
-        }))
+        Ok(async move {
+            let fields = try_join_all(fields).await?;
+            Ok(
+                StructArray::try_new_with_dtype(fields, struct_fields, len, validity.clone())?
+                    .into_array(),
+            )
+        }
+        .boxed())
     }
 }

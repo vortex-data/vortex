@@ -60,6 +60,7 @@ impl LayoutReader2 for FlatReader2 {
         }
 
         Ok(Box::new(FlatLayoutReaderStream {
+            dtype: self.dtype.clone(),
             array_fut,
             offset: start,
             remaining: end - start,
@@ -68,12 +69,17 @@ impl LayoutReader2 for FlatReader2 {
 }
 
 struct FlatLayoutReaderStream {
+    dtype: DType,
     array_fut: SharedArrayFuture,
     offset: usize,
     remaining: usize,
 }
 
 impl LayoutReaderStream for FlatLayoutReaderStream {
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
     fn next_chunk_len(&self) -> Option<usize> {
         if self.remaining == 0 {
             None
