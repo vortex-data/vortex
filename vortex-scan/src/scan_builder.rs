@@ -412,8 +412,6 @@ mod test {
     use parking_lot::Mutex;
     use vortex_array::MaskFuture;
     use vortex_array::expr::Expression;
-    use vortex_array::expr::session::ExprSession;
-    use vortex_array::session::ArraySession;
     use vortex_dtype::DType;
     use vortex_dtype::FieldMask;
     use vortex_dtype::Nullability;
@@ -421,26 +419,11 @@ mod test {
     use vortex_error::VortexResult;
     use vortex_io::runtime::BlockingRuntime;
     use vortex_io::runtime::single::SingleThreadRuntime;
-    use vortex_io::session::RuntimeSession;
-    use vortex_io::session::RuntimeSessionExt;
     use vortex_layout::ArrayFuture;
     use vortex_layout::LayoutReader;
-    use vortex_layout::session::LayoutSession;
     use vortex_mask::Mask;
-    use vortex_metrics::VortexMetrics;
-    use vortex_session::VortexSession;
 
     use super::ScanBuilder;
-
-    fn test_session(handle: vortex_io::runtime::Handle) -> VortexSession {
-        VortexSession::empty()
-            .with::<VortexMetrics>()
-            .with::<ArraySession>()
-            .with::<LayoutSession>()
-            .with::<ExprSession>()
-            .with::<RuntimeSession>()
-            .with_handle(handle)
-    }
 
     #[derive(Debug)]
     struct CountingLayoutReader {
@@ -520,8 +503,7 @@ mod test {
         let calls = Arc::new(AtomicUsize::new(0));
         let reader = Arc::new(CountingLayoutReader::new(calls.clone()));
 
-        let runtime = SingleThreadRuntime::default();
-        let session = test_session(runtime.handle());
+        let session = crate::test::SESSION.clone();
 
         let _stream = ScanBuilder::new(session, reader).into_stream().unwrap();
 
@@ -613,7 +595,7 @@ mod test {
         let reader = Arc::new(BlockingSplitsLayoutReader::new(gate.clone(), calls.clone()));
 
         let runtime = SingleThreadRuntime::default();
-        let session = test_session(runtime.handle());
+        let session = crate::test::session_with_handle(runtime.handle());
 
         let mut stream = ScanBuilder::new(session, reader).into_stream().unwrap();
 
