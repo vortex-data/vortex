@@ -503,7 +503,7 @@ mod test {
         let calls = Arc::new(AtomicUsize::new(0));
         let reader = Arc::new(CountingLayoutReader::new(calls.clone()));
 
-        let session = crate::test::SESSION.clone();
+        let session = crate::test::SCAN_SESSION.clone();
 
         let _stream = ScanBuilder::new(session, reader).into_stream().unwrap();
 

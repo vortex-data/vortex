@@ -25,4 +25,4 @@ pub fn session_with_handle(handle: Handle) -> VortexSession {
     new_session().with_handle(handle)
 }
 
-pub static SESSION: LazyLock<VortexSession> = LazyLock::new(new_session);
+pub static SCAN_SESSION: LazyLock<VortexSession> = LazyLock::new(new_session);
