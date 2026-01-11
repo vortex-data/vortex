@@ -22,6 +22,7 @@ use crate::v2::stream::SendableLayoutReaderStream;
 pub struct StructReader2 {
     row_count: u64,
     dtype: DType,
+    // TODO(ngates): we should make this lazy?
     fields: Vec<LayoutReader2Ref>,
 }
 

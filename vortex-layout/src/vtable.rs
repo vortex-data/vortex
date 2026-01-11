@@ -24,6 +24,8 @@ use crate::LayoutRef;
 use crate::children::LayoutChildren;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
+use crate::segments::SegmentSourceRef;
+use crate::v2::reader::LayoutReader2Ref;
 
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type Layout: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn Layout> + IntoLayout;
@@ -64,6 +66,16 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
     ) -> VortexResult<LayoutReaderRef>;
+
+    /// Create a new v2 reader for the layout.
+    fn new_reader2(
+        layout: &Self::Layout,
+        segment_source: &SegmentSourceRef,
+        session: &VortexSession,
+    ) -> VortexResult<LayoutReader2Ref> {
+        let _ = (layout, segment_source, session);
+        vortex_bail!("new_reader2 not implemented for this layout")
+    }
 
     #[cfg(gpu_unstable)]
     /// Create a new reader for the layout that uses a gpu device

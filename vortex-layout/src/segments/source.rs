@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use futures::future::BoxFuture;
 use vortex_array::buffer::BufferHandle;
 use vortex_error::VortexResult;
@@ -8,6 +10,9 @@ use vortex_error::VortexResult;
 use crate::segments::SegmentId;
 /// Static future resolving to a segment byte buffer.
 pub type SegmentFuture = BoxFuture<'static, VortexResult<BufferHandle>>;
+
+/// A reference-counted segment source.
+pub type SegmentSourceRef = Arc<dyn SegmentSource>;
 
 /// A trait for providing segment data to a [`crate::LayoutReader`].
 pub trait SegmentSource: 'static + Send + Sync {
