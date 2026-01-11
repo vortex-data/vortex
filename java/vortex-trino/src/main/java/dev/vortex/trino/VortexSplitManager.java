@@ -5,11 +5,8 @@
 
 package dev.vortex.trino;
 
-import io.trino.spi.Plugin;
+import io.trino.spi.connector.ConnectorSplitManager;
 
-/**
- * Entry point for the Vortex Trino plugin.
- */
-public class VortexPlugin implements Plugin {
+public class VortexSplitManager implements ConnectorSplitManager {
 
 }

@@ -30,6 +30,8 @@ testing {
 
             dependencies {
                 implementation("org.junit.jupiter:junit-jupiter:5.14.1")
+                implementation("io.trino:trino-testing")
+                implementation("io.trino:trino-main")
                 runtimeOnly("org.slf4j:slf4j-simple:2.0.17")
             }
         }
