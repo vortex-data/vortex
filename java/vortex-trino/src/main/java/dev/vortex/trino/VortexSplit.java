@@ -7,6 +7,6 @@ package dev.vortex.trino;
 
 import io.trino.spi.connector.ConnectorSplit;
 
-public class VortexSplit implements ConnectorSplit {
-    
+public final class VortexSplit implements ConnectorSplit {
+
 }

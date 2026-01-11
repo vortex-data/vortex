@@ -11,6 +11,13 @@ plugins {
     id("com.gradleup.shadow") version "9.2.2"
 }
 
+java {
+    toolchain {
+        // Trino requires minimum Java 24
+        languageVersion.set(JavaLanguageVersion.of(24))
+    }
+}
+
 dependencies {
     api(project(":vortex-jni", configuration = "shadow"))
 
@@ -21,6 +28,10 @@ dependencies {
 
     implementation("com.google.guava:guava")
     implementation("org.slf4j:slf4j-api:2.0.17")
+
+    testImplementation("io.trino:trino-testing")
+    testImplementation("io.trino:trino-main")
+    testImplementation("org.hibernate.validator:hibernate-validator")
 }
 
 testing {
@@ -30,10 +41,17 @@ testing {
 
             dependencies {
                 implementation("org.junit.jupiter:junit-jupiter:5.14.1")
-                implementation("io.trino:trino-testing")
-                implementation("io.trino:trino-main")
                 runtimeOnly("org.slf4j:slf4j-simple:2.0.17")
             }
+        }
+    }
+}
+
+// Include vortex-jni test resources in the test classpath
+sourceSets {
+    test {
+        resources {
+            srcDir(project(":vortex-jni").file("src/test/resources"))
         }
     }
 }

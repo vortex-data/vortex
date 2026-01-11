@@ -1,20 +1,20 @@
 # Run ./gradlew writeVersionsLocks to regenerate this file. Blank lines are to minimize merge conflicts.
 
-com.clearspring.analytics:stream:2.9.6 (1 constraints: 230de736)
+com.clearspring.analytics:stream:2.9.8 (2 constraints: 3716fb3f)
 
 com.esotericsoftware:kryo-shaded:4.0.2 (2 constraints: b8134fa6)
 
 com.esotericsoftware:minlog:1.3.0 (1 constraints: 670e7c4f)
 
-com.fasterxml.jackson:jackson-bom:2.19.0 (4 constraints: fe4d34d7)
+com.fasterxml.jackson:jackson-bom:2.19.0 (12 constraints: 15125ce0)
 
-com.fasterxml.jackson.core:jackson-annotations:2.19.0 (8 constraints: e583e2c0)
+com.fasterxml.jackson.core:jackson-annotations:2.19.0 (25 constraints: 6768dcab)
 
-com.fasterxml.jackson.core:jackson-core:2.19.0 (10 constraints: 8d9953c3)
+com.fasterxml.jackson.core:jackson-core:2.19.0 (28 constraints: c4b6b91a)
 
-com.fasterxml.jackson.core:jackson-databind:2.19.0 (12 constraints: 62b7f26a)
+com.fasterxml.jackson.core:jackson-databind:2.19.0 (30 constraints: a9d134a3)
 
-com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.19.0 (2 constraints: e71b5ec7)
+com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.19.0 (3 constraints: 9f23aad7)
 
 com.fasterxml.jackson.module:jackson-module-scala_2.12:2.19.0 (3 constraints: 902cd382)
 
@@ -26,13 +26,13 @@ com.google.code.gson:gson:2.10.1 (1 constraints: 590c9905)
 
 com.google.crypto.tink:tink:1.9.0 (1 constraints: 33113dee)
 
-com.google.errorprone:error_prone_annotations:2.41.0 (1 constraints: 490a3ebf)
+com.google.errorprone:error_prone_annotations:2.41.0 (5 constraints: 06358d22)
 
 com.google.flatbuffers:flatbuffers-java:25.2.10 (2 constraints: a51a6972)
 
 com.google.guava:failureaccess:1.0.3 (2 constraints: 1b0f8086)
 
-com.google.guava:guava:33.5.0-jre (2 constraints: 6615ddd5)
+com.google.guava:guava:33.5.0-jre (40 constraints: 6ce06d97)
 
 com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava (2 constraints: 692a93df)
 
@@ -52,17 +52,17 @@ com.twitter:chill_2.12:0.10.0 (2 constraints: 5e1b77f2)
 
 com.univocity:univocity-parsers:2.9.1 (2 constraints: 9e1b78f6)
 
-commons-codec:commons-codec:1.18.0 (4 constraints: 1939bb25)
+commons-codec:commons-codec:1.18.0 (6 constraints: 9e495319)
 
 commons-collections:commons-collections:3.2.2 (1 constraints: 190dd336)
 
-commons-io:commons-io:2.16.1 (1 constraints: 4c0d2344)
+commons-io:commons-io:2.16.1 (2 constraints: ee1c6a5c)
 
 commons-logging:commons-logging:1.1.3 (1 constraints: b0102eb8)
 
-io.airlift:aircompressor:0.27 (2 constraints: 6918ff95)
+io.airlift:aircompressor:2.0.2 (3 constraints: 48224409)
 
-io.airlift:slice:2.3 (1 constraints: 50082079)
+io.airlift:slice:2.3 (8 constraints: 4a4ffda2)
 
 io.dropwizard.metrics:metrics-core:4.2.19 (7 constraints: c86edc92)
 
@@ -106,31 +106,35 @@ io.netty:netty-transport-native-kqueue:4.1.96.Final (3 constraints: f32d6de6)
 
 io.netty:netty-transport-native-unix-common:4.1.96.Final (6 constraints: 2664d97a)
 
-io.opentelemetry:opentelemetry-api:1.50.0 (2 constraints: 611cdcfe)
+io.opentelemetry:opentelemetry-api:1.50.0 (16 constraints: 74dffd3e)
 
 io.opentelemetry:opentelemetry-api-incubator:1.50.0-alpha (1 constraints: 120b8ccf)
 
-io.opentelemetry:opentelemetry-context:1.50.0 (2 constraints: 6d1891ca)
+io.opentelemetry:opentelemetry-context:1.50.0 (8 constraints: 3654d716)
 
-io.trino:trino-spi:476 (1 constraints: b7043b2c)
+io.trino:trino-spi:476 (5 constraints: 192fa0de)
 
-jakarta.annotation:jakarta.annotation-api:1.3.5 (2 constraints: f5217bb4)
+it.unimi.dsi:fastutil:8.5.15 (3 constraints: 6721ebff)
 
-jakarta.servlet:jakarta.servlet-api:4.0.3 (1 constraints: 190dd336)
+jakarta.annotation:jakarta.annotation-api:3.0.0 (17 constraints: 89bf77ec)
 
-jakarta.validation:jakarta.validation-api:2.0.2 (1 constraints: fd10b6c3)
+jakarta.inject:jakarta.inject-api:2.0.1 (5 constraints: fe56f592)
 
-jakarta.ws.rs:jakarta.ws.rs-api:2.1.6 (5 constraints: 8c647f61)
+jakarta.servlet:jakarta.servlet-api:6.0.0 (5 constraints: ff389c06)
+
+jakarta.validation:jakarta.validation-api:3.1.1 (13 constraints: 7596f247)
+
+jakarta.ws.rs:jakarta.ws.rs-api:3.1.0 (11 constraints: e8a23fe1)
 
 javax.activation:activation:1.1.1 (1 constraints: 150dc536)
 
-joda-time:joda-time:2.12.5 (1 constraints: 5f0ca305)
+joda-time:joda-time:2.14.0 (5 constraints: 1d3ef514)
 
 net.razorvine:pickle:1.3 (1 constraints: b80cce1c)
 
 net.sf.py4j:py4j:0.10.9.7 (1 constraints: b10d385f)
 
-org.antlr:antlr4-runtime:4.9.3 (1 constraints: 300ea766)
+org.antlr:antlr4-runtime:4.13.2 (4 constraints: 9a2ac88d)
 
 org.apache.arrow:arrow-c-data:18.3.0 (1 constraints: 3e05583b)
 
@@ -152,13 +156,13 @@ org.apache.avro:avro-mapred:1.11.4 (1 constraints: 490d1144)
 
 org.apache.commons:commons-collections4:4.4 (1 constraints: bc0cd81c)
 
-org.apache.commons:commons-compress:1.26.2 (2 constraints: ca16c279)
+org.apache.commons:commons-compress:1.27.1 (4 constraints: 7e2da073)
 
 org.apache.commons:commons-crypto:1.1.0 (2 constraints: 3e1edfbf)
 
-org.apache.commons:commons-lang3:3.12.0 (5 constraints: 80431b02)
+org.apache.commons:commons-lang3:3.16.0 (6 constraints: 2253c51e)
 
-org.apache.commons:commons-math3:3.6.1 (1 constraints: 1c0dde36)
+org.apache.commons:commons-math3:3.6.1 (4 constraints: 492b16ba)
 
 org.apache.commons:commons-text:1.10.0 (2 constraints: c51d12cf)
 
@@ -182,7 +186,7 @@ org.apache.ivy:ivy:2.5.1 (1 constraints: 1a0dd636)
 
 org.apache.logging.log4j:log4j-1.2-api:2.20.0 (1 constraints: 8410bbd5)
 
-org.apache.logging.log4j:log4j-api:2.20.0 (4 constraints: 403f24a8)
+org.apache.logging.log4j:log4j-api:2.24.3 (5 constraints: 474fdc75)
 
 org.apache.logging.log4j:log4j-core:2.20.0 (2 constraints: 85217617)
 
@@ -244,35 +248,33 @@ org.codehaus.janino:janino:3.1.9 (1 constraints: db0e8e7c)
 
 org.fusesource.leveldbjni:leveldbjni-all:1.8 (2 constraints: f51e57d0)
 
-org.glassfish.hk2:hk2-api:2.6.1 (1 constraints: 6e0c620c)
+org.glassfish.hk2:hk2-api:3.0.6 (1 constraints: 6e0c5a0c)
 
-org.glassfish.hk2:hk2-locator:2.6.1 (1 constraints: 4410e0ad)
+org.glassfish.hk2:hk2-locator:3.0.6 (1 constraints: 4410d8ad)
 
-org.glassfish.hk2:hk2-utils:2.6.1 (2 constraints: 21173277)
+org.glassfish.hk2:hk2-utils:3.0.6 (2 constraints: 21172277)
 
 org.glassfish.hk2:osgi-resource-locator:1.0.3 (1 constraints: ef10e7c2)
 
-org.glassfish.hk2.external:aopalliance-repackaged:2.6.1 (2 constraints: 21173277)
+org.glassfish.hk2.external:aopalliance-repackaged:3.0.6 (2 constraints: 21172277)
 
-org.glassfish.hk2.external:jakarta.inject:2.6.1 (7 constraints: 6a6fc2d8)
+org.glassfish.jersey.containers:jersey-container-servlet:3.1.10 (2 constraints: 0915e2eb)
 
-org.glassfish.jersey.containers:jersey-container-servlet:2.40 (1 constraints: ea0cbc29)
+org.glassfish.jersey.containers:jersey-container-servlet-core:3.1.10 (3 constraints: 212d09b8)
 
-org.glassfish.jersey.containers:jersey-container-servlet-core:2.40 (2 constraints: a524e893)
+org.glassfish.jersey.core:jersey-client:3.1.10 (2 constraints: 171e6d77)
 
-org.glassfish.jersey.core:jersey-client:2.40 (2 constraints: ba1d733b)
+org.glassfish.jersey.core:jersey-common:3.1.10 (7 constraints: c07971c4)
 
-org.glassfish.jersey.core:jersey-common:2.40 (6 constraints: d06f6b49)
+org.glassfish.jersey.core:jersey-server:3.1.10 (4 constraints: 0f475823)
 
-org.glassfish.jersey.core:jersey-server:2.40 (3 constraints: 363eb427)
-
-org.glassfish.jersey.inject:jersey-hk2:2.40 (1 constraints: ea0cbc29)
+org.glassfish.jersey.inject:jersey-hk2:3.1.10 (2 constraints: 0915e2eb)
 
 org.immutables:value:2.12.0 (1 constraints: 3705353b)
 
-org.javassist:javassist:3.29.2-GA (1 constraints: 30112ef1)
+org.javassist:javassist:3.30.2-GA (1 constraints: 2811fff0)
 
-org.jetbrains:annotations:17.0.0 (1 constraints: 6e0a64c7)
+org.jetbrains:annotations:17.0.0 (3 constraints: a4261cff)
 
 org.json4s:json4s-ast_2.12:3.7.0-M11 (1 constraints: e80b1418)
 
@@ -290,9 +292,7 @@ org.objenesis:objenesis:2.5.1 (1 constraints: 6b0e884f)
 
 org.openjdk.jol:jol-core:0.17 (2 constraints: 2e1073b5)
 
-org.roaringbitmap:RoaringBitmap:0.9.45 (3 constraints: 8c30036b)
-
-org.roaringbitmap:shims:0.9.45 (1 constraints: 280eba49)
+org.roaringbitmap:RoaringBitmap:1.3.0 (4 constraints: 9139df2d)
 
 org.rocksdb:rocksdbjni:8.3.2 (3 constraints: 7e2c4f5c)
 
@@ -306,17 +306,17 @@ org.scala-lang.modules:scala-parser-combinators_2.12:2.3.0 (1 constraints: 250e8
 
 org.scala-lang.modules:scala-xml_2.12:2.1.0 (1 constraints: 150dc936)
 
-org.slf4j:jcl-over-slf4j:2.0.7 (1 constraints: 591036c5)
+org.slf4j:jcl-over-slf4j:2.0.17 (2 constraints: 9f1a697b)
 
 org.slf4j:jul-to-slf4j:2.0.7 (1 constraints: 591036c5)
 
-org.slf4j:slf4j-api:2.0.17 (27 constraints: 3a6c438f)
+org.slf4j:slf4j-api:2.0.17 (53 constraints: 61f43400)
 
 org.threeten:threeten-extra:1.7.1 (1 constraints: 3f0aecbc)
 
 org.tukaani:xz:1.9 (1 constraints: 5d0a1eb6)
 
-org.xerial.snappy:snappy-java:1.1.10.5 (5 constraints: 3a48a9ee)
+org.xerial.snappy:snappy-java:1.1.10.7 (6 constraints: e14f35fa)
 
 oro:oro:2.0.8 (1 constraints: 1c0dce36)
 
@@ -324,15 +324,295 @@ oro:oro:2.0.8 (1 constraints: 1c0dce36)
 
 [Test dependencies]
 
+aopalliance:aopalliance:1.0 (1 constraints: 170a83ac)
+
 ch.qos.logback:logback-classic:1.5.23 (1 constraints: 3d053e3b)
 
-ch.qos.logback:logback-core:1.5.23 (1 constraints: 3c0d432a)
+ch.qos.logback:logback-core:1.5.23 (3 constraints: 2e22794a)
+
+com.carrotsearch.thirdparty:simple-xml-safe:2.7.1 (1 constraints: 1a075a61)
+
+com.esri.geometry:esri-geometry-api:2.2.4 (2 constraints: ca17718c)
+
+com.fasterxml:classmate:1.7.0 (1 constraints: 9b122f13)
+
+com.fasterxml.jackson.dataformat:jackson-dataformat-smile:2.19.0 (2 constraints: 5a1f65cd)
+
+com.fasterxml.jackson.datatype:jackson-datatype-guava:2.19.0 (2 constraints: 7416ea49)
+
+com.fasterxml.jackson.datatype:jackson-datatype-jdk8:2.19.0 (4 constraints: d229fe06)
+
+com.fasterxml.jackson.datatype:jackson-datatype-joda:2.19.0 (2 constraints: 7416ea49)
+
+com.fasterxml.jackson.jakarta.rs:jackson-jakarta-rs-base:2.19.0 (3 constraints: ed3142b8)
+
+com.fasterxml.jackson.jakarta.rs:jackson-jakarta-rs-json-provider:2.19.0 (2 constraints: e2162563)
+
+com.fasterxml.jackson.module:jackson-module-jakarta-xmlbind-annotations:2.19.0 (2 constraints: c72987fc)
+
+com.fasterxml.jackson.module:jackson-module-parameter-names:2.19.0 (2 constraints: 7416ea49)
+
+com.github.docker-java:docker-java-api:3.5.1 (2 constraints: 031e092f)
+
+com.github.docker-java:docker-java-transport:3.4.2 (1 constraints: c71515cb)
+
+com.github.docker-java:docker-java-transport-zerodep:3.4.2 (1 constraints: 3d0f6267)
+
+com.github.oshi:oshi-core:6.8.2 (1 constraints: 1209cd94)
+
+com.github.stephenc.jcip:jcip-annotations:1.0-1 (1 constraints: 330ca703)
+
+com.google.inject:guice:7.0.0 (19 constraints: 73bb17e6)
+
+com.googlecode.json-simple:json-simple:1.1.1 (1 constraints: d90f7798)
+
+com.h2database:h2:2.3.232 (1 constraints: c70a79cf)
+
+com.nimbusds:content-type:2.3 (1 constraints: d90b69eb)
+
+com.nimbusds:lang-tag:1.7 (1 constraints: dc0b6aeb)
+
+com.nimbusds:nimbus-jose-jwt:10.3 (2 constraints: 3c154aea)
+
+com.nimbusds:oauth2-oidc-sdk:11.25 (1 constraints: 0d09ad94)
+
+com.squareup.okhttp3:logging-interceptor:4.12.0 (1 constraints: 130a75b6)
+
+com.squareup.okhttp3:okhttp:4.12.0 (8 constraints: 326f860f)
+
+com.squareup.okhttp3:okhttp-urlconnection:4.12.0 (1 constraints: 130a75b6)
+
+com.squareup.okio:okio:3.6.0 (1 constraints: 530c38fd)
+
+com.squareup.okio:okio-jvm:3.6.0 (1 constraints: 500ad3b9)
+
+com.sun.istack:istack-commons-runtime:4.1.2 (1 constraints: 610c0d06)
+
+dev.failsafe:failsafe:3.3.2 (3 constraints: b221decb)
+
+info.debatty:java-string-similarity:2.0.0 (2 constraints: a6128e44)
+
+io.airlift:aircompressor-v3:3.2 (2 constraints: 2b12e612)
+
+io.airlift:bootstrap:336 (5 constraints: 5a38dd63)
+
+io.airlift:bytecode:1.6 (1 constraints: ab08ca82)
+
+io.airlift:concurrent:336 (9 constraints: b365e90f)
+
+io.airlift:configuration:336 (15 constraints: 6c90f694)
+
+io.airlift:discovery:336 (5 constraints: 2c32a594)
+
+io.airlift:http-client:336 (4 constraints: df2ee189)
+
+io.airlift:http-server:336 (4 constraints: 7f2b51f7)
+
+io.airlift:jaxrs:336 (4 constraints: 902b5eec)
+
+io.airlift:jetty-memory:336 (2 constraints: d5134864)
+
+io.airlift:jmx:336 (2 constraints: c7180ba6)
+
+io.airlift:jmx-http:336 (1 constraints: b208da82)
+
+io.airlift:joni:2.1.5.3 (1 constraints: 6b094aa7)
+
+io.airlift:json:336 (12 constraints: 487cefdf)
+
+io.airlift:log:336 (16 constraints: eda89c73)
+
+io.airlift:log-manager:336 (3 constraints: 0c1c04b4)
+
+io.airlift:node:336 (11 constraints: 7a6f3cb5)
+
+io.airlift:openmetrics:336 (1 constraints: b208da82)
+
+io.airlift:secrets-spi:336 (1 constraints: eb0aafbd)
+
+io.airlift:security:336 (4 constraints: 54291eee)
+
+io.airlift:stats:336 (5 constraints: 8333bf51)
+
+io.airlift:testing:336 (1 constraints: 0b0a9ba5)
+
+io.airlift:trace-token:247 (1 constraints: 1610f180)
+
+io.airlift:tracing:336 (3 constraints: d122501a)
+
+io.airlift:units:1.10 (14 constraints: 9899ddda)
+
+io.airlift.discovery:discovery-server:1.37 (2 constraints: 16138845)
+
+io.jsonwebtoken:jjwt-api:0.12.6 (3 constraints: 00220c36)
+
+io.jsonwebtoken:jjwt-impl:0.12.6 (1 constraints: 3b09d99d)
+
+io.jsonwebtoken:jjwt-jackson:0.12.6 (1 constraints: 3b09d99d)
+
+io.leangen.geantyref:geantyref:2.0.1 (1 constraints: 8608fe8b)
+
+io.minio:minio:8.5.17 (1 constraints: 030f1a6a)
+
+io.opentelemetry:opentelemetry-exporter-common:1.50.0 (2 constraints: b22da89a)
+
+io.opentelemetry:opentelemetry-exporter-otlp:1.50.0 (1 constraints: e1088d92)
+
+io.opentelemetry:opentelemetry-exporter-otlp-common:1.50.0 (1 constraints: ba13974e)
+
+io.opentelemetry:opentelemetry-exporter-sender-okhttp:1.50.0 (1 constraints: ba13974e)
+
+io.opentelemetry:opentelemetry-sdk:1.50.0 (3 constraints: 63364785)
+
+io.opentelemetry:opentelemetry-sdk-common:1.50.0 (6 constraints: bd65fdaa)
+
+io.opentelemetry:opentelemetry-sdk-extension-autoconfigure-spi:1.50.0 (2 constraints: 3d28bf1d)
+
+io.opentelemetry:opentelemetry-sdk-logs:1.50.0 (2 constraints: 5023cc36)
+
+io.opentelemetry:opentelemetry-sdk-metrics:1.50.0 (2 constraints: 5023cc36)
+
+io.opentelemetry:opentelemetry-sdk-testing:1.50.0 (2 constraints: c8139089)
+
+io.opentelemetry:opentelemetry-sdk-trace:1.50.0 (5 constraints: f73fbd40)
+
+io.opentelemetry.semconv:opentelemetry-semconv:1.32.0 (5 constraints: aa3e559e)
+
+io.opentelemetry.semconv:opentelemetry-semconv-incubating:1.32.0-alpha (4 constraints: ad2e5b55)
+
+io.trino:trino-array:476 (1 constraints: b708e582)
+
+io.trino:trino-cache:476 (2 constraints: 8a15fdbc)
+
+io.trino:trino-client:476 (2 constraints: c6124725)
+
+io.trino:trino-geospatial-toolkit:476 (1 constraints: b708e582)
+
+io.trino:trino-grammar:476 (1 constraints: 9f099499)
+
+io.trino:trino-main:476 (2 constraints: c60e8e5a)
+
+io.trino:trino-matching:476 (2 constraints: 8a15fdbc)
+
+io.trino:trino-memory-context:476 (1 constraints: b708e582)
+
+io.trino:trino-parser:476 (2 constraints: c6124725)
+
+io.trino:trino-plugin-toolkit:476 (3 constraints: 861bc990)
+
+io.trino:trino-re2j:1.7 (1 constraints: ac08cb82)
+
+io.trino:trino-testing:476 (1 constraints: b7043b2c)
+
+io.trino:trino-testing-containers:476 (1 constraints: 100aa6a5)
+
+io.trino:trino-testing-services:476 (2 constraints: 8218d375)
+
+io.trino:trino-tpch:476 (1 constraints: 100aa6a5)
+
+io.trino:trino-web-ui:476 (1 constraints: b708e582)
+
+io.trino.tpch:tpch:1.4 (2 constraints: b412062d)
+
+jakarta.activation:jakarta.activation-api:2.1.3 (2 constraints: 0e2d48c7)
+
+jakarta.xml.bind:jakarta.xml.bind-api:4.0.2 (3 constraints: d03138af)
+
+junit:junit:4.13.2 (1 constraints: 6e0fd276)
+
+net.bytebuddy:byte-buddy:1.15.11 (1 constraints: 7f0bc9ea)
+
+net.java.dev.jna:jna:5.17.0 (3 constraints: 232eb9f5)
+
+net.java.dev.jna:jna-platform:5.17.0 (2 constraints: a714ebce)
+
+net.minidev:accessors-smart:2.5.2 (1 constraints: 4a0a8eb8)
+
+net.minidev:json-smart:2.5.2 (1 constraints: 3b0cbe03)
+
+net.sf.jopt-simple:jopt-simple:5.0.4 (1 constraints: be0ad6cc)
+
+org.apache.logging.log4j:log4j-to-slf4j:2.24.3 (1 constraints: 480ab0be)
+
+org.apache.lucene:lucene-analysis-common:10.2.1 (1 constraints: 3609d89d)
+
+org.apache.lucene:lucene-core:10.2.1 (1 constraints: 4b11d8dd)
+
+org.assertj:assertj-core:3.27.3 (1 constraints: 9a0ac7c4)
+
+org.bouncycastle:bcprov-jdk18on:1.78.1 (1 constraints: 5107b768)
+
+org.checkerframework:checker-qual:3.21.2 (1 constraints: cc070975)
+
+org.eclipse.angus:angus-activation:2.0.2 (1 constraints: 5e0c0006)
+
+org.eclipse.jetty:jetty-alpn-client:12.0.22 (3 constraints: 4e316391)
+
+org.eclipse.jetty:jetty-alpn-java-client:12.0.22 (1 constraints: 2716b5f9)
+
+org.eclipse.jetty:jetty-alpn-java-server:12.0.22 (1 constraints: ae0a16cd)
+
+org.eclipse.jetty:jetty-alpn-server:12.0.22 (2 constraints: 3a1c6de2)
+
+org.eclipse.jetty:jetty-client:12.0.22 (2 constraints: bc202a60)
+
+org.eclipse.jetty:jetty-http:12.0.22 (5 constraints: 89427d76)
+
+org.eclipse.jetty:jetty-io:12.0.22 (10 constraints: 4f8558a0)
+
+org.eclipse.jetty:jetty-jmx:12.0.22 (1 constraints: ae0a16cd)
+
+org.eclipse.jetty:jetty-security:12.0.22 (1 constraints: 051133ef)
+
+org.eclipse.jetty:jetty-server:12.0.22 (7 constraints: 6c65e9ac)
+
+org.eclipse.jetty:jetty-session:12.0.22 (1 constraints: 051133ef)
+
+org.eclipse.jetty:jetty-util:12.0.22 (6 constraints: a84ce64c)
+
+org.eclipse.jetty.ee10:jetty-ee10-servlet:12.0.22 (1 constraints: ae0a16cd)
+
+org.eclipse.jetty.http2:jetty-http2-client:12.0.22 (2 constraints: bc202a60)
+
+org.eclipse.jetty.http2:jetty-http2-client-transport:12.0.22 (1 constraints: 960a8ecb)
+
+org.eclipse.jetty.http2:jetty-http2-common:12.0.22 (2 constraints: 3124a9eb)
+
+org.eclipse.jetty.http2:jetty-http2-hpack:12.0.22 (1 constraints: 17125d17)
+
+org.eclipse.jetty.http2:jetty-http2-server:12.0.22 (1 constraints: ae0a16cd)
+
+org.gaul:modernizer-maven-annotations:3.1.0 (3 constraints: 7c1fb30c)
+
+org.glassfish.jaxb:jaxb-core:4.0.5 (1 constraints: be0db835)
+
+org.glassfish.jaxb:jaxb-runtime:4.0.5 (1 constraints: f4072575)
+
+org.glassfish.jaxb:txw2:4.0.5 (1 constraints: 630c0d06)
+
+org.hamcrest:hamcrest-core:1.3 (1 constraints: cc05fe3f)
+
+org.hdrhistogram:HdrHistogram:2.2.2 (1 constraints: f8079575)
+
+org.hibernate.validator:hibernate-validator:9.0.0.Final (2 constraints: 3d183a9d)
+
+org.jboss.logging:jboss-logging:3.6.1.Final (1 constraints: b5147389)
+
+org.jdbi:jdbi3-core:3.49.4 (1 constraints: 9f0ad6c4)
+
+org.jetbrains.kotlin:kotlin-stdlib:1.9.10 (2 constraints: c2210fe1)
+
+org.jetbrains.kotlin:kotlin-stdlib-common:1.9.10 (2 constraints: 3f1b4b83)
+
+org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.9.10 (1 constraints: e210ffd2)
+
+org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.10 (4 constraints: 643cbf50)
 
 org.junit:junit-bom:5.14.1 (7 constraints: d475ef0e)
 
 org.junit.jupiter:junit-jupiter:5.14.1 (2 constraints: e8100bfb)
 
-org.junit.jupiter:junit-jupiter-api:5.14.1 (4 constraints: 3b39b5e5)
+org.junit.jupiter:junit-jupiter-api:5.14.1 (5 constraints: ce433f86)
 
 org.junit.jupiter:junit-jupiter-engine:5.14.1 (2 constraints: 79175364)
 
@@ -344,6 +624,34 @@ org.junit.platform:junit-platform-engine:1.14.1 (3 constraints: 8a2c3080)
 
 org.junit.platform:junit-platform-launcher:1.14.1 (1 constraints: 3e09aa9e)
 
+org.locationtech.jts:jts-core:1.20.0 (3 constraints: 2828a3ce)
+
+org.locationtech.jts.io:jts-io-common:1.20.0 (1 constraints: ec0e8f69)
+
+org.openjdk.jmh:jmh-core:1.37 (1 constraints: c90d2f2c)
+
 org.opentest4j:opentest4j:1.3.0 (2 constraints: cf209249)
 
+org.ow2.asm:asm:9.8 (5 constraints: 162f8896)
+
+org.ow2.asm:asm-analysis:9.4 (1 constraints: aa08eb84)
+
+org.ow2.asm:asm-tree:9.4 (3 constraints: b91b64cb)
+
+org.ow2.asm:asm-util:9.4 (1 constraints: c108db82)
+
+org.pcollections:pcollections:4.0.2 (1 constraints: 0809ab94)
+
+org.rnorth.duct-tape:duct-tape:1.0.8 (2 constraints: 031ee72e)
+
+org.slf4j:log4j-over-slf4j:2.0.17 (1 constraints: 470aa0be)
+
+org.slf4j:slf4j-jdk14:2.0.17 (1 constraints: 470aa0be)
+
 org.slf4j:slf4j-simple:2.0.17 (1 constraints: 3c05323b)
+
+org.testcontainers:testcontainers:1.21.1 (1 constraints: f30ee169)
+
+org.tomlj:tomlj:1.1.1 (1 constraints: 3e0be5d3)
+
+org.weakref:jmxutils:1.26 (12 constraints: c2768d5e)

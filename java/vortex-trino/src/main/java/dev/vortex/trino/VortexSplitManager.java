@@ -7,6 +7,6 @@ package dev.vortex.trino;
 
 import io.trino.spi.connector.ConnectorSplitManager;
 
-public class VortexSplitManager implements ConnectorSplitManager {
+public final class VortexSplitManager implements ConnectorSplitManager {
 
 }

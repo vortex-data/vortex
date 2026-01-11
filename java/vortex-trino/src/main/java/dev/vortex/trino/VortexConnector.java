@@ -5,17 +5,20 @@
 
 package dev.vortex.trino;
 
-import com.google.common.collect.ImmutableSet;
 import io.trino.spi.connector.Connector;
-import io.trino.spi.connector.ConnectorCapabilities;
-import io.trino.spi.connector.ConnectorPageSourceProvider;
+import io.trino.spi.function.table.ConnectorTableFunction;
 
 import java.util.Set;
 
 public final class VortexConnector implements Connector {
+    private final Set<ConnectorTableFunction> tableFunctions;
+
+    public VortexConnector() {
+        this.tableFunctions = Set.of(new VortexTableFunction());
+    }
 
     @Override
-    public ConnectorPageSourceProvider getPageSourceProvider() {
-        return Connector.super.getPageSourceProvider();
+    public Set<ConnectorTableFunction> getTableFunctions() {
+        return tableFunctions;
     }
 }
