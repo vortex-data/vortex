@@ -82,7 +82,7 @@ impl Display for Nullability {
                 if f.alternate() {
                     write!(f, "NonNullable")
                 } else {
-                    Ok(())
+                    write!(f, "")
                 }
             }
             Self::Nullable => {
