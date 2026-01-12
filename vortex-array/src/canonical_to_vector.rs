@@ -5,10 +5,13 @@
 
 use std::sync::Arc;
 
+use vortex_buffer::Buffer;
+use vortex_dtype::BigCast;
 use vortex_dtype::DType;
 use vortex_dtype::PrecisionScale;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_vector::Vector;
 use vortex_vector::binaryview::BinaryVector;
@@ -45,13 +48,38 @@ impl Canonical {
                 })
             }
             Canonical::Decimal(a) => {
-                let values_type = a.values_type();
-                let dec_dtype = a.decimal_dtype();
-                let validity = a.validity_mask();
-                match_each_decimal_value_type!(values_type, |D| {
-                    let buffer = a.buffer::<D>();
-                    let ps = PrecisionScale::<D>::new(dec_dtype.precision(), dec_dtype.scale());
-                    Vector::Decimal(DVector::<D>::new(ps, buffer, validity).into())
+                // Match on the storage type first to read the buffer
+                match_each_decimal_value_type!(a.values_type(), |D| {
+                    // Use the smallest type that can represent the precision/scale.
+                    // The array may store values in a smaller type (if values fit), but
+                    // DVector requires a PrecisionScale that matches its type parameter.
+                    let min_value_type =
+                        DecimalType::smallest_decimal_value_type(&a.decimal_dtype());
+                    match_each_decimal_value_type!(min_value_type, |E| {
+                        let decimal_dtype = a.decimal_dtype();
+                        let buffer = a.buffer::<D>();
+                        let validity_mask = a.validity_mask();
+
+                        // Copy from D to E, possibly widening, possibly narrowing
+                        let values = Buffer::<E>::from_trusted_len_iter(buffer.iter().map(|d| {
+                            <E as BigCast>::from(*d).vortex_expect("Decimal cast failed")
+                        }));
+
+                        // SAFETY: values came from a valid DecimalArray with the same precision/scale
+                        Vector::Decimal(
+                            unsafe {
+                                DVector::<E>::new_unchecked(
+                                    PrecisionScale::new_unchecked(
+                                        decimal_dtype.precision(),
+                                        decimal_dtype.scale(),
+                                    ),
+                                    values,
+                                    validity_mask,
+                                )
+                            }
+                            .into(),
+                        )
+                    })
                 })
             }
             Canonical::VarBinView(a) => {
