@@ -78,8 +78,20 @@ impl From<Nullability> for bool {
 impl Display for Nullability {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NonNullable => write!(f, ""),
-            Self::Nullable => write!(f, "?"),
+            Self::NonNullable => {
+                if f.alternate() {
+                    write!(f, "NonNullable")
+                } else {
+                    write!(f, "")
+                }
+            }
+            Self::Nullable => {
+                if f.alternate() {
+                    write!(f, "Nullable")
+                } else {
+                    write!(f, "?")
+                }
+            }
         }
     }
 }

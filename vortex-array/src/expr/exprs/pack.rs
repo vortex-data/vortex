@@ -48,7 +48,7 @@ impl Display for PackOptions {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "names: [{}], nullability: {}",
+            "names: [{}], nullability: {:#}",
             self.names.iter().join(", "),
             self.nullability
         )

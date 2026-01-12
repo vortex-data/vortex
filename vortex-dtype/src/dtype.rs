@@ -451,6 +451,14 @@ impl DType {
         }
     }
 
+    /// Downcast a `DType` to an `ExtDType`
+    pub fn as_extension(&self) -> &Arc<ExtDType> {
+        let Extension(ext) = self else {
+            vortex_panic!("DType is not an Extension")
+        };
+        ext
+    }
+
     /// Convenience method for creating a [`DType::List`].
     pub fn list(dtype: impl Into<DType>, nullability: Nullability) -> Self {
         List(Arc::new(dtype.into()), nullability)
