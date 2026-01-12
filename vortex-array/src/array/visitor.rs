@@ -11,6 +11,7 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
+use crate::buffer::BufferHandle;
 use crate::patches::Patches;
 use crate::validity::Validity;
 
@@ -113,6 +114,10 @@ pub trait ArrayVisitorExt: Array {
 impl<A: Array + ?Sized> ArrayVisitorExt for A {}
 
 pub trait ArrayBufferVisitor {
+    fn visit_buffer_handle(&mut self, handle: &BufferHandle) -> VortexResult<()> {
+        self.visit_buffer(&handle.clone().try_to_host()?);
+        Ok(())
+    }
     fn visit_buffer(&mut self, buffer: &ByteBuffer);
 }
 

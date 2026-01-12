@@ -222,7 +222,7 @@ where
     let head_idx = validity
         .first()
         .vortex_expect("All null masks have been handled before");
-    let buffer = array.buffer::<T>();
+    let buffer = array.to_buffer::<T>();
     let head = buffer[head_idx];
 
     let mut loop_state = LoopState {

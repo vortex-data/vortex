@@ -718,7 +718,7 @@ mod tests {
             );
 
             if let Some(expected_val) = expected_value {
-                let buf = result_primitive.buffer::<f64>();
+                let buf = result_primitive.to_buffer::<f64>();
                 let result_val = buf.as_slice()[idx];
                 assert_eq!(result_val, expected_val, "Value mismatch at idx={idx}",);
             }

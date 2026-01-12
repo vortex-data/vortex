@@ -449,7 +449,7 @@ fn canonicalize_varbin(
     let len = array.len();
 
     match_each_integer_ptype!(indices.ptype(), |I| {
-        let indices = indices.buffer::<I>();
+        let indices = indices.to_buffer::<I>();
         canonicalize_varbin_inner::<I>(fill_value, indices, values, dtype, validity, len)
     })
 }

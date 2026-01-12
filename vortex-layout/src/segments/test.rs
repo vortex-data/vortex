@@ -30,7 +30,7 @@ impl SegmentSource for TestSegments {
         let buffer = self.segments.lock().get(*id as usize).cloned();
         async move {
             buffer
-                .map(BufferHandle::Host)
+                .map(BufferHandle::new_host)
                 .ok_or_else(|| vortex_err!("Segment not found"))
         }
         .boxed()

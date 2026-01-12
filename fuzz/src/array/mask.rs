@@ -36,8 +36,8 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
         }
         Canonical::Primitive(array) => {
             let new_validity = array.validity().mask(mask);
-            PrimitiveArray::from_byte_buffer(
-                array.byte_buffer().clone(),
+            PrimitiveArray::from_buffer_handle(
+                array.buffer_handle().clone(),
                 array.ptype(),
                 new_validity,
             )

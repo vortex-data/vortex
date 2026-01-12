@@ -66,7 +66,14 @@ fn mask_validity_primitive(array: PrimitiveArray, mask: &Mask) -> PrimitiveArray
     let len = array.len();
     let ptype = array.ptype();
     let new_validity = combine_validity(array.validity(), mask, len);
-    PrimitiveArray::from_byte_buffer(array.into_byte_buffer(), ptype, new_validity)
+    // SAFETY: validity has same length as values
+    unsafe {
+        PrimitiveArray::new_unchecked_from_handle(
+            array.buffer_handle().clone(),
+            ptype,
+            new_validity,
+        )
+    }
 }
 
 fn mask_validity_decimal(array: DecimalArray, mask: &Mask) -> DecimalArray {

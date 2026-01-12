@@ -41,7 +41,7 @@ impl SegmentSource for FileSegmentSource {
             maybe_fut
                 .ok_or_else(|| vortex_err!("Missing segment: {}", id))?
                 .await
-                .map(BufferHandle::Host)
+                .map(BufferHandle::new_host)
         }
         .boxed()
     }
