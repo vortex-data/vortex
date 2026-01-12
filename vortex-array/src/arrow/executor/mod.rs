@@ -9,7 +9,7 @@ mod dictionary;
 mod fixed_size_list;
 mod list;
 mod list_view;
-mod null;
+pub mod null;
 pub mod primitive;
 mod run_end;
 mod struct_;
