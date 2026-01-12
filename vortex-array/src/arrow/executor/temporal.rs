@@ -20,7 +20,6 @@ use arrow_array::types::TimestampNanosecondType;
 use arrow_array::types::TimestampSecondType;
 use arrow_schema::DataType;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
-use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::datetime::TimeUnit;
@@ -39,12 +38,7 @@ pub(super) fn to_arrow_temporal(
     data_type: &DataType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    let DType::Extension(ext_dtype) = array.dtype() else {
-        vortex_bail!(
-            "Cannot convert array with DType {} to temporal Arrow type",
-            array.dtype()
-        );
-    };
+    let ext_dtype = array.dtype().as_extension();
 
     let temporal_metadata = TemporalMetadata::try_from(ext_dtype)?;
 
@@ -126,7 +120,10 @@ fn to_arrow_temporal_primitive<T: ArrowTemporalType>(
 where
     T::Native: NativePType,
 {
-    let primitive = array.execute(ctx)?.into_primitive();
+    debug_assert!(TemporalMetadata::try_from(array.dtype().as_extension()).is_ok());
+
+    let ext_array = array.execute(ctx)?.into_extension();
+    let primitive = ext_array.storage().execute(ctx)?.into_primitive();
     vortex_ensure!(
         primitive.ptype() == T::Native::PTYPE,
         "Expected temporal array to produce vector of width {}, found {}",
