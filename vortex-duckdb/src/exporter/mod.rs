@@ -27,7 +27,6 @@ use vortex::array::Array;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
-use vortex::array::VectorExecutor;
 use vortex::array::arrays::ConstantVTable;
 use vortex::array::arrays::DictVTable;
 use vortex::array::arrays::ListVTable;
@@ -211,8 +210,8 @@ fn new_array_operator_exporter_with_flatten(
     }
 
     // Otherwise, we fall back to canonical
-    match array.execute(ctx)? {
-        Canonical::Null(_) => Ok(all_invalid::new_exporter(array.len(), &LogicalType::null())),
+    match array.execute::<Canonical>(ctx)? {
+        Canonical::Null(array) => Ok(all_invalid::new_exporter(array.len(), &LogicalType::null())),
         Canonical::Bool(array) => bool::new_exporter(array),
         Canonical::Primitive(array) => primitive::new_exporter(array),
         Canonical::Decimal(array) => decimal::new_exporter(array),

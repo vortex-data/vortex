@@ -10,25 +10,26 @@ use vortex_mask::Mask;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::Executable;
 use crate::ExecutionCtx;
+use crate::arrays::ConstantVTable;
 use crate::executor::CanonicalOutput;
-use crate::executor::VectorExecutor;
 
-/// Executor for exporting a Vortex [`Mask`] from an [`ArrayRef`].
-pub trait MaskExecutor {
-    /// Execute the array to produce a mask.
-    fn execute_mask(&self, ctx: &mut ExecutionCtx) -> VortexResult<Mask>;
-}
-
-impl MaskExecutor for ArrayRef {
-    fn execute_mask(&self, ctx: &mut ExecutionCtx) -> VortexResult<Mask> {
-        if !matches!(self.dtype(), DType::Bool(_)) {
-            vortex_bail!("Mask array must have boolean dtype, not {}", self.dtype());
+impl Executable for Mask {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        if !matches!(array.dtype(), DType::Bool(_)) {
+            vortex_bail!("Mask array must have boolean dtype, not {}", array.dtype());
         }
 
-        Ok(match self.execute_output(ctx)? {
+        if let Some(constant) = array.as_opt::<ConstantVTable>() {
+            let mask_value = constant.scalar().as_bool().value().unwrap_or(false);
+            return Ok(Mask::new(array.len(), mask_value));
+        }
+
+        let array_len = array.len();
+        Ok(match array.execute(ctx)? {
             CanonicalOutput::Constant(c) => {
-                Mask::new(self.len(), c.scalar().as_bool().value().unwrap_or(false))
+                Mask::new(array_len, c.scalar().as_bool().value().unwrap_or(false))
             }
             CanonicalOutput::Array(a) => {
                 let (bits, mask) = a.to_vector(ctx)?.into_bool().into_parts();

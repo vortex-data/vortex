@@ -26,7 +26,6 @@ use vortex_array::expr::root;
 use vortex_array::expr::transform::PartitionedExpr;
 use vortex_array::expr::transform::partition;
 use vortex_array::expr::transform::replace;
-use vortex_array::mask::MaskExecutor;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
 use vortex_dtype::FieldName;
@@ -266,7 +265,7 @@ fn row_idx_mask_future(
 
         let result_mask = if *USE_VORTEX_OPERATORS {
             let mut ctx = session.create_execution_ctx();
-            array.apply(&expr)?.execute_mask(&mut ctx)
+            array.apply(&expr)?.execute::<Mask>(&mut ctx)
         } else {
             expr.evaluate(&array)?.try_to_mask_fill_null_false()
         }?;

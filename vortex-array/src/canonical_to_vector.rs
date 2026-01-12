@@ -13,6 +13,7 @@ use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_vector::Vector;
 use vortex_vector::binaryview::BinaryVector;
 use vortex_vector::binaryview::StringVector;
@@ -24,9 +25,17 @@ use vortex_vector::null::NullVector;
 use vortex_vector::primitive::PVector;
 use vortex_vector::struct_::StructVector;
 
+use crate::ArrayRef;
 use crate::Canonical;
+use crate::Executable;
 use crate::ExecutionCtx;
-use crate::VectorExecutor;
+
+impl Executable for Vector {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        let canonical = array.execute::<Canonical>(ctx)?;
+        canonical.to_vector(ctx)
+    }
+}
 
 impl Canonical {
     /// Convert a Canonical array to a Vector.
@@ -105,10 +114,12 @@ impl Canonical {
                 }
             }
             Canonical::List(a) => {
-                let validity = a.validity_mask();
-                let elements_vector = a.elements().execute(ctx)?.to_vector(ctx)?;
-                let offsets = a.offsets().execute(ctx)?.into_primitive();
-                let sizes = a.sizes().execute(ctx)?.into_primitive();
+                let (elements, offsets, sizes, validity) = a.into_parts();
+
+                let validity = validity.to_array(offsets.len()).execute::<Mask>(ctx)?;
+                let elements_vector = elements.execute::<Vector>(ctx)?;
+                let offsets = offsets.execute::<Canonical>(ctx)?.into_primitive();
+                let sizes = sizes.execute::<Canonical>(ctx)?.into_primitive();
                 let offsets_ptype = offsets.ptype();
                 let sizes_ptype = sizes.ptype();
 
@@ -136,7 +147,7 @@ impl Canonical {
             Canonical::FixedSizeList(a) => {
                 let validity = a.validity_mask();
                 let list_size = a.list_size();
-                let elements_vector = a.elements().execute(ctx)?.to_vector(ctx)?;
+                let elements_vector = a.elements().clone().execute::<Vector>(ctx)?;
                 Vector::FixedSizeList(unsafe {
                     FixedSizeListVector::new_unchecked(
                         Arc::new(elements_vector),
@@ -148,15 +159,15 @@ impl Canonical {
             Canonical::Struct(a) => {
                 let validity = a.validity_mask();
                 let mut fields = Vec::with_capacity(a.fields().len());
-                for f in a.fields().iter() {
-                    fields.push(f.execute(ctx)?.to_vector(ctx)?);
+                for f in a.fields().iter().cloned() {
+                    fields.push(f.execute::<Vector>(ctx)?);
                 }
                 let fields: Box<[Vector]> = fields.into_boxed_slice();
                 Vector::Struct(StructVector::new(Arc::new(fields), validity))
             }
             Canonical::Extension(a) => {
                 // For extension arrays, convert the underlying storage
-                a.storage().execute(ctx)?.to_vector(ctx)?
+                a.storage().clone().execute::<Vector>(ctx)?
             }
         })
     }

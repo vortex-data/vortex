@@ -15,7 +15,6 @@ use crate::VortexSessionExecute;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::executor::CanonicalOutput;
-use crate::executor::VectorExecutor;
 use crate::expr::ExecutionArgs;
 use crate::validity::Validity;
 use crate::vtable::ValidityVTable;
@@ -91,7 +90,7 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let output = array
             .to_array()
-            .execute_output(&mut ctx)
+            .execute::<CanonicalOutput>(&mut ctx)
             .vortex_expect("Validity mask computation should be fallible");
         match output {
             CanonicalOutput::Constant(c) => Mask::new(array.len, c.scalar().is_valid()),

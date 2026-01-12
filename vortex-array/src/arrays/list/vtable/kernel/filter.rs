@@ -8,6 +8,7 @@ use vortex_dtype::PTypeDowncastExt;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_vector::Vector;
 use vortex_vector::VectorMutOps;
 use vortex_vector::listview::ListViewVector;
 use vortex_vector::listview::ListViewVectorMut;
@@ -17,14 +18,12 @@ use vortex_vector::primitive::PrimitiveVector;
 use crate::Array;
 use crate::Canonical;
 use crate::ExecutionCtx;
-use crate::VectorExecutor;
 use crate::arrays::FilterArray;
 use crate::arrays::FilterVTable;
 use crate::arrays::ListArray;
 use crate::arrays::ListVTable;
 use crate::arrays::list::compute::element_mask_from_offsets;
 use crate::kernel::ExecuteParentKernel;
-use crate::mask::MaskExecutor;
 use crate::matchers::Exact;
 use crate::validity::Validity;
 use crate::vectors::VectorIntoArray;
@@ -56,8 +55,8 @@ impl ExecuteParentKernel<ListVTable> for ListFilterKernel {
         // TODO(ngates): for ultra-sparse masks, we don't need to optimize the entire offsets.
         let offsets = array
             .offsets()
-            .execute(ctx)?
-            .to_vector(ctx)?
+            .clone()
+            .execute::<Vector>(ctx)?
             .into_primitive();
 
         let new_validity = match array.validity() {
@@ -71,7 +70,9 @@ impl ExecuteParentKernel<ListVTable> for ListFilterKernel {
                 vec.append_nulls(selection.true_count());
                 return Ok(Some(vec.freeze().into_array(array.dtype()).to_canonical()));
             }
-            Validity::Array(a) => a.filter(parent.filter_mask().clone())?.execute_mask(ctx)?,
+            Validity::Array(a) => a
+                .filter(parent.filter_mask().clone())?
+                .execute::<Mask>(ctx)?,
         };
 
         let (new_offsets, new_sizes) = match_each_integer_ptype!(offsets.ptype(), |O| {
@@ -110,8 +111,7 @@ impl ExecuteParentKernel<ListVTable> for ListFilterKernel {
         let new_elements = array
             .sliced_elements()
             .filter(element_mask)?
-            .execute(ctx)?
-            .to_vector(ctx)?;
+            .execute::<Vector>(ctx)?;
 
         Ok(Some(
             unsafe {

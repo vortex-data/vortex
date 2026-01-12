@@ -29,8 +29,8 @@ use vortex_error::vortex_ensure;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::ExecutionCtx;
-use crate::VectorExecutor;
 use crate::arrow::null_buffer::to_null_buffer;
 
 pub(super) fn to_arrow_temporal(
@@ -122,8 +122,12 @@ where
 {
     debug_assert!(TemporalMetadata::try_from(array.dtype().as_extension()).is_ok());
 
-    let ext_array = array.execute(ctx)?.into_extension();
-    let primitive = ext_array.storage().execute(ctx)?.into_primitive();
+    let ext_array = array.execute::<Canonical>(ctx)?.into_extension();
+    let primitive = ext_array
+        .storage()
+        .clone()
+        .execute::<Canonical>(ctx)?
+        .into_primitive();
     vortex_ensure!(
         primitive.ptype() == T::Native::PTYPE,
         "Expected temporal array to produce vector of width {}, found {}",

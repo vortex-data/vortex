@@ -13,7 +13,6 @@ use vortex_array::expr::Expression;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProvider;
-use vortex_array::mask::MaskExecutor;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;
 use vortex_dtype::DType;
@@ -157,7 +156,7 @@ impl ZoneMap {
             self.array
                 .to_array()
                 .apply(predicate)?
-                .execute_mask(&mut ctx)
+                .execute::<Mask>(&mut ctx)
         } else {
             predicate
                 .evaluate(&self.array.to_array())?
