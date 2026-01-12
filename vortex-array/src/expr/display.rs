@@ -265,7 +265,7 @@ mod tests {
         );
         assert_snapshot!(select_from_pack_expr.display_tree().to_string(), @r"
         vortex.select({fizz, buzz})
-        └── child: vortex.pack(names: [fizz, bar, buzz], nullability: ?)
+        └── child: vortex.pack(names: [fizz, bar, buzz], nullability: Nullable)
             ├── fizz: vortex.root()
             ├── bar: vortex.literal(5i32)
             └── buzz: vortex.binary(=)
