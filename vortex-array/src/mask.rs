@@ -16,13 +16,7 @@ use crate::arrays::ConstantVTable;
 use crate::executor::CanonicalOutput;
 
 impl Executable for Mask {
-    type Options = ();
-
-    fn execute_with_options(
-        array: ArrayRef,
-        ctx: &mut ExecutionCtx,
-        _options: Self::Options,
-    ) -> VortexResult<Self> {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         if !matches!(array.dtype(), DType::Bool(_)) {
             vortex_bail!("Mask array must have boolean dtype, not {}", array.dtype());
         }

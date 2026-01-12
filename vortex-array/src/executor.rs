@@ -14,34 +14,13 @@ use crate::arrays::ConstantVTable;
 
 /// Marker trait for types that can be executed.
 pub trait Executable: Sized {
-    /// Options for execution.
-    type Options: Default;
-
-    /// Execute the given array to produce [`Self`].
-    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        Self::execute_with_options(array, ctx, Self::Options::default())
-    }
-
-    fn execute_with_options(
-        array: ArrayRef,
-        ctx: &mut ExecutionCtx,
-        options: Self::Options,
-    ) -> VortexResult<Self>;
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self>;
 }
 
 impl dyn Array + '_ {
     /// Execute this array to produce an instance of `E`.
     pub fn execute<E: Executable>(self: Arc<Self>, ctx: &mut ExecutionCtx) -> VortexResult<E> {
         E::execute(self, ctx)
-    }
-
-    /// Execute this array to produce an instance of `E` with options.
-    pub fn execute_with_options<E: Executable>(
-        self: Arc<Self>,
-        ctx: &mut ExecutionCtx,
-        options: E::Options,
-    ) -> VortexResult<E> {
-        E::execute_with_options(self, ctx, options)
     }
 }
 
@@ -79,13 +58,7 @@ impl ExecutionCtx {
 /// This will replace the recursive usage of `to_canonical()`.
 /// An `ExecutionCtx` is will be used to limit access to buffers.
 impl Executable for Canonical {
-    type Options = ();
-
-    fn execute_with_options(
-        array: ArrayRef,
-        ctx: &mut ExecutionCtx,
-        _options: Self::Options,
-    ) -> VortexResult<Self> {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         // Try and dispatch to a child that can optimize execution.
         for (child_idx, child) in array.children().iter().enumerate() {
             if let Some(result) = child
@@ -112,13 +85,7 @@ impl Executable for Canonical {
 /// This may short-circuit for constant arrays, returning [`CanonicalOutput::Constant`]
 /// instead of fully materializing the array.
 impl Executable for CanonicalOutput {
-    type Options = ();
-
-    fn execute_with_options(
-        array: ArrayRef,
-        ctx: &mut ExecutionCtx,
-        _options: Self::Options,
-    ) -> VortexResult<Self> {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         // Attempt to short-circuit constant arrays.
         if let Some(constant) = array.as_opt::<ConstantVTable>() {
             return Ok(CanonicalOutput::Constant(ConstantArray::new(

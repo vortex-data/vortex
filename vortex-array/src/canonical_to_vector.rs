@@ -28,13 +28,7 @@ use crate::Executable;
 use crate::ExecutionCtx;
 
 impl Executable for Vector {
-    type Options = ();
-
-    fn execute_with_options(
-        array: ArrayRef,
-        ctx: &mut ExecutionCtx,
-        _options: Self::Options,
-    ) -> VortexResult<Self> {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         let canonical = array.execute::<Canonical>(ctx)?;
         canonical.to_vector(ctx)
     }
