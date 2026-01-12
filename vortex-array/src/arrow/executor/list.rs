@@ -17,12 +17,13 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_vector::Vector;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::VectorExecutor;
 use crate::arrays::ListArray;
 use crate::arrays::ListVTable;
 use crate::arrays::ListViewArray;
@@ -66,7 +67,8 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
         .dtype()
         .as_list_element_opt()
         .ok_or_else(|| vortex_err!("Cannot convert non-list array to Arrow ListArray"))?;
-    let list_view = array.execute(ctx)?.to_vector(ctx)?.into_list();
+    let nullability = array.dtype().nullability();
+    let list_view = array.clone().execute::<Vector>(ctx)?.into_list();
     let (elements, offsets, sizes, validity) = list_view.into_parts();
     let offset_dtype = DType::Primitive(O::PTYPE, Nullability::NonNullable);
     let list_view = unsafe {
@@ -74,7 +76,7 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
             (*elements).clone().into_array(elements_dtype),
             offsets.cast(&offset_dtype)?.into_array(&offset_dtype),
             sizes.cast(&offset_dtype)?.into_array(&offset_dtype),
-            Validity::from_mask(validity, array.dtype().nullability()),
+            Validity::from_mask(validity, nullability),
         )
     };
 
@@ -100,7 +102,7 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
     let offsets = array
         .offsets()
         .cast(DType::Primitive(O::PTYPE, Nullability::NonNullable))?
-        .execute(ctx)?
+        .execute::<Canonical>(ctx)?
         .into_primitive()
         .buffer::<O>()
         .into_arrow_offset_buffer();
@@ -145,7 +147,7 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
 
     let offsets = offsets
         .cast(DType::Primitive(O::PTYPE, Nullability::NonNullable))?
-        .execute(ctx)?
+        .execute::<Canonical>(ctx)?
         .into_primitive()
         .buffer::<O>();
 
@@ -190,12 +192,12 @@ fn list_view_to_list<O: OffsetSizeTrait + NativePType>(
 
     let offsets = offsets
         .cast(DType::Primitive(O::PTYPE, Nullability::NonNullable))?
-        .execute(ctx)?
+        .execute::<Canonical>(ctx)?
         .into_primitive()
         .buffer::<O>();
     let sizes = sizes
         .cast(DType::Primitive(O::PTYPE, Nullability::NonNullable))?
-        .execute(ctx)?
+        .execute::<Canonical>(ctx)?
         .into_primitive()
         .buffer::<O>();
 

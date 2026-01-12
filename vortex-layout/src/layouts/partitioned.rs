@@ -13,12 +13,12 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::StructArray;
 use vortex_array::expr::Expression;
 use vortex_array::expr::transform::PartitionedExpr;
-use vortex_array::mask::MaskExecutor;
 use vortex_array::validity::Validity;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::ArrayFuture;
@@ -92,7 +92,7 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
 
             let root_mask = if *USE_VORTEX_OPERATORS {
                 let mut ctx = session.create_execution_ctx();
-                root_scope.apply(&self.root)?.execute_mask(&mut ctx)?
+                root_scope.apply(&self.root)?.execute::<Mask>(&mut ctx)?
             } else {
                 self.root
                     .evaluate(&root_scope)?

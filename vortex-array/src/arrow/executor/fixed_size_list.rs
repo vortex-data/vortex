@@ -8,10 +8,10 @@ use vortex_compute::arrow::IntoArrow;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_vector::Vector;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::VectorExecutor;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::FixedSizeListVTable;
 use crate::arrow::ArrowArrayExecutor;
@@ -31,8 +31,7 @@ pub(super) fn to_arrow_fixed_list(
 
     // Otherwise, we execute the array to become a FixedSizeListArray.
     let vector = array
-        .execute(ctx)?
-        .to_vector(ctx)?
+        .execute::<Vector>(ctx)?
         .into_fixed_size_list_opt()
         .ok_or_else(|| vortex_err!("Failed to convert array to FixedSizeListArray"))?;
     vortex_ensure!(

@@ -28,10 +28,10 @@ use vortex_dtype::datetime::is_temporal_ext_type;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_vector::Vector;
 
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
-use crate::VectorExecutor;
 use crate::VortexSessionExecute;
 use crate::arrays::ExtensionVTable;
 use crate::arrays::TemporalArray;
@@ -133,8 +133,7 @@ where
     let values = array
         .temporal_values()
         .cast(values_dtype)?
-        .execute(&mut ctx)?
-        .to_vector(&mut ctx)?
+        .execute::<Vector>(&mut ctx)?
         .into_primitive()
         .downcast::<T::Native>();
 

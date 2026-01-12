@@ -5,11 +5,15 @@
 
 use std::sync::Arc;
 
+use vortex_buffer::Buffer;
+use vortex_dtype::BigCast;
 use vortex_dtype::DType;
 use vortex_dtype::PrecisionScale;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_vector::Vector;
 use vortex_vector::binaryview::BinaryVector;
 use vortex_vector::binaryview::StringVector;
@@ -21,9 +25,17 @@ use vortex_vector::null::NullVector;
 use vortex_vector::primitive::PVector;
 use vortex_vector::struct_::StructVector;
 
+use crate::ArrayRef;
 use crate::Canonical;
+use crate::Executable;
 use crate::ExecutionCtx;
-use crate::VectorExecutor;
+
+impl Executable for Vector {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        let canonical = array.execute::<Canonical>(ctx)?;
+        canonical.to_vector(ctx)
+    }
+}
 
 impl Canonical {
     /// Convert a Canonical array to a Vector.
@@ -45,13 +57,38 @@ impl Canonical {
                 })
             }
             Canonical::Decimal(a) => {
-                let values_type = a.values_type();
-                let dec_dtype = a.decimal_dtype();
-                let validity = a.validity_mask();
-                match_each_decimal_value_type!(values_type, |D| {
-                    let buffer = a.buffer::<D>();
-                    let ps = PrecisionScale::<D>::new(dec_dtype.precision(), dec_dtype.scale());
-                    Vector::Decimal(DVector::<D>::new(ps, buffer, validity).into())
+                // Match on the storage type first to read the buffer
+                match_each_decimal_value_type!(a.values_type(), |D| {
+                    // Use the smallest type that can represent the precision/scale.
+                    // The array may store values in a smaller type (if values fit), but
+                    // DVector requires a PrecisionScale that matches its type parameter.
+                    let min_value_type =
+                        DecimalType::smallest_decimal_value_type(&a.decimal_dtype());
+                    match_each_decimal_value_type!(min_value_type, |E| {
+                        let decimal_dtype = a.decimal_dtype();
+                        let buffer = a.buffer::<D>();
+                        let validity_mask = a.validity_mask();
+
+                        // Copy from D to E, possibly widening, possibly narrowing
+                        let values = Buffer::<E>::from_trusted_len_iter(buffer.iter().map(|d| {
+                            <E as BigCast>::from(*d).vortex_expect("Decimal cast failed")
+                        }));
+
+                        // SAFETY: values came from a valid DecimalArray with the same precision/scale
+                        Vector::Decimal(
+                            unsafe {
+                                DVector::<E>::new_unchecked(
+                                    PrecisionScale::new_unchecked(
+                                        decimal_dtype.precision(),
+                                        decimal_dtype.scale(),
+                                    ),
+                                    values,
+                                    validity_mask,
+                                )
+                            }
+                            .into(),
+                        )
+                    })
                 })
             }
             Canonical::VarBinView(a) => {
@@ -77,10 +114,12 @@ impl Canonical {
                 }
             }
             Canonical::List(a) => {
-                let validity = a.validity_mask();
-                let elements_vector = a.elements().execute(ctx)?.to_vector(ctx)?;
-                let offsets = a.offsets().execute(ctx)?.into_primitive();
-                let sizes = a.sizes().execute(ctx)?.into_primitive();
+                let (elements, offsets, sizes, validity) = a.into_parts();
+
+                let validity = validity.to_array(offsets.len()).execute::<Mask>(ctx)?;
+                let elements_vector = elements.execute::<Vector>(ctx)?;
+                let offsets = offsets.execute::<Canonical>(ctx)?.into_primitive();
+                let sizes = sizes.execute::<Canonical>(ctx)?.into_primitive();
                 let offsets_ptype = offsets.ptype();
                 let sizes_ptype = sizes.ptype();
 
@@ -108,7 +147,7 @@ impl Canonical {
             Canonical::FixedSizeList(a) => {
                 let validity = a.validity_mask();
                 let list_size = a.list_size();
-                let elements_vector = a.elements().execute(ctx)?.to_vector(ctx)?;
+                let elements_vector = a.elements().clone().execute::<Vector>(ctx)?;
                 Vector::FixedSizeList(unsafe {
                     FixedSizeListVector::new_unchecked(
                         Arc::new(elements_vector),
@@ -120,15 +159,15 @@ impl Canonical {
             Canonical::Struct(a) => {
                 let validity = a.validity_mask();
                 let mut fields = Vec::with_capacity(a.fields().len());
-                for f in a.fields().iter() {
-                    fields.push(f.execute(ctx)?.to_vector(ctx)?);
+                for f in a.fields().iter().cloned() {
+                    fields.push(f.execute::<Vector>(ctx)?);
                 }
                 let fields: Box<[Vector]> = fields.into_boxed_slice();
                 Vector::Struct(StructVector::new(Arc::new(fields), validity))
             }
             Canonical::Extension(a) => {
                 // For extension arrays, convert the underlying storage
-                a.storage().execute(ctx)?.to_vector(ctx)?
+                a.storage().clone().execute::<Vector>(ctx)?
             }
         })
     }

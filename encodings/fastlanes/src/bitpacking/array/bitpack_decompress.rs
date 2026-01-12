@@ -203,8 +203,8 @@ pub fn count_exceptions(bit_width: u8, bit_width_freq: &[usize]) -> usize {
 mod tests {
     use std::sync::LazyLock;
 
+    use vortex_array::Canonical;
     use vortex_array::IntoArray;
-    use vortex_array::VectorExecutor;
     use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
@@ -537,7 +537,10 @@ mod tests {
             // Method 3: Using the execute() method (this is what would be used in production).
             let executed = {
                 let mut ctx = SESSION.create_execution_ctx();
-                bitpacked.into_array().execute(&mut ctx).unwrap()
+                bitpacked
+                    .into_array()
+                    .execute::<Canonical>(&mut ctx)
+                    .unwrap()
             };
 
             // All three should produce the same length.
@@ -562,7 +565,7 @@ mod tests {
                 let mut ctx = SESSION.create_execution_ctx();
                 unpacked_array
                     .into_array()
-                    .execute(&mut ctx)
+                    .execute::<Canonical>(&mut ctx)
                     .unwrap()
                     .into_primitive()
             };
@@ -599,7 +602,7 @@ mod tests {
         let unpacked_array = unpack_array(sliced_bp);
         let executed = {
             let mut ctx = SESSION.create_execution_ctx();
-            sliced.execute(&mut ctx).unwrap()
+            sliced.execute::<Canonical>(&mut ctx).unwrap()
         };
 
         assert_eq!(

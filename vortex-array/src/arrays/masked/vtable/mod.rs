@@ -17,7 +17,6 @@ use crate::ArrayChildVisitor;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
-use crate::VectorExecutor;
 use crate::arrays::masked::MaskedArray;
 use crate::buffer::BufferHandle;
 use crate::compute::mask;
