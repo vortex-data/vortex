@@ -27,7 +27,8 @@ import io.trino.spi.type.VarcharType;
  */
 public final class VortexTypeConverter {
 
-    private VortexTypeConverter() {}
+    private VortexTypeConverter() {
+    }
 
     /**
      * Convert a Vortex DType to a Trino Type.
@@ -36,20 +37,6 @@ public final class VortexTypeConverter {
      * @return the corresponding Trino type
      */
     public static Type toTrinoType(DType dtype) {
-        // Handle temporal types first
-        if (dtype.isDate()) {
-            return DateType.DATE;
-        }
-        if (dtype.isTime()) {
-            return timeTypeFromUnit(dtype.getTimeUnit());
-        }
-        if (dtype.isTimestamp()) {
-            return timestampTypeFromDType(dtype);
-        }
-        if (dtype.isDecimal()) {
-            return DecimalType.createDecimalType(dtype.getPrecision(), dtype.getScale());
-        }
-
         DType.Variant variant = dtype.getVariant();
         switch (variant) {
             case NULL:
@@ -87,10 +74,23 @@ public final class VortexTypeConverter {
             case BINARY:
                 return VarbinaryType.VARBINARY;
 
+            case DECIMAL:
+                return DecimalType.createDecimalType(dtype.getPrecision(), dtype.getScale());
+
+            case EXTENSION:
+                // Handle temporal types
+                if (dtype.isDate()) {
+                    return DateType.DATE;
+                }
+                if (dtype.isTime()) {
+                    return timeTypeFromUnit(dtype.getTimeUnit());
+                }
+                if (dtype.isTimestamp()) {
+                    return timestampTypeFromDType(dtype);
+                }
+                throw new UnsupportedOperationException("Unsupported extension type: " + dtype);
             case STRUCT:
             case LIST:
-            case EXTENSION:
-            case DECIMAL:
             default:
                 throw new UnsupportedOperationException("Unsupported Vortex type: " + variant);
         }

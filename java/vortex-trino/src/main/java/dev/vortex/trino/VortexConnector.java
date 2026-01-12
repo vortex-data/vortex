@@ -5,8 +5,9 @@
 
 package dev.vortex.trino;
 
-import io.trino.spi.connector.Connector;
+import io.trino.spi.connector.*;
 import io.trino.spi.function.table.ConnectorTableFunction;
+import io.trino.spi.transaction.IsolationLevel;
 
 import java.util.Set;
 
@@ -18,7 +19,22 @@ public final class VortexConnector implements Connector {
     }
 
     @Override
+    public ConnectorMetadata getMetadata(ConnectorSession session, ConnectorTransactionHandle transactionHandle) {
+        return new VortexConnectorMetadata();
+    }
+
+    @Override
     public Set<ConnectorTableFunction> getTableFunctions() {
         return tableFunctions;
+    }
+
+    @Override
+    public ConnectorSplitManager getSplitManager() {
+        return VortexSplitManager.INSTANCE;
+    }
+
+    @Override
+    public ConnectorTransactionHandle beginTransaction(IsolationLevel isolationLevel, boolean readOnly, boolean autoCommit) {
+        return VortexTransactionHandle.INSTANCE;
     }
 }
