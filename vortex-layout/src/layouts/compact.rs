@@ -123,19 +123,23 @@ impl CompactCompressor {
                     .into_array()
             }
             Canonical::Struct(struct_array) => {
+                // Push validity into children before compressing
+                let compacted = struct_array.compact()?;
+
                 // recurse
-                let fields = struct_array
+                let fields = compacted
                     .unmasked_fields()
                     .iter()
                     .map(|field| self.compress(field))
                     .collect::<VortexResult<Vec<_>>>()?;
 
                 StructArray::try_new(
-                    struct_array.names().clone(),
+                    compacted.names().clone(),
                     fields,
-                    struct_array.len(),
-                    struct_array.validity().clone(),
+                    compacted.len(),
+                    compacted.validity().clone(),
                 )?
+                .with_validity_pushed_down(compacted.has_validity_pushed_down())
                 .into_array()
             }
             Canonical::List(listview) => {

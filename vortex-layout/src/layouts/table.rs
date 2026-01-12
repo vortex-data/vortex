@@ -246,17 +246,19 @@ impl LayoutStrategy for TableStrategy {
         let columns_vec_stream = stream.map(move |chunk| {
             let (sequence_id, chunk) = chunk?;
             let mut sequence_pointer = sequence_id.descend();
-            let struct_chunk = chunk.to_struct();
+            // Push struct validity into children before decomposing
+            let compacted = chunk.to_struct().compact()?;
             let mut columns: Vec<(SequenceId, ArrayRef)> = Vec::new();
+            // Validity column is still written (DType unchanged, struct still nullable)
             if is_nullable {
                 columns.push((
                     sequence_pointer.advance(),
-                    chunk.validity_mask()?.into_array(),
+                    compacted.validity_mask()?.into_array(),
                 ));
             }
 
             columns.extend(
-                struct_chunk
+                compacted
                     .unmasked_fields()
                     .iter()
                     .map(|field| (sequence_pointer.advance(), field.to_array())),

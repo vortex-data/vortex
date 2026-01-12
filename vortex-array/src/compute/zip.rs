@@ -347,7 +347,7 @@ mod tests {
         let wrapped_result = zip(&wrapped1, &wrapped2, &mask).unwrap();
         insta::assert_snapshot!(wrapped_result.display_tree(), @r"
         root: vortex.struct({nested=utf8?}, len=100) nbytes=1.66 kB (100.00%)
-          metadata: EmptyMetadata
+          metadata: StructMetadata { validity_pushed_down: false }
           nested: vortex.varbinview(utf8?, len=100) nbytes=1.66 kB (100.00%) [all_valid]
             metadata: EmptyMetadata
             buffer (align=1): 29 B (1.75%)

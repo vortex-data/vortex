@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::iter::once;
+use std::ops::Not;
 use std::sync::Arc;
 
 use vortex_dtype::DType;
@@ -18,9 +19,19 @@ use vortex_error::vortex_err;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::compute::mask;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
+
+/// Metadata for StructArray serialization.
+#[derive(Clone, prost::Message)]
+pub struct StructMetadata {
+    /// true = child validity is a superset of struct validity (validity was pushed down)
+    /// false = default, no guarantee about relationship
+    #[prost(bool, tag = "1")]
+    pub(super) validity_pushed_down: bool,
+}
 
 /// A struct array that stores multiple named fields as columns, similar to a database row.
 ///
@@ -147,6 +158,9 @@ pub struct StructArray {
     pub(super) fields: Arc<[ArrayRef]>,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
+    /// true = child validity is a superset of struct validity (validity was pushed down)
+    /// false = default, no guarantee about relationship
+    pub(super) validity_pushed_down: bool,
 }
 
 pub struct StructArrayParts {
@@ -286,6 +300,7 @@ impl StructArray {
             fields,
             validity,
             stats_set: Default::default(),
+            validity_pushed_down: false,
         }
     }
 
@@ -472,5 +487,81 @@ impl StructArray {
         let children: Arc<[ArrayRef]> = self.fields.iter().cloned().chain(once(array)).collect();
 
         Self::try_new_with_dtype(children, new_fields, self.len, self.validity.clone())
+    }
+
+    /// Returns whether validity has been pushed down into children.
+    ///
+    /// When true, child validity is a superset of struct validity (children include
+    /// the struct's nulls baked in). This is an optimization that allows readers to
+    /// skip combining struct+child validity when extracting fields.
+    pub fn has_validity_pushed_down(&self) -> bool {
+        self.validity_pushed_down
+    }
+
+    /// Set the validity_pushed_down flag.
+    ///
+    /// For non-nullable structs, this is a no-op (flag stays false) since there's
+    /// no validity to push down.
+    ///
+    /// For nullable structs, setting this to true indicates that child validity
+    /// is a superset of struct validity (children include struct's nulls).
+    pub fn with_validity_pushed_down(mut self, validity_pushed_down: bool) -> Self {
+        // For non-nullable structs, the flag is meaningless - keep it false
+        if !self.dtype.is_nullable() {
+            return self;
+        }
+        self.validity_pushed_down = validity_pushed_down;
+        self
+    }
+
+    /// Push struct validity down into each child field.
+    ///
+    /// For nullable structs with non-trivial validity, this applies the validity
+    /// mask to each **nullable** child field, making child validity a superset
+    /// of parent validity. Non-nullable children are left unchanged to preserve
+    /// their dtype.
+    ///
+    /// The struct validity is **preserved** (DType never changes). The
+    /// `validity_pushed_down` flag indicates that nullable children already include
+    /// the parent's nulls, so readers can skip combining validities for those fields.
+    ///
+    /// For non-nullable structs or trivial validity, this is essentially a no-op.
+    pub fn compact(&self) -> VortexResult<Self> {
+        // For non-nullable structs, nothing to push down
+        if !self.dtype.is_nullable() {
+            return Ok(self.clone());
+        }
+
+        // If validity is trivial (AllValid), nothing to push down
+        // but mark as pushed down since children trivially include parent validity
+        if self.validity.all_valid(self.len)? {
+            return Ok(self.clone().with_validity_pushed_down(true));
+        }
+
+        // Get the validity mask - mask() expects true = set to null, so we invert the validity
+        let validity_mask = self.validity_mask()?.not();
+
+        // Apply mask only to nullable children - non-nullable children cannot have their
+        // dtype changed, so we leave them alone
+        let new_fields: Vec<ArrayRef> = self
+            .fields()
+            .iter()
+            .map(|field| {
+                if field.dtype().is_nullable() {
+                    mask(field.as_ref(), &validity_mask)
+                } else {
+                    Ok(field.clone())
+                }
+            })
+            .collect::<VortexResult<_>>()?;
+
+        // Create new struct with same validity but updated children
+        Ok(StructArray::try_new(
+            self.names().clone(),
+            new_fields,
+            self.len(),
+            self.validity.clone(), // Keep original validity
+        )?
+        .with_validity_pushed_down(true))
     }
 }

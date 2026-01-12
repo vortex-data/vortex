@@ -9,7 +9,7 @@ use std::sync::Arc;
 use reader::StructReader;
 use vortex_array::ArrayContext;
 use vortex_array::DeserializeMetadata;
-use vortex_array::EmptyMetadata;
+use vortex_array::ProstMetadata;
 use vortex_dtype::DType;
 use vortex_dtype::Field;
 use vortex_dtype::FieldMask;
@@ -35,12 +35,21 @@ use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 use crate::vtable;
 
+/// Metadata for StructLayout serialization.
+#[derive(Clone, prost::Message)]
+pub struct StructLayoutMetadata {
+    /// true = child validity is a superset of struct validity (validity was pushed down)
+    /// false = default, no guarantee about relationship
+    #[prost(bool, tag = "1")]
+    pub(crate) validity_pushed_down: bool,
+}
+
 vtable!(Struct);
 
 impl VTable for StructVTable {
     type Layout = StructLayout;
     type Encoding = StructLayoutEncoding;
-    type Metadata = EmptyMetadata;
+    type Metadata = ProstMetadata<StructLayoutMetadata>;
 
     fn id(_encoding: &Self::Encoding) -> LayoutId {
         LayoutId::new_ref("vortex.struct")
@@ -58,8 +67,10 @@ impl VTable for StructVTable {
         &layout.dtype
     }
 
-    fn metadata(_layout: &Self::Layout) -> Self::Metadata {
-        EmptyMetadata
+    fn metadata(layout: &Self::Layout) -> Self::Metadata {
+        ProstMetadata(StructLayoutMetadata {
+            validity_pushed_down: layout.validity_pushed_down,
+        })
     }
 
     fn segment_ids(_layout: &Self::Layout) -> Vec<SegmentId> {
@@ -145,7 +156,7 @@ impl VTable for StructVTable {
         _encoding: &Self::Encoding,
         dtype: &DType,
         row_count: u64,
-        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
         _ctx: &ArrayContext,
@@ -166,6 +177,7 @@ impl VTable for StructVTable {
             row_count,
             dtype: dtype.clone(),
             children: children.to_arc(),
+            validity_pushed_down: metadata.validity_pushed_down,
         })
     }
 
@@ -196,6 +208,9 @@ pub struct StructLayout {
     row_count: u64,
     dtype: DType,
     children: Arc<dyn LayoutChildren>,
+    /// true = child validity is a superset of struct validity (validity was pushed down)
+    /// false = default, no guarantee about relationship
+    validity_pushed_down: bool,
 }
 
 impl StructLayout {
@@ -204,6 +219,7 @@ impl StructLayout {
             row_count,
             dtype,
             children: OwnedLayoutChildren::layout_children(children),
+            validity_pushed_down: false,
         }
     }
 
@@ -221,6 +237,22 @@ impl StructLayout {
     #[inline]
     pub fn children(&self) -> &Arc<dyn LayoutChildren> {
         &self.children
+    }
+
+    /// Returns whether validity has been pushed down into children.
+    pub fn has_validity_pushed_down(&self) -> bool {
+        self.validity_pushed_down
+    }
+
+    /// Set the validity_pushed_down flag.
+    ///
+    /// For non-nullable structs, this is a no-op (flag stays false).
+    pub fn with_validity_pushed_down(mut self, validity_pushed_down: bool) -> Self {
+        if !self.dtype.is_nullable() {
+            return self;
+        }
+        self.validity_pushed_down = validity_pushed_down;
+        self
     }
 
     pub fn matching_fields<F>(&self, field_mask: &[FieldMask], mut per_child: F) -> VortexResult<()>
