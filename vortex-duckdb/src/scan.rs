@@ -24,15 +24,14 @@ use itertools::Itertools;
 use num_traits::AsPrimitive;
 use url::Url;
 use vortex::VortexSessionDefault;
-use vortex::array::Array;
 use vortex::array::ArrayRef;
+use vortex::array::ExecutionCtx;
 use vortex::array::ToCanonical;
 use vortex::array::VectorExecutor;
 use vortex::array::arrays::ScalarFnVTable;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::StructVTable;
 use vortex::array::optimizer::ArrayOptimizer;
-use vortex::array::vectors::VectorIntoArray;
 use vortex::dtype::FieldNames;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -112,7 +111,7 @@ impl Debug for VortexBindData {
 pub struct VortexGlobalData {
     iterator: ThreadSafeIterator<VortexResult<(ArrayRef, Arc<ConversionCache>)>>,
     batch_id: AtomicU64,
-    session: VortexSession,
+    ctx: ExecutionCtx,
 }
 
 pub struct VortexLocalData {
@@ -343,10 +342,7 @@ impl TableFunction for VortexTableFunction {
                             pack_options.nullability.into(),
                         )
                     } else {
-                        array_result
-                            .execute_vector(&global_state.session)?
-                            .into_struct()
-                            .into_array(array_result.dtype())
+                        array_result.execute(&mut global_state.ctx)?.into_struct()
                     }
                 } else {
                     array_result.to_struct()
@@ -355,7 +351,7 @@ impl TableFunction for VortexTableFunction {
                 local_state.exporter = Some(ArrayExporter::try_new(
                     &array_result,
                     &conversion_cache,
-                    &global_state.session,
+                    &mut global_state.ctx,
                 )?);
                 // Relaxed since there is no intra-instruction ordering required.
                 local_state.batch_id = Some(global_state.batch_id.fetch_add(1, Ordering::Relaxed));
@@ -460,7 +456,7 @@ impl TableFunction for VortexTableFunction {
             }),
             batch_id: AtomicU64::new(0),
             // TODO(joe): fetch this from somewhere??.
-            session: VortexSession::default(),
+            ctx: ExecutionCtx::new(VortexSession::default()),
         })
     }
 

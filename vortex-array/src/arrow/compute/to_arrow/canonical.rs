@@ -5,8 +5,6 @@ use std::sync::Arc;
 
 use arrow_array::Array;
 use arrow_array::ArrayRef as ArrowArrayRef;
-use arrow_array::ArrowPrimitiveType;
-use arrow_array::BooleanArray as ArrowBoolArray;
 use arrow_array::Decimal32Array as ArrowDecimal32Array;
 use arrow_array::Decimal64Array as ArrowDecimal64Array;
 use arrow_array::Decimal128Array as ArrowDecimal128Array;
@@ -16,9 +14,7 @@ use arrow_array::GenericByteArray;
 use arrow_array::GenericByteViewArray;
 use arrow_array::GenericListArray;
 use arrow_array::GenericListViewArray;
-use arrow_array::NullArray as ArrowNullArray;
 use arrow_array::OffsetSizeTrait;
-use arrow_array::PrimitiveArray as ArrowPrimitiveArray;
 use arrow_array::StructArray as ArrowStructArray;
 use arrow_array::types::BinaryType;
 use arrow_array::types::BinaryViewType;
@@ -39,7 +35,6 @@ use arrow_array::types::UInt16Type;
 use arrow_array::types::UInt32Type;
 use arrow_array::types::UInt64Type;
 use arrow_array::types::Utf8Type;
-use arrow_buffer::ScalarBuffer;
 use arrow_buffer::i256;
 use arrow_data::ArrayData;
 use arrow_schema::DataType;
@@ -65,18 +60,19 @@ use crate::Canonical;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VectorExecutor;
-use crate::arrays::BoolArray;
+use crate::VortexSessionExecute;
 use crate::arrays::DecimalArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListViewArray;
-use crate::arrays::NullArray;
-use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
-use crate::arrays::VarBinViewArray;
 use crate::arrays::list_from_list_view;
 use crate::arrow::IntoArrowArray;
 use crate::arrow::array::ArrowArray;
 use crate::arrow::compute::ToArrowArgs;
+use crate::arrow::executor::bool::canonical_bool_to_arrow;
+use crate::arrow::executor::byte_view::canonical_varbinview_to_arrow;
+use crate::arrow::executor::null::canonical_null_to_arrow;
+use crate::arrow::executor::primitive::canonical_primitive_to_arrow;
 use crate::arrow::null_buffer::to_null_buffer;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::InvocationArgs;
@@ -113,60 +109,60 @@ impl Kernel for ToArrowCanonical {
         let to_preferred = arrow_type_opt.is_none();
 
         let arrow_array = match (array.to_canonical(), &arrow_type) {
-            (Canonical::Null(array), DataType::Null) => to_arrow_null(array),
-            (Canonical::Bool(array), DataType::Boolean) => to_arrow_bool(array),
+            (Canonical::Null(array), DataType::Null) => Ok(canonical_null_to_arrow(&array)),
+            (Canonical::Bool(array), DataType::Boolean) => Ok(canonical_bool_to_arrow(&array)),
             (Canonical::Primitive(array), DataType::Int8) if matches!(array.ptype(), PType::I8) => {
-                to_arrow_primitive::<Int8Type>(array)
+                Ok(canonical_primitive_to_arrow::<Int8Type>(array))
             }
             (Canonical::Primitive(array), DataType::Int16)
                 if matches!(array.ptype(), PType::I16) =>
             {
-                to_arrow_primitive::<Int16Type>(array)
+                Ok(canonical_primitive_to_arrow::<Int16Type>(array))
             }
             (Canonical::Primitive(array), DataType::Int32)
                 if matches!(array.ptype(), PType::I32) =>
             {
-                to_arrow_primitive::<Int32Type>(array)
+                Ok(canonical_primitive_to_arrow::<Int32Type>(array))
             }
             (Canonical::Primitive(array), DataType::Int64)
                 if matches!(array.ptype(), PType::I64) =>
             {
-                to_arrow_primitive::<Int64Type>(array)
+                Ok(canonical_primitive_to_arrow::<Int64Type>(array))
             }
             (Canonical::Primitive(array), DataType::UInt8)
                 if matches!(array.ptype(), PType::U8) =>
             {
-                to_arrow_primitive::<UInt8Type>(array)
+                Ok(canonical_primitive_to_arrow::<UInt8Type>(array))
             }
             (Canonical::Primitive(array), DataType::UInt16)
                 if matches!(array.ptype(), PType::U16) =>
             {
-                to_arrow_primitive::<UInt16Type>(array)
+                Ok(canonical_primitive_to_arrow::<UInt16Type>(array))
             }
             (Canonical::Primitive(array), DataType::UInt32)
                 if matches!(array.ptype(), PType::U32) =>
             {
-                to_arrow_primitive::<UInt32Type>(array)
+                Ok(canonical_primitive_to_arrow::<UInt32Type>(array))
             }
             (Canonical::Primitive(array), DataType::UInt64)
                 if matches!(array.ptype(), PType::U64) =>
             {
-                to_arrow_primitive::<UInt64Type>(array)
+                Ok(canonical_primitive_to_arrow::<UInt64Type>(array))
             }
             (Canonical::Primitive(array), DataType::Float16)
                 if matches!(array.ptype(), PType::F16) =>
             {
-                to_arrow_primitive::<Float16Type>(array)
+                Ok(canonical_primitive_to_arrow::<Float16Type>(array))
             }
             (Canonical::Primitive(array), DataType::Float32)
                 if matches!(array.ptype(), PType::F32) =>
             {
-                to_arrow_primitive::<Float32Type>(array)
+                Ok(canonical_primitive_to_arrow::<Float32Type>(array))
             }
             (Canonical::Primitive(array), DataType::Float64)
                 if matches!(array.ptype(), PType::F64) =>
             {
-                to_arrow_primitive::<Float64Type>(array)
+                Ok(canonical_primitive_to_arrow::<Float64Type>(array))
             }
             (Canonical::Decimal(array), DataType::Decimal32(precision, scale)) => {
                 if array.decimal_dtype().precision() != *precision
@@ -243,30 +239,30 @@ impl Kernel for ToArrowCanonical {
                 to_arrow_fixed_size_list(array, arrow_type_opt.map(|_| field), *list_size)
             }
             (Canonical::VarBinView(array), DataType::BinaryView) if array.dtype().is_binary() => {
-                to_arrow_varbinview::<BinaryViewType>(array)
+                Ok(canonical_varbinview_to_arrow::<BinaryViewType>(&array))
             }
             (Canonical::VarBinView(array), DataType::Binary) if array.dtype().is_binary() => {
-                to_arrow_varbin::<BinaryViewType, BinaryType>(
-                    to_arrow_varbinview::<BinaryViewType>(array)?,
-                )
+                to_arrow_varbin::<BinaryViewType, BinaryType>(canonical_varbinview_to_arrow::<
+                    BinaryViewType,
+                >(&array))
             }
             (Canonical::VarBinView(array), DataType::LargeBinary) if array.dtype().is_binary() => {
-                to_arrow_varbin::<BinaryViewType, LargeBinaryType>(to_arrow_varbinview::<
+                to_arrow_varbin::<BinaryViewType, LargeBinaryType>(canonical_varbinview_to_arrow::<
                     BinaryViewType,
-                >(array)?)
+                >(&array))
             }
             (Canonical::VarBinView(array), DataType::Utf8View) if array.dtype().is_utf8() => {
-                to_arrow_varbinview::<StringViewType>(array)
+                Ok(canonical_varbinview_to_arrow::<StringViewType>(&array))
             }
             (Canonical::VarBinView(array), DataType::Utf8) if array.dtype().is_utf8() => {
-                to_arrow_varbin::<StringViewType, Utf8Type>(to_arrow_varbinview::<StringViewType>(
-                    array,
-                )?)
+                to_arrow_varbin::<StringViewType, Utf8Type>(canonical_varbinview_to_arrow::<
+                    StringViewType,
+                >(&array))
             }
             (Canonical::VarBinView(array), DataType::LargeUtf8) if array.dtype().is_utf8() => {
-                to_arrow_varbin::<StringViewType, LargeUtf8Type>(to_arrow_varbinview::<
+                to_arrow_varbin::<StringViewType, LargeUtf8Type>(canonical_varbinview_to_arrow::<
                     StringViewType,
-                >(array)?)
+                >(&array))
             }
             (Canonical::Extension(_), _) => {
                 // Datetime and interval types are handled by a different kernel.
@@ -286,27 +282,6 @@ impl Kernel for ToArrowCanonical {
                 .into(),
         ))
     }
-}
-
-fn to_arrow_null(array: NullArray) -> VortexResult<ArrowArrayRef> {
-    Ok(Arc::new(ArrowNullArray::new(array.len())))
-}
-
-fn to_arrow_bool(array: BoolArray) -> VortexResult<ArrowArrayRef> {
-    Ok(Arc::new(ArrowBoolArray::new(
-        array.bit_buffer().clone().into(),
-        to_null_buffer(array.validity_mask()),
-    )))
-}
-
-fn to_arrow_primitive<T: ArrowPrimitiveType>(array: PrimitiveArray) -> VortexResult<ArrowArrayRef> {
-    let null_buffer = to_null_buffer(array.validity_mask());
-    let len = array.len();
-    let buffer = array.into_byte_buffer().into_arrow_buffer();
-    Ok(Arc::new(ArrowPrimitiveArray::<T>::new(
-        ScalarBuffer::<T::Native>::new(buffer, 0, len),
-        null_buffer,
-    )))
 }
 
 fn to_arrow_decimal32(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
@@ -557,10 +532,12 @@ fn to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
     };
 
     // Convert the child `offsets` and `validity` array to Arrow.
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let offsets = list_array
         .offsets()
         .cast(DType::from(O::PTYPE))?
-        .execute_vector(&LEGACY_SESSION)?
+        .execute(&mut ctx)?
+        .to_vector(&mut ctx)?
         .into_primitive()
         .downcast::<O>()
         .into_nonnull_buffer()
@@ -582,10 +559,12 @@ fn to_arrow_listview<O: IntegerPType + OffsetSizeTrait>(
 ) -> VortexResult<ArrowArrayRef> {
     // First we cast the offsets and sizes into the specified width (determined by `O::PTYPE`).
     let offsets_dtype = DType::Primitive(O::PTYPE, array.dtype().nullability());
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let offsets = array
         .offsets()
         .cast(offsets_dtype.clone())?
-        .execute_vector(&LEGACY_SESSION)?
+        .execute(&mut ctx)?
+        .to_vector(&mut ctx)?
         .into_primitive()
         .downcast::<O>()
         .into_nonnull_buffer()
@@ -593,7 +572,8 @@ fn to_arrow_listview<O: IntegerPType + OffsetSizeTrait>(
     let sizes = array
         .sizes()
         .cast(offsets_dtype)?
-        .execute_vector(&LEGACY_SESSION)?
+        .execute(&mut ctx)?
+        .to_vector(&mut ctx)?
         .into_primitive()
         .downcast::<O>()
         .into_nonnull_buffer()
@@ -684,22 +664,6 @@ fn to_arrow_fixed_size_list(
     assert_eq!(array.len(), arrow_array.len());
 
     Ok(Arc::new(arrow_array))
-}
-
-fn to_arrow_varbinview<T: ByteViewType>(array: VarBinViewArray) -> VortexResult<ArrowArrayRef> {
-    let views =
-        ScalarBuffer::<u128>::from(array.views().clone().into_byte_buffer().into_arrow_buffer());
-    let buffers: Vec<_> = array
-        .buffers()
-        .iter()
-        .map(|buffer| buffer.clone().into_arrow_buffer())
-        .collect();
-    let nulls = to_null_buffer(array.validity_mask());
-
-    // SAFETY: our own VarBinView array is considered safe.
-    Ok(Arc::new(unsafe {
-        GenericByteViewArray::<T>::new_unchecked(views, buffers, nulls)
-    }))
 }
 
 fn to_arrow_varbin<V: ByteViewType, T: ByteArrayType>(

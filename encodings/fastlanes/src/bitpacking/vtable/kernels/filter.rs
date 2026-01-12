@@ -5,12 +5,14 @@ use std::mem::MaybeUninit;
 use std::sync::Arc;
 
 use fastlanes::BitPacking;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::FilterVTable;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_array::matchers::Exact;
+use vortex_array::vectors::VectorIntoArray;
 use vortex_buffer::BufferMut;
 use vortex_compute::filter::Filter;
 use vortex_dtype::NativePType;
@@ -20,7 +22,6 @@ use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
-use vortex_vector::Vector;
 use vortex_vector::VectorMutOps;
 use vortex_vector::primitive::PVectorMut;
 use vortex_vector::primitive::PrimitiveVectorMut;
@@ -59,13 +60,14 @@ impl ExecuteParentKernel<BitPackedVTable> for BitPackingFilterKernel {
         Exact::from(&FilterVTable)
     }
 
+    // TODO(joe): impl execute without to_canonical and execute_parent without vector
     fn execute_parent(
         &self,
         array: &BitPackedArray,
         parent: &FilterArray,
         _child_idx: usize,
         _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Vector>> {
+    ) -> VortexResult<Option<Canonical>> {
         let values = match parent.filter_mask() {
             Mask::AllTrue(_) | Mask::AllFalse(_) => {
                 // No optimization for full or empty mask
@@ -121,7 +123,12 @@ impl ExecuteParentKernel<BitPackedVTable> for BitPackingFilterKernel {
             primitive_vector = patches.apply_to_primitive_vector(primitive_vector);
         }
 
-        Ok(Some(primitive_vector.freeze().into()))
+        Ok(Some(
+            primitive_vector
+                .freeze()
+                .into_array(parent.dtype())
+                .to_canonical(),
+        ))
     }
 }
 

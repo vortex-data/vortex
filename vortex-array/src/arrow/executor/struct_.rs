@@ -16,10 +16,10 @@ use vortex_dtype::arrow::FromArrowType;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_session::VortexSession;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::VectorExecutor;
@@ -35,7 +35,7 @@ use crate::vtable::ValidityHelper;
 pub(super) fn to_arrow_struct(
     array: ArrayRef,
     fields: &Fields,
-    session: &VortexSession,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let len = array.len();
 
@@ -52,8 +52,8 @@ pub(super) fn to_arrow_struct(
     // Attempt to short-circuit if the array is already a StructVTable:
     let array = match array.try_into::<StructVTable>() {
         Ok(array) => {
-            let validity = to_arrow_null_buffer(array.validity(), array.len(), session)?;
-            return create_from_fields(fields, array.into_fields(), validity, len, session);
+            let validity = to_arrow_null_buffer(array.validity(), array.len(), ctx)?;
+            return create_from_fields(fields, array.into_fields(), validity, len, ctx);
         }
         Err(array) => array,
     };
@@ -67,7 +67,7 @@ pub(super) fn to_arrow_struct(
             array.children().to_vec(),
             None, // Pack is never null,
             len,
-            session,
+            ctx,
         );
     }
 
@@ -79,7 +79,11 @@ pub(super) fn to_arrow_struct(
         vortex_dtype::Nullability::Nullable,
     ))?;
 
-    let struct_array = array.execute_vector(session)?.into_struct().into_arrow()?;
+    let struct_array = array
+        .execute(ctx)?
+        .to_vector(ctx)?
+        .into_struct()
+        .into_arrow()?;
 
     // Finally, we cast to Arrow to ensure any types not representable by Vortex (e.g. Dictionary)
     // are properly converted.
@@ -91,11 +95,11 @@ fn create_from_fields(
     vortex_fields: Vec<ArrayRef>,
     null_buffer: Option<NullBuffer>,
     len: usize,
-    session: &VortexSession,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let mut arrow_fields = Vec::with_capacity(vortex_fields.len());
     for (field, vx_field) in fields.iter().zip_eq(vortex_fields.into_iter()) {
-        let arrow_field = vx_field.execute_arrow(field.data_type(), session)?;
+        let arrow_field = vx_field.execute_arrow(field.data_type(), ctx)?;
         vortex_ensure!(
             field.is_nullable() || arrow_field.null_count() == 0,
             "Cannot convert field '{}' to non-nullable Arrow field because it contains nulls",

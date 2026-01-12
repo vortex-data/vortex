@@ -205,6 +205,7 @@ mod tests {
 
     use vortex_array::IntoArray;
     use vortex_array::VectorExecutor;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
@@ -213,7 +214,6 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_session::VortexSession;
     use vortex_vector::VectorMutOps;
-    use vortex_vector::VectorOps;
 
     use super::*;
     use crate::BitPackedVTable;
@@ -524,8 +524,6 @@ mod tests {
     /// Test that the execute method produces consistent results with other unpacking methods.
     #[test]
     fn test_execute_method_consistency() {
-        use vortex_vector::Vector;
-
         // Test that execute(), unpack_to_primitive_vector(), and unpack_array() all produce consistent results.
         let test_consistency = |array: &PrimitiveArray, bit_width: u8| {
             let bitpacked = bitpack_encode(array, bit_width, None).unwrap();
@@ -537,7 +535,10 @@ mod tests {
             let unpacked_array = unpack_array(&bitpacked);
 
             // Method 3: Using the execute() method (this is what would be used in production).
-            let executed = bitpacked.into_array().execute_vector(&SESSION).unwrap();
+            let executed = {
+                let mut ctx = SESSION.create_execution_ctx();
+                bitpacked.into_array().execute(&mut ctx).unwrap()
+            };
 
             // All three should produce the same length.
             assert_eq!(vector_result.len(), array.len(), "vector length mismatch");
@@ -547,31 +548,30 @@ mod tests {
                 "unpacked array length mismatch"
             );
 
-            // The executed vector should also have the correct length.
-            match &executed {
-                Vector::Primitive(pv) => {
-                    assert_eq!(pv.len(), array.len(), "executed vector length mismatch");
-                }
-                _ => panic!("Expected primitive vector from execute"),
-            }
+            // The executed canonical should also have the correct length.
+            let executed_primitive = executed.into_primitive();
+            assert_eq!(
+                executed_primitive.len(),
+                array.len(),
+                "executed primitive length mismatch"
+            );
 
             // Verify that the execute() method works correctly by comparing with unpack_array.
-            // We convert unpack_array result to a vector using execute() to compare.
-            let unpacked_executed = unpacked_array
-                .into_array()
-                .execute_vector(&SESSION)
-                .unwrap();
-            match (&executed, &unpacked_executed) {
-                (Vector::Primitive(exec_pv), Vector::Primitive(unpack_pv)) => {
-                    assert_eq!(
-                        exec_pv.len(),
-                        unpack_pv.len(),
-                        "execute() and unpack_array().execute() produced different lengths"
-                    );
-                    // Both should produce identical vectors since they represent the same data.
-                }
-                _ => panic!("Expected both to be primitive vectors"),
-            }
+            // We convert unpack_array result to canonical to compare.
+            let unpacked_executed = {
+                let mut ctx = SESSION.create_execution_ctx();
+                unpacked_array
+                    .into_array()
+                    .execute(&mut ctx)
+                    .unwrap()
+                    .into_primitive()
+            };
+            assert_eq!(
+                executed_primitive.len(),
+                unpacked_executed.len(),
+                "execute() and unpack_array().execute() produced different lengths"
+            );
+            // Both should produce identical arrays since they represent the same data.
         };
 
         // Test various scenarios without patches.
@@ -597,7 +597,10 @@ mod tests {
         let sliced_bp = sliced.as_::<BitPackedVTable>();
         let vector_result = unpack_to_primitive_vector(sliced_bp);
         let unpacked_array = unpack_array(sliced_bp);
-        let executed = sliced.execute_vector(&SESSION).unwrap();
+        let executed = {
+            let mut ctx = SESSION.create_execution_ctx();
+            sliced.execute(&mut ctx).unwrap()
+        };
 
         assert_eq!(
             vector_result.len(),
@@ -610,16 +613,12 @@ mod tests {
             "sliced unpacked array length should be 1000"
         );
 
-        match executed {
-            Vector::Primitive(pv) => {
-                assert_eq!(
-                    pv.len(),
-                    1000,
-                    "sliced executed vector length should be 1000"
-                );
-            }
-            _ => panic!("Expected primitive vector from execute on sliced array"),
-        }
+        let executed_primitive = executed.into_primitive();
+        assert_eq!(
+            executed_primitive.len(),
+            1000,
+            "sliced executed primitive length should be 1000"
+        );
     }
 
     /// Test edge cases for unpacking.

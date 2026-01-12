@@ -8,19 +8,13 @@
 //! lists have the same number of elements.
 //!
 //! [`DType::FixedSizeList`]: vortex_dtype::DType::FixedSizeList
-use vortex::array::ArrayRef;
-use vortex::array::ToCanonical;
 use vortex::array::arrays::FixedSizeListArray;
-use vortex::array::validity::Validity;
-use vortex::array::vtable::ValidityHelper;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
-use vortex::session::VortexSession;
 
 use super::ConversionCache;
 use super::all_invalid;
 use super::new_array_exporter_with_flatten;
-use super::new_array_vector_exporter_with_flatten;
 use crate::duckdb::LogicalType;
 use crate::duckdb::Vector;
 use crate::exporter::ColumnExporter;
@@ -37,7 +31,7 @@ struct FixedSizeListExporter {
 
 /// Creates a new exporter for converting a [`FixedSizeListArray`] to DuckDB ARRAY format.
 pub(crate) fn new_exporter(
-    array: &FixedSizeListArray,
+    array: FixedSizeListArray,
     cache: &ConversionCache,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let elements_exporter = new_array_exporter_with_flatten(array.elements(), cache, true)?;
@@ -93,31 +87,6 @@ impl ColumnExporter for FixedSizeListExporter {
     }
 }
 
-/// Creates a new exporter for converting a [`FixedSizeListArray`] to DuckDB ARRAY format.
-pub(crate) fn new_vector_exporter(
-    array: ArrayRef,
-    cache: &ConversionCache,
-    session: &VortexSession,
-) -> VortexResult<Box<dyn ColumnExporter>> {
-    let array = array.to_fixed_size_list();
-    let elements_exporter =
-        new_array_vector_exporter_with_flatten(array.elements().clone(), cache, session, true)?;
-
-    let ltype: LogicalType = array.dtype().try_into()?;
-
-    let mask = array.validity();
-
-    if matches!(mask, Validity::AllInvalid) {
-        return Ok(all_invalid::new_exporter(array.len(), &ltype));
-    }
-
-    Ok(Box::new(FixedSizeListExporter {
-        validity: mask.to_mask(array.len()),
-        elements_exporter,
-        list_size: array.list_size(),
-    }))
-}
-
 #[cfg(test)]
 mod tests {
     use vortex::array::IntoArray as _;
@@ -133,7 +102,7 @@ mod tests {
 
     /// Sets up a DataChunk, exports the array to it, and returns the chunk.
     fn export_to_chunk(
-        fsl: &FixedSizeListArray,
+        fsl: FixedSizeListArray,
         list_size: u32,
         offset: usize,
         len: usize,
@@ -188,7 +157,7 @@ mod tests {
     fn test_export_empty_fixed_size_list() {
         // Create an empty FixedSizeListArray with list_size=3.
         let fsl = FixedSizeListArray::new(buffer![0i32; 0].into_array(), 3, Validity::AllValid, 0);
-        let chunk = export_to_chunk(&fsl, 3, 0, 0);
+        let chunk = export_to_chunk(fsl, 3, 0, 0);
 
         // Should produce an empty chunk.
         assert_eq!(chunk.len(), 0);
@@ -204,7 +173,7 @@ mod tests {
             Validity::AllValid,
             3,
         );
-        let chunk = export_to_chunk(&fsl, 2, 0, 3);
+        let chunk = export_to_chunk(fsl, 2, 0, 3);
 
         // Verify the chunk contains the expected data.
         assert_eq!(chunk.len(), 3);
@@ -224,7 +193,7 @@ mod tests {
             Validity::from_iter([true, false, true, true]),
             4,
         );
-        let chunk = export_to_chunk(&fsl, 3, 0, 4);
+        let chunk = export_to_chunk(fsl, 3, 0, 4);
 
         assert_eq!(chunk.len(), 4);
 
@@ -245,7 +214,7 @@ mod tests {
             Validity::from_iter([false, false, false]),
             3,
         );
-        let chunk = export_to_chunk(&fsl, 2, 0, 3);
+        let chunk = export_to_chunk(fsl, 2, 0, 3);
 
         assert_eq!(chunk.len(), 3);
 
@@ -265,7 +234,7 @@ mod tests {
             Validity::from_iter([false, true, false, true, false]),
             5,
         );
-        let chunk = export_to_chunk(&fsl, 2, 0, 5);
+        let chunk = export_to_chunk(fsl, 2, 0, 5);
 
         assert_eq!(chunk.len(), 5);
 
@@ -284,7 +253,7 @@ mod tests {
             Validity::AllValid,
             4,
         );
-        let chunk = export_to_chunk(&fsl, 1, 0, 4);
+        let chunk = export_to_chunk(fsl, 1, 0, 4);
 
         assert_eq!(chunk.len(), 4);
 
@@ -305,7 +274,7 @@ mod tests {
         );
 
         // Export only the middle 2 lists (indices 1 and 2).
-        let chunk = export_to_chunk(&fsl, 3, 1, 2);
+        let chunk = export_to_chunk(fsl, 3, 1, 2);
 
         assert_eq!(chunk.len(), 2);
 
@@ -354,7 +323,7 @@ mod tests {
         let outer_array_type = create_nested_array_type(2, 3);
         let mut chunk = DataChunk::new([outer_array_type]);
 
-        new_exporter(&outer_fsl, &ConversionCache::default())
+        new_exporter(outer_fsl, &ConversionCache::default())
             .unwrap()
             .export(0, 2, &mut chunk.get_vector(0))
             .unwrap();
@@ -407,7 +376,7 @@ mod tests {
         let outer_array_type = create_nested_array_type(2, 3);
         let mut chunk = DataChunk::new([outer_array_type]);
 
-        new_exporter(&outer_fsl, &ConversionCache::default())
+        new_exporter(outer_fsl, &ConversionCache::default())
             .unwrap()
             .export(0, 3, &mut chunk.get_vector(0))
             .unwrap();

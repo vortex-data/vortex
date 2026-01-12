@@ -10,13 +10,11 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_vector::primitive::PVector;
 
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::arrays::PrimitiveArray;
 use crate::buffer::BufferHandle;
-use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -33,7 +31,6 @@ mod validity;
 mod visitor;
 
 pub use rules::PrimitiveMaskedValidityRule;
-use vortex_vector::Vector;
 
 use crate::arrays::primitive::vtable::rules::RULES;
 use crate::vtable::ArrayId;
@@ -118,12 +115,6 @@ impl VTable for PrimitiveVTable {
             let buffer = Buffer::<P>::from_byte_buffer(buffer);
             Ok(PrimitiveArray::new(buffer, validity))
         })
-    }
-
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        Ok(match_each_native_ptype!(array.ptype(), |T| {
-            PVector::new(array.buffer::<T>(), array.validity_mask()).into()
-        }))
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

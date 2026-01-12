@@ -14,6 +14,10 @@ rust-version = { workspace = true }
 categories = { workspace = true }
 readme = { workspace = true }
 
+# The `links` key enables DEP_DUCKDB_* environment variables in dependent build scripts.
+# See: https://doc.rust-lang.org/cargo/reference/build-scripts.html#the-links-manifest-key
+links = "duckdb"
+
 [lib]
 name = "vortex_duckdb"
 path = "src/lib.rs"
@@ -36,7 +40,6 @@ tracing = { workspace = true }
 url = { workspace = true }
 vortex = { workspace = true, features = ["files", "tokio", "object_store"] }
 vortex-utils = { workspace = true, features = ["dashmap"] }
-vortex-vector = { workspace = true }
 
 [dev-dependencies]
 jiff = { workspace = true }

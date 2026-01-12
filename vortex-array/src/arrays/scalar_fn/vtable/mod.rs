@@ -17,10 +17,10 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_vector::Datum;
-use vortex_vector::Vector;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::IntoArray;
 use crate::VectorExecutor;
 use crate::arrays::ConstantVTable;
@@ -37,6 +37,7 @@ use crate::expr::ScalarFn;
 use crate::matchers::MatchKey;
 use crate::matchers::Matcher;
 use crate::serde::ArrayChildren;
+use crate::vectors::VectorIntoArray;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
@@ -139,13 +140,13 @@ impl VTable for ScalarFnVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         // NOTE: we don't use iterators here to make the profiles easier to read!
         let mut datums = Vec::with_capacity(array.children.len());
         let mut input_dtypes = Vec::with_capacity(array.children.len());
         for child in array.children.iter() {
             match child.as_opt::<ConstantVTable>() {
-                None => datums.push(child.execute(ctx).map(Datum::Vector)?),
+                None => datums.push(Datum::Vector(child.execute(ctx)?.to_vector(ctx)?)),
                 Some(constant) => datums.push(Datum::Scalar(constant.scalar().to_vector_scalar())),
             }
             input_dtypes.push(child.dtype().clone());
@@ -158,7 +159,13 @@ impl VTable for ScalarFnVTable {
             return_dtype: array.dtype.clone(),
         };
 
-        Ok(array.scalar_fn.execute(args)?.unwrap_into_vector(array.len))
+        // TODO(joe): should this go via Vector or canonical?
+        Ok(array
+            .scalar_fn
+            .execute(args)?
+            .unwrap_into_vector(array.len)
+            .into_array(array.dtype())
+            .to_canonical())
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {

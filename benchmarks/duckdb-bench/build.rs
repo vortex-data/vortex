@@ -4,12 +4,6 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
 
-use std::path::PathBuf;
-
-use get_dir::FileTarget;
-use get_dir::GetDir;
-use get_dir::Target;
-
 /// Adds a dynamic linker runtime path pointing to the DuckDB dylib dir.
 ///
 /// Setting an absolute rpath, if required by multiple binaries, is the most
@@ -26,14 +20,7 @@ use get_dir::Target;
 /// static lib is not self-contained. This means that it includes symbols which
 /// are not defined as part of the static library.
 fn main() {
-    let target_dir = workspace_root().join("target");
-    let lib_path = target_dir.join("duckdb-lib");
-    println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_path.display());
-}
-
-fn workspace_root() -> PathBuf {
-    GetDir::new()
-        .target(Target::File(FileTarget::new("Cargo.lock")))
-        .run_reverse()
-        .expect("Can't find workspace root")
+    // Propagate DuckDB rpath from vortex-duckdb
+    let duckdb_lib = std::env::var("DEP_DUCKDB_LIB_DIR").unwrap();
+    println!("cargo:rustc-link-arg=-Wl,-rpath,{duckdb_lib}");
 }

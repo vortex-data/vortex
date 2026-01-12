@@ -52,7 +52,7 @@ use crate::vtable::ValidityHelper;
 
 /// One patch index offset is stored for each chunk.
 /// This allows for constant time patch index lookups.
-const PATCH_CHUNK_SIZE: usize = 1024;
+pub const PATCH_CHUNK_SIZE: usize = 1024;
 
 #[derive(Copy, Clone, prost::Message)]
 pub struct PatchesMetadata {
@@ -273,6 +273,7 @@ impl Patches {
     }
 
     #[inline]
+    // Absolute offset: 0 if the array is unsliced.
     pub fn offset(&self) -> usize {
         self.offset
     }
@@ -295,6 +296,14 @@ impl Patches {
             .vortex_expect("chunk offset must be usize")
     }
 
+    /// Returns the number of patches sliced off from the current first chunk.
+    ///
+    /// When patches are sliced, the chunk offsets array is also sliced to only include
+    /// chunks that overlap with the slice range. However, the slice boundary may fall
+    /// in the middle of a chunk's patch range. This offset indicates how many patches
+    /// at the start of the first chunk should be skipped.
+    ///
+    /// Returns `None` if chunk offsets are not set.
     #[inline]
     pub fn offset_within_chunk(&self) -> Option<usize> {
         self.offset_within_chunk

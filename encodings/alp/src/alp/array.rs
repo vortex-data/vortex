@@ -16,7 +16,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::VectorExecutor;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
@@ -43,14 +42,11 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_vector::Vector;
 
 use crate::ALPFloat;
 use crate::alp::Exponents;
 use crate::alp::alp_encode;
 use crate::alp::decompress::decompress_into_array;
-use crate::alp::decompress::decompress_into_vector;
-use crate::match_each_alp_float_ptype;
 
 vtable!(ALP);
 
@@ -187,28 +183,9 @@ impl VTable for ALPVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        let encoded = array.encoded().execute(ctx)?;
-        let patches = if let Some(patches) = array.patches() {
-            Some((
-                patches.indices().execute(ctx)?,
-                patches.values().execute(ctx)?,
-                patches
-                    .chunk_offsets()
-                    .as_ref()
-                    .map(|co| co.execute(ctx))
-                    .transpose()?,
-            ))
-        } else {
-            None
-        };
-
-        let patches_offset = array.patches().map(|p| p.offset()).unwrap_or(0);
-        let exponents = array.exponents();
-
-        match_each_alp_float_ptype!(array.dtype().as_ptype(), |T| {
-            decompress_into_vector::<T>(encoded, exponents, patches, patches_offset)
-        })
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        // TODO(joe): take by value
+        Ok(decompress_into_array(array.clone()).to_canonical())
     }
 }
 
@@ -502,13 +479,13 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_array::ToCanonical;
     use vortex_array::VectorExecutor;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::session::ArraySession;
     use vortex_array::vtable::ValidityHelper;
-    use vortex_dtype::PTypeDowncast;
     use vortex_session::VortexSession;
-    use vortex_vector::VectorOps;
 
     use super::*;
 
@@ -529,14 +506,20 @@ mod tests {
         let values = PrimitiveArray::from_iter((0..size).map(|i| i as f32));
         let encoded = alp_encode(&values, None).unwrap();
 
-        let result_vector = encoded.to_array().execute_vector(&SESSION).unwrap();
+        let result_canonical = {
+            let mut ctx = SESSION.create_execution_ctx();
+            encoded.to_array().execute(&mut ctx).unwrap()
+        };
         // Compare against the traditional array-based decompress path
         let expected = decompress_into_array(encoded);
 
-        assert_eq!(result_vector.len(), size);
+        assert_eq!(result_canonical.len(), size);
 
-        let result_primitive = result_vector.into_primitive().into_f32();
-        assert_eq!(result_primitive.as_ref(), expected.as_slice::<f32>());
+        let result_primitive = result_canonical.into_primitive();
+        assert_eq!(
+            result_primitive.as_slice::<f32>(),
+            expected.as_slice::<f32>()
+        );
     }
 
     #[rstest]
@@ -553,14 +536,20 @@ mod tests {
         let values = PrimitiveArray::from_iter((0..size).map(|i| i as f64));
         let encoded = alp_encode(&values, None).unwrap();
 
-        let result_vector = encoded.to_array().execute_vector(&SESSION).unwrap();
+        let result_canonical = {
+            let mut ctx = SESSION.create_execution_ctx();
+            encoded.to_array().execute(&mut ctx).unwrap()
+        };
         // Compare against the traditional array-based decompress path
         let expected = decompress_into_array(encoded);
 
-        assert_eq!(result_vector.len(), size);
+        assert_eq!(result_canonical.len(), size);
 
-        let result_primitive = result_vector.into_primitive().into_f64();
-        assert_eq!(result_primitive.as_ref(), expected.as_slice::<f64>());
+        let result_primitive = result_canonical.into_primitive();
+        assert_eq!(
+            result_primitive.as_slice::<f64>(),
+            expected.as_slice::<f64>()
+        );
     }
 
     #[rstest]
@@ -583,14 +572,20 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().unwrap().array_len() > 0);
 
-        let result_vector = encoded.to_array().execute_vector(&SESSION).unwrap();
+        let result_canonical = {
+            let mut ctx = SESSION.create_execution_ctx();
+            encoded.to_array().execute(&mut ctx).unwrap()
+        };
         // Compare against the traditional array-based decompress path
         let expected = decompress_into_array(encoded);
 
-        assert_eq!(result_vector.len(), size);
+        assert_eq!(result_canonical.len(), size);
 
-        let result_primitive = result_vector.into_primitive().into_f64();
-        assert_eq!(result_primitive.as_ref(), expected.as_slice::<f64>());
+        let result_primitive = result_canonical.into_primitive();
+        assert_eq!(
+            result_primitive.as_slice::<f64>(),
+            expected.as_slice::<f64>()
+        );
     }
 
     #[rstest]
@@ -611,19 +606,25 @@ mod tests {
         let array = PrimitiveArray::from_option_iter(values);
         let encoded = alp_encode(&array, None).unwrap();
 
-        let result_vector = encoded.to_array().execute_vector(&SESSION).unwrap();
+        let result_canonical = {
+            let mut ctx = SESSION.create_execution_ctx();
+            encoded.to_array().execute(&mut ctx).unwrap()
+        };
         // Compare against the traditional array-based decompress path
         let expected = decompress_into_array(encoded);
 
-        assert_eq!(result_vector.len(), size);
+        assert_eq!(result_canonical.len(), size);
 
-        let result_primitive = result_vector.into_primitive().into_f32();
-        assert_eq!(result_primitive.as_ref(), expected.as_slice::<f32>());
+        let result_primitive = result_canonical.into_primitive();
+        assert_eq!(
+            result_primitive.as_slice::<f32>(),
+            expected.as_slice::<f32>()
+        );
 
         // Test validity masks match
         for idx in 0..size {
             assert_eq!(
-                result_primitive.validity().value(idx),
+                result_primitive.validity().is_valid(idx),
                 expected.validity().is_valid(idx)
             );
         }
@@ -650,19 +651,25 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().unwrap().array_len() > 0);
 
-        let result_vector = encoded.to_array().execute_vector(&SESSION).unwrap();
+        let result_canonical = {
+            let mut ctx = SESSION.create_execution_ctx();
+            encoded.to_array().execute(&mut ctx).unwrap()
+        };
         // Compare against the traditional array-based decompress path
         let expected = decompress_into_array(encoded);
 
-        assert_eq!(result_vector.len(), size);
+        assert_eq!(result_canonical.len(), size);
 
-        let result_primitive = result_vector.into_primitive().into_f64();
-        assert_eq!(result_primitive.as_ref(), expected.as_slice::<f64>());
+        let result_primitive = result_canonical.into_primitive();
+        assert_eq!(
+            result_primitive.as_slice::<f64>(),
+            expected.as_slice::<f64>()
+        );
 
         // Test validity masks match
         for idx in 0..size {
             assert_eq!(
-                result_primitive.validity().value(idx),
+                result_primitive.validity().is_valid(idx),
                 expected.validity().is_valid(idx)
             );
         }
@@ -692,13 +699,16 @@ mod tests {
         let slice_len = slice_end - slice_start;
         let sliced_encoded = encoded.slice(slice_start..slice_end);
 
-        let result_vector = sliced_encoded.execute_vector(&SESSION).unwrap();
-        let result_primitive = result_vector.into_primitive().into_f64();
+        let result_canonical = {
+            let mut ctx = SESSION.create_execution_ctx();
+            sliced_encoded.execute(&mut ctx).unwrap()
+        };
+        let result_primitive = result_canonical.into_primitive();
 
         for idx in 0..slice_len {
             let expected_value = values[slice_start + idx];
 
-            let result_valid = result_primitive.validity().value(idx);
+            let result_valid = result_primitive.validity().is_valid(idx);
             assert_eq!(
                 result_valid,
                 expected_value.is_some(),
@@ -706,7 +716,51 @@ mod tests {
             );
 
             if let Some(expected_val) = expected_value {
-                let result_val = result_primitive.as_ref()[idx];
+                let result_val = result_primitive.as_slice::<f64>()[idx];
+                assert_eq!(result_val, expected_val, "Value mismatch at idx={idx}",);
+            }
+        }
+    }
+
+    #[rstest]
+    #[case(500, 100)]
+    #[case(1000, 200)]
+    #[case(2048, 512)]
+    fn test_sliced_to_primitive(#[case] size: usize, #[case] slice_start: usize) {
+        let values: Vec<Option<f64>> = (0..size)
+            .map(|i| {
+                if i % 5 == 0 {
+                    None
+                } else if i % 4 == 3 {
+                    Some(PI)
+                } else {
+                    Some(1.0)
+                }
+            })
+            .collect();
+
+        let array = PrimitiveArray::from_option_iter(values.clone());
+        let encoded = alp_encode(&array, None).unwrap();
+
+        let slice_end = size - slice_start;
+        let slice_len = slice_end - slice_start;
+        let sliced_encoded = encoded.slice(slice_start..slice_end);
+
+        let result_primitive = sliced_encoded.to_primitive();
+
+        for idx in 0..slice_len {
+            let expected_value = values[slice_start + idx];
+
+            let result_valid = result_primitive.validity_mask().value(idx);
+            assert_eq!(
+                result_valid,
+                expected_value.is_some(),
+                "Validity mismatch at idx={idx}",
+            );
+
+            if let Some(expected_val) = expected_value {
+                let buf = result_primitive.buffer::<f64>();
+                let result_val = buf.as_slice()[idx];
                 assert_eq!(result_val, expected_val, "Value mismatch at idx={idx}",);
             }
         }

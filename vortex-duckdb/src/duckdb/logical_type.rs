@@ -171,6 +171,10 @@ impl LogicalType {
         unsafe { duckdb_get_type_id(self.as_ptr()) }
     }
 
+    pub fn null() -> Self {
+        Self::new(DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL)
+    }
+
     pub fn varchar() -> Self {
         Self::new(DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR)
     }

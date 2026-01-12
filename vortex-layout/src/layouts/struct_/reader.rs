@@ -410,7 +410,7 @@ mod tests {
     use crate::LayoutRef;
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::layouts::struct_::writer::StructStrategy;
+    use crate::layouts::table::TableStrategy;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
@@ -423,8 +423,10 @@ mod tests {
 
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
-        let strategy =
-            StructStrategy::new(FlatLayoutStrategy::default(), FlatLayoutStrategy::default());
+        let strategy = TableStrategy::new(
+            Arc::new(FlatLayoutStrategy::default()),
+            Arc::new(FlatLayoutStrategy::default()),
+        );
         let layout = block_on(|handle| {
             strategy.write_stream(
                 ctx,
@@ -454,8 +456,10 @@ mod tests {
         let ctx = ArrayContext::empty();
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
-        let strategy =
-            StructStrategy::new(FlatLayoutStrategy::default(), FlatLayoutStrategy::default());
+        let strategy = TableStrategy::new(
+            Arc::new(FlatLayoutStrategy::default()),
+            Arc::new(FlatLayoutStrategy::default()),
+        );
         let layout = block_on(|handle| {
             strategy.write_stream(
                 ctx,
@@ -488,8 +492,10 @@ mod tests {
 
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
-        let strategy =
-            StructStrategy::new(FlatLayoutStrategy::default(), FlatLayoutStrategy::default());
+        let strategy = TableStrategy::new(
+            Arc::new(FlatLayoutStrategy::default()),
+            Arc::new(FlatLayoutStrategy::default()),
+        );
         let layout = block_on(|handle| {
             strategy.write_stream(
                 ctx,
@@ -527,8 +533,10 @@ mod tests {
         let ctx = ArrayContext::empty();
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
-        let strategy =
-            StructStrategy::new(FlatLayoutStrategy::default(), FlatLayoutStrategy::default());
+        let strategy = TableStrategy::new(
+            Arc::new(FlatLayoutStrategy::default()),
+            Arc::new(FlatLayoutStrategy::default()),
+        );
         let layout = block_on(|handle| {
             strategy.write_stream(
                 ctx,

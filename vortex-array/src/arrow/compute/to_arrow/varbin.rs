@@ -20,6 +20,7 @@ use vortex_error::vortex_panic;
 use crate::Array;
 use crate::LEGACY_SESSION;
 use crate::VectorExecutor;
+use crate::VortexSessionExecute;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinVTable;
 use crate::arrow::compute::ToArrowKernel;
@@ -80,11 +81,13 @@ impl ToArrowKernel for VarBinVTable {
 register_kernel!(ToArrowKernelAdapter(VarBinVTable).lift());
 
 fn to_arrow<O: IntegerPType + OffsetSizeTrait>(array: &VarBinArray) -> VortexResult<ArrowArrayRef> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let offsets = cast(
         array.offsets(),
         &DType::Primitive(O::PTYPE, Nullability::NonNullable),
     )?
-    .execute_vector(&LEGACY_SESSION)?
+    .execute(&mut ctx)?
+    .to_vector(&mut ctx)?
     .into_primitive()
     .downcast::<O>()
     .into_nonnull_buffer();

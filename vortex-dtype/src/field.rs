@@ -91,6 +91,21 @@ impl Display for Field {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FieldPath(Vec<Field>);
 
+/// A helpful constructor for creating `FieldPath`s to nested
+/// struct fields of the format `field_path!(x.y.z)`
+#[macro_export]
+macro_rules! field_path {
+    ($front:ident) => {{
+        $crate::FieldPath::from_name(stringify!($front))
+    }};
+    ($front:ident $(. $rest:ident)+) => {{
+        $crate::FieldPath::from_iter([
+            $crate::Field::from(stringify!($front)),
+            $($crate::Field::from(stringify!($rest))),+
+        ])
+    }};
+}
+
 impl FieldPath {
     /// The selector for the root (i.e., the top-level struct itself)
     pub fn root() -> Self {
@@ -190,6 +205,12 @@ impl FieldPath {
     pub fn exists_in(&self, dtype: DType) -> bool {
         // Indexing a struct type always allocates anyway.
         self.resolve(dtype).is_some()
+    }
+
+    /// Returns true if this path overlaps with another path (i.e., one is a prefix of the other).
+    pub fn overlap(&self, other: &FieldPath) -> bool {
+        let min_len = self.0.len().min(other.0.len());
+        self.0.iter().take(min_len).eq(other.0.iter().take(min_len))
     }
 }
 
@@ -350,7 +371,7 @@ mod tests {
     #[test]
     fn nested_field_not_found() {
         let dtype = DType::struct_([("a", DType::Bool(NonNullable))], NonNullable);
-        let path = FieldPath::from_name("b");
+        let path = field_path!(b);
         assert!(path.resolve(dtype.clone()).is_none());
         assert!(!path.exists_in(dtype.clone()));
 
@@ -365,12 +386,36 @@ mod tests {
             [("a", DType::Primitive(PType::I32, NonNullable))],
             NonNullable,
         );
-        let path = FieldPath::from_name("a").push("b");
+        let path = field_path!(a.b);
         assert!(path.resolve(dtype.clone()).is_none());
         assert!(!path.exists_in(dtype.clone()));
 
         let path = FieldPath::from_name("a").push(Field::ElementType);
         assert!(path.resolve(dtype.clone()).is_none());
         assert!(!path.exists_in(dtype));
+    }
+
+    #[test]
+    fn test_overlap_positive() {
+        let path1 = field_path!(a.b.c);
+        let path2 = field_path!(a.b);
+        assert!(path1.overlap(&path2));
+        assert!(path2.overlap(&path1));
+
+        let path3 = field_path!(a);
+        assert!(path1.overlap(&path3));
+        assert!(path3.overlap(&path1));
+    }
+
+    #[test]
+    fn test_overlap_negative() {
+        let path1 = field_path!(a.b.c);
+        let path2 = field_path!(a.x.y);
+        assert!(!path1.overlap(&path2));
+        assert!(!path2.overlap(&path1));
+
+        let path3 = field_path!(x);
+        assert!(!path1.overlap(&path3));
+        assert!(!path3.overlap(&path1));
     }
 }

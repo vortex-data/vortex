@@ -47,7 +47,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_vector::Vector;
 
 use crate::fsst_compress;
 use crate::fsst_train_compressor;
@@ -187,7 +186,7 @@ impl VTable for FSSTVTable {
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Vector>> {
+    ) -> VortexResult<Option<Canonical>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -10,18 +8,14 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_vector::Vector;
-use vortex_vector::listview::ListViewVector;
 
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
-use crate::VectorExecutor;
 use crate::arrays::ListViewArray;
 use crate::arrays::listview::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
-use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -171,23 +165,6 @@ impl VTable for ListViewVTable {
         let new_array = ListViewArray::try_new(elements, offsets, sizes, validity)?;
         *array = new_array;
         Ok(())
-    }
-
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        let elements = array.elements().execute(ctx)?;
-        let offsets = array.offsets().execute(ctx)?;
-        let sizes = array.sizes().execute(ctx)?;
-        let validity_mask = array.validity_mask();
-
-        Ok(unsafe {
-            ListViewVector::new_unchecked(
-                Arc::new(elements),
-                offsets.into_primitive(),
-                sizes.into_primitive(),
-                validity_mask,
-            )
-        }
-        .into())
     }
 
     fn reduce_parent(

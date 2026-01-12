@@ -11,15 +11,41 @@ use vortex_vector::VectorOps;
 
 use crate::Array;
 use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
+use crate::executor::CanonicalOutput;
 use crate::executor::VectorExecutor;
+use crate::expr::ExecutionArgs;
 use crate::validity::Validity;
 use crate::vtable::ValidityVTable;
 
 impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
     fn is_valid(array: &ScalarFnArray, index: usize) -> bool {
-        array.scalar_at(index).is_valid()
+        // inlined to remove a cycle `is_valid()` and `scalar_at()`
+        assert!(index < array.len(), "index {index} out of bounds");
+        let input_datums: Vec<_> = array
+            .children()
+            .iter()
+            .map(|c| c.scalar_at(index))
+            .map(|scalar| Datum::from(scalar.to_vector_scalar()))
+            .collect();
+
+        let ctx = ExecutionArgs {
+            datums: input_datums,
+            dtypes: array.children().iter().map(|c| c.dtype().clone()).collect(),
+            row_count: 1,
+            return_dtype: array.dtype.clone(),
+        };
+
+        let result = array
+            .scalar_fn
+            .execute(ctx)
+            .vortex_expect("Scalar function execution should be fallible")
+            .into_scalar()
+            .vortex_expect("Scalar function execution should return scalar");
+
+        result.is_valid()
     }
 
     fn all_valid(array: &ScalarFnArray) -> bool {
@@ -62,13 +88,18 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
     }
 
     fn validity_mask(array: &ScalarFnArray) -> Mask {
-        let datum = array
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let output = array
             .to_array()
-            .execute_datum(&LEGACY_SESSION)
+            .execute_output(&mut ctx)
             .vortex_expect("Validity mask computation should be fallible");
-        match datum {
-            Datum::Scalar(s) => Mask::new(array.len, s.is_valid()),
-            Datum::Vector(v) => v.validity().clone(),
+        match output {
+            CanonicalOutput::Constant(c) => Mask::new(array.len, c.scalar().is_valid()),
+            CanonicalOutput::Array(a) => a
+                .to_vector(&mut ctx)
+                .vortex_expect("Failed to convert canonical to vector")
+                .validity()
+                .clone(),
         }
     }
 }

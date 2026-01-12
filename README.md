@@ -117,6 +117,23 @@ git submodule update --init --recursive
 uv sync --all-packages
 ```
 
+### Benchmarking
+
+Use `vx-bench` to run benchmarks comparing engines (DataFusion, DuckDB) and formats (Parquet, Vortex):
+
+```bash
+# Install the benchmark orchestrator
+uv tool install "bench_orchestrator @ ./bench-orchestrator/"
+
+# Run TPC-H benchmarks
+vx-bench run tpch --engine datafusion,duckdb --format parquet,vortex
+
+# Compare results
+vx-bench compare --run latest
+```
+
+See [bench-orchestrator/README.md](bench-orchestrator/README.md) for full documentation.
+
 ### Performance Optimization
 
 For optimal performance, we suggest using [MiMalloc](https://github.com/microsoft/mimalloc):

@@ -6,6 +6,7 @@ use std::sync::Arc;
 use fsst::Decompressor;
 use num_traits::AsPrimitive;
 use vortex_array::Array;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::VectorExecutor;
 use vortex_array::arrays::FilterArray;
@@ -16,6 +17,7 @@ use vortex_array::kernel::ParentKernelSet;
 use vortex_array::mask::MaskExecutor;
 use vortex_array::matchers::Exact;
 use vortex_array::validity::Validity;
+use vortex_array::vectors::VectorIntoArray;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -25,12 +27,10 @@ use vortex_dtype::DType;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_dtype::PTypeDowncastExt;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
-use vortex_vector::Vector;
 use vortex_vector::binaryview::BinaryVector;
 use vortex_vector::binaryview::BinaryView;
 use vortex_vector::binaryview::StringVector;
@@ -51,13 +51,14 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
         Exact::from(&FilterVTable)
     }
 
+    // TODO(joe); remove Vector usage internally?
     fn execute_parent(
         &self,
         array: &FSSTArray,
         parent: &FilterArray,
         _child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Vector>> {
+    ) -> VortexResult<Option<Canonical>> {
         let mask_values = match parent.filter_mask() {
             Mask::AllTrue(_) | Mask::AllFalse(_) => return Ok(None),
             Mask::Values(v) => v,
@@ -76,7 +77,7 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
                 Mask::new_true(parent.filter_mask().true_count())
             }
             Validity::AllInvalid => Mask::new_false(parent.filter_mask().true_count()),
-            Validity::Array(a) => a.execute_mask(ctx.session())?,
+            Validity::Array(a) => a.execute_mask(ctx)?,
         };
 
         // First we unpack the codes VarBinArray to get access to the raw data.
@@ -87,8 +88,7 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
             .cast(DType::Primitive(PType::U32, Nullability::NonNullable))?
             .execute(ctx)?
             .into_primitive()
-            .downcast::<u32>()
-            .into_nonnull_buffer();
+            .buffer::<u32>();
 
         let decompressor = array.decompressor();
 
@@ -99,23 +99,26 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
                 &codes_offsets,
                 mask_values,
                 &validity,
-                &uncompressed_lens.downcast::<S>().into_nonnull_buffer(),
+                &uncompressed_lens.buffer::<S>(),
             )
         });
 
-        let vector = match array.dtype() {
+        let dtype = array.dtype();
+        let canonical = match dtype {
             DType::Binary(_) => unsafe {
                 BinaryVector::new_unchecked(views, Arc::new(vec![buffer].into()), validity)
             }
-            .into(),
+            .into_array(array.dtype())
+            .to_canonical(),
             DType::Utf8(_) => unsafe {
                 StringVector::new_unchecked(views, Arc::new(vec![buffer].into()), validity)
             }
-            .into(),
+            .into_array(array.dtype())
+            .to_canonical(),
             _ => unreachable!("Not a supported FSST DType"),
         };
 
-        Ok(Some(vector))
+        Ok(Some(canonical))
     }
 }
 

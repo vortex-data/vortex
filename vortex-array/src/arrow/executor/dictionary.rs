@@ -11,9 +11,9 @@ use arrow_schema::DataType;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::arrays::DictArray;
 use crate::arrays::DictVTable;
 use crate::arrow::ArrowArrayExecutor;
@@ -22,17 +22,17 @@ pub(super) fn to_arrow_dictionary(
     array: ArrayRef,
     codes_type: &DataType,
     values_type: &DataType,
-    session: &VortexSession,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     // Check if we have a Vortex dictionary array
     let array = match array.try_into::<DictVTable>() {
-        Ok(array) => return dict_to_dict(array, codes_type, values_type, session),
+        Ok(array) => return dict_to_dict(array, codes_type, values_type, ctx),
         Err(a) => a,
     };
 
     // Otherwise, we should try and build a dictionary.
     // Arrow hides this functionality inside the cast module!
-    let array = array.execute_arrow(values_type, session)?;
+    let array = array.execute_arrow(values_type, ctx)?;
     arrow_cast::cast(
         &array,
         &DataType::Dictionary(Box::new(codes_type.clone()), Box::new(values_type.clone())),
@@ -45,11 +45,11 @@ fn dict_to_dict(
     array: DictArray,
     codes_type: &DataType,
     values_type: &DataType,
-    session: &VortexSession,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let (codes, values) = array.into_parts();
-    let codes = codes.execute_arrow(codes_type, session)?;
-    let values = values.execute_arrow(values_type, session)?;
+    let codes = codes.execute_arrow(codes_type, ctx)?;
+    let values = values.execute_arrow(values_type, ctx)?;
 
     Ok(match codes_type {
         DataType::Int8 => Arc::new(unsafe {

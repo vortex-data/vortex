@@ -118,12 +118,11 @@ impl ComputeFnVTable for MaskFn {
 
         if matches!(mask, Mask::AllTrue(_)) {
             // Fast-path for full mask.
-            return Ok(ConstantArray::new(
-                Scalar::null(array.dtype().clone().as_nullable()),
-                array.len(),
-            )
-            .into_array()
-            .into());
+            return Ok(
+                ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len())
+                    .into_array()
+                    .into(),
+            );
         }
 
         // Do nothing if the array is already all nulls.

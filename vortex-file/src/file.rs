@@ -11,7 +11,9 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::ArrayRef;
+use vortex_array::CanonicalOutput;
 use vortex_array::VectorExecutor;
+use vortex_array::VortexSessionExecute;
 use vortex_array::expr::Expression;
 use vortex_array::expr::pruning::checked_pruning_expr;
 use vortex_array::stats::StatsSet;
@@ -159,10 +161,11 @@ impl VortexFile {
         };
 
         Ok(if *USE_VORTEX_OPERATORS {
-            file_stats
-                .execute_datum(&self.session)?
-                .into_scalar()
-                .is_some_and(|s| s.as_bool().value() == Some(true))
+            let mut ctx = self.session.create_execution_ctx();
+            match file_stats.execute_output(&mut ctx)? {
+                CanonicalOutput::Constant(c) => c.scalar().as_bool().value() == Some(true),
+                CanonicalOutput::Array(_) => false,
+            }
         } else {
             predicate
                 .evaluate(&file_stats)?

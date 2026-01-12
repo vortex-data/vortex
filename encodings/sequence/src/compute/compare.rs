@@ -70,6 +70,12 @@ impl CompareKernel for SequenceVTable {
     }
 }
 
+/// Find the index where `base + idx * multiplier == intercept`, if one exists.
+///
+/// Returns `None` if:
+/// - `len` is 0
+/// - `intercept` is outside the range of the sequence
+/// - `intercept` doesn't fall exactly on a sequence value
 pub(crate) fn find_intersection_scalar(
     base: PValue,
     multiplier: PValue,
@@ -78,10 +84,8 @@ pub(crate) fn find_intersection_scalar(
 ) -> Option<usize> {
     match_each_integer_ptype!(base.ptype(), |P| {
         let intercept = intercept.cast::<P>();
-
         let base = base.cast::<P>();
         let multiplier = multiplier.cast::<P>();
-
         find_intersection(base, multiplier, len, intercept)
     })
 }
@@ -92,16 +96,38 @@ fn find_intersection<P: NativePType>(
     len: usize,
     intercept: P,
 ) -> Option<usize> {
-    // Array is non-empty here.
-    let count = <P>::from_usize(len - 1).vortex_expect("idx must fit into type");
+    if len == 0 {
+        return None;
+    }
 
+    let count = P::from_usize(len - 1).vortex_expect("idx must fit into type");
     let end_element = base + (multiplier * count);
 
-    (intercept.is_ge(base)
-        && intercept.is_le(end_element)
-        && (intercept - base) % multiplier == P::zero())
-    .then(|| ((intercept - base) / multiplier).to_usize())
-    .flatten()
+    // Handle ascending vs descending sequences
+    let (min_val, max_val) = if multiplier.is_ge(P::zero()) {
+        (base, end_element)
+    } else {
+        (end_element, base)
+    };
+
+    // Check if intercept is in range
+    if !intercept.is_ge(min_val) || !intercept.is_le(max_val) {
+        return None;
+    }
+
+    // Handle zero multiplier (constant sequence)
+    if multiplier == P::zero() {
+        return (intercept == base).then_some(0);
+    }
+
+    // Check if (intercept - base) is evenly divisible by multiplier
+    let diff = intercept - base;
+    if diff % multiplier != P::zero() {
+        return None;
+    }
+
+    let idx = diff / multiplier;
+    idx.to_usize()
 }
 
 #[cfg(test)]

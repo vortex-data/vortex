@@ -6,9 +6,9 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 
 use vortex_error::VortexResult;
-use vortex_vector::Vector;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::matchers::MatchKey;
 use crate::matchers::Matcher;
@@ -47,7 +47,7 @@ impl<V: VTable> ParentKernelSet<V> {
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Vector>> {
+    ) -> VortexResult<Option<Canonical>> {
         for kernel in self.kernels.iter() {
             if let MatchKey::Array(id) = kernel.parent_key()
                 && parent.encoding_id() != id
@@ -75,7 +75,7 @@ pub trait ExecuteParentKernel<V: VTable>: Debug {
         parent: <Self::Parent as Matcher>::View<'_>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Vector>>;
+    ) -> VortexResult<Option<Canonical>>;
 }
 
 pub trait DynParentKernel<V: VTable> {
@@ -87,7 +87,7 @@ pub trait DynParentKernel<V: VTable> {
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Vector>>;
+    ) -> VortexResult<Option<Canonical>>;
 }
 
 pub struct ParentKernelAdapter<V, K> {
@@ -115,7 +115,7 @@ impl<V: VTable, R: ExecuteParentKernel<V>> DynParentKernel<V> for ParentKernelAd
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Vector>> {
+    ) -> VortexResult<Option<Canonical>> {
         let Some(parent_view) = self.kernel.parent().try_match(parent) else {
             return Ok(None);
         };

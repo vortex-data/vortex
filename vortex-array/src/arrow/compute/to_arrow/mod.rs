@@ -23,6 +23,7 @@ use vortex_error::vortex_err;
 use crate::Array;
 use crate::LEGACY_SESSION;
 use crate::USE_VORTEX_OPERATORS;
+use crate::VortexSessionExecute;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::array::ArrowArray;
 use crate::arrow::array::ArrowVTable;
@@ -133,9 +134,8 @@ impl ComputeFnVTable for ToArrow {
                     .cloned()
                     .map(Ok)
                     .unwrap_or_else(|| array.dtype().to_arrow_dtype())?;
-                array
-                    .to_array()
-                    .execute_arrow(&arrow_type, &LEGACY_SESSION)?
+                let mut ctx = LEGACY_SESSION.create_execution_ctx();
+                array.to_array().execute_arrow(&arrow_type, &mut ctx)?
             } else {
                 // Fall back to canonicalizing and then converting.
                 let canonical_array = array.to_canonical();

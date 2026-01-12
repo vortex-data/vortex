@@ -10,6 +10,7 @@ use std::hash::Hasher;
 use std::ops::Deref;
 
 use vortex_dtype::DType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_utils::debug_with::DebugWith;
 use vortex_vector::Datum;
@@ -82,11 +83,21 @@ impl ScalarFn {
         self.vtable.is::<V>()
     }
 
-    /// Returns the typed options for this expression if it matches the given vtable type.
+    /// Returns the typed options for this `ScalarFn` if it matches the given vtable type.
     pub fn as_opt<V: VTable>(&self) -> Option<&V::Options> {
-        self.options().as_any().downcast_ref::<V::Options>()
+        self.vtable.is::<V>().then(|| {
+            self.options()
+                .as_any()
+                .downcast_ref::<V::Options>()
+                .vortex_expect("Expression options type mismatch")
+        })
     }
 
+    /// Returns the typed options for this `ScalarFn` if it matches the given vtable type.
+    pub fn as_<V: VTable>(&self) -> &V::Options {
+        self.as_opt::<V>()
+            .vortex_expect("Expression options type mismatch")
+    }
     /// Signature information for this expression.
     pub fn signature(&self) -> ExpressionSignature<'_> {
         ExpressionSignature {

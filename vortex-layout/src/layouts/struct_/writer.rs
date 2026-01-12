@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![allow(deprecated, reason = "This module is deprecated")]
+
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -35,7 +37,13 @@ use crate::sequence::SequencePointer;
 use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt;
 
+/// A write strategy that shreds tabular data into columns and writes each column
+/// as its own distinct stream.
+///
+/// This is now deprecated, users are encouraged to instead use the
+/// [`TableStrategy`][crate::layouts::table::TableStrategy].
 #[derive(Clone)]
+#[deprecated(since = "0.59.0", note = "Use the `TableStrategy` instead.")]
 pub struct StructStrategy {
     child: Arc<dyn LayoutStrategy>,
     validity: Arc<dyn LayoutStrategy>,

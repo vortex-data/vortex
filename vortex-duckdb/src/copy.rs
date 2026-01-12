@@ -126,7 +126,7 @@ impl CopyFunction for VortexCopyFunction {
         let array_stream = ArrayStreamAdapter::new(bind_data.dtype.clone(), rx.into_stream());
 
         let handle = SESSION.handle();
-        let writer = handle.spawn(async move {
+        let write_task = handle.spawn(async move {
             let mut file = async_fs::File::create(file_path).await?;
             SESSION.write_options().write(&mut file, array_stream).await
         });
@@ -136,7 +136,7 @@ impl CopyFunction for VortexCopyFunction {
 
         Ok(GlobalState {
             worker_pool,
-            write_task: Mutex::new(Some(writer)),
+            write_task: Mutex::new(Some(write_task)),
             sink: Some(sink),
         })
     }

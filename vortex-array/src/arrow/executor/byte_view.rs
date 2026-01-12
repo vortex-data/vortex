@@ -1,22 +1,42 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_array::GenericByteViewArray;
 use arrow_array::types::ByteViewType;
-use vortex_compute::arrow::IntoArrow;
+use arrow_buffer::ScalarBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_error::VortexResult;
-use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::VectorExecutor;
+use crate::arrays::VarBinViewArray;
+use crate::arrow::null_buffer::to_null_buffer;
 use crate::builtins::ArrayBuiltins;
+
+/// Convert a canonical VarBinViewArray directly to Arrow.
+pub fn canonical_varbinview_to_arrow<T: ByteViewType>(array: &VarBinViewArray) -> ArrowArrayRef {
+    let views =
+        ScalarBuffer::<u128>::from(array.views().clone().into_byte_buffer().into_arrow_buffer());
+    let buffers: Vec<_> = array
+        .buffers()
+        .iter()
+        .map(|buffer| buffer.clone().into_arrow_buffer())
+        .collect();
+    let nulls = to_null_buffer(array.validity_mask());
+
+    // SAFETY: our own VarBinView array is considered safe.
+    Arc::new(unsafe { GenericByteViewArray::<T>::new_unchecked(views, buffers, nulls) })
+}
 
 pub(super) fn to_arrow_byte_view<T: ByteViewType>(
     array: ArrayRef,
-    session: &VortexSession,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     // First we cast the array into the desired ByteView type.
     // We do this in case the vortex array is Utf8, and we want Binary or vice versa. By casting
@@ -24,6 +44,6 @@ pub(super) fn to_arrow_byte_view<T: ByteViewType>(
     // flexible since there's no prescribed nullability in Arrow types.
     let array = array.cast(DType::from_arrow((&T::DATA_TYPE, Nullability::Nullable)))?;
 
-    // Perform a naive conversion via our VarBinView vector representation
-    array.execute_vector(session)?.into_arrow()
+    let varbinview = array.execute(ctx)?.into_varbinview();
+    Ok(canonical_varbinview_to_arrow::<T>(&varbinview))
 }

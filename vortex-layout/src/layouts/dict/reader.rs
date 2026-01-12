@@ -13,9 +13,11 @@ use futures::future::BoxFuture;
 use futures::try_join;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VectorExecutor;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
 use vortex_array::compute::MinMaxResult;
 use vortex_array::compute::min_max;
@@ -24,7 +26,6 @@ use vortex_array::expr::Expression;
 use vortex_array::expr::root;
 use vortex_array::mask::MaskExecutor;
 use vortex_array::optimizer::ArrayOptimizer;
-use vortex_array::vectors::VectorIntoArray;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexError;
@@ -107,7 +108,8 @@ impl DictReader {
                         if *USE_VORTEX_OPERATORS {
                             // We execute the array to avoid re-evaluating for every split.
                             let array = array?;
-                            Ok(array.execute_vector(&session)?.into_array(array.dtype()))
+                            let mut ctx = ExecutionCtx::new(session);
+                            Ok(array.execute(&mut ctx)?.into_array())
                         } else {
                             Ok(array?.to_canonical().into_array())
                         }
@@ -132,7 +134,8 @@ impl DictReader {
                         if *USE_VORTEX_OPERATORS {
                             let array = array?.apply(&expr)?;
                             // We execute the array to avoid re-evaluating for every split.
-                            Ok(array.execute_vector(&session)?.into_array(array.dtype()))
+                            let mut ctx = ExecutionCtx::new(session);
+                            Ok(array.execute(&mut ctx)?.into_array())
                         } else {
                             expr.evaluate(&array?).map_err(Arc::new)
                         }
@@ -205,7 +208,8 @@ impl LayoutReader for DictReader {
             let mask = mask.await?;
 
             let dict_mask = if *USE_VORTEX_OPERATORS {
-                values.take(codes)?.execute_mask(&session)?
+                let mut ctx = session.create_execution_ctx();
+                values.take(codes)?.execute_mask(&mut ctx)?
             } else {
                 // Short-circuit when the values are all true/false.
                 if values.all_valid()
@@ -519,7 +523,7 @@ mod tests {
                 .await
                 .unwrap();
             let expected = array.validity_mask().into_array();
-            assert_arrays_eq!(actual, expected);
+            assert_arrays_eq!(actual.to_canonical().into_array(), expected);
         })
     }
 }

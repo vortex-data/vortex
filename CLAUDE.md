@@ -44,6 +44,7 @@
 * If you encounter clippy errors in tests that should only pertain to production code (e.g., prohibiting panic/unwrap,
   possible numerical truncation, etc.), then consider allowing those lints at the test module level.
 * Prefer naming test modules `tests`, not `test`.
+* Prefer having test return VortexResult<_> and use ? over unwrap.
 * Prefer module-scoped imports over function-scoped imports. Only use function-scoped imports in situations where it is
   either (a) required, or (b) would be exceptionally verbose otherwise. An example where function-scoped imports is good
   is when writing an exhaustive match statement with a branch that matches many cases.

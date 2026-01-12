@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_compute::take::Take;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -9,17 +8,18 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_vector::Vector;
 
 use super::DictArray;
 use super::DictMetadata;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::DeserializeMetadata;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::VectorExecutor;
 use crate::arrays::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
+use crate::compute::take;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::vtable;
@@ -131,10 +131,9 @@ impl VTable for DictVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        let values = array.values().execute(ctx)?;
-        let codes = array.codes().execute(ctx)?.into_primitive();
-        Ok(values.take(&codes))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        // TODO(joe): remove take compute fn
+        take(array.values(), array.codes()).and_then(|a| a.execute(ctx))
     }
 
     fn reduce_parent(

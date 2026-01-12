@@ -9,6 +9,7 @@ pub mod metrics;
 mod opener;
 mod sink;
 mod source;
+mod stream;
 
 pub use access_plan::VortexAccessPlan;
 pub use format::VortexFormat;

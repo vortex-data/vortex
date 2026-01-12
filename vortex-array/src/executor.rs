@@ -3,12 +3,25 @@
 
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
-use vortex_vector::Datum;
-use vortex_vector::Vector;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::Canonical;
+use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
+
+/// The result of executing an array, which can either be a constant (scalar repeated)
+/// or a fully materialized canonical array.
+///
+/// This allows execution to short-circuit when the array is constant, avoiding
+/// unnecessary expansion of scalar values.
+#[derive(Debug, Clone)]
+pub enum CanonicalOutput {
+    /// A constant array representing a scalar value repeated to a given length.
+    Constant(ConstantArray),
+    /// A fully materialized canonical array.
+    Array(Canonical),
+}
 
 /// Execution context for batch CPU compute.
 pub struct ExecutionCtx {
@@ -17,7 +30,7 @@ pub struct ExecutionCtx {
 
 impl ExecutionCtx {
     /// Create a new execution context with the given session.
-    pub(crate) fn new(session: VortexSession) -> Self {
+    pub fn new(session: VortexSession) -> Self {
         Self { session }
     }
 
@@ -27,25 +40,28 @@ impl ExecutionCtx {
     }
 }
 
-/// Executor for exporting a Vortex [`Vector`] or [`Datum`] from an [`ArrayRef`].
+/// Executor for exporting Vortex arrays to canonical form.
 pub trait VectorExecutor {
-    /// Recursively execute the array.
-    fn execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector>;
+    /// Recursively execute the array to canonical form.
+    /// This will replace the recursive usage of `to_canonical()`.
+    /// An `ExecutionCtx` is will be used to limit access to buffers.
+    fn execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Canonical>;
 
-    /// Execute the array and return the resulting datum.
-    fn execute_datum(&self, session: &VortexSession) -> VortexResult<Datum>;
-    /// Execute the array and return the resulting vector.
-    fn execute_vector(&self, session: &VortexSession) -> VortexResult<Vector>;
+    /// Execute the array and return a [`CanonicalOutput`].
+    ///
+    /// This may short-circuit for constant arrays, returning [`CanonicalOutput::Constant`]
+    /// instead of fully materializing the array.
+    fn execute_output(&self, ctx: &mut ExecutionCtx) -> VortexResult<CanonicalOutput>;
 }
 
 impl VectorExecutor for ArrayRef {
-    fn execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+    fn execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         // Try and dispatch to a child that can optimize execution.
         for (child_idx, child) in self.children().iter().enumerate() {
             if let Some(result) = child
                 .encoding()
                 .as_dyn()
-                .execute_parent(child, self, child_idx, ctx)?
+                .execute_canonical_parent(child, self, child_idx, ctx)?
             {
                 tracing::debug!(
                     "Executed array {} via child {} optimization.",
@@ -57,22 +73,31 @@ impl VectorExecutor for ArrayRef {
         }
 
         // Otherwise fall back to the default execution.
-        self.encoding().as_dyn().execute(self, ctx)
+        self.encoding().as_dyn().execute_canonical(self, ctx)
     }
 
-    fn execute_datum(&self, session: &VortexSession) -> VortexResult<Datum> {
+    fn execute_output(&self, ctx: &mut ExecutionCtx) -> VortexResult<CanonicalOutput> {
         // Attempt to short-circuit constant arrays.
         if let Some(constant) = self.as_opt::<ConstantVTable>() {
-            return Ok(Datum::Scalar(constant.scalar().to_vector_scalar()));
+            return Ok(CanonicalOutput::Constant(ConstantArray::new(
+                constant.scalar().clone(),
+                constant.len(),
+            )));
         }
 
-        let mut ctx = ExecutionCtx::new(session.clone());
         tracing::debug!("Executing array {}:\n{}", self, self.display_tree());
-        Ok(Datum::Vector(self.execute(&mut ctx)?))
+        Ok(CanonicalOutput::Array(self.execute(ctx)?))
     }
+}
 
-    fn execute_vector(&self, session: &VortexSession) -> VortexResult<Vector> {
-        let len = self.len();
-        Ok(self.execute_datum(session)?.unwrap_into_vector(len))
+/// Extension trait for creating an execution context from a session.
+pub trait VortexSessionExecute {
+    /// Create a new execution context from this session.
+    fn create_execution_ctx(&self) -> ExecutionCtx;
+}
+
+impl VortexSessionExecute for VortexSession {
+    fn create_execution_ctx(&self) -> ExecutionCtx {
+        ExecutionCtx::new(self.clone())
     }
 }
