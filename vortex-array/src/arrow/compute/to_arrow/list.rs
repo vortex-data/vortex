@@ -70,7 +70,7 @@ fn list_array_to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
         .offsets()
         .cast(DType::Primitive(O::PTYPE, array.dtype().nullability()))?
         .execute(&mut ctx)?
-        .to_vector(&mut ctx)?
+        .execute_vector(&mut ctx)?
         .into_primitive()
         .downcast::<O>()
         .into_nonnull_buffer();

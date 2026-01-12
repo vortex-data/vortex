@@ -36,7 +36,7 @@ where
     }
 
     // Otherwise, we execute the array to a BinaryView vector and cast from there.
-    let binary_view = array.execute(ctx)?.to_vector(ctx)?.into_arrow()?;
+    let binary_view = array.execute(ctx)?.execute_vector(ctx)?.into_arrow()?;
     arrow_cast::cast(&binary_view, &T::DATA_TYPE).map_err(VortexError::from)
 }
 

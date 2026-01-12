@@ -96,7 +96,7 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
         match output {
             CanonicalOutput::Constant(c) => Mask::new(array.len, c.scalar().is_valid()),
             CanonicalOutput::Array(a) => a
-                .to_vector(&mut ctx)
+                .execute_vector(&mut ctx)
                 .vortex_expect("Failed to convert canonical to vector")
                 .validity()
                 .clone(),

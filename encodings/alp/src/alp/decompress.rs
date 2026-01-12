@@ -50,7 +50,41 @@ pub fn decompress_into_array(array: ALPArray) -> PrimitiveArray {
     }
 }
 
-/// Decompresses an ALP-encoded array in 1024-element chunks.
+/// Decompresses an ALP-encoded array using `execute` (execution path).
+///
+/// This version uses `execute` on child arrays instead of `to_primitive`,
+/// ensuring proper recursive execution through the execution context.
+///
+/// # Returns
+///
+/// A `PrimitiveArray` containing the decompressed floating-point values with all patches applied.
+pub fn execute_decompress(array: ALPArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
+    let (encoded, exponents, patches, dtype) = array.into_parts();
+    if let Some(ref patches) = patches
+        && let Some(chunk_offsets) = patches.chunk_offsets()
+    {
+        let encoded = encoded.execute(ctx)?.into_primitive();
+        let patches_chunk_offsets = chunk_offsets.execute(ctx)?.into_primitive();
+        let patches_indices = patches.indices().execute(ctx)?.into_primitive();
+        let patches_values = patches.values().execute(ctx)?.into_primitive();
+        Ok(decompress_chunked_core(
+            encoded,
+            exponents,
+            &patches_indices,
+            &patches_values,
+            &patches_chunk_offsets,
+            patches,
+            dtype,
+        ))
+    } else {
+        let encoded = encoded.execute(ctx)?.into_primitive();
+        Ok(decompress_unchunked_core(
+            encoded, exponents, patches, dtype,
+        ))
+    }
+}
+
+/// Core decompression logic for chunked ALP arrays.
 ///
 /// Takes pre-resolved `PrimitiveArray` inputs to avoid duplication between
 /// the `to_primitive` and `execute` paths.

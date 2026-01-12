@@ -134,7 +134,7 @@ where
         .temporal_values()
         .cast(values_dtype)?
         .execute(&mut ctx)?
-        .to_vector(&mut ctx)?
+        .execute_vector(&mut ctx)?
         .into_primitive()
         .downcast::<T::Native>();
 

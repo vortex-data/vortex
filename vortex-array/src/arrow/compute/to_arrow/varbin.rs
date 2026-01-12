@@ -87,7 +87,7 @@ fn to_arrow<O: IntegerPType + OffsetSizeTrait>(array: &VarBinArray) -> VortexRes
         &DType::Primitive(O::PTYPE, Nullability::NonNullable),
     )?
     .execute(&mut ctx)?
-    .to_vector(&mut ctx)?
+    .execute_vector(&mut ctx)?
     .into_primitive()
     .downcast::<O>()
     .into_nonnull_buffer();

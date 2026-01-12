@@ -29,7 +29,7 @@ impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
             ) {
                 CanonicalOutput::Constant(c) => Datum::Scalar(c.scalar().to_vector_scalar()),
                 CanonicalOutput::Array(a) => Datum::Vector(
-                    a.to_vector(&mut ctx)
+                    a.execute_vector(&mut ctx)
                         .vortex_expect("Failed to convert canonical to vector"),
                 ),
             };

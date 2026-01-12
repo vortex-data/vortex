@@ -57,7 +57,7 @@ impl ExecuteParentKernel<ListVTable> for ListFilterKernel {
         let offsets = array
             .offsets()
             .execute(ctx)?
-            .to_vector(ctx)?
+            .execute_vector(ctx)?
             .into_primitive();
 
         let new_validity = match array.validity() {
@@ -111,7 +111,7 @@ impl ExecuteParentKernel<ListVTable> for ListFilterKernel {
             .sliced_elements()
             .filter(element_mask)?
             .execute(ctx)?
-            .to_vector(ctx)?;
+            .execute_vector(ctx)?;
 
         Ok(Some(
             unsafe {

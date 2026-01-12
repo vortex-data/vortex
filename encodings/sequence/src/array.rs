@@ -5,7 +5,6 @@ use std::hash::Hash;
 use std::ops::Range;
 
 use num_traits::cast::FromPrimitive;
-use vortex_array::Array;
 use vortex_array::ArrayBufferVisitor;
 use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayRef;
@@ -313,7 +312,7 @@ impl VTable for SequenceVTable {
                 execute_iter(base, multiplier, indices.iter().copied(), indices.len()).into()
             }))),
         }
-        .map(|a| a.map(|a| a.into_array(array.dtype()).to_canonical()))
+        .map(|a| a.map(|a| a.into_array(array.dtype())))
     }
 }
 

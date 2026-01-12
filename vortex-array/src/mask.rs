@@ -31,7 +31,7 @@ impl MaskExecutor for ArrayRef {
                 Mask::new(self.len(), c.scalar().as_bool().value().unwrap_or(false))
             }
             CanonicalOutput::Array(a) => {
-                let (bits, mask) = a.to_vector(ctx)?.into_bool().into_parts();
+                let (bits, mask) = a.execute_vector(ctx)?.into_bool().into_parts();
                 // To handle nullable boolean arrays, we treat nulls as false in the mask.
                 // TODO(ngates): is this correct? Feels like we should just force the caller to
                 //  pass non-nullable boolean arrays.

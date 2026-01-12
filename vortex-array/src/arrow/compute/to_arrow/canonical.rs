@@ -537,7 +537,7 @@ fn to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
         .offsets()
         .cast(DType::from(O::PTYPE))?
         .execute(&mut ctx)?
-        .to_vector(&mut ctx)?
+        .execute_vector(&mut ctx)?
         .into_primitive()
         .downcast::<O>()
         .into_nonnull_buffer()
@@ -564,7 +564,7 @@ fn to_arrow_listview<O: IntegerPType + OffsetSizeTrait>(
         .offsets()
         .cast(offsets_dtype.clone())?
         .execute(&mut ctx)?
-        .to_vector(&mut ctx)?
+        .execute_vector(&mut ctx)?
         .into_primitive()
         .downcast::<O>()
         .into_nonnull_buffer()
@@ -573,7 +573,7 @@ fn to_arrow_listview<O: IntegerPType + OffsetSizeTrait>(
         .sizes()
         .cast(offsets_dtype)?
         .execute(&mut ctx)?
-        .to_vector(&mut ctx)?
+        .execute_vector(&mut ctx)?
         .into_primitive()
         .downcast::<O>()
         .into_nonnull_buffer()

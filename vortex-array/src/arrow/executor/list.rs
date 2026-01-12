@@ -66,7 +66,7 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
         .dtype()
         .as_list_element_opt()
         .ok_or_else(|| vortex_err!("Cannot convert non-list array to Arrow ListArray"))?;
-    let list_view = array.execute(ctx)?.to_vector(ctx)?.into_list();
+    let list_view = array.execute(ctx)?.execute_vector(ctx)?.into_list();
     let (elements, offsets, sizes, validity) = list_view.into_parts();
     let offset_dtype = DType::Primitive(O::PTYPE, Nullability::NonNullable);
     let list_view = unsafe {

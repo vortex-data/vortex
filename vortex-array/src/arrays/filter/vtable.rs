@@ -32,7 +32,6 @@ use crate::arrays::ConstantArray;
 use crate::arrays::filter::array::FilterArray;
 use crate::arrays::filter::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
-use crate::compute::filter;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;

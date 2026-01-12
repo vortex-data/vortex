@@ -24,13 +24,15 @@ use vortex_vector::struct_::StructVector;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::VectorExecutor;
+use crate::vtable::ValidityHelper;
 
 impl Canonical {
     /// Convert a Canonical array to a Vector.
     ///
     /// This is the reverse of `VectorIntoArray` - it takes a fully materialized
     /// canonical array and converts it into the corresponding vector type.
-    pub fn to_vector(self, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+    /// TODO(joe): move over the execute_mask
+    pub fn execute_vector(self, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(match self {
             Canonical::Null(a) => Vector::Null(NullVector::new(a.len())),
             Canonical::Bool(a) => {
@@ -78,7 +80,7 @@ impl Canonical {
             }
             Canonical::List(a) => {
                 let validity = a.validity_mask();
-                let elements_vector = a.elements().execute(ctx)?.to_vector(ctx)?;
+                let elements_vector = a.elements().execute(ctx)?.execute_vector(ctx)?;
                 let offsets = a.offsets().execute(ctx)?.into_primitive();
                 let sizes = a.sizes().execute(ctx)?.into_primitive();
                 let offsets_ptype = offsets.ptype();
@@ -108,7 +110,7 @@ impl Canonical {
             Canonical::FixedSizeList(a) => {
                 let validity = a.validity_mask();
                 let list_size = a.list_size();
-                let elements_vector = a.elements().execute(ctx)?.to_vector(ctx)?;
+                let elements_vector = a.elements().execute(ctx)?.execute_vector(ctx)?;
                 Vector::FixedSizeList(unsafe {
                     FixedSizeListVector::new_unchecked(
                         Arc::new(elements_vector),
@@ -121,14 +123,14 @@ impl Canonical {
                 let validity = a.validity_mask();
                 let mut fields = Vec::with_capacity(a.fields().len());
                 for f in a.fields().iter() {
-                    fields.push(f.execute(ctx)?.to_vector(ctx)?);
+                    fields.push(f.execute(ctx)?.execute_vector(ctx)?);
                 }
                 let fields: Box<[Vector]> = fields.into_boxed_slice();
                 Vector::Struct(StructVector::new(Arc::new(fields), validity))
             }
             Canonical::Extension(a) => {
                 // For extension arrays, convert the underlying storage
-                a.storage().execute(ctx)?.to_vector(ctx)?
+                a.storage().execute(ctx)?.execute_vector(ctx)?
             }
         })
     }

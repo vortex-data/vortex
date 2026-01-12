@@ -39,7 +39,7 @@ pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
     // Otherwise, we execute as a vector and convert.
     let mut vector = array
         .execute(ctx)?
-        .to_vector(ctx)?
+        .execute_vector(ctx)?
         .into_list_opt()
         .ok_or_else(|| vortex_err!("Failed to convert array to ListVector"))?;
 

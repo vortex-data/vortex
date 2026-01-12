@@ -23,7 +23,6 @@ use crate::VectorExecutor;
 use crate::arrays::ConstantArray;
 use crate::arrays::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
-use crate::compute::take;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::vtable;

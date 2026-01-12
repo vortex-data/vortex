@@ -24,7 +24,6 @@ use crate::arrays::ConstantArray;
 use crate::arrays::masked::MaskedArray;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
-use crate::compute::mask;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;

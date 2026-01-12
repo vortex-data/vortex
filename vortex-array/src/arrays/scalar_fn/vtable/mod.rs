@@ -146,7 +146,7 @@ impl VTable for ScalarFnVTable {
         let mut input_dtypes = Vec::with_capacity(array.children.len());
         for child in array.children.iter() {
             match child.as_opt::<ConstantVTable>() {
-                None => datums.push(Datum::Vector(child.execute(ctx)?.to_vector(ctx)?)),
+                None => datums.push(Datum::Vector(child.execute(ctx)?.execute_vector(ctx)?)),
                 Some(constant) => datums.push(Datum::Scalar(constant.scalar().to_vector_scalar())),
             }
             input_dtypes.push(child.dtype().clone());

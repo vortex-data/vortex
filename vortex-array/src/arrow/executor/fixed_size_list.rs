@@ -32,7 +32,7 @@ pub(super) fn to_arrow_fixed_list(
     // Otherwise, we execute the array to become a FixedSizeListArray.
     let vector = array
         .execute(ctx)?
-        .to_vector(ctx)?
+        .execute_vector(ctx)?
         .into_fixed_size_list_opt()
         .ok_or_else(|| vortex_err!("Failed to convert array to FixedSizeListArray"))?;
     vortex_ensure!(
