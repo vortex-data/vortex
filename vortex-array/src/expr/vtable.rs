@@ -145,10 +145,10 @@ pub trait VTable: 'static + Sized + Send + Sync {
     }
 
     /// See [`Expression::stat_falsification`].
-    fn stat_falsification(
-        &self,
+    fn stat_falsification<'a>(
+        &'a self,
         options: &Self::Options,
-        expr: &Expression,
+        expr: Self::Children<'a>,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         _ = options;
@@ -543,7 +543,7 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         V::stat_falsification(
             &self.0,
             downcast::<V>(expression.options().as_any()),
-            expression,
+            V::Children::from(expression.children().as_ref()),
             catalog,
         )
     }

@@ -208,21 +208,24 @@ impl VTable for Between {
         })
     }
 
-    fn stat_falsification(
-        &self,
+    fn stat_falsification<'a>(
+        &'a self,
         options: &Self::Options,
-        expr: &Expression,
+        expr: Self::Children<'a>,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
-        let arr = expr.child(0).clone();
-        let lower = expr.child(1).clone();
-        let upper = expr.child(2).clone();
+        // let arr = expr.child(0).clone();
+        // let lower = expr.child(1).clone();
+        // let upper = expr.child(2).clone();
 
         let lhs = Binary.new_expr(
             options.lower_strict.to_operator().into(),
-            [lower, arr.clone()],
+            [expr.lower().clone(), expr.array().clone()],
         );
-        let rhs = Binary.new_expr(options.upper_strict.to_operator().into(), [arr, upper]);
+        let rhs = Binary.new_expr(
+            options.upper_strict.to_operator().into(),
+            [expr.array().clone(), expr.upper().clone()],
+        );
 
         Binary
             .new_expr(Operator::And, [lhs, rhs])
