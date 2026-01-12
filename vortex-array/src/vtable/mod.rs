@@ -142,9 +142,6 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     ///
     /// Debug builds will panic if the returned array is of the wrong type, wrong length, or
     /// incorrectly contains null values.
-    ///
-    /// Implementations should recursively call [`crate::executor::VectorExecutor::execute`]
-    /// on child arrays as needed.
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         // TODO(ngates): convert arrays to canonicalize over vectors, so remove default impl.
         Ok(Self::CanonicalVTable::canonicalize(array))
