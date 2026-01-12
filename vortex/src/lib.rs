@@ -175,18 +175,23 @@ impl VortexSessionDefault for VortexSession {
 /// get too verbose if we include _everything_.
 #[cfg(test)]
 mod test {
+    use std::path::PathBuf;
+
     use itertools::Itertools;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::StructArray;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
+    use vortex_array::expr::select;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
     use vortex_buffer::buffer;
+    use vortex_dtype::FieldNames;
     use vortex_error::VortexResult;
     use vortex_file::OpenOptionsSessionExt;
     use vortex_file::WriteOptionsSessionExt;
@@ -261,10 +266,12 @@ mod test {
         let array = PrimitiveArray::new(buffer![0u64, 1, 2, 3, 4], Validity::NonNullable);
 
         // Write a Vortex file with the default compression and layout strategy.
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("example.vortex");
+
         session
             .write_options()
             .write(
-                &mut tokio::fs::File::create("example.vortex").await?,
+                &mut tokio::fs::File::create(&path).await?,
                 array.to_array_stream(),
             )
             .await?;
@@ -274,7 +281,7 @@ mod test {
         // [read]
         let array = session
             .open_options()
-            .open("example.vortex")
+            .open(path.clone())
             .await?
             .scan()?
             .with_filter(gt(root(), lit(2u64)))
@@ -286,7 +293,7 @@ mod test {
 
         // [read]
 
-        std::fs::remove_file("example.vortex")?;
+        std::fs::remove_file(&path)?;
 
         Ok(())
     }
@@ -298,6 +305,8 @@ mod test {
         // [compact write]
         let array = PrimitiveArray::new(buffer![0u64, 1, 2, 3, 4], Validity::NonNullable);
 
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("example_compact.vortex");
+
         session
             .write_options()
             .with_strategy(
@@ -306,7 +315,7 @@ mod test {
                     .build(),
             )
             .write(
-                &mut tokio::fs::File::create("example_compact.vortex").await?,
+                &mut tokio::fs::File::create(&path).await?,
                 array.to_array_stream(),
             )
             .await?;
@@ -314,7 +323,7 @@ mod test {
         // [compact read]
         let recovered_array = session
             .open_options()
-            .open("example_compact.vortex")
+            .open(path.clone())
             .await?
             .scan()?
             .into_array_stream()?
@@ -326,7 +335,53 @@ mod test {
         assert_eq!(recovered_primitive.validity(), array.validity());
         assert_eq!(recovered_primitive.buffer::<u64>(), array.buffer::<u64>());
 
-        std::fs::remove_file("example_compact.vortex")?;
+        std::fs::remove_file(&path)?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn projection_read_write() -> VortexResult<()> {
+        let session = VortexSession::default();
+
+        // Build a simple two-column struct array: { id: u64, value: u64 }
+        let ids = PrimitiveArray::new(buffer![1u64, 2, 3, 4, 5], Validity::NonNullable);
+        let values = PrimitiveArray::new(buffer![10u64, 20, 30, 40, 50], Validity::NonNullable);
+
+        let array = StructArray::try_new(
+            FieldNames::from(["id", "value"]),
+            vec![ids.into_array(), values.into_array()],
+            5,
+            Validity::NonNullable,
+        )?
+        .into_array();
+
+        // Write a Vortex file containing both columns.
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("example_projection.vortex");
+
+        session
+            .write_options()
+            .write(
+                &mut tokio::fs::File::create(&path).await?,
+                array.to_array_stream(),
+            )
+            .await?;
+
+        // Read the file back, but project down to just the "value" column.
+        let projected = session
+            .open_options()
+            .open(path.clone())
+            .await?
+            .scan()?
+            .with_projection(select(["value"], root()))
+            .into_array_stream()?
+            .read_all()
+            .await?;
+
+        // Projection keeps the same number of rows but only one column.
+        assert_eq!(projected.len(), 5);
+
+        std::fs::remove_file(&path)?;
 
         Ok(())
     }
