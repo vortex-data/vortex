@@ -30,8 +30,8 @@ use vortex_error::vortex_ensure;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::ExecutionCtx;
-use crate::VectorExecutor;
 use crate::arrow::null_buffer::to_null_buffer;
 
 pub(super) fn to_arrow_temporal(
@@ -126,7 +126,7 @@ fn to_arrow_temporal_primitive<T: ArrowTemporalType>(
 where
     T::Native: NativePType,
 {
-    let primitive = array.execute(ctx)?.into_primitive();
+    let primitive = array.execute::<Canonical>(ctx)?.into_primitive();
     vortex_ensure!(
         primitive.ptype() == T::Native::PTYPE,
         "Expected temporal array to produce vector of width {}, found {}",

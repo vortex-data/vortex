@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::ToCanonical;
-use vortex::array::VectorExecutor;
 use vortex::array::arrays::TemporalArray;
 use vortex::error::VortexResult;
 
@@ -35,7 +35,11 @@ pub(crate) fn new_operator_exporter(
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     Ok(Box::new(TemporalExporter {
         storage_type_exporter: primitive::new_exporter(
-            array.temporal_values().execute(ctx)?.into_primitive(),
+            array
+                .temporal_values()
+                .clone()
+                .execute::<Canonical>(ctx)?
+                .into_primitive(),
         )?,
     }))
 }

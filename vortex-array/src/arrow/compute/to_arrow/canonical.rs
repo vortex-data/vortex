@@ -54,12 +54,12 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_scalar::DecimalType;
+use vortex_vector::Vector;
 
 use crate::Array as _;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
-use crate::VectorExecutor;
 use crate::VortexSessionExecute;
 use crate::arrays::DecimalArray;
 use crate::arrays::FixedSizeListArray;
@@ -536,8 +536,7 @@ fn to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
     let offsets = list_array
         .offsets()
         .cast(DType::from(O::PTYPE))?
-        .execute(&mut ctx)?
-        .to_vector(&mut ctx)?
+        .execute::<Vector>(&mut ctx)?
         .into_primitive()
         .downcast::<O>()
         .into_nonnull_buffer()
@@ -563,8 +562,7 @@ fn to_arrow_listview<O: IntegerPType + OffsetSizeTrait>(
     let offsets = array
         .offsets()
         .cast(offsets_dtype.clone())?
-        .execute(&mut ctx)?
-        .to_vector(&mut ctx)?
+        .execute::<Vector>(&mut ctx)?
         .into_primitive()
         .downcast::<O>()
         .into_nonnull_buffer()
@@ -572,8 +570,7 @@ fn to_arrow_listview<O: IntegerPType + OffsetSizeTrait>(
     let sizes = array
         .sizes()
         .cast(offsets_dtype)?
-        .execute(&mut ctx)?
-        .to_vector(&mut ctx)?
+        .execute::<Vector>(&mut ctx)?
         .into_primitive()
         .downcast::<O>()
         .into_nonnull_buffer()

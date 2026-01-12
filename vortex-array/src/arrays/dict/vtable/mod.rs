@@ -16,7 +16,6 @@ use crate::Canonical;
 use crate::DeserializeMetadata;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
-use crate::VectorExecutor;
 use crate::arrays::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::compute::take;

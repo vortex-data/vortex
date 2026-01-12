@@ -166,6 +166,10 @@ impl FixedSizeListArray {
         }
     }
 
+    pub fn into_parts(self) -> (ArrayRef, Validity) {
+        (self.elements, self.validity)
+    }
+
     /// Validates the components that would be used to create a [`FixedSizeListArray`].
     ///
     /// This function checks all the invariants required by [`FixedSizeListArray::new_unchecked`].

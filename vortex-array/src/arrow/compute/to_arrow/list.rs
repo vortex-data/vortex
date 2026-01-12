@@ -14,10 +14,10 @@ use vortex_dtype::IntegerPType;
 use vortex_dtype::PTypeDowncastExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_vector::Vector;
 
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
-use crate::VectorExecutor;
 use crate::VortexSessionExecute;
 use crate::arrays::ListArray;
 use crate::arrays::ListVTable;
@@ -69,8 +69,7 @@ fn list_array_to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
     let offsets = array
         .offsets()
         .cast(DType::Primitive(O::PTYPE, array.dtype().nullability()))?
-        .execute(&mut ctx)?
-        .to_vector(&mut ctx)?
+        .execute::<Vector>(&mut ctx)?
         .into_primitive()
         .downcast::<O>()
         .into_nonnull_buffer();

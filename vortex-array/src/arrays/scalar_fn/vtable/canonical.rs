@@ -11,7 +11,6 @@ use crate::VortexSessionExecute;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::executor::CanonicalOutput;
-use crate::executor::VectorExecutor;
 use crate::expr::ExecutionArgs;
 use crate::vectors::VectorIntoArray;
 use crate::vtable::CanonicalVTable;
@@ -23,8 +22,8 @@ impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut child_datums = Vec::with_capacity(array.children.len());
-        for child in array.children.iter() {
-            let datum = match child.execute_output(&mut ctx).vortex_expect(
+        for child in array.children.iter().cloned() {
+            let datum = match child.execute::<CanonicalOutput>(&mut ctx).vortex_expect(
                 "Failed to execute child array during canonicalization of ScalarFnArray",
             ) {
                 CanonicalOutput::Constant(c) => Datum::Scalar(c.scalar().to_vector_scalar()),
