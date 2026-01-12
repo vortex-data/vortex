@@ -9,6 +9,7 @@ use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
+use vortex_dtype::PType;
 use vortex_dtype::UnsignedPType;
 use vortex_error::vortex_panic;
 use vortex_utils::aliases::hash_map::Entry;
@@ -144,6 +145,10 @@ where
             Validity::from_bit_buffer(mem::take(&mut self.values_nulls).freeze(), self.nullability),
         )
         .into_array()
+    }
+
+    fn codes_ptype(&self) -> PType {
+        Code::PTYPE
     }
 }
 

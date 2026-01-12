@@ -27,8 +27,10 @@ use vortex_array::builders::dict::DictEncoder;
 use vortex_array::builders::dict::dict_encoder;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dtype::DType;
+use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_error::VortexError;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_io::kanal_ext::KanalExt;
@@ -61,9 +63,9 @@ pub struct DictLayoutConstraints {
     /// Maximum dictionary length. Limited to `u16` because dictionaries with more than 64k unique
     /// values provide diminishing compression returns given typical chunk sizes (~8k elements).
     ///
-    /// The codes dtype is chosen dynamically based on the actual dictionary size:
-    /// - [`PType::U8`] when the dictionary has at most 255 entries
-    /// - [`PType::U16`] when the dictionary has more than 255 entries
+    /// The codes dtype is determined upfront from this constraint:
+    /// - [`PType::U8`] when max_len <= 255
+    /// - [`PType::U16`] when max_len > 255
     pub max_len: u16,
 }
 
@@ -237,7 +239,11 @@ impl LayoutStrategy for DictStrategy {
 }
 
 enum DictionaryChunk {
-    Codes((SequenceId, ArrayRef)),
+    Codes {
+        seq_id: SequenceId,
+        codes: ArrayRef,
+        codes_ptype: PType,
+    },
     Values((SequenceId, ArrayRef)),
 }
 
@@ -299,26 +305,33 @@ impl DictStreamState {
             match self.encoder.take() {
                 None => match start_encoding(&self.constraints, &remaining) {
                     EncodingState::Continue((encoder, encoded)) => {
-                        res.push(labeler.codes(encoded));
+                        let ptype = encoder.codes_ptype();
+                        res.push(labeler.codes(encoded, ptype));
                         self.encoder = Some(encoder);
                     }
                     EncodingState::Done((values, encoded, unencoded)) => {
-                        res.push(labeler.codes(encoded));
+                        // Encoder was created and consumed within start_encoding
+                        let ptype = PType::try_from(encoded.dtype())
+                            .vortex_expect("codes should be primitive");
+                        res.push(labeler.codes(encoded, ptype));
                         res.push(labeler.values(values));
                         to_be_encoded = Some(unencoded);
                     }
                 },
-                Some(encoder) => match encode_chunk(encoder, &remaining) {
-                    EncodingState::Continue((encoder, encoded)) => {
-                        res.push(labeler.codes(encoded));
-                        self.encoder = Some(encoder);
+                Some(encoder) => {
+                    let ptype = encoder.codes_ptype();
+                    match encode_chunk(encoder, &remaining) {
+                        EncodingState::Continue((encoder, encoded)) => {
+                            res.push(labeler.codes(encoded, ptype));
+                            self.encoder = Some(encoder);
+                        }
+                        EncodingState::Done((values, encoded, unencoded)) => {
+                            res.push(labeler.codes(encoded, ptype));
+                            res.push(labeler.values(values));
+                            to_be_encoded = Some(unencoded);
+                        }
                     }
-                    EncodingState::Done((values, encoded, unencoded)) => {
-                        res.push(labeler.codes(encoded));
-                        res.push(labeler.values(values));
-                        to_be_encoded = Some(unencoded);
-                    }
-                },
+                }
             }
         }
         res
@@ -342,8 +355,12 @@ impl DictChunkLabeler {
         Self { sequence_pointer }
     }
 
-    fn codes(&mut self, chunk: ArrayRef) -> DictionaryChunk {
-        DictionaryChunk::Codes((self.sequence_pointer.advance(), chunk))
+    fn codes(&mut self, chunk: ArrayRef, ptype: PType) -> DictionaryChunk {
+        DictionaryChunk::Codes {
+            seq_id: self.sequence_pointer.advance(),
+            codes: chunk,
+            codes_ptype: ptype,
+        }
     }
 
     fn values(&mut self, chunk: ArrayRef) -> DictionaryChunk {
@@ -398,7 +415,11 @@ impl Stream for DictionaryTransformer {
             }
 
             match self.input.poll_next_unpin(cx) {
-                Poll::Ready(Some(Ok(DictionaryChunk::Codes((seq_id, codes))))) => {
+                Poll::Ready(Some(Ok(DictionaryChunk::Codes {
+                    seq_id,
+                    codes,
+                    codes_ptype,
+                }))) => {
                     if self.active_codes_tx.is_none() {
                         // Start a new group
                         let (codes_tx, codes_rx) = kanal::bounded_async::<SequencedChunk>(1);
@@ -407,7 +428,8 @@ impl Stream for DictionaryTransformer {
                         self.active_codes_tx = Some(codes_tx.clone());
                         self.active_values_tx = Some(values_tx);
 
-                        let codes_dtype = codes.dtype().clone();
+                        // Use passed codes_ptype instead of getting from array
+                        let codes_dtype = DType::Primitive(codes_ptype, Nullability::NonNullable);
 
                         // Send first codes.
                         self.pending_send =
