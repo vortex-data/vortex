@@ -565,7 +565,7 @@ mod tests {
                 let mut ctx = SESSION.create_execution_ctx();
                 unpacked_array
                     .into_array()
-                    .execute(&mut ctx)
+                    .execute::<Canonical>(&mut ctx)
                     .unwrap()
                     .into_primitive()
             };
@@ -602,7 +602,7 @@ mod tests {
         let unpacked_array = unpack_array(sliced_bp);
         let executed = {
             let mut ctx = SESSION.create_execution_ctx();
-            sliced.execute(&mut ctx).unwrap()
+            sliced.execute::<Canonical>(&mut ctx).unwrap()
         };
 
         assert_eq!(

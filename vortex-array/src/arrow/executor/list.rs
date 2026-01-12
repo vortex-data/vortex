@@ -66,7 +66,6 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
     let elements_dtype = array
         .dtype()
         .as_list_element_opt()
-        .clone()
         .ok_or_else(|| vortex_err!("Cannot convert non-list array to Arrow ListArray"))?;
     let nullability = array.dtype().nullability();
     let list_view = array.clone().execute::<Vector>(ctx)?.into_list();
