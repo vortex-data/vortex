@@ -115,38 +115,25 @@ impl VTable for FilterVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        let true_count = array.mask.true_count();
-
-        // Fast-path for empty mask.
-        if true_count == 0 {
-            return Ok(Canonical::empty(array.dtype()));
+        if let Some(canonical) = execute_fast_path(array, ctx)? {
+            return Ok(canonical);
         }
-
-        // Fast-path for full mask
-        if true_count == array.mask.len() {
-            return array.child.execute(ctx);
-        }
-
-        // If the entire array is null, then we only need to adjust the length of the array.
-        if array.validity_mask().true_count() == 0 {
-            return ConstantArray::new(Scalar::null(array.dtype().clone()), true_count)
-                .into_array()
-                .execute(ctx);
-        }
-
-        // TODO(joe): should be enable this?
-        // Single element optimization: use scalar_at instead of executing entire child
-        // if true_count == 1 {
-        //     let idx = array.mask.first().vortex_expect("true_count == 1");
-        //     return ConstantArray::new(array.child.scalar_at(idx), 1)
-        //         .into_array()
-        //         .execute(ctx);
-        // }
 
         let canonical = filter_canonical(array.child.execute(ctx)?, &array.mask);
 
-        debug_assert_eq!(canonical.as_ref().dtype(), array.dtype());
-        debug_assert_eq!(canonical.as_ref().len(), true_count);
+        let result_len = array.mask.true_count();
+        vortex_ensure!(
+            canonical.as_ref().dtype() == array.dtype(),
+            "Filter result dtype mismatch: expected {:?}, got {:?}",
+            array.dtype(),
+            canonical.as_ref().dtype()
+        );
+        vortex_ensure!(
+            canonical.as_ref().len() == result_len,
+            "Filter result length mismatch: expected {}, got {}",
+            result_len,
+            canonical.as_ref().len()
+        );
 
         Ok(canonical)
     }
@@ -158,6 +145,35 @@ impl VTable for FilterVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
+}
+
+/// Check for fast-path execution conditions.
+pub(super) fn execute_fast_path(
+    array: &FilterArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<Canonical>> {
+    let true_count = array.mask.true_count();
+
+    // Empty result - mask selects nothing
+    if true_count == 0 {
+        return Ok(Some(Canonical::empty(array.dtype())));
+    }
+
+    // Full pass-through - mask selects everything
+    if true_count == array.mask.len() {
+        return Ok(Some(array.child.execute(ctx)?));
+    }
+
+    // All null - child has no valid values
+    if array.validity_mask().true_count() == 0 {
+        return Ok(Some(
+            ConstantArray::new(Scalar::null(array.dtype().clone()), true_count)
+                .into_array()
+                .execute(ctx)?,
+        ));
+    }
+
+    Ok(None)
 }
 
 impl BaseArrayVTable<FilterVTable> for FilterVTable {

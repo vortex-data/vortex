@@ -135,6 +135,10 @@ impl VTable for DictVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        if let Some(canonical) = execute_fast_path(array, ctx)? {
+            return Ok(canonical);
+        }
+
         let values = array.values().execute(ctx)?;
         let codes = array.codes().execute(ctx)?.into_primitive();
 
@@ -142,17 +146,23 @@ impl VTable for DictVTable {
         //  the filter function since they're typically optimised for this case.
         // TODO(ngates): if indices min is quite high, we could slice self and offset the indices
         //  such that canonicalize does less work.
-        if codes.all_invalid() {
-            return ConstantArray::new(Scalar::null(array.dtype().as_nullable()), codes.len())
-                .into_array()
-                .execute(ctx);
-        }
 
         let canonical = take_canonical(values, &codes);
 
-        debug_assert_eq!(
-            canonical.as_ref().dtype(),
-            &array.dtype().union_nullability(codes.dtype().nullability())
+        let result_dtype = array
+            .dtype()
+            .union_nullability(array.codes().dtype().nullability());
+        vortex_ensure!(
+            canonical.as_ref().dtype() == &result_dtype,
+            "Dict result dtype mismatch: expected {:?}, got {:?}",
+            result_dtype,
+            canonical.as_ref().dtype()
+        );
+        vortex_ensure!(
+            canonical.as_ref().len() == array.len(),
+            "Dict result length mismatch: expected {}, got {}",
+            array.len(),
+            canonical.as_ref().len()
         );
 
         Ok(canonical)
@@ -165,4 +175,29 @@ impl VTable for DictVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
+}
+
+/// Check for fast-path execution conditions.
+pub(super) fn execute_fast_path(
+    array: &DictArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<Canonical>> {
+    // Empty array - nothing to do
+    if array.is_empty() {
+        let result_dtype = array
+            .dtype()
+            .union_nullability(array.codes().dtype().nullability());
+        return Ok(Some(Canonical::empty(&result_dtype)));
+    }
+
+    // All codes are null - result is all nulls
+    if array.codes.all_invalid() {
+        return Ok(Some(
+            ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.codes.len())
+                .into_array()
+                .execute(ctx)?,
+        ));
+    }
+
+    Ok(None)
 }
