@@ -110,6 +110,28 @@ impl VTable for MaskedVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        //
+        // if matches!(mask, Mask::AllFalse(_)) {
+        //     // Fast-path for empty mask
+        //     return Ok(cast(array, &array.dtype().as_nullable())?.into());
+        // }
+        //
+        // if matches!(mask, Mask::AllTrue(_)) {
+        //     // Fast-path for full mask.
+        //     return Ok(
+        //         ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len())
+        //             .into_array()
+        //             .into(),
+        //     );
+        // }
+        //
+        // // Do nothing if the array is already all nulls.
+        // if array.all_invalid() {
+        //     return Ok(array.to_array().into());
+        // }
+
+        //
+
         let child = array.child().execute(ctx)?;
         let validity_mask = array.validity_mask();
 

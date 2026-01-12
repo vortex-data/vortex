@@ -15,16 +15,19 @@ use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::ToCanonical;
+use crate::VectorExecutor;
 use crate::arrays::ChunkedArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::chunked::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
+use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
+use crate::vtable::CanonicalVTable;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
@@ -175,5 +178,34 @@ impl VTable for ChunkedVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        if array.nchunks() == 0 {
+            return Ok(Canonical::empty(array.dtype()));
+        }
+
+        // Single chunk: just execute it directly
+        if array.nchunks() == 1 {
+            return array.chunks()[0].execute(ctx);
+        }
+
+        // Multiple chunks: execute all chunks first, then combine
+        // We execute all chunks to canonical form, then use the existing
+        // canonicalize logic which will be cheap since chunks are already canonical
+        let canonical_chunks: Vec<ArrayRef> = array
+            .chunks()
+            .iter()
+            .map(|chunk| Ok(chunk.execute(ctx)?.into_array()))
+            .collect::<VortexResult<_>>()?;
+
+        // Create a temporary chunked array with the canonical chunks
+        // SAFETY: chunks have same dtype as original and are valid arrays
+        let canonical_chunked =
+            unsafe { ChunkedArray::new_unchecked(canonical_chunks, array.dtype().clone()) };
+
+        // Now canonicalize - since chunks are already canonical, the to_struct()/to_listview()
+        // calls will just clone rather than decompress
+        Ok(Self::CanonicalVTable::canonicalize(&canonical_chunked))
     }
 }

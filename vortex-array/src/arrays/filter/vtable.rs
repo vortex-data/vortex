@@ -28,6 +28,7 @@ use crate::LEGACY_SESSION;
 use crate::Precision;
 use crate::VectorExecutor;
 use crate::VortexSessionExecute;
+use crate::arrays::ConstantArray;
 use crate::arrays::filter::array::FilterArray;
 use crate::arrays::filter::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
@@ -114,8 +115,40 @@ impl VTable for FilterVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        let child = array.child.execute(ctx)?;
-        Ok(filter_canonical(child, &array.mask))
+        let true_count = array.mask.true_count();
+
+        // Fast-path for empty mask.
+        if true_count == 0 {
+            return Ok(Canonical::empty(array.dtype()));
+        }
+
+        // Fast-path for full mask
+        if true_count == array.mask.len() {
+            return array.child.execute(ctx);
+        }
+
+        // If the entire array is null, then we only need to adjust the length of the array.
+        if array.validity_mask().true_count() == 0 {
+            return ConstantArray::new(Scalar::null(array.dtype().clone()), true_count)
+                .into_array()
+                .execute(ctx);
+        }
+
+        // TODO(joe): should be enable this?
+        // Single element optimization: use scalar_at instead of executing entire child
+        // if true_count == 1 {
+        //     let idx = array.mask.first().vortex_expect("true_count == 1");
+        //     return ConstantArray::new(array.child.scalar_at(idx), 1)
+        //         .into_array()
+        //         .execute(ctx);
+        // }
+
+        let canonical = filter_canonical(array.child.execute(ctx)?, &array.mask);
+
+        debug_assert_eq!(canonical.as_ref().dtype(), array.dtype());
+        debug_assert_eq!(canonical.as_ref().len(), true_count);
+
+        Ok(canonical)
     }
 
     fn reduce_parent(

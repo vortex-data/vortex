@@ -8,6 +8,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_scalar::Scalar;
 
 use super::DictArray;
 use super::DictMetadata;
@@ -15,9 +16,11 @@ use super::take_canonical;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::DeserializeMetadata;
+use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::VectorExecutor;
+use crate::arrays::ConstantArray;
 use crate::arrays::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
@@ -134,7 +137,25 @@ impl VTable for DictVTable {
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         let values = array.values().execute(ctx)?;
         let codes = array.codes().execute(ctx)?.into_primitive();
-        Ok(take_canonical(values, &codes))
+
+        // TODO(ngates): if indices are sorted and unique (strict-sorted), then we should delegate to
+        //  the filter function since they're typically optimised for this case.
+        // TODO(ngates): if indices min is quite high, we could slice self and offset the indices
+        //  such that canonicalize does less work.
+        if codes.all_invalid() {
+            return ConstantArray::new(Scalar::null(array.dtype().as_nullable()), codes.len())
+                .into_array()
+                .execute(ctx);
+        }
+
+        let canonical = take_canonical(values, &codes);
+
+        debug_assert_eq!(
+            canonical.as_ref().dtype(),
+            &array.dtype().union_nullability(codes.dtype().nullability())
+        );
+
+        Ok(canonical)
     }
 
     fn reduce_parent(
