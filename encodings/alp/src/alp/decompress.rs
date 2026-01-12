@@ -31,12 +31,16 @@ pub fn decompress_into_array(array: ALPArray) -> PrimitiveArray {
     if let Some(ref patches) = patches
         && let Some(chunk_offsets) = patches.chunk_offsets()
     {
-        let encoded = encoded.to_primitive();
+        let prim_encoded = encoded.to_primitive();
+        // We need to drop ALPArray here in case converting encoded buffer into
+        // primitive didn't create a copy. In that case both alp_encoded and array
+        // will hold a reference to the buffer we want to mutate.
+        drop(encoded);
         let patches_chunk_offsets = chunk_offsets.as_ref().to_primitive();
         let patches_indices = patches.indices().to_primitive();
         let patches_values = patches.values().to_primitive();
         decompress_chunked_core(
-            encoded,
+            prim_encoded,
             exponents,
             &patches_indices,
             &patches_values,
@@ -45,8 +49,12 @@ pub fn decompress_into_array(array: ALPArray) -> PrimitiveArray {
             dtype,
         )
     } else {
-        let encoded = encoded.to_primitive();
-        decompress_unchunked_core(encoded, exponents, patches, dtype)
+        let encoded_prim = encoded.to_primitive();
+        // We need to drop ALPArray here in case converting encoded buffer into
+        // primitive didn't create a copy. In that case both alp_encoded and array
+        // will hold a reference to the buffer we want to mutate.
+        drop(encoded);
+        decompress_unchunked_core(encoded_prim, exponents, patches, dtype)
     }
 }
 
@@ -78,9 +86,7 @@ pub fn execute_decompress(array: ALPArray, ctx: &mut ExecutionCtx) -> VortexResu
         ))
     } else {
         let encoded = encoded.execute(ctx)?.into_primitive();
-        Ok(decompress_unchunked_core(
-            encoded, exponents, patches, dtype,
-        ))
+        Ok(decompress_unchunked_core(encoded, exponents, None, dtype))
     }
 }
 
