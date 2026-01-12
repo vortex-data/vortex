@@ -24,7 +24,6 @@ use vortex_vector::struct_::StructVector;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::VectorExecutor;
-use crate::vtable::ValidityHelper;
 
 impl Canonical {
     /// Convert a Canonical array to a Vector.

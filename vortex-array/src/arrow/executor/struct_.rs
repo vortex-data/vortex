@@ -81,7 +81,7 @@ pub(super) fn to_arrow_struct(
 
     let struct_array = array
         .execute(ctx)?
-        .to_vector(ctx)?
+        .execute_vector(ctx)?
         .into_struct()
         .into_arrow()?;
 
