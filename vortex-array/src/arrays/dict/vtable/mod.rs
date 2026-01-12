@@ -19,7 +19,6 @@ use crate::DeserializeMetadata;
 use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
-use crate::VectorExecutor;
 use crate::arrays::ConstantArray;
 use crate::arrays::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
@@ -139,8 +138,12 @@ impl VTable for DictVTable {
             return Ok(canonical);
         }
 
-        let values = array.values().execute(ctx)?;
-        let codes = array.codes().execute(ctx)?.into_primitive();
+        let values = array.values().clone().execute::<Canonical>(ctx)?;
+        let codes = array
+            .codes()
+            .clone()
+            .execute::<Canonical>(ctx)?
+            .into_primitive();
 
         // TODO(ngates): if indices are sorted and unique (strict-sorted), then we should delegate to
         //  the filter function since they're typically optimised for this case.

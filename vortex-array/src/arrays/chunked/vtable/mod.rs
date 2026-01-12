@@ -15,7 +15,6 @@ use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::ToCanonical;
-use crate::VectorExecutor;
 use crate::arrays::ChunkedArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::chunked::vtable::rules::PARENT_RULES;
@@ -187,7 +186,7 @@ impl VTable for ChunkedVTable {
 
         // Single chunk: just execute it directly
         if array.nchunks() == 1 {
-            return array.chunks()[0].execute(ctx);
+            return array.chunks()[0].clone().execute(ctx);
         }
 
         // Multiple chunks: execute all chunks first, then combine
@@ -196,7 +195,7 @@ impl VTable for ChunkedVTable {
         let canonical_chunks: Vec<ArrayRef> = array
             .chunks()
             .iter()
-            .map(|chunk| Ok(chunk.execute(ctx)?.into_array()))
+            .map(|chunk| Ok(chunk.clone().execute::<Canonical>(ctx)?.into_array()))
             .collect::<VortexResult<_>>()?;
 
         // Create a temporary chunked array with the canonical chunks

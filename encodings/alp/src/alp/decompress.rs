@@ -3,9 +3,9 @@
 
 use std::mem::transmute;
 
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::ToCanonical;
-use vortex_array::VectorExecutor;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::chunk_range;
 use vortex_array::arrays::patch_chunk;
@@ -71,10 +71,21 @@ pub fn execute_decompress(array: ALPArray, ctx: &mut ExecutionCtx) -> VortexResu
     if let Some(ref patches) = patches
         && let Some(chunk_offsets) = patches.chunk_offsets()
     {
-        let encoded = encoded.execute(ctx)?.into_primitive();
-        let patches_chunk_offsets = chunk_offsets.execute(ctx)?.into_primitive();
-        let patches_indices = patches.indices().execute(ctx)?.into_primitive();
-        let patches_values = patches.values().execute(ctx)?.into_primitive();
+        let encoded = encoded.execute::<Canonical>(ctx)?.into_primitive();
+        let patches_chunk_offsets = chunk_offsets
+            .clone()
+            .execute::<Canonical>(ctx)?
+            .into_primitive();
+        let patches_indices = patches
+            .indices()
+            .clone()
+            .execute::<Canonical>(ctx)?
+            .into_primitive();
+        let patches_values = patches
+            .values()
+            .clone()
+            .execute::<Canonical>(ctx)?
+            .into_primitive();
         Ok(decompress_chunked_core(
             encoded,
             exponents,
@@ -85,7 +96,7 @@ pub fn execute_decompress(array: ALPArray, ctx: &mut ExecutionCtx) -> VortexResu
             dtype,
         ))
     } else {
-        let encoded = encoded.execute(ctx)?.into_primitive();
+        let encoded = encoded.execute::<Canonical>(ctx)?.into_primitive();
         Ok(decompress_unchunked_core(encoded, exponents, None, dtype))
     }
 }

@@ -18,7 +18,8 @@ use crate::ArrayChildVisitor;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
-use crate::VectorExecutor;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::masked::MaskedArray;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
@@ -115,7 +116,7 @@ impl VTable for MaskedVTable {
             return Ok(canonical);
         }
 
-        let child = array.child().execute(ctx)?;
+        let child = array.child().clone().execute::<Canonical>(ctx)?;
         let canonical = mask_validity_canonical(child, &array.validity_mask());
 
         vortex_ensure!(
@@ -166,7 +167,7 @@ pub(super) fn execute_fast_path(
 
     // All valid - no masking needed
     if validity_mask.all_true() {
-        return Ok(Some(array.child.execute(ctx)?));
+        return Ok(Some(array.child.clone().execute(ctx)?));
     }
 
     // All masked - result is all nulls
@@ -174,13 +175,13 @@ pub(super) fn execute_fast_path(
         return Ok(Some(
             ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len())
                 .into_array()
-                .execute(ctx)?,
+                .execute::<Canonical>(ctx)?,
         ));
     }
 
     // Child is already all nulls - masking has no effect
     if array.child.all_invalid() {
-        return Ok(Some(array.child.execute(ctx)?));
+        return Ok(Some(array.child.clone().execute(ctx)?));
     }
 
     Ok(None)

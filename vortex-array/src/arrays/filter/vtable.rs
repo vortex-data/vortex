@@ -118,7 +118,7 @@ impl VTable for FilterVTable {
             return Ok(canonical);
         }
 
-        let canonical = filter_canonical(array.child.execute(ctx)?, &array.mask);
+        let canonical = filter_canonical(array.child.clone().execute(ctx)?, &array.mask);
 
         let result_len = array.mask.true_count();
         vortex_ensure!(
@@ -160,7 +160,7 @@ pub(super) fn execute_fast_path(
 
     // Full pass-through - mask selects everything
     if true_count == array.mask.len() {
-        return Ok(Some(array.child.execute(ctx)?));
+        return Ok(Some(array.child.clone().execute(ctx)?));
     }
 
     // All null - child has no valid values
