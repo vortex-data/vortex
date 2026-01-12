@@ -126,6 +126,8 @@ fn to_arrow_temporal_primitive<T: ArrowTemporalType>(
 where
     T::Native: NativePType,
 {
+    debug_assert!(TemporalMetadata::try_from(array.dtype()).is_ok());
+
     let ext_array = array.execute(ctx)?.into_extension();
     let primitive = ext_array.storage().execute(ctx)?.into_primitive();
     vortex_ensure!(
